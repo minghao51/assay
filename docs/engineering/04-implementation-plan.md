@@ -357,4 +357,3 @@ Only when validated by use cases:
 - dlt-backed ingestion adapter,
 - Dagster adapter,
 - scheduling/backfill integration.
-

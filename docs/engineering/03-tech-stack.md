@@ -52,39 +52,39 @@ This avoids building a custom query engine prematurely.
 
 ## 3. High-Level Stack
 
-| Layer | Initial choice | Future / alternatives |
-|---|---|---|
-| Monorepo | pnpm workspaces + Turborepo | Nx if workflow complexity grows |
-| UI | React + TypeScript | — |
-| Build | Vite | — |
-| Components | Radix + shadcn/ui | Headless UI alternatives |
-| Styling | Tailwind | CSS modules where useful |
-| Grid | owned `grid-core` + TanStack Virtual | custom canvas renderer; AG Grid adapter |
-| Text/SQL editor | CodeMirror 6 | Monaco if language services justify cost |
-| Local analytical engine | DuckDB-WASM | DataFusion WASM/native engine |
-| Parquet internals | parquet-wasm | native Rust parquet crate |
-| Interchange | Apache Arrow | — |
-| Worker boundary | Web Workers + typed RPC | worker pool abstraction |
-| Local persistence | File System Access API + OPFS + IndexedDB | Tauri/native filesystem |
-| Runtime schemas | Zod or Valibot | generated schemas where practical |
-| JSON Schema | Ajv | — |
-| Visualization | Vega-Lite / Vega | custom lightweight charts |
-| UI state | Zustand | XState for complex workflows |
-| Async/server state | TanStack Query | — |
-| VS Code | Custom Editor + Webview | — |
-| CLI v1 | TypeScript/Node | Rust native CLI later |
-| Desktop later | Tauri | Electron only if required |
-| Enterprise metadata DB | PostgreSQL | — |
-| Control-plane API | TypeScript + Fastify/Hono | Rust if future need justifies |
-| Data gateway | Rust + Axum | — |
-| Remote query engine | DataFusion | source-native pushdown |
-| Object storage | Rust `object_store` | cloud SDKs where needed |
-| Authentication | OIDC/OAuth2 | SAML/SCIM for enterprise |
-| Authorization | simple RBAC first | Cedar / OpenFGA / OPA evaluation |
-| Key management | cloud KMS / Vault adapters | BYOK/HSM |
-| Observability | OpenTelemetry | Sentry/Prometheus/Grafana adapters |
-| TS testing | Vitest + Playwright + fast-check | — |
-| Rust testing | cargo test + proptest + fuzzing | criterion benchmarks |
+| Layer                   | Initial choice                            | Future / alternatives                    |
+| ----------------------- | ----------------------------------------- | ---------------------------------------- |
+| Monorepo                | pnpm workspaces + Turborepo               | Nx if workflow complexity grows          |
+| UI                      | React + TypeScript                        | —                                        |
+| Build                   | Vite                                      | —                                        |
+| Components              | Radix + shadcn/ui                         | Headless UI alternatives                 |
+| Styling                 | Tailwind                                  | CSS modules where useful                 |
+| Grid                    | owned `grid-core` + TanStack Virtual      | custom canvas renderer; AG Grid adapter  |
+| Text/SQL editor         | CodeMirror 6                              | Monaco if language services justify cost |
+| Local analytical engine | DuckDB-WASM                               | DataFusion WASM/native engine            |
+| Parquet internals       | parquet-wasm                              | native Rust parquet crate                |
+| Interchange             | Apache Arrow                              | —                                        |
+| Worker boundary         | Web Workers + typed RPC                   | worker pool abstraction                  |
+| Local persistence       | File System Access API + OPFS + IndexedDB | Tauri/native filesystem                  |
+| Runtime schemas         | Zod or Valibot                            | generated schemas where practical        |
+| JSON Schema             | Ajv                                       | —                                        |
+| Visualization           | Vega-Lite / Vega                          | custom lightweight charts                |
+| UI state                | Zustand                                   | XState for complex workflows             |
+| Async/server state      | TanStack Query                            | —                                        |
+| VS Code                 | Custom Editor + Webview                   | —                                        |
+| CLI v1                  | TypeScript/Node                           | Rust native CLI later                    |
+| Desktop later           | Tauri                                     | Electron only if required                |
+| Enterprise metadata DB  | PostgreSQL                                | —                                        |
+| Control-plane API       | TypeScript + Fastify/Hono                 | Rust if future need justifies            |
+| Data gateway            | Rust + Axum                               | —                                        |
+| Remote query engine     | DataFusion                                | source-native pushdown                   |
+| Object storage          | Rust `object_store`                       | cloud SDKs where needed                  |
+| Authentication          | OIDC/OAuth2                               | SAML/SCIM for enterprise                 |
+| Authorization           | simple RBAC first                         | Cedar / OpenFGA / OPA evaluation         |
+| Key management          | cloud KMS / Vault adapters                | BYOK/HSM                                 |
+| Observability           | OpenTelemetry                             | Sentry/Prometheus/Grafana adapters       |
+| TS testing              | Vitest + Playwright + fast-check          | —                                        |
+| Rust testing            | cargo test + proptest + fuzzing           | criterion benchmarks                     |
 
 ---
 
@@ -234,10 +234,10 @@ Keep it behind:
 
 ```ts
 interface DataEngine {
-  open(source: DataSource): Promise<TableHandle>;
-  query(request: QueryRequest): Promise<ArrowBatchStream>;
-  schema(table: TableHandle): Promise<Schema>;
-  profile(table: TableHandle): Promise<DatasetProfile>;
+  open(source: DataSource): Promise<TableHandle>
+  query(request: QueryRequest): Promise<ArrowBatchStream>
+  schema(table: TableHandle): Promise<Schema>
+  profile(table: TableHandle): Promise<DatasetProfile>
 }
 ```
 

@@ -1,6 +1,7 @@
 # ADR 0016: Build a Dataset-Native Grid Layer Incrementally
 
 ## Status
+
 Proposed
 
 ## Context

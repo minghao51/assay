@@ -1,6 +1,7 @@
 # ADR 0029: SQL Is the Canonical Transformation Target
 
 ## Status
+
 Accepted
 
 ## Context

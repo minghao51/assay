@@ -1,6 +1,7 @@
 # ADR 0010: Open-Core Local Product, Paid Collaboration and Governance
 
 ## Status
+
 Proposed
 
 ## Context

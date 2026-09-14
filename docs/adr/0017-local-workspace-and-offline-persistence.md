@@ -1,6 +1,7 @@
 # ADR 0017: Local Workspace Metadata Is Portable and Human-Readable
 
 ## Status
+
 Accepted
 
 ## Context

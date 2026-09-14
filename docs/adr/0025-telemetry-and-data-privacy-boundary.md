@@ -1,6 +1,7 @@
 # ADR 0025: Product Telemetry Must Exclude Dataset Contents
 
 ## Status
+
 Accepted
 
 ## Context

@@ -16,15 +16,15 @@ pnpm dev            # start the web app (Vite)
 
 Everything else runs from the repository root:
 
-| Command | What it does |
-|---|---|
-| `pnpm build` | Build all buildable packages/apps (Turborepo) |
-| `pnpm typecheck` | TypeScript check across all packages |
-| `pnpm lint` | ESLint across the repo |
-| `pnpm test` | Unit/property tests (Vitest) |
-| `pnpm test:watch` | Vitest in watch mode |
-| `pnpm test:e2e` | Playwright E2E (build first; CI installs browsers) |
-| `pnpm format` / `pnpm format:check` | Prettier |
+| Command                             | What it does                                       |
+| ----------------------------------- | -------------------------------------------------- |
+| `pnpm build`                        | Build all buildable packages/apps (Turborepo)      |
+| `pnpm typecheck`                    | TypeScript check across all packages               |
+| `pnpm lint`                         | ESLint across the repo                             |
+| `pnpm test`                         | Unit/property tests (Vitest)                       |
+| `pnpm test:watch`                   | Vitest in watch mode                               |
+| `pnpm test:e2e`                     | Playwright E2E (build first; CI installs browsers) |
+| `pnpm format` / `pnpm format:check` | Prettier                                           |
 
 ## Repository layout
 

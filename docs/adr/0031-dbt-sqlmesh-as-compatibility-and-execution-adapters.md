@@ -1,6 +1,7 @@
 # ADR 0031: dbt and SQLMesh Are Compatibility and Execution Adapters, Not Core Dependencies
 
 ## Status
+
 Accepted
 
 ## Context

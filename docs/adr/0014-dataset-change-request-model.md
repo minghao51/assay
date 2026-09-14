@@ -1,6 +1,7 @@
 # ADR 0014: Dataset Change Request Is the Primary Review Artifact
 
 ## Status
+
 Accepted
 
 ## Context

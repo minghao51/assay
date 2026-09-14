@@ -538,4 +538,3 @@ Collaboration, governance, audit, and administration.
 ### Non-Technical UX
 
 Structured forms generate SQL for common operations while advanced users can switch to SQL without leaving the same pipeline model.
-

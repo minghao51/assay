@@ -1,6 +1,7 @@
 # ADR 0013: Define a Small Native Data Contract Format with Adapters
 
 ## Status
+
 Proposed
 
 ## Context

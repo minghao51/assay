@@ -1,6 +1,7 @@
 # ADR 0002: DuckDB-WASM as the Initial Analytical Engine
 
 ## Status
+
 Accepted
 
 ## Context

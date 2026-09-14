@@ -1,6 +1,7 @@
 # ADR 0005: Separate Control Plane and Data Plane
 
 ## Status
+
 Accepted
 
 ## Context

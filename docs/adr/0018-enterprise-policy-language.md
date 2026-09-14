@@ -1,6 +1,7 @@
 # ADR 0018: Enterprise Policies Use a Declarative, Engine-Neutral Model
 
 ## Status
+
 Proposed
 
 ## Context

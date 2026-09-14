@@ -1,6 +1,7 @@
 # ADR 0020: Apache Arrow Is the Primary Tabular Interchange Format
 
 ## Status
+
 Accepted
 
 ## Context

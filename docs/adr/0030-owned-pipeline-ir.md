@@ -1,6 +1,7 @@
 # ADR 0030: Data Workbench Owns a Portable Pipeline IR
 
 ## Status
+
 Accepted
 
 ## Context

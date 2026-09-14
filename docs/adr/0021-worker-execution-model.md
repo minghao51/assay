@@ -1,6 +1,7 @@
 # ADR 0021: Expensive Local Computation Runs in Workers
 
 ## Status
+
 Accepted
 
 ## Context

@@ -1,6 +1,7 @@
 # ADR 0032: Separate Transformation DAG Semantics from Production Orchestration
 
 ## Status
+
 Accepted
 
 ## Context

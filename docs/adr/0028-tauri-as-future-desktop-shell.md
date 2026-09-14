@@ -1,6 +1,7 @@
 # ADR 0028: Tauri Is the Preferred Future Desktop Shell
 
 ## Status
+
 Proposed
 
 ## Context

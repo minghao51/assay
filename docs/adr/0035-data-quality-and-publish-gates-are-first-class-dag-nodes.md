@@ -1,6 +1,7 @@
 # ADR 0035: Validation and Publish Gates Are First-Class Pipeline Semantics
 
 ## Status
+
 Accepted
 
 ## Context

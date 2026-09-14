@@ -1,6 +1,7 @@
 # ADR 0033: Materialization Is a Logical Pipeline Property
 
 ## Status
+
 Accepted
 
 ## Context

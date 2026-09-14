@@ -7,7 +7,7 @@ Updated 2026-09-14 after the repository bootstrap (see `../reviews/2026-09-14-do
 - [x] Create pnpm/Turborepo monorepo.
 - [x] Create `apps/web`, `apps/vscode`, `apps/cli`.
 - [x] Create core packages from `../engineering/05-repository-structure.md`.
-- [x] Add TypeScript project references/path aliases. *(Source-export packages with `moduleResolution: bundler`; revisit as buildable packages when needed.)*
+- [x] Add TypeScript project references/path aliases. _(Source-export packages with `moduleResolution: bundler`; revisit as buildable packages when needed.)_
 - [x] Add ESLint/formatter policy.
 - [x] Add Vitest.
 - [x] Add Playwright.
@@ -64,4 +64,3 @@ Before implementing the visual pipeline, review:
 Before implementing dbt/SQLMesh integration, review ADR 0031.
 
 Before implementing external ingestion or orchestration, review ADR 0034 and ADR 0032.
-

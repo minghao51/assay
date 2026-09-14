@@ -1,6 +1,7 @@
 # ADR 0026: Validation Contracts Compile to Deterministic Execution Plans
 
 ## Status
+
 Accepted
 
 ## Context

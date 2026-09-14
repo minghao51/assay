@@ -1,6 +1,7 @@
 # ADR 0011: Dataset Identity and Versioning Are Logical, Not File-Based
 
 ## Status
+
 Accepted
 
 ## Context

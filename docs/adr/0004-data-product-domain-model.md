@@ -1,6 +1,7 @@
 # ADR 0004: Data Product Is the Primary Domain Concept
 
 ## Status
+
 Accepted
 
 ## Context

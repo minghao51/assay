@@ -1,6 +1,7 @@
 # ADR 0009: AI Proposes; Deterministic Systems Enforce
 
 ## Status
+
 Accepted
 
 ## Context

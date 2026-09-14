@@ -6,40 +6,40 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### Product (`product/`)
 
-| Doc | Contents |
-|---|---|
-| [`product/00-roadmap.md`](product/00-roadmap.md) | Product vision, positioning, evolution phases 0–7, commercial model, strategic non-goals, north-star principles. |
-| [`product/01-features.md`](product/01-features.md) | Feature taxonomy (Understand / Validate / Compare / Repair / Prepare / Govern), surface capabilities, AI/ML dataset features, governance. |
-| [`product/07-mvp-scope-and-acceptance.md`](product/07-mvp-scope-and-acceptance.md) | MVP boundary, exclusions, acceptance criteria, target demo scenario. |
-| [`product/10-execution-roadmap.md`](product/10-execution-roadmap.md) | **Canonical execution roadmap**: phase↔milestone↔ADR mapping, delivery tracks, decision gates, risk register, open decision backlog. |
+| Doc                                                                                | Contents                                                                                                                                  |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [`product/00-roadmap.md`](product/00-roadmap.md)                                   | Product vision, positioning, evolution phases 0–7, commercial model, strategic non-goals, north-star principles.                          |
+| [`product/01-features.md`](product/01-features.md)                                 | Feature taxonomy (Understand / Validate / Compare / Repair / Prepare / Govern), surface capabilities, AI/ML dataset features, governance. |
+| [`product/07-mvp-scope-and-acceptance.md`](product/07-mvp-scope-and-acceptance.md) | MVP boundary, exclusions, acceptance criteria, target demo scenario.                                                                      |
+| [`product/10-execution-roadmap.md`](product/10-execution-roadmap.md)               | **Canonical execution roadmap**: phase↔milestone↔ADR mapping, delivery tracks, decision gates, risk register, open decision backlog.      |
 
 ### Architecture (`architecture/`)
 
-| Doc | Contents |
-|---|---|
-| [`architecture/02-architecture.md`](architecture/02-architecture.md) | Core architecture, domain model, control/data plane, engine and grid architecture, security boundaries. |
+| Doc                                                                          | Contents                                                                                                                                                 |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`architecture/02-architecture.md`](architecture/02-architecture.md)         | Core architecture, domain model, control/data plane, engine and grid architecture, security boundaries.                                                  |
 | [`architecture/09-pipeline-dag-etl.md`](architecture/09-pipeline-dag-etl.md) | Visual pipeline architecture, SQL-first transformations, portable Pipeline IR, dbt/SQLMesh compatibility, dlt ingestion, Dagster orchestration boundary. |
 
 ### Engineering (`engineering/`)
 
-| Doc | Contents |
-|---|---|
-| [`engineering/03-tech-stack.md`](engineering/03-tech-stack.md) | Recommended stack, alternatives, library choices, frontend/data/enterprise technologies. |
-| [`engineering/04-implementation-plan.md`](engineering/04-implementation-plan.md) | Milestone sequence M0–M11 from repo bootstrap through enterprise gateway. |
-| [`engineering/05-repository-structure.md`](engineering/05-repository-structure.md) | Monorepo layout, package ownership, dependency direction, conformance testing. |
+| Doc                                                                                        | Contents                                                                                       |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| [`engineering/03-tech-stack.md`](engineering/03-tech-stack.md)                             | Recommended stack, alternatives, library choices, frontend/data/enterprise technologies.       |
+| [`engineering/04-implementation-plan.md`](engineering/04-implementation-plan.md)           | Milestone sequence M0–M11 from repo bootstrap through enterprise gateway.                      |
+| [`engineering/05-repository-structure.md`](engineering/05-repository-structure.md)         | Monorepo layout, package ownership, dependency direction, conformance testing.                 |
 | [`engineering/06-testing-security-quality.md`](engineering/06-testing-security-quality.md) | Testing strategy, privacy rules, fuzz/property testing, accessibility, performance benchmarks. |
 
 ### Process (`process/`)
 
-| Doc | Contents |
-|---|---|
-| [`process/08-project-start-checklist.md`](process/08-project-start-checklist.md) | Pre-implementation checklist and architecture-review gates. |
-| [`process/contributing.md`](process/contributing.md) | Developer setup, commands, conventions, ADR process, dependency rules, release conventions. |
+| Doc                                                                              | Contents                                                                                    |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [`process/08-project-start-checklist.md`](process/08-project-start-checklist.md) | Pre-implementation checklist and architecture-review gates.                                 |
+| [`process/contributing.md`](process/contributing.md)                             | Developer setup, commands, conventions, ADR process, dependency rules, release conventions. |
 
 ### Reviews (`reviews/`)
 
-| Doc | Contents |
-|---|---|
+| Doc                                                                                                            | Contents                                                                             |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | [`reviews/2026-09-14-documentation-and-setup-review.md`](reviews/2026-09-14-documentation-and-setup-review.md) | Full documentation/setup review: strengths, findings, opportunities, open decisions. |
 
 ### ADRs (`adr/`)

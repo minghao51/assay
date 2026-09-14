@@ -190,7 +190,6 @@ Every contract adapter should round-trip supported semantics through the canonic
 
 This allows engines and adapters to evolve without changing product behavior.
 
-
 ---
 
 ## 5. Pipeline Package

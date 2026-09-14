@@ -1,6 +1,7 @@
 # ADR 0019: React, TypeScript, and Vite for Product Surfaces
 
 ## Status
+
 Accepted
 
 ## Context

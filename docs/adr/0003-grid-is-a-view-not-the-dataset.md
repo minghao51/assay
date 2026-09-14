@@ -1,6 +1,7 @@
 # ADR 0003: The Grid Is a View, Not the Dataset
 
 ## Status
+
 Accepted
 
 ## Context

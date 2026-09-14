@@ -1,6 +1,7 @@
 # ADR 0012: Use an Edit Overlay with Transaction-Like Semantics
 
 ## Status
+
 Accepted
 
 ## Context

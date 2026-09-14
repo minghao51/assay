@@ -1,6 +1,7 @@
 # ADR 0023: Rust and DataFusion for the Future Governed Data Gateway
 
 ## Status
+
 Proposed
 
 ## Context

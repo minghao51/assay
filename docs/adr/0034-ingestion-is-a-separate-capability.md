@@ -1,6 +1,7 @@
 # ADR 0034: Ingestion Is Separate from Transformation
 
 ## Status
+
 Accepted
 
 ## Context

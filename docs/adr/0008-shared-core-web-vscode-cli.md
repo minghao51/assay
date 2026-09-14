@@ -1,6 +1,7 @@
 # ADR 0008: Share Core Logic Across Web, VS Code, CLI, and CI
 
 ## Status
+
 Accepted
 
 ## Context

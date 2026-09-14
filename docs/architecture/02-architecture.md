@@ -138,10 +138,10 @@ Examples:
 
 ```ts
 interface DataSource {
-  id: string;
-  kind: string;
-  open(): Promise<DataHandle>;
-  metadata(): Promise<DataSourceMetadata>;
+  id: string
+  kind: string
+  open(): Promise<DataHandle>
+  metadata(): Promise<DataSourceMetadata>
 }
 ```
 
@@ -162,15 +162,11 @@ Implementations:
 
 ```ts
 interface DataEngine {
-  open(source: DataSource): Promise<TableHandle>;
-  query(sql: string): Promise<ArrowBatchStream>;
-  schema(table: TableHandle): Promise<Schema>;
-  profile(table: TableHandle): Promise<DatasetProfile>;
-  export(
-    table: TableHandle,
-    format: ExportFormat,
-    options?: ExportOptions
-  ): Promise<ReadableStream>;
+  open(source: DataSource): Promise<TableHandle>
+  query(sql: string): Promise<ArrowBatchStream>
+  schema(table: TableHandle): Promise<Schema>
+  profile(table: TableHandle): Promise<DatasetProfile>
+  export(table: TableHandle, format: ExportFormat, options?: ExportOptions): Promise<ReadableStream>
 }
 ```
 
@@ -507,4 +503,3 @@ SQL is the canonical target for relational transformations. The Pipeline IR addi
 Transformation DAG semantics remain separate from scheduling/orchestration.
 
 See `09-pipeline-dag-etl.md` and ADRs 0029-0035.
-

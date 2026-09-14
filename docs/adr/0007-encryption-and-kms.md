@@ -1,6 +1,7 @@
 # ADR 0007: Use Standard Encryption and KMS Patterns
 
 ## Status
+
 Accepted
 
 ## Context

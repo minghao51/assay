@@ -215,15 +215,15 @@ Nodes may declare a logical materialization mode:
 
 Local mapping:
 
-| Logical mode | DuckDB/local behavior |
-|---|---|
-| ephemeral | CTE / nested SQL |
-| view | temporary view |
-| table | DuckDB table |
-| cache | OPFS-backed intermediate |
-| incremental | future local strategy |
-| export | Parquet/JSONL/CSV output |
-| publish | local DatasetVersion |
+| Logical mode | DuckDB/local behavior    |
+| ------------ | ------------------------ |
+| ephemeral    | CTE / nested SQL         |
+| view         | temporary view           |
+| table        | DuckDB table             |
+| cache        | OPFS-backed intermediate |
+| incremental  | future local strategy    |
+| export       | Parquet/JSONL/CSV output |
+| publish      | local DatasetVersion     |
 
 Remote backends map the same intent into warehouse/database-native semantics.
 

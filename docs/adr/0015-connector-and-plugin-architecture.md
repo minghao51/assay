@@ -1,6 +1,7 @@
 # ADR 0015: Use Capability-Based Connectors and Plugins
 
 ## Status
+
 Proposed
 
 ## Context

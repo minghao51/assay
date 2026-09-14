@@ -1,6 +1,7 @@
 # ADR 0022: Own a Headless Grid Model and Keep Rendering Replaceable
 
 ## Status
+
 Accepted
 
 ## Context

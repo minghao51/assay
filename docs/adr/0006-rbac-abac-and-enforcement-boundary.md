@@ -1,6 +1,7 @@
 # ADR 0006: Support RBAC and ABAC with Explicit Enforcement Boundaries
 
 ## Status
+
 Accepted
 
 ## Context

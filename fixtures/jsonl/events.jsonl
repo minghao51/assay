@@ -1,0 +1,4 @@
+{"event":"page_view","ts":"2025-01-04T10:00:00Z","user":"u1","meta":{"path":"/","referrer":null}}
+{"event":"click","ts":"2025-01-04T10:01:12Z","user":"u1","meta":{"path":"/pricing","selector":"#cta"}}
+{"event":"error","ts":"2025-01-04T10:02:00Z","user":"u2","meta":{"code":500}}
+{"event":"page_view","ts":"2025-01-04T10:02:30Z","user":"u2","meta":{"path":"/help","referrer":"/"}}

@@ -1,6 +1,7 @@
 # ADR 0027: TypeScript and PostgreSQL for the Initial Hosted Control Plane
 
 ## Status
+
 Proposed
 
 ## Context

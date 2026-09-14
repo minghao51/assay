@@ -1,6 +1,7 @@
 # ADR 0001: Local-First Execution by Default
 
 ## Status
+
 Accepted
 
 ## Context

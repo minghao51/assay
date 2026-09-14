@@ -1,0 +1,32 @@
+{
+  "name": "dataworkbench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Data Workbench — local-first dataset workbench (monorepo root)",
+  "packageManager": "pnpm@11.26.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "dev": "pnpm --filter @dataworkbench/web dev"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "catalog:",
+    "prettier": "^3.6.0",
+    "turbo": "^2.5.0",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.35.0",
+    "vitest": "catalog:"
+  }
+}

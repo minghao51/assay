@@ -1,6 +1,7 @@
 # ADR 0024: Separate Authentication from Authorization
 
 ## Status
+
 Accepted
 
 ## Context
