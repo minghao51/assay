@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Data Workbench — local-first dataset workbench (monorepo root)",
+  "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@11.26.0",
   "engines": {
     "node": ">=22"
@@ -17,9 +18,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "dev": "pnpm --filter @dataworkbench/web dev"
+    "dev": "pnpm --filter @dataworkbench/web dev",
+    "changeset": "changeset",
+    "version-packages": "changeset version"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.2",
     "@eslint/js": "^9.30.0",
     "@playwright/test": "^1.55.0",
     "@types/node": "catalog:",

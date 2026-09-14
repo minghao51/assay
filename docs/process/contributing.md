@@ -66,10 +66,12 @@ Durable decisions (technology choices, boundary changes, model semantics) are re
 
 If a core document and an ADR conflict, the ADR wins and the document must be updated in the same PR.
 
-## Release and versioning (interim policy)
+## Release and versioning
 
-- All packages are `0.x.y` and private until the MVP gate; breaking changes are free until `0.1.0` of a package is published.
-- Versioning policy (changesets vs manual) is open decision D4 in the execution roadmap — expect this section to change at M1.
+- All packages are `0.x.y` and `private` until publishing begins (decision D4, resolved 2026-09-14).
+- **Changesets** manage package versions: run `pnpm changeset` in a PR that changes a workspace package and describe the change (patch/minor/major). `pnpm version-packages` consumes changesets and writes per-package changelogs.
+- Product-level narrative changes go into the root [`CHANGELOG.md`](../../CHANGELOG.md) (Keep a Changelog format).
+- The publishing workflow (npm publish, tags, GitHub Releases) is added when packages leave `private` — expected around M1–M5.
 
 ## Review gates before implementing
 

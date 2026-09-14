@@ -35,6 +35,9 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0033 | Materialization Is a Logical Pipeline Property                                  |
 | 0034 | Ingestion Is Separate from Transformation                                       |
 | 0035 | Validation and Publish Gates Are First-Class Pipeline Semantics                 |
+| 0036 | AGPL-3.0-or-later for the Open-Core Repository                                  |
+| 0037 | Product Telemetry Is Opt-Out                                                    |
+| 0038 | Golden Parquet Fixtures Are Generated with the DuckDB CLI                       |
 
 ## Proposed
 

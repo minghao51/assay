@@ -1,0 +1,83 @@
+# AGENTS.md
+
+Guidance for AI coding agents working in this repository. Read this before
+making changes. Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## What this project is
+
+Data Workbench — a local-first dataset workbench (inspect, validate, compare,
+repair, transform, govern Parquet/JSONL/JSON/CSV/Arrow). Pre-MVP: milestone M0
+complete, M1 (local file explorer) next. TypeScript + DuckDB-WASM + Arrow;
+browser-native; **data never leaves the user's machine by default**.
+
+## Sources of truth (read before non-trivial work)
+
+1. `docs/product/10-execution-roadmap.md` — what to build next, gates, risks,
+   and the **decision backlog (§7)**: never re-decide something recorded there
+   or in an ADR.
+2. `docs/adr/README.md` — architecture decisions. If a doc and an ADR
+   conflict, the ADR wins; update the doc in the same PR.
+3. `docs/engineering/05-repository-structure.md` — package layout and
+   dependency rules.
+4. `docs/product/07-mvp-scope-and-acceptance.md` — in/out of MVP scope.
+
+## Commands
+
+| Command                                      | Purpose                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `pnpm install`                               | Install everything (Node ≥ 22, pnpm via corepack)                                           |
+| `pnpm dev`                                   | Web app dev server                                                                          |
+| `pnpm typecheck` / `pnpm lint` / `pnpm test` | Gates — all must pass                                                                       |
+| `pnpm build`                                 | Build buildable packages                                                                    |
+| `pnpm test:e2e`                              | Playwright (needs `pnpm build` first; browsers via `pnpm exec playwright install chromium`) |
+| `pnpm format`                                | Prettier — do not hand-format code                                                          |
+| `pnpm changeset`                             | Record a releasable change (with PRs that change packages)                                  |
+| `bash fixtures/parquet/generate.sh`          | Regenerate Parquet golden fixtures (needs DuckDB CLI)                                       |
+
+## Hard rules
+
+- **Privacy:** never add telemetry containing dataset contents, filenames
+  where sensitive, raw SQL results, cell values, or PII (ADR 0025). Telemetry
+  is opt-out (ADR 0037) — any new telemetry needs a disclosure and opt-out
+  path.
+- **Security:** never invent cryptographic primitives (ADR 0007); treat
+  dataset values as untrusted content (no HTML/script execution from cells,
+  formula-injection-safe CSV export).
+- **Dependency direction (lint-enforced):** `apps → ui/core → domain`;
+  `domain` must never import React, browser APIs, or engines. Packages must
+  not import apps. `packages/pipeline` must not depend on dbt/SQLMesh/Dagster
+  runtimes (ADR 0031/0032).
+- **Editing model:** immutable formats (Parquet) are edited via overlay, never
+  in-place mutation (ADR 0012). Row identity is logical (ADR 0011).
+- **ADRs:** durable decisions get an ADR (copy `docs/adr/template.md`, next
+  free number). Never rewrite or renumber accepted ADRs.
+- **Fixtures:** every dataset-shape bug fix ships a minimal golden fixture +
+  regression test. Never commit real/sensitive data. Regenerate Parquet
+  fixtures deliberately via the script; verify `manifest.json` checksums.
+- **License:** the repo is AGPL-3.0-or-later (ADR 0036). Do not add
+  dependencies whose licenses are incompatible with AGPL for core code.
+- **Commits:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`…).
+- **TypeScript:** strict; no `any` without an explanatory comment.
+
+## Where things live
+
+```text
+apps/{web,cli,vscode}     product surfaces (vscode is an M7 placeholder)
+packages/domain           portable domain types (pure)
+packages/engine           DataEngine interface; engine-duckdb/engine-parquet implement
+packages/grid             headless grid model; rendering is replaceable (ADR 0022)
+packages/{validation,diff,transforms,contracts,security,ai,pipeline}
+packages/testing          conformance suites + fixture helpers (fixturePath)
+fixtures/                 golden datasets; parquet/ generated via DuckDB script
+docs/                     product / architecture / engineering / process / reviews / adr
+.changeset/               changesets config
+```
+
+## Definitions agents often confuse
+
+- **M-milestones** (M0–M12): core delivery sequence. **P-stages** (P1–P5):
+  pipeline track. **G-gates** (G0–G4): investment gates — do not start
+  gated work (hosted/enterprise) without the gate passing.
+- **DCR** = Dataset Change Request (dataset pull-request, ADR 0014).
+- **Contract** = native data contract format compiled to deterministic checks
+  (ADR 0013/0026) — no embedded JS/Python in contracts.

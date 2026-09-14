@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { fixturePath } from './node'
@@ -16,6 +17,23 @@ describe('golden fixtures manifest (docs/engineering/06-testing-security-quality
     for (const category of textCategories) {
       const files = readdirSync(fixturePath(category)).filter((f) => !f.endsWith('.md'))
       expect(files.length, `fixtures/${category}`).toBeGreaterThan(0)
+    }
+  })
+
+  it('parquet fixtures match the committed manifest (ADR 0038)', () => {
+    const manifest = JSON.parse(readFileSync(fixturePath('parquet/manifest.json'), 'utf8')) as {
+      duckdb_version: string
+      files: Array<{ name: string; sha256: string; description: string }>
+    }
+    expect(manifest.files.length, 'manifest lists fixtures').toBeGreaterThan(0)
+    for (const file of manifest.files) {
+      const path = fixturePath(`parquet/${file.name}`)
+      expect(existsSync(path), `fixtures/parquet/${file.name}`).toBe(true)
+      const digest = createHash('sha256').update(readFileSync(path)).digest('hex')
+      expect(
+        digest,
+        `checksum of fixtures/parquet/${file.name} (regenerate + commit manifest deliberately via generate.sh)`,
+      ).toBe(file.sha256)
     }
   })
 

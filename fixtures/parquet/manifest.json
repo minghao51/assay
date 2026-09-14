@@ -1,0 +1,27 @@
+{
+  "generator": "fixtures/parquet/generate.sh (ADR 0038)",
+  "duckdb_version": "v1.5.5",
+  "policy": "Small canonical fixtures are committed. Large performance fixtures are generated on demand and never committed. Regeneration changes checksums by design; commit the updated manifest deliberately.",
+  "files": [
+    {
+      "name": "customers.parquet",
+      "sha256": "4344de78b93e9225875e74c4a6f4c00a49015cfdc417bd1e3b41c22bd5240bdd",
+      "description": "Typed CSV import incl. NULL income value"
+    },
+    {
+      "name": "llm.parquet",
+      "sha256": "7dedda8d8f7b06f0791699df711f98ad104d194ae0a31aea9ca01f9c892f1a59",
+      "description": "LLM chat/eval records, list-of-structs, incl. missing system turn"
+    },
+    {
+      "name": "nested.parquet",
+      "sha256": "3cbfef6f0f3086d8a8c8ad800b961020c97192cb9452e07cac3847bf09bd0c19",
+      "description": "Nested structs/lists with nullable inner fields (50 rows)"
+    },
+    {
+      "name": "wide.parquet",
+      "sha256": "8a4adbdf7dcbfc56ca4654aa0a9b92d3af4aa053a17f01ce25bb77d3bb6e116c",
+      "description": "Multi-row-group (10 x 100), nulls, low-cardinality bucket column"
+    }
+  ]
+}

@@ -58,6 +58,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Durable decisions are recorded as
 
 ## License
 
-Not yet chosen — this is open decision **D1** (see the
-[execution roadmap §7](docs/product/10-execution-roadmap.md)), to be resolved
-before any public release given the open-core commercial model.
+[AGPL-3.0-or-later](LICENSE) — decision record: [ADR 0036](docs/adr/0036-agpl-license.md).
+The open core is free software; hosted collaboration and enterprise surfaces
+may be licensed separately (open-core model, [ADR 0010](docs/adr/0010-open-core-commercial-boundary.md)).

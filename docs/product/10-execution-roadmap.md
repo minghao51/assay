@@ -88,9 +88,13 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
 ### Now (this quarter)
 
 - [x] M0 repository bootstrap — done 2026-09-14 (see `../process/08-project-start-checklist.md`).
+- [x] Decision: license — AGPL-3.0-or-later (ADR 0036) — 2026-09-14.
+- [x] Decision: fixture tooling — DuckDB CLI generator (ADR 0038) — 2026-09-14.
+- [x] Decision: changesets + product changelog + capacity-based sequencing — 2026-09-14.
+- [x] AGENTS.md for AI coding agents — 2026-09-14.
 - [ ] M0 remainder: DuckDB-WASM worker spike; first Arrow batch through the worker; first virtualized grid render; measure time-to-first-row and memory (the original Phase-0 spike items).
-- [ ] Decision: license (gate G0, see Section 5).
-- [ ] Decision: fixture generation tooling (review M7).
+- [ ] Telemetry vendor + sampling design (D2 tail).
+- [ ] Product name decision (D6) — shortlist prepared.
 - [ ] Demo dataset curation for the MVP demo scenario begins (opportunity O5).
 
 ### Next
@@ -140,22 +144,30 @@ Gates prevent investment ahead of evidence. Passing a gate is a recorded event (
 
 ---
 
-## 7. Open decision backlog
+## 7. Decision backlog
 
-Decisions required, with owners and target gates. Add new rows here rather than deciding silently.
+Decisions required, with target gates. Add new rows here rather than deciding silently. Durable decisions are recorded as ADRs (see `../process/contributing.md`).
 
-| ID  | Decision                             | Options / notes                                                     | Target gate |
-| --- | ------------------------------------ | ------------------------------------------------------------------- | ----------- |
-| D1  | License                              | Apache-2.0 vs AGPL-3.0 vs dual-license (review C3)                  | G0          |
-| D2  | Telemetry stance & vendor            | opt-in vs opt-out; self-host vs vendor; sampling (review L2)        | G0          |
-| D3  | Fixture generation tooling           | DuckDB CLI script vs committed binaries vs Rust helper (review M7)  | M1          |
-| D4  | Package publishing/versioning policy | changesets; private-until-MVP vs publish early (review M8)          | M1          |
-| D5  | Timeline policy                      | capacity-based (recommended pre-team) vs dated quarters (review §6) | —           |
-| D6  | Name/trademark clearance             | descriptive name risk; search before branding investment (review)   | G0          |
-| D7  | Authorization engine                 | Cedar vs OpenFGA vs OPA (ADR 0018, 0006 — evaluate at G3/G4)        | G3          |
-| D8  | Identity provider                    | Keycloak vs WorkOS vs Auth0 (ADR 0024)                              | G3          |
-| D9  | dbt vs SQLMesh adapter priority      | user-demand driven (ADR 0031)                                       | P4          |
-| D10 | CLI distribution                     | npm-only vs native binaries (Rust CLI later, docs 03 §17)           | M5          |
+### Open
+
+| ID  | Decision                           | Options / notes                                                                                                                             | Target gate |
+| --- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| D2  | Telemetry vendor & sampling        | Stance decided (opt-out, ADR 0037). Remaining: self-host vs vendor, sampling design                                                         | G0          |
+| D6  | Product name / trademark clearance | "Data Workbench" is descriptive; candidate shortlist prepared 2026-09-14, maintainer to choose; clearance search before branding investment | G0          |
+| D7  | Authorization engine               | Cedar vs OpenFGA vs OPA (ADR 0018, 0006 — evaluate at G3/G4)                                                                                | G3          |
+| D8  | Identity provider                  | Keycloak vs WorkOS vs Auth0 (ADR 0024)                                                                                                      | G3          |
+| D9  | dbt vs SQLMesh adapter priority    | user-demand driven (ADR 0031)                                                                                                               | P4          |
+| D10 | CLI distribution                   | npm-only vs native binaries (Rust CLI later, docs 03 §17)                                                                                   | M5          |
+
+### Resolved
+
+| ID  | Decision        | Resolution (date)                                                                                                  |
+| --- | --------------- | ------------------------------------------------------------------------------------------------------------------ |
+| D1  | License         | AGPL-3.0-or-later for the open core; hosted/enterprise surfaces may be separately licensed (ADR 0036) — 2026-09-14 |
+| D2a | Consent stance  | Opt-out with first-run disclosure, in-product toggle, ADR 0025 exclusions unchanged (ADR 0037) — 2026-09-14        |
+| D3  | Fixture tooling | DuckDB CLI generator script; small canonical fixtures committed with checksum manifest (ADR 0038) — 2026-09-14     |
+| D4  | Versioning      | Changesets for package releases + curated root `CHANGELOG.md` for product-level narrative — 2026-09-14             |
+| D5  | Timeline        | Capacity-based sequencing; quarterly roadmap review; no dated quarters until a team exists — 2026-09-14            |
 
 ---
 
@@ -164,4 +176,5 @@ Decisions required, with owners and target gates. Add new rows here rather than 
 - **Cadence**: quarterly review; immediate update on any gate passage or new ADR that changes sequencing.
 - **Change process**: sequencing changes require a note in this document's changelog below; architectural changes require an ADR.
 - **Changelog**:
+  - 2026-09-14 — maintainer decisions recorded: AGPL-3.0-or-later license (D1, ADR 0036); opt-out telemetry consent (D2a, ADR 0037); DuckDB CLI fixture generation (D3, ADR 0038); changesets + root changelog (D4); capacity-based sequencing (D5). Decision backlog split into open/resolved.
   - 2026-09-14 — created; consolidated pipeline sequence (P1–P5); added M12 for governed data products; defined gates G0–G4; risk register and decision backlog initialized from docs 00/04/09 and the 2026-09-14 review.
