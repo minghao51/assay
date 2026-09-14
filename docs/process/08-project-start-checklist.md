@@ -1,18 +1,20 @@
 # Project Start Checklist
 
+Updated 2026-09-14 after the repository bootstrap (see `../reviews/2026-09-14-documentation-and-setup-review.md`). Checked items are complete; remaining items are next actions.
+
 ## Before First Feature PR
 
-- [ ] Create pnpm/Turborepo monorepo.
-- [ ] Create `apps/web`, `apps/vscode`, `apps/cli`.
-- [ ] Create core packages from `05-repository-structure.md`.
-- [ ] Add TypeScript project references/path aliases.
-- [ ] Add ESLint/formatter policy.
-- [ ] Add Vitest.
-- [ ] Add Playwright.
-- [ ] Add GitHub Actions for typecheck, lint, unit tests, build.
-- [ ] Add ADR link in root README.
-- [ ] Add fixture directory.
-- [ ] Define `DataSource`, `DataEngine`, and `GridDataProvider` interfaces.
+- [x] Create pnpm/Turborepo monorepo.
+- [x] Create `apps/web`, `apps/vscode`, `apps/cli`.
+- [x] Create core packages from `../engineering/05-repository-structure.md`.
+- [x] Add TypeScript project references/path aliases. *(Source-export packages with `moduleResolution: bundler`; revisit as buildable packages when needed.)*
+- [x] Add ESLint/formatter policy.
+- [x] Add Vitest.
+- [x] Add Playwright.
+- [x] Add GitHub Actions for typecheck, lint, unit tests, build.
+- [x] Add ADR link in root README.
+- [x] Add fixture directory.
+- [x] Define `DataSource`, `DataEngine`, and `GridDataProvider` interfaces.
 - [ ] Implement one browser file source.
 - [ ] Spike DuckDB-WASM worker initialization.
 - [ ] Return first Arrow batch.

@@ -430,7 +430,7 @@ AI providers should be pluggable.
 ## 18. Suggested Monorepo Structure
 
 ```text
-data-workbench/
+dataworkbench/
 
 apps/
   web/
@@ -438,23 +438,28 @@ apps/
   cli/
 
 packages/
-  core/
   domain/
+  core/
+  ui/
+  grid/
+  engine/
   engine-duckdb/
   engine-parquet/
   data-sources/
   validation/
   diff/
   transforms/
+  contracts/
   security/
   ai/
-  ui/
-  grid/
-  contracts/
+  pipeline/
+  testing/
 
 docs/
   adr/
 ```
+
+Package scope: all workspace packages use the `@dataworkbench/*` npm scope; the repository/directory name is `dataworkbench`; the display name is "Data Workbench". See `05-repository-structure.md` for the authoritative layout.
 
 ---
 

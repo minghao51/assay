@@ -3,7 +3,7 @@
 ## 1. Recommended Monorepo
 
 ```text
-data-workbench/
+dataworkbench/
 ├── apps/
 │   ├── web/
 │   ├── vscode/

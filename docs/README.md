@@ -2,109 +2,88 @@
 
 This documentation set is intended to be sufficient to start implementation while preserving the long-term product direction.
 
-## Core Product Documents
+## Document Index
 
-1. `00-roadmap.md`
-   - product evolution,
-   - phases,
-   - commercial direction,
-   - strategic non-goals.
+### Product (`product/`)
 
-2. `01-features.md`
-   - feature taxonomy,
-   - local workbench capabilities,
-   - validation,
-   - diff,
-   - governance,
-   - enterprise features.
+| Doc | Contents |
+|---|---|
+| [`product/00-roadmap.md`](product/00-roadmap.md) | Product vision, positioning, evolution phases 0–7, commercial model, strategic non-goals, north-star principles. |
+| [`product/01-features.md`](product/01-features.md) | Feature taxonomy (Understand / Validate / Compare / Repair / Prepare / Govern), surface capabilities, AI/ML dataset features, governance. |
+| [`product/07-mvp-scope-and-acceptance.md`](product/07-mvp-scope-and-acceptance.md) | MVP boundary, exclusions, acceptance criteria, target demo scenario. |
+| [`product/10-execution-roadmap.md`](product/10-execution-roadmap.md) | **Canonical execution roadmap**: phase↔milestone↔ADR mapping, delivery tracks, decision gates, risk register, open decision backlog. |
 
-3. `02-architecture.md`
-   - core architecture,
-   - domain model,
-   - control/data plane,
-   - data engine,
-   - security boundaries.
+### Architecture (`architecture/`)
 
-4. `03-tech-stack.md`
-   - recommended stack,
-   - alternatives,
-   - library choices,
-   - frontend/data/enterprise technologies.
+| Doc | Contents |
+|---|---|
+| [`architecture/02-architecture.md`](architecture/02-architecture.md) | Core architecture, domain model, control/data plane, engine and grid architecture, security boundaries. |
+| [`architecture/09-pipeline-dag-etl.md`](architecture/09-pipeline-dag-etl.md) | Visual pipeline architecture, SQL-first transformations, portable Pipeline IR, dbt/SQLMesh compatibility, dlt ingestion, Dagster orchestration boundary. |
 
-5. `04-implementation-plan.md`
-   - milestone sequence from repo bootstrap through enterprise gateway.
+### Engineering (`engineering/`)
 
-6. `05-repository-structure.md`
-   - monorepo layout,
-   - package ownership,
-   - dependency direction,
-   - conformance testing.
+| Doc | Contents |
+|---|---|
+| [`engineering/03-tech-stack.md`](engineering/03-tech-stack.md) | Recommended stack, alternatives, library choices, frontend/data/enterprise technologies. |
+| [`engineering/04-implementation-plan.md`](engineering/04-implementation-plan.md) | Milestone sequence M0–M11 from repo bootstrap through enterprise gateway. |
+| [`engineering/05-repository-structure.md`](engineering/05-repository-structure.md) | Monorepo layout, package ownership, dependency direction, conformance testing. |
+| [`engineering/06-testing-security-quality.md`](engineering/06-testing-security-quality.md) | Testing strategy, privacy rules, fuzz/property testing, accessibility, performance benchmarks. |
 
-7. `06-testing-security-quality.md`
-   - testing strategy,
-   - privacy rules,
-   - fuzz/property testing,
-   - accessibility,
-   - performance benchmarks.
+### Process (`process/`)
 
-8. `07-mvp-scope-and-acceptance.md`
-   - MVP boundary,
-   - exclusions,
-   - acceptance criteria,
-   - target demo.
+| Doc | Contents |
+|---|---|
+| [`process/08-project-start-checklist.md`](process/08-project-start-checklist.md) | Pre-implementation checklist and architecture-review gates. |
+| [`process/contributing.md`](process/contributing.md) | Developer setup, commands, conventions, ADR process, dependency rules, release conventions. |
 
+### Reviews (`reviews/`)
 
-9. `09-pipeline-dag-etl.md`
-   - visual pipeline architecture,
-   - SQL-first transformations,
-   - portable Pipeline IR,
-   - dbt/SQLMesh compatibility,
-   - dlt ingestion,
-   - Dagster orchestration boundary.
+| Doc | Contents |
+|---|---|
+| [`reviews/2026-09-14-documentation-and-setup-review.md`](reviews/2026-09-14-documentation-and-setup-review.md) | Full documentation/setup review: strengths, findings, opportunities, open decisions. |
 
-## ADRs
+### ADRs (`adr/`)
 
-See `adr/README.md`.
+See [`adr/README.md`](adr/README.md). The ADR series (0001–0035) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, and future Rust/DataFusion/Tauri directions. New ADRs use [`adr/template.md`](adr/template.md).
 
-The ADR series covers:
+## Reading Orders
 
-- local-first execution,
-- DuckDB-WASM,
-- dataset identity,
-- Arrow interchange,
-- worker architecture,
-- grid ownership,
-- edit overlays,
-- contracts,
-- validation compilation,
-- dataset change requests,
-- connectors,
-- enterprise policy,
-- authentication/authorization,
-- encryption/KMS,
-- telemetry,
-- hosted control plane,
-- future Rust/DataFusion gateway,
-- future Tauri desktop.
-
-## Suggested Reading Order for Implementation
+### For implementation (engineers)
 
 ```text
-00-roadmap
+product/00-roadmap
     ↓
-07-mvp-scope-and-acceptance
+product/07-mvp-scope-and-acceptance
     ↓
-02-architecture
+architecture/02-architecture
     ↓
-03-tech-stack
+engineering/03-tech-stack
     ↓
-05-repository-structure
+engineering/05-repository-structure
     ↓
-04-implementation-plan
+engineering/04-implementation-plan
     ↓
-06-testing-security-quality
+engineering/06-testing-security-quality
     ↓
-relevant ADRs during implementation
+relevant ADRs during implementation (see process/08 review gates)
+```
+
+### For new contributors (fastest path to a PR)
+
+```text
+product/00-roadmap (§1–2 only)
+    ↓
+process/contributing
+    ↓
+engineering/05-repository-structure
+    ↓
+process/08-project-start-checklist (remaining open items)
+```
+
+### For long-term planning
+
+```text
+product/00-roadmap  →  product/10-execution-roadmap  →  ADR index
 ```
 
 ## Current Architectural Summary
@@ -124,7 +103,7 @@ relevant ADRs during implementation
               │                       │                       │
           Grid Core               Validation                Diff
               │                       │                       │
-              └──────────────────── DataEngine ───────────────┘
+              └──────────────────── DataEngine ──────────────┘
                                       │
                        ┌──────────────┴───────────────┐
                        │                              │
@@ -153,13 +132,8 @@ The project should win on:
 
 rather than on rebuilding commodity infrastructure such as query engines, cryptography, storage systems, or generic charting.
 
+## Documentation Conventions
 
-## Pipeline ADRs
-
-- `0029` — SQL-first pipeline semantics.
-- `0030` — owned portable Pipeline IR.
-- `0031` — dbt/SQLMesh as compatibility and execution adapters.
-- `0032` — transformation DAG separated from production orchestration.
-- `0033` — logical materialization model.
-- `0034` — ingestion separated from transformation.
-- `0035` — validation and publish gates as first-class DAG semantics.
+- Numbered documents (00–10) are strategic/engineering references; numbers encode reading order within their category, not importance.
+- Durable decisions belong in ADRs, not in these documents; when a doc and an ADR conflict, the ADR wins and the doc should be updated.
+- Reviews are dated snapshots and are not living documents.

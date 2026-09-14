@@ -2,6 +2,8 @@
 
 ADRs capture durable product and architecture decisions.
 
+New ADRs are created from [`template.md`](template.md); see `../process/contributing.md` for the process.
+
 ## Accepted
 
 | ADR | Decision |
