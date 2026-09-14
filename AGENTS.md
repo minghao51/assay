@@ -12,14 +12,16 @@ browser-native; **data never leaves the user's machine by default**.
 
 ## Sources of truth (read before non-trivial work)
 
-1. `docs/product/10-execution-roadmap.md` — what to build next, gates, risks,
+1. `docs/process/handoff.md` — current state, decision ledger, environment
+   quirks, and the concrete next tasks. Start here.
+2. `docs/product/10-execution-roadmap.md` — what to build next, gates, risks,
    and the **decision backlog (§7)**: never re-decide something recorded there
    or in an ADR.
-2. `docs/adr/README.md` — architecture decisions. If a doc and an ADR
+3. `docs/adr/README.md` — architecture decisions. If a doc and an ADR
    conflict, the ADR wins; update the doc in the same PR.
-3. `docs/engineering/05-repository-structure.md` — package layout and
+4. `docs/engineering/05-repository-structure.md` — package layout and
    dependency rules.
-4. `docs/product/07-mvp-scope-and-acceptance.md` — in/out of MVP scope.
+5. `docs/product/07-mvp-scope-and-acceptance.md` — in/out of MVP scope.
 
 ## Commands
 

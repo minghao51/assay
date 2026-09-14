@@ -31,10 +31,11 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### Process (`process/`)
 
-| Doc                                                                              | Contents                                                                                    |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| [`process/08-project-start-checklist.md`](process/08-project-start-checklist.md) | Pre-implementation checklist and architecture-review gates.                                 |
-| [`process/contributing.md`](process/contributing.md)                             | Developer setup, commands, conventions, ADR process, dependency rules, release conventions. |
+| Doc                                                                              | Contents                                                                                                                                 |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| [`process/handoff.md`](process/handoff.md)                                       | **Start here when picking up the project**: current state, decision ledger, environment quirks, definition of done, concrete next tasks. |
+| [`process/08-project-start-checklist.md`](process/08-project-start-checklist.md) | Pre-implementation checklist and architecture-review gates.                                                                              |
+| [`process/contributing.md`](process/contributing.md)                             | Developer setup, commands, conventions, ADR process, dependency rules, release conventions.                                              |
 
 ### Reviews (`reviews/`)
 

@@ -12,6 +12,10 @@ products and an enterprise data control plane.
 milestone is M1 — the local file explorer (virtualized grid + DuckDB-WASM
 worker). See the [execution roadmap](docs/product/10-execution-roadmap.md).
 
+**Picking the project up (handoff/onboarding)? Start with the
+[project handoff](docs/process/handoff.md)** — current state, decisions,
+environment setup (including quirks), and the concrete next tasks.
+
 ## Quickstart
 
 ```bash
