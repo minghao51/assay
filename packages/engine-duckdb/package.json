@@ -7,9 +7,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "build": "vite build",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.32.0"
   }
 }
