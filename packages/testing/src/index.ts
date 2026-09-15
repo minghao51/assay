@@ -12,3 +12,12 @@
 export const conformanceSuiteNames = ['data-engine', 'data-source', 'contract-adapter'] as const
 
 export type ConformanceSuiteName = (typeof conformanceSuiteNames)[number]
+
+/**
+ * The data-engine conformance suite (T1): lazy boot, file lifecycle, error
+ * classes, window clamping, Arrow shape, corrupt-file open rollback, and
+ * mid-stream error then reuse — parameterized over an
+ * `EngineConformanceSubject` so every engine implementation runs the same
+ * scenarios (docs/engineering/05-repository-structure.md §4).
+ */
+export * from './engine-conformance'

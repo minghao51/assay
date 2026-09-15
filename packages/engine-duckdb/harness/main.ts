@@ -14,8 +14,10 @@
  * say "fixture", results show table ids, formats, types, and values only.
  * Not a shipped surface — it exists only in this package's `vite build`.
  */
+import { engineConformanceScenarioNames, runEngineConformanceScenarios } from '@assay/testing'
 import { DuckDbEngineClient } from '../src/index'
 import type { EngineFileSource, EngineQueryResult, EngineTableHandle } from '../src/index'
+import { createDuckDbConformanceSubject } from './conformance-subject'
 
 const client = new DuckDbEngineClient()
 
@@ -56,6 +58,42 @@ rangeMiddleButton.addEventListener('click', () => {
 })
 errorReuseButton.addEventListener('click', () => {
   void runFailedQueryThenReuse()
+})
+
+// ── T1 engine conformance suite (tests/e2e/engine-conformance.spec.ts) ──────
+//
+// Each button runs ONE scenario from the shared suite in @assay/testing
+// against a fresh DuckDbEngineClient (fresh worker). Results render as JSON
+// (`ConformanceScenarioResult`); the spec asserts each scenario's `passed`,
+// `detail`, and scenario-specific `facts`. The suite — not this harness —
+// owns the scenario logic; this wiring only hosts the DuckDB subject adapter.
+
+const conformanceSubject = createDuckDbConformanceSubject({
+  goodFixtureUrl: '/fixtures/customers.parquet',
+})
+
+async function runConformanceScenario(
+  name: (typeof engineConformanceScenarioNames)[number],
+): Promise<void> {
+  const report = await runEngineConformanceScenarios(conformanceSubject, [name])
+  const result = report.results[0]
+  if (result !== undefined) {
+    setText(`conformance-result-${name}`, JSON.stringify(result, null, 2))
+  }
+}
+
+async function runAllConformanceScenarios(): Promise<void> {
+  const report = await runEngineConformanceScenarios(conformanceSubject)
+  setText('conformance-run-all', JSON.stringify(report, null, 2))
+}
+
+for (const name of engineConformanceScenarioNames) {
+  requiredElement<HTMLButtonElement>(`#conformance-${name}`).addEventListener('click', () => {
+    void runConformanceScenario(name)
+  })
+}
+requiredElement<HTMLButtonElement>('#conformance-run-all').addEventListener('click', () => {
+  void runAllConformanceScenarios()
 })
 
 // ── M1-7 bench hooks (tests/e2e/bench-ttfr.spec.ts) ──────────────────────────

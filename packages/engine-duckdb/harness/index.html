@@ -116,6 +116,52 @@
       </section>
 
       <!--
+        T1 engine conformance suite: the scenarios live in @assay/testing
+        (parameterized over an EngineConformanceSubject); this harness hosts
+        the DuckDB-WASM adapter. Each button runs ONE scenario against a fresh
+        engine client. Corrupt bytes are built at runtime by truncating the
+        good fixture — never committed. Privacy (ADR 0001/0025): results show
+        ids, counts, and flags only — never file names or dataset contents.
+      -->
+      <section>
+        <h2>Engine conformance suite (@assay/testing, T1)</h2>
+        <p>
+          <button id="conformance-run-all" type="button">Conformance: run all scenarios</button>
+          <button id="conformance-lazy-boot" type="button">Conformance: lazy boot</button>
+          <button id="conformance-file-lifecycle" type="button">Conformance: file lifecycle</button>
+          <button id="conformance-error-classes" type="button">Conformance: error classes</button>
+          <button id="conformance-window-clamping" type="button">
+            Conformance: window clamping
+          </button>
+          <button id="conformance-arrow-shape" type="button">Conformance: arrow shape</button>
+          <button id="conformance-corrupt-file-rollback" type="button">
+            Conformance: corrupt file rollback
+          </button>
+          <button id="conformance-mid-stream-error-reuse" type="button">
+            Conformance: mid-stream error reuse
+          </button>
+        </p>
+        <dl>
+          <dt>run-all report</dt>
+          <dd><pre data-testid="conformance-run-all">not run</pre></dd>
+          <dt>lazy boot result</dt>
+          <dd><pre data-testid="conformance-result-lazy-boot">not run</pre></dd>
+          <dt>file lifecycle result</dt>
+          <dd><pre data-testid="conformance-result-file-lifecycle">not run</pre></dd>
+          <dt>error classes result</dt>
+          <dd><pre data-testid="conformance-result-error-classes">not run</pre></dd>
+          <dt>window clamping result</dt>
+          <dd><pre data-testid="conformance-result-window-clamping">not run</pre></dd>
+          <dt>arrow shape result</dt>
+          <dd><pre data-testid="conformance-result-arrow-shape">not run</pre></dd>
+          <dt>corrupt file rollback result</dt>
+          <dd><pre data-testid="conformance-result-corrupt-file-rollback">not run</pre></dd>
+          <dt>mid-stream error reuse result</dt>
+          <dd><pre data-testid="conformance-result-mid-stream-error-reuse">not run</pre></dd>
+        </dl>
+      </section>
+
+      <!--
         M1-7 bench (tests/e2e/bench-ttfr.spec.ts, gated behind
         ASSAY_E2E_BIG_BENCH=1): stepwise timing hooks for the engine path —
         boot → open → schema/rowCount → first window (TTFR) → projected query

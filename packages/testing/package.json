@@ -10,6 +10,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "apache-arrow": "17.0.0"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:",

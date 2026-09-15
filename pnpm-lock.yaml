@@ -184,6 +184,9 @@ importers:
         specifier: 17.0.0
         version: 17.0.0
     devDependencies:
+      '@assay/testing':
+        specifier: workspace:*
+        version: link:../testing
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -216,6 +219,10 @@ importers:
         version: 5.9.3
 
   packages/testing:
+    dependencies:
+      apache-arrow:
+        specifier: 17.0.0
+        version: 17.0.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
