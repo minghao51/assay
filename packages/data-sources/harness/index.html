@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@assay/data-sources harness (M1-3)</title>
+  </head>
+  <body>
+    <main>
+      <h1>@assay/data-sources harness (M1-3)</h1>
+      <p>
+        detected capabilities: showOpenFilePicker=
+        <span data-testid="caps-file-picker">?</span> · DataTransferItem.getAsFileSystemHandle=
+        <span data-testid="caps-data-transfer-handle">?</span>
+      </p>
+
+      <!--
+        Privacy (ADR 0001/0025): this harness deliberately never renders the
+        picked file's name — only its format, size, and the source id.
+      -->
+
+      <section>
+        <h2>File System Access API path</h2>
+        <p>
+          Synthesizes a real <code>FileSystemFileHandle</code> in page context (staging the fixture
+          in the origin's OPFS sandbox and taking its handle) and hands it to
+          <code>pickDataFile</code> as the injected picker — no native dialog.
+        </p>
+        <button id="open-via-fsa" type="button">
+          Open customers.csv via File System Access API
+        </button>
+      </section>
+
+      <section>
+        <h2>Hidden-input fallback path</h2>
+        <p>
+          Runs <code>pickDataFile</code> with injected capabilities that report no File System
+          Access picker, forcing the hidden <code>&lt;input type="file"&gt;</code> fallback (driven
+          by Playwright's file chooser interception).
+        </p>
+        <button id="open-via-input-fallback" type="button">
+          Pick customers.csv via input fallback
+        </button>
+      </section>
+
+      <section>
+        <h2>Result (from DataSource.open() + metadata())</h2>
+        <dl>
+          <dt>status</dt>
+          <dd data-testid="source-status">idle</dd>
+          <dt>picked via</dt>
+          <dd data-testid="picked-via">not run</dd>
+          <dt>source kind</dt>
+          <dd data-testid="source-kind">not run</dd>
+          <dt>handle kind</dt>
+          <dd data-testid="handle-kind">not run</dd>
+          <dt>sourceId (first open)</dt>
+          <dd data-testid="source-id-1">not run</dd>
+          <dt>sourceId (re-open)</dt>
+          <dd data-testid="source-id-2">not run</dd>
+          <dt>re-open returned the identical handle</dt>
+          <dd data-testid="ids-match">not run</dd>
+          <dt>metadata().format</dt>
+          <dd data-testid="meta-format">not run</dd>
+          <dt>metadata().sizeBytes</dt>
+          <dd data-testid="meta-size">not run</dd>
+        </dl>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

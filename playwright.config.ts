@@ -19,5 +19,12 @@ export default defineConfig({
       port: 4179,
       reuseExistingServer: !process.env['CI'],
     },
+    {
+      // data-sources M1 harness (m1-3): BrowserFileSource FSA + input-fallback proof
+      // (built by `pnpm build` via the package's `vite build`).
+      command: 'pnpm --filter @assay/data-sources exec vite preview --port 4180 --strictPort',
+      port: 4180,
+      reuseExistingServer: !process.env['CI'],
+    },
   ],
 })
