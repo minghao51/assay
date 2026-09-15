@@ -15,7 +15,7 @@
  * Not a shipped surface — it exists only in this package's `vite build`.
  */
 import { DuckDbEngineClient } from '../src/index'
-import type { EngineQueryResult, EngineTableHandle } from '../src/index'
+import type { EngineFileSource, EngineQueryResult, EngineTableHandle } from '../src/index'
 
 const client = new DuckDbEngineClient()
 
@@ -56,6 +56,260 @@ rangeMiddleButton.addEventListener('click', () => {
 })
 errorReuseButton.addEventListener('click', () => {
   void runFailedQueryThenReuse()
+})
+
+// ── M1-7 bench hooks (tests/e2e/bench-ttfr.spec.ts) ──────────────────────────
+//
+// One button per engine-path step; each step is timed in-page with
+// performance.now() (excludes CDP round-trip noise) and accumulated into a
+// JSON blob rendered into `bench-result` so the spec can read it between
+// steps (it takes CDP heap checkpoints in between). The steps share the
+// client, so each fresh page = a fresh engine worker = a cold measurement.
+
+interface BenchWindowSample {
+  readonly offset: number
+  readonly ms: number
+  readonly rows: number
+}
+
+interface BenchTimings {
+  bootMs?: number
+  openMs?: number
+  schemaMs?: number
+  schemaColumns?: number
+  rowCountMs?: number
+  rowCount?: number
+  ttfrMs?: number
+  ttfrRows?: number
+  ttfrFirstId?: string
+  projectedMs?: number
+  projectedRows?: number
+  filteredMs?: number
+  filteredRows?: number
+  filteredMatchingRows?: number
+  windowsTotalMs?: number
+  windows?: BenchWindowSample[]
+}
+
+const benchTimings: BenchTimings = {}
+let benchTable: EngineTableHandle | null = null
+let benchViewName: string | null = null
+let benchRowCount = 0
+
+const benchPhaseEl = requiredElement<HTMLElement>('[data-testid="bench-phase"]')
+const benchErrorEl = requiredElement<HTMLElement>('[data-testid="bench-error"]')
+const benchResultEl = requiredElement<HTMLElement>('[data-testid="bench-result"]')
+const benchFileInput = requiredElement<HTMLInputElement>('[data-testid="bench-file-input"]')
+
+/** Column-name contract with tests/e2e/support/big-fixture.ts. */
+const BENCH_PROJECTION = ['id', 'label'] as const
+const BENCH_FILTER_COLUMN = 'value'
+/**
+ * max(value) = 999_999 / 7 ≈ 142_857.1; the threshold keeps ~0.6% of rows, so
+ * Parquet zone maps on this pseudo-random column cannot prune row groups and
+ * the filter measures an honest (near-)full scan of the file.
+ */
+const BENCH_FILTER_THRESHOLD = '142000.0'
+const BENCH_WINDOW_ROWS = 1000
+const BENCH_WINDOW_FRACTIONS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99] as const
+
+function benchMs(startedAt: number): number {
+  return Math.round((performance.now() - startedAt) * 10) / 10
+}
+
+function benchDone(phase: string): void {
+  benchPhaseEl.textContent = phase
+  benchErrorEl.textContent = ''
+  benchResultEl.textContent = JSON.stringify(benchTimings)
+}
+
+function benchFail(error: unknown): void {
+  benchPhaseEl.textContent = 'error'
+  benchErrorEl.textContent = errorMessage(error)
+}
+
+function requireBenchTable(): EngineTableHandle {
+  if (benchTable === null) throw new Error('bench: open a file first')
+  return benchTable
+}
+
+/** Double-quoted SQL identifier (view/column names are engine-side values). */
+function benchQuoteIdentifier(name: string): string {
+  return '"' + name.replaceAll('"', '""') + '"'
+}
+
+/**
+ * The generated view name for the opened table (e.g. "v1"). Discovered via
+ * duckdb_views() so the harness never hard-codes the registry's naming —
+ * there is exactly one user view per bench page (one open per repeat).
+ */
+async function benchResolveViewName(): Promise<string> {
+  if (benchViewName !== null) return benchViewName
+  const result = await client.query('SELECT view_name FROM duckdb_views() WHERE internal = false')
+  const column = readArrowColumn(result, 'view_name')
+  if (column === null) throw new Error('bench: view discovery returned an unexpected shape')
+  const names: string[] = []
+  for (let row = 0; row < column.length; row++) names.push(String(column.get(row)))
+  const [viewName] = names
+  if (names.length !== 1 || viewName === undefined) {
+    throw new Error(`bench: expected exactly one user view, found ${String(names.length)}`)
+  }
+  benchViewName = viewName
+  return benchViewName
+}
+
+/** Read a named column out of a query result via the Arrow API. */
+function readArrowColumn(
+  result: EngineQueryResult,
+  columnName: string,
+): ReturnType<EngineQueryResult['batch']['getChildAt']> {
+  const index = result.batch.schema.fields.findIndex((field) => field.name === columnName)
+  return index >= 0 ? result.batch.getChildAt(index) : null
+}
+
+async function benchBoot(): Promise<void> {
+  try {
+    const startedAt = performance.now()
+    await client.ensureReady()
+    benchTimings.bootMs = benchMs(startedAt)
+    benchDone('boot-done')
+  } catch (error) {
+    benchFail(error)
+  }
+}
+
+async function benchOpen(): Promise<void> {
+  try {
+    const file = benchFileInput.files?.[0]
+    if (file === undefined) throw new Error('bench: no file selected')
+    // Privacy (ADR 0025): the file name only feeds the engine's extension
+    // detection and is never rendered; the table id is the public handle.
+    const source: EngineFileSource = { name: file.name, getFile: async () => file }
+    const startedAt = performance.now()
+    benchTable = await client.open(source)
+    benchTimings.openMs = benchMs(startedAt)
+    benchDone('open-done')
+  } catch (error) {
+    benchFail(error)
+  }
+}
+
+async function benchSchemaAndCount(): Promise<void> {
+  try {
+    const table = requireBenchTable()
+    const schemaStarted = performance.now()
+    const columns = await client.schema(table)
+    benchTimings.schemaMs = benchMs(schemaStarted)
+    benchTimings.schemaColumns = columns.length
+    const countStarted = performance.now()
+    benchRowCount = await client.rowCount(table)
+    benchTimings.rowCountMs = benchMs(countStarted)
+    benchTimings.rowCount = benchRowCount
+    benchDone('schema-done')
+  } catch (error) {
+    benchFail(error)
+  }
+}
+
+/** Time-to-first-row: the first fetchRange window incl. IPC + reconstitution. */
+async function benchTtfr(): Promise<void> {
+  try {
+    const table = requireBenchTable()
+    const startedAt = performance.now()
+    const result = await client.fetchRange(table, { startRow: 0, endRow: BENCH_WINDOW_ROWS })
+    benchTimings.ttfrMs = benchMs(startedAt)
+    benchTimings.ttfrRows = result.batch.numRows
+    // Correctness anchor: id = row index in the deterministic fixture.
+    benchTimings.ttfrFirstId = String(result.batch.getChildAt(0)?.get(0))
+    benchDone('ttfr-done')
+  } catch (error) {
+    benchFail(error)
+  }
+}
+
+/** Projected query: two of seven columns, first batch of a LIMIT window. */
+async function benchProjected(): Promise<void> {
+  try {
+    const view = await benchResolveViewName()
+    const projection = BENCH_PROJECTION.map(benchQuoteIdentifier).join(', ')
+    const sql =
+      `SELECT ${projection} FROM ${benchQuoteIdentifier(view)}` +
+      ` LIMIT ${String(BENCH_WINDOW_ROWS)}`
+    const startedAt = performance.now()
+    const result = await client.query(sql)
+    benchTimings.projectedMs = benchMs(startedAt)
+    benchTimings.projectedRows = result.batch.numRows
+    benchDone('projected-done')
+  } catch (error) {
+    benchFail(error)
+  }
+}
+
+/** Filtered query: near-full scan (see BENCH_FILTER_THRESHOLD), 1-row batch. */
+async function benchFiltered(): Promise<void> {
+  try {
+    const view = await benchResolveViewName()
+    const sql =
+      `SELECT count(*) AS matching FROM ${benchQuoteIdentifier(view)}` +
+      ` WHERE ${benchQuoteIdentifier(BENCH_FILTER_COLUMN)} > ${BENCH_FILTER_THRESHOLD}`
+    const startedAt = performance.now()
+    const result = await client.query(sql)
+    const rawCount = result.batch.getChildAt(0)?.get(0)
+    const matching = typeof rawCount === 'bigint' ? Number(rawCount) : rawCount
+    benchTimings.filteredMs = benchMs(startedAt)
+    benchTimings.filteredRows = result.batch.numRows
+    benchTimings.filteredMatchingRows = typeof matching === 'number' ? matching : -1
+    benchDone('filtered-done')
+  } catch (error) {
+    benchFail(error)
+  }
+}
+
+/** Sequential windowed fetches spread across the whole file (grid pattern). */
+async function benchWindows(): Promise<void> {
+  try {
+    const table = requireBenchTable()
+    if (benchRowCount <= 0) throw new Error('bench: run the schema/rowCount step first')
+    const samples: BenchWindowSample[] = []
+    const totalStarted = performance.now()
+    for (const fraction of BENCH_WINDOW_FRACTIONS) {
+      const maxOffset = benchRowCount - BENCH_WINDOW_ROWS
+      const offset = Math.max(0, Math.min(maxOffset, Math.floor(fraction * benchRowCount)))
+      const startedAt = performance.now()
+      const result = await client.fetchRange(table, {
+        startRow: offset,
+        endRow: offset + BENCH_WINDOW_ROWS,
+      })
+      samples.push({ offset, ms: benchMs(startedAt), rows: result.batch.numRows })
+    }
+    benchTimings.windowsTotalMs = benchMs(totalStarted)
+    benchTimings.windows = samples
+    benchDone('windows-done')
+  } catch (error) {
+    benchFail(error)
+  }
+}
+
+requiredElement<HTMLButtonElement>('#bench-boot').addEventListener('click', () => {
+  void benchBoot()
+})
+requiredElement<HTMLButtonElement>('#bench-open').addEventListener('click', () => {
+  void benchOpen()
+})
+requiredElement<HTMLButtonElement>('#bench-schema').addEventListener('click', () => {
+  void benchSchemaAndCount()
+})
+requiredElement<HTMLButtonElement>('#bench-ttfr').addEventListener('click', () => {
+  void benchTtfr()
+})
+requiredElement<HTMLButtonElement>('#bench-projected').addEventListener('click', () => {
+  void benchProjected()
+})
+requiredElement<HTMLButtonElement>('#bench-filtered').addEventListener('click', () => {
+  void benchFiltered()
+})
+requiredElement<HTMLButtonElement>('#bench-windows').addEventListener('click', () => {
+  void benchWindows()
 })
 
 /** Latest open per fixture kind, so independent steps can address tables. */

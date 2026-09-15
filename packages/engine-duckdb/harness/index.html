@@ -115,6 +115,39 @@
         </dl>
       </section>
 
+      <!--
+        M1-7 bench (tests/e2e/bench-ttfr.spec.ts, gated behind
+        ASSAY_E2E_BIG_BENCH=1): stepwise timing hooks for the engine path —
+        boot → open → schema/rowCount → first window (TTFR) → projected query
+        → filtered query → sequential windows. Each step is timed in-page with
+        performance.now() and accumulated into the `bench-result` JSON; the
+        spec clicks steps one by one and takes CDP heap checkpoints between
+        them. Privacy (ADR 0001/0025): the picked file's name is never
+        rendered — the engine uses only its extension; results show ids,
+        types, and counts only.
+      -->
+      <section>
+        <h2>M1-7 bench: engine-path timing hooks (gated e2e)</h2>
+        <p>
+          <input type="file" data-testid="bench-file-input" accept=".parquet" />
+          <button id="bench-boot" type="button">bench: boot engine</button>
+          <button id="bench-open" type="button">bench: open selected file</button>
+          <button id="bench-schema" type="button">bench: schema + rowCount</button>
+          <button id="bench-ttfr" type="button">bench: first window (TTFR)</button>
+          <button id="bench-projected" type="button">bench: projected query</button>
+          <button id="bench-filtered" type="button">bench: filtered query</button>
+          <button id="bench-windows" type="button">bench: sequential windows</button>
+        </p>
+        <dl>
+          <dt>bench phase</dt>
+          <dd data-testid="bench-phase">idle</dd>
+          <dt>bench error</dt>
+          <dd data-testid="bench-error"></dd>
+          <dt>bench timings (JSON)</dt>
+          <dd><pre data-testid="bench-result">{}</pre></dd>
+        </dl>
+      </section>
+
       <section>
         <h2>Open fixture (nested: structs/lists) and its schema passthrough</h2>
         <button id="open-nested" type="button">Open nested fixture via engine</button>
