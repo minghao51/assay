@@ -11,7 +11,9 @@ import { expect, test } from '@playwright/test'
 // assertions exercise real Arrow reconstitution, not JSON string comparison.
 // Harness served from packages/engine-duckdb by the second webServer in
 // playwright.config.ts.
-const HARNESS_URL = 'http://localhost:4179/'
+// Engine-harness port is env-overridable for parallel worktree batches
+// (must match ASSAY_E2E_PORT_ENGINE in playwright.config.ts; default 4179).
+const HARNESS_URL = `http://localhost:${process.env['ASSAY_E2E_PORT_ENGINE'] ?? 4179}/`
 
 // Task M1-4 adds the file-lifecycle proof: open (OPFS-staged genuine
 // FileSystemFileHandle — same trick as the data-sources harness, ADR 0017

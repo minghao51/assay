@@ -17,7 +17,9 @@ import { expect, test } from '@playwright/test'
 // - Fallback path: Playwright intercepts the hidden <input type="file"> the
 //   package creates and sets files on it (chooser.setFiles — the dynamic-input
 //   form of page.setInputFiles).
-const HARNESS_URL = 'http://localhost:4180/'
+// Data-sources-harness port is env-overridable for parallel worktree batches
+// (must match ASSAY_E2E_PORT_DS in playwright.config.ts; default 4180).
+const HARNESS_URL = `http://localhost:${process.env['ASSAY_E2E_PORT_DS'] ?? 4180}/`
 const FIXTURE_PATH = fileURLToPath(
   new URL('../../packages/data-sources/harness/public/customers.csv', import.meta.url),
 )
