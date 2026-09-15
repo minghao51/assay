@@ -46,6 +46,18 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   graceful async `dispose()` — proven in Chromium against checksum-pinned
   golden Parquet fixtures (first + middle windows, NULL via Arrow validity,
   failed-query reuse).
+- **The grid is alive (m1-5):** `@assay/grid` owns a headless viewport model
+  (zero dependencies; windowed span fetches, LRU cache, stale-epoch guard)
+  and `apps/web` renders a TanStack-Virtual grid over the engine's Arrow
+  windows, with file picking through the real capability-detected flow. A
+  1M-row on-demand fixture (never committed) scrolls with bounded DOM
+  (< 100 rows), bounded fetching (0.26% of the dataset), and median 16.7 ms
+  frames in the e2e suite; the engine gained `rowCount()` for virtualization
+  sizing.
+- **CI guards golden fixtures (m1-8):** the CI workflow installs a
+  sha256-pinned DuckDB 1.5.5, regenerates the golden Parquet fixtures, and
+  fails on any drift; the e2e job installs the CLI for on-demand fixture
+  generation. (CI has still never run remotely — no git remote configured.)
 
 - **Decisions recorded (2026-09-14):** AGPL-3.0-or-later license for the open
   core (ADR 0036); opt-out telemetry consent model with first-run disclosure
