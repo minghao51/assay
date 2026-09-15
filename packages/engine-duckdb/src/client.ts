@@ -5,18 +5,34 @@
  * platform APIs. The first `ensureReady()` / `query()` boots the engine
  * inside a dedicated Web Worker (ADR 0021) — DuckDB-WASM never runs on the
  * main thread. The main thread exchanges only the typed messages defined in
- * `./protocol`.
+ * `./protocol`; tabular results arrive as Apache Arrow IPC bytes (ADR 0020)
+ * and are reconstituted here with the Arrow API.
  */
+import { tableFromIPC } from 'apache-arrow'
+import type { Table } from 'apache-arrow'
 import { parseEngineResponse } from './protocol'
-import type {
-  EngineQueryResult,
-  EngineReadyInfo,
-  EngineRequest,
-  EngineSuccessResponse,
-} from './protocol'
+import type { EngineReadyInfo, EngineRequest, EngineSuccessResponse } from './protocol'
 
 /** Lifecycle of the lazy engine bootstrap. */
 export type EngineStatus = 'idle' | 'booting' | 'ready' | 'failed' | 'disposed'
+
+/**
+ * Result of a query: the first Arrow record batch of the result set,
+ * reconstituted on the main thread as an Arrow `Table` holding exactly that
+ * one batch (zero rows when the query produced no rows).
+ *
+ * Honest about scope (M1-2): only the first batch is transported. `hasMore`
+ * is true when the engine produced further batches after this one — those
+ * batches are discarded inside the worker (the pending query is cancelled),
+ * so this result is *not* the full result set whenever `hasMore` is true.
+ * Full streaming arrives with a later task.
+ */
+export interface EngineQueryResult {
+  /** Arrow table containing exactly the first record batch of the result. */
+  readonly batch: Table
+  /** True when the engine produced more record batches after this one. */
+  readonly hasMore: boolean
+}
 
 /** The slice of the `Worker` API the client relies on (kept narrow for fakes). */
 export interface EngineWorkerLike {
@@ -105,9 +121,10 @@ export class DuckDbEngineClient {
   }
 
   /**
-   * Run a SQL query and return its bounded, scalar result. The scalar rows
-   * are a temporary M1-1 surface — M1-2 replaces them with an Arrow
-   * record-batch transport (ADR 0020).
+   * Run a SQL query and return its first Arrow record batch (ADR 0020). See
+   * `EngineQueryResult` for the exact delivery semantics — in particular,
+   * `hasMore` reports (rather than discards silently) the un-transported
+   * remainder of the result set.
    */
   async query(sql: string): Promise<EngineQueryResult> {
     await this.ensureReady()
@@ -115,7 +132,11 @@ export class DuckDbEngineClient {
     if (response.type !== 'engine/query-result') {
       throw new EngineProtocolError(`unexpected ${response.type} response for engine/query`)
     }
-    return response.result
+    try {
+      return { batch: tableFromIPC(response.batchIpc), hasMore: response.hasMore }
+    } catch (cause) {
+      throw new EngineProtocolError('worker sent an invalid Arrow IPC payload', { cause })
+    }
   }
 
   /** Terminate the worker and fail every pending request. Terminal. */

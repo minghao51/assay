@@ -162,6 +162,9 @@ importers:
       '@duckdb/duckdb-wasm':
         specifier: ^1.32.0
         version: 1.32.0
+      apache-arrow:
+        specifier: 17.0.0
+        version: 17.0.0
     devDependencies:
       typescript:
         specifier: 'catalog:'

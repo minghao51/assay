@@ -3,14 +3,48 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>@assay/engine-duckdb harness (M1-1)</title>
+    <title>@assay/engine-duckdb harness (M1-2)</title>
   </head>
   <body>
     <main>
-      <h1>@assay/engine-duckdb harness (M1-1)</h1>
+      <h1>@assay/engine-duckdb harness (M1-2)</h1>
       <p>engine status: <span data-testid="engine-status">idle</span></p>
-      <button id="run-smoke-query" type="button">Boot engine and run SELECT 42</button>
-      <pre data-testid="query-result">not run</pre>
+
+      <section>
+        <h2>First-batch Arrow smoke query</h2>
+        <button id="run-smoke-query" type="button">Boot engine and run SELECT 42 AS answer</button>
+        <dl>
+          <dt>duckdb version</dt>
+          <dd data-testid="duckdb-version">not run</dd>
+          <dt>arrow schema</dt>
+          <dd data-testid="arrow-schema">not run</dd>
+          <dt>arrow num rows (first batch)</dt>
+          <dd data-testid="arrow-num-rows">not run</dd>
+          <dt>arrow value [0,0] (via Arrow API)</dt>
+          <dd data-testid="arrow-value">not run</dd>
+          <dt>has more batches</dt>
+          <dd data-testid="query-has-more">not run</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Multi-batch query (proves hasMore + connection survives tail cancel)</h2>
+        <button id="run-range-query" type="button">
+          Run SELECT i FROM range(5000), then SELECT 7 AS seven
+        </button>
+        <dl>
+          <dt>arrow schema (first batch)</dt>
+          <dd data-testid="arrow-schema-range">not run</dd>
+          <dt>arrow num rows (first batch)</dt>
+          <dd data-testid="arrow-num-rows-range">not run</dd>
+          <dt>arrow value [0,0] (via Arrow API)</dt>
+          <dd data-testid="arrow-value-range">not run</dd>
+          <dt>has more batches</dt>
+          <dd data-testid="query-has-more-range">not run</dd>
+          <dt>post-cancel query value (SELECT 7 AS seven)</dt>
+          <dd data-testid="post-cancel-value">not run</dd>
+        </dl>
+      </section>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

@@ -3,36 +3,18 @@
  *
  * The protocol is owned by this package (ADR 0021): plain structured-clone
  * postMessage with the types defined here — deliberately no RPC library.
- * Every request carries a `requestId` that its response echoes, so the client
- * can correlate concurrent calls. Arrow record-batch transport is out of
- * scope for M1-1 and lands with task M1-2 (ADR 0020).
+ * Comlink was evaluated and rejected for this surface: returning the first
+ * Arrow batch needs direct control over the postMessage transfer list
+ * (zero-copy ArrayBuffer transfer), which Comlink's proxy indirection does
+ * not expose. Every request carries a `requestId` that its response echoes,
+ * so the client can correlate concurrent calls.
+ *
+ * Tabular results travel as Apache Arrow (ADR 0020): the worker serializes
+ * the first record batch to an Arrow IPC stream (`schema` + `record batch` +
+ * end-of-stream, exactly what `tableToIPC(batch, 'stream')` produces) and the
+ * client reconstitutes it with `tableFromIPC` on the main thread. Only the
+ * first batch is transported for M1 (see `EngineQueryResultResponse`).
  */
-
-/** Scalar cell values that survive structured clone unchanged. */
-export type QueryCell = null | boolean | number | bigint | string
-
-/**
- * Cap for the temporary scalar result transport. Keeps a runaway smoke query
- * from cloning an unbounded payload onto the main thread (ADR 0021); real
- * result streaming is Arrow batches in M1-2 (ADR 0020).
- */
-export const MAX_RESULT_ROWS = 1000
-
-/**
- * Result of a smoke-level query: deliberately small and JSON-safe for M1-1.
- * The scalar `rows` are replaced by an Arrow record-batch transport in M1-2
- * (ADR 0020).
- */
-export interface EngineQueryResult {
-  /** Output column names, in order. */
-  columns: string[]
-  /** Total rows the query produced (before any truncation). */
-  rowCount: number
-  /** At most `MAX_RESULT_ROWS` rows of scalar cells, ordered as `columns`. */
-  rows: QueryCell[][]
-  /** True when `rows` was truncated to `MAX_RESULT_ROWS`. */
-  truncated: boolean
-}
 
 /** Engine facts reported by the worker once it is ready. */
 export interface EngineReadyInfo {
@@ -61,10 +43,23 @@ export interface EngineReadyResponse extends EngineReadyInfo {
   requestId: number
 }
 
+/**
+ * First-batch result transport. `batchIpc` is an Arrow IPC *stream*
+ * (`Uint8Array`) holding the result schema plus exactly the first record
+ * batch; the client reconstitutes it via the Arrow API (ADR 0020). The
+ * worker lists the underlying `ArrayBuffer` in its postMessage transfer
+ * list, so the bytes move to the main thread without a copy.
+ *
+ * `hasMore` is true when DuckDB produced further record batches after this
+ * one. Those batches are deliberately **not** transported: full result-set
+ * streaming is out of scope for M1-2 — the worker cancels the pending query
+ * and reports the truncation honestly through this flag.
+ */
 export interface EngineQueryResultResponse {
   type: 'engine/query-result'
   requestId: number
-  result: EngineQueryResult
+  batchIpc: Uint8Array
+  hasMore: boolean
 }
 
 export interface EngineErrorResponse {
@@ -109,10 +104,12 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
   if (type === 'engine/ready' && typeof data.duckdbVersion === 'string') {
     return { type, requestId, duckdbVersion: data.duckdbVersion }
   }
-  if (type === 'engine/query-result') {
-    const result = parseEngineQueryResult(data.result)
-    if (result === null) return null
-    return { type, requestId, result }
+  if (
+    type === 'engine/query-result' &&
+    isUint8Array(data.batchIpc) &&
+    typeof data.hasMore === 'boolean'
+  ) {
+    return { type, requestId, batchIpc: data.batchIpc, hasMore: data.hasMore }
   }
   if (type === 'engine/error' && typeof data.message === 'string') {
     return { type, requestId, message: data.message }
@@ -120,26 +117,9 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
   return null
 }
 
-function parseEngineQueryResult(data: unknown): EngineQueryResult | null {
-  if (!isRecord(data)) return null
-  const { columns, rowCount, rows, truncated } = data
-  if (!Array.isArray(columns) || columns.some((name) => typeof name !== 'string')) return null
-  if (typeof rowCount !== 'number' || typeof truncated !== 'boolean') return null
-  if (!Array.isArray(rows)) return null
-  for (const row of rows) {
-    if (!Array.isArray(row) || row.some((cell) => !isQueryCell(cell))) return null
-  }
-  return { columns, rowCount, rows, truncated }
-}
-
-function isQueryCell(value: unknown): value is QueryCell {
-  return (
-    value === null ||
-    typeof value === 'boolean' ||
-    typeof value === 'number' ||
-    typeof value === 'bigint' ||
-    typeof value === 'string'
-  )
+/** Structured clone delivers Arrow IPC bytes as a plain `Uint8Array`. */
+function isUint8Array(value: unknown): value is Uint8Array {
+  return value instanceof Uint8Array
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -6,25 +6,35 @@
  * bundle's architecture); this worker is a thin protocol adapter speaking the
  * typed messages from `./protocol`.
  *
+ * Query results cross the boundary as Apache Arrow (ADR 0020): the query runs
+ * through `conn.send()` so batches stream out of DuckDB instead of
+ * materializing a full JS-object result. Only the *first* record batch is
+ * transported (M1-2 scope) — it is serialized to an Arrow IPC stream and its
+ * ArrayBuffer is listed in the postMessage transfer list, so the bytes move
+ * to the main thread zero-copy. If further batches exist, `hasMore` is
+ * reported and the pending query is cancelled to free the connection.
+ *
  * Bundle choice: the `mvp` browser bundle requires no cross-origin isolation
  * (no COOP/COEP headers, no SharedArrayBuffer), which we cannot assume for
  * every serving context (app, test harness, future VS Code webview). Moving
  * to the `eh` bundle later for parallelism is a two-URL change in this file.
  */
 import * as duckdb from '@duckdb/duckdb-wasm'
+import { Table, tableToIPC } from 'apache-arrow'
 import duckdbWorkerUrl from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url'
 import duckdbWasmUrl from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url'
-import { MAX_RESULT_ROWS, parseEngineRequest } from './protocol'
-import type { EngineQueryResult, EngineResponse, QueryCell } from './protocol'
+import { parseEngineRequest } from './protocol'
+import type { EngineResponse } from './protocol'
 
 /**
  * Structural type for the worker global scope. The package tsconfig uses the
  * DOM lib (where `self` is typed as `Window`), so we narrow once to the
- * DedicatedWorkerGlobalScope subset this worker actually uses.
+ * DedicatedWorkerGlobalScope subset this worker actually uses. The transfer
+ * list is what makes the Arrow IPC transport zero-copy.
  */
 interface EngineWorkerScope {
   addEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void
-  postMessage(response: EngineResponse): void
+  postMessage(response: EngineResponse, transfer?: ArrayBuffer[]): void
 }
 
 const scope: EngineWorkerScope = self as unknown as EngineWorkerScope
@@ -76,7 +86,7 @@ async function handleRequest(data: unknown): Promise<void> {
     switch (request.type) {
       case 'engine/init': {
         const { db } = await ensureSession()
-        scope.postMessage({
+        post({
           type: 'engine/ready',
           requestId: request.requestId,
           duckdbVersion: await db.getVersion(),
@@ -84,56 +94,61 @@ async function handleRequest(data: unknown): Promise<void> {
         break
       }
       case 'engine/query': {
-        const { conn } = await ensureSession()
-        const table = await conn.query(request.sql)
-        scope.postMessage({
-          type: 'engine/query-result',
-          requestId: request.requestId,
-          result: toQueryResult(table),
-        })
+        await runQuery(request.requestId, request.sql)
         break
       }
     }
   } catch (error) {
-    scope.postMessage({
-      type: 'engine/error',
-      requestId: request.requestId,
-      message: errorMessage(error),
-    })
+    post({ type: 'engine/error', requestId: request.requestId, message: errorMessage(error) })
   }
 }
 
 /**
- * Structural slice of Apache Arrow's `Table`. The concrete Arrow binding
- * stays an implementation detail behind the engine boundary (ADR 0020).
+ * Execute the query and transport the first record batch as an Arrow IPC
+ * stream. A second `next()` peek determines `hasMore` honestly; when the
+ * result continues past the first batch, the remaining batches are dropped
+ * (out of M1-2 scope) and the pending query is cancelled so the connection
+ * stays usable for follow-up queries.
  */
-interface ArrowTableLike {
-  readonly numRows: number
-  readonly schema: { readonly fields: ReadonlyArray<{ readonly name: string }> }
-  slice(begin: number, end: number): ArrowTableLike
-  toArray(): Array<Record<string, unknown>>
-}
-
-function toQueryResult(table: ArrowTableLike): EngineQueryResult {
-  const columns = table.schema.fields.map((field) => field.name)
-  const truncated = table.numRows > MAX_RESULT_ROWS
-  const limited = truncated ? table.slice(0, MAX_RESULT_ROWS) : table
-  const rows = limited.toArray().map((record) => columns.map((name) => toCell(record[name])))
-  return { columns, rowCount: table.numRows, rows, truncated }
-}
-
-/** Scalars pass through; anything nested (lists, structs, …) renders as text. */
-function toCell(value: unknown): QueryCell {
-  if (value === null || value === undefined) return null
-  switch (typeof value) {
-    case 'boolean':
-    case 'number':
-    case 'bigint':
-    case 'string':
-      return value
-    default:
-      return String(value)
+async function runQuery(requestId: number, sql: string): Promise<void> {
+  const { conn } = await ensureSession()
+  const reader = await conn.send(sql)
+  const first = await reader.next()
+  if (first.value === undefined) {
+    // DuckDB always emits a batch for a result (a 0-row batch still carries
+    // the schema), so an empty stream here means the engine lied to us.
+    reader.cancel()
+    throw new Error('query produced no record batches')
   }
+  const peek = await reader.next()
+  const hasMore = !peek.done
+  reader.cancel()
+  if (hasMore) {
+    // Free the connection; the discarded tail is reported via `hasMore`.
+    await conn.cancelSent().catch(() => undefined)
+  }
+  const batchIpc = tableToIPC(new Table(first.value))
+  post({ type: 'engine/query-result', requestId, batchIpc, hasMore })
+}
+
+function post(response: EngineResponse): void {
+  // Zero-copy: when the IPC bytes own their whole ArrayBuffer (the writer's
+  // joined output normally does), transfer the buffer instead of cloning it.
+  // Ownership moves to the main thread; we never touch the bytes again.
+  const transfer: ArrayBuffer[] = []
+  if (response.type === 'engine/query-result') {
+    const buffer = transferableBuffer(response.batchIpc)
+    if (buffer !== null) transfer.push(buffer)
+  }
+  scope.postMessage(response, transfer)
+}
+
+/** The underlying buffer, when it is exactly owned and transferable. */
+function transferableBuffer(bytes: Uint8Array): ArrayBuffer | null {
+  const { buffer, byteOffset, byteLength } = bytes
+  // SharedArrayBuffer cannot go into a transfer list (structured clone).
+  if (!(buffer instanceof ArrayBuffer)) return null
+  return byteOffset === 0 && byteLength === buffer.byteLength ? buffer : null
 }
 
 function errorMessage(error: unknown): string {

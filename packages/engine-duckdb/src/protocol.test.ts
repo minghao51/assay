@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_RESULT_ROWS, parseEngineRequest, parseEngineResponse } from './protocol'
+import { parseEngineRequest, parseEngineResponse } from './protocol'
 
 describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
   describe('parseEngineRequest', () => {
@@ -52,55 +52,43 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
       expect(parseEngineResponse({ type: 'engine/ready', requestId: 1 })).toBeNull()
     })
 
-    it('parses engine/query-result including scalar cells', () => {
+    it('parses engine/query-result with its Arrow IPC payload and hasMore flag', () => {
       const message = {
         type: 'engine/query-result',
         requestId: 2,
-        result: { columns: ['42'], rowCount: 1, rows: [[42]], truncated: false },
+        batchIpc: new Uint8Array([1, 2, 3]),
+        hasMore: false,
       }
       expect(parseEngineResponse(message)).toEqual(message)
     })
 
-    it('accepts every documented scalar cell kind', () => {
-      const cells = [null, true, 1, 10n, 'x']
+    it('accepts an empty Arrow IPC payload (0-row batch still carries bytes)', () => {
       const message = {
         type: 'engine/query-result',
         requestId: 2,
-        result: {
-          columns: ['a', 'b', 'c', 'd', 'e'],
-          rowCount: 1,
-          rows: [cells],
-          truncated: false,
-        },
+        batchIpc: new Uint8Array([]),
+        hasMore: false,
       }
       expect(parseEngineResponse(message)).toEqual(message)
     })
 
-    it('rejects engine/query-result with a malformed result body', () => {
-      const base = { type: 'engine/query-result', requestId: 2 }
-      expect(parseEngineResponse({ ...base, result: null })).toBeNull()
+    it('rejects engine/query-result with a malformed payload', () => {
+      const base = { type: 'engine/query-result', requestId: 2, hasMore: false }
+      // batchIpc must be a Uint8Array (what structured clone delivers).
+      expect(parseEngineResponse({ ...base, batchIpc: null })).toBeNull()
+      expect(parseEngineResponse({ ...base, batchIpc: 'arrow' })).toBeNull()
+      expect(parseEngineResponse({ ...base, batchIpc: new ArrayBuffer(3) })).toBeNull()
+      expect(parseEngineResponse({ ...base, batchIpc: [1, 2, 3] })).toBeNull()
+      expect(parseEngineResponse({ ...base })).toBeNull()
+      // hasMore must be a boolean.
       expect(
-        parseEngineResponse({
-          ...base,
-          result: { columns: ['a'], rowCount: '1', rows: [], truncated: false },
-        }),
+        parseEngineResponse({ ...base, hasMore: undefined, batchIpc: new Uint8Array([1]) }),
       ).toBeNull()
       expect(
         parseEngineResponse({
-          ...base,
-          result: { columns: [1], rowCount: 1, rows: [], truncated: false },
-        }),
-      ).toBeNull()
-      expect(
-        parseEngineResponse({
-          ...base,
-          result: { columns: ['a'], rowCount: 1, rows: [['ok', {}]], truncated: false },
-        }),
-      ).toBeNull()
-      expect(
-        parseEngineResponse({
-          ...base,
-          result: { columns: ['a'], rowCount: 1, rows: [{ a: 1 }], truncated: false },
+          type: 'engine/query-result',
+          requestId: 2,
+          batchIpc: new Uint8Array([1]),
         }),
       ).toBeNull()
     })
@@ -117,9 +105,5 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
       expect(parseEngineResponse({ type: 'engine/progress', requestId: 1 })).toBeNull()
       expect(parseEngineResponse('engine/ready')).toBeNull()
     })
-  })
-
-  it('documents the scalar transport cap used to guard the main thread', () => {
-    expect(MAX_RESULT_ROWS).toBeGreaterThan(0)
   })
 })

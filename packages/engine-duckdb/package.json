@@ -15,6 +15,7 @@
     "vite": "catalog:"
   },
   "dependencies": {
+    "apache-arrow": "17.0.0",
     "@duckdb/duckdb-wasm": "^1.32.0"
   }
 }
