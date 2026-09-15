@@ -1,7 +1,7 @@
 # Project Handoff — Assay
 
 **Status:** living document — the single entry point for any human or AI agent picking up this project. Updated at every milestone completion or gate passage.
-**Last updated:** 2026-09-15 (M1 task queue 1–8 complete via multi-agent runs — §2/§6/§9 updated; G1 evidence gathered, gate decision pending)
+**Last updated:** 2026-09-15 (M1 tasks 1–8 complete; §6 now queues the M1 test-hardening batch T1–T4 for the next session; G1/M1-exit decision pending)
 
 ---
 
@@ -30,9 +30,9 @@ Companions: [execution roadmap](../product/10-execution-roadmap.md) (sequencing/
 - **Positioning:** "Understand any dataset before your code does."
 - **Stack:** TypeScript · React/Vite · DuckDB-WASM · Apache Arrow · pnpm/Turborepo monorepo.
 - **License:** AGPL-3.0-or-later for the open core (ADR 0036).
-- **Phase:** pre-MVP. Milestone **M0 (bootstrap) complete**; **M1 (local file explorer) is next**.
+- **Phase:** pre-MVP. **M1 (local file explorer) task queue complete** — G1 gate / M1-exit decision pending (§6); next: M1 test-hardening batch (§6), then M2 (query & profiling).
 
-## 2. Current state (2026-09-14)
+## 2. Current state (2026-09-15)
 
 Everything below is **verified green locally**: `pnpm install / lint / typecheck (18 tasks) / test (8 tests) / build / e2e smoke / CLI smoke / fixture generation`.
 
@@ -76,6 +76,48 @@ Full table: [roadmap §7](../product/10-execution-roadmap.md). **Agents: never r
 3. Durable decisions get an ADR (`docs/adr/template.md`, next free number — currently 0040) and a roadmap-backlog update.
 4. Dataset-shape bug fixes ship a minimal golden fixture + regression test.
 5. Privacy/security rules respected (ADR 0025/0007; see AGENTS.md "Hard rules").
+
+## 6. Next work — M1 test-hardening batch (the task queue)
+
+**M1 status:** the original M1 queue (tasks 1–8) is **complete** (2026-09-15; per-task
+records in §9 and the roadmap §4). Exit criteria are functionally demonstrated at
+1.09 GiB; the formal **G1 gate / M1-exit decision** (multi-GB re-run listed open in
+`docs/engineering/07-m1-benchmarks.md`) is a maintainer call — do **not** declare it
+passed without that decision.
+
+**This batch** hardens what M1 shipped: it converts accumulated reviewer carry-overs
+into shared conformance/behavior suites (mandated by
+docs/engineering/05-repository-structure.md §4: every engine implementation passes the
+same conformance suite; every DataSource adapter passes the same source behavior suite)
+and closes known coverage gaps. Tasks are sized for one worker session each; claim from
+the top.
+
+| #   | Task                                                                                                                                                                                                                                                                                                                                                                                          | Package(s)                                                   | Done when                                                                                                                             |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| T1  | Engine conformance suite in `@assay/testing`, wired for engine-duckdb: lazy boot; open→schema→fetchRange→rowCount→dispose lifecycle; error classes; window clamping; Arrow shape; **corrupt-file open rollback** (register ok, view/read fails → registry rolled back, engine reusable); **mid-stream error then reuse** (first batch ok, later batch errors → cleanup + connection reusable) | `testing` + `engine-duckdb` (harness) + `tests/e2e`          | suite lives in `@assay/testing`, engine-duckdb runs it green in e2e, both reviewer scenarios covered; all existing specs keep passing |
+| T2  | Worker-side operation serialization (single pending-query channel or per-op connections — duckdb-wasm 1.32 polls one pending query per connection) + concurrency tests: interleaved rowCount/fetchRange/query/dispose; one op's error never corrupts another; no pending-query collisions (context: mvp-bundle `_setThrew` quirk)                                                             | `engine-duckdb` (src + tests)                                | deterministic under fake-worker concurrency unit tests + an e2e with parallel calls; T1's suite still green                           |
+| T3  | Data-source behavior suite in `@assay/testing`, wired for `BrowserFileSource`: identity/idempotency (frozen handle, one-shot `getFile`), cancel semantics (FSA AbortError / input cancel → `null`), capability-matrix behavior, metadata contract (format/size only)                                                                                                                          | `testing` + `data-sources` + `tests/e2e`                     | suite in `@assay/testing`; BrowserFileSource passes (Node unit + browser paths); m1-3 semantics locked against regression             |
+| T4  | Bench-rig hardening: reuse meta-check must compare stored `sha256` (not just rows+bytes); add the cold-OS-page-cache variance note and per-cell projection-cost observation to the bench note's open questions                                                                                                                                                                                | `tests/e2e/support` + `docs/engineering/07-m1-benchmarks.md` | a corrupted same-size fixture is rejected on reuse (negative test); note updated; bench stays env-gated; gates green                  |
+
+Dependencies/parallelism (§7.4 rules): **T1 first** (it defines the suite patterns in
+`testing`); T2 after T1 (same package column); T3 after T1 (shares `testing`); **T4
+anytime** — run T4 parallel with T1 in worktrees (recipe in §7.4). One worker per
+package boundary at a time.
+
+After this batch: fold the remaining non-test carry-overs (below) into M2 slices.
+M2 (query & profiling, roadmap §3.1) starts once the maintainer records the G1/M1-exit
+decision — do not start M2 feature work before that.
+
+Carry-over reviewer notes (non-test, non-blocking): `_setThrew` poor error text on
+pending-query failures — mvp-bundle quirk, eh-bundle swap is the documented two-URL
+change; SHA-pin GitHub Actions as supply-chain hardening + keep DuckDB version in sync
+across two ci.yml blocks and `manifest.json` (m1-8); `fsa-dom.d.ts` duplicated in web is
+a consolidation candidate; schema-panel `aria-controls` id exists only when expanded
+(APG-tolerated); DuckDB type-string parser stays in web v1 — promotion to grid/domain
+deferred until a second consumer exists.
+
+Parallel non-code tracks: telemetry vendor/sampling design (D2b), npm org `@assay`
+claim, git remote/hosting choice, demo dataset curation (O5).
 
 ## 6. Next work — M1: Local File Explorer (the task queue)
 
@@ -138,6 +180,7 @@ claim (orchestrator assigns, marks in-progress)
 - One worker per **package boundary** (the §6 "Package" column) at a time; `web` tasks serialize against anything that touches `grid`/`engine` APIs they consume.
 - Shared files (§7.1 orchestrator-owned list) are never edited by workers.
 - If a task discovers it must cross its boundary, it stops and reports to the orchestrator, who splits/reassigns.
+- **Parallel-batch recipe (proven, m1-5/m1-8 and m1-6/m1-7):** for tasks with disjoint package columns, give each worker its own git worktree on a task branch (`git worktree add -b <task-id> ../<repo>-<task-id> main`); the e2e ports are env-overridable (`ASSAY_E2E_PORT_WEB/ENGINE/DS`, defaults 4173/4179/4180) so only one worktree runs default ports — the other(s) shift (+100). Reviewers verify inside the matching worktree; the orchestrator cherry-picks to `main`, runs the merged gates, then removes worktrees/branches. `DUCKDB=/tmp/duckdb` (v1.5.5) is needed locally for fixture-generating specs.
 - When in doubt, serialize — this codebase is small; coordination cost exceeds parallelism gains below task 3.
 
 ### 7.5 Operating modes (choose per batch of work)
@@ -159,6 +202,7 @@ claim (orchestrator assigns, marks in-progress)
 
 ## 9. Changelog for this document
 
+- 2026-09-15 (h) — §6 replaced: M1 queue archived to §9/roadmap records; new **M1 test-hardening batch (T1–T4)** queued for the next session — engine conformance suite + data-source behavior suite in `@assay/testing` (per docs/engineering/05 §4), worker-side operation serialization, bench-rig hardening. §7.4 gained the proven parallel-batch recipe (worktrees + env-shifted e2e ports). Explicit guardrails: G1/M1-exit is a maintainer decision; M2 feature work waits for it.
 - 2026-09-15 (g) — **M1 task queue complete** (1–8). Second parallel batch (m1-6 + m1-7) in worktrees: schema panel (total type-string parser + a11y tree; approved — reviewer fuzzed 20k inputs, zero throws) and the G1 benchmark (1.09 GiB: TTFR ~0.3 s, heap 4 MB of 3.6 GB; reviewer reproduced all numbers within ~2–6%). Bench note renumbered to `docs/engineering/07-m1-benchmarks.md` (06 collision). e2e ports made env-overridable (`2152432`) enabling parallel worktree batches. **Next decision (maintainer): G1 gate / M1 exit — multi-GB measurement listed open in the note; roadmap §4 Now-item checked off.**
 - 2026-09-15 (e) — **First parallel batch** (m1-5 + m1-8) ran in isolated git worktrees (branches `m1-5`/`m1-8`, cherry-picked to main as `517de05`/`4112cd4` after review). M1 task 5 (headless grid viewport model + TanStack-Virtual web grid over Arrow windows; authorized additive engine `rowCount()`) approved after one request-changes loop (reviewer proved the wheel-burst e2e block was a no-op — scrolling the outer page; fixed with hover + effectiveness assertions). M1 task 8 (CI regenerates Parquet fixtures with sha256-pinned DuckDB 1.5.5, drift fails the job; e2e job gets the CLI for on-demand fixtures) approved with independent checksum-chain verification. Both workers independently found the missing root `eslint` devDependency — fixed by orchestrator in `c07e5a3`. Merged state fully verified on main (141 unit / 12 e2e / drift 0). Tasks 6 and 7 unblocked.
 - 2026-09-15 (d) — M1 task 4 (file registration + `schema()` + Arrow-backed `fetchRange` in `engine-duckdb`) complete via the §7 protocol: worker + independent reviewer (approve — incl. empirical SQL-injection probing against real DuckDB and source-level verification of `BROWSER_FILEREADER` lazy slicing). Scope ruling recorded: done-when's `GridDataProvider` wording interpreted as engine-side readiness; grid-side adaptation is m1-5. Authorized additive `BrowserFileSource.getFile()` seam landed in `data-sources` (patch changeset). Carry-over notes added to §6. Task 5 unblocked.
