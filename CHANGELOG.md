@@ -38,6 +38,14 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   synthesis trick does not work for JS-constructed files).
   DOM-naming code lives behind the `@assay/data-sources/browser` subpath so
   DOM-less importers keep type-checking the neutral root entry.
+- **Open files, read windows (m1-4):** `@assay/engine-duckdb` registers a picked
+  file inside the worker (engine-generated names; user strings never enter
+  SQL), exposes `schema()` with DuckDB type strings passed through (incl.
+  nested `STRUCT(...)`/`LIST`), and serves Arrow-backed row windows
+  (`fetchRange`, validated + clamped ≤ 1000 rows, zero-copy IPC) with
+  graceful async `dispose()` — proven in Chromium against checksum-pinned
+  golden Parquet fixtures (first + middle windows, NULL via Arrow validity,
+  failed-query reuse).
 
 - **Decisions recorded (2026-09-14):** AGPL-3.0-or-later license for the open
   core (ADR 0036); opt-out telemetry consent model with first-run disclosure
