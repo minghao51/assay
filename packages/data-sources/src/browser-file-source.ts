@@ -63,6 +63,18 @@ export class BrowserFileSource implements DataSource {
     return { format: detectFormatFromFileName(file.name), sizeBytes: file.size }
   }
 
+  /**
+   * The `File` for this source, resolved lazily once and cached (the same
+   * consistent snapshot `open()`/`metadata()` observe — see the identity
+   * semantics above). This accessor (M1-4) lets engines that need the bytes
+   * reach them without a package dependency in either direction: an engine
+   * takes a `BrowserFileSource` through a structural seam. It never reads
+   * dataset bytes here — resolving the reference only (ADR 0001/0025).
+   */
+  getFile(): Promise<File> {
+    return this.#ensureFile()
+  }
+
   /** Lazily fetch the `File` once and cache it (one consistent snapshot per instance). */
   #ensureFile(): Promise<File> {
     this.#file ??=

@@ -2,16 +2,33 @@
  * Main-thread client for the DuckDB engine worker.
  *
  * Laziness contract: constructing the client performs no work and touches no
- * platform APIs. The first `ensureReady()` / `query()` boots the engine
- * inside a dedicated Web Worker (ADR 0021) — DuckDB-WASM never runs on the
- * main thread. The main thread exchanges only the typed messages defined in
- * `./protocol`; tabular results arrive as Apache Arrow IPC bytes (ADR 0020)
+ * platform APIs. The first `ensureReady()` / `query()` / `open()` boots the
+ * engine inside a dedicated Web Worker (ADR 0021) — DuckDB-WASM never runs on
+ * the main thread. The main thread exchanges only the typed messages defined
+ * in `./protocol`; tabular results arrive as Apache Arrow IPC bytes (ADR 0020)
  * and are reconstituted here with the Arrow API.
+ *
+ * M1-4 file lifecycle: `open(source)` accepts an `EngineFileSource` — a
+ * structural seam (`{ name, getFile(): Promise<File> }`) satisfied both by a
+ * `FileSystemFileHandle` (which has exactly that shape) and by
+ * `BrowserFileSource` with its `getFile()` accessor. The `File` is resolved on
+ * the main thread and transported as a structured-cloneable reference; the
+ * worker registers it and returns an `EngineTableHandle`, structurally
+ * compatible with `@assay/engine`'s `TableHandle { kind: 'table'; id }`
+ * (without importing that package). `schema()` and `fetchRange()` address the
+ * table through that handle; `fetchRange` windows are validated and clamped
+ * on this side too (fail fast, same semantics as the worker).
  */
 import { tableFromIPC } from 'apache-arrow'
 import type { Table } from 'apache-arrow'
 import { parseEngineResponse } from './protocol'
-import type { EngineReadyInfo, EngineRequest, EngineSuccessResponse } from './protocol'
+import type {
+  EngineColumnSchema,
+  EngineReadyInfo,
+  EngineRequest,
+  EngineSuccessResponse,
+} from './protocol'
+import { validateRowWindow } from './range-window'
 
 /** Lifecycle of the lazy engine bootstrap. */
 export type EngineStatus = 'idle' | 'booting' | 'ready' | 'failed' | 'disposed'
@@ -34,6 +51,44 @@ export interface EngineQueryResult {
   readonly hasMore: boolean
 }
 
+/** Result of a `fetchRange` call — same Arrow transport as `EngineQueryResult`. */
+export interface EngineRangeResult {
+  /** Arrow table holding the requested (validated, clamped) window. */
+  readonly batch: Table
+  /** True if DuckDB split the window and a tail batch was not transported. */
+  readonly hasMore: boolean
+}
+
+/**
+ * The file-source seam: a name (only the extension is interpreted) plus lazy
+ * access to the `File`. `FileSystemFileHandle` satisfies this structurally;
+ * `@assay/data-sources`' `BrowserFileSource` satisfies it via its `getFile()`
+ * accessor. Nothing is read at seam level — the worker decides when bytes are
+ * touched (local-first, ADR 0001).
+ */
+export interface EngineFileSource {
+  readonly name: string
+  getFile(): Promise<File>
+}
+
+/**
+ * Opaque handle to a table registered with the engine worker. Structurally
+ * compatible with `@assay/engine`'s `TableHandle` (kind 'table', string id) so
+ * the grid layer (m1-5) can adapt without engine changes.
+ */
+export interface EngineTableHandle {
+  readonly kind: 'table'
+  readonly id: string
+}
+
+/** A requested row window for `fetchRange` (half-open: `[startRow, endRow)`). */
+export interface EngineRangeWindow {
+  readonly startRow: number
+  readonly endRow: number
+  /** Optional projection; omit for all columns. Must be non-empty. */
+  readonly columns?: readonly string[]
+}
+
 /** The slice of the `Worker` API the client relies on (kept narrow for fakes). */
 export interface EngineWorkerLike {
   postMessage(request: EngineRequest): void
@@ -47,6 +102,12 @@ export type EngineWorkerFactory = () => EngineWorkerLike
 
 export interface DuckDbEngineClientOptions {
   workerFactory?: EngineWorkerFactory
+  /**
+   * How long `dispose()` waits for the worker's graceful cleanup reply before
+   * terminating anyway. Tests inject a short timeout; the default is generous
+   * for real (slow WASM teardown) environments.
+   */
+  disposeTimeoutMs?: number
 }
 
 /** The engine worker failed, crashed, or is not running. */
@@ -65,11 +126,23 @@ export class EngineProtocolError extends Error {
   }
 }
 
-/** A request failed inside the engine worker (e.g. a SQL error). */
+/** A SQL query failed inside the engine worker. */
 export class EngineQueryError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options)
     this.name = 'EngineQueryError'
+  }
+}
+
+/**
+ * An open/schema/range operation failed inside the engine worker (unknown
+ * handle, unsupported format, invalid window, …), or a request was malformed
+ * on the main thread. These errors leave the engine running.
+ */
+export class EngineOperationError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'EngineOperationError'
   }
 }
 
@@ -82,9 +155,16 @@ export class EngineDisposedError extends Error {
 }
 
 interface PendingRequest {
-  kind: 'init' | 'query'
+  requestType: EngineRequest['type']
   resolve: (response: EngineSuccessResponse) => void
   reject: (error: Error) => void
+}
+
+/** Maps an engine-reported error to the rejection class for its request. */
+function engineErrorFor(requestType: EngineRequest['type'], message: string): Error {
+  if (requestType === 'engine/init') return new EngineWorkerError(message)
+  if (requestType === 'engine/query') return new EngineQueryError(message)
+  return new EngineOperationError(message)
 }
 
 /** Creates the real engine worker: this package's TS worker entry (bundled by Vite). */
@@ -92,16 +172,21 @@ function defaultWorkerFactory(): EngineWorkerLike {
   return new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
 }
 
+const DEFAULT_DISPOSE_TIMEOUT_MS = 5_000
+
 export class DuckDbEngineClient {
   private currentStatus: EngineStatus = 'idle'
   private worker: EngineWorkerLike | null = null
   private readonly pending = new Map<number, PendingRequest>()
   private nextRequestId = 1
   private ready: Promise<EngineReadyInfo> | null = null
+  private disposal: Promise<void> | null = null
   private readonly workerFactory: EngineWorkerFactory
+  private readonly disposeTimeoutMs: number
 
   constructor(options: DuckDbEngineClientOptions = {}) {
     this.workerFactory = options.workerFactory ?? defaultWorkerFactory
+    this.disposeTimeoutMs = options.disposeTimeoutMs ?? DEFAULT_DISPOSE_TIMEOUT_MS
   }
 
   /** Current lifecycle state of the lazy bootstrap. */
@@ -139,14 +224,116 @@ export class DuckDbEngineClient {
     }
   }
 
-  /** Terminate the worker and fail every pending request. Terminal. */
-  dispose(): void {
+  /**
+   * Open a picked local file in the worker and register it with DuckDB.
+   * Resolves an opaque table handle; `source.getFile()` failures (e.g. the
+   * handle's file was moved/deleted) propagate from the source unchanged.
+   * Unsupported formats reject with `EngineOperationError`.
+   */
+  async open(source: EngineFileSource): Promise<EngineTableHandle> {
+    await this.ensureReady()
+    const file = await source.getFile()
+    const response = await this.send({
+      type: 'engine/open',
+      requestId: this.takeRequestId(),
+      name: source.name,
+      file,
+    })
+    if (response.type !== 'engine/open-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/open`)
+    }
+    return { kind: 'table', id: response.tableId }
+  }
+
+  /**
+   * Column name/type pairs for a registered table, exactly as DuckDB reports
+   * them (nested types arrive as full SQL type strings — no mapping layer).
+   */
+  async schema(handle: EngineTableHandle): Promise<EngineColumnSchema[]> {
+    await this.ensureReady()
+    const response = await this.send({
+      type: 'engine/schema',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+    })
+    if (response.type !== 'engine/schema-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/schema`)
+    }
+    return response.columns
+  }
+
+  /**
+   * Fetch a row window of a registered table as an Arrow table (ADR 0020).
+   * The window is validated and clamped to `MAX_RANGE_ROWS` on this side
+   * (fast, honest errors) and again in the worker (the boundary is untrusted)
+   * — the engine never implies full-dataset materialization.
+   */
+  async fetchRange(
+    handle: EngineTableHandle,
+    window: EngineRangeWindow,
+  ): Promise<EngineRangeResult> {
+    await this.ensureReady()
+    const validated = validateRowWindow(window.startRow, window.endRow)
+    if (!validated.valid) {
+      throw new EngineOperationError(`invalid row window: ${validated.reason}`)
+    }
+    const request: EngineRequest = {
+      type: 'engine/range',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      startRow: validated.startRow,
+      endRow: validated.endRow,
+    }
+    if (window.columns !== undefined) {
+      if (window.columns.length === 0) {
+        throw new EngineOperationError('columns must not be empty when provided')
+      }
+      request.columns = [...window.columns]
+    }
+    const response = await this.send(request)
+    if (response.type !== 'engine/range-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/range`)
+    }
+    try {
+      return { batch: tableFromIPC(response.batchIpc), hasMore: response.hasMore }
+    } catch (cause) {
+      throw new EngineProtocolError('worker sent an invalid Arrow IPC payload', { cause })
+    }
+  }
+
+  /**
+   * Gracefully dispose: ask the worker to drop every registered view/file,
+   * wait briefly for the reply (or the worker's death), then terminate the
+   * worker — the hard guarantee that the whole engine instance, including
+   * everything registered, is reclaimed. Fails all pending work. Terminal,
+   * idempotent; safe before the first boot.
+   */
+  async dispose(): Promise<void> {
     if (this.currentStatus === 'disposed') return
-    this.failAllPending(new EngineDisposedError())
-    this.worker?.terminate()
-    this.worker = null
-    this.ready = null
+    this.disposal ??= this.runDisposal()
+    await this.disposal
+  }
+
+  private async runDisposal(): Promise<void> {
+    // Terminal immediately: in-flight and new main-thread calls reject with
+    // `EngineDisposedError` while the worker finishes its graceful cleanup.
     this.currentStatus = 'disposed'
+    this.failAllPending(new EngineDisposedError())
+    const worker = this.worker
+    if (worker !== null) {
+      try {
+        await Promise.race([
+          this.send({ type: 'engine/dispose', requestId: this.takeRequestId() }, worker),
+          new Promise((resolve) => setTimeout(resolve, this.disposeTimeoutMs)),
+        ])
+      } catch {
+        // Best-effort: a dead worker rejects here (or its crash already ran);
+        // terminate() below is the hard cleanup guarantee.
+      }
+      worker.terminate()
+    }
+    if (this.worker === worker) this.worker = null
+    this.ready = null
   }
 
   private async boot(): Promise<EngineReadyInfo> {
@@ -176,14 +363,17 @@ export class DuckDbEngineClient {
     }
   }
 
-  private send(request: EngineRequest): Promise<EngineSuccessResponse> {
-    const worker = this.worker
+  private send(
+    request: EngineRequest,
+    workerOverride?: EngineWorkerLike,
+  ): Promise<EngineSuccessResponse> {
+    const worker = workerOverride ?? this.worker
     if (worker === null) {
       return Promise.reject(new EngineWorkerError('engine worker is not running'))
     }
     return new Promise<EngineSuccessResponse>((resolve, reject) => {
       this.pending.set(request.requestId, {
-        kind: request.type === 'engine/init' ? 'init' : 'query',
+        requestType: request.type,
         resolve,
         reject,
       })
@@ -208,11 +398,7 @@ export class DuckDbEngineClient {
     }
     this.pending.delete(response.requestId)
     if (response.type === 'engine/error') {
-      const error =
-        pending.kind === 'query'
-          ? new EngineQueryError(response.message)
-          : new EngineWorkerError(response.message)
-      pending.reject(error)
+      pending.reject(engineErrorFor(pending.requestType, response.message))
     } else {
       pending.resolve(response)
     }

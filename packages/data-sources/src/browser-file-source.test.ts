@@ -122,4 +122,24 @@ describe('BrowserFileSource — FileSystemFileHandle (File System Access) path',
     await source.open()
     expect(getFileCalls).toBe(1)
   })
+
+  test('getFile() exposes the identical cached File snapshot (M1-4 engine seam)', async () => {
+    let getFileCalls = 0
+    const file = new File([csvBytes], 'seam.json')
+    const source = new BrowserFileSource({
+      fileSystemHandle: fakeFileSystemFileHandle(file, () => {
+        getFileCalls += 1
+      }),
+    })
+
+    const first = await source.getFile()
+    const second = await source.getFile()
+    expect(first).toBe(file)
+    expect(second).toBe(first)
+    expect(getFileCalls).toBe(1) // the accessor shares the one-shot snapshot cache
+
+    // Same snapshot the fallback path exposes.
+    const fallbackSource = new BrowserFileSource({ file })
+    await expect(fallbackSource.getFile()).resolves.toBe(file)
+  })
 })

@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>@assay/engine-duckdb harness (M1-2)</title>
+    <title>@assay/engine-duckdb harness (M1-4)</title>
   </head>
   <body>
     <main>
-      <h1>@assay/engine-duckdb harness (M1-2)</h1>
+      <h1>@assay/engine-duckdb harness (M1-4)</h1>
       <p>engine status: <span data-testid="engine-status">idle</span></p>
 
       <section>
@@ -43,6 +43,91 @@
           <dd data-testid="query-has-more-range">not run</dd>
           <dt>post-cancel query value (SELECT 7 AS seven)</dt>
           <dd data-testid="post-cancel-value">not run</dd>
+        </dl>
+      </section>
+
+      <!--
+        Privacy (ADR 0001/0025): this harness deliberately never renders file
+        names — buttons say "fixture"; results show table ids, formats, types,
+        and values only. Fixtures are staged into the origin's OPFS sandbox
+        (disposable e2e cache, ADR 0017) and opened through their genuine
+        FileSystemFileHandle.
+      -->
+
+      <section>
+        <h2>Open fixture (flat: typed columns, incl. a NULL)</h2>
+        <button id="open-flat" type="button">Open flat fixture via engine</button>
+        <dl>
+          <dt>open status</dt>
+          <dd data-testid="open-status-flat">not run</dd>
+          <dt>table id</dt>
+          <dd data-testid="open-table-id-flat">not run</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Schema of the flat fixture (DuckDB type strings as-is)</h2>
+        <button id="schema-flat" type="button">Read schema of opened flat fixture</button>
+        <dl>
+          <dt>columns (name:type)</dt>
+          <dd data-testid="schema-flat">not run</dd>
+          <dt>column count</dt>
+          <dd data-testid="schema-count-flat">not run</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Range fetches over the flat fixture (Arrow-backed windows)</h2>
+        <button id="range-first" type="button">fetchRange rows 0–5 (first window)</button>
+        <button id="range-middle" type="button">fetchRange rows 2–4 (middle window)</button>
+        <dl>
+          <dt>first window: customer_id values</dt>
+          <dd data-testid="range-first-values">not run</dd>
+          <dt>first window: country values</dt>
+          <dd data-testid="range-first-countries">not run</dd>
+          <dt>first window: income values (row 2 is NULL)</dt>
+          <dd data-testid="range-first-income">not run</dd>
+          <dt>first window: num rows</dt>
+          <dd data-testid="range-first-num-rows">not run</dd>
+          <dt>first window: has more</dt>
+          <dd data-testid="range-first-has-more">not run</dd>
+          <dt>middle window (2–4): customer_id values</dt>
+          <dd data-testid="range-middle-values">not run</dd>
+          <dt>middle window (2–4): country values</dt>
+          <dd data-testid="range-middle-countries">not run</dd>
+          <dt>middle window (2–4): income values (starts at the NULL)</dt>
+          <dd data-testid="range-middle-income">not run</dd>
+          <dt>middle window: num rows</dt>
+          <dd data-testid="range-middle-num-rows">not run</dd>
+          <dt>middle window: has more</dt>
+          <dd data-testid="range-middle-has-more">not run</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Failed query, then reuse (engine survives an error)</h2>
+        <button id="error-then-reuse" type="button">Run invalid SQL, then SELECT 7 AS seven</button>
+        <dl>
+          <dt>invalid-query error</dt>
+          <dd data-testid="query-error">not run</dd>
+          <dt>post-error query value (SELECT 7 AS seven)</dt>
+          <dd data-testid="post-error-value">not run</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Open fixture (nested: structs/lists) and its schema passthrough</h2>
+        <button id="open-nested" type="button">Open nested fixture via engine</button>
+        <button id="schema-nested" type="button">Read schema of opened nested fixture</button>
+        <dl>
+          <dt>open status</dt>
+          <dd data-testid="open-status-nested">not run</dd>
+          <dt>table id</dt>
+          <dd data-testid="open-table-id-nested">not run</dd>
+          <dt>columns (name:type, DuckDB strings as-is)</dt>
+          <dd data-testid="schema-nested">not run</dd>
+          <dt>column count</dt>
+          <dd data-testid="schema-count-nested">not run</dd>
         </dl>
       </section>
     </main>

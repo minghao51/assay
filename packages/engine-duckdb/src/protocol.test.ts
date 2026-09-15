@@ -41,6 +41,99 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
     })
   })
 
+  describe('M1-4: file lifecycle requests', () => {
+    const parquetFile = new File([new Uint8Array([1, 2, 3])], 'flat.parquet')
+
+    it('parses engine/open with its name and structured-cloned File', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/open',
+          requestId: 5,
+          name: 'flat.parquet',
+          file: parquetFile,
+        }),
+      ).toEqual({ type: 'engine/open', requestId: 5, name: 'flat.parquet', file: parquetFile })
+    })
+
+    it('rejects engine/open without a File payload (the boundary is untrusted)', () => {
+      const base = { type: 'engine/open', requestId: 5, name: 'flat.parquet' }
+      expect(parseEngineRequest(base)).toBeNull()
+      expect(parseEngineRequest({ ...base, file: 'flat.parquet' })).toBeNull()
+      expect(parseEngineRequest({ ...base, file: new Uint8Array([1]) })).toBeNull()
+      expect(parseEngineRequest({ ...base, file: {} })).toBeNull()
+      expect(parseEngineRequest({ requestId: 5, file: parquetFile })).toBeNull()
+    })
+
+    it('rejects engine/open without a name', () => {
+      expect(
+        parseEngineRequest({ type: 'engine/open', requestId: 5, file: parquetFile }),
+      ).toBeNull()
+    })
+
+    it('parses engine/schema with its table id', () => {
+      expect(parseEngineRequest({ type: 'engine/schema', requestId: 6, tableId: 't1' })).toEqual({
+        type: 'engine/schema',
+        requestId: 6,
+        tableId: 't1',
+      })
+      expect(parseEngineRequest({ type: 'engine/schema', requestId: 6 })).toBeNull()
+      expect(parseEngineRequest({ type: 'engine/schema', requestId: 6, tableId: 1 })).toBeNull()
+    })
+
+    it('parses engine/range with integer bounds and optional columns', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/range',
+          requestId: 7,
+          tableId: 't1',
+          startRow: 0,
+          endRow: 50,
+        }),
+      ).toEqual({ type: 'engine/range', requestId: 7, tableId: 't1', startRow: 0, endRow: 50 })
+      expect(
+        parseEngineRequest({
+          type: 'engine/range',
+          requestId: 7,
+          tableId: 't1',
+          startRow: 10,
+          endRow: 20,
+          columns: ['a', 'b'],
+        }),
+      ).toEqual({
+        type: 'engine/range',
+        requestId: 7,
+        tableId: 't1',
+        startRow: 10,
+        endRow: 20,
+        columns: ['a', 'b'],
+      })
+    })
+
+    it('rejects malformed engine/range projections', () => {
+      const base = { type: 'engine/range', requestId: 7, tableId: 't1' }
+      // Bounds only need to be numbers here — semantic validation (integer,
+      // non-negative, ordered, capped) happens against `validateRowWindow` in
+      // the worker's range handler, so bad windows get an error reply instead
+      // of a silently ignored message.
+      expect(parseEngineRequest({ ...base, startRow: 0, endRow: 5 })).not.toBeNull()
+      expect(parseEngineRequest({ ...base, startRow: -1, endRow: 5 })).not.toBeNull()
+      expect(parseEngineRequest({ ...base, startRow: 1.5, endRow: 5 })).not.toBeNull()
+      expect(parseEngineRequest({ ...base, startRow: '0', endRow: 5 })).toBeNull()
+      expect(parseEngineRequest({ ...base, startRow: 0 })).toBeNull()
+      // columns: when present, a non-empty array of strings.
+      expect(parseEngineRequest({ ...base, startRow: 0, endRow: 5, columns: [] })).toBeNull()
+      expect(parseEngineRequest({ ...base, startRow: 0, endRow: 5, columns: 'a' })).toBeNull()
+      expect(parseEngineRequest({ ...base, startRow: 0, endRow: 5, columns: ['a', 2] })).toBeNull()
+    })
+
+    it('parses engine/dispose', () => {
+      expect(parseEngineRequest({ type: 'engine/dispose', requestId: 9 })).toEqual({
+        type: 'engine/dispose',
+        requestId: 9,
+      })
+    })
+  })
+
   describe('parseEngineResponse', () => {
     it('parses engine/ready with the duckdb version', () => {
       expect(
@@ -98,6 +191,70 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
         type: 'engine/error',
         requestId: 4,
         message: 'boom',
+      })
+    })
+
+    it('parses engine/open-result with its table id and reader format', () => {
+      expect(
+        parseEngineResponse({
+          type: 'engine/open-result',
+          requestId: 8,
+          tableId: 't1',
+          format: 'parquet',
+        }),
+      ).toEqual({ type: 'engine/open-result', requestId: 8, tableId: 't1', format: 'parquet' })
+      expect(
+        parseEngineResponse({
+          type: 'engine/open-result',
+          requestId: 8,
+          tableId: 't1',
+          format: 'execl',
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({ type: 'engine/open-result', requestId: 8, format: 'csv' }),
+      ).toBeNull()
+    })
+
+    it('parses engine/schema-result with its column/type pairs', () => {
+      const columns = [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'payload', type: 'STRUCT(a INTEGER)' },
+      ]
+      expect(parseEngineResponse({ type: 'engine/schema-result', requestId: 10, columns })).toEqual(
+        { type: 'engine/schema-result', requestId: 10, columns },
+      )
+      // Every pair must carry both a string name and a string type.
+      expect(
+        parseEngineResponse({
+          type: 'engine/schema-result',
+          requestId: 10,
+          columns: [{ name: 'id' }],
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({ type: 'engine/schema-result', requestId: 10, columns: 'id' }),
+      ).toBeNull()
+      expect(parseEngineResponse({ type: 'engine/schema-result', requestId: 10 })).toBeNull()
+    })
+
+    it('parses engine/range-result like a query result (Arrow IPC + honest hasMore)', () => {
+      const message = {
+        type: 'engine/range-result',
+        requestId: 11,
+        batchIpc: new Uint8Array([4, 5, 6]),
+        hasMore: false,
+      }
+      expect(parseEngineResponse(message)).toEqual(message)
+      expect(
+        parseEngineResponse({ type: 'engine/range-result', requestId: 11, hasMore: false }),
+      ).toBeNull()
+    })
+
+    it('parses engine/disposed', () => {
+      expect(parseEngineResponse({ type: 'engine/disposed', requestId: 12 })).toEqual({
+        type: 'engine/disposed',
+        requestId: 12,
       })
     })
 

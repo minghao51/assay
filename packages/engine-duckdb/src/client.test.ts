@@ -3,13 +3,16 @@ import { describe, expect, it } from 'vitest'
 import {
   DuckDbEngineClient,
   EngineDisposedError,
+  EngineOperationError,
   EngineProtocolError,
   EngineQueryError,
   type EngineQueryResult,
   type EngineWorkerFactory,
   type EngineWorkerLike,
 } from './client'
-import type { EngineRequest, EngineResponse } from './protocol'
+import type { DuckDbEngineClientOptions } from './client'
+import type { EngineColumnSchema, EngineRequest, EngineResponse } from './protocol'
+import { MAX_RANGE_ROWS } from './range-window'
 
 /**
  * In-memory fake for the worker boundary. It records posted requests and lets
@@ -103,11 +106,14 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-function makeClient(): { client: DuckDbEngineClient; workers: FakeWorker[] } {
+function makeClient(options: DuckDbEngineClientOptions = {}): {
+  client: DuckDbEngineClient
+  workers: FakeWorker[]
+} {
   FakeWorker.instances.length = 0
   const factory: EngineWorkerFactory = () => new FakeWorker()
   return {
-    client: new DuckDbEngineClient({ workerFactory: factory }),
+    client: new DuckDbEngineClient({ workerFactory: factory, ...options }),
     workers: FakeWorker.instances,
   }
 }
@@ -331,21 +337,256 @@ describe('DuckDbEngineClient lazy bootstrap', () => {
     worker.respond(queryResultResponse(worker.requestAt(1).requestId, [42]))
     expectArrowValue(await pending, [42])
   })
+})
 
-  it('dispose terminates the worker, fails pending work, and is terminal', async () => {
+describe('DuckDbEngineClient file lifecycle (M1-4)', () => {
+  const fixtureFile = new File([new Uint8Array([1, 2, 3])], 'flat.parquet')
+  const source = { name: 'flat.parquet', getFile: () => Promise.resolve(fixtureFile) }
+
+  function openResultResponse(requestId: number): EngineResponse {
+    return { type: 'engine/open-result', requestId, tableId: 't1', format: 'parquet' }
+  }
+
+  function schemaResultResponse(requestId: number): EngineResponse {
+    const columns: EngineColumnSchema[] = [
+      { name: 'customer_id', type: 'BIGINT' },
+      { name: 'payload', type: 'STRUCT("name" VARCHAR)' },
+    ]
+    return { type: 'engine/schema-result', requestId, columns }
+  }
+
+  it('open() resolves the file once, posts the reference, and returns a table-shaped handle', async () => {
+    let getFileCalls = 0
+    const countingSource = {
+      name: 'flat.parquet',
+      getFile: () => {
+        getFileCalls += 1
+        return Promise.resolve(fixtureFile)
+      },
+    }
     const { client, workers } = makeClient()
-
-    const pending = client.query('SELECT 42 AS value')
+    const pending = client.open(countingSource)
     const worker = workers[0]!
-    client.dispose()
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
 
-    await expect(pending).rejects.toThrow(EngineDisposedError)
+    // The File itself (a structured-cloneable reference) crosses the boundary.
+    expect(worker.requestAt(1)).toMatchObject({
+      type: 'engine/open',
+      name: 'flat.parquet',
+      file: fixtureFile,
+    })
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+
+    const handle = await pending
+    expect(getFileCalls).toBe(1)
+    expect(handle).toEqual({ kind: 'table', id: 't1' })
+    expect(client.status).toBe('ready')
+  })
+
+  it('open() rejects engine-reported failures with EngineOperationError and stays usable', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.open({ name: 'blob.bin', getFile: () => Promise.resolve(fixtureFile) })
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    expect(worker.requestAt(1)).toMatchObject({ type: 'engine/open', name: 'blob.bin' })
+    worker.respond({
+      type: 'engine/error',
+      requestId: worker.requestAt(1).requestId,
+      message: 'unsupported dataset format',
+    })
+
+    await expect(pending).rejects.toThrow(EngineOperationError)
+    expect(client.status).toBe('ready') // operational error, not a crash
+    // The engine still answers afterwards.
+    const retry = client.query('SELECT 1 AS value')
+    await flush()
+    worker.respond(queryResultResponse(worker.requestAt(2).requestId, [1]))
+    expectArrowValue(await retry, [1])
+  })
+
+  it('schema() returns the columns exactly as the worker reported them', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const pendingSchema = client.schema(handle)
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({ type: 'engine/schema', tableId: 't1' })
+    worker.respond(schemaResultResponse(worker.requestAt(2).requestId))
+
+    await expect(pendingSchema).resolves.toEqual([
+      { name: 'customer_id', type: 'BIGINT' },
+      { name: 'payload', type: 'STRUCT("name" VARCHAR)' },
+    ])
+  })
+
+  it('fetchRange() posts the window and reconstitutes the Arrow batch', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const pendingRange = client.fetchRange(handle, { startRow: 2, endRow: 4 })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/range',
+      tableId: 't1',
+      startRow: 2,
+      endRow: 4,
+    })
+    worker.respond({
+      type: 'engine/range-result',
+      requestId: worker.requestAt(2).requestId,
+      batchIpc: arrowIpc([3, 4]),
+      hasMore: false,
+    })
+
+    const result = await pendingRange
+    expect(result.hasMore).toBe(false)
+    expect(result.batch.numRows).toBe(2)
+    expect(valuesOf(result as unknown as EngineQueryResult)).toEqual([3, 4])
+  })
+
+  it('fetchRange() clamps oversized windows before they cross the boundary', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const pendingRange = client.fetchRange(handle, { startRow: 5000, endRow: 10_000_000 })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/range',
+      startRow: 5000,
+      endRow: 5000 + MAX_RANGE_ROWS, // clamped client-side; the worker re-clamps anyway
+    })
+    worker.respond({
+      type: 'engine/range-result',
+      requestId: worker.requestAt(2).requestId,
+      batchIpc: arrowIpc([]),
+      hasMore: false,
+    })
+    await expect(pendingRange).resolves.toBeTruthy()
+  })
+
+  it('fetchRange() rejects invalid windows and empty projections without posting', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+    const requestsBefore = worker.postedRequests.length
+
+    await expect(client.fetchRange(handle, { startRow: -1, endRow: 5 })).rejects.toThrow(
+      EngineOperationError,
+    )
+    await expect(client.fetchRange(handle, { startRow: 5, endRow: 2 })).rejects.toThrow(
+      /invalid row window/,
+    )
+    await expect(client.fetchRange(handle, { startRow: 0, endRow: 1.5 })).rejects.toThrow(
+      EngineOperationError,
+    )
+    await expect(
+      client.fetchRange(handle, { startRow: 0, endRow: 2, columns: [] }),
+    ).rejects.toThrow(/columns must not be empty/)
+    expect(worker.postedRequests.length).toBe(requestsBefore) // nothing crossed the boundary
+  })
+
+  it('fetchRange() passes the column projection through', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const pendingRange = client.fetchRange(handle, {
+      startRow: 0,
+      endRow: 3,
+      columns: ['customer_id', 'country'],
+    })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/range',
+      columns: ['customer_id', 'country'],
+    })
+    worker.respond({
+      type: 'engine/range-result',
+      requestId: worker.requestAt(2).requestId,
+      batchIpc: arrowIpc([1, 2, 3]),
+      hasMore: false,
+    })
+    await expect(pendingRange).resolves.toBeTruthy()
+  })
+
+  it('source getFile() failures propagate unchanged from the seam', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.open({
+      name: 'flat.parquet',
+      getFile: () => Promise.reject(new Error('NotFoundError: file moved')),
+    })
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await expect(pending).rejects.toThrow(/NotFoundError/)
+    expect(client.status).toBe('ready')
+  })
+
+  it('dispose() gracefully drops registrations, then terminates the worker', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    await pendingOpen
+
+    const disposed = client.dispose()
+    await flush()
+    // The graceful request crossed the boundary *before* termination…
+    const disposeRequest = worker.postedRequests.at(-1)
+    expect(disposeRequest).toMatchObject({ type: 'engine/dispose' })
+    worker.respond({ type: 'engine/disposed', requestId: disposeRequest!.requestId })
+    await disposed
+
     expect(client.status).toBe('disposed')
     expect(worker.terminated).toBe(true)
-    await expect(client.query('SELECT 42 AS value')).rejects.toThrow(EngineDisposedError)
-    await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
-    // A boot racing dispose must not resurrect the disposed status.
-    await flush()
+    await expect(client.query('SELECT 1')).rejects.toThrow(EngineDisposedError)
+    // Terminal + idempotent.
+    await expect(client.dispose()).resolves.toBeUndefined()
+  })
+
+  it('dispose() terminates even when the worker never answers the graceful request', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 20 })
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await boot
+
+    await client.dispose() // resolves via the timeout race, not a reply
     expect(client.status).toBe('disposed')
+    expect(worker.terminated).toBe(true)
+  })
+
+  it('dispose() before boot is a no-op that stays terminal', async () => {
+    const { client, workers } = makeClient()
+    await expect(client.dispose()).resolves.toBeUndefined()
+    expect(workers).toHaveLength(0)
+    expect(client.status).toBe('disposed')
+    await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
   })
 })
