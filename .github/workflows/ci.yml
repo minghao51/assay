@@ -21,6 +21,25 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Pinned to the generator version recorded in fixtures/parquet/manifest.json
+      # (v1.5.5); official release asset, checksum-verified (R13 verified download).
+      - name: Install DuckDB CLI v1.5.5 (sha256-pinned)
+        run: |
+          curl -sSfL -o /tmp/duckdb_cli.zip \
+            "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip"
+          echo "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05  /tmp/duckdb_cli.zip" | sha256sum --check -
+          unzip -o /tmp/duckdb_cli.zip -d /tmp/duckdb_cli
+          sudo install -m 0755 /tmp/duckdb_cli/duckdb /usr/local/bin/duckdb
+          duckdb --version
+
+      # Committed fixtures must reproduce bit-identically under the pinned CLI
+      # (ADR 0038); drift means fixtures changed without a deliberate manifest update.
+      - name: Regenerate golden Parquet fixtures and verify zero drift
+        run: |
+          bash fixtures/parquet/generate.sh
+          git diff --exit-code fixtures/parquet/
+          [ -z "$(git status --porcelain fixtures/parquet/)" ]
+
       - run: pnpm lint
 
       - run: pnpm typecheck
@@ -47,5 +66,16 @@ jobs:
       - run: pnpm build
 
       - run: pnpm exec playwright install --with-deps chromium
+
+      # Same pinned CLI as the verify job; available to e2e steps that generate
+      # large on-demand fixtures (never committed — ADR 0038).
+      - name: Install DuckDB CLI v1.5.5 (sha256-pinned)
+        run: |
+          curl -sSfL -o /tmp/duckdb_cli.zip \
+            "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip"
+          echo "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05  /tmp/duckdb_cli.zip" | sha256sum --check -
+          unzip -o /tmp/duckdb_cli.zip -d /tmp/duckdb_cli
+          sudo install -m 0755 /tmp/duckdb_cli/duckdb /usr/local/bin/duckdb
+          duckdb --version
 
       - run: pnpm test:e2e
