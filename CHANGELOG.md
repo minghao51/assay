@@ -23,11 +23,13 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ### Added
 
-- **M1 begins — DuckDB runs in the browser (m1-1):** `@assay/engine-duckdb` boots
-  DuckDB-WASM lazily inside a dedicated Web Worker behind a typed postMessage
-  protocol owned by us (ADR 0002/0021); proven end-to-end in Chromium via
-  Playwright (idle-before-boot, then `SELECT` round-trip). Arrow record-batch
-  transport follows with m1-2 (ADR 0020).
+- **M1 begins — DuckDB runs in the browser (m1-1/m1-2):** `@assay/engine-duckdb`
+  boots DuckDB-WASM lazily inside a dedicated Web Worker behind a typed
+  postMessage protocol owned by us (ADR 0002/0021); `query()` streams via
+  DuckDB's record-batch API and returns the first Apache Arrow record batch to
+  the main thread, transferred zero-copy (ADR 0020) — proven end-to-end in
+  Chromium via Playwright (idle-before-boot, Arrow-API assertions, multi-batch
+  `hasMore` + tail-cancel reuse).
 
 - **Decisions recorded (2026-09-14):** AGPL-3.0-or-later license for the open
   core (ADR 0036); opt-out telemetry consent model with first-run disclosure

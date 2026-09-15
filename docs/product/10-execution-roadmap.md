@@ -92,7 +92,7 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
 - [x] Decision: fixture tooling — DuckDB CLI generator (ADR 0038) — 2026-09-14.
 - [x] Decision: changesets + product changelog + capacity-based sequencing — 2026-09-14.
 - [x] AGENTS.md for AI coding agents — 2026-09-14.
-- [ ] M0 remainder: DuckDB-WASM worker spike; first Arrow batch through the worker; first virtualized grid render; measure time-to-first-row and memory (the original Phase-0 spike items). _In progress: m1-1 done 2026-09-15 (`59a48e2`) — DuckDB-WASM boots lazily in a Web Worker, trivial query round-trips in Chromium e2e; Arrow-batch transport is m1-2._
+- [ ] M0 remainder: DuckDB-WASM worker spike; first Arrow batch through the worker; first virtualized grid render; measure time-to-first-row and memory (the original Phase-0 spike items). _In progress: m1-1 done (`59a48e2`) — DuckDB-WASM boots lazily in a Web Worker, trivial query round-trips in Chromium e2e; m1-2 done (`1308988`) — first Arrow record batch crosses the worker boundary to the main thread (zero-copy IPC transfer, `conn.send()` streaming). Remaining: virtualized grid render (m1-5), measurement (m1-7)._
 - [ ] Telemetry vendor + sampling design (D2 tail).
 - [x] Product name decision — **Assay** (ADR 0039) — 2026-09-14.
 - [ ] Demo dataset curation for the MVP demo scenario begins (opportunity O5).

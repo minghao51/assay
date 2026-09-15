@@ -13,7 +13,7 @@ export default defineConfig({
       reuseExistingServer: !process.env['CI'],
     },
     {
-      // engine-duckdb M1-1 harness: lazy worker boot + SELECT-smoke proof
+      // engine-duckdb M1 harness (m1-1/m1-2): lazy worker boot + first Arrow batch proof
       // (built by `pnpm build` via the package's `vite build`).
       command: 'pnpm --filter @assay/engine-duckdb exec vite preview --port 4179 --strictPort',
       port: 4179,
