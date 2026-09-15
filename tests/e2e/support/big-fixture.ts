@@ -31,10 +31,15 @@ import path from 'node:path'
  * tests/e2e/bench-ttfr.spec.ts.
  *
  * Reuse policy (unlike million-fixture.ts, which always overwrites): if the
- * temp file exists with a matching sidecar meta (`rows` and `bytes`), it is
- * reused — regenerating >1 GiB per run is wasteful. Delete the temp dir (or
- * set ASSAY_E2E_BIG_ROWS) to force regeneration. The DuckDB CLI is resolved
- * from `DUCKDB` (default `duckdb` on PATH), same as million-fixture.ts.
+ * temp file exists and its sidecar meta agrees with the file on disk —
+ * `rows` and `bytes`, plus the stored `sha256` re-hashed from the actual
+ * file (a few seconds for ~1 GiB) — it is reused. A same-size corrupted file
+ * fails the sha256 comparison and is regenerated instead of poisoning the
+ * bench (decision factored into `metaMatches` so the negative e2e test can
+ * pin it; m1-7 reviewer carry-over: the old rows+bytes-only check reused a
+ * same-size corrupt file). Delete the temp dir (or set ASSAY_E2E_BIG_ROWS)
+ * to force regeneration. The DuckDB CLI is resolved from `DUCKDB` (default
+ * `duckdb` on PATH), same as million-fixture.ts.
  */
 
 /** Env override for tuning/fallback runs (e.g. `ASSAY_E2E_BIG_ROWS=4000000`). */
@@ -54,6 +59,44 @@ export function bigFixturePath(): string {
 
 function bigFixtureMetaPath(): string {
   return path.join(bigFixtureDir(), 'big.meta.json')
+}
+
+/**
+ * What the generator persists in the sidecar meta (big.meta.json). Fields
+ * are optional in the type because the JSON is untrusted input: a meta
+ * missing any of them must fail `metaMatches` and trigger regeneration.
+ */
+export interface BigFixtureMeta {
+  readonly rows?: number
+  readonly bytes?: number
+  readonly sha256?: string
+}
+
+/**
+ * The reuse decision, factored out so the negative e2e test can prove that a
+ * same-size corrupted fixture is rejected (the old rows+bytes-only decision
+ * would have reused it). The meta matches only when its `rows`/`bytes` agree
+ * with the reuse candidate AND its stored `sha256` equals the hash of the
+ * actual file; a meta without a usable `sha256` never matches, because it
+ * cannot be verified.
+ *
+ * @param meta   parsed sidecar meta (untrusted JSON)
+ * @param stat   the reuse candidate: `rows` as requested (env) and the
+ *               on-disk file's `bytes`
+ * @param sha256 sha256 of the actual on-disk file
+ */
+export function metaMatches(
+  meta: BigFixtureMeta,
+  stat: { readonly rows: number; readonly bytes: number },
+  sha256: string,
+): boolean {
+  return (
+    meta.rows === stat.rows &&
+    meta.bytes === stat.bytes &&
+    stat.bytes > 0 &&
+    typeof meta.sha256 === 'string' &&
+    meta.sha256 === sha256
+  )
 }
 
 /** Facts about the generated fixture, logged for the benchmark note. */
@@ -92,7 +135,8 @@ export function bigFixtureSql(rows: number, destination: string): string {
   ].join('\n')
 }
 
-function sha256File(filePath: string): string {
+/** sha256 of a file (whole-file read — the whole file must be verified). */
+export function sha256File(filePath: string): string {
   const hash = createHash('sha256')
   hash.update(readFileSync(filePath))
   return hash.digest('hex')
@@ -113,23 +157,29 @@ export function ensureBigFixture(): BigFixtureInfo {
 
   if (existsSync(fixturePath) && existsSync(metaPath)) {
     try {
-      const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as { rows?: number; bytes?: number }
+      const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as BigFixtureMeta
       const bytes = statSync(fixturePath).size
-      if (meta.rows === rows && meta.bytes === bytes && bytes > 0) {
-        const started = Date.now()
+      const started = Date.now()
+      const sha256 = sha256File(fixturePath)
+      if (metaMatches(meta, { rows, bytes }, sha256)) {
         const info: BigFixtureInfo = {
           path: fixturePath,
           rows,
           bytes,
           generationMs: 0, // reused, not regenerated (Date.now only for the log line)
-          sha256: sha256File(fixturePath),
+          sha256,
         }
         console.log(
           `[m1-7 fixture] reused ${fixturePath} rows=${String(info.rows)} bytes=${String(info.bytes)} ` +
-            `gib=${(info.bytes / 1024 ** 3).toFixed(3)} sha256=${info.sha256} (meta match; verify=${String(Date.now() - started)}ms)`,
+            `gib=${(info.bytes / 1024 ** 3).toFixed(3)} sha256=${info.sha256} (meta+sha256 match; verify=${String(Date.now() - started)}ms)`,
         )
         return info
       }
+      console.log(
+        `[m1-7 fixture] meta mismatch for ${fixturePath} (stored rows=${String(meta.rows)} ` +
+          `bytes=${String(meta.bytes)} sha256=${String(meta.sha256 ?? 'none')}; actual bytes=${String(bytes)} ` +
+          `sha256=${sha256}) — regenerating`,
+      )
     } catch {
       // Unreadable/corrupt meta: fall through to regeneration.
     }

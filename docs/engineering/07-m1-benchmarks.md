@@ -40,7 +40,12 @@ Measured: **1.09 GiB**. Multi-GB is **extrapolation** — see
 
 Generated on demand by `tests/e2e/support/big-fixture.ts` into
 `/tmp/assay-e2e-m1-7/big.parquet` — **never committed** (same policy as the
-1M-row m1-5 fixture). Generation took **~25 s** (25.9 s measured).
+1M-row m1-5 fixture). Generation took **~25 s** (25.9 s measured). Runs
+reuse the file only after the sidecar meta verifies against it: `rows`,
+`bytes`, and the stored `sha256` re-hashed from the file (~seconds for
+~1 GiB) — a same-size corrupted fixture is rejected and regenerated instead
+of poisoning the bench (negative-tested in
+`tests/e2e/big-fixture-reuse.spec.ts`).
 
 | Property      | Value                                                              |
 | ------------- | ------------------------------------------------------------------ |
@@ -202,13 +207,14 @@ pnpm exec playwright install chromium
 # 1. build (the harness dist is served by the second webServer in playwright.config.ts)
 pnpm build
 
-# 2. full suite WITHOUT the big bench (bench spec skips: 12 pass, 1 skipped)
+# 2. full suite WITHOUT the big bench (bench spec skips: 16 pass, 1 skipped)
 ASSAY_E2E_PORT_WEB=4273 ASSAY_E2E_PORT_ENGINE=4279 ASSAY_E2E_PORT_DS=4280 \
 DUCKDB=/tmp/duckdb pnpm test:e2e
 
-# 3. WITH the ~1 GiB bench (adds the 13th spec; ~1 min incl. one-time fixture
-#    generation of ~25 s; the fixture is reused across runs, delete
-#    /tmp/assay-e2e-m1-7 to force regeneration)
+# 3. WITH the ~1 GiB bench (adds the 17th spec; ~1 min incl. one-time fixture
+#    generation of ~25 s; the fixture is reused across runs — reuse re-verifies
+#    the stored sha256, a few seconds — delete /tmp/assay-e2e-m1-7 to force
+#    regeneration)
 ASSAY_E2E_BIG_BENCH=1 ASSAY_E2E_PORT_WEB=4273 ASSAY_E2E_PORT_ENGINE=4279 \
 ASSAY_E2E_PORT_DS=4280 DUCKDB=/tmp/duckdb pnpm test:e2e
 
@@ -235,10 +241,17 @@ smaller fallback rigs; the note's numbers assume the default 16,000,000),
    grow.
 4. **Per-cell projection cost** (m1-5 carry-over): the app's grid reads cells
    via Arrow `vector.get()` per cell; this bench measures the engine
-   transport only. Measure the composed app path when the schema panel (m1-6)
-   lands.
+   transport only. The m1-6 schema panel has landed, so the composed app
+   path is now measurable end-to-end — still an open measurement (nothing
+   recorded yet).
 5. **CSV/JSONL paths** were not measured — Parquet only (zstd row groups have
    different statistics/pruning behavior than CSV).
 6. **First-batch-only transport** currently cancels the query tail
    (`hasMore=true`); when true streaming lands, TTFR and window latency should
    be re-baselined.
+7. **Warm OS page cache** (m1-7 carry-over): every number above ran with the
+   fixture fresh in the OS page cache — it was generated immediately before
+   the repeats on the same machine/SSD — so boot/open and window latencies
+   are warm-cache numbers; a cold-cache first open (fresh reboot, or the file
+   evicted) may be slower. The next round should record the cache state
+   alongside the results.
