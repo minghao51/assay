@@ -1,5 +1,5 @@
 /**
- * @dataworkbench/ai — AI provider abstractions and proposal schemas
+ * @assay/ai — AI provider abstractions and proposal schemas
  *
  * Status: scaffold (M0). Ownership and dependency rules:
  * docs/engineering/05-repository-structure.md. Delivery sequencing:

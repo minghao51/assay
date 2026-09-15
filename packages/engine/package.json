@@ -1,5 +1,5 @@
 {
-  "name": "@dataworkbench/engine",
+  "name": "@assay/engine",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dataworkbench/data-sources": "workspace:*"
+    "@assay/data-sources": "workspace:*"
   },
   "devDependencies": {
     "typescript": "catalog:"

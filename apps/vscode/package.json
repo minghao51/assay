@@ -1,6 +1,6 @@
 {
-  "name": "@dataworkbench/vscode",
+  "name": "@assay/vscode",
   "version": "0.0.0",
   "private": true,
-  "description": "Data Workbench VS Code extension — placeholder until milestone M7"
+  "description": "Assay VS Code extension — placeholder until milestone M7"
 }

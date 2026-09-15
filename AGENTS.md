@@ -5,10 +5,21 @@ making changes. Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What this project is
 
-Data Workbench — a local-first dataset workbench (inspect, validate, compare,
+**Assay** — the local-first data workbench (inspect, validate, compare,
 repair, transform, govern Parquet/JSONL/JSON/CSV/Arrow). Pre-MVP: milestone M0
 complete, M1 (local file explorer) next. TypeScript + DuckDB-WASM + Arrow;
 browser-native; **data never leaves the user's machine by default**.
+
+> Historical note: docs written before 2026-09-14 call this product "Data
+> Workbench" — same product (ADR 0039).
+
+## Working as part of an agent team
+
+If you are one of several agents (or sessions) working this repo, follow the
+**multi-agent operating model** in `docs/process/handoff.md` §7: orchestrator
+dispatches tasks from §6, workers execute one task with full verification,
+an independent reviewer applies the definition-of-done checklist. Never both
+implement and approve the same change.
 
 ## Sources of truth (read before non-trivial work)
 

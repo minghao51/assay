@@ -1,5 +1,5 @@
 /**
- * @dataworkbench/data-sources — adapters that produce data handles from
+ * @assay/data-sources — adapters that produce data handles from
  * files, directories, and (later) remote systems.
  *
  * Interface from docs/architecture/02-architecture.md §6. Planned

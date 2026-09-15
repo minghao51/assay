@@ -1,6 +1,6 @@
 # Security Policy
 
-Data Workbench handles datasets that may be sensitive, proprietary, or
+Assay handles datasets that may be sensitive, proprietary, or
 regulated. Security and privacy are product features, not add-ons.
 
 ## Core commitments

@@ -1,4 +1,4 @@
-# Contributing to Data Workbench
+# Contributing to Assay
 
 The full contributor guide — developer setup, commands, conventions, the ADR
 process, dependency rules, and the interim release policy — lives at

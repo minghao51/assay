@@ -1,4 +1,7 @@
-export const APP_NAME = 'Data Workbench' as const
+export const APP_NAME = 'Assay' as const
+
+/** The descriptive tagline — "data workbench" is the category, Assay is the product (ADR 0039). */
+export const TAGLINE = 'The local-first data workbench' as const
 
 /** Keep in sync with the roadmap status (docs/product/10-execution-roadmap.md §4). */
 export const SCAFFOLD_STATUS = 'pre-MVP scaffold — milestone M0 complete' as const

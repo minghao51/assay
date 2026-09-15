@@ -1,5 +1,5 @@
 /**
- * @dataworkbench/testing — reusable fixtures, helpers, and conformance suites.
+ * @assay/testing — reusable fixtures, helpers, and conformance suites.
  *
  * Conformance suites are the mechanism that lets engines and adapters evolve
  * without changing product behavior (docs/engineering/05-repository-structure.md §4):

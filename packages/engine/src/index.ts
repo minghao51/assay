@@ -1,5 +1,5 @@
 /**
- * @dataworkbench/engine — the engine interface layer (interfaces only).
+ * @assay/engine — the engine interface layer (interfaces only).
  *
  * Every engine implementation (engine-duckdb, engine-parquet, future
  * DataFusion/native engines) passes the same conformance suite
@@ -7,7 +7,7 @@
  * interface so browser WASM constraints never become product constraints
  * (docs/engineering/03-tech-stack.md §7, ADR 0002/0020).
  */
-import type { DataSource } from '@dataworkbench/data-sources'
+import type { DataSource } from '@assay/data-sources'
 
 /** Opaque handle to a table registered with an engine. */
 export interface TableHandle {

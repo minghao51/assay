@@ -1,5 +1,5 @@
 {
-  "name": "@dataworkbench/web",
+  "name": "@assay/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",

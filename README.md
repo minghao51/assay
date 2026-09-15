@@ -1,8 +1,8 @@
-# Data Workbench
+# Assay
 
 > Understand any dataset before your code does.
 
-Data Workbench is a **local-first dataset workbench**: inspect, understand,
+Assay is **the local-first data workbench**: inspect, understand,
 validate, compare, repair, transform, review, and govern structured datasets
 (Parquet, JSONL, JSON, CSV, Arrow/Feather) directly in the browser or VS Code —
 with no data leaving your machine, and a long-term path toward governed data

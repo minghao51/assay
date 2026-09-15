@@ -12,6 +12,15 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed
+
+- **Product named Assay** (D6, ADR 0039): workspace scope
+  `@dataworkbench/*` → `@assay/*`, CLI banner/binary `assay`, web app
+  identity, local metadata dir `.assay/`, telemetry opt-out env var
+  `ASSAY_NO_TELEMETRY`. Historical docs keep "Data Workbench" wording per
+  the naming-convention note in `docs/README.md`. Caveat: the unscoped npm
+  name `assay` is taken; claim the `@assay` org before first publish.
+
 ### Added
 
 - **Decisions recorded (2026-09-14):** AGPL-3.0-or-later license for the open
@@ -24,7 +33,7 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 - Changesets configuration (`.changeset/`).
 - `fixtures/parquet/generate.sh` — deterministic DuckDB-based Parquet fixture
   generator with `manifest.json` checksums.
-- Milestone M0 — pnpm/Turborepo/TypeScript monorepo: 16 `@dataworkbench/*`
+- Milestone M0 — pnpm/Turborepo/TypeScript monorepo: 16 `@assay/*`
   packages, `apps/web` (Vite/React), `apps/cli`, VS Code placeholder, strict
   shared TypeScript config, ESLint with dependency-boundary rules, Prettier,
   Vitest, Playwright E2E, GitHub Actions CI (verify + e2e), golden text

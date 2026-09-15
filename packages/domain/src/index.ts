@@ -1,5 +1,5 @@
 /**
- * @dataworkbench/domain — pure domain entities and types.
+ * @assay/domain — pure domain entities and types.
  *
  * The domain package is deliberately portable: no React, no browser APIs,
  * no engine dependencies (docs/engineering/05-repository-structure.md §3,

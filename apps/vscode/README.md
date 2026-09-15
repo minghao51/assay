@@ -1,4 +1,4 @@
-# Data Workbench — VS Code Extension (placeholder)
+# Assay — VS Code Extension (placeholder)
 
 This package is a deliberate placeholder. The VS Code extension is milestone
 **M7** in the execution roadmap

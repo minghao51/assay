@@ -1,9 +1,9 @@
 {
-  "name": "dataworkbench",
+  "name": "assay",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Data Workbench — local-first dataset workbench (monorepo root)",
+  "description": "Assay — the local-first data workbench (monorepo root)",
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@11.26.0",
   "engines": {
@@ -18,7 +18,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "dev": "pnpm --filter @dataworkbench/web dev",
+    "dev": "pnpm --filter @assay/web dev",
     "changeset": "changeset",
     "version-packages": "changeset version"
   },

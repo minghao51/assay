@@ -149,7 +149,7 @@ importers:
 
   packages/engine:
     dependencies:
-      '@dataworkbench/data-sources':
+      '@assay/data-sources':
         specifier: workspace:*
         version: link:../data-sources
     devDependencies:

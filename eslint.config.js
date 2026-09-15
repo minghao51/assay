@@ -42,7 +42,7 @@ export default tseslint.config(
           ],
           patterns: [
             {
-              group: ['@dataworkbench/ui', '@dataworkbench/grid', '@dataworkbench/engine-*'],
+              group: ['@assay/ui', '@assay/grid', '@assay/engine-*'],
               message:
                 'The domain package must not depend on UI or engine implementations (docs 05 §3).',
             },

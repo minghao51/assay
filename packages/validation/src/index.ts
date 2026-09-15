@@ -1,5 +1,5 @@
 /**
- * @dataworkbench/validation — Rule planning and execution
+ * @assay/validation — Rule planning and execution
  *
  * Status: scaffold (M0). Ownership and dependency rules:
  * docs/engineering/05-repository-structure.md. Delivery sequencing:

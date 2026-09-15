@@ -38,6 +38,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0036 | AGPL-3.0-or-later for the Open-Core Repository                                  |
 | 0037 | Product Telemetry Is Opt-Out                                                    |
 | 0038 | Golden Parquet Fixtures Are Generated with the DuckDB CLI                       |
+| 0039 | The Product Name Is Assay                                                       |
 
 ## Proposed
 

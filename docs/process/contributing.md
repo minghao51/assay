@@ -1,4 +1,4 @@
-# Contributing to Data Workbench
+# Contributing to Assay
 
 This document covers developer setup, commands, conventions, and process. For product direction see [`../product/00-roadmap.md`](../product/00-roadmap.md); for the current delivery plan see [`../product/10-execution-roadmap.md`](../product/10-execution-roadmap.md).
 

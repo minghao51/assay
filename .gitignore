@@ -31,4 +31,4 @@ playwright/.cache/
 Thumbs.db
 
 # local product state (docs/architecture/02-architecture.md §13 is runtime state, not repo content)
-.dataworkbench/
+.assay/

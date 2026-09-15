@@ -1,5 +1,5 @@
 /**
- * @dataworkbench/diff — Schema/profile/distribution/row diff
+ * @assay/diff — Schema/profile/distribution/row diff
  *
  * Status: scaffold (M0). Ownership and dependency rules:
  * docs/engineering/05-repository-structure.md. Delivery sequencing:

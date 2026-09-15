@@ -1,4 +1,4 @@
-# Data Workbench — Project Documentation
+# Assay — Project Documentation
 
 This documentation set is intended to be sufficient to start implementation while preserving the long-term product direction.
 
@@ -135,6 +135,7 @@ rather than on rebuilding commodity infrastructure such as query engines, crypto
 
 ## Documentation Conventions
 
+- **Naming (ADR 0039):** the product is **Assay**. Documents written before 2026-09-14 use the old descriptive name "Data Workbench" and paths like `.dataworkbench/` — they refer to the same product and to today's `.assay/` workspace. Where a pre-rename document and a newer one disagree on naming, the newer one wins.
 - Numbered documents (00–10) are strategic/engineering references; numbers encode reading order within their category, not importance.
 - Durable decisions belong in ADRs, not in these documents; when a doc and an ADR conflict, the ADR wins and the doc should be updated.
 - Reviews are dated snapshots and are not living documents.

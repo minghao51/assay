@@ -1,5 +1,5 @@
 /**
- * @dataworkbench/grid — the owned headless grid model.
+ * @assay/grid — the owned headless grid model.
  *
  * The grid is a view, never the dataset (ADR 0003/0022). The model owns
  * viewport coordinates, selection, editing state, keyboard commands,

@@ -309,7 +309,7 @@ Suggested structure:
 ```text
 project/
 ├── datasets/
-├── .dataworkbench/
+├── .assay/
 │   ├── workspace.json
 │   ├── contracts/
 │   ├── rules/
@@ -426,7 +426,7 @@ AI providers should be pluggable.
 ## 18. Suggested Monorepo Structure
 
 ```text
-dataworkbench/
+assay/
 
 apps/
   web/
@@ -455,7 +455,7 @@ docs/
   adr/
 ```
 
-Package scope: all workspace packages use the `@dataworkbench/*` npm scope; the repository/directory name is `dataworkbench`; the display name is "Data Workbench". See `05-repository-structure.md` for the authoritative layout.
+Package scope: all workspace packages use the `@assay/*` npm scope; the repository/directory name is `assay`; the display name is "Assay" (ADR 0039). See `05-repository-structure.md` for the authoritative layout.
 
 ---
 
