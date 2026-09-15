@@ -5,6 +5,7 @@ import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
+import { SchemaPanel } from './schema/SchemaPanel'
 
 /**
  * App phases. `ready` holds the composed grid: adapter (engine client) →
@@ -96,7 +97,10 @@ export function App() {
       </section>
 
       {phase.kind === 'ready' ? (
-        <DataGrid model={phase.model} />
+        <>
+          <SchemaPanel columns={phase.model.schema ?? []} />
+          <DataGrid model={phase.model} />
+        </>
       ) : (
         <>
           <p>{SCAFFOLD_STATUS}</p>
