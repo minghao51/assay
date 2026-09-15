@@ -59,6 +59,74 @@ rangeMiddleButton.addEventListener('click', () => {
 errorReuseButton.addEventListener('click', () => {
   void runFailedQueryThenReuse()
 })
+requiredElement<HTMLButtonElement>('#run-parallel-calls').addEventListener('click', () => {
+  void runParallelCalls()
+})
+
+// ── T2 worker-side serialization (tests/e2e/engine-parallel.spec.ts) ───────
+//
+// Fires four operations CONCURRENTLY against the opened flat fixture — a
+// query, a fetchRange window, a rowCount, and a deliberately failing query —
+// then disposes last. The worker serializes them through the single
+// pending-query channel, so every settlement must be correct: the three
+// successful ops return their own results (no cross-contamination from the
+// failing op), the failing op rejects with its own error, and dispose
+// completes gracefully afterwards. Renders each settlement as JSON in
+// `parallel-result`; privacy as above (ids/counts only, no file names).
+interface ParallelSettlements {
+  queryValue?: string
+  queryError?: string
+  rangeRows?: number
+  rangeFirstValue?: string
+  rangeError?: string
+  rowCount?: number
+  rowCountError?: string
+  failingRejected?: boolean
+  failingMessage?: string
+  disposed?: boolean
+  fatal?: string
+}
+
+async function runParallelCalls(): Promise<void> {
+  const settlements: ParallelSettlements = {}
+  try {
+    const table = handles.get('flat')
+    if (table === undefined) throw new Error('parallel: open the flat fixture first')
+    const [query, range, count, failing] = await Promise.allSettled([
+      client.query('SELECT 42 AS answer'),
+      client.fetchRange(table, { startRow: 0, endRow: 5 }),
+      client.rowCount(table),
+      client.query('SELECT * FROM __assay_no_such_table__'),
+    ])
+    if (query.status === 'fulfilled') {
+      settlements.queryValue = String(query.value.batch.getChildAt(0)?.get(0))
+    } else {
+      settlements.queryError = errorMessage(query.reason)
+    }
+    if (range.status === 'fulfilled') {
+      settlements.rangeRows = range.value.batch.numRows
+      settlements.rangeFirstValue = String(range.value.batch.getChildAt(0)?.get(0))
+    } else {
+      settlements.rangeError = errorMessage(range.reason)
+    }
+    if (count.status === 'fulfilled') {
+      settlements.rowCount = count.value
+    } else {
+      settlements.rowCountError = errorMessage(count.reason)
+    }
+    settlements.failingRejected = failing.status === 'rejected'
+    if (failing.status === 'rejected') {
+      settlements.failingMessage = errorMessage(failing.reason)
+    }
+    // Dispose last: graceful shutdown after every concurrent op settled.
+    await client.dispose()
+    settlements.disposed = true
+    statusEl.textContent = client.status
+  } catch (error) {
+    settlements.fatal = errorMessage(error)
+  }
+  setText('parallel-result', JSON.stringify(settlements))
+}
 
 // ── T1 engine conformance suite (tests/e2e/engine-conformance.spec.ts) ──────
 //

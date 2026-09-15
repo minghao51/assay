@@ -116,6 +116,26 @@
       </section>
 
       <!--
+        T2 worker-side operation serialization: fires query + fetchRange +
+        rowCount + a failing query CONCURRENTLY against the opened flat
+        fixture, then disposes. Every op must settle correctly on its own —
+        no pending-query collisions, no cross-op error contamination, graceful
+        dispose last. Privacy (ADR 0001/0025): results show ids and counts
+        only — never file names or dataset contents beyond the fixture's
+        first-column ids.
+      -->
+      <section>
+        <h2>Parallel calls (T2): query + range + rowCount + failing query, then dispose</h2>
+        <button id="run-parallel-calls" type="button">
+          Run 4 concurrent engine calls, then dispose
+        </button>
+        <dl>
+          <dt>settlements (JSON)</dt>
+          <dd><pre data-testid="parallel-result">not run</pre></dd>
+        </dl>
+      </section>
+
+      <!--
         T1 engine conformance suite: the scenarios live in @assay/testing
         (parameterized over an EngineConformanceSubject); this harness hosts
         the DuckDB-WASM adapter. Each button runs ONE scenario against a fresh
