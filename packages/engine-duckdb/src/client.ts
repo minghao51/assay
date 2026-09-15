@@ -263,6 +263,24 @@ export class DuckDbEngineClient {
   }
 
   /**
+   * Total row count for a registered table — metadata only (`count(*)`),
+   * never a data read (M1-5). Virtualized grids need a total to size the
+   * scroll area without implying full-dataset materialization.
+   */
+  async rowCount(handle: EngineTableHandle): Promise<number> {
+    await this.ensureReady()
+    const response = await this.send({
+      type: 'engine/row-count',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+    })
+    if (response.type !== 'engine/row-count-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/row-count`)
+    }
+    return response.rowCount
+  }
+
+  /**
    * Fetch a row window of a registered table as an Arrow table (ADR 0020).
    * The window is validated and clamped to `MAX_RANGE_ROWS` on this side
    * (fast, honest errors) and again in the worker (the boundary is untrusted)

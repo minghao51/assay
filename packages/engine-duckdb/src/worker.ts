@@ -30,7 +30,7 @@
  * to the `eh` bundle later for parallelism is a two-URL change in this file.
  */
 import * as duckdb from '@duckdb/duckdb-wasm'
-import { Table, tableToIPC } from 'apache-arrow'
+import { Table, tableFromIPC, tableToIPC } from 'apache-arrow'
 import duckdbWorkerUrl from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url'
 import duckdbWasmUrl from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url'
 import { createViewSql, detectFileFormat, quotedIdentifier } from './format-view'
@@ -125,6 +125,10 @@ async function handleRequest(data: unknown): Promise<void> {
         await runRange(request)
         break
       }
+      case 'engine/row-count': {
+        await runRowCount(request.requestId, request.tableId)
+        break
+      }
       case 'engine/dispose': {
         await runDispose(request.requestId)
         break
@@ -217,6 +221,25 @@ async function runRange(request: EngineRangeRequest): Promise<void> {
     ` LIMIT ${window.endRow - window.startRow} OFFSET ${window.startRow}`
   const { batchIpc, hasMore } = await streamFirstBatch(sql)
   post({ type: 'engine/range-result', requestId: request.requestId, batchIpc, hasMore })
+}
+
+/**
+ * Metadata-only total (`count(*)`) for a registered table (M1-5). No rows are
+ * read: DuckDB answers from Parquet metadata, and only the single count value
+ * crosses the boundary. The value is re-checked here so a future DuckDB type
+ * change fails loudly instead of leaking a bogus total into UI state.
+ */
+async function runRowCount(requestId: number, tableId: string): Promise<void> {
+  const entry = requireTable(tableId)
+  const { batchIpc } = await streamFirstBatch(
+    `SELECT count(*)::BIGINT AS row_count FROM ${quotedIdentifier(entry.viewName)}`,
+  )
+  const value = tableFromIPC(batchIpc).getChildAt(0)?.get(0)
+  const rowCount = typeof value === 'bigint' ? Number(value) : value
+  if (typeof rowCount !== 'number' || !Number.isSafeInteger(rowCount) || rowCount < 0) {
+    throw new Error('count(*) returned an unexpected shape')
+  }
+  post({ type: 'engine/row-count-result', requestId, rowCount })
 }
 
 /**

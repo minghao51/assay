@@ -1,3 +1,9 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   font-family:
     system-ui,
@@ -9,9 +15,77 @@ body {
 }
 
 main {
-  max-width: 42rem;
+  max-width: 72rem;
 }
 
 h1 {
   font-size: 1.5rem;
+}
+
+/* ---- Virtualized data grid (m1-5) ---- */
+
+.grid {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.grid-header-row {
+  display: grid;
+  font-weight: 600;
+  border-bottom: 2px solid #bbb;
+  background: #fafafa;
+}
+
+.grid-header-cell {
+  padding: 0.3rem 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grid-viewport {
+  height: 480px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid #ccc;
+  position: relative;
+}
+
+.grid-row {
+  will-change: transform;
+  background: #fff;
+}
+
+.grid-row:nth-child(even) {
+  background: #f7f7f8;
+}
+
+.grid-cell {
+  height: 28px;
+  line-height: 28px;
+  padding: 0 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid #eee;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-row-loading .grid-cell {
+  color: #999;
+}
+
+.grid-row-error .grid-cell {
+  color: #b00020;
+  font-weight: 600;
+}
+
+.grid-footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #555;
+  font-size: 0.85rem;
 }

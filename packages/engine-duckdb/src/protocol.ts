@@ -21,6 +21,10 @@
  * `engine/schema` and `engine/range` address it by the returned table id;
  * `engine/dispose` drops the registrations. Range results reuse the Arrow IPC
  * transport, capped to a visible-window sized row count (`range-window.ts`).
+ *
+ * M1-5 adds `engine/row-count`: a metadata-only `count(*)` per table id, so a
+ * virtualized grid can size its scroll area from a total without reading the
+ * dataset.
  */
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
@@ -81,6 +85,16 @@ export interface EngineRangeRequest {
   columns?: string[]
 }
 
+/**
+ * Total row count of a registered table (M1-5): metadata-only (`count(*)`),
+ * never a data read. Virtualized grids need a total to size the scroll area.
+ */
+export interface EngineRowCountRequest {
+  type: 'engine/row-count'
+  requestId: number
+  tableId: string
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -93,6 +107,7 @@ export type EngineRequest =
   | EngineOpenRequest
   | EngineSchemaRequest
   | EngineRangeRequest
+  | EngineRowCountRequest
   | EngineDisposeRequest
 
 // ---- Responses (worker → main thread) ----
@@ -150,6 +165,13 @@ export interface EngineRangeResultResponse {
   hasMore: boolean
 }
 
+/** Total rows of the registered table, as a safe non-negative integer. */
+export interface EngineRowCountResultResponse {
+  type: 'engine/row-count-result'
+  requestId: number
+  rowCount: number
+}
+
 export interface EngineDisposedResponse {
   type: 'engine/disposed'
   requestId: number
@@ -167,6 +189,7 @@ export type EngineResponse =
   | EngineOpenResultResponse
   | EngineSchemaResultResponse
   | EngineRangeResultResponse
+  | EngineRowCountResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
 
@@ -177,6 +200,7 @@ export type EngineSuccessResponse =
   | EngineOpenResultResponse
   | EngineSchemaResultResponse
   | EngineRangeResultResponse
+  | EngineRowCountResultResponse
   | EngineDisposedResponse
 
 // ---- Runtime guards ----
@@ -228,6 +252,9 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
     }
     return null
   }
+  if (type === 'engine/row-count' && typeof data.tableId === 'string') {
+    return { type, requestId, tableId: data.tableId }
+  }
   if (type === 'engine/dispose') return { type, requestId }
   return null
 }
@@ -276,6 +303,9 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
       ? { type, requestId, batchIpc: data.batchIpc, hasMore: data.hasMore }
       : null
   }
+  if (type === 'engine/row-count-result' && isRowCount(data.rowCount)) {
+    return { type, requestId, rowCount: data.rowCount }
+  }
   if (type === 'engine/disposed') return { type, requestId }
   if (type === 'engine/error' && typeof data.message === 'string') {
     return { type, requestId, message: data.message }
@@ -311,6 +341,11 @@ function isColumnSchemaList(value: unknown): value is EngineColumnSchema[] {
 /** Structured clone delivers Arrow IPC bytes as a plain `Uint8Array`. */
 function isUint8Array(value: unknown): value is Uint8Array {
   return value instanceof Uint8Array
+}
+
+/** A row count must be a safe non-negative integer (never a float/string). */
+function isRowCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

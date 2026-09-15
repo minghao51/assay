@@ -4,7 +4,7 @@ export const APP_NAME = 'Assay' as const
 export const TAGLINE = 'The local-first data workbench' as const
 
 /** Keep in sync with the roadmap status (docs/product/10-execution-roadmap.md §4). */
-export const SCAFFOLD_STATUS = 'pre-MVP scaffold — milestone M0 complete' as const
+export const SCAFFOLD_STATUS = 'pre-MVP — milestone M0 complete, M1 in progress' as const
 
 export const NEXT_MILESTONE =
-  'M1 — Local file explorer: Parquet/JSONL/CSV, virtualized grid, DuckDB-WASM worker' as const
+  'M1 — Local file explorer: schema panel, 1 GB measurements, CI fixture generation' as const

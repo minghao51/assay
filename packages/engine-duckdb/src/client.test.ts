@@ -590,3 +590,56 @@ describe('DuckDbEngineClient file lifecycle (M1-4)', () => {
     await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
   })
 })
+
+describe('DuckDbEngineClient row count (M1-5)', () => {
+  const source = {
+    name: 'flat.parquet',
+    getFile: () => Promise.resolve(new File([new Uint8Array([1, 2, 3])], 'flat.parquet')),
+  }
+
+  function openResultResponse(requestId: number): EngineResponse {
+    return { type: 'engine/open-result', requestId, tableId: 't1', format: 'parquet' }
+  }
+
+  it('rowCount() posts the handle and resolves the reported total', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const pendingCount = client.rowCount(handle)
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({ type: 'engine/row-count', tableId: 't1' })
+    worker.respond({
+      type: 'engine/row-count-result',
+      requestId: worker.requestAt(2).requestId,
+      rowCount: 1_000_000,
+    })
+
+    await expect(pendingCount).resolves.toBe(1_000_000)
+  })
+
+  it('rowCount() rejects engine-reported failures with EngineOperationError', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const pendingCount = client.rowCount(handle)
+    await flush()
+    worker.respond({
+      type: 'engine/error',
+      requestId: worker.requestAt(2).requestId,
+      message: 'unknown table handle: t1',
+    })
+
+    await expect(pendingCount).rejects.toThrow(EngineOperationError)
+    expect(client.status).toBe('ready') // operational failure, engine stays usable
+  })
+})

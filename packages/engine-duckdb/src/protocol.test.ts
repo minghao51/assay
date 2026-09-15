@@ -264,3 +264,47 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
     })
   })
 })
+
+describe('M1-5: engine/row-count protocol', () => {
+  describe('parseEngineRequest', () => {
+    it('parses engine/row-count with its table id', () => {
+      expect(
+        parseEngineRequest({ type: 'engine/row-count', requestId: 13, tableId: 't2' }),
+      ).toEqual({ type: 'engine/row-count', requestId: 13, tableId: 't2' })
+    })
+
+    it('rejects engine/row-count without a string table id (the boundary is untrusted)', () => {
+      expect(parseEngineRequest({ type: 'engine/row-count', requestId: 13 })).toBeNull()
+      expect(parseEngineRequest({ type: 'engine/row-count', requestId: 13, tableId: 2 })).toBeNull()
+    })
+  })
+
+  describe('parseEngineResponse', () => {
+    it('parses engine/row-count-result with a safe non-negative integer', () => {
+      expect(
+        parseEngineResponse({ type: 'engine/row-count-result', requestId: 14, rowCount: 0 }),
+      ).toEqual({ type: 'engine/row-count-result', requestId: 14, rowCount: 0 })
+      expect(
+        parseEngineResponse({
+          type: 'engine/row-count-result',
+          requestId: 14,
+          rowCount: Number.MAX_SAFE_INTEGER,
+        }),
+      ).toEqual({
+        type: 'engine/row-count-result',
+        requestId: 14,
+        rowCount: Number.MAX_SAFE_INTEGER,
+      })
+    })
+
+    it('rejects row counts that are negative, fractional, or not numbers', () => {
+      const base = { type: 'engine/row-count-result', requestId: 14 }
+      expect(parseEngineResponse({ ...base, rowCount: -1 })).toBeNull()
+      expect(parseEngineResponse({ ...base, rowCount: 1.5 })).toBeNull()
+      expect(parseEngineResponse({ ...base, rowCount: '100' })).toBeNull()
+      expect(parseEngineResponse({ ...base, rowCount: Number.NaN })).toBeNull()
+      expect(parseEngineResponse({ ...base, rowCount: Infinity })).toBeNull()
+      expect(parseEngineResponse({ ...base })).toBeNull()
+    })
+  })
+})

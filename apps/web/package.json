@@ -10,6 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@assay/data-sources": "workspace:*",
+    "@assay/engine-duckdb": "workspace:*",
+    "@assay/grid": "workspace:*",
+    "@tanstack/react-virtual": "^3.14.12",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

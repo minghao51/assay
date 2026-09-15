@@ -1,0 +1,5 @@
+---
+'@assay/web': minor
+---
+
+feat(m1-5): replace the landing scaffold with the first real surface: pick a local data file (reusing `pickDataFile`'s File-System-Access-then-hidden-input flow) → engine `open` → grid. The grid composes per architecture §8 — a `DuckDbGridProvider` adapter implements `@assay/grid`'s `GridDataProvider` over the engine client (Arrow windows are projected to row cells once, per ADR 0020's small-projection allowance), the headless `GridViewportModel` owns windowed fetching/caching/placeholders, and a TanStack Virtual DOM renderer (`@tanstack/react-virtual`, MIT) keeps DOM nodes bounded to viewport + overscan — proven in e2e against an on-demand 1M-row Parquet fixture (generated in the e2e setup, never committed): bounded DOM, bounded cumulative fetching (~0.1% of the dataset across a full scroll session), and 60fps frame deltas. The UI shows table id, row count, and columns — never the picked file's name (ADR 0025). Adds ambient FSA declarations (`src/fsa-dom.d.ts`, mirroring data-sources') that raw-TS importers must supply under `lib: DOM`.

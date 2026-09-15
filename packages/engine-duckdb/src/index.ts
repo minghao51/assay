@@ -13,6 +13,10 @@
  * boundary so full-dataset materialization is never implied. The full
  * DataEngine surface and result-set streaming arrive with later M1 tasks.
  *
+ * M1-5: `rowCount(handle)` reports the table's total row count via a
+ * metadata-only `SELECT count(*)` — the total a virtualized grid needs to
+ * size its scroll area without touching the data.
+ *
  * Ownership and dependency rules: docs/engineering/05-repository-structure.md.
  * Delivery sequencing: docs/product/10-execution-roadmap.md.
  */
@@ -52,6 +56,8 @@ export type {
   EngineReadyResponse,
   EngineRequest,
   EngineResponse,
+  EngineRowCountRequest,
+  EngineRowCountResultResponse,
   EngineSchemaRequest,
   EngineSchemaResultResponse,
   EngineSuccessResponse,
