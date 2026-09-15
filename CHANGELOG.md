@@ -23,6 +23,12 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ### Added
 
+- **M1 begins — DuckDB runs in the browser (m1-1):** `@assay/engine-duckdb` boots
+  DuckDB-WASM lazily inside a dedicated Web Worker behind a typed postMessage
+  protocol owned by us (ADR 0002/0021); proven end-to-end in Chromium via
+  Playwright (idle-before-boot, then `SELECT` round-trip). Arrow record-batch
+  transport follows with m1-2 (ADR 0020).
+
 - **Decisions recorded (2026-09-14):** AGPL-3.0-or-later license for the open
   core (ADR 0036); opt-out telemetry consent model with first-run disclosure
   and in-product opt-out (ADR 0037); DuckDB CLI as the golden Parquet fixture
