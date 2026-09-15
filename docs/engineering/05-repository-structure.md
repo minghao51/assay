@@ -116,6 +116,13 @@ Adapters for:
 - VS Code workspace,
 - future remote systems.
 
+> **Entry-point convention (raw-TS exports):** packages export TypeScript
+> source, so every importer type-checks the package under its own `tsconfig`
+> `lib` settings. Keep the root entry (`.`) environment-neutral (types/logic
+> that compile DOM-less); put DOM-naming browser code behind a `./browser`
+> subpath export (pattern introduced in m1-3, e.g. `@assay/data-sources/browser`).
+> Applies to any package whose consumers include DOM-less packages.
+
 ### `contracts`
 
 Contract AST, parser, serializer, adapters.

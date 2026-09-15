@@ -30,6 +30,14 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   the main thread, transferred zero-copy (ADR 0020) — proven end-to-end in
   Chromium via Playwright (idle-before-boot, Arrow-API assertions, multi-batch
   `hasMore` + tail-cancel reuse).
+- **Local file picking (m1-3):** `@assay/data-sources` ships
+  `BrowserFileSource` built from either a File System Access handle or a plain
+  `File` (hidden-`<input>` fallback), with structural capability detection and
+  a `pickDataFile` helper; both pick paths are proven in Chromium e2e
+  (OPFS-staged genuine handles for the FSA branch — the `DataTransfer`
+  synthesis trick does not work for JS-constructed files).
+  DOM-naming code lives behind the `@assay/data-sources/browser` subpath so
+  DOM-less importers keep type-checking the neutral root entry.
 
 - **Decisions recorded (2026-09-14):** AGPL-3.0-or-later license for the open
   core (ADR 0036); opt-out telemetry consent model with first-run disclosure
