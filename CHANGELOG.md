@@ -58,6 +58,18 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   sha256-pinned DuckDB 1.5.5, regenerates the golden Parquet fixtures, and
   fails on any drift; the e2e job installs the CLI for on-demand fixture
   generation. (CI has still never run remotely — no git remote configured.)
+- **Schema panel (m1-6):** the web app renders the dataset schema as a
+  navigable, keyboard-accessible tree (disclosure pattern) built from a
+  total DuckDB type-string parser that degrades verbatim on unknown types —
+  nested `STRUCT`/`LIST`/`UNION`/`MAP` shapes expand and collapse, proven
+  against the committed `nested.parquet` fixture.
+- **First scale benchmark (m1-7, gate G1 evidence):** a reproducible,
+  env-gated benchmark measures a 1.09 GiB / 16M-row Parquet end-to-end in
+  Chromium: time-to-first-row ~0.3 s (picker→first row ~2 s), filtered
+  full-scan ~2.3 s, sequential windows ~0.23 s, main-thread heap 4 MB of a
+  3.6 GB limit. Numbers, methodology, and honest multi-GB extrapolation in
+  `docs/engineering/07-m1-benchmarks.md`; a multi-GB re-run remains open
+  before G1 sign-off.
 
 - **Decisions recorded (2026-09-14):** AGPL-3.0-or-later license for the open
   core (ADR 0036); opt-out telemetry consent model with first-run disclosure

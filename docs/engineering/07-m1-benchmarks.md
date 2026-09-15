@@ -1,6 +1,6 @@
-<!-- Numbered 06 per the m1-7 orchestrator dispatch; note that
-     docs/engineering/06-testing-security-quality.md already exists —
-     consider renumbering this file to 07 at integration. -->
+<!-- Renumbered to 07 at integration (06-testing-security-quality.md already
+     exists). Gate G1 evidence per roadmap §5; reproduction: see the
+     "Reproducing" section below. -->
 
 # M1 benchmark: time-to-first-row and memory on a ~1 GiB Parquet
 
