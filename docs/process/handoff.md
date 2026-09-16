@@ -1,7 +1,7 @@
 # Project Handoff — Assay
 
 **Status:** living document — the single entry point for any human or AI agent picking up this project. Updated at every milestone completion or gate passage.
-**Last updated:** 2026-09-16 (**M1 test-hardening batch T1–T4 complete** — engine conformance + data-source behavior suites in `@assay/testing`, worker-side op serialization, bench-rig hardening; **G1 gate / M1-exit decision still pending — maintainer call**)
+**Last updated:** 2026-09-16 (batch T1–T4 complete; **maintainer G1 policy decided 2026-09-16: option B — G1 passage requires the ≥5–10 GiB re-run first**, queued below as G1-R; M2 blocked until the re-run lands and the gate is recorded)
 
 ---
 
@@ -105,12 +105,22 @@ Dependencies/parallelism (§7.4 rules): **T1 first** (it defines the suite patte
 anytime** — run T4 parallel with T1 in worktrees (recipe in §7.4). One worker per
 package boundary at a time.
 
-**Next:** the only M1 blocker left is the maintainer's **G1 gate / M1-exit decision**
-(multi-GB re-run listed open in docs/engineering/07-m1-benchmarks.md §"Open questions").
-Once recorded: fold the remaining non-test carry-overs (below) into M2 slices; M2
-(query & profiling, roadmap §3.1) starts only after that decision — do not start M2
-feature work before it. Parallel non-code tracks (D2b telemetry design, npm org claim,
-git remote choice, O5 demo dataset) can proceed at any time.
+**Maintainer decision (2026-09-16):** G1 passage requires measured multi-GB evidence
+(option B) — the 1.09 GiB round stays recorded as extrapolation-below-multi-GB. The
+adjacent measurement questions were delegated to the orchestrator: **deep-offset
+windows (OQ #3) fold into G1-R** (a ≥5–10 GiB fixture is ≥160M rows, exercising
+100M+ row offsets); **worker-side heap (OQ #1) is deferred** to a dedicated eh-bundle
+measurement round, so G1 evidence keeps the measured configuration identical to the
+shipped mvp bundle.
+
+| #    | Task (next)                                                                                                                                                                                                                                                                                                                                | Package(s)                              | Done when                                                                                                                                                  |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1-R | Multi-GB benchmark re-run: generate a ≥5–10 GiB deterministic Parquet on the hardened rig (`ASSAY_E2E_BIG_ROWS`), run the full bench sequence ≥3 cold repeats, record results + updated scaling analysis in the bench note (open/schema/rowCount flatness, scan-throughput linearity, window latency incl. deep offsets, main-thread heap) | `tests/e2e/support` + bench note (docs) | numbers + analysis recorded in `docs/engineering/07-m1-benchmarks.md`; rig stays env-gated; gates green; maintainer can then record the G1 pass/pivot call |
+
+After G1-R and the gate record: fold the remaining non-test carry-overs (below) into
+M2 slices. M2 (query & profiling, roadmap §3.1) starts only after the gate is recorded
+— do not start M2 feature work before it. Parallel non-code tracks (D2b telemetry
+design, npm org claim, git remote choice, O5 demo dataset) can proceed at any time.
 
 Carry-over reviewer notes (non-test, non-blocking): FIFO op-channel head-of-line latency (a long user query delays queued grid windows) — revisit (worker pool / second connection) when M2 lands interactive queries (T2, documented in `op-channel.ts`); `_setThrew` poor error text on
 pending-query failures — mvp-bundle quirk, eh-bundle swap is the documented two-URL
@@ -207,6 +217,7 @@ claim (orchestrator assigns, marks in-progress)
 ## 9. Changelog for this document
 
 - 2026-09-15 (k) — **T2 done** (`ce54c05`, worktree branch `t2`): worker-side operation serialization via a single pending-query channel — new `op-channel.ts` (FIFO, error-isolated; queue-over-per-op-connections decision documented with duckdb-wasm 1.32 evidence) + `engine-executor.ts` (request loop behind injected seams; m1-2/m1-4 op logic preserved verbatim; protocol/client untouched); 16 deterministic concurrency unit tests (fake connection throws on pending collisions, tests assert `collisions` empty) + harness parallel-calls scenario + e2e; vitest 198, e2e 25+1skip all green incl. T1's suite. Independent reviewer approved (verified serialization is structural, mutation-reasoned the fakes, re-ran all gates; flagged pre-existing cold-boot e2e flake under CPU contention — passed on rerun, not introduced by T2). Worker session died right after committing; report recovered from the session transcript — reviews verified everything independently.
+- 2026-09-16 (m) — **Maintainer G1 policy: option B** — G1/M1-exit passage requires the ≥5–10 GiB benchmark re-run (bench note OQ #2) before being recorded; queued as task **G1-R** in §6. Adjacent questions delegated to orchestrator judgment: deep-offset windows fold into G1-R; worker-side heap measurement deferred to a dedicated eh-bundle round (keeps G1 evidence on the shipped mvp-bundle configuration). Roadmap §4/§8 and the bench note OQs annotated.
 - 2026-09-16 (l) — **T3 done — M1 test-hardening batch COMPLETE** (`738f791`, worktree branch `t3`): data-source behavior suite in `@assay/testing` (6 scenarios over a structural subject, 13 mutation detections) + internal BrowserFileSource adapter in `data-sources` + 7 e2e specs (real OPFS handles, injected picker fakes for determinism); reviewer approved after contract-truth verification against the shipped code (frozen-handle cache, one-shot `getFile`, AbortError-by-name → `null`, exact `{format,sizeBytes}` metadata). Batch totals on main: vitest 216, e2e 32+1skip; all six gates green at every integration. Operating model this batch: T1+T4 parallel via the §7.4 worktree recipe (T4 on shifted ports); T2/T3 serial worktrees; sessions serialized after a provider 429; from T2's review onward the pi subagent extension (worker/reviewer agents on zai/glm-5.3-flash) replaced raw `pi -p` invocations. **Remaining before M2: the maintainer's G1 / M1-exit decision.**
 - 2026-09-15 (j) — **T4 done** (`b7a8587`, worktree branch `t4`, one request-changes loop: stale "14th spec" count in the note → worker amended to `a38614e` → reviewer re-approved): bench fixture reuse now re-hashes the file and compares the stored sidecar `sha256` (decision factored into pure `metaMatches`); hermetic negative test proves a same-size corrupted file (last-byte diff) is rejected and would be reused under the old rows+bytes-only logic; bench note open questions gained #7 (warm-OS-page-cache variance) and #4 extension (per-cell composed path now measurable); bench stays env-gated; no changeset (tests/e2e is not a workspace package). Parallel-batch note: T1+T4 ran as the §7.4 worktree recipe (T4 on shifted ports 4273/4279/4280); sessions serialized after a provider 429.
 - 2026-09-15 (i) — M1 test-hardening batch started. **T1 done** (`75a6657`, cherry-picked from worktree branch `t1`): engine conformance suite in `@assay/testing` (parameterized subject: lifecycle, error classes, window clamping, Arrow shape, corrupt-file rollback via runtime-truncated Parquet in OPFS, mid-stream error-then-reuse via deterministic `error()` SQL) + DuckDB subject adapter in the engine-duckdb harness + 8 e2e specs; 11 new unit tests include fake-engine mutation coverage. Independent reviewer approved after running all gates (incl. `--force` typecheck) and scrutinizing the registry probe for vacuity — no engine src fix was needed; existing rollback/cleanup paths are what the scenarios exercise. Operating-model note: two simultaneous glm-5.3-flash subagent sessions hit a provider 429 — serialize subagent sessions per batch from now on. T4 worker finished in its worktree (`b3b333e`), review next; then T2, T3 serial.

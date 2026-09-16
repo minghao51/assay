@@ -232,10 +232,10 @@ smaller fallback rigs; the note's numbers assume the default 16,000,000),
 
 1. **Worker-side DuckDB heap** (the real R1 number): needs either the
    eh-bundle + COOP/COEP (unlocking `measureUserAgentSpecificMemory` in the
-   worker) or measurement in a native shell (Tauri, ADR 0028).
+   worker) or measurement in a native shell (Tauri, ADR 0028). _(2026-09-16: deferred to a dedicated eh-bundle measurement round — not part of G1 evidence, so the measured configuration stays identical to the shipped mvp bundle.)_
 2. **≥ 5–10 GiB re-run** on this rig before G1's "multi-GB" claim is treated
    as measured rather than extrapolated — open/schema/rowCount flatness and
-   window flatness are the specific things to confirm.
+   window flatness are the specific things to confirm. _(2026-09-16 maintainer decision: G1 passage requires this re-run — queued as task G1-R in handoff §6; deep-offset windows (OQ #3) are exercised by it at ≥160M rows.)_
 3. **Deep-offset windows at much larger scales** (100M+ rows): flatness here
    should not be assumed to hold once row-group metadata and buffer pressure
    grow.
