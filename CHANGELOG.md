@@ -23,6 +23,21 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ### Added
 
+- **M2 begins — sort, filter, profile (m2-1…m2-5):** the web grid gains
+  **sorting and filtering** — a header toggle cycles asc→desc→cleared, a
+  per-column predicate editor applies SQL fragments (`> 50000`, `= 'US'`)
+  with dismissible active-filter chips, and the row count re-reads live
+  under filters; windows stay bounded and virtualized. Under it, `@assay/grid`
+  owns real sort/filter model state (epoch rebuild, stale-page guard) and
+  `@assay/engine-duckdb` composes filtered/sorted window SQL over registered
+  views with quoted identifiers (predicates are engine-SQL text — user input
+  is untrusted content, never executed or rendered as markup), covered by an
+  engine conformance suite with injection probes. The engine also gained
+  **column profiling** (`profile()`): numeric min/max/mean/stddev +
+  p50/p90/p95/p99 quantiles, categorical top-k, null/distinct counts —
+  single-scan aggregates, graceful degradation on exotic types. UI for
+  profiles/charts follows in the next slices.
+
 - **M1 begins — DuckDB runs in the browser (m1-1/m1-2):** `@assay/engine-duckdb`
   boots DuckDB-WASM lazily inside a dedicated Web Worker behind a typed
   postMessage protocol owned by us (ADR 0002/0021); `query()` streams via
