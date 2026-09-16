@@ -134,6 +134,113 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
     })
   })
 
+  describe('m2-2: filter/sort fields on range and row-count requests', () => {
+    const rangeBase = { type: 'engine/range', requestId: 7, tableId: 't1' }
+
+    it('parses engine/range with filters and sort (copied plain arrays)', () => {
+      const filters = [{ column: 'income', predicate: '> 50000' }]
+      const sort = [{ column: 'country', direction: 'desc' }]
+      const parsed = parseEngineRequest({
+        ...rangeBase,
+        startRow: 0,
+        endRow: 5,
+        filters,
+        sort,
+      })
+      expect(parsed).toEqual({
+        type: 'engine/range',
+        requestId: 7,
+        tableId: 't1',
+        startRow: 0,
+        endRow: 5,
+        filters,
+        sort,
+      })
+      // The boundary is untrusted: parsed arrays are copies, not references.
+      expect(parsed).not.toBe(filters)
+      if (parsed !== null && parsed.type === 'engine/range') {
+        expect(parsed.filters![0]).not.toBe(filters[0])
+        expect(parsed.sort![0]).not.toBe(sort[0])
+      }
+    })
+
+    it('omits filters/sort properties when absent (legacy request shape unchanged)', () => {
+      const parsed = parseEngineRequest({ ...rangeBase, startRow: 0, endRow: 5 })
+      expect(parsed).toEqual({
+        type: 'engine/range',
+        requestId: 7,
+        tableId: 't1',
+        startRow: 0,
+        endRow: 5,
+      })
+      expect(parsed).not.toHaveProperty('filters')
+      expect(parsed).not.toHaveProperty('sort')
+    })
+
+    it('treats empty filters/sort arrays as valid (the grid null-clear protocol)', () => {
+      const parsed = parseEngineRequest({
+        ...rangeBase,
+        startRow: 0,
+        endRow: 5,
+        filters: [],
+        sort: [],
+      })
+      expect(parsed).toMatchObject({ filters: [], sort: [] })
+    })
+
+    it('rejects malformed filter lists (the request is dropped, not repaired)', () => {
+      const bounds = { startRow: 0, endRow: 5 }
+      expect(parseEngineRequest({ ...rangeBase, ...bounds, filters: 'x' })).toBeNull()
+      expect(parseEngineRequest({ ...rangeBase, ...bounds, filters: {} })).toBeNull()
+      expect(parseEngineRequest({ ...rangeBase, ...bounds, filters: [42] })).toBeNull()
+      expect(parseEngineRequest({ ...rangeBase, ...bounds, filters: ['> 1'] })).toBeNull()
+      expect(
+        parseEngineRequest({ ...rangeBase, ...bounds, filters: [{ predicate: '> 1' }] }),
+      ).toBeNull()
+      expect(parseEngineRequest({ ...rangeBase, ...bounds, filters: [{ column: 'a' }] })).toBeNull()
+      expect(
+        parseEngineRequest({ ...rangeBase, ...bounds, filters: [{ column: 1, predicate: '> 1' }] }),
+      ).toBeNull()
+      // One bad spec poisons the whole list.
+      expect(
+        parseEngineRequest({
+          ...rangeBase,
+          ...bounds,
+          filters: [{ column: 'a', predicate: '> 1' }, { column: 'b' }],
+        }),
+      ).toBeNull()
+    })
+
+    it('rejects malformed sort lists (direction must be exactly asc or desc)', () => {
+      const bounds = { startRow: 0, endRow: 5 }
+      expect(parseEngineRequest({ ...rangeBase, ...bounds, sort: 'asc' })).toBeNull()
+      expect(parseEngineRequest({ ...rangeBase, ...bounds, sort: [{ column: 'a' }] })).toBeNull()
+      expect(
+        parseEngineRequest({ ...rangeBase, ...bounds, sort: [{ column: 'a', direction: 'up' }] }),
+      ).toBeNull()
+      expect(
+        parseEngineRequest({ ...rangeBase, ...bounds, sort: [{ column: 'a', direction: 'ASC' }] }),
+      ).toBeNull()
+      expect(
+        parseEngineRequest({ ...rangeBase, ...bounds, sort: [{ direction: 'asc' }] }),
+      ).toBeNull()
+    })
+
+    it('parses engine/row-count with optional filters; sort is not part of its shape', () => {
+      expect(parseEngineRequest({ type: 'engine/row-count', requestId: 8, tableId: 't1' })).toEqual(
+        { type: 'engine/row-count', requestId: 8, tableId: 't1' },
+      )
+      const filters = [{ column: 'income', predicate: 'IS NOT NULL' }]
+      expect(
+        parseEngineRequest({ type: 'engine/row-count', requestId: 8, tableId: 't1', filters }),
+      ).toEqual({ type: 'engine/row-count', requestId: 8, tableId: 't1', filters })
+      // Malformed filters drop the row-count request too.
+      expect(
+        parseEngineRequest({ type: 'engine/row-count', requestId: 8, tableId: 't1', filters: 7 }),
+      ).toBeNull()
+    })
+  })
+
   describe('parseEngineResponse', () => {
     it('parses engine/ready with the duckdb version', () => {
       expect(

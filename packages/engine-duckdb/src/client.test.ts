@@ -11,7 +11,13 @@ import {
   type EngineWorkerLike,
 } from './client'
 import type { DuckDbEngineClientOptions } from './client'
-import type { EngineColumnSchema, EngineRequest, EngineResponse } from './protocol'
+import type {
+  EngineColumnSchema,
+  EngineFilterSpec,
+  EngineRequest,
+  EngineResponse,
+  EngineSortSpec,
+} from './protocol'
 import { MAX_RANGE_ROWS } from './range-window'
 
 /**
@@ -534,6 +540,62 @@ describe('DuckDbEngineClient file lifecycle (M1-4)', () => {
     await expect(pendingRange).resolves.toBeTruthy()
   })
 
+  it('fetchRange() posts filters/sort as copied plain arrays (m2-2)', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const filters: EngineFilterSpec[] = [{ column: 'income', predicate: '> 50000' }]
+    const sort: EngineSortSpec[] = [{ column: 'country', direction: 'desc' }]
+    const pendingRange = client.fetchRange(handle, { startRow: 0, endRow: 3, filters, sort })
+    await flush()
+    const posted = worker.requestAt(2)
+    expect(posted).toMatchObject({
+      type: 'engine/range',
+      filters: [{ column: 'income', predicate: '> 50000' }],
+      sort: [{ column: 'country', direction: 'desc' }],
+    })
+    // Copies: later mutation of the caller's arrays cannot poison the request.
+    expect(posted.type === 'engine/range' && posted.filters !== filters).toBe(true)
+    filters[0]!.predicate = 'mutated'
+    expect(posted.type === 'engine/range' && posted.filters![0]!.predicate).toBe('> 50000')
+
+    worker.respond({
+      type: 'engine/range-result',
+      requestId: worker.requestAt(2).requestId,
+      batchIpc: arrowIpc([5, 2]),
+      hasMore: false,
+    })
+    await expect(pendingRange).resolves.toBeTruthy()
+  })
+
+  it('fetchRange() omits filters/sort properties on legacy windows', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const pendingRange = client.fetchRange(handle, { startRow: 0, endRow: 3 })
+    await flush()
+    const posted = worker.requestAt(2)
+    expect(posted).not.toHaveProperty('filters')
+    expect(posted).not.toHaveProperty('sort')
+    worker.respond({
+      type: 'engine/range-result',
+      requestId: worker.requestAt(2).requestId,
+      batchIpc: arrowIpc([1, 2, 3]),
+      hasMore: false,
+    })
+    await expect(pendingRange).resolves.toBeTruthy()
+  })
+
   it('source getFile() failures propagate unchanged from the seam', async () => {
     const { client, workers } = makeClient()
     const pending = client.open({
@@ -620,6 +682,35 @@ describe('DuckDbEngineClient row count (M1-5)', () => {
     })
 
     await expect(pendingCount).resolves.toBe(1_000_000)
+  })
+
+  it('rowCount() posts filter options as a copied plain array (m2-2)', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    const handle = await pendingOpen
+
+    const filters = [{ column: 'income', predicate: 'IS NOT NULL' }]
+    const pendingCount = client.rowCount(handle, { filters })
+    await flush()
+    const posted = worker.requestAt(2)
+    expect(posted).toMatchObject({
+      type: 'engine/row-count',
+      filters: [{ column: 'income', predicate: 'IS NOT NULL' }],
+    })
+    expect(posted).not.toHaveProperty('sort')
+    filters[0]!.predicate = 'mutated'
+    expect(posted.type === 'engine/row-count' && posted.filters![0]!.predicate).toBe('IS NOT NULL')
+
+    worker.respond({
+      type: 'engine/row-count-result',
+      requestId: worker.requestAt(2).requestId,
+      rowCount: 4,
+    })
+    await expect(pendingCount).resolves.toBe(4)
   })
 
   it('rowCount() rejects engine-reported failures with EngineOperationError', async () => {

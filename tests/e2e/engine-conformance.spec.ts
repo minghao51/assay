@@ -40,6 +40,8 @@ const SCENARIOS = [
   'arrow-shape',
   'corrupt-file-rollback',
   'mid-stream-error-reuse',
+  'window-filter-sort',
+  'predicate-error-reuse',
 ] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
@@ -51,6 +53,8 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'arrow-shape': 'Conformance: arrow shape',
   'corrupt-file-rollback': 'Conformance: corrupt file rollback',
   'mid-stream-error-reuse': 'Conformance: mid-stream error reuse',
+  'window-filter-sort': 'Conformance: window filter sort',
+  'predicate-error-reuse': 'Conformance: predicate error reuse',
 }
 
 /** Click a scenario button and wait for its JSON result to render. */
@@ -96,6 +100,18 @@ for (const name of SCENARIOS) {
         expect(result.facts['followUpValue']).toBe('42')
         expect(result.facts['engineReadyAfter']).toBe(true)
         break
+      case 'window-filter-sort':
+        expect(result.facts['entries']).toBe(4)
+        expect(result.facts['filteredEntries']).toBe(2)
+        expect(result.facts['naturalOrderPreserved']).toBe(true)
+        expect(result.facts['invalidWindowWithFiltersRejected']).toBe(true)
+        break
+      case 'predicate-error-reuse':
+        expect(result.facts['rejectedProbes']).toBe(3)
+        expect(result.facts['containedBreakouts']).toBe(2)
+        expect(result.facts['viewIntact']).toBe(true)
+        expect(result.facts['engineReusable']).toBe(true)
+        break
       default:
         break
     }
@@ -105,7 +121,7 @@ for (const name of SCENARIOS) {
 test('conformance run-all: the whole suite passes in one page against engine-duckdb', async ({
   page,
 }) => {
-  test.setTimeout(120_000) // seven scenarios, each with a fresh engine boot
+  test.setTimeout(120_000) // nine scenarios, each with a fresh engine boot
   await page.goto(HARNESS_URL)
   await page.getByRole('button', { name: 'Conformance: run all scenarios' }).click()
   const element = page.getByTestId('conformance-run-all')

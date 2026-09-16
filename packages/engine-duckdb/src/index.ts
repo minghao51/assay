@@ -17,6 +17,13 @@
  * metadata-only `SELECT count(*)` — the total a virtualized grid needs to
  * size its scroll area without touching the data.
  *
+ * m2-2: filtered/sorted windows — `fetchRange` accepts optional `filters`
+ * (ordered AND-composed predicates, engine-SQL text per grid contracts v1)
+ * and `sort` keys, and `rowCount` accepts optional `filters` for the filtered
+ * total. SQL is composed over engine-generated view names with quoted
+ * identifiers (`window-query.ts`); absent/empty fields keep the SQL
+ * byte-identical to the pre-m2-2 behavior.
+ *
  * Ownership and dependency rules: docs/engineering/05-repository-structure.md.
  * Delivery sequencing: docs/product/10-execution-roadmap.md.
  */
@@ -34,6 +41,7 @@ export type {
   EngineQueryResult,
   EngineRangeResult,
   EngineRangeWindow,
+  EngineRowCountOptions,
   EngineStatus,
   EngineTableHandle,
   EngineWorkerFactory,
@@ -45,6 +53,7 @@ export type {
   EngineDisposedResponse,
   EngineDisposeRequest,
   EngineErrorResponse,
+  EngineFilterSpec,
   EngineInitRequest,
   EngineOpenRequest,
   EngineOpenResultResponse,
@@ -60,12 +69,20 @@ export type {
   EngineRowCountResultResponse,
   EngineSchemaRequest,
   EngineSchemaResultResponse,
+  EngineSortSpec,
   EngineSuccessResponse,
 } from './protocol'
 export { MAX_RANGE_ROWS, validateRowWindow } from './range-window'
 export type { RowWindow, RowWindowValidation } from './range-window'
 export { detectFileFormat } from './format-view'
 export type { EngineFileFormat } from './format-view'
+export {
+  composeRowCountSql,
+  composeWindowSql,
+  orderByClauseSql,
+  whereClauseSql,
+} from './window-query'
+export type { EngineWindowQuery } from './window-query'
 
 // The worker entry (`./worker.ts`) is intentionally not part of the
 // main-thread surface: the client loads it via

@@ -25,6 +25,14 @@
  * M1-5 adds `engine/row-count`: a metadata-only `count(*)` per table id, so a
  * virtualized grid can size its scroll area from a total without reading the
  * dataset.
+ *
+ * m2-2 adds filtered/sorted windows: `engine/range` accepts optional
+ * `filters`/`sort` and `engine/row-count` optional `filters` — structural
+ * mirrors of the grid contract's v1 `FilterSpec`/`SortSpec` shapes (declared
+ * here, not imported, to keep the dependency direction intact). Predicates
+ * are engine-SQL text (grid contracts v1, ADR 0029); absent/empty fields
+ * mean "no filters"/"natural order", so legacy requests compose
+ * byte-identical SQL.
  */
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
@@ -73,8 +81,11 @@ export interface EngineSchemaRequest {
 
 /**
  * Fetch the half-open row window `[startRow, endRow)` of a registered table,
- * optionally projected onto `columns`. The worker re-validates and clamps the
- * window (`range-window.ts`) — the main thread is untrusted.
+ * optionally projected onto `columns`, narrowed by `filters`, and ordered by
+ * `sort` (m2-2). The worker re-validates and clamps the window
+ * (`range-window.ts`) — the main thread is untrusted. Absent (or empty)
+ * `filters`/`sort` mean "no WHERE clause"/"natural order" — byte-identical
+ * SQL to the pre-m2-2 behavior.
  */
 export interface EngineRangeRequest {
   type: 'engine/range'
@@ -83,16 +94,50 @@ export interface EngineRangeRequest {
   startRow: number
   endRow: number
   columns?: string[]
+  filters?: EngineFilterSpec[]
+  sort?: EngineSortSpec[]
+}
+
+// ---- Filter/sort specs (m2-2) ----
+//
+// Structural mirrors of the grid contract's v1 shapes (`FilterSpec` /
+// `SortSpec` in `@assay/grid` contracts): deliberately re-declared here
+// instead of imported, so the engine protocol stays dependency-free of the
+// grid package (apps → ui/core → domain; the web adapter maps between them —
+// m2-3). The shapes must not drift: the grid's null-clear protocol (`sort(null)`
+// = natural order, `filter(null)` = empty predicate list, AND composition,
+// duplicate columns allowed) is exactly what "absent/empty `filters`/`sort`
+// fields" express on this protocol.
+
+/**
+ * One filter predicate: `column` is quoted as an identifier and `predicate`
+ * is engine-SQL text composed as WHERE content (`"column" <predicate>`,
+ * AND-composed across the list — grid contracts v1, ADR 0029). The predicate
+ * is user-authored SQL: it runs only against the registered view, locally,
+ * on the user's own data, and is never executed as anything but SQL by the
+ * engine or rendered as anything but text by the UI (ADR 0007 spirit).
+ */
+export interface EngineFilterSpec {
+  column: string
+  predicate: string
+}
+
+/** One sort key: `column` is quoted as an identifier; direction is explicit. */
+export interface EngineSortSpec {
+  column: string
+  direction: 'asc' | 'desc'
 }
 
 /**
  * Total row count of a registered table (M1-5): metadata-only (`count(*)`),
  * never a data read. Virtualized grids need a total to size the scroll area.
+ * m2-2: an optional `filters` list narrows the count to the matching rows.
  */
 export interface EngineRowCountRequest {
   type: 'engine/row-count'
   requestId: number
   tableId: string
+  filters?: EngineFilterSpec[]
 }
 
 /** Drop every view/file registered by this session (see `TableRegistry`). */
@@ -229,31 +274,33 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
   if (type === 'engine/range' && typeof data.tableId === 'string') {
     const columns = parseOptionalColumns(data.columns)
     if (columns === null) return null
+    const filters = parseOptionalFilters(data.filters)
+    if (filters === null) return null
+    const sort = parseOptionalSorts(data.sort)
+    if (sort === null) return null
     // Well-formedness only: the bounds must be numbers. Semantic validation
     // (integer, non-negative, ordered, capped) happens in `runRange` via
     // `validateRowWindow` so bad windows get an error *reply*, not silence.
     if (typeof data.startRow === 'number' && typeof data.endRow === 'number') {
-      return columns === undefined
-        ? {
-            type,
-            requestId,
-            tableId: data.tableId,
-            startRow: data.startRow,
-            endRow: data.endRow,
-          }
-        : {
-            type,
-            requestId,
-            tableId: data.tableId,
-            startRow: data.startRow,
-            endRow: data.endRow,
-            columns,
-          }
+      return {
+        type,
+        requestId,
+        tableId: data.tableId,
+        startRow: data.startRow,
+        endRow: data.endRow,
+        ...(columns === undefined ? {} : { columns }),
+        ...(filters === undefined ? {} : { filters }),
+        ...(sort === undefined ? {} : { sort }),
+      }
     }
     return null
   }
   if (type === 'engine/row-count' && typeof data.tableId === 'string') {
-    return { type, requestId, tableId: data.tableId }
+    const filters = parseOptionalFilters(data.filters)
+    if (filters === null) return null
+    return filters === undefined
+      ? { type, requestId, tableId: data.tableId }
+      : { type, requestId, tableId: data.tableId, filters }
   }
   if (type === 'engine/dispose') return { type, requestId }
   return null
@@ -268,6 +315,50 @@ function parseOptionalColumns(value: unknown): string[] | undefined | null {
   if (!Array.isArray(value) || value.length === 0) return null
   if (!value.every((column) => typeof column === 'string')) return null
   return [...(value as string[])]
+}
+
+/** A structurally valid `{column, predicate}` filter (both plain strings). */
+function isFilterSpec(value: unknown): value is EngineFilterSpec {
+  return (
+    isRecord(value) && typeof value['column'] === 'string' && typeof value['predicate'] === 'string'
+  )
+}
+
+/** A structurally valid `{column, direction}` sort key. */
+function isSortSpec(value: unknown): value is EngineSortSpec {
+  return (
+    isRecord(value) &&
+    typeof value['column'] === 'string' &&
+    (value['direction'] === 'asc' || value['direction'] === 'desc')
+  )
+}
+
+/**
+ * Optional `filters` list (m2-2): absent, or an array (possibly empty — empty
+ * means the same as absent, the grid's `filter(null)` clear) of well-formed
+ * filter specs. The list is copied: the boundary is untrusted, so a request
+ * can never keep a reference into worker state. Returns `null` for malformed
+ * input (the request is then rejected).
+ */
+function parseOptionalFilters(value: unknown): EngineFilterSpec[] | undefined | null {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || !value.every(isFilterSpec)) return null
+  return value.map((filter) => ({ column: filter.column, predicate: filter.predicate }))
+}
+
+/**
+ * Optional `sort` list (m2-2): absent, or an array (possibly empty — empty
+ * means the same as absent, the grid's `sort(null)` natural order) of
+ * well-formed sort keys with an explicit `asc`/`desc` direction. Copied like
+ * `filters`. Returns `null` for malformed input.
+ */
+function parseOptionalSorts(value: unknown): EngineSortSpec[] | undefined | null {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || !value.every(isSortSpec)) return null
+  return value.map((key) => ({
+    column: key.column,
+    direction: key.direction,
+  }))
 }
 
 /**

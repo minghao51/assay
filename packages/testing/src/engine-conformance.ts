@@ -34,6 +34,21 @@
  *    whose later batches fail must reject as a query error, release the
  *    connection (cleanup), and leave the engine reusable.
  *
+ * m2-2 adds filtered/sorted-window scenarios (the engine surface the grid's
+ * sort/filter state drives; predicates are engine-SQL text per grid contracts
+ * v1 / ADR 0029):
+ *
+ * 8. `window-filter-sort` — filtered windows return exactly the declared
+ *    matching values; the filtered `rowCount` matches; sort asc/desc orders
+ *    as declared; filter+sort compose; window clamping and validation still
+ *    apply under filters; and the no-filter window stays in natural order
+ *    (the grid's null-clear protocol: absent filters/sort = none).
+ * 9. `predicate-error-reuse` — invalid or hostile filter probes reject with a
+ *    *classified* engine error (operation/query category — never a crash or
+ *    protocol error) and the engine stays ready and reusable; breakout
+ *    probes (escape attempts) are contained: the registered view and its
+ *    data survive untouched.
+ *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
  * browser, temp files in Node) and which SQL drives engine-specific paths.
@@ -75,10 +90,28 @@ export interface ConformanceTableHandle {
   readonly id: string
 }
 
-/** A requested half-open row window `[startRow, endRow)`. */
+/**
+ * A requested half-open row window `[startRow, endRow)`, optionally narrowed
+ * by `filters` and ordered by `sort` (m2-2). Absent (or empty) filters/sort
+ * mean "no predicates"/"natural order" — the grid's null-clear protocol.
+ */
 export interface ConformanceWindow {
   readonly startRow: number
   readonly endRow: number
+  readonly filters?: readonly ConformanceFilterSpec[]
+  readonly sort?: readonly ConformanceSortSpec[]
+}
+
+/** One filter predicate: engine-defined SQL text on a column (grid v1, ADR 0029). */
+export interface ConformanceFilterSpec {
+  readonly column: string
+  readonly predicate: string
+}
+
+/** One sort key with an explicit direction. */
+export interface ConformanceSortSpec {
+  readonly column: string
+  readonly direction: 'asc' | 'desc'
 }
 
 /** An Arrow result: exactly one record batch, plus the honest truncation flag. */
@@ -95,7 +128,11 @@ export interface ConformanceEngineClient {
   ensureReady(): Promise<unknown>
   open(source: ConformanceFileSource): Promise<ConformanceTableHandle>
   schema(handle: ConformanceTableHandle): Promise<readonly ConformanceColumn[]>
-  rowCount(handle: ConformanceTableHandle): Promise<number>
+  /** Total rows; with `options.filters` (m2-2), the filtered matching count. */
+  rowCount(
+    handle: ConformanceTableHandle,
+    options?: { readonly filters?: readonly ConformanceFilterSpec[] },
+  ): Promise<number>
   fetchRange(
     handle: ConformanceTableHandle,
     window: ConformanceWindow,
@@ -163,6 +200,47 @@ export interface EngineConformanceSubject {
    * the probe rather than passing vacuously.
    */
   registeredTableCount(client: ConformanceEngineClient): Promise<number | null>
+  /**
+   * Declared filter/sort semantics over the good dataset (m2-2): each entry
+   * names the filters/sort to apply (engine-SQL text per grid contracts v1),
+   * the column whose rendered values to assert, the exact expected values
+   * across the whole matching set in expected order (NULLs rendered as
+   * `null`, engine null-ordering as declared), and the expected matching row
+   * count. Preconditions the suite enforces: every `expectColumn` exists in
+   * `dataset.columns` and every `expectRowCount` is ≤ `maxWindowRows`.
+   */
+  readonly windowSemantics: readonly ConformanceWindowSemantics[]
+  /**
+   * Filter probes that MUST reject with a classified engine error (operation
+   * or query category — never a crash/protocol error), leaving the engine
+   * ready and reusable. Covers invalid SQL text, references to non-dataset
+   * columns, and quote-hostile identifier names (the identifier must stay an
+   * identifier: an escape would have to "succeed" or crash instead).
+   */
+  readonly rejectingFilters: readonly ConformanceFilterSpec[]
+  /**
+   * Breakout probes (m2-2 injection containment): filter texts attempting to
+   * escape the composed statement (e.g. extra `;`-separated statements).
+   * Whatever the engine does with the statement — reject it, or run it as
+   * harmless SQL on the user's own view — the registered view, its data, and
+   * the engine must survive intact (the scenario verifies via the benign
+   * filtered window/count and the registry probe).
+   */
+  readonly breakoutFilters: readonly ConformanceFilterSpec[]
+}
+
+/** One declared filter/sort expectation over the good dataset (see the subject field). */
+export interface ConformanceWindowSemantics {
+  /** Stable label (appears in scenario facts only). */
+  readonly label: string
+  readonly filters?: readonly ConformanceFilterSpec[]
+  readonly sort?: readonly ConformanceSortSpec[]
+  /** The column whose rendered values `expectValues` declares. */
+  readonly expectColumn: string
+  /** Expected values of `expectColumn` over the whole matching set, in order. */
+  readonly expectValues: readonly (string | null)[]
+  /** Expected number of matching rows (≤ `maxWindowRows`). */
+  readonly expectRowCount: number
 }
 
 // ---- Results ----
@@ -176,6 +254,8 @@ export const engineConformanceScenarioNames = [
   'arrow-shape',
   'corrupt-file-rollback',
   'mid-stream-error-reuse',
+  'window-filter-sort',
+  'predicate-error-reuse',
 ] as const
 
 export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[number]
@@ -270,6 +350,40 @@ type ConformanceVector = NonNullable<ReturnType<Table['getChildAt']>>
 function renderCell(vector: ConformanceVector, row: number): string | null {
   const value: unknown = vector.get(row)
   return value === null || value === undefined ? null : String(value)
+}
+
+/**
+ * Asserts the named column of `batch` renders exactly `expected` values in
+ * order (NULL-safe, position-by-position) — the filtered/sorted window
+ * assertion used by the m2-2 scenarios.
+ */
+function expectColumnValues(
+  batch: Table,
+  columnName: string,
+  expected: readonly (string | null)[],
+  label: string,
+): void {
+  const index = batch.schema.fields.findIndex((field) => field.name === columnName)
+  if (index < 0) {
+    fail(`${label}: the batch is missing column ${columnName}`)
+  }
+  const vector = batch.getChildAt(index)
+  if (vector === null) {
+    fail(`${label}: column ${columnName} has no vector`)
+  }
+  if (vector!.length !== expected.length) {
+    fail(
+      `${label}: column ${columnName} has ${String(vector!.length)} rows, expected ${String(expected.length)}`,
+    )
+  }
+  for (let row = 0; row < expected.length; row++) {
+    const actual = renderCell(vector!, row)
+    if (actual !== expected[row]) {
+      fail(
+        `${label}: ${columnName}[${String(row)}]: expected ${String(expected[row])}, got ${String(actual)}`,
+      )
+    }
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -583,6 +697,250 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       'the engine must stay ready after a mid-stream failure',
     )
     return { midStreamRejected: true, followUpValue: subject.smokeSqlValue, engineReadyAfter: true }
+  },
+
+  'window-filter-sort': async (subject) => {
+    // Subject preconditions (fail loudly on misconfiguration, never vacuously).
+    const semantics = subject.windowSemantics
+    expectCondition(
+      semantics.length > 0,
+      'subject misconfiguration: declare at least one window-semantics entry',
+    )
+    const declaredColumns = new Map(subject.dataset.columns.map((column) => [column.name, column]))
+    for (const entry of semantics) {
+      expectCondition(
+        declaredColumns.has(entry.expectColumn),
+        `subject misconfiguration: semantics entry "${entry.label}" names unknown column ${entry.expectColumn}`,
+      )
+      expectCondition(
+        entry.expectRowCount >= 1 && entry.expectRowCount <= subject.maxWindowRows,
+        `subject misconfiguration: semantics entry "${entry.label}" expects ${String(entry.expectRowCount)} rows — must be within 1…maxWindowRows so the whole matching set fits one window`,
+      )
+      expectCondition(
+        entry.expectValues.length === entry.expectRowCount,
+        `subject misconfiguration: semantics entry "${entry.label}" declares ${String(entry.expectValues.length)} values for ${String(entry.expectRowCount)} rows`,
+      )
+    }
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageGoodFile())
+
+    // Backward-compatibility baseline: with no filters/sort the window is the
+    // natural-order dataset (the grid's null-clear protocol: absent = none).
+    const baselineColumn = declaredColumns.get(semantics[0]!.expectColumn)!
+    expectCondition(
+      baselineColumn.values !== undefined,
+      'subject misconfiguration: the first semantics entry column must declare natural-order values for the baseline check',
+    )
+    const naturalEnd = Math.min(subject.dataset.rowCount, subject.maxWindowRows)
+    const natural = await client.fetchRange(handle, { startRow: 0, endRow: naturalEnd })
+    expectColumnValues(
+      natural.batch,
+      baselineColumn.name,
+      baselineColumn.values!.slice(0, naturalEnd),
+      'natural-order baseline',
+    )
+
+    let filteredEntries = 0
+    let invalidWindowWithFiltersRejected = false
+    for (const entry of semantics) {
+      const filters = entry.filters ?? []
+      const sort = entry.sort ?? []
+      const label = `[${entry.label}]`
+
+      // The whole matching set, in the declared order, with the declared values.
+      const whole = await client.fetchRange(handle, {
+        startRow: 0,
+        endRow: subject.maxWindowRows,
+        ...(filters.length > 0 ? { filters } : {}),
+        ...(sort.length > 0 ? { sort } : {}),
+      })
+      expectEqual(whole.batch.numRows, entry.expectRowCount, `${label} matching row count`)
+      expectColumnValues(whole.batch, entry.expectColumn, entry.expectValues, label)
+
+      // Row counts: filtered counts answer the filter; sort alone must not
+      // change the total.
+      if (filters.length > 0) {
+        expectEqual(
+          await client.rowCount(handle, { filters }),
+          entry.expectRowCount,
+          `${label} filtered rowCount`,
+        )
+        // Clamping/windowing still applies under filters: a window past the
+        // matching set is empty; dropping the first match shifts values by one.
+        // Both checks carry the entry's sort as well, so the expected values
+        // stay the declared (filtered + sorted) order.
+        const tail = await client.fetchRange(handle, {
+          startRow: entry.expectRowCount,
+          endRow: entry.expectRowCount + 5,
+          filters,
+          ...(sort.length > 0 ? { sort } : {}),
+        })
+        expectEqual(tail.batch.numRows, 0, `${label} window past the matching set`)
+        const shifted = await client.fetchRange(handle, {
+          startRow: 1,
+          endRow: entry.expectRowCount + 1,
+          filters,
+          ...(sort.length > 0 ? { sort } : {}),
+        })
+        expectEqual(
+          shifted.batch.numRows,
+          entry.expectRowCount - 1,
+          `${label} shifted window row count`,
+        )
+        expectColumnValues(
+          shifted.batch,
+          entry.expectColumn,
+          entry.expectValues.slice(1),
+          `${label} shifted`,
+        )
+        // Window validation is not bypassed by filters.
+        const invalid = await rejectionOf(
+          client.fetchRange(handle, { startRow: 5, endRow: 2, filters }),
+        )
+        expectCondition(
+          invalid !== null && subject.errors.operation(invalid),
+          `${label} an invalid window must still reject with filters present (got: ${errorMessage(invalid)})`,
+        )
+        invalidWindowWithFiltersRejected = true
+        filteredEntries += 1
+      } else {
+        expectEqual(
+          await client.rowCount(handle),
+          subject.dataset.rowCount,
+          `${label} unfiltered rowCount must ignore sort`,
+        )
+      }
+    }
+    return {
+      entries: semantics.length,
+      filteredEntries,
+      naturalOrderPreserved: true,
+      invalidWindowWithFiltersRejected,
+    }
+  },
+
+  'predicate-error-reuse': async (subject) => {
+    expectCondition(
+      subject.rejectingFilters.length > 0,
+      'subject misconfiguration: declare at least one rejecting filter probe',
+    )
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageGoodFile())
+
+    // A benign filtered anchor (from the declared semantics) proves — before
+    // and after the probes — that the view and its data survived untouched.
+    const anchor = subject.windowSemantics.find(
+      (entry) => entry.filters !== undefined && entry.filters.length > 0,
+    )
+    expectCondition(
+      anchor !== undefined,
+      'subject misconfiguration: declare at least one filtered window-semantics entry as the benign anchor',
+    )
+    const anchorFilters = anchor!.filters!
+    const anchorEndRow = Math.min(anchor!.expectRowCount, subject.maxWindowRows)
+    expectEqual(
+      await client.rowCount(handle, { filters: anchorFilters }),
+      anchor!.expectRowCount,
+      'benign anchor rowCount (pre-probe)',
+    )
+
+    // Predicate/identifier failures must surface as a *classified* engine
+    // error (operation or query category — the engine's own error surface,
+    // never a crash, protocol, or disposed error) and must leave the engine
+    // ready and reusable. User-authored SQL text is untrusted CONTENT: it is
+    // rejected or run on the user's own view — it can never take the engine
+    // down (ADR 0007 spirit).
+    const classified = (error: unknown): boolean =>
+      subject.errors.operation(error) || subject.errors.query(error)
+
+    let rejectedProbes = 0
+    for (const probe of subject.rejectingFilters) {
+      const error = await rejectionOf(
+        client.fetchRange(handle, {
+          startRow: 0,
+          endRow: subject.maxWindowRows,
+          filters: [probe],
+        }),
+      )
+      expectCondition(
+        error !== null,
+        `the rejecting probe (column ${probe.column}) must reject, not resolve`,
+      )
+      expectCondition(
+        classified(error),
+        `the rejecting probe (column ${probe.column}) must reject with a classified engine error (got: ${errorMessage(error)})`,
+      )
+      expectCondition(
+        subject.isReady(client),
+        `the engine must stay ready after a rejected probe (column ${probe.column})`,
+      )
+      rejectedProbes += 1
+    }
+    // The same classification applies on the metadata op.
+    const countError = await rejectionOf(
+      client.rowCount(handle, { filters: [subject.rejectingFilters[0]!] }),
+    )
+    expectCondition(
+      countError !== null && classified(countError),
+      `a rejecting filter on rowCount must reject with a classified engine error (got: ${errorMessage(countError)})`,
+    )
+
+    // Breakout probes (injection containment): whatever the engine does with
+    // the statement — reject it, or run it as harmless SQL on the user's own
+    // view — the engine and the registered data must survive intact.
+    const registryBefore = await subject.registeredTableCount(client)
+    let containedBreakouts = 0
+    for (const probe of subject.breakoutFilters) {
+      const outcome = await rejectionOf(
+        client.fetchRange(handle, {
+          startRow: 0,
+          endRow: subject.maxWindowRows,
+          filters: [probe],
+        }),
+      )
+      expectCondition(
+        subject.isReady(client),
+        `the engine must stay ready after the breakout probe (predicate ${JSON.stringify(probe.predicate)})`,
+      )
+      expectEqual(
+        await client.rowCount(handle, { filters: anchorFilters }),
+        anchor!.expectRowCount,
+        `view data must survive the breakout probe (predicate ${JSON.stringify(probe.predicate)})`,
+      )
+      if (outcome !== null) {
+        expectCondition(
+          classified(outcome),
+          `a rejected breakout probe must be a classified engine error (got: ${errorMessage(outcome)})`,
+        )
+      }
+      containedBreakouts += 1
+    }
+    const registryAfter = await subject.registeredTableCount(client)
+    expectCondition(
+      registryBefore === null || registryAfter === null || registryBefore === registryAfter,
+      `the registry must be unchanged by the probes (before: ${String(registryBefore)}, after: ${String(registryAfter)})`,
+    )
+
+    // The benign anchor still answers with exactly its declared values.
+    const anchorWindow = await client.fetchRange(handle, {
+      startRow: 0,
+      endRow: anchorEndRow,
+      filters: anchorFilters,
+    })
+    expectEqual(
+      anchorWindow.batch.numRows,
+      anchor!.expectRowCount,
+      'benign anchor window (post-probe)',
+    )
+    return {
+      rejectedProbes,
+      containedBreakouts,
+      viewIntact: true,
+      engineReusable: true,
+    }
   },
 }
 

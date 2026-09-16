@@ -627,3 +627,181 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
     expect(deps.connection.collisions).toEqual([])
   })
 })
+
+// ---- m2-2: filtered/sorted windows and filtered row counts ----
+
+/** Range request carrying filter/sort specs (the raw protocol shape). */
+function filteredRangeRequest(
+  id: number,
+  extra: {
+    startRow?: number
+    endRow?: number
+    filters?: Array<{ column: string; predicate: string }>
+    sort?: Array<{ column: string; direction: 'asc' | 'desc' }>
+    columns?: string[]
+  },
+): EngineRequest {
+  return {
+    type: 'engine/range',
+    requestId: id,
+    tableId: 't1',
+    startRow: extra.startRow ?? 0,
+    endRow: extra.endRow ?? 5,
+    ...(extra.filters === undefined ? {} : { filters: extra.filters }),
+    ...(extra.sort === undefined ? {} : { sort: extra.sort }),
+    ...(extra.columns === undefined ? {} : { columns: extra.columns }),
+  }
+}
+
+function filteredRowCountRequest(
+  id: number,
+  filters?: Array<{ column: string; predicate: string }>,
+): EngineRequest {
+  return {
+    type: 'engine/row-count',
+    requestId: id,
+    tableId: 't1',
+    ...(filters === undefined ? {} : { filters }),
+  }
+}
+
+describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
+  it('composes filtered+sorted window SQL over the registered view and streams the result', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(
+      filteredRangeRequest(2, {
+        filters: [
+          { column: 'country', predicate: "= 'US'" },
+          { column: 'income', predicate: '> 50000' },
+        ],
+        sort: [{ column: 'income', direction: 'desc' }],
+      }),
+    )
+    await awaitSends(deps.connection, 2)
+    // Predicates are WHERE content; the column identifiers are quoted; the
+    // view name is the engine-generated one.
+    expect(deps.connection.sentSqls[1]).toBe(
+      'SELECT * FROM "assay_t1" ' +
+        `WHERE ("country" = 'US') AND ("income" > 50000) ` +
+        'ORDER BY "income" desc ' +
+        'LIMIT 5 OFFSET 0',
+    )
+    deps.connection.resolveSend(1, intTable([5, 2]))
+    const response = await awaitPosted(deps, 2)
+    expect(response.type).toBe('engine/range-result')
+    if (response.type === 'engine/range-result') {
+      expect(response.hasMore).toBe(false)
+      expect(firstColumnValues(response.batchIpc)).toEqual([5, 2])
+    }
+    expect(deps.connection.collisions).toEqual([])
+  })
+
+  it('composes byte-identical legacy SQL when filters/sort are absent or empty', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(filteredRangeRequest(2, { filters: [], sort: [] }))
+    await awaitSends(deps.connection, 2)
+    expect(deps.connection.sentSqls[1]).toBe('SELECT * FROM "assay_t1" LIMIT 5 OFFSET 0')
+    deps.connection.resolveSend(1, intTable([1, 2, 3, 4, 5]))
+
+    executor.accept(filteredRowCountRequest(3, []))
+    await awaitSends(deps.connection, 3)
+    expect(deps.connection.sentSqls[2]).toBe('SELECT count(*)::BIGINT AS row_count FROM "assay_t1"')
+    deps.connection.resolveSend(2, countTable(5n))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/row-count-result',
+      rowCount: 5,
+    })
+    expect(deps.connection.collisions).toEqual([])
+  })
+
+  it('re-clamps oversized windows with filters present (LIMIT capped, WHERE kept)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(
+      filteredRangeRequest(2, {
+        startRow: 500,
+        endRow: 10_000_000,
+        filters: [{ column: 'income', predicate: 'IS NOT NULL' }],
+      }),
+    )
+    await awaitSends(deps.connection, 2)
+    expect(deps.connection.sentSqls[1]).toBe(
+      'SELECT * FROM "assay_t1" WHERE ("income" IS NOT NULL) LIMIT 1000 OFFSET 500',
+    )
+    deps.connection.resolveSend(1, intTable([]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/range-result' })
+    expect(deps.connection.collisions).toEqual([])
+  })
+
+  it('composes the filtered count SQL for engine/row-count', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(filteredRowCountRequest(2, [{ column: 'income', predicate: '> 50000' }]))
+    await awaitSends(deps.connection, 2)
+    expect(deps.connection.sentSqls[1]).toBe(
+      'SELECT count(*)::BIGINT AS row_count FROM "assay_t1" WHERE ("income" > 50000)',
+    )
+    deps.connection.resolveSend(1, countTable(3n))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/row-count-result',
+      rowCount: 3,
+    })
+    expect(deps.connection.collisions).toEqual([])
+  })
+
+  it('a failing predicate errors only its own op with the engine message and the engine stays usable', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(
+      filteredRangeRequest(2, { filters: [{ column: 'income', predicate: ')) FROM ((' }] }),
+    )
+    executor.accept(filteredRowCountRequest(3, [{ column: 'income', predicate: '> 1' }]))
+    await awaitSends(deps.connection, 2)
+
+    deps.connection.rejectSend(1, new Error('Parser Error: syntax error at or near "))"'))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      message: 'Parser Error: syntax error at or near "))"',
+    })
+
+    // The queued filtered count runs afterwards on the freed connection.
+    await awaitSends(deps.connection, 3)
+    deps.connection.resolveSend(2, countTable(4n))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/row-count-result',
+      rowCount: 4,
+    })
+    expect(deps.connection.collisions).toEqual([])
+  })
+
+  it('silently drops requests whose filters/sort arrive malformed (no reply, no send)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(
+      filteredRangeRequest(2, {
+        startRow: 0,
+        endRow: 5,
+        // Raw hostile message: filter spec missing its predicate string.
+        filters: [{ column: 'income' } as unknown as { column: string; predicate: string }],
+      }),
+    )
+    await flush()
+    expect(deps.connection.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
+    expect(deps.postedResponses.find((response) => response.requestId === 2)).toBeUndefined()
+
+    // The channel was never occupied by the dropped message: a follow-up op runs.
+    executor.accept(queryRequest(3, 'SELECT 42 AS value'))
+    await awaitSends(deps.connection, 2)
+    deps.connection.resolveSend(1, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expect(deps.connection.collisions).toEqual([])
+  })
+})

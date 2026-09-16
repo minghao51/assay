@@ -1,0 +1,5 @@
+---
+'@assay/engine-duckdb': minor
+---
+
+feat(m2-2): filtered/sorted windows — `fetchRange` accepts optional `filters` (ordered AND-composed predicates; each filter is `{column, predicate}` with the predicate as engine-SQL text per grid contracts v1/ADR 0029, composed as quoted-identifier WHERE content) and `sort` keys (`{column, direction}`), and `rowCount` accepts optional `filters` for the filtered total. The worker protocol (`engine/range`, `engine/row-count`) gains the same optional fields as protocol-local structural mirrors of the grid's v1 `FilterSpec`/`SortSpec` shapes (no `@assay/grid` import — the web adapter maps them, m2-3). SQL is composed over engine-generated view names only, with all column identifiers double-quote-escaped (hostile names stay inside identifier context); absent or empty `filters`/`sort` compose byte-identical SQL to the previous behavior, and window validation/clamping (`MAX_RANGE_ROWS`) still applies with filters present. Invalid predicates reject as the engine's existing operation-error surface with the engine reusable afterwards.

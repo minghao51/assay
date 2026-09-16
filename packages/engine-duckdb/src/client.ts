@@ -24,8 +24,10 @@ import type { Table } from 'apache-arrow'
 import { parseEngineResponse } from './protocol'
 import type {
   EngineColumnSchema,
+  EngineFilterSpec,
   EngineReadyInfo,
   EngineRequest,
+  EngineSortSpec,
   EngineSuccessResponse,
 } from './protocol'
 import { validateRowWindow } from './range-window'
@@ -87,6 +89,23 @@ export interface EngineRangeWindow {
   readonly endRow: number
   /** Optional projection; omit for all columns. Must be non-empty. */
   readonly columns?: readonly string[]
+  /**
+   * Optional ordered predicates, AND-composed (m2-2; grid contracts v1 — the
+   * predicate is engine-SQL text, `"column" <predicate>`). Omit or pass an
+   * empty array for no filters (the grid's `filter(null)` clear).
+   */
+  readonly filters?: readonly EngineFilterSpec[]
+  /**
+   * Optional ordered sort keys (m2-2). Omit or pass an empty array for natural
+   * order (the grid's `sort(null)`).
+   */
+  readonly sort?: readonly EngineSortSpec[]
+}
+
+/** Options for `rowCount` (m2-2): a filtered count narrows the `count(*)`. */
+export interface EngineRowCountOptions {
+  /** Ordered predicates, AND-composed; omit/empty for the unfiltered total. */
+  readonly filters?: readonly EngineFilterSpec[]
 }
 
 /** The slice of the `Worker` API the client relies on (kept narrow for fakes). */
@@ -265,15 +284,24 @@ export class DuckDbEngineClient {
   /**
    * Total row count for a registered table — metadata only (`count(*)`),
    * never a data read (M1-5). Virtualized grids need a total to size the
-   * scroll area without implying full-dataset materialization.
+   * scroll area without implying full-dataset materialization. With
+   * `options.filters` (m2-2) the count is narrowed to the matching rows —
+   * the total a filtered grid displays.
    */
-  async rowCount(handle: EngineTableHandle): Promise<number> {
+  async rowCount(handle: EngineTableHandle, options?: EngineRowCountOptions): Promise<number> {
     await this.ensureReady()
-    const response = await this.send({
+    const request: EngineRequest = {
       type: 'engine/row-count',
       requestId: this.takeRequestId(),
       tableId: handle.id,
-    })
+    }
+    if (options?.filters !== undefined) {
+      request.filters = options.filters.map((filter) => ({
+        column: filter.column,
+        predicate: filter.predicate,
+      }))
+    }
+    const response = await this.send(request)
     if (response.type !== 'engine/row-count-result') {
       throw new EngineProtocolError(`unexpected ${response.type} response for engine/row-count`)
     }
@@ -307,6 +335,19 @@ export class DuckDbEngineClient {
         throw new EngineOperationError('columns must not be empty when provided')
       }
       request.columns = [...window.columns]
+    }
+    // m2-2: filters/sort cross as copied plain arrays (the boundary is
+    // untrusted on the worker side — it re-validates the shape itself).
+    // Empty arrays are passed through verbatim: they mean the same as absent
+    // (no WHERE clause / natural order) once composed.
+    if (window.filters !== undefined) {
+      request.filters = window.filters.map((filter) => ({
+        column: filter.column,
+        predicate: filter.predicate,
+      }))
+    }
+    if (window.sort !== undefined) {
+      request.sort = window.sort.map((key) => ({ column: key.column, direction: key.direction }))
     }
     const response = await this.send(request)
     if (response.type !== 'engine/range-result') {

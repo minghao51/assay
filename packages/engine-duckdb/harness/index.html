@@ -116,6 +116,38 @@
       </section>
 
       <!--
+        m2-2 filtered/sorted windows over the opened flat fixture: filtered
+        window, sorted windows (DuckDB's NULL-last default pinned by the desc
+        case), filter+sort combined, the filtered rowCount, and the invalid-
+        predicate error path with reuse. Predicates are engine-SQL text (grid
+        contracts v1); everything renders through the Arrow API as data.
+      -->
+      <section>
+        <h2>Filtered/sorted windows (m2-2) over the opened flat fixture</h2>
+        <button id="filtered-window" type="button">Filtered window: income &gt; 50000</button>
+        <button id="sorted-window" type="button">Sorted window: income desc</button>
+        <button id="filter-sort-window" type="button">
+          Filter + sort window: country = 'US', income desc
+        </button>
+        <button id="filtered-row-count" type="button">Filtered rowCount: income &gt; 50000</button>
+        <button id="predicate-error-reuse" type="button">
+          Invalid predicate, then filtered rowCount again
+        </button>
+        <dl>
+          <dt>filtered window (JSON)</dt>
+          <dd><pre data-testid="filtered-window-result">not run</pre></dd>
+          <dt>sorted window (JSON)</dt>
+          <dd><pre data-testid="sorted-window-result">not run</pre></dd>
+          <dt>filter + sort window (JSON)</dt>
+          <dd><pre data-testid="filter-sort-window-result">not run</pre></dd>
+          <dt>filtered row count</dt>
+          <dd data-testid="filtered-row-count-result">not run</dd>
+          <dt>invalid predicate error + reuse (JSON)</dt>
+          <dd><pre data-testid="predicate-error-result">not run</pre></dd>
+        </dl>
+      </section>
+
+      <!--
         T2 worker-side operation serialization: fires query + fetchRange +
         rowCount + a failing query CONCURRENTLY against the opened flat
         fixture, then disposes. Every op must settle correctly on its own —
@@ -160,6 +192,12 @@
           <button id="conformance-mid-stream-error-reuse" type="button">
             Conformance: mid-stream error reuse
           </button>
+          <button id="conformance-window-filter-sort" type="button">
+            Conformance: window filter sort
+          </button>
+          <button id="conformance-predicate-error-reuse" type="button">
+            Conformance: predicate error reuse
+          </button>
         </p>
         <dl>
           <dt>run-all report</dt>
@@ -178,6 +216,10 @@
           <dd><pre data-testid="conformance-result-corrupt-file-rollback">not run</pre></dd>
           <dt>mid-stream error reuse result</dt>
           <dd><pre data-testid="conformance-result-mid-stream-error-reuse">not run</pre></dd>
+          <dt>window filter sort result</dt>
+          <dd><pre data-testid="conformance-result-window-filter-sort">not run</pre></dd>
+          <dt>predicate error reuse result</dt>
+          <dd><pre data-testid="conformance-result-predicate-error-reuse">not run</pre></dd>
         </dl>
       </section>
 

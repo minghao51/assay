@@ -37,6 +37,7 @@ import { createViewSql, detectFileFormat, quotedIdentifier } from './format-view
 import { parseEngineRequest } from './protocol'
 import type {
   EngineColumnSchema,
+  EngineFilterSpec,
   EngineRangeRequest,
   EngineRequest,
   EngineResponse,
@@ -45,6 +46,7 @@ import { validateRowWindow } from './range-window'
 import { OpChannel } from './op-channel'
 import { TableRegistry } from './table-registry'
 import type { RegisteredTable } from './table-registry'
+import { composeRowCountSql, composeWindowSql } from './window-query'
 
 /**
  * Minimal structural view of an Apache Arrow record-batch stream reader —
@@ -148,7 +150,7 @@ export class EngineOpExecutor {
           break
         }
         case 'engine/row-count': {
-          await this.runRowCount(request.requestId, request.tableId)
+          await this.runRowCount(request.requestId, request.tableId, request.filters)
           break
         }
         case 'engine/dispose': {
@@ -224,11 +226,17 @@ export class EngineOpExecutor {
   }
 
   /**
-   * Windowed fetch: `LIMIT <count> OFFSET <start>` over the view, streamed
-   * through the same first-batch Arrow transport as `query`. The window is
-   * re-validated here — the main thread is untrusted — and clamped to
-   * `MAX_RANGE_ROWS` (visible-window sized), so a request can never imply
-   * full-dataset materialization.
+   * Windowed fetch over the view, streamed through the same first-batch Arrow
+   * transport as `query`, composed by `composeWindowSql` (m2-2):
+   * `SELECT … [WHERE <filters>] [ORDER BY <sort>] LIMIT <count> OFFSET <start>`.
+   * The window is re-validated here — the main thread is untrusted — and
+   * clamped to `MAX_RANGE_ROWS` (visible-window sized), so a request can never
+   * imply full-dataset materialization; the clamp applies with filters present
+   * too (a filtered result is windowed exactly like an unfiltered one).
+   * Predicates are engine-SQL text (grid contracts v1): they run only against
+   * the registered view and only ever reach the engine as SQL text — an
+   * invalid predicate rejects this op with the engine's own error message and
+   * leaves the engine untouched (see `window-query.ts` for composition rules).
    */
   private async runRange(request: EngineRangeRequest): Promise<void> {
     const entry = this.requireTable(request.tableId)
@@ -236,26 +244,35 @@ export class EngineOpExecutor {
     if (!window.valid) {
       throw new Error(`invalid row window: ${window.reason}`)
     }
-    const projection = request.columns
-      ? request.columns.map((column) => quotedIdentifier(column)).join(', ')
-      : '*'
-    const sql =
-      `SELECT ${projection} FROM ${quotedIdentifier(entry.viewName)}` +
-      ` LIMIT ${window.endRow - window.startRow} OFFSET ${window.startRow}`
+    const sql = composeWindowSql({
+      viewName: entry.viewName,
+      columns: request.columns,
+      filters: request.filters,
+      sort: request.sort,
+      limit: window.endRow - window.startRow,
+      offset: window.startRow,
+    })
     const { batchIpc, hasMore } = await this.streamFirstBatch(sql)
     this.post({ type: 'engine/range-result', requestId: request.requestId, batchIpc, hasMore })
   }
 
   /**
-   * Metadata-only total (`count(*)`) for a registered table (M1-5). No rows are
-   * read: DuckDB answers from Parquet metadata, and only the single count value
-   * crosses the boundary. The value is re-checked here so a future DuckDB type
-   * change fails loudly instead of leaking a bogus total into UI state.
+   * Metadata-only total (`count(*)`) for a registered table (M1-5), optionally
+   * narrowed by filters (m2-2 — the filtered count a grid needs when filters
+   * change totals). No rows are read beyond what the count's WHERE clause
+   * scans: DuckDB answers unfiltered counts from Parquet metadata, and only
+   * the single count value crosses the boundary. The value is re-checked here
+   * so a future DuckDB type change fails loudly instead of leaking a bogus
+   * total into UI state.
    */
-  private async runRowCount(requestId: number, tableId: string): Promise<void> {
+  private async runRowCount(
+    requestId: number,
+    tableId: string,
+    filters?: EngineFilterSpec[],
+  ): Promise<void> {
     const entry = this.requireTable(tableId)
     const { batchIpc } = await this.streamFirstBatch(
-      `SELECT count(*)::BIGINT AS row_count FROM ${quotedIdentifier(entry.viewName)}`,
+      composeRowCountSql({ viewName: entry.viewName, filters }),
     )
     const value = tableFromIPC(batchIpc).getChildAt(0)?.get(0)
     const rowCount = typeof value === 'bigint' ? Number(value) : value

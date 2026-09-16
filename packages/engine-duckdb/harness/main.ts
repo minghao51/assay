@@ -16,7 +16,12 @@
  */
 import { engineConformanceScenarioNames, runEngineConformanceScenarios } from '@assay/testing'
 import { DuckDbEngineClient } from '../src/index'
-import type { EngineFileSource, EngineQueryResult, EngineTableHandle } from '../src/index'
+import type {
+  EngineFileSource,
+  EngineQueryResult,
+  EngineRangeWindow,
+  EngineTableHandle,
+} from '../src/index'
 import { createDuckDbConformanceSubject } from './conformance-subject'
 
 const client = new DuckDbEngineClient()
@@ -61,6 +66,125 @@ errorReuseButton.addEventListener('click', () => {
 })
 requiredElement<HTMLButtonElement>('#run-parallel-calls').addEventListener('click', () => {
   void runParallelCalls()
+})
+
+// ── m2-2 filtered/sorted windows (tests/e2e/engine-filtered-windows.spec.ts) ──
+//
+// Drives the REAL client against the opened flat fixture: filtered window,
+// sorted window (DuckDB's NULL-last default), filter+sort combined, the
+// filtered rowCount, and the invalid-predicate error path with reuse.
+// Predicates are engine-SQL text (grid contracts v1); results render through
+// the Arrow API as JSON — ids/counts/values only, never a file name.
+
+interface FilteredWindowEvidence {
+  rows?: number
+  customerIds?: (string | null)[]
+  incomes?: (string | null)[]
+  hasMore?: boolean
+  error?: string
+  rowCount?: number
+  rejected?: boolean
+  rowCountAfterReuse?: number
+  fatal?: string
+}
+
+/** NULL-preserving rendered values of one named column, via the Arrow API. */
+function evidenceColumn(result: EngineQueryResult, columnName: string): (string | null)[] {
+  const index = result.batch.schema.fields.findIndex((field) => field.name === columnName)
+  const column = index >= 0 ? result.batch.getChildAt(index) : null
+  if (column === null) throw new Error(`window result is missing column ${columnName}`)
+  const values: (string | null)[] = []
+  for (let row = 0; row < column.length; row++) {
+    const value: unknown = column.get(row)
+    values.push(value === null || value === undefined ? null : String(value))
+  }
+  return values
+}
+
+async function evidenceFilteredWindow(kind: 'filtered' | 'sorted' | 'filterSort'): Promise<void> {
+  const evidence: FilteredWindowEvidence = {}
+  try {
+    const table = handles.get('flat')
+    if (table === undefined) throw new Error('open the flat fixture first')
+    const window: EngineRangeWindow =
+      kind === 'filtered'
+        ? { startRow: 0, endRow: 1000, filters: [{ column: 'income', predicate: '> 50000' }] }
+        : kind === 'sorted'
+          ? { startRow: 0, endRow: 1000, sort: [{ column: 'income', direction: 'desc' }] }
+          : {
+              startRow: 0,
+              endRow: 1000,
+              filters: [{ column: 'country', predicate: "= 'US'" }],
+              sort: [{ column: 'income', direction: 'desc' }],
+            }
+    const result = await client.fetchRange(table, window)
+    evidence.rows = result.batch.numRows
+    evidence.hasMore = result.hasMore
+    evidence.customerIds = evidenceColumn(result, 'customer_id')
+    evidence.incomes = evidenceColumn(result, 'income')
+  } catch (error) {
+    evidence.error = errorMessage(error)
+  }
+  setText(
+    `${kind === 'filtered' ? 'filtered' : kind === 'sorted' ? 'sorted' : 'filter-sort'}-window-result`,
+    JSON.stringify(evidence),
+  )
+}
+
+async function evidenceFilteredRowCount(): Promise<void> {
+  try {
+    const table = handles.get('flat')
+    if (table === undefined) throw new Error('open the flat fixture first')
+    const rowCount = await client.rowCount(table, {
+      filters: [{ column: 'income', predicate: '> 50000' }],
+    })
+    setText('filtered-row-count-result', String(rowCount))
+  } catch (error) {
+    setText('filtered-row-count-result', `error: ${errorMessage(error)}`)
+  }
+}
+
+async function evidencePredicateErrorThenReuse(): Promise<void> {
+  const evidence: FilteredWindowEvidence = {}
+  try {
+    const table = handles.get('flat')
+    if (table === undefined) throw new Error('open the flat fixture first')
+    try {
+      await client.fetchRange(table, {
+        startRow: 0,
+        endRow: 1000,
+        filters: [{ column: 'income', predicate: ')) FROM ( (' }],
+      })
+      evidence.rejected = false
+    } catch (error) {
+      evidence.rejected = true
+      evidence.error = errorMessage(error)
+    }
+    // The engine must still answer the benign filtered count afterwards.
+    evidence.rowCountAfterReuse = await client.rowCount(table, {
+      filters: [{ column: 'income', predicate: '> 50000' }],
+    })
+    statusEl.textContent = client.status
+  } catch (error) {
+    evidence.fatal = errorMessage(error)
+  }
+  setText('predicate-error-result', JSON.stringify(evidence))
+}
+
+requiredElement<HTMLButtonElement>('#filtered-window').addEventListener('click', () => {
+  void evidenceFilteredWindow('filtered')
+})
+requiredElement<HTMLButtonElement>('#sorted-window').addEventListener('click', () => {
+  void evidenceFilteredWindow('sorted')
+})
+requiredElement<HTMLButtonElement>('#filter-sort-window').addEventListener('click', () => {
+  void evidenceFilteredWindow('filterSort')
+})
+requiredElement<HTMLButtonElement>('#filtered-row-count').addEventListener('click', () => {
+  void evidenceFilteredRowCount()
+})
+requiredElement<HTMLButtonElement>('#predicate-error-reuse').addEventListener('click', () => {
+  void evidencePredicateErrorThenReuse()
 })
 
 // ── T2 worker-side serialization (tests/e2e/engine-parallel.spec.ts) ───────

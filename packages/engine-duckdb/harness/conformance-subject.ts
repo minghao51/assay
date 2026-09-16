@@ -59,6 +59,69 @@ const SMOKE_SQL = 'SELECT 42 AS answer'
 const SMOKE_VALUE = '42'
 
 /**
+ * m2-2 filter/sort semantics over the customers fixture (verified against
+ * DuckDB 1.5.5): predicates are engine-SQL text per grid contracts v1.
+ * DuckDB sorts NULLs last in BOTH directions (its default null order), which
+ * the asc/desc entries pin explicitly; the income filter pins that NULL
+ * never matches a comparison.
+ */
+const WINDOW_SEMANTICS = [
+  {
+    label: 'filter income > 50000 (NULL excluded)',
+    filters: [{ column: 'income', predicate: '> 50000' }],
+    expectColumn: 'income',
+    expectValues: ['52000', '61000', '75000'],
+    expectRowCount: 3,
+  },
+  {
+    label: 'sort income asc (NULL last)',
+    sort: [{ column: 'income', direction: 'asc' }],
+    expectColumn: 'income',
+    expectValues: ['48000', '52000', '61000', '75000', null],
+    expectRowCount: 5,
+  },
+  {
+    label: 'sort income desc (NULL last)',
+    sort: [{ column: 'income', direction: 'desc' }],
+    expectColumn: 'income',
+    expectValues: ['75000', '61000', '52000', '48000', null],
+    expectRowCount: 5,
+  },
+  {
+    label: "filter country = 'US' + income desc",
+    filters: [{ column: 'country', predicate: "= 'US'" }],
+    sort: [{ column: 'income', direction: 'desc' }],
+    expectColumn: 'income',
+    expectValues: ['75000', '61000'],
+    expectRowCount: 2,
+  },
+] as const
+
+/**
+ * Filter probes that must reject cleanly: a parser error, a binder error
+ * (the quoted unknown identifier stays an identifier — deliberately NOT a
+ * string literal), and a quote-hostile identifier whose embedded `;`/comment
+ * characters can never terminate the composed statement because the name is
+ * double-quote-escaped by the composer.
+ */
+const REJECTING_FILTERS = [
+  { column: 'income', predicate: ')) FROM ( (' },
+  { column: 'income', predicate: '> "__assay_no_such_column__"' },
+  { column: 'in"come" ; DROP VIEW; --', predicate: '> 50000' },
+] as const
+
+/**
+ * Breakout probes (containment): an extra `;`-separated statement glued to a
+ * predicate, and a valid-but-broad predicate (matches everything — the
+ * harmless path; the user's own SQL on their own data is allowed to match).
+ * Either way the view, its data, and the engine must survive untouched.
+ */
+const BREAKOUT_FILTERS = [
+  { column: 'country', predicate: "= 'SG'; SELECT 42" },
+  { column: 'country', predicate: "= 'SG' OR 1 = 1" },
+] as const
+
+/**
  * Mid-stream failure mechanism (deterministic): DuckDB evaluates vectorized
  * chunks of 2048 rows. The CASE yields `i` for every row of the first chunk
  * (rows 0–2047), so the worker's `streamFirstBatch` successfully receives and
@@ -141,6 +204,9 @@ export function createDuckDbConformanceSubject(
     midStreamFailureSql: () => MID_STREAM_FAILURE_SQL,
     smokeSql: () => SMOKE_SQL,
     smokeSqlValue: SMOKE_VALUE,
+    windowSemantics: WINDOW_SEMANTICS,
+    rejectingFilters: REJECTING_FILTERS,
+    breakoutFilters: BREAKOUT_FILTERS,
     // Registry probe: DuckDB holds one non-internal view per successful open
     // (the rollback scenario asserts 0 after a failed open, 1 after recovery).
     registeredTableCount: async (client) => {

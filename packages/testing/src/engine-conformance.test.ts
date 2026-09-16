@@ -18,7 +18,9 @@ import type {
   ConformanceBatchResult,
   ConformanceEngineClient,
   ConformanceFileSource,
+  ConformanceFilterSpec,
   ConformanceScenarioName,
+  ConformanceSortSpec,
   ConformanceTableHandle,
   ConformanceWindow,
   EngineConformanceSubject,
@@ -47,6 +49,16 @@ interface FakeMutations {
   genericDisposeErrors?: boolean
   /** After the mid-stream failure the connection stays wedged. */
   wedgeAfterMidStreamFailure?: boolean
+  /** m2-2: filtered windows silently ignore the filters (unfiltered rows). */
+  ignoresFilters?: boolean
+  /** m2-2: sorted windows silently ignore the sort (natural order). */
+  ignoresSort?: boolean
+  /** m2-2: filtered rowCount() lies with the unfiltered total. */
+  liesAboutFilteredRowCount?: boolean
+  /** m2-2: rejecting-filter probes resolve instead of rejecting. */
+  resolvesRejectingFilters?: boolean
+  /** m2-2: after a predicate error every later op fails (engine not reusable). */
+  wedgedAfterPredicateError?: boolean
 }
 
 const GOOD_DATASET = {
@@ -64,6 +76,62 @@ const FAILING_SQL = 'SELECT * FROM __no_such_table__'
 const MID_STREAM_SQL = 'SELECT fail_after_first_batch()'
 const SMOKE_SQL = 'SELECT 42 AS answer'
 const SMOKE_VALUE = '42'
+
+/**
+ * m2-2 semantics the fake subject declares — consistent with the fake's own
+ * filter/sort interpreter below (NULLs sort last in both directions).
+ */
+const WINDOW_SEMANTICS = [
+  {
+    label: 'filter id >= 3',
+    filters: [{ column: 'id', predicate: '>= 3' }],
+    expectColumn: 'id',
+    expectValues: ['3', '4', '5'],
+    expectRowCount: 3,
+  },
+  {
+    label: 'sort label asc',
+    sort: [{ column: 'label', direction: 'asc' }],
+    expectColumn: 'label',
+    expectValues: ['a', 'b', 'd', 'e', null],
+    expectRowCount: 5,
+  },
+  {
+    label: 'sort label desc',
+    sort: [{ column: 'label', direction: 'desc' }],
+    expectColumn: 'label',
+    expectValues: ['e', 'd', 'b', 'a', null],
+    expectRowCount: 5,
+  },
+  {
+    label: 'filter label IS NOT NULL + sort label desc',
+    filters: [{ column: 'label', predicate: 'IS NOT NULL' }],
+    sort: [{ column: 'label', direction: 'desc' }],
+    expectColumn: 'label',
+    expectValues: ['e', 'd', 'b', 'a'],
+    expectRowCount: 4,
+  },
+] as const
+
+/** Filter probes that must reject: bad SQL text, unknown column, hostile identifier. */
+const REJECTING_FILTERS = [
+  { column: 'id', predicate: ')) FROM ( (' },
+  { column: 'nosuchcol', predicate: '> 1' },
+  { column: 'id" ; DROP TABLE logs; --', predicate: '> 1' },
+] as const
+
+/** Breakout probes: escape attempts whose outcome must be contained. */
+const BREAKOUT_FILTERS = [
+  { column: 'id', predicate: '>= 0; DELETE FROM logs' },
+  { column: 'label', predicate: "= 'a' OR 1=1" }, // valid SQL — matches everything, harmlessly
+] as const
+
+/** One in-memory row of the fake's good dataset. */
+interface FakeRow {
+  id: number
+  label: string | null
+  note: string
+}
 
 /** Mutable staging state shared between the fake subject and its clients. */
 const subjectState = {
@@ -83,6 +151,8 @@ class FakeEngineClient implements ConformanceEngineClient {
   /** tableId → staged file name for successfully opened tables. */
   private readonly registered = new Map<string, string>()
   private midStreamFailed = false
+  /** Set by `wedgedAfterPredicateError`: a predicate error poisons the engine. */
+  private predicateErrorSeen = false
 
   constructor(private readonly mutations: FakeMutations) {}
 
@@ -117,10 +187,22 @@ class FakeEngineClient implements ConformanceEngineClient {
     return GOOD_DATASET.columns.map((column) => ({ name: column.name, type: column.type }))
   }
 
-  async rowCount(handle: ConformanceTableHandle): Promise<number> {
+  async rowCount(
+    handle: ConformanceTableHandle,
+    options?: { readonly filters?: readonly ConformanceFilterSpec[] },
+  ): Promise<number> {
     this.requireRegistered(handle)
+    if (this.mutations.wedgedAfterPredicateError && this.predicateErrorSeen) {
+      throw new FakeQueryError('connection wedged after predicate error')
+    }
     const base = this.isWide(handle) ? WIDE_ROW_COUNT : GOOD_DATASET.rowCount
-    return base + (this.mutations.rowCountDelta ?? 0)
+    if (options?.filters === undefined || options.filters.length === 0) {
+      return base + (this.mutations.rowCountDelta ?? 0)
+    }
+    if (this.mutations.liesAboutFilteredRowCount) {
+      return base + (this.mutations.rowCountDelta ?? 0)
+    }
+    return this.applyFilters(datasetRows(), options.filters).length
   }
 
   async fetchRange(
@@ -128,6 +210,9 @@ class FakeEngineClient implements ConformanceEngineClient {
     window: ConformanceWindow,
   ): Promise<ConformanceBatchResult> {
     this.requireRegistered(handle)
+    if (this.mutations.wedgedAfterPredicateError && this.predicateErrorSeen) {
+      throw new FakeQueryError('connection wedged after predicate error')
+    }
     if (
       !isRowIndex(window.startRow) ||
       !isRowIndex(window.endRow) ||
@@ -144,7 +229,26 @@ class FakeEngineClient implements ConformanceEngineClient {
       const ids = Array.from({ length: WIDE_ROW_COUNT }, (_, i) => i)
       return { batch: wideTable(ids.slice(window.startRow, end)), hasMore: false }
     }
-    return { batch: goodTable(window.startRow, end), hasMore: false }
+    // m2-2: apply filters (AND), then sort (multi-key, NULLs last), then window.
+    let rows = datasetRows()
+    const filters = window.filters ?? []
+    if (filters.length > 0 && !this.mutations.ignoresFilters) {
+      try {
+        rows = this.applyFilters(rows, filters)
+      } catch (error) {
+        if (this.mutations.resolvesRejectingFilters) {
+          rows = datasetRows() // silently ignores the bad filter
+        } else {
+          this.predicateErrorSeen = true
+          throw error
+        }
+      }
+    }
+    const sort = window.sort ?? []
+    if (sort.length > 0 && !this.mutations.ignoresSort) {
+      rows = this.applySort(rows, sort)
+    }
+    return { batch: rowsToTable(rows.slice(window.startRow, end)), hasMore: false }
   }
 
   async query(sql: string): Promise<ConformanceBatchResult> {
@@ -184,6 +288,56 @@ class FakeEngineClient implements ConformanceEngineClient {
     return this.registered.get(handle.id) === 'wide.csv'
   }
 
+  /** Typed column read: `undefined` means the column does not exist. */
+  private columnValue(row: FakeRow, column: string): number | string | null | undefined {
+    switch (column) {
+      case 'id':
+        return row.id
+      case 'label':
+        return row.label
+      case 'note':
+        return row.note
+      default:
+        return undefined
+    }
+  }
+
+  /** AND-composition of the fake's tiny predicate language (see below). */
+  private applyFilters(
+    rows: readonly FakeRow[],
+    filters: readonly ConformanceFilterSpec[],
+  ): FakeRow[] {
+    return rows.filter((row) =>
+      filters.every((filter) => {
+        const value = this.columnValue(row, filter.column)
+        if (value === undefined) {
+          // Unknown column — a binder-style error, classified as a query error.
+          throw new FakeQueryError(`Binder Error: no such column ${filter.column}`)
+        }
+        return fakePredicateMatches(value, filter.predicate)
+      }),
+    )
+  }
+
+  /** Multi-key sort, later keys first (stable), NULLs last — like DuckDB. */
+  private applySort(rows: readonly FakeRow[], sort: readonly ConformanceSortSpec[]): FakeRow[] {
+    const sorted = [...rows]
+    for (let index = sort.length - 1; index >= 0; index--) {
+      const key = sort[index]!
+      const factor = key.direction === 'desc' ? -1 : 1
+      sorted.sort((a, b) => {
+        const va = this.columnValue(a, key.column)
+        const vb = this.columnValue(b, key.column)
+        if (va === undefined || vb === undefined) return 0 // unknown column: keep order
+        if (va === null) return vb === null ? 0 : 1
+        if (vb === null) return -1
+        if (va === vb) return 0
+        return va < vb ? factor * -1 : factor
+      })
+    }
+    return sorted
+  }
+
   private requireRegistered(handle: ConformanceTableHandle): void {
     if (this.status === 'disposed') {
       if (this.mutations.genericDisposeErrors) {
@@ -201,22 +355,53 @@ function isRowIndex(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
-/** The good dataset as an Arrow table (declared column order, NULL-safe). */
-function goodTable(start: number, end: number): Table {
+/** The fake's good dataset in natural order. */
+function datasetRows(): FakeRow[] {
   const ids = GOOD_DATASET.columns[0]!.values!
   const labels = GOOD_DATASET.columns[1]!.values!
-  const sliceIds: number[] = []
-  const sliceLabels: (string | null)[] = []
-  const sliceNotes: string[] = []
-  for (let row = start; row < end; row++) {
-    sliceIds.push(Number(ids[row]))
-    sliceLabels.push(labels[row] ?? null)
-    sliceNotes.push(`note-${String(row)}`)
+  return ids.map((id, index) => ({
+    id: Number(id),
+    label: labels[index] ?? null,
+    note: `note-${String(index)}`,
+  }))
+}
+
+/** The fake's tiny predicate language (fake stand-in for engine SQL). */
+function fakePredicateMatches(value: unknown, predicate: string): boolean {
+  if (predicate === 'IS NOT NULL') return value !== null
+  // A valid-but-broad probe the breakout scenario tolerates (harmless match-all).
+  const matchAll = /^=\s*'[^']*'\s+OR\s+1\s*=\s*1$/.exec(predicate)
+  if (matchAll !== null) return true
+  const comparison = /^(>=|<=|>|<)\s*(-?\d+(?:\.\d+)?)$/.exec(predicate)
+  if (comparison === null) {
+    throw new FakeQueryError('Parser Error: fake cannot interpret predicate')
   }
+  if (typeof value !== 'number') return false // NULL never matches a comparison
+  const operand = Number(comparison[2])
+  switch (comparison[1]) {
+    case '>=':
+      return value >= operand
+    case '<=':
+      return value <= operand
+    case '>':
+      return value > operand
+    case '<':
+      return value < operand
+    default:
+      throw new FakeQueryError('Parser Error: fake cannot interpret predicate')
+  }
+}
+
+/** The fake's good dataset as an Arrow table (declared column order, NULL-safe). */
+function goodTable(start: number, end: number): Table {
+  return rowsToTable(datasetRows().slice(start, end))
+}
+
+function rowsToTable(rows: readonly FakeRow[]): Table {
   return tableFromArrays({
-    id: Int32Array.from(sliceIds),
-    label: sliceLabels,
-    note: sliceNotes,
+    id: Int32Array.from(rows.map((row) => row.id)),
+    label: rows.map((row) => row.label),
+    note: rows.map((row) => row.note),
   })
 }
 
@@ -269,6 +454,9 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
     smokeSqlValue: SMOKE_VALUE,
     registeredTableCount: async (client) =>
       client instanceof FakeEngineClient ? client.registeredCount() : null,
+    windowSemantics: WINDOW_SEMANTICS,
+    rejectingFilters: REJECTING_FILTERS,
+    breakoutFilters: BREAKOUT_FILTERS,
   }
 }
 
@@ -375,5 +563,44 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     )
     expect(passed).toBe(false)
     expect(detail).toContain('follow-up query')
+  })
+
+  it('window-filter-sort: detects filtered windows that ignore the filters', async () => {
+    const { passed, detail } = await runOne({ ignoresFilters: true }, 'window-filter-sort')
+    expect(passed).toBe(false)
+    expect(detail).toContain('matching row count')
+  })
+
+  it('window-filter-sort: detects filtered rowCount that ignores the filters', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutFilteredRowCount: true },
+      'window-filter-sort',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('filtered rowCount')
+  })
+
+  it('window-filter-sort: detects sorted windows that ignore the sort', async () => {
+    const { passed, detail } = await runOne({ ignoresSort: true }, 'window-filter-sort')
+    expect(passed).toBe(false)
+    expect(detail).toContain('label[2]') // first natural-vs-sorted divergence
+  })
+
+  it('predicate-error-reuse: detects probes that resolve instead of rejecting', async () => {
+    const { passed, detail } = await runOne(
+      { resolvesRejectingFilters: true },
+      'predicate-error-reuse',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('must reject, not resolve')
+  })
+
+  it('predicate-error-reuse: detects an engine that stops answering after a predicate error', async () => {
+    const { passed, detail } = await runOne(
+      { wedgedAfterPredicateError: true },
+      'predicate-error-reuse',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('wedged') // the final anchor window can no longer be served
   })
 })
