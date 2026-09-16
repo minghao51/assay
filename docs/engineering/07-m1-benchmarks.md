@@ -10,6 +10,10 @@ queries stream; grid stays responsive; no data leaves the browser"
 ([roadmap §5](../product/10-execution-roadmap.md)), with risk R1 (browser
 memory ceilings — measure early) and R4 (DuckDB-WASM startup cost) in scope.
 
+**G1 record: PASSED 2026-09-16** (maintainer, manual-actions M5) on the G1-R round
+below — no pivot; 60 GiB-scale extrapolation and worker-side-heap measurement
+(OQ #1, deferred to the eh-bundle round) were explicitly not required for the gate.
+
 Everything here was measured through the real engine path in the
 `@assay/engine-duckdb` browser harness: pick (input fallback, same
 `EngineFileSource` seam as the app) → `open()` → `schema()`/`rowCount()` →
