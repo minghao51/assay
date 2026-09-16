@@ -95,9 +95,9 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
 - [x] M0 remainder: DuckDB-WASM worker spike; first Arrow batch through the worker; first virtualized grid render; measure time-to-first-row and memory (the original Phase-0 spike items). _All done 2026-09-15: m1-1/m1-2 (worker boot + Arrow batch), m1-5 (1M-row virtualized grid), m1-7 (benchmark: 1.09 GiB → TTFR ~0.3 s, heap 4 MB/3.6 GB — `docs/engineering/07-m1-benchmarks.md`; multi-GB re-run open before G1 sign-off)._
 - [x] **M1 test-hardening batch (T1–T4)** — done 2026-09-16: engine conformance suite + data-source behavior suite in `@assay/testing` (docs/engineering/05 §4; commits `75a6657`/`b7a8587`/`ce54c05`/`738f791`), worker-side operation serialization, bench-rig hardening; records in `docs/process/handoff.md` §6/§9. **G1 / M1-exit decision (maintainer) still blocks M2 feature work.**
 - [ ] **G1 evidence: multi-GB benchmark re-run (task G1-R)** — maintainer decision 2026-09-16 (option B): G1 passage requires measured ≥5–10 GiB evidence on the hardened rig; deep-offset windows (bench OQ #3) fold in; worker-heap (OQ #1) deferred to an eh-bundle round. Queue and done-when in `docs/process/handoff.md` §6.
-- [ ] Telemetry vendor + sampling design (D2 tail).
+- [ ] Telemetry design (D2 tail) — **approach decided 2026-09-16: self-hosted minimal collector**; remaining: allowlisted event-schema + sampling design doc (pre-G0).
 - [x] Product name decision — **Assay** (ADR 0039) — 2026-09-14.
-- [ ] Demo dataset curation for the MVP demo scenario begins (opportunity O5).
+- [ ] Demo dataset curation for the MVP demo scenario begins (opportunity O5) — **approach decided 2026-09-16: hybrid** (real open data + injected flaws).
 
 ### Next
 
@@ -152,13 +152,13 @@ Decisions required, with target gates. Add new rows here rather than deciding si
 
 ### Open
 
-| ID  | Decision                        | Options / notes                                                                     | Target gate |
-| --- | ------------------------------- | ----------------------------------------------------------------------------------- | ----------- |
-| D2  | Telemetry vendor & sampling     | Stance decided (opt-out, ADR 0037). Remaining: self-host vs vendor, sampling design | G0          |
-| D7  | Authorization engine            | Cedar vs OpenFGA vs OPA (ADR 0018, 0006 — evaluate at G3/G4)                        | G3          |
-| D8  | Identity provider               | Keycloak vs WorkOS vs Auth0 (ADR 0024)                                              | G3          |
-| D9  | dbt vs SQLMesh adapter priority | user-demand driven (ADR 0031)                                                       | P4          |
-| D10 | CLI distribution                | npm-only vs native binaries (Rust CLI later, docs 03 §17)                           | M5          |
+| ID  | Decision                        | Options / notes                                                                                              | Target gate |
+| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------- |
+| D2  | Telemetry vendor & sampling     | Vendor approach decided 2026-09-16: self-hosted minimal collector. Remaining: event schema + sampling design | G0          |
+| D7  | Authorization engine            | Cedar vs OpenFGA vs OPA (ADR 0018, 0006 — evaluate at G3/G4)                                                 | G3          |
+| D8  | Identity provider               | Keycloak vs WorkOS vs Auth0 (ADR 0024)                                                                       | G3          |
+| D9  | dbt vs SQLMesh adapter priority | user-demand driven (ADR 0031)                                                                                | P4          |
+| D10 | CLI distribution                | npm-only vs native binaries (Rust CLI later, docs 03 §17)                                                    | M5          |
 
 ### Resolved
 
@@ -180,5 +180,6 @@ Decisions required, with target gates. Add new rows here rather than deciding si
 - **Changelog**:
   - 2026-09-14 — product named **Assay** (D6, ADR 0039); workspace scope renamed `@assay/*`; historical docs keep "Data Workbench" wording per naming-convention note.
   - 2026-09-14 — maintainer decisions recorded: AGPL-3.0-or-later license (D1, ADR 0036); opt-out telemetry consent (D2a, ADR 0037); DuckDB CLI fixture generation (D3, ADR 0038); changesets + root changelog (D4); capacity-based sequencing (D5). Decision backlog split into open/resolved.
+  - 2026-09-16 — maintainer decisions: GitHub for git hosting (org/repo push = manual action, docs/process/manual-actions.md); telemetry = self-hosted minimal collector (D2b narrowed); demo dataset = hybrid (O5).
   - 2026-09-16 — maintainer gate policy: **G1 requires the multi-GB re-run before passage** (bench note OQ #2; queued as task G1-R in handoff §6). M2 feature work stays blocked until the re-run lands and the gate is recorded.
   - 2026-09-14 — created; consolidated pipeline sequence (P1–P5); added M12 for governed data products; defined gates G0–G4; risk register and decision backlog initialized from docs 00/04/09 and the 2026-09-14 review.
