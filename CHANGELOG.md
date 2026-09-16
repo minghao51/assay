@@ -35,8 +35,11 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   engine conformance suite with injection probes. The engine also gained
   **column profiling** (`profile()`): numeric min/max/mean/stddev +
   p50/p90/p95/p99 quantiles, categorical top-k, null/distinct counts —
-  single-scan aggregates, graceful degradation on exotic types. UI for
-  profiles/charts follows in the next slices.
+  single-scan aggregates, graceful degradation on exotic types. A **SQL
+  editor** runs queries against the opened table (`assay_tN` views) with
+  paged results, readable errors, and cancel-as-abandonment (honest v1:
+  the engine has no query interrupt yet). Profile UI/charts follow in the
+  next slices.
 
 - **M1 begins — DuckDB runs in the browser (m1-1/m1-2):** `@assay/engine-duckdb`
   boots DuckDB-WASM lazily inside a dedicated Web Worker behind a typed
