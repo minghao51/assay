@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react'
-import { pickDataFile } from '@assay/data-sources/browser'
+import { useCallback, useState, useSyncExternalStore } from 'react'
 import { GridViewportModel } from '@assay/grid'
+import { pickDataFile } from '@assay/data-sources/browser'
 import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
+import { FilterBar } from './grid/FilterBar'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
 import { SchemaPanel } from './schema/SchemaPanel'
@@ -21,9 +22,23 @@ type Phase =
       readonly kind: 'ready'
       readonly model: GridViewportModel
       readonly tableId: string
-      readonly rowCount: number
-      readonly columnCount: number
     }
+
+/**
+ * Live summary line for the opened table (m2-3 row-count truth): the total
+ * is read from the model — which re-reads it from the provider after every
+ * accepted filter change — so the count always reflects the active filters.
+ */
+function LiveTableInfo({ model, tableId }: { model: GridViewportModel; tableId: string }) {
+  useSyncExternalStore(model.subscribe, model.getVersion)
+  return (
+    <p data-testid="table-info">
+      table <code data-testid="open-table-id">{tableId}</code> ·{' '}
+      <span data-testid="grid-total-rows">{model.totalRows ?? 0}</span> rows ·{' '}
+      <span data-testid="grid-column-count">{model.schema?.length ?? 0}</span> columns
+    </p>
+  )
+}
 
 export function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
@@ -50,13 +65,7 @@ export function App() {
       const provider = new DuckDbGridProvider(engineClient, handle)
       const model = new GridViewportModel(provider)
       await model.load()
-      setPhase({
-        kind: 'ready',
-        model,
-        tableId: handle.id,
-        rowCount: model.totalRows ?? 0,
-        columnCount: model.schema?.length ?? 0,
-      })
+      setPhase({ kind: 'ready', model, tableId: handle.id })
     } catch (error) {
       setPhase({
         kind: 'error',
@@ -87,18 +96,13 @@ export function App() {
             {phase.message}
           </p>
         )}
-        {phase.kind === 'ready' && (
-          <p data-testid="table-info">
-            table <code data-testid="open-table-id">{phase.tableId}</code> ·{' '}
-            <span data-testid="grid-total-rows">{phase.rowCount}</span> rows ·{' '}
-            <span data-testid="grid-column-count">{phase.columnCount}</span> columns
-          </p>
-        )}
+        {phase.kind === 'ready' && <LiveTableInfo model={phase.model} tableId={phase.tableId} />}
       </section>
 
       {phase.kind === 'ready' ? (
         <>
           <SchemaPanel columns={phase.model.schema ?? []} />
+          <FilterBar model={phase.model} />
           <DataGrid model={phase.model} />
         </>
       ) : (

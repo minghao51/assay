@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { CellRange, ColumnSchema, GridDataProvider } from '@assay/grid'
-import type { EngineColumnSchema, EngineTableHandle } from '@assay/engine-duckdb'
+import type { CellRange, ColumnSchema, FilterSpec, GridDataProvider } from '@assay/grid'
+import type {
+  DuckDbEngineClient,
+  EngineColumnSchema,
+  EngineTableHandle,
+} from '@assay/engine-duckdb'
 import { DuckDbGridProvider, projectBatchToRows } from './provider'
 import type { ArrowTableLike, GridEngineClient } from './provider'
 
@@ -16,20 +20,35 @@ function fakeBatch(columns: unknown[][]): ArrowTableLike {
   }
 }
 
+interface RecordedWindow {
+  startRow: number
+  endRow: number
+  filters: ReadonlyArray<{ column: string; predicate: string }> | undefined
+  sort: ReadonlyArray<{ column: string; direction: 'asc' | 'desc' }> | undefined
+}
+
 interface FakeClientOptions {
   schemaColumns?: EngineColumnSchema[]
   totalRows?: number
   batch?: ArrowTableLike
 }
 
-/** Records the windows it receives so tests can assert the exact asks. */
+/**
+ * Records the windows and rowCount options it receives so tests can assert
+ * the exact asks — including the m2-3 query state (filters/sort must travel
+ * field-for-field; absent/empty = cleared).
+ */
 function fakeClient(options: FakeClientOptions = {}): {
   client: GridEngineClient
-  windows: Array<{ startRow: number; endRow: number }>
+  windows: RecordedWindow[]
+  rowCountOptions: Array<ReadonlyArray<{ column: string; predicate: string }> | undefined>
 } {
-  const windows: Array<{ startRow: number; endRow: number }> = []
+  const windows: RecordedWindow[] = []
+  const rowCountOptions: Array<ReadonlyArray<{ column: string; predicate: string }> | undefined> =
+    []
   return {
     windows,
+    rowCountOptions,
     client: {
       schema: () =>
         Promise.resolve(
@@ -38,9 +57,17 @@ function fakeClient(options: FakeClientOptions = {}): {
             { name: 'label', type: 'VARCHAR' },
           ],
         ),
-      rowCount: () => Promise.resolve(options.totalRows ?? 2),
+      rowCount: (_handle, rowCountOptions_) => {
+        rowCountOptions.push(rowCountOptions_?.filters)
+        return Promise.resolve(options.totalRows ?? 2)
+      },
       fetchRange: (_handle, window) => {
-        windows.push({ startRow: window.startRow, endRow: window.endRow })
+        windows.push({
+          startRow: window.startRow,
+          endRow: window.endRow,
+          filters: window.filters,
+          sort: window.sort,
+        })
         return Promise.resolve({
           batch:
             options.batch ??
@@ -54,6 +81,13 @@ function fakeClient(options: FakeClientOptions = {}): {
     },
   }
 }
+
+// Compile-time canary: the real engine client must keep satisfying the
+// adapter's structural slice — the app hands `engineClient` straight to the
+// provider (composition root). Purely type-level; compiles away.
+type EngineClientSatisfiesSlice = DuckDbEngineClient extends GridEngineClient ? true : never
+const engineClientSatisfiesSlice: EngineClientSatisfiesSlice = true
+void engineClientSatisfiesSlice
 
 describe('projectBatchToRows (Arrow columnar → row cells, ADR 0020 small projection)', () => {
   it('projects columnar vectors into row-major cells', () => {
@@ -128,17 +162,93 @@ describe('DuckDbGridProvider — the GridDataProvider seam over the engine clien
     ).rejects.toThrow('missing column 1')
   })
 
-  it('sort/filter/updateCell are loud contract placeholders (not wired in M1)', async () => {
+  it('updateCell remains a loud contract placeholder (edit overlay is a later task)', async () => {
     const { client } = fakeClient()
     // Through the contract type: proves the adapter satisfies the full
-    // GridDataProvider surface, placeholders included.
+    // GridDataProvider surface, the placeholder included.
     const provider: GridDataProvider = new DuckDbGridProvider(client, handle)
-    await expect(provider.sort({ column: 'id', direction: 'asc' })).rejects.toThrow(
-      /not wired to the engine yet/,
-    )
-    await expect(provider.filter({ column: 'id', predicate: 'x' })).rejects.toThrow(
-      /not wired to the engine yet/,
-    )
     await expect(provider.updateCell(0, 'id', 1)).rejects.toThrow(/not wired to the engine yet/)
+  })
+})
+
+describe('DuckDbGridProvider query state (m2-3) — sort/filter carried into every ask', () => {
+  it('sort(spec) carries a field-for-field sort key into subsequent fetchRange windows', async () => {
+    const { client, windows } = fakeClient()
+    const provider: GridDataProvider = new DuckDbGridProvider(client, handle)
+    await provider.sort({ column: 'income', direction: 'desc' })
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(windows).toEqual([
+      {
+        startRow: 0,
+        endRow: 2,
+        filters: undefined,
+        sort: [{ column: 'income', direction: 'desc' }],
+      },
+    ])
+  })
+
+  it('sort(null) clears — subsequent windows carry no sort key (absent, not empty)', async () => {
+    const { client, windows } = fakeClient()
+    const provider: GridDataProvider = new DuckDbGridProvider(client, handle)
+    await provider.sort({ column: 'id', direction: 'asc' })
+    await provider.sort(null)
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(windows[0]?.sort).toBeUndefined()
+    expect(windows[0]?.filters).toBeUndefined()
+  })
+
+  it('filter(spec) pushes ordered predicates; every later fetchRange carries them in order', async () => {
+    const { client, windows } = fakeClient()
+    const provider: GridDataProvider = new DuckDbGridProvider(client, handle)
+    const first: FilterSpec = { column: 'country', predicate: "= 'US'" }
+    const second: FilterSpec = { column: 'income', predicate: '> 50000' }
+    await provider.filter(first)
+    await provider.filter(second)
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(windows[0]?.filters).toEqual([first, second])
+  })
+
+  it('filter(null) clears the whole list (the model’s clear-first protocol resolves to absent fields)', async () => {
+    const { client, windows } = fakeClient()
+    const provider: GridDataProvider = new DuckDbGridProvider(client, handle)
+    await provider.filter({ column: 'country', predicate: "= 'US'" })
+    await provider.filter(null)
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(windows[0]?.filters).toBeUndefined()
+  })
+
+  it('rowCount carries the active filters so totals reflect them', async () => {
+    const { client, rowCountOptions } = fakeClient({ totalRows: 3 })
+    const provider: GridDataProvider = new DuckDbGridProvider(client, handle)
+    // Unfiltered: no filters field at all (metadata count, pre-m2-2 shape).
+    await expect(provider.rowCount()).resolves.toBe(3)
+    expect(rowCountOptions[0]).toBeUndefined()
+    const spec: FilterSpec = { column: 'income', predicate: '> 50000' }
+    await provider.filter(spec)
+    await expect(provider.rowCount()).resolves.toBe(3)
+    expect(rowCountOptions[1]).toEqual([spec])
+  })
+
+  it('a cleared filter list also clears the rowCount narrowing', async () => {
+    const { client, rowCountOptions } = fakeClient()
+    const provider: GridDataProvider = new DuckDbGridProvider(client, handle)
+    await provider.filter({ column: 'income', predicate: '> 50000' })
+    await provider.filter(null)
+    await provider.rowCount()
+    expect(rowCountOptions[1]).toBeUndefined()
+  })
+
+  it('sort and filter compose: one window carries both (filter + sort combined)', async () => {
+    const { client, windows } = fakeClient()
+    const provider: GridDataProvider = new DuckDbGridProvider(client, handle)
+    await provider.filter({ column: 'country', predicate: "= 'US'" })
+    await provider.sort({ column: 'income', direction: 'desc' })
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(windows[0]).toEqual({
+      startRow: 0,
+      endRow: 2,
+      filters: [{ column: 'country', predicate: "= 'US'" }],
+      sort: [{ column: 'income', direction: 'desc' }],
+    })
   })
 })

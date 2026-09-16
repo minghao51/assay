@@ -37,7 +37,18 @@ export interface SortSpec {
   direction: 'asc' | 'desc'
 }
 
-/** Predicate string is engine-defined SQL text in v1 (ADR 0029). */
+/**
+ * One filter, v1 grammar (recorded here now that m2-3 makes it user-facing;
+ * the engine side shipped in m2-2): `predicate` is a **column-qualified
+ * engine-SQL fragment** — the engine composes each filter as
+ * `("<column>" <predicate>)` and AND-composes the list, e.g. `> 50000`,
+ * `= 'US'`, `IS NOT NULL`. The predicate is never placed inside a string
+ * literal, never executed as app code, and no cell value ever enters the
+ * SQL: it is untrusted *content*, displayed verbatim as text and run only as
+ * the user's own local query against their own data (ADR 0029, ADR 0007
+ * spirit). An invalid fragment rejects at the engine; see the provider and
+ * `GridViewportModel.setFilters` rejection semantics.
+ */
 export interface FilterSpec {
   column: string
   predicate: string

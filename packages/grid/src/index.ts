@@ -14,9 +14,13 @@
  * (`GridViewportModel`) — visible-range → windowed fetches, LRU window
  * cache with in-flight dedup, loading/error placeholder semantics, and
  * request counters that make the non-materialization guarantee observable.
- * `sort`/`filter`/`updateCell` remain part of the contract; wiring UI for
- * them is a later task. See `contracts.ts` for why the page type is a
- * structural value rather than an Arrow table.
+ * m2-1: `sort`/`filter` became real provider state (the `null`-clear
+ * protocol) with epoch-rebuild semantics in the model (`setSort`/
+ * `setFilters` + the `sort`/`filters` getters); m2-3 wires them to the
+ * engine through the web provider and the column-header/filter UI.
+ * `updateCell` remains part of the contract; the edit-overlay wiring is a
+ * later task. See `contracts.ts` for why the page type is a structural
+ * value rather than an Arrow table.
  */
 export type {
   CellRange,

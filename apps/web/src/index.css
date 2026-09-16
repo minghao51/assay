@@ -200,3 +200,138 @@ h1 {
   align-items: baseline;
   flex-wrap: wrap;
 }
+
+/* ---- Column-header sort toggle (m2-3) ---- */
+
+.grid-header-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.grid-header-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grid-sort-toggle {
+  flex: none;
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 0.12rem 0.28rem;
+  cursor: pointer;
+  color: #555;
+}
+
+.grid-sort-toggle:hover {
+  background: #eee;
+}
+
+.grid-sort-toggle[data-sort='asc'],
+.grid-sort-toggle[data-sort='desc'] {
+  border-color: #b9c6d4;
+  background: #e7eef7;
+  color: #23364d;
+}
+
+/* ---- Per-column filter bar (m2-3) ---- */
+
+.filter-bar {
+  margin-top: 1.25rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fafafa;
+  padding: 0.5rem 0.75rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-hint {
+  margin: 0;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.filter-columns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+}
+
+.filter-column {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.filter-label {
+  font-weight: 600;
+}
+
+.filter-input {
+  font: inherit;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  min-width: 10rem;
+}
+
+.filter-apply {
+  font: inherit;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+
+.filter-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  border: 1px solid #b9c6d4;
+  border-radius: 999px;
+  background: #e7eef7;
+  padding: 0.08rem 0.25rem 0.08rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.filter-chip-remove {
+  font: inherit;
+  line-height: 1;
+  background: none;
+  border: none;
+  padding: 0.05rem 0.3rem;
+  cursor: pointer;
+  color: #23364d;
+}
+
+.filter-empty {
+  margin: 0;
+  color: #777;
+  font-size: 0.85rem;
+}
+
+.filter-error {
+  margin: 0;
+  color: #b00020;
+  font-weight: 600;
+}

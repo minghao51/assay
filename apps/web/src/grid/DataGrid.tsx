@@ -1,8 +1,9 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties } from 'react'
 import type { GridViewportModel } from '@assay/grid'
 import { formatCell } from './format'
+import { nextSortSpec } from './query-state'
 
 /** Fixed row height for the DOM renderer (ADR 0022: renderer is replaceable). */
 export const GRID_ROW_HEIGHT_PX = 28
@@ -19,6 +20,13 @@ interface DataGridProps {
  * size; the model owns fetching, caching, and placeholder semantics. The
  * footer exposes the model's request counters — the observable form of the
  * "never materializes the dataset" guarantee (ADR 0003).
+ *
+ * m2-3: each column header carries a sort toggle cycling asc → desc →
+ * cleared, wired to `model.setSort` (the pure cycle lives in `query-state`).
+ * The current sort is indicated by the button's glyph + `data-sort` state.
+ * Command rejections (an engine failure mid-epoch) surface as a footer
+ * alert — rendered as text only (ADR 0007 spirit; ADR 0025: nothing here
+ * ever shows the file name).
  */
 export function DataGrid({ model }: DataGridProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
@@ -26,6 +34,17 @@ export function DataGrid({ model }: DataGridProps) {
   const schema = model.schema ?? []
   const totalRows = model.totalRows ?? 0
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [commandError, setCommandError] = useState<string | null>(null)
+
+  const cycleSort = (columnName: string): void => {
+    setCommandError(null)
+    model.setSort(nextSortSpec(model.sort, columnName)).catch((error: unknown) => {
+      // Engine-side failure while rebuilding the epoch — never a UI bug.
+      // The provider still holds the attempted sort; rows surface the
+      // data-level failure themselves (error placeholders/retry).
+      setCommandError(error instanceof Error ? error.message : String(error))
+    })
+  }
 
   const virtualizer = useVirtualizer({
     count: totalRows,
@@ -74,19 +93,46 @@ export function DataGrid({ model }: DataGridProps) {
     >
       <div className="grid-header" role="rowgroup">
         <div className="grid-header-row" role="row" style={{ gridTemplateColumns }}>
-          {schema.map((column) => (
-            <div
-              key={column.name}
-              className="grid-header-cell"
-              role="columnheader"
-              data-testid="grid-header-cell"
-              data-col-name={column.name}
-              data-col-type={column.type}
-              title={`${column.name}: ${column.type}`}
-            >
-              {column.name}
-            </div>
-          ))}
+          {schema.map((column) => {
+            // Active sort indicator: this column's direction when the
+            // model's dataset-wide sort names this column, else unsorted.
+            const sortDirection = model.sort?.column === column.name ? model.sort.direction : null
+            const sortLabel =
+              sortDirection === null
+                ? `Sort by ${column.name}`
+                : `Sort by ${column.name} (currently ${sortDirection === 'asc' ? 'ascending' : 'descending'})`
+            return (
+              <div
+                key={column.name}
+                className="grid-header-cell"
+                role="columnheader"
+                data-testid="grid-header-cell"
+                data-col-name={column.name}
+                data-col-type={column.type}
+                title={`${column.name}: ${column.type}`}
+              >
+                <span className="grid-header-name" data-testid="grid-header-name">
+                  {column.name}
+                </span>
+                <button
+                  type="button"
+                  className="grid-sort-toggle"
+                  data-testid="grid-sort-toggle"
+                  data-col-name={column.name}
+                  data-sort={sortDirection ?? 'none'}
+                  aria-label={sortLabel}
+                  title={sortLabel}
+                  onClick={() => {
+                    cycleSort(column.name)
+                  }}
+                >
+                  <span aria-hidden="true">
+                    {sortDirection === 'asc' ? '▲' : sortDirection === 'desc' ? '▼' : '↕'}
+                  </span>
+                </button>
+              </div>
+            )
+          })}
         </div>
       </div>
       <div className="grid-viewport" data-testid="grid-viewport" ref={scrollRef}>
@@ -143,6 +189,11 @@ export function DataGrid({ model }: DataGridProps) {
         <span data-testid="grid-stats">
           {`fetches=${String(stats.fetchCalls)} requested=${String(stats.rowsRequested)} received=${String(stats.rowsReceived)} maxSpan=${String(stats.maxSpanRows)} cached=${String(stats.cachedRows)}`}
         </span>
+        {commandError !== null && (
+          <span role="alert" data-testid="grid-command-error">
+            {commandError}
+          </span>
+        )}
         {stats.failedSpans > 0 && (
           <button type="button" data-testid="grid-retry" onClick={() => model.retry()}>
             Retry {stats.failedSpans} failed window{stats.failedSpans === 1 ? '' : 's'}

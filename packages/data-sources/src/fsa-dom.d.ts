@@ -4,6 +4,14 @@
  * global and `DataTransferItem.getAsFileSystemHandle`). Typed locally instead
  * of falling back to `any` (AGENTS.md: strict TypeScript, no unexplained
  * `any`). Remove once the declarations land in lib.dom.
+ *
+ * Single source of truth (consolidated in m2-3; this package owns it).
+ * Ambient global declarations travel via tsconfig `include` — never via
+ * imports (a global-script `.d.ts` cannot be re-exported) — and this
+ * package's raw-TS browser exports are type-checked under *importers*'
+ * compiler options (m1-3 convention). Consumers that compile those exports
+ * in their own program (currently `apps/web`) therefore path-include this
+ * exact file from their tsconfig instead of keeping a mirrored copy.
  */
 
 /** Options of `window.showOpenFilePicker` — only what this package uses. */

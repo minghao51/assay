@@ -1,5 +1,6 @@
 /**
- * Adapter: `GridDataProvider` over the DuckDB engine client (m1-5).
+ * Adapter: `GridDataProvider` over the DuckDB engine client (m1-5; sort/filter
+ * wiring m2-3).
  *
  * Composition-root glue, engine-aware by design — the grid model itself stays
  * engine-free (`@assay/grid` knows only the provider contract). Arrow never
@@ -9,9 +10,38 @@
  * engine's clamp), explicitly allowed by ADR 0020. The structural
  * `ArrowTableLike`/`ArrowVectorLike` shapes keep `apache-arrow` out of this
  * app's dependency tree entirely; the real engine `Table` satisfies them.
+ *
+ * Query state (m2-3): the provider holds the active sort/filter specs so
+ * every subsequent `fetchRange`/`rowCount` carries them — the model mirrors
+ * the same state above the contract (`GridViewportModel.sort`/`filters`).
+ * The mapping is field-for-field: the grid's `SortSpec`/`FilterSpec` are
+ * structural mirrors of the engine protocol's `EngineSortSpec`/
+ * `EngineFilterSpec` (predicates are column-qualified engine-SQL fragments —
+ * see the v1 grammar documented on `FilterSpec`). Absent/empty means
+ * "cleared", so cleared state is sent as *absent* fields and the engine
+ * composes byte-identical SQL to the unfiltered query. `sort(spec)`/
+ * `filter(null)` implement the contract's clear protocol. The state
+ * mutations are local and infallible, so the model's "rejection ⇒ no state
+ * change" rule holds trivially at this seam; engine-side failures (e.g. an
+ * invalid predicate fragment) reject later — when the model's refresh runs
+ * the filtered `rowCount`/window fetches — and propagate to the UI caller.
  */
-import type { CellRange, ColumnSchema, GridDataPage, GridDataProvider } from '@assay/grid'
-import type { EngineColumnSchema, EngineTableHandle } from '@assay/engine-duckdb'
+import type {
+  CellRange,
+  ColumnSchema,
+  FilterSpec,
+  GridDataPage,
+  GridDataProvider,
+  SortSpec,
+} from '@assay/grid'
+import type {
+  EngineColumnSchema,
+  EngineFilterSpec,
+  EngineRangeWindow,
+  EngineRowCountOptions,
+  EngineSortSpec,
+  EngineTableHandle,
+} from '@assay/engine-duckdb'
 
 /** The slice of an Arrow vector the projection needs. */
 export interface ArrowVectorLike {
@@ -28,10 +58,10 @@ export interface ArrowTableLike {
 /** The slice of the engine client this adapter needs (structural, for fakes). */
 export interface GridEngineClient {
   schema(handle: EngineTableHandle): Promise<EngineColumnSchema[]>
-  rowCount(handle: EngineTableHandle): Promise<number>
+  rowCount(handle: EngineTableHandle, options?: EngineRowCountOptions): Promise<number>
   fetchRange(
     handle: EngineTableHandle,
-    window: { startRow: number; endRow: number },
+    window: EngineRangeWindow,
   ): Promise<{ batch: ArrowTableLike; hasMore: boolean }>
 }
 
@@ -60,6 +90,10 @@ export function projectBatchToRows(batch: ArrowTableLike): unknown[][] {
 export class DuckDbGridProvider implements GridDataProvider {
   private readonly client: GridEngineClient
   private readonly handle: EngineTableHandle
+  /** Active sort keys; empty = natural order (the `sort(null)` clear). */
+  private sortKeys: EngineSortSpec[] = []
+  /** Active predicates in push order; empty = unfiltered (`filter(null)`). */
+  private filterPredicates: EngineFilterSpec[] = []
 
   constructor(client: GridEngineClient, handle: EngineTableHandle) {
     this.client = client
@@ -72,32 +106,61 @@ export class DuckDbGridProvider implements GridDataProvider {
     return columns.map((column) => ({ name: column.name, type: column.type }))
   }
 
-  /** Metadata-only total from the engine (`count(*)`, m1-5). */
+  /**
+   * Total from the engine's metadata-only `count(*)`; carries the active
+   * filters (m2-2) so the model's post-filter re-read reports the filtered
+   * total.
+   */
   async rowCount(): Promise<number> {
-    return this.client.rowCount(this.handle)
+    return this.client.rowCount(
+      this.handle,
+      this.filterPredicates.length > 0 ? { filters: this.filterPredicates } : undefined,
+    )
   }
 
   async fetchRange(range: CellRange): Promise<GridDataPage> {
-    const result = await this.client.fetchRange(this.handle, {
+    // Absent/empty = cleared (m2-2): cleared state is sent as absent fields,
+    // so unfiltered/unsorted requests compose the pre-m2-2 SQL verbatim.
+    // The arrays are copy-on-write (never mutated in place) and the client
+    // copies again into the protocol request — no aliasing either way.
+    const window: EngineRangeWindow = {
       startRow: range.startRow,
       endRow: range.endRow,
-    })
+      ...(this.filterPredicates.length > 0 ? { filters: this.filterPredicates } : {}),
+      ...(this.sortKeys.length > 0 ? { sort: this.sortKeys } : {}),
+    }
+    const result = await this.client.fetchRange(this.handle, window)
     return { startRow: range.startRow, rows: projectBatchToRows(result.batch) }
   }
 
-  // Contract placeholders (m1-5 scope ruling): the grid model keeps
-  // sort/filter/updateCell in the interface, but wiring them to engine SQL /
-  // the edit overlay is a later task. Fail loudly instead of pretending. The
-  // parameter-less declarations are interface-compatible (fewer params); the
-  // contract tests call them through the `GridDataProvider` type.
-  async sort(): Promise<void> {
-    throw new Error('sorting is not wired to the engine yet (M1 scope: viewport + rows)')
+  /**
+   * Replace the dataset-wide sort (m2-3): one field-for-field engine sort
+   * key, or none on `null` (clear). Accepted by construction — nothing can
+   * fail before the state is recorded, satisfying the contract's
+   * "rejection leaves the previous sort in effect" trivially.
+   */
+  async sort(spec: SortSpec | null): Promise<void> {
+    this.sortKeys = spec === null ? [] : [{ column: spec.column, direction: spec.direction }]
   }
 
-  async filter(): Promise<void> {
-    throw new Error('filtering is not wired to the engine yet (M1 scope: viewport + rows)')
+  /**
+   * Push one predicate (or clear the list on `null`, the model's
+   * clear-first protocol — see `GridDataProvider.filter`). Ordered list,
+   * AND-composed by the engine; duplicates allowed (the contract's
+   * deterministic push-order rebuild). Infallible like `sort()`.
+   */
+  async filter(spec: FilterSpec | null): Promise<void> {
+    this.filterPredicates =
+      spec === null
+        ? []
+        : [...this.filterPredicates, { column: spec.column, predicate: spec.predicate }]
   }
 
+  // Contract placeholder (m1-5 scope ruling, still open): the grid model
+  // keeps updateCell in the interface, but the edit overlay is a later task.
+  // Fail loudly instead of pretending. The parameter-less declaration is
+  // interface-compatible (fewer params); the contract tests call it through
+  // the `GridDataProvider` type.
   async updateCell(): Promise<void> {
     throw new Error('editing is not wired to the engine yet (M1 scope: viewport + rows)')
   }

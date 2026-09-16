@@ -136,8 +136,12 @@ test('opens the 1M-row fixture and renders exact known rows at several scroll of
 
   // Headers: generator columns with DuckDB type strings (m1-6 renders the
   // full schema tree; here the grid headers are the correctness anchor).
+  // m2-3: each header cell now also carries a sort toggle, so the column
+  // names are asserted on the name spans inside the cells.
   const headers = page.getByTestId('grid-header-cell')
-  await expect(headers).toHaveText(['id', 'bucket', 'label', 'value_maybe_null'])
+  await expect(
+    page.locator('[data-testid="grid-header-cell"] [data-testid="grid-header-name"]'),
+  ).toHaveText(['id', 'bucket', 'label', 'value_maybe_null'])
   await expect(headers.nth(0)).toHaveAttribute('data-col-type', 'BIGINT')
   await expect(headers.nth(3)).toHaveAttribute('data-col-type', 'DOUBLE')
 
