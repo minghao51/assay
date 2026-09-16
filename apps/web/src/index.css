@@ -335,3 +335,141 @@ h1 {
   color: #b00020;
   font-weight: 600;
 }
+
+/* ---- SQL editor + result pane (m2-4) ---- */
+
+.sql {
+  margin-top: 1.25rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fafafa;
+  padding: 0.5rem 0.75rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sql-hint {
+  margin: 0;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.sql-editor {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.85rem;
+  padding: 0.4rem;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  width: 100%;
+  resize: vertical;
+}
+
+.sql-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sql-run,
+.sql-cancel {
+  font: inherit;
+  padding: 0.2rem 0.9rem;
+  cursor: pointer;
+}
+
+.sql-run:disabled,
+.sql-cancel:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.sql-cancel:not(:disabled) {
+  border-color: #d4a9b9;
+}
+
+.sql-status {
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.sql[data-state='running'] .sql-status {
+  color: #23364d;
+  font-weight: 600;
+}
+
+.sql-error {
+  margin: 0;
+  color: #b00020;
+  font-weight: 600;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.sql-cancel-note,
+.sql-result-exhausted,
+.sql-result-truncated {
+  margin: 0;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.sql-result-empty {
+  margin: 0;
+  color: #777;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.sql-result {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid #ccc;
+  background: #fff;
+}
+
+.sql-result-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.sql-result-table th,
+.sql-result-table td {
+  border-bottom: 1px solid #eee;
+  padding: 0.15rem 0.5rem;
+  text-align: left;
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sql-result-table th {
+  position: sticky;
+  top: 0;
+  background: #fafafa;
+  font-weight: 600;
+  border-bottom: 2px solid #bbb;
+}
+
+.sql-pager {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.sql-pager button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+}
+
+.sql-pager button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

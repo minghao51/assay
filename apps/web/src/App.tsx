@@ -7,6 +7,7 @@ import { FilterBar } from './grid/FilterBar'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
 import { SchemaPanel } from './schema/SchemaPanel'
+import { SqlPanel } from './sql/SqlPanel'
 
 /**
  * App phases. `ready` holds the composed grid: adapter (engine client) →
@@ -104,6 +105,7 @@ export function App() {
           <SchemaPanel columns={phase.model.schema ?? []} />
           <FilterBar model={phase.model} />
           <DataGrid model={phase.model} />
+          <SqlPanel tableId={phase.tableId} />
         </>
       ) : (
         <>
