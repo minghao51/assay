@@ -473,3 +473,247 @@ h1 {
   cursor: default;
   opacity: 0.5;
 }
+
+/* ---- Profile panel + distribution charts (m2-6) ---- */
+
+.profile {
+  margin-top: 1.25rem;
+}
+
+.profile-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0.2rem 0.35rem;
+  cursor: pointer;
+}
+
+.profile-panel-toggle:hover {
+  background: #eee;
+}
+
+.profile-panel {
+  margin-top: 0.35rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fafafa;
+  padding: 0.5rem 0.75rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-hint {
+  margin: 0;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.profile-run {
+  align-self: flex-start;
+  font: inherit;
+  padding: 0.2rem 0.9rem;
+  cursor: pointer;
+}
+
+.profile-running {
+  margin: 0;
+  color: #23364d;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.profile-error {
+  margin: 0;
+  color: #b00020;
+  font-weight: 600;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.profile-rowcount {
+  margin: 0;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.profile-columns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-column {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  padding: 0.4rem 0.6rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.profile-column[data-col-kind='other'] {
+  background: #f7f7f8;
+}
+
+.profile-col-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.profile-badge {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: #e7eef7;
+  color: #23364d;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.8rem;
+  margin-right: 0.3rem;
+}
+
+.profile-badge-kind {
+  background: #eef7ee;
+  color: #2d4d2d;
+}
+
+.profile-stats {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.25rem;
+}
+
+.profile-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.profile-stat dt {
+  color: #555;
+  font-size: 0.8rem;
+}
+
+.profile-stat dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.profile-strip {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.profile-strip-svg {
+  display: block;
+  width: 100%;
+  height: 14px;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  background: #eef2f7;
+}
+
+.profile-strip-segment {
+  fill: #7fa3c9;
+  shape-rendering: crispEdges;
+}
+
+.profile-strip-segment:nth-of-type(even) {
+  fill: #a9c3dd;
+}
+
+.profile-strip-ticks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 1rem;
+  color: #555;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-strip-tick-name {
+  color: #889;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+.profile-strip-empty,
+.profile-topk-empty {
+  margin: 0;
+  color: #777;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.profile-topk {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.profile-topk-caption {
+  margin: 0;
+  color: #555;
+  font-size: 0.8rem;
+}
+
+.profile-topk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.profile-topk-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 14rem) 1fr 4rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.profile-topk-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.profile-topk-track {
+  display: block;
+  border: 1px solid #ddd;
+  border-radius: 2px;
+  background: #eef2f7;
+}
+
+.profile-topk-bar-svg {
+  display: block;
+  width: 100%;
+  height: 10px;
+}
+
+.profile-topk-bar {
+  fill: #7fa3c9;
+  shape-rendering: crispEdges;
+}
+
+.profile-topk-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}

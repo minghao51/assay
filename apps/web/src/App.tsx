@@ -1,4 +1,5 @@
 import { useCallback, useState, useSyncExternalStore } from 'react'
+import type { EngineTableHandle } from '@assay/engine-duckdb'
 import { GridViewportModel } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
 import { DataGrid } from './grid/DataGrid'
@@ -6,6 +7,7 @@ import { DuckDbGridProvider } from './grid/provider'
 import { FilterBar } from './grid/FilterBar'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
+import { ProfilePanel } from './profile/ProfilePanel'
 import { SchemaPanel } from './schema/SchemaPanel'
 import { SqlPanel } from './sql/SqlPanel'
 
@@ -23,6 +25,7 @@ type Phase =
       readonly kind: 'ready'
       readonly model: GridViewportModel
       readonly tableId: string
+      readonly handle: EngineTableHandle
     }
 
 /**
@@ -66,7 +69,7 @@ export function App() {
       const provider = new DuckDbGridProvider(engineClient, handle)
       const model = new GridViewportModel(provider)
       await model.load()
-      setPhase({ kind: 'ready', model, tableId: handle.id })
+      setPhase({ kind: 'ready', model, tableId: handle.id, handle })
     } catch (error) {
       setPhase({
         kind: 'error',
@@ -106,6 +109,7 @@ export function App() {
           <FilterBar model={phase.model} />
           <DataGrid model={phase.model} />
           <SqlPanel tableId={phase.tableId} />
+          <ProfilePanel handle={phase.handle} />
         </>
       ) : (
         <>
