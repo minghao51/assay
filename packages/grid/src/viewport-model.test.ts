@@ -1,19 +1,44 @@
 import { describe, expect, it } from 'vitest'
-import type { CellRange, ColumnSchema, GridDataPage, GridDataProvider } from './contracts'
+import type {
+  CellRange,
+  ColumnSchema,
+  FilterSpec,
+  GridDataPage,
+  GridDataProvider,
+  SortSpec,
+} from './contracts'
 import { GridViewportModel } from './viewport-model'
 
 /**
  * In-memory fake provider: deterministic rows (`[i, "cell-${i}"]`), an
  * optional failure set, and a manual mode that holds fetches until released —
  * so loading/error/dedup semantics are observable in Node without timers.
+ *
+ * Query state (m2-1): the fake actually honors `sort`/`filter` — its served
+ * view is the base row order filtered by an interpretable mini-predicate
+ * grammar (`id >= 5`, `label <> cell-7`, …) and optionally reversed for a
+ * descending sort — with `rowCount()` reporting the filtered view size, so
+ * sorted/filtered windows, count updates, and epoch staleness are provable
+ * end to end. Accepted `sort`/`filter` pushes are logged (`sortCalls` /
+ * `filterCalls`); `rejectQueryPushes` makes them throw *before* touching any
+ * state, modeling an atomically-rejecting provider.
  */
 class FakeProvider implements GridDataProvider {
   totalRowCount: number
   readonly fetchLog: CellRange[] = []
   failStartRows: ReadonlySet<number>
   private readonly manual: boolean
+  private sortSpec: SortSpec | null = null
+  private readonly filterList: FilterSpec[] = []
+  /** Accepted sort pushes, in order (a `null` entry = a clear). */
+  readonly sortCalls: (SortSpec | null)[] = []
+  /** Accepted filter pushes, in order (`null` entries = clears). */
+  readonly filterCalls: (FilterSpec | null)[] = []
+  rejectQueryPushes = false
   private pending: Array<{
     range: CellRange
+    /** Frozen at request time, like a real provider's computed page. */
+    page: GridDataPage
     resolve: (page: GridDataPage) => void
     reject: (error: Error) => void
   }> = []
@@ -31,7 +56,11 @@ class FakeProvider implements GridDataProvider {
   }
 
   async rowCount(): Promise<number> {
-    return this.totalRowCount
+    // Echo the raw count while no query state is set — this keeps the
+    // load()-validation tests (bogus counts) honest; under sort/filter the
+    // provider reports the view size, which is what the model must absorb.
+    if (this.sortSpec === null && this.filterList.length === 0) return this.totalRowCount
+    return this.viewIds().length
   }
 
   async schema(): Promise<ColumnSchema[]> {
@@ -44,8 +73,12 @@ class FakeProvider implements GridDataProvider {
   async fetchRange(range: CellRange): Promise<GridDataPage> {
     this.fetchLog.push(range)
     if (this.manual) {
+      // Freeze the page at request time: a real provider computes rows under
+      // the state it held when asked, so a late-resolving fetch carries the
+      // old state's rows — exactly what the generation guard must discard.
+      const page = this.pageFor(range)
       return new Promise<GridDataPage>((resolve, reject) => {
-        this.pending.push({ range, resolve, reject })
+        this.pending.push({ range, page, resolve, reject })
       })
     }
     if (this.failStartRows.has(range.startRow)) {
@@ -54,13 +87,27 @@ class FakeProvider implements GridDataProvider {
     return this.pageFor(range)
   }
 
-  // Contract stubs: the viewport model never issues these (wiring is a later
-  // task); they exist to satisfy the interface and future-proof the fake.
-  async sort(): Promise<void> {}
-  async filter(): Promise<void> {}
+  async sort(spec: SortSpec | null): Promise<void> {
+    if (this.rejectQueryPushes) throw new Error('sort rejected by provider')
+    this.sortSpec = spec
+    this.sortCalls.push(spec)
+  }
+
+  async filter(spec: FilterSpec | null): Promise<void> {
+    if (this.rejectQueryPushes) throw new Error('filter rejected by provider')
+    if (spec === null) {
+      this.filterList.length = 0
+    } else {
+      this.filterList.push(spec)
+    }
+    this.filterCalls.push(spec)
+  }
+
+  // Still a contract stub: editing state is M4 work (overlay model), the
+  // fake just satisfies the interface.
   async updateCell(): Promise<void> {}
 
-  /** Resolve (or fail) every held fetch. */
+  /** Resolve (or fail) every held fetch with its request-time page. */
   releaseAll(): void {
     const held = this.pending
     this.pending = []
@@ -68,17 +115,62 @@ class FakeProvider implements GridDataProvider {
       if (this.failStartRows.has(entry.range.startRow)) {
         entry.reject(new Error(`provider failure at row ${String(entry.range.startRow)}`))
       } else {
-        entry.resolve(this.pageFor(entry.range))
+        entry.resolve(entry.page)
       }
     }
   }
 
+  /** Grid row `index` of the served view → base row cells. */
   pageFor(range: CellRange): GridDataPage {
+    const view = this.viewIds()
     const rows: unknown[][] = []
     for (let index = range.startRow; index < range.endRow; index++) {
-      rows.push([index, `cell-${String(index)}`])
+      const id = view[index]
+      rows.push([id, `cell-${String(id)}`])
     }
     return { startRow: range.startRow, rows }
+  }
+
+  /** Base row ids of the served view: filtered, then sorted. */
+  private viewIds(): number[] {
+    const ids: number[] = []
+    for (let id = 0; id < this.totalRowCount; id++) {
+      if (this.filterList.every((spec) => this.matches(id, spec))) ids.push(id)
+    }
+    if (this.sortSpec !== null && this.sortSpec.direction === 'desc') ids.reverse()
+    return ids
+  }
+
+  /**
+   * Mini-predicate grammar (the fake stands in for the engine's SQL):
+   * `id <op> <n>` with op in >=, <=, >, <, =, <> — and `label (=|<>)
+   * cell-<n>` to prove the spec's column field routes the predicate.
+   * Unknown shapes throw loudly instead of silently matching everything.
+   */
+  private matches(id: number, spec: FilterSpec): boolean {
+    const onId = /^id\s*(>=|<=|<>|=|>|<)\s*(-?\d+)$/.exec(spec.predicate)
+    if (spec.column === 'id' && onId !== null) {
+      const value = Number(onId[2])
+      switch (onId[1]) {
+        case '>=':
+          return id >= value
+        case '<=':
+          return id <= value
+        case '>':
+          return id > value
+        case '<':
+          return id < value
+        case '=':
+          return id === value
+        case '<>':
+          return id !== value
+      }
+    }
+    const onLabel = /^label\s*(=|<>)\s*cell-(\d+)$/.exec(spec.predicate)
+    if (spec.column === 'label' && onLabel !== null) {
+      return onLabel[1] === '=' ? id === Number(onLabel[2]) : id !== Number(onLabel[2])
+    }
+    throw new Error(`fake provider cannot interpret predicate: ${spec.predicate}`)
   }
 }
 
@@ -456,6 +548,281 @@ describe('GridViewportModel — refresh (new data epoch)', () => {
 
     expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
     expect(model.stats.rowsReceived).toBe(10) // only the fresh epoch counted
+  })
+})
+
+describe('GridViewportModel — sort state (m2-1)', () => {
+  it('setSort records explicit state, refetches the visible window, and changes contents', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+
+    await model.setSort({ column: 'id', direction: 'desc' })
+    await flush()
+
+    expect(model.sort).toEqual({ column: 'id', direction: 'desc' })
+    // The same visible window was refetched under the new ordering…
+    expect(provider.fetchLog).toEqual([
+      { startRow: 0, endRow: 10, startCol: 0, endCol: 2 },
+      { startRow: 0, endRow: 10, startCol: 0, endCol: 2 },
+    ])
+    // …so the previously cached index 0 now serves the sorted-first row.
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(provider.sortCalls).toEqual([{ column: 'id', direction: 'desc' }])
+  })
+
+  it('setSort(null) clears the sort and restores dataset order', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setSort({ column: 'id', direction: 'desc' })
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+
+    await model.setSort(null)
+    await flush()
+
+    expect(model.sort).toBeNull()
+    expect(provider.sortCalls.at(-1)).toBeNull()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+  })
+
+  it('sort state survives refresh() (refresh re-reads data under the held query state)', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setSort({ column: 'id', direction: 'desc' })
+
+    await model.refresh()
+
+    expect(model.sort).toEqual({ column: 'id', direction: 'desc' })
+    expect(model.totalRows).toBe(1000)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+  })
+
+  it('setSort before load() builds the epoch (pinned: refresh() is the one rebuild path)', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider)
+    await model.setSort({ column: 'id', direction: 'desc' })
+
+    expect(model.sort).toEqual({ column: 'id', direction: 'desc' })
+    expect(model.loaded).toBe(true)
+    model.observeViewport(0, 9)
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+  })
+})
+
+describe('GridViewportModel — filter state (m2-1)', () => {
+  it('setFilters filters windows, updates the exposed total, and pushes clear-then-specs', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] }) // cached pre-filter
+
+    await model.setFilters([{ column: 'id', predicate: 'id >= 995' }])
+    await flush()
+
+    expect(model.filters).toEqual([{ column: 'id', predicate: 'id >= 995' }])
+    expect(provider.filterCalls).toEqual([null, { column: 'id', predicate: 'id >= 995' }])
+    expect(model.totalRows).toBe(5) // provider re-reported the count under filters
+    // The cached index 0 must not survive the epoch: the view's first row is 995.
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [995, 'cell-995'] })
+    expect(model.getRow(4)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.getRow(5)).toEqual({
+      status: 'error',
+      message: expect.stringContaining('outside'),
+    })
+  })
+
+  it('setFilters([]) clears every filter and restores the full count', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters([{ column: 'id', predicate: 'id >= 995' }])
+    await flush()
+    const callsBeforeClear = provider.filterCalls.length
+
+    await model.setFilters([])
+    await flush()
+
+    expect(model.filters).toEqual([])
+    expect(provider.filterCalls.length).toBe(callsBeforeClear + 1)
+    expect(provider.filterCalls.at(-1)).toBeNull()
+    expect(model.totalRows).toBe(1000)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+  })
+
+  it('composes multiple filters (AND), routes predicates by column, and composes with sort', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+
+    await model.setFilters([
+      { column: 'id', predicate: 'id >= 990' },
+      { column: 'label', predicate: 'label <> cell-992' },
+    ])
+    await flush()
+
+    expect(model.totalRows).toBe(9) // 990–999 minus 992
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+    expect(model.getRow(2)).toEqual({ status: 'ready', row: [993, 'cell-993'] }) // 992 skipped
+
+    await model.setSort({ column: 'id', direction: 'desc' })
+    await flush()
+
+    expect(model.totalRows).toBe(9)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.getRow(8)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+  })
+
+  it('filtering while scrolled deep clamps the refetch into the new bounds', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(990, 999)
+    await flush()
+    expect(model.getRow(999)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+
+    await model.setFilters([{ column: 'id', predicate: 'id <= 4' }])
+    await flush()
+
+    expect(model.totalRows).toBe(5)
+    // The stale deep viewport (990–999) clamps to the filtered bounds; the
+    // refetch serves the surviving tail row and index 999 is simply outside.
+    expect(model.getRow(4)).toEqual({ status: 'ready', row: [4, 'cell-4'] })
+    expect(model.getRow(999)).toEqual({
+      status: 'error',
+      message: expect.stringContaining('outside'),
+    })
+  })
+})
+
+describe('GridViewportModel — stale-page guard across query epochs (m2-1)', () => {
+  it('a sort issued while a fetch is in flight discards the late old-state page', async () => {
+    const provider = new FakeProvider({ rowCount: 1000, manual: true })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9) // epoch-0 fetch (unsorted ids 0..9), held
+
+    const sortDone = model.setSort({ column: 'id', direction: 'desc' }) // new epoch, refetch held
+    await flush()
+    expect(provider.fetchLog.length).toBe(2)
+
+    // Both held fetches now resolve. The epoch-0 page still carries the OLD
+    // ordering (0..9, frozen at request time, like a real provider's page) —
+    // the generation guard must never let it land.
+    provider.releaseAll()
+    await flush()
+    await sortDone
+
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.stats.rowsReceived).toBe(10) // only the fresh epoch's rows counted
+  })
+
+  it('a filter issued while a fetch is in flight discards the late unfiltered page', async () => {
+    const provider = new FakeProvider({ rowCount: 1000, manual: true })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9) // epoch-0 fetch (unfiltered ids 0..9), held
+
+    const filterDone = model.setFilters([{ column: 'id', predicate: 'id >= 995' }])
+    await flush()
+    expect(provider.fetchLog.length).toBe(2)
+
+    provider.releaseAll()
+    await flush()
+    await filterDone
+
+    // The late unfiltered page (ids 0..9) is discarded; the fresh epoch
+    // serves the filtered view and the count was re-read under it.
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [995, 'cell-995'] })
+    expect(model.totalRows).toBe(5)
+    expect(model.stats.rowsReceived).toBe(5)
+  })
+})
+
+describe('GridViewportModel — provider rejections leave state and cache untouched (m2-1)', () => {
+  it('a rejected setSort changes neither model state nor cached rows nor epochs', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+    const fetchesBefore = provider.fetchLog.length
+
+    provider.rejectQueryPushes = true
+    await expect(model.setSort({ column: 'id', direction: 'desc' })).rejects.toThrow(
+      'sort rejected',
+    )
+
+    expect(model.sort).toBeNull()
+    expect(provider.sortCalls).toEqual([])
+    expect(provider.fetchLog.length).toBe(fetchesBefore) // no new epoch, no refetch
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] }) // cache intact
+  })
+
+  it('a rejected setFilters keeps the previous filter state serving', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters([{ column: 'id', predicate: 'id >= 995' }])
+    await flush()
+    expect(model.totalRows).toBe(5)
+    const fetchesBefore = provider.fetchLog.length
+
+    provider.rejectQueryPushes = true
+    await expect(model.setFilters([{ column: 'id', predicate: 'id <= 10' }])).rejects.toThrow(
+      'filter rejected',
+    )
+
+    expect(model.filters).toEqual([{ column: 'id', predicate: 'id >= 995' }])
+    expect(model.totalRows).toBe(5)
+    expect(provider.fetchLog.length).toBe(fetchesBefore)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [995, 'cell-995'] })
+  })
+})
+
+describe('GridViewportModel — sort/filter spec validation (m2-1)', () => {
+  it('rejects malformed sort specs before touching the provider', async () => {
+    const provider = new FakeProvider({ rowCount: 10 })
+    const model = new GridViewportModel(provider)
+    await model.load()
+    await expect(model.setSort({ column: '', direction: 'asc' })).rejects.toThrow(TypeError)
+    await expect(
+      model.setSort({ column: 'id', direction: 'up' } as unknown as SortSpec),
+    ).rejects.toThrow(TypeError)
+    expect(provider.sortCalls).toEqual([])
+  })
+
+  it('rejects malformed filter lists before touching the provider', async () => {
+    const provider = new FakeProvider({ rowCount: 10 })
+    const model = new GridViewportModel(provider)
+    await model.load()
+    await expect(model.setFilters(undefined as unknown as FilterSpec[])).rejects.toThrow(TypeError)
+    await expect(model.setFilters([{ column: '', predicate: 'id >= 1' }])).rejects.toThrow(
+      TypeError,
+    )
+    await expect(
+      model.setFilters([{ column: 'id', predicate: 5 as unknown as string }]),
+    ).rejects.toThrow(TypeError)
+    expect(provider.filterCalls).toEqual([])
   })
 })
 

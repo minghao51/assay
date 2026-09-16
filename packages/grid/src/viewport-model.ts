@@ -16,8 +16,26 @@
  * `@assay/engine-duckdb` — the constant is deliberately duplicated, not
  * imported, so the grid stays engine-free). The cumulative request counters
  * exposed via `stats` make the guarantee observable in tests and e2e.
+ *
+ * Query state (m2-1): the model owns the explicit sort/filter state that the
+ * renderer displays and mirrors every accepted change to the provider via
+ * `GridDataProvider.sort()/filter()` (contract stubs until now). `setSort()`
+ * / `setFilters()` are the verb-named model API (coherent with
+ * `load()`/`refresh()`/`retry()`; the noun getters `sort`/`filters` expose
+ * the state for UI badges and are what the m2-3 header controls wire to).
+ * A successful change starts a fresh data epoch: it reuses `refresh()`, so
+ * cached windows are dropped, the row count is re-read (filters change
+ * totals), the visible window is refetched under the new state, and the
+ * generation guard discards any page still in flight from the old state.
  */
-import type { ColumnSchema, GridDataPage, GridDataProvider, GridRowSlot } from './contracts'
+import type {
+  ColumnSchema,
+  FilterSpec,
+  GridDataPage,
+  GridDataProvider,
+  GridRowSlot,
+  SortSpec,
+} from './contracts'
 
 /** Inclusive row-index span `[start, end]`. */
 interface Span {
@@ -63,6 +81,30 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Renderer-bug guard: a sort spec must name a column and a direction. */
+function assertSortSpec(spec: SortSpec): void {
+  if (typeof spec.column !== 'string' || spec.column.length === 0) {
+    throw new TypeError(`sort spec must name a column, got ${String(spec.column)}`)
+  }
+  if (spec.direction !== 'asc' && spec.direction !== 'desc') {
+    throw new TypeError(`sort direction must be 'asc' or 'desc', got ${String(spec.direction)}`)
+  }
+}
+
+/**
+ * Renderer-bug guard: a filter spec must name a column and carry a string
+ * predicate. Predicate *content* is engine-defined SQL text (ADR 0029) — the
+ * model never interprets it; the provider validates and may reject.
+ */
+function assertFilterSpec(spec: FilterSpec): void {
+  if (typeof spec.column !== 'string' || spec.column.length === 0) {
+    throw new TypeError(`filter spec must name a column, got ${String(spec.column)}`)
+  }
+  if (typeof spec.predicate !== 'string') {
+    throw new TypeError('filter predicate must be a string')
+  }
+}
+
 export class GridViewportModel {
   private readonly provider: GridDataProvider
   private readonly overscanRows: number
@@ -71,6 +113,10 @@ export class GridViewportModel {
 
   private schemaColumns: ColumnSchema[] | null = null
   private totalRowCount: number | null = null
+  /** Active sort, exactly as last accepted by the provider (null = none). */
+  private sortState: SortSpec | null = null
+  /** Active filters, in model order — the order pushed to the provider. */
+  private filterState: FilterSpec[] = []
   /** LRU row cache: row index → cells. Insertion order = least- to most-recent. */
   private readonly cache = new Map<number, readonly unknown[]>()
   /** In-flight span fetches, keyed `start:end` (dedup of overlapping asks). */
@@ -114,6 +160,24 @@ export class GridViewportModel {
   /** Total dataset rows as reported by the provider (null until `load()` resolves). */
   get totalRows(): number | null {
     return this.totalRowCount
+  }
+
+  /**
+   * Active sort as last accepted by the provider (null = dataset order).
+   * Mirrors the state the renderer should display; only changes once the
+   * provider has accepted a `setSort()`.
+   */
+  get sort(): SortSpec | null {
+    return this.sortState
+  }
+
+  /**
+   * Active filter list in model order (empty = unfiltered). Predicates are
+   * engine-defined SQL text (ADR 0029) — displayed verbatim, never executed
+   * here. Only changes once the provider has accepted a `setFilters()`.
+   */
+  get filters(): readonly FilterSpec[] {
+    return this.filterState
   }
 
   /** True once `load()` has delivered schema and row count. */
@@ -205,10 +269,51 @@ export class GridViewportModel {
   }
 
   /**
+   * Set or clear the dataset-wide sort (`null` clears). Records the state
+   * only after the provider accepts; an accepted change starts a fresh data
+   * epoch via `refresh()` — cached windows are dropped, the visible window
+   * is refetched under the new ordering, and pages still in flight from the
+   * old state are discarded on arrival by the generation guard (row order
+   * may have changed under them). Stats reset with the epoch.
+   */
+  async setSort(spec: SortSpec | null): Promise<void> {
+    if (spec !== null) assertSortSpec(spec)
+    await this.provider.sort(spec)
+    this.sortState = spec
+    await this.refresh()
+  }
+
+  /**
+   * Replace the whole filter list (`[]` clears all). Pushes `filter(null)`
+   * then each spec in order, so the provider's list is deterministically
+   * rebuilt to match the model's (see `GridDataProvider.filter`). Records
+   * the state only after every push is accepted; an accepted change starts
+   * a fresh data epoch via `refresh()` — cached windows are dropped, the
+   * provider's row count is re-read (filters change totals), and the
+   * visible window is refetched under the new state with the generation
+   * guard discarding stale in-flight pages. A mid-sequence provider
+   * rejection leaves the model state (and cache) untouched; the next
+   * successful `setFilters` re-syncs the provider from scratch.
+   */
+  async setFilters(specs: readonly FilterSpec[]): Promise<void> {
+    if (!Array.isArray(specs)) {
+      throw new TypeError(`filters must be an array, got ${String(specs)}`)
+    }
+    const list = [...specs]
+    for (const spec of list) assertFilterSpec(spec)
+    await this.provider.filter(null)
+    for (const spec of list) await this.provider.filter(spec)
+    this.filterState = list
+    await this.refresh()
+  }
+
+  /**
    * Drop every cached/failed row and rebuild from the provider. Fetches that
    * were in flight before `refresh()` are discarded on arrival (generation
-   * guard) — after a sort/filter the row order may have changed. Stats reset
-   * with the epoch so instrumentation stays per-dataset-view.
+   * guard) — after a sort/filter change (or an external data edit) the row
+   * order may have changed. Query state (`sort`/`filters`) is *not* reset:
+   * refresh re-reads the dataset under the state the provider still holds.
+   * Stats reset with the epoch so instrumentation stays per-dataset-view.
    */
   async refresh(): Promise<void> {
     this.generation += 1

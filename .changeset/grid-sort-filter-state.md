@@ -1,0 +1,5 @@
+---
+'@assay/grid': minor
+---
+
+feat(m2-1): make `GridDataProvider.sort()`/`filter()` real through the viewport model. `GridViewportModel` gains explicit query state — `setSort(spec | null)` / `setFilters(specs)` with `sort` / `filters` getters (the m2-3 header controls wire to these) — that mirrors every accepted change to the provider, then rebuilds the data epoch via `refresh()`: cached windows are dropped, the row count is re-read (filters change totals), the visible window is refetched under the new state, and the generation guard discards pages still in flight from the old state. Provider pushes happen before any state or cache mutation, so a rejecting provider (e.g. an invalid predicate) leaves model state, cache, and epochs untouched. Contract evolution: `sort`/`filter` now accept `null` as the v1 clear protocol (`sort(null)` restores provider order; `filter(null)` clears the predicate list — callers holding full state push `null` then each spec in order, keeping the provider's list a deterministic function of the model's), a backward-compatible widening of the m1-5 parameter shapes. The model stays zero-dependency and Node-testable.

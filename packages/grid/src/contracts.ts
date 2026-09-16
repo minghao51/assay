@@ -66,6 +66,14 @@ export interface GridDataPage {
  * (local engine or, later, remote gateway). The M1 placeholder return shape
  * (`unknown[][]`) became the explicit `GridDataPage` once the first real
  * consumer (m1-5) needed the page origin to place rows honestly.
+ *
+ * Sort/filter are **provider state**, mutated through the `sort`/`filter`
+ * methods below (m2-1): after a successful call, `fetchRange` and `rowCount`
+ * serve windows/counts under the new query state. `GridViewportModel` owns
+ * the user-facing state machine on top (explicit `sort`/`filters` state,
+ * cache invalidation, refetch — see `viewport-model.ts`) and mirrors every
+ * accepted change here; `null` is the v1 clear protocol (the contract keeps
+ * its m1-5 parameter shapes, widened only to accept `null`).
  */
 /**
  * Renderer-facing state of one grid row. `loading` covers uncached, in-flight
@@ -81,8 +89,25 @@ export interface GridDataProvider {
   /** Total number of rows in the dataset (metadata, not data). */
   rowCount(): Promise<number>
   fetchRange(range: CellRange): Promise<GridDataPage>
-  sort(spec: SortSpec): Promise<void>
-  filter(spec: FilterSpec): Promise<void>
+  /**
+   * Set the dataset-wide sort: subsequent windows are ordered by `column`
+   * (`direction`, engine-defined stable tie-breaking). `null` clears the
+   * sort and restores the provider's natural order. Resolves only once the
+   * provider has accepted the state; a rejection must leave the previous
+   * sort in effect.
+   */
+  sort(spec: SortSpec | null): Promise<void>
+  /**
+   * Add one predicate (`engine-defined SQL text`, ADR 0029) to the
+   * provider's ordered filter list — subsequent windows and row counts
+   * cover only rows matching every predicate (AND composition; duplicate
+   * columns allowed). `null` clears the whole list. Callers that hold the
+   * full filter state (e.g. `GridViewportModel.setFilters`) push `null`
+   * first and then each spec in order, so the provider's list is always a
+   * deterministic function of the model's. Resolves only once accepted; a
+   * rejection must leave the previous list in effect.
+   */
+  filter(spec: FilterSpec | null): Promise<void>
   updateCell(row: number, column: string, value: unknown): Promise<void>
   schema(): Promise<ColumnSchema[]>
 }
