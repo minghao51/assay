@@ -21,3 +21,14 @@ export type ConformanceSuiteName = (typeof conformanceSuiteNames)[number]
  * scenarios (docs/engineering/05-repository-structure.md §4).
  */
 export * from './engine-conformance'
+
+/**
+ * The data-source behavior suite (T3): identity/idempotency (frozen handle,
+ * stable identity), one-shot file resolution (incl. the additive `getFile`
+ * seam), metadata contract (format + size only), cancel semantics (settled
+ * `null`), capability-matrix detection, and R5 fallback order —
+ * parameterized over a `DataSourceBehaviorSubject` so every DataSource
+ * adapter runs the same scenarios (docs/engineering/05-repository-structure.md
+ * §4). Structural types only: the root entry stays environment-neutral.
+ */
+export * from './data-source-behavior'

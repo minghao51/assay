@@ -143,6 +143,9 @@ importers:
 
   packages/data-sources:
     devDependencies:
+      '@assay/testing':
+        specifier: workspace:*
+        version: link:../testing
       typescript:
         specifier: 'catalog:'
         version: 5.9.3

@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@assay/testing": "workspace:*",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

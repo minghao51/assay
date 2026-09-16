@@ -23,6 +23,9 @@
  */
 import { detectFileSystemCapabilities, pickDataFile } from '../src/browser'
 import type { PickedDataFile } from '../src/browser'
+import { createBrowserFileSourceBehaviorSubject } from '../src/behavior-subject'
+import { dataSourceBehaviorScenarioNames, runDataSourceBehaviorScenarios } from '@assay/testing'
+import type { DataSourceBehaviorScenarioName } from '@assay/testing'
 
 const openFsaButton = requiredElement<HTMLButtonElement>('#open-via-fsa')
 const openFallbackButton = requiredElement<HTMLButtonElement>('#open-via-input-fallback')
@@ -37,6 +40,50 @@ openFallbackButton.addEventListener('click', () => {
 const caps = detectFileSystemCapabilities()
 setText('caps-file-picker', String(caps.filePicker))
 setText('caps-data-transfer-handle', String(caps.dataTransferHandle))
+
+// ── T3 data-source behavior suite (tests/e2e/data-source-behavior.spec.ts) ──
+//
+// Each button runs ONE scenario from the shared suite in @assay/testing
+// against the REAL BrowserFileSource in this browser context: genuine
+// OPFS-staged FileSystemFileHandles (ADR 0017 disposable-cache framing — same
+// trick as the m1-3 sections above) and the real browser capability globals.
+// Results render as JSON (`DataSourceBehaviorScenarioResult`); the spec
+// asserts each scenario's `passed` and evidence facts. The suite — not this
+// harness — owns the scenario logic; this wiring only hosts the subject
+// adapter. Privacy (ADR 0001/0025): file names here are synthetic suite
+// fixtures; reports contain ids, counts, and flags only.
+const behaviorSubject = createBrowserFileSourceBehaviorSubject({
+  stageHandle: async (file) => {
+    const root = await navigator.storage.getDirectory()
+    const handle = await root.getFileHandle(file.name, { create: true })
+    const writable = await handle.createWritable()
+    await writable.write(await file.arrayBuffer())
+    await writable.close()
+    return handle
+  },
+})
+
+async function runBehaviorScenario(name: DataSourceBehaviorScenarioName): Promise<void> {
+  const report = await runDataSourceBehaviorScenarios(behaviorSubject, [name])
+  const result = report.results[0]
+  if (result !== undefined) {
+    setText(`behavior-result-${name}`, JSON.stringify(result, null, 2))
+  }
+}
+
+async function runAllBehaviorScenarios(): Promise<void> {
+  const report = await runDataSourceBehaviorScenarios(behaviorSubject)
+  setText('behavior-run-all', JSON.stringify(report, null, 2))
+}
+
+for (const name of dataSourceBehaviorScenarioNames) {
+  requiredElement<HTMLButtonElement>(`#behavior-${name}`).addEventListener('click', () => {
+    void runBehaviorScenario(name)
+  })
+}
+requiredElement<HTMLButtonElement>('#behavior-run-all').addEventListener('click', () => {
+  void runAllBehaviorScenarios()
+})
 
 async function openViaFileSystemAccess(): Promise<void> {
   try {

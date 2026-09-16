@@ -86,6 +86,15 @@ create: true })` → `createWritable()`) and taking the genuine
   the package's hidden-input implementation; Playwright intercepts the file
   chooser (`page.waitForEvent('filechooser')` → `chooser.setFiles(...)`).
 
+The harness also hosts the **shared data-source behavior suite** (task T3):
+one button per scenario runs the suite from `@assay/testing` against the real
+`BrowserFileSource` via the subject adapter in `src/behavior-subject.ts`, with
+genuine OPFS-staged handles and real browser capability globals;
+`tests/e2e/data-source-behavior.spec.ts` asserts each scenario's result and
+evidence. This locks the m1-3/m1-4 semantics (identity/idempotency, one-shot
+`getFile`, metadata = format+size, cancel → `null`, capability matrix, R5
+fallback order) against regression.
+
 `harness/public/customers.csv` is a byte-identical copy of the canonical
 `fixtures/csv/customers.csv` (sha-256 `202ea367…`), kept inside the harness so
 the e2e can fetch it from the page origin. Not a new top-level fixture.

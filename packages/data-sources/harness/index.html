@@ -66,6 +66,33 @@
           <dd data-testid="meta-size">not run</dd>
         </dl>
       </section>
+      <section>
+        <h2>Data-source behavior suite (T3)</h2>
+        <p>
+          Runs the shared behavior suite from <code>@assay/testing</code> against the real
+          <code>BrowserFileSource</code> in this browser: genuine OPFS-staged handles, real
+          capability globals. One button per scenario, results rendered as JSON. Privacy: ids,
+          counts, and flags only — synthetic fixture names, never user files.
+        </p>
+        <p>
+          <button id="behavior-identity-idempotency" type="button">
+            Behavior: identity &amp; idempotency
+          </button>
+          <button id="behavior-one-shot-file" type="button">Behavior: one-shot file</button>
+          <button id="behavior-metadata-contract" type="button">Behavior: metadata contract</button>
+          <button id="behavior-cancel-semantics" type="button">Behavior: cancel semantics</button>
+          <button id="behavior-capability-matrix" type="button">Behavior: capability matrix</button>
+          <button id="behavior-fallback-order" type="button">Behavior: fallback order</button>
+          <button id="behavior-run-all" type="button">Behavior: run all scenarios</button>
+        </p>
+        <pre data-testid="behavior-result-identity-idempotency">not run</pre>
+        <pre data-testid="behavior-result-one-shot-file">not run</pre>
+        <pre data-testid="behavior-result-metadata-contract">not run</pre>
+        <pre data-testid="behavior-result-cancel-semantics">not run</pre>
+        <pre data-testid="behavior-result-capability-matrix">not run</pre>
+        <pre data-testid="behavior-result-fallback-order">not run</pre>
+        <pre data-testid="behavior-run-all">not run</pre>
+      </section>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
