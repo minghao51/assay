@@ -42,6 +42,7 @@ const SCENARIOS = [
   'mid-stream-error-reuse',
   'window-filter-sort',
   'predicate-error-reuse',
+  'profile-semantics',
 ] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
@@ -55,6 +56,7 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'mid-stream-error-reuse': 'Conformance: mid-stream error reuse',
   'window-filter-sort': 'Conformance: window filter sort',
   'predicate-error-reuse': 'Conformance: predicate error reuse',
+  'profile-semantics': 'Conformance: profile semantics',
 }
 
 /** Click a scenario button and wait for its JSON result to render. */
@@ -112,6 +114,14 @@ for (const name of SCENARIOS) {
         expect(result.facts['viewIntact']).toBe(true)
         expect(result.facts['engineReusable']).toBe(true)
         break
+      case 'profile-semantics':
+        expect(result.facts['rowCount']).toBe(5)
+        expect(result.facts['columns']).toBe(6)
+        expect(result.facts['unknownHandleRejected']).toBe(true)
+        expect(result.facts['nullsOnlyColumn']).toBe(true)
+        expect(result.facts['topKTiePinned']).toBe(true)
+        expect(result.facts['reusableAfterProfile']).toBe(true)
+        break
       default:
         break
     }
@@ -121,7 +131,7 @@ for (const name of SCENARIOS) {
 test('conformance run-all: the whole suite passes in one page against engine-duckdb', async ({
   page,
 }) => {
-  test.setTimeout(120_000) // nine scenarios, each with a fresh engine boot
+  test.setTimeout(120_000) // ten scenarios, each with a fresh engine boot
   await page.goto(HARNESS_URL)
   await page.getByRole('button', { name: 'Conformance: run all scenarios' }).click()
   const element = page.getByTestId('conformance-run-all')

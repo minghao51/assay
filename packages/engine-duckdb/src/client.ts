@@ -25,6 +25,7 @@ import { parseEngineResponse } from './protocol'
 import type {
   EngineColumnSchema,
   EngineFilterSpec,
+  EngineProfileColumn,
   EngineReadyInfo,
   EngineRequest,
   EngineSortSpec,
@@ -59,6 +60,17 @@ export interface EngineRangeResult {
   readonly batch: Table
   /** True if DuckDB split the window and a tail batch was not transported. */
   readonly hasMore: boolean
+}
+
+/**
+ * Full statistics profile of a registered table (m2-5): plain JSON-able data
+ * (no Arrow) — total rows plus per-column nullCount/distinctCount and the
+ * kind-specific payloads (numeric stats / categorical top-k), as composed
+ * and classified by the worker (see `profile-query.ts` / `profile-classify.ts`).
+ */
+export interface EngineDatasetProfile {
+  readonly rowCount: number
+  readonly columns: readonly EngineProfileColumn[]
 }
 
 /**
@@ -358,6 +370,27 @@ export class DuckDbEngineClient {
     } catch (cause) {
       throw new EngineProtocolError('worker sent an invalid Arrow IPC payload', { cause })
     }
+  }
+
+  /**
+   * Full statistics profile of a registered table (m2-5): per-column
+   * nullCount/distinctCount, numeric stats (min/max/mean/stddev/quantiles)
+   * for numeric columns, categorical top-k for scalar non-numeric ones.
+   * Unknown handles reject with `EngineOperationError` (engine reusable);
+   * the response is plain JSON-able data, already validated by the protocol
+   * parser (finite numbers or null — never NaN/±Infinity).
+   */
+  async profile(handle: EngineTableHandle): Promise<EngineDatasetProfile> {
+    await this.ensureReady()
+    const response = await this.send({
+      type: 'engine/profile',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+    })
+    if (response.type !== 'engine/profile-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/profile`)
+    }
+    return { rowCount: response.rowCount, columns: response.columns }
   }
 
   /**

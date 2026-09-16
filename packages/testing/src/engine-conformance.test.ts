@@ -16,9 +16,12 @@ import {
 } from './engine-conformance'
 import type {
   ConformanceBatchResult,
+  ConformanceCategoricalStats,
+  ConformanceDatasetProfile,
   ConformanceEngineClient,
   ConformanceFileSource,
   ConformanceFilterSpec,
+  ConformanceNumericStats,
   ConformanceScenarioName,
   ConformanceSortSpec,
   ConformanceTableHandle,
@@ -59,6 +62,18 @@ interface FakeMutations {
   resolvesRejectingFilters?: boolean
   /** m2-2: after a predicate error every later op fails (engine not reusable). */
   wedgedAfterPredicateError?: boolean
+  /** m2-5: every nullCount is inflated by one. */
+  liesAboutProfileNullCounts?: boolean
+  /** m2-5: every distinctCount is inflated by one. */
+  liesAboutProfileDistinctCounts?: boolean
+  /** m2-5: the numeric mean is inflated by one. */
+  liesAboutProfileNumericStats?: boolean
+  /** m2-5: the categorical top-k is reversed (order contract broken). */
+  liesAboutProfileTopK?: boolean
+  /** m2-5: the first categorical column is misclassified as numeric (payload missing). */
+  misclassifiesProfileKind?: boolean
+  /** m2-5: profile() of an unknown handle resolves instead of rejecting. */
+  profileUnknownHandleResolves?: boolean
 }
 
 const GOOD_DATASET = {
@@ -126,6 +141,119 @@ const BREAKOUT_FILTERS = [
   { column: 'label', predicate: "= 'a' OR 1=1" }, // valid SQL — matches everything, harmlessly
 ] as const
 
+/**
+ * m2-5 profile dataset rows the fake stages as `profile.csv` — the same
+ * shapes the DuckDB subject's runtime-built CSV covers (numeric with a null,
+ * duplicate-heavy categoricals, a count tie, a nulls-only column).
+ */
+const PROFILE_ROWS: readonly {
+  score: number | null
+  label: string | null
+  flag: string | null
+  empty: string | null
+  when: string | null
+  tier: string | null
+}[] = [
+  { score: 10, label: 'alpha', flag: 'true', empty: null, when: '2025-01-01', tier: 'gold' },
+  { score: 20, label: 'alpha', flag: 'false', empty: null, when: '2025-01-02', tier: 'silver' },
+  { score: 30, label: 'beta', flag: 'true', empty: null, when: '2025-01-01', tier: 'gold' },
+  { score: null, label: 'beta', flag: 'false', empty: null, when: '2025-01-02', tier: 'silver' },
+  { score: 50, label: 'alpha', flag: 'true', empty: null, when: '2025-01-01', tier: 'bronze' },
+]
+
+/** How the fake classifies each profile-dataset column (its mini-classifier). */
+const PROFILE_KINDS = {
+  score: 'numeric',
+  label: 'categorical',
+  flag: 'categorical',
+  empty: 'categorical',
+  when: 'categorical',
+  tier: 'categorical',
+} as const
+
+/**
+ * The fake subject's exact profile expectations — hand-written literals
+ * (independent of the fake's computation code, so mutation knobs can make
+ * the two disagree), with the same values the DuckDB CLI pins for the
+ * equivalent DuckDB CSV (the datasets are deliberately identical).
+ */
+const PROFILE_DATASET = {
+  rowCount: 5,
+  numericTolerance: 1e-9,
+  columns: [
+    {
+      name: 'score',
+      kind: 'numeric',
+      nullCount: 1,
+      distinctCount: 4,
+      numeric: {
+        min: 10,
+        max: 50,
+        mean: 27.5,
+        stddev: 17.07825127659933,
+        quantiles: { p50: 25, p90: 44, p95: 47, p99: 49.4 },
+      },
+    },
+    {
+      name: 'label',
+      kind: 'categorical',
+      nullCount: 0,
+      distinctCount: 2,
+      categorical: {
+        topK: [
+          { value: 'alpha', count: 3 },
+          { value: 'beta', count: 2 },
+        ],
+      },
+    },
+    {
+      name: 'flag',
+      kind: 'categorical',
+      nullCount: 0,
+      distinctCount: 2,
+      categorical: {
+        topK: [
+          { value: 'true', count: 3 },
+          { value: 'false', count: 2 },
+        ],
+      },
+    },
+    {
+      name: 'empty',
+      kind: 'categorical',
+      nullCount: 5,
+      distinctCount: 0,
+      categorical: { topK: [] },
+    },
+    {
+      name: 'when',
+      kind: 'categorical',
+      nullCount: 0,
+      distinctCount: 2,
+      categorical: {
+        topK: [
+          { value: '2025-01-01', count: 3 },
+          { value: '2025-01-02', count: 2 },
+        ],
+      },
+    },
+    {
+      name: 'tier',
+      kind: 'categorical',
+      nullCount: 0,
+      distinctCount: 3,
+      // gold/silver tie at count 2 — pinned value-ascending order.
+      categorical: {
+        topK: [
+          { value: 'gold', count: 2 },
+          { value: 'silver', count: 2 },
+          { value: 'bronze', count: 1 },
+        ],
+      },
+    },
+  ],
+} as const
+
 /** One in-memory row of the fake's good dataset. */
 interface FakeRow {
   id: number
@@ -184,6 +312,12 @@ class FakeEngineClient implements ConformanceEngineClient {
 
   async schema(handle: ConformanceTableHandle): Promise<readonly { name: string; type: string }[]> {
     this.requireRegistered(handle)
+    if (this.isProfile(handle)) {
+      return Object.entries(PROFILE_KINDS).map(([name, kind]) => ({
+        name,
+        type: kind === 'numeric' ? 'BIGINT' : 'VARCHAR',
+      }))
+    }
     return GOOD_DATASET.columns.map((column) => ({ name: column.name, type: column.type }))
   }
 
@@ -274,6 +408,34 @@ class FakeEngineClient implements ConformanceEngineClient {
     throw new FakeQueryError('unknown SQL')
   }
 
+  /**
+   * m2-5: computes the profile from the fake's in-memory rows (the fake's
+   * mini-engine), over the profile dataset for `profile.csv` opens and over
+   * the good dataset otherwise — with the mutation knobs free to lie.
+   */
+  async profile(handle: ConformanceTableHandle): Promise<ConformanceDatasetProfile> {
+    if (this.status === 'disposed') {
+      if (this.mutations.genericDisposeErrors) throw new Error('client already closed')
+      throw new FakeDisposedError('engine client was disposed')
+    }
+    if (!this.registered.has(handle.id)) {
+      if (this.mutations.profileUnknownHandleResolves) {
+        return { rowCount: 0, columns: [] }
+      }
+      throw new FakeOperationError(`unknown table handle: ${handle.id}`)
+    }
+    if (this.mutations.wedgedAfterPredicateError && this.predicateErrorSeen) {
+      throw new FakeQueryError('connection wedged after predicate error')
+    }
+    const rows = this.isProfile(handle)
+      ? PROFILE_ROWS
+      : datasetRows().map((row) => ({ id: row.id, label: row.label, note: row.note }))
+    const kinds = this.isProfile(handle)
+      ? PROFILE_KINDS
+      : ({ id: 'numeric', label: 'categorical', note: 'categorical' } as const)
+    return { rowCount: rows.length, columns: computeFakeProfile(rows, kinds, this.mutations) }
+  }
+
   async dispose(): Promise<void> {
     this.status = 'disposed'
     this.registered.clear()
@@ -286,6 +448,10 @@ class FakeEngineClient implements ConformanceEngineClient {
 
   private isWide(handle: ConformanceTableHandle): boolean {
     return this.registered.get(handle.id) === 'wide.csv'
+  }
+
+  private isProfile(handle: ConformanceTableHandle): boolean {
+    return this.registered.get(handle.id) === 'profile.csv'
   }
 
   /** Typed column read: `undefined` means the column does not exist. */
@@ -353,6 +519,91 @@ class FakeEngineClient implements ConformanceEngineClient {
 
 function isRowIndex(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/** quantile_cont semantics on a pre-sorted list (linear interpolation). */
+function quantileCont(sorted: readonly number[], q: number): number {
+  const position = (sorted.length - 1) * q
+  const lower = Math.floor(position)
+  const upper = Math.min(lower + 1, sorted.length - 1)
+  return sorted[lower]! + (position - lower) * (sorted[upper]! - sorted[lower]!)
+}
+
+/** Sample standard deviation (n−1); null under 2 values — the contract. */
+function sampleStddev(values: readonly number[]): number | null {
+  if (values.length < 2) return null
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1)
+  return Math.sqrt(variance)
+}
+
+/** Top-k ordering contract: count descending, ties by value ascending. */
+function topKOf(values: readonly string[]): { value: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1)
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
+}
+
+/**
+ * The fake's mini profile engine: computes each column's stats from raw rows
+ * (honest by default; mutation knobs make it lie in exactly one way).
+ */
+function computeFakeProfile(
+  rows: readonly Record<string, number | string | null>[],
+  kinds: Record<string, 'numeric' | 'categorical'>,
+  mutations: FakeMutations,
+): ConformanceDatasetProfile['columns'] {
+  return Object.entries(kinds).map(([name, kind]) => {
+    const values = rows.map((row) => row[name] ?? null)
+    const nonNull = values.filter((value) => value !== null)
+    // Built mutable first (mutation knobs may rewrite kind/payload), then
+    // returned as the read-only conformance shape.
+    const column: {
+      name: string
+      type: string
+      kind: 'numeric' | 'categorical'
+      nullCount: number
+      distinctCount: number
+      numeric?: ConformanceNumericStats
+      categorical?: ConformanceCategoricalStats
+    } = {
+      name,
+      type: kind === 'numeric' ? 'BIGINT' : 'VARCHAR',
+      kind,
+      nullCount: values.length - nonNull.length + (mutations.liesAboutProfileNullCounts ? 1 : 0),
+      distinctCount:
+        new Set(nonNull.map(String)).size + (mutations.liesAboutProfileDistinctCounts ? 1 : 0),
+    }
+    if (kind === 'numeric') {
+      const numbers = nonNull.map(Number)
+      const sorted = [...numbers].sort((a, b) => a - b)
+      const mean = numbers.reduce((sum, value) => sum + value, 0) / numbers.length
+      column.numeric = {
+        min: sorted[0] ?? null,
+        max: sorted[sorted.length - 1] ?? null,
+        mean: mean + (mutations.liesAboutProfileNumericStats ? 1 : 0),
+        stddev: sampleStddev(numbers),
+        quantiles: {
+          p50: sorted.length > 0 ? quantileCont(sorted, 0.5) : null,
+          p90: sorted.length > 0 ? quantileCont(sorted, 0.9) : null,
+          p95: sorted.length > 0 ? quantileCont(sorted, 0.95) : null,
+          p99: sorted.length > 0 ? quantileCont(sorted, 0.99) : null,
+        },
+      }
+    } else {
+      let topK = topKOf(nonNull.map(String))
+      if (mutations.liesAboutProfileTopK) topK = [...topK].reverse()
+      column.categorical = { topK }
+    }
+    if (mutations.misclassifiesProfileKind && name === 'label') {
+      // Break the kind contract: flip the kind and drop the payload.
+      column.kind = 'numeric'
+      delete column.categorical
+    }
+    return column
+  })
 }
 
 /** The fake's good dataset in natural order. */
@@ -443,6 +694,13 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       subjectState.staged.set(name, new Uint8Array(WIDE_ROW_COUNT))
       return fileSource(name)
     },
+    stageProfileFile: async () => {
+      const name = 'profile.csv'
+      // The fake computes profiles from its in-memory PROFILE_ROWS; the
+      // staged bytes only matter for open-time readability checks.
+      subjectState.staged.set(name, subjectState.goodBytes)
+      return fileSource(name)
+    },
     goodParquetBytes: async () => subjectState.goodBytes,
     stageBytes: async (bytes, name) => {
       subjectState.staged.set(name, bytes)
@@ -455,6 +713,7 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
     registeredTableCount: async (client) =>
       client instanceof FakeEngineClient ? client.registeredCount() : null,
     windowSemantics: WINDOW_SEMANTICS,
+    profileDataset: PROFILE_DATASET,
     rejectingFilters: REJECTING_FILTERS,
     breakoutFilters: BREAKOUT_FILTERS,
   }
@@ -602,5 +861,53 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     )
     expect(passed).toBe(false)
     expect(detail).toContain('wedged') // the final anchor window can no longer be served
+  })
+
+  it('profile-semantics: detects inflated nullCounts', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutProfileNullCounts: true },
+      'profile-semantics',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('nullCount')
+  })
+
+  it('profile-semantics: detects inflated distinctCounts', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutProfileDistinctCounts: true },
+      'profile-semantics',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('distinctCount')
+  })
+
+  it('profile-semantics: detects a lying numeric mean', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutProfileNumericStats: true },
+      'profile-semantics',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('mean')
+  })
+
+  it('profile-semantics: detects a reversed top-k order', async () => {
+    const { passed, detail } = await runOne({ liesAboutProfileTopK: true }, 'profile-semantics')
+    expect(passed).toBe(false)
+    expect(detail).toContain('top-k')
+  })
+
+  it('profile-semantics: detects a misclassified column kind (payload contract broken)', async () => {
+    const { passed, detail } = await runOne({ misclassifiesProfileKind: true }, 'profile-semantics')
+    expect(passed).toBe(false)
+    expect(detail).toContain('kind')
+  })
+
+  it('profile-semantics: detects profile() of an unknown handle resolving', async () => {
+    const { passed, detail } = await runOne(
+      { profileUnknownHandleResolves: true },
+      'profile-semantics',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('must reject')
   })
 })

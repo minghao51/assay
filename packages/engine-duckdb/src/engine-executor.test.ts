@@ -805,3 +805,259 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
     expect(deps.connection.collisions).toEqual([])
   })
 })
+
+// ---- m2-5: dataset profiling ----
+
+function profileRequest(id: number, tableId = 't1'): EngineRequest {
+  return { type: 'engine/profile', requestId: id, tableId }
+}
+
+/** DESCRIBE-shaped table for a numeric-only schema (id BIGINT). */
+function numericOnlyDescribeTable(): Table {
+  return tableFromArrays({ column_name: ['id'], column_type: ['BIGINT'] })
+}
+
+/**
+ * The one-row base-aggregate result for the flat schema (customer_id BIGINT
+ * numeric + country VARCHAR categorical): slot layout per profile-query.ts —
+ * row count, then the numeric block (nn, distinct, min, max, mean, stddev,
+ * DOUBLE[4] quantiles), then the plain block (nn, distinct).
+ */
+function profileBaseTable(row: {
+  rowCount: bigint
+  id: {
+    nn: bigint
+    d: bigint
+    min: number
+    max: number
+    mean: number
+    std: number
+    q: readonly [number, number, number, number]
+  }
+  country: { nn: bigint; d: bigint }
+}): Table {
+  return tableFromArrays({
+    c0: BigInt64Array.from([row.rowCount]),
+    c1: BigInt64Array.from([row.id.nn]),
+    c2: BigInt64Array.from([row.id.d]),
+    c3: Float64Array.from([row.id.min]),
+    c4: Float64Array.from([row.id.max]),
+    c5: Float64Array.from([row.id.mean]),
+    c6: Float64Array.from([row.id.std]),
+    c7: [row.id.q],
+    c8: BigInt64Array.from([row.country.nn]),
+    c9: BigInt64Array.from([row.country.d]),
+  })
+}
+
+/** A top-k result (`"v"` rendered values + `"n"` BIGINT counts). */
+function topKTable(entries: ReadonlyArray<readonly [string, bigint]>): Table {
+  return tableFromArrays({
+    v: entries.map(([value]) => value),
+    n: BigInt64Array.from(entries.map(([, count]) => count)),
+  })
+}
+
+describe('EngineOpExecutor profile (m2-5)', () => {
+  it('composes DESCRIBE + ONE base aggregate + one top-k scan per categorical column and posts the assembled stats', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(profileRequest(2))
+    // Send 2: DESCRIBE (metadata only).
+    await awaitSends(deps.connection, 2)
+    expect(deps.connection.sentSqls[1]).toBe('DESCRIBE "assay_t1"')
+    deps.connection.resolveSend(1, describeTable())
+
+    // Send 3: the combined base aggregate — the single data scan (all
+    // nulls/distinct/numeric stats of both columns in one query).
+    await awaitSends(deps.connection, 3)
+    expect(deps.connection.sentSqls[2]).toBe(
+      'SELECT count(*)::BIGINT AS "c0", ' +
+        'count("customer_id")::BIGINT AS "c1", count(DISTINCT "customer_id")::BIGINT AS "c2", ' +
+        'min("customer_id")::DOUBLE AS "c3", max("customer_id")::DOUBLE AS "c4", ' +
+        'avg("customer_id")::DOUBLE AS "c5", stddev_samp("customer_id")::DOUBLE AS "c6", ' +
+        'quantile_cont("customer_id", [0.5,0.9,0.95,0.99])::DOUBLE[] AS "c7", ' +
+        'count("country")::BIGINT AS "c8", count(DISTINCT "country")::BIGINT AS "c9" ' +
+        'FROM "assay_t1"',
+    )
+    deps.connection.resolveSend(
+      2,
+      profileBaseTable({
+        rowCount: 5n,
+        id: {
+          nn: 5n,
+          d: 5n,
+          min: 1,
+          max: 5,
+          mean: 3,
+          std: 1.5811388300841898,
+          q: [3, 4.6, 4.8, 4.96],
+        },
+        country: { nn: 4n, d: 3n }, // one NULL country → nullCount 1
+      }),
+    )
+
+    // Send 4: exactly one top-k scan — for the categorical column only.
+    await awaitSends(deps.connection, 4)
+    expect(deps.connection.sentSqls[3]).toBe(
+      'SELECT CAST("country" AS VARCHAR) AS "v", count(*)::BIGINT AS "n" ' +
+        'FROM "assay_t1" WHERE "country" IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1 ASC LIMIT 10',
+    )
+    deps.connection.resolveSend(
+      3,
+      topKTable([
+        ['SG', 2n],
+        ['US', 2n],
+        ['DE', 1n],
+      ]),
+    )
+
+    const response = await awaitPosted(deps, 2)
+    expect(response).toEqual({
+      type: 'engine/profile-result',
+      requestId: 2,
+      rowCount: 5,
+      columns: [
+        {
+          name: 'customer_id',
+          type: 'BIGINT',
+          kind: 'numeric',
+          nullCount: 0,
+          distinctCount: 5,
+          numeric: {
+            min: 1,
+            max: 5,
+            mean: 3,
+            stddev: 1.5811388300841898,
+            quantiles: { p50: 3, p90: 4.6, p95: 4.8, p99: 4.96 },
+          },
+        },
+        {
+          name: 'country',
+          type: 'VARCHAR',
+          kind: 'categorical',
+          nullCount: 1,
+          distinctCount: 3,
+          categorical: {
+            topK: [
+              { value: 'SG', count: 2 },
+              { value: 'US', count: 2 },
+              { value: 'DE', count: 1 },
+            ],
+          },
+        },
+      ],
+    })
+    expect(deps.connection.collisions).toEqual([])
+  })
+
+  it('a numeric-only schema sends exactly the DESCRIBE + base scan (no top-k)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(profileRequest(2))
+    await awaitSends(deps.connection, 2)
+    deps.connection.resolveSend(1, numericOnlyDescribeTable())
+    await awaitSends(deps.connection, 3)
+    deps.connection.resolveSend(
+      2,
+      tableFromArrays({
+        c0: BigInt64Array.from([3n]),
+        c1: BigInt64Array.from([3n]),
+        c2: BigInt64Array.from([3n]),
+        c3: Float64Array.from([10]),
+        c4: Float64Array.from([30]),
+        c5: Float64Array.from([20]),
+        c6: Float64Array.from([10]),
+        c7: [[20, 20, 20, 20]],
+      }),
+    )
+    // The profile completes without any further send: no categorical column,
+    // no top-k query — the documented 1-scan minimum.
+    const response = await awaitPosted(deps, 2)
+    expect(response).toMatchObject({
+      type: 'engine/profile-result',
+      rowCount: 3,
+      columns: [
+        {
+          name: 'id',
+          kind: 'numeric',
+          nullCount: 0,
+          distinctCount: 3,
+          numeric: { quantiles: { p50: 20, p90: 20, p95: 20, p99: 20 } },
+        },
+      ],
+    })
+    expect(deps.connection.sentSqls).toHaveLength(3)
+    expect(deps.connection.collisions).toEqual([])
+  })
+
+  it('profiles of unknown handles error their own op without ever touching the connection', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(profileRequest(2, 'nope'))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      message: 'unknown table handle: nope',
+    })
+    expect(deps.connection.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
+
+    // The engine is reusable: a real profile still answers.
+    executor.accept(profileRequest(3))
+    await awaitSends(deps.connection, 2)
+    deps.connection.resolveSend(1, describeTable())
+    await awaitSends(deps.connection, 3)
+    deps.connection.resolveSend(
+      2,
+      profileBaseTable({
+        rowCount: 5n,
+        id: { nn: 5n, d: 5n, min: 1, max: 5, mean: 3, std: 1.58, q: [3, 4.6, 4.8, 4.96] },
+        country: { nn: 5n, d: 3n },
+      }),
+    )
+    await awaitSends(deps.connection, 4)
+    deps.connection.resolveSend(3, topKTable([['SG', 2n]]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/profile-result' })
+    expect(deps.connection.collisions).toEqual([])
+  })
+
+  it('a malformed aggregate slot fails the op loudly and the engine stays usable', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(profileRequest(2))
+    await awaitSends(deps.connection, 2)
+    deps.connection.resolveSend(1, describeTable())
+    await awaitSends(deps.connection, 3)
+    // A count slot arriving as a string is an engine deviation: the op fails
+    // loudly instead of leaking a bogus stat into the response.
+    deps.connection.resolveSend(
+      2,
+      tableFromArrays({
+        c0: ['not-a-count'],
+        c1: BigInt64Array.from([5n]),
+        c2: BigInt64Array.from([5n]),
+        c3: Float64Array.from([1]),
+        c4: Float64Array.from([5]),
+        c5: Float64Array.from([3]),
+        c6: Float64Array.from([1.58]),
+        c7: [[3, 4.6, 4.8, 4.96]],
+        c8: BigInt64Array.from([5n]),
+        c9: BigInt64Array.from([3n]),
+      }),
+    )
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      message: 'profile aggregate returned an unexpected shape',
+    })
+
+    // The channel/connection were never wedged: a follow-up query answers.
+    executor.accept(queryRequest(3, 'SELECT 42 AS value'))
+    await awaitSends(deps.connection, 4)
+    deps.connection.resolveSend(3, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expect(deps.connection.collisions).toEqual([])
+  })
+})

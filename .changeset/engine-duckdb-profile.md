@@ -1,0 +1,5 @@
+---
+'@assay/engine-duckdb': minor
+---
+
+feat(m2-5): `profile(handle)` implemented in the worker over DuckDB aggregate SQL with a documented scan budget — one `DESCRIBE` (metadata) + one combined single-scan aggregate (row count, nullCount/distinctCount for every column, and for numeric columns min/max/mean/stddev plus `quantile_cont(col, [0.5,0.9,0.95,0.99])` as one DOUBLE[4] aggregate — one values buffer per column) + one bounded top-k scan per categorical column (LIMIT 10, NULLs excluded, ties by value ascending). Columns are classified from DuckDB type strings by a total, never-throwing classifier (`profile-classify.ts`: integer/decimal/float → numeric; scalar non-numeric incl. DATE/TIMESTAMP → categorical; nested/exotic → other, stats-free degradation). New `engine/profile` protocol op through the existing typed postMessage + single FIFO OpChannel (plain JSON-able response — finite numbers or null, no Arrow needed); unknown handles reject as the existing operation-error class with the engine reusable. SQL is composed in `profile-query.ts` (window-query.ts conventions: engine-generated view names, quoted identifiers, composer-owned constants only).

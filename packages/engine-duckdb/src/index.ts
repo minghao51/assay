@@ -24,6 +24,13 @@
  * identifiers (`window-query.ts`); absent/empty fields keep the SQL
  * byte-identical to the pre-m2-2 behavior.
  *
+ * m2-5: `profile(handle)` — full per-column statistics (nullCount/
+ * distinctCount always; numeric min/max/mean/stddev/quantiles; categorical
+ * top-k) composed as aggregate SQL over the registered view with a
+ * documented scan budget (`profile-query.ts`), classified from DuckDB type
+ * strings (`profile-classify.ts`, exotic types degrade gracefully), and
+ * returned as plain JSON-able data — no Arrow transport needed.
+ *
  * Ownership and dependency rules: docs/engineering/05-repository-structure.md.
  * Delivery sequencing: docs/product/10-execution-roadmap.md.
  */
@@ -50,13 +57,21 @@ export type {
 export { parseEngineRequest, parseEngineResponse } from './protocol'
 export type {
   EngineColumnSchema,
+  EngineCategoricalColumnStats,
+  EngineCategoricalTopKEntry,
   EngineDisposedResponse,
   EngineDisposeRequest,
   EngineErrorResponse,
   EngineFilterSpec,
   EngineInitRequest,
+  EngineNumericColumnStats,
+  EngineNumericQuantiles,
   EngineOpenRequest,
   EngineOpenResultResponse,
+  EngineProfileColumn,
+  EngineProfileColumnKind,
+  EngineProfileRequest,
+  EngineProfileResultResponse,
   EngineQueryRequest,
   EngineQueryResultResponse,
   EngineRangeRequest,
@@ -76,6 +91,15 @@ export { MAX_RANGE_ROWS, validateRowWindow } from './range-window'
 export type { RowWindow, RowWindowValidation } from './range-window'
 export { detectFileFormat } from './format-view'
 export type { EngineFileFormat } from './format-view'
+export { classifyProfileColumnType } from './profile-classify'
+export {
+  composeProfileBaseSql,
+  composeProfileTopKSql,
+  PROFILE_BASE_SLOT,
+  PROFILE_QUANTILE_POSITIONS,
+  PROFILE_TOP_K,
+} from './profile-query'
+export type { ProfileBaseQueryPlan, ProfileColumnSpec } from './profile-query'
 export {
   composeRowCountSql,
   composeWindowSql,

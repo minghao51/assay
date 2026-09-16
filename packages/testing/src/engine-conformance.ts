@@ -49,6 +49,17 @@
  *    probes (escape attempts) are contained: the registered view and its
  *    data survive untouched.
  *
+ * m2-5 adds the profiling scenario (the surface m2-6's profile panel drives):
+ *
+ * 10. `profile-semantics` — `profile()` returns the declared exact stats on a
+ *     purpose-built dataset: per-column kinds match the declared classifier
+ *     contract; nullCount/distinctCount are exact; numeric min/max/mean/
+ *     stddev/quantiles are exact (within the declared float tolerance);
+ *     categorical top-k is exact including the declared tie order; a
+ *     nulls-only column degrades to topK=[] without failing; profile type
+ *     strings agree with `schema()`; an unknown handle rejects with a
+ *     classified error and the engine stays reusable.
+ *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
  * browser, temp files in Node) and which SQL drives engine-specific paths.
@@ -138,6 +149,8 @@ export interface ConformanceEngineClient {
     window: ConformanceWindow,
   ): Promise<ConformanceBatchResult>
   query(sql: string): Promise<ConformanceBatchResult>
+  /** Full statistics profile of a registered table (m2-5). */
+  profile(handle: ConformanceTableHandle): Promise<ConformanceDatasetProfile>
   /** Terminal, idempotent; safe before the first boot. */
   dispose(): Promise<void>
 }
@@ -179,6 +192,12 @@ export interface EngineConformanceSubject {
   stageGoodFile(): Promise<ConformanceFileSource>
   /** Stage the wide dataset (`wideRowCount` rows; runtime-built bytes). */
   stageWideFile(): Promise<ConformanceFileSource>
+  /**
+   * Stage the purpose-built profiling dataset (`profileDataset`, m2-5):
+   * a numeric column with a null, duplicate-heavy categoricals, a count tie,
+   * a nulls-only column — runtime-built bytes, never committed.
+   */
+  stageProfileFile(): Promise<ConformanceFileSource>
   /** Raw bytes of a valid Parquet file (the suite corrupts them itself). */
   goodParquetBytes(): Promise<Uint8Array>
   /** Stage arbitrary bytes under the given name (host decides the store). */
@@ -210,6 +229,11 @@ export interface EngineConformanceSubject {
    * `dataset.columns` and every `expectRowCount` is ≤ `maxWindowRows`.
    */
   readonly windowSemantics: readonly ConformanceWindowSemantics[]
+  /**
+   * Exact profile expectations over `stageProfileFile()`'s dataset (m2-5),
+   * verified against the host engine (engine-duckdb: DuckDB CLI 1.5.5).
+   */
+  readonly profileDataset: ConformanceProfileDataset
   /**
    * Filter probes that MUST reject with a classified engine error (operation
    * or query category — never a crash/protocol error), leaving the engine
@@ -243,6 +267,81 @@ export interface ConformanceWindowSemantics {
   readonly expectRowCount: number
 }
 
+// ---- Profile types (m2-5) ----
+//
+// Structural mirrors of the engine's profile contract: a conformance client's
+// `profile()` returns `ConformanceDatasetProfile`, and the subject declares
+// the exact expectations in `ConformanceProfileDataset`. Categorical values
+// are engine-rendered text (same ADR 0007-spirit contract as the engine
+// types: rendered once, deterministically; NULLs never appear in top-k).
+
+/** How the engine classified a profiled column. */
+export type ConformanceProfileKind = 'numeric' | 'categorical' | 'other'
+
+/** The numeric payload a `numeric` column must carry (m2-5). */
+export interface ConformanceNumericStats {
+  readonly min: number | null
+  readonly max: number | null
+  readonly mean: number | null
+  readonly stddev: number | null
+  readonly quantiles: {
+    readonly p50: number | null
+    readonly p90: number | null
+    readonly p95: number | null
+    readonly p99: number | null
+  }
+}
+
+/** The categorical payload a `categorical` column must carry (m2-5). */
+export interface ConformanceCategoricalStats {
+  /** Ordered top-k: count descending, ties by value ascending (the contract). */
+  readonly topK: readonly { readonly value: string; readonly count: number }[]
+}
+
+/** One column of a `profile()` result. */
+export interface ConformanceColumnProfile {
+  readonly name: string
+  readonly type: string
+  readonly kind: ConformanceProfileKind
+  readonly nullCount: number
+  readonly distinctCount: number
+  readonly numeric?: ConformanceNumericStats
+  readonly categorical?: ConformanceCategoricalStats
+}
+
+/** The `profile()` result shape the conformance client surface returns. */
+export interface ConformanceDatasetProfile {
+  readonly rowCount: number
+  readonly columns: readonly ConformanceColumnProfile[]
+}
+
+/** One column's exact expectations in `ConformanceProfileDataset`. */
+export interface ConformanceColumnProfileExpectation {
+  readonly name: string
+  readonly kind: ConformanceProfileKind
+  readonly nullCount: number
+  readonly distinctCount: number
+  /** Required iff kind is 'numeric'; forbidden otherwise. */
+  readonly numeric?: ConformanceNumericStats
+  /** Required iff kind is 'categorical'; forbidden otherwise. */
+  readonly categorical?: ConformanceCategoricalStats
+}
+
+/**
+ * The exact profile expectations for `stageProfileFile()`'s dataset (m2-5),
+ * verified against the host engine (engine-duckdb: DuckDB CLI 1.5.5).
+ * Preconditions the suite enforces (fail loudly on misconfiguration, never
+ * vacuously): at least one column; a column with nulls; a nulls-only column;
+ * a categorical top-k whose first two entries tie on count (so the declared
+ * tie order is pinned); payload/kind coherence.
+ */
+export interface ConformanceProfileDataset {
+  readonly rowCount: number
+  /** Absolute tolerance for numeric comparisons (engine float paths differ in the last ulp). */
+  readonly numericTolerance?: number
+  readonly columns: readonly ConformanceColumnProfileExpectation[]
+}
+
 // ---- Results ----
 
 /** Stable scenario identifiers (each runs independently, fresh client). */
@@ -256,6 +355,7 @@ export const engineConformanceScenarioNames = [
   'mid-stream-error-reuse',
   'window-filter-sort',
   'predicate-error-reuse',
+  'profile-semantics',
 ] as const
 
 export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[number]
@@ -388,6 +488,50 @@ function expectColumnValues(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Null-aware comparison of one numeric stat under the absolute tolerance. */
+function expectStatEqual(
+  actual: number | null | undefined,
+  expected: number | null,
+  tolerance: number,
+  what: string,
+): void {
+  if (expected === null) {
+    expectEqual(actual ?? null, null, what)
+    return
+  }
+  if (typeof actual !== 'number' || !Number.isFinite(actual)) {
+    fail(`${what}: expected ${String(expected)}, got ${String(actual)}`)
+  }
+  if (Math.abs(actual - expected) > tolerance) {
+    fail(`${what}: expected ${String(expected)} (±${String(tolerance)}), got ${String(actual)}`)
+  }
+}
+
+/**
+ * Asserts a numeric payload block against its expectation (m2-5): presence,
+ * null-aware stats, and all four declared quantile positions.
+ */
+function expectStatBlock(
+  actual: ConformanceNumericStats | undefined,
+  expected: ConformanceNumericStats,
+  tolerance: number,
+  label: string,
+): void {
+  expectCondition(actual !== undefined, `${label}: kind 'numeric' must carry a numeric payload`)
+  expectStatEqual(actual!.min, expected.min, tolerance, `${label} min`)
+  expectStatEqual(actual!.max, expected.max, tolerance, `${label} max`)
+  expectStatEqual(actual!.mean, expected.mean, tolerance, `${label} mean`)
+  expectStatEqual(actual!.stddev, expected.stddev, tolerance, `${label} stddev`)
+  expectCondition(
+    actual!.quantiles !== undefined,
+    `${label}: the numeric payload must carry quantiles`,
+  )
+  expectStatEqual(actual!.quantiles.p50, expected.quantiles.p50, tolerance, `${label} p50`)
+  expectStatEqual(actual!.quantiles.p90, expected.quantiles.p90, tolerance, `${label} p90`)
+  expectStatEqual(actual!.quantiles.p95, expected.quantiles.p95, tolerance, `${label} p95`)
+  expectStatEqual(actual!.quantiles.p99, expected.quantiles.p99, tolerance, `${label} p99`)
 }
 
 /** Windows that violate the window contract (caller bugs, never repaired). */
@@ -940,6 +1084,153 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       containedBreakouts,
       viewIntact: true,
       engineReusable: true,
+    }
+  },
+
+  'profile-semantics': async (subject) => {
+    // Subject preconditions (fail loudly on misconfiguration, never vacuously):
+    // the profile dataset must cover the contract's interesting shapes.
+    const dataset = subject.profileDataset
+    expectCondition(
+      dataset.rowCount >= 1,
+      'subject misconfiguration: profileDataset.rowCount must be at least 1',
+    )
+    expectCondition(
+      dataset.columns.length > 0,
+      'subject misconfiguration: declare at least one profile column expectation',
+    )
+    expectCondition(
+      Number.isFinite(dataset.numericTolerance ?? 0) && (dataset.numericTolerance ?? 0) >= 0,
+      'subject misconfiguration: numericTolerance must be a non-negative finite number',
+    )
+    const tolerance = dataset.numericTolerance ?? 0
+    let coversNulls = false
+    let coversNullsOnly = false
+    let coversTopKTie = false
+    for (const expectation of dataset.columns) {
+      expectCondition(
+        Number.isSafeInteger(expectation.nullCount) &&
+          expectation.nullCount >= 0 &&
+          expectation.nullCount <= dataset.rowCount,
+        `subject misconfiguration: column "${expectation.name}" has an out-of-range nullCount`,
+      )
+      expectCondition(
+        Number.isSafeInteger(expectation.distinctCount) &&
+          expectation.distinctCount >= 0 &&
+          expectation.distinctCount <= dataset.rowCount,
+        `subject misconfiguration: column "${expectation.name}" has an out-of-range distinctCount`,
+      )
+      if (expectation.nullCount > 0) coversNulls = true
+      if (expectation.nullCount === dataset.rowCount) coversNullsOnly = true
+      if (expectation.kind === 'numeric') {
+        expectCondition(
+          expectation.numeric !== undefined && expectation.categorical === undefined,
+          `subject misconfiguration: numeric column "${expectation.name}" must declare numeric stats and no categorical payload`,
+        )
+      } else if (expectation.kind === 'categorical') {
+        expectCondition(
+          expectation.categorical !== undefined && expectation.numeric === undefined,
+          `subject misconfiguration: categorical column "${expectation.name}" must declare a top-k and no numeric payload`,
+        )
+        const topK = expectation.categorical!.topK
+        if (topK.length >= 2 && topK[0]!.count === topK[1]!.count) coversTopKTie = true
+      } else {
+        expectCondition(
+          expectation.numeric === undefined && expectation.categorical === undefined,
+          `subject misconfiguration: other-kind column "${expectation.name}" must declare no payload`,
+        )
+      }
+    }
+    expectCondition(
+      coversNulls,
+      'subject misconfiguration: the profile dataset must include a column with NULLs',
+    )
+    expectCondition(
+      coversNullsOnly,
+      'subject misconfiguration: the profile dataset must include a nulls-only column',
+    )
+    expectCondition(
+      coversTopKTie,
+      'subject misconfiguration: the profile dataset must include a top-k count tie (pins the declared tie order)',
+    )
+
+    const client = subject.createClient()
+    await client.ensureReady()
+
+    // Unknown handle → classified engine error, engine stays ready/reusable.
+    const unknownHandle: ConformanceTableHandle = {
+      kind: 'table',
+      id: '__assay_conformance_no_such_table__',
+    }
+    const unknownError = await rejectionOf(client.profile(unknownHandle))
+    expectCondition(unknownError !== null, 'profile() of an unknown handle must reject')
+    expectCondition(
+      subject.errors.operation(unknownError),
+      `profile() of an unknown handle must reject with the operation error category (got: ${errorMessage(unknownError)})`,
+    )
+    expectCondition(
+      subject.isReady(client),
+      'the engine must stay ready after a profile of an unknown handle',
+    )
+
+    // The real profile: stage the purpose-built dataset and profile it.
+    const handle = await client.open(await subject.stageProfileFile())
+    const profile = await client.profile(handle)
+
+    expectEqual(profile.rowCount, dataset.rowCount, 'profile rowCount')
+    expectEqual(
+      profile.columns.map((column) => column.name).join(','),
+      dataset.columns.map((column) => column.name).join(','),
+      'profile column names (order included)',
+    )
+
+    // Type strings must agree with schema() — one source of truth per engine.
+    const schema = await client.schema(handle)
+    const schemaTypes = new Map(schema.map((column) => [column.name, column.type]))
+
+    for (let index = 0; index < dataset.columns.length; index++) {
+      const expectation = dataset.columns[index]!
+      const actual = profile.columns[index]
+      if (actual === undefined) fail(`profile is missing column "${expectation.name}"`)
+      const label = `[${expectation.name}]`
+      expectEqual(actual!.name, expectation.name, `${label} name`)
+      expectEqual(actual!.type, schemaTypes.get(expectation.name), `${label} type vs schema()`)
+      expectEqual(actual!.kind, expectation.kind, `${label} kind`)
+      expectEqual(actual!.nullCount, expectation.nullCount, `${label} nullCount`)
+      expectEqual(actual!.distinctCount, expectation.distinctCount, `${label} distinctCount`)
+      if (expectation.kind === 'numeric') {
+        expectStatBlock(actual!.numeric, expectation.numeric!, tolerance, label)
+      } else if (expectation.kind === 'categorical') {
+        expectCondition(
+          actual!.categorical !== undefined,
+          `${label}: kind 'categorical' must carry a categorical payload`,
+        )
+        const topK = actual!.categorical!.topK
+        expectEqual(
+          topK.map((entry) => `${entry.value}:${String(entry.count)}`).join('|'),
+          expectation
+            .categorical!.topK.map((entry) => `${entry.value}:${String(entry.count)}`)
+            .join('|'),
+          `${label} top-k (order included; ties by value ascending)`,
+        )
+      } else {
+        expectCondition(
+          actual!.numeric === undefined && actual!.categorical === undefined,
+          `${label}: kind 'other' must degrade gracefully (no payloads)`,
+        )
+      }
+    }
+
+    // The engine is reusable after profiling: a second profile answers again.
+    const second = await client.profile(handle)
+    expectEqual(second.rowCount, dataset.rowCount, 'second profile rowCount (reusability)')
+    return {
+      rowCount: profile.rowCount,
+      columns: profile.columns.length,
+      unknownHandleRejected: true,
+      nullsOnlyColumn: true,
+      topKTiePinned: true,
+      reusableAfterProfile: true,
     }
   },
 }

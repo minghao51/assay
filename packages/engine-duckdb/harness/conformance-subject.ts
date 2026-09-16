@@ -122,6 +122,107 @@ const BREAKOUT_FILTERS = [
 ] as const
 
 /**
+ * The m2-5 profiling dataset, built at runtime as CSV and staged via OPFS
+ * (same pattern as the wide CSV). Its DuckDB-inferred schema and every stat
+ * below were verified against DuckDB CLI 1.5.5:
+ *
+ * - `score` BIGINT (10, 20, 30, NULL, 50) — numeric with a null.
+ * - `label` VARCHAR (alpha ×3, beta ×2) — duplicate-heavy categorical.
+ * - `flag` BOOLEAN (true ×3, false ×2) — rendered text top-k ('true'/'false').
+ * - `empty` VARCHAR, all NULL — the nulls-only column (topK=[]).
+ * - `when` DATE (2025-01-01 ×3, 2025-01-02 ×2) — the temporal-as-categorical
+ *   decision, pinned over DuckDB's rendered text form.
+ * - `tier` VARCHAR (gold ×2, silver ×2, bronze ×1) — a count tie whose order
+ *   pins the value-ascending tie-break.
+ */
+const PROFILE_CSV_ROWS = [
+  '10,alpha,true,,2025-01-01,gold',
+  '20,alpha,false,,2025-01-02,silver',
+  '30,beta,true,,2025-01-01,gold',
+  ',beta,false,,2025-01-02,silver',
+  '50,alpha,true,,2025-01-01,bronze',
+] as const
+
+/** Exact expectations for PROFILE_CSV_ROWS (CLI-verified; see above). */
+const PROFILE_DATASET = {
+  rowCount: 5,
+  // Same-engine determinism would allow 0; the tolerance keeps the suite
+  // engine-portable (float paths may differ in the last ulp).
+  numericTolerance: 1e-9,
+  columns: [
+    {
+      name: 'score',
+      kind: 'numeric',
+      nullCount: 1,
+      distinctCount: 4,
+      numeric: {
+        min: 10,
+        max: 50,
+        mean: 27.5,
+        stddev: 17.07825127659933,
+        quantiles: { p50: 25, p90: 44, p95: 47, p99: 49.4 },
+      },
+    },
+    {
+      name: 'label',
+      kind: 'categorical',
+      nullCount: 0,
+      distinctCount: 2,
+      categorical: {
+        topK: [
+          { value: 'alpha', count: 3 },
+          { value: 'beta', count: 2 },
+        ],
+      },
+    },
+    {
+      name: 'flag',
+      kind: 'categorical',
+      nullCount: 0,
+      distinctCount: 2,
+      categorical: {
+        topK: [
+          { value: 'true', count: 3 },
+          { value: 'false', count: 2 },
+        ],
+      },
+    },
+    {
+      name: 'empty',
+      kind: 'categorical',
+      nullCount: 5,
+      distinctCount: 0,
+      categorical: { topK: [] },
+    },
+    {
+      name: 'when',
+      kind: 'categorical',
+      nullCount: 0,
+      distinctCount: 2,
+      categorical: {
+        topK: [
+          { value: '2025-01-01', count: 3 },
+          { value: '2025-01-02', count: 2 },
+        ],
+      },
+    },
+    {
+      name: 'tier',
+      kind: 'categorical',
+      nullCount: 0,
+      distinctCount: 3,
+      categorical: {
+        topK: [
+          { value: 'gold', count: 2 },
+          { value: 'silver', count: 2 },
+          { value: 'bronze', count: 1 },
+        ],
+      },
+    },
+  ],
+} as const
+
+/**
  * Mid-stream failure mechanism (deterministic): DuckDB evaluates vectorized
  * chunks of 2048 rows. The CASE yields `i` for every row of the first chunk
  * (rows 0–2047), so the worker's `streamFirstBatch` successfully receives and
@@ -167,6 +268,12 @@ function buildWideCsv(rowCount: number): Uint8Array {
   return new TextEncoder().encode(lines.join('\n') + '\n')
 }
 
+/** Runtime-built profiling CSV (see PROFILE_DATASET for the exact contract). */
+function buildProfileCsv(): Uint8Array {
+  const lines = ['score,label,flag,empty,when,tier', ...PROFILE_CSV_ROWS]
+  return new TextEncoder().encode(lines.join('\n') + '\n')
+}
+
 /** A genuine `FileSystemFileHandle` satisfies the suite's source seam. */
 function asFileSource(handle: FileSystemFileHandle): ConformanceFileSource {
   return handle
@@ -198,6 +305,10 @@ export function createDuckDbConformanceSubject(
       const csv = buildWideCsv(WIDE_ROW_COUNT)
       return asFileSource(await stageBytesInOpfs(csv, 'assay-conformance-wide.csv'))
     },
+    stageProfileFile: async () => {
+      const csv = buildProfileCsv()
+      return asFileSource(await stageBytesInOpfs(csv, 'assay-conformance-profile.csv'))
+    },
     goodParquetBytes,
     stageBytes: async (bytes, name) => asFileSource(await stageBytesInOpfs(bytes, name)),
     failingSql: () => FAILING_SQL,
@@ -205,6 +316,7 @@ export function createDuckDbConformanceSubject(
     smokeSql: () => SMOKE_SQL,
     smokeSqlValue: SMOKE_VALUE,
     windowSemantics: WINDOW_SEMANTICS,
+    profileDataset: PROFILE_DATASET,
     rejectingFilters: REJECTING_FILTERS,
     breakoutFilters: BREAKOUT_FILTERS,
     // Registry probe: DuckDB holds one non-internal view per successful open

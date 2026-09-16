@@ -33,6 +33,14 @@
  * are engine-SQL text (grid contracts v1, ADR 0029); absent/empty fields
  * mean "no filters"/"natural order", so legacy requests compose
  * byte-identical SQL.
+ *
+ * m2-5 adds `engine/profile`: a plain-JSON dataset profile (no Arrow needed —
+ * the result is one row count plus a handful of bounded stats per column),
+ * addressed by table id like the other registry ops. The response mirrors
+ * `@assay/engine`'s `DatasetProfile`/`ColumnProfile` structurally
+ * (protocol-local types, same convention as m2-2): every number is a finite
+ * JSON number or `null`, so the response survives structured clone and a
+ * future non-postMessage transport unchanged.
  */
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
@@ -140,6 +148,19 @@ export interface EngineRowCountRequest {
   filters?: EngineFilterSpec[]
 }
 
+/**
+ * Full statistics profile of a registered table (m2-5): per-column
+ * nullCount/distinctCount always, numeric min/max/mean/stddev/quantiles for
+ * numeric columns, categorical top-k for scalar non-numeric columns. The
+ * worker composes the aggregate SQL itself (see `profile-query.ts`) — the
+ * request carries only the table id.
+ */
+export interface EngineProfileRequest {
+  type: 'engine/profile'
+  requestId: number
+  tableId: string
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -153,6 +174,7 @@ export type EngineRequest =
   | EngineSchemaRequest
   | EngineRangeRequest
   | EngineRowCountRequest
+  | EngineProfileRequest
   | EngineDisposeRequest
 
 // ---- Responses (worker → main thread) ----
@@ -217,6 +239,67 @@ export interface EngineRowCountResultResponse {
   rowCount: number
 }
 
+// ---- Profile payload types (m2-5) ----
+//
+// Structural mirrors of `@assay/engine`'s `ProfileColumnKind` /
+// `NumericColumnStats` / `CategoricalColumnStats` / `ColumnProfile` (declared
+// here, not imported — same dependency-direction convention as the m2-2
+// filter/sort specs; the web adapter maps between them). Invariants the
+// worker guarantees and the parser enforces: every number is a finite JSON
+// number or `null`; counts are safe non-negative integers; a present payload
+// must be well-formed (which kind carries which payload is the executor's
+// invariant, asserted by the conformance suite).
+
+/** How the engine classified a column for profiling. */
+export type EngineProfileColumnKind = 'numeric' | 'categorical' | 'other'
+
+/** Exact quantiles (p50/p90/p95/p99) of a numeric column's non-null values. */
+export interface EngineNumericQuantiles {
+  p50: number | null
+  p90: number | null
+  p95: number | null
+  p99: number | null
+}
+
+/** Numeric column statistics, each finite-or-null (see the block comment). */
+export interface EngineNumericColumnStats {
+  min: number | null
+  max: number | null
+  mean: number | null
+  stddev: number | null
+  quantiles: EngineNumericQuantiles
+}
+
+/** One categorical top-k entry: rendered text value + exact frequency. */
+export interface EngineCategoricalTopKEntry {
+  value: string
+  count: number
+}
+
+/** Categorical column statistics: the at-most-k most frequent values. */
+export interface EngineCategoricalColumnStats {
+  topK: EngineCategoricalTopKEntry[]
+}
+
+/** Per-column profile payload (mirrors `@assay/engine`'s `ColumnProfile`). */
+export interface EngineProfileColumn {
+  name: string
+  type: string
+  kind: EngineProfileColumnKind
+  nullCount: number
+  distinctCount: number
+  numeric?: EngineNumericColumnStats
+  categorical?: EngineCategoricalColumnStats
+}
+
+/** Full profile result: total rows plus one payload per column. */
+export interface EngineProfileResultResponse {
+  type: 'engine/profile-result'
+  requestId: number
+  rowCount: number
+  columns: EngineProfileColumn[]
+}
+
 export interface EngineDisposedResponse {
   type: 'engine/disposed'
   requestId: number
@@ -235,6 +318,7 @@ export type EngineResponse =
   | EngineSchemaResultResponse
   | EngineRangeResultResponse
   | EngineRowCountResultResponse
+  | EngineProfileResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
 
@@ -246,6 +330,7 @@ export type EngineSuccessResponse =
   | EngineSchemaResultResponse
   | EngineRangeResultResponse
   | EngineRowCountResultResponse
+  | EngineProfileResultResponse
   | EngineDisposedResponse
 
 // ---- Runtime guards ----
@@ -301,6 +386,9 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
     return filters === undefined
       ? { type, requestId, tableId: data.tableId }
       : { type, requestId, tableId: data.tableId, filters }
+  }
+  if (type === 'engine/profile' && typeof data.tableId === 'string') {
+    return { type, requestId, tableId: data.tableId }
   }
   if (type === 'engine/dispose') return { type, requestId }
   return null
@@ -397,6 +485,13 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
   if (type === 'engine/row-count-result' && isRowCount(data.rowCount)) {
     return { type, requestId, rowCount: data.rowCount }
   }
+  if (
+    type === 'engine/profile-result' &&
+    isRowCount(data.rowCount) &&
+    isProfileColumnList(data.columns)
+  ) {
+    return { type, requestId, rowCount: data.rowCount, columns: data.columns }
+  }
   if (type === 'engine/disposed') return { type, requestId }
   if (type === 'engine/error' && typeof data.message === 'string') {
     return { type, requestId, message: data.message }
@@ -437,6 +532,71 @@ function isUint8Array(value: unknown): value is Uint8Array {
 /** A row count must be a safe non-negative integer (never a float/string). */
 function isRowCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/** A statistic: a finite number (JSON-able; never NaN/±Infinity) or null. */
+function isFiniteNumberOrNull(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isFinite(value))
+}
+
+function isProfileColumnKind(value: unknown): value is EngineProfileColumnKind {
+  return value === 'numeric' || value === 'categorical' || value === 'other'
+}
+
+function isNumericQuantiles(value: unknown): value is EngineNumericQuantiles {
+  return (
+    isRecord(value) &&
+    isFiniteNumberOrNull(value['p50']) &&
+    isFiniteNumberOrNull(value['p90']) &&
+    isFiniteNumberOrNull(value['p95']) &&
+    isFiniteNumberOrNull(value['p99'])
+  )
+}
+
+function isNumericStats(value: unknown): value is EngineNumericColumnStats {
+  return (
+    isRecord(value) &&
+    isFiniteNumberOrNull(value['min']) &&
+    isFiniteNumberOrNull(value['max']) &&
+    isFiniteNumberOrNull(value['mean']) &&
+    isFiniteNumberOrNull(value['stddev']) &&
+    isNumericQuantiles(value['quantiles'])
+  )
+}
+
+function isCategoricalStats(value: unknown): value is EngineCategoricalColumnStats {
+  return (
+    isRecord(value) &&
+    Array.isArray(value['topK']) &&
+    value['topK'].every(
+      (entry) =>
+        isRecord(entry) && typeof entry['value'] === 'string' && isRowCount(entry['count']),
+    )
+  )
+}
+
+/** A well-formed per-column profile list (payload *shape* only — see above). */
+function isProfileColumnList(value: unknown): value is EngineProfileColumn[] {
+  return (
+    Array.isArray(value) &&
+    value.every((column) => {
+      if (!isRecord(column)) return false
+      if (
+        typeof column['name'] !== 'string' ||
+        typeof column['type'] !== 'string' ||
+        !isProfileColumnKind(column['kind']) ||
+        !isRowCount(column['nullCount']) ||
+        !isRowCount(column['distinctCount'])
+      ) {
+        return false
+      }
+      if (column['numeric'] !== undefined && !isNumericStats(column['numeric'])) return false
+      if (column['categorical'] !== undefined && !isCategoricalStats(column['categorical'])) {
+        return false
+      }
+      return true
+    })
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

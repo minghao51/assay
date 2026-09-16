@@ -415,3 +415,212 @@ describe('M1-5: engine/row-count protocol', () => {
     })
   })
 })
+
+// ---- m2-5: engine/profile protocol ----
+
+/** A well-formed profile column, as the worker assembles it. */
+function profileColumn(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name: 'income',
+    type: 'BIGINT',
+    kind: 'numeric',
+    nullCount: 1,
+    distinctCount: 4,
+    numeric: {
+      min: 48000,
+      max: 75000,
+      mean: 59000,
+      stddev: 11972.19,
+      quantiles: { p50: 56500, p90: 70800, p95: 72900, p99: 74580 },
+    },
+    ...overrides,
+  }
+}
+
+function profileResultResponse(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: 'engine/profile-result',
+    requestId: 8,
+    rowCount: 5,
+    columns: [profileColumn()],
+    ...overrides,
+  }
+}
+
+describe('m2-5: engine/profile protocol', () => {
+  describe('parseEngineRequest', () => {
+    it('parses engine/profile with its table id', () => {
+      expect(parseEngineRequest({ type: 'engine/profile', requestId: 10, tableId: 't1' })).toEqual({
+        type: 'engine/profile',
+        requestId: 10,
+        tableId: 't1',
+      })
+    })
+
+    it('rejects engine/profile without a string table id (the boundary is untrusted)', () => {
+      expect(parseEngineRequest({ type: 'engine/profile', requestId: 10 })).toBeNull()
+      expect(parseEngineRequest({ type: 'engine/profile', requestId: 10, tableId: 1 })).toBeNull()
+    })
+  })
+
+  describe('parseEngineResponse', () => {
+    it('parses a well-formed engine/profile-result with numeric and categorical payloads', () => {
+      expect(
+        parseEngineResponse({
+          type: 'engine/profile-result',
+          requestId: 8,
+          rowCount: 5,
+          columns: [
+            profileColumn(),
+            profileColumn({
+              name: 'country',
+              type: 'VARCHAR',
+              kind: 'categorical',
+              nullCount: 0,
+              numeric: undefined,
+              categorical: {
+                topK: [
+                  { value: 'SG', count: 2 },
+                  { value: 'US', count: 2 },
+                ],
+              },
+            }),
+            profileColumn({
+              name: 'payload',
+              type: 'STRUCT("name" VARCHAR)',
+              kind: 'other',
+              numeric: undefined,
+            }),
+          ],
+        }),
+      ).toEqual({
+        type: 'engine/profile-result',
+        requestId: 8,
+        rowCount: 5,
+        columns: [
+          profileColumn(),
+          {
+            name: 'country',
+            type: 'VARCHAR',
+            kind: 'categorical',
+            nullCount: 0,
+            distinctCount: 4,
+            categorical: {
+              topK: [
+                { value: 'SG', count: 2 },
+                { value: 'US', count: 2 },
+              ],
+            },
+          },
+          {
+            name: 'payload',
+            type: 'STRUCT("name" VARCHAR)',
+            kind: 'other',
+            nullCount: 1,
+            distinctCount: 4,
+          },
+        ],
+      })
+    })
+
+    it('accepts null statistics (all-null columns / undefined stats)', () => {
+      const response = profileResultResponse({
+        columns: [
+          profileColumn({
+            numeric: {
+              min: null,
+              max: null,
+              mean: null,
+              stddev: null,
+              quantiles: { p50: null, p90: null, p95: null, p99: null },
+            },
+          }),
+        ],
+      })
+      expect(parseEngineResponse(response)).not.toBeNull()
+    })
+
+    it('rejects bad row counts and non-array column lists', () => {
+      expect(parseEngineResponse(profileResultResponse({ rowCount: -1 }))).toBeNull()
+      expect(parseEngineResponse(profileResultResponse({ rowCount: 1.5 }))).toBeNull()
+      expect(parseEngineResponse(profileResultResponse({ rowCount: '5' }))).toBeNull()
+      expect(parseEngineResponse(profileResultResponse({ columns: {} }))).toBeNull()
+      expect(parseEngineResponse(profileResultResponse({ columns: undefined }))).toBeNull()
+    })
+
+    it('rejects malformed column entries (the boundary is untrusted)', () => {
+      expect(parseEngineResponse(profileResultResponse({ columns: [42] }))).toBeNull()
+      expect(parseEngineResponse(profileResultResponse({ columns: [{ name: 'a' }] }))).toBeNull()
+      expect(
+        parseEngineResponse(profileResultResponse({ columns: [profileColumn({ kind: 'bogus' })] })),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(profileResultResponse({ columns: [profileColumn({ nullCount: -1 })] })),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          profileResultResponse({ columns: [profileColumn({ distinctCount: '4' })] }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects malformed numeric payloads (non-finite numbers are not JSON-able)', () => {
+      expect(
+        parseEngineResponse(
+          profileResultResponse({
+            columns: [profileColumn({ numeric: { min: Number.NaN, quantiles: {} } })],
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          profileResultResponse({
+            columns: [
+              profileColumn({
+                numeric: { min: 1, max: 2, mean: 3, stddev: 4, quantiles: { p50: 'x' } },
+              }),
+            ],
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          profileResultResponse({
+            columns: [profileColumn({ numeric: { min: 1, max: 2, mean: 3, stddev: 4 } })],
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects malformed categorical payloads', () => {
+      expect(
+        parseEngineResponse(
+          profileResultResponse({
+            columns: [profileColumn({ kind: 'categorical', categorical: { topK: 'nope' } })],
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          profileResultResponse({
+            columns: [
+              profileColumn({
+                kind: 'categorical',
+                categorical: { topK: [{ value: 'SG', count: -1 }] },
+              }),
+            ],
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          profileResultResponse({
+            columns: [
+              profileColumn({ kind: 'categorical', categorical: { topK: [{ value: 5 }] } }),
+            ],
+          }),
+        ),
+      ).toBeNull()
+    })
+  })
+})

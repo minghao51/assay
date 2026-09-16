@@ -148,6 +148,31 @@
       </section>
 
       <!--
+        m2-5 dataset profiling over the opened fixtures: the flat fixture
+        (numeric stats, categorical top-k incl. the SG/US count tie, a NULL
+        income, DATE-as-categorical), the nested fixture (STRUCT degrades to
+        kind 'other' — graceful degradation), and the unknown-handle error
+        path with reuse. Privacy (ADR 0001/0025): results show kinds, counts,
+        and stats only — never file names.
+      -->
+      <section>
+        <h2>Profile (m2-5) of the opened fixtures</h2>
+        <button id="profile-flat" type="button">Profile flat fixture via engine</button>
+        <button id="profile-nested" type="button">Profile nested fixture via engine</button>
+        <button id="profile-error-reuse" type="button">
+          Profile unknown handle, then flat fixture again
+        </button>
+        <dl>
+          <dt>flat fixture profile (JSON)</dt>
+          <dd><pre data-testid="profile-flat-result">not run</pre></dd>
+          <dt>nested fixture profile (JSON)</dt>
+          <dd><pre data-testid="profile-nested-result">not run</pre></dd>
+          <dt>unknown-handle profile error + reuse (JSON)</dt>
+          <dd><pre data-testid="profile-error-reuse-result">not run</pre></dd>
+        </dl>
+      </section>
+
+      <!--
         T2 worker-side operation serialization: fires query + fetchRange +
         rowCount + a failing query CONCURRENTLY against the opened flat
         fixture, then disposes. Every op must settle correctly on its own —
@@ -198,6 +223,9 @@
           <button id="conformance-predicate-error-reuse" type="button">
             Conformance: predicate error reuse
           </button>
+          <button id="conformance-profile-semantics" type="button">
+            Conformance: profile semantics
+          </button>
         </p>
         <dl>
           <dt>run-all report</dt>
@@ -220,6 +248,8 @@
           <dd><pre data-testid="conformance-result-window-filter-sort">not run</pre></dd>
           <dt>predicate error reuse result</dt>
           <dd><pre data-testid="conformance-result-predicate-error-reuse">not run</pre></dd>
+          <dt>profile semantics result</dt>
+          <dd><pre data-testid="conformance-result-profile-semantics">not run</pre></dd>
         </dl>
       </section>
 

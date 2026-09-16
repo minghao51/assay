@@ -18,7 +18,8 @@
  * - File lifecycle (m1-4): `open` registers the picked `File` under the
  *   engine-generated table id (lazy `BROWSER_FILEREADER` reads — no upfront
  *   copy) and creates a per-format view; a failure rolls the registration
- *   back. `schema`/`range`/`rowCount` address tables through the registry.
+ *   back. `schema`/`range`/`rowCount`/`profile` address tables through the
+ *   registry.
  * - `dispose` drops every view/file best-effort per entry and replies when
  *   done. On the channel it is just another FIFO op: it runs after ops that
  *   arrived before it (in-flight work settles first, deterministically), and
@@ -36,14 +37,19 @@ import type { RecordBatch } from 'apache-arrow'
 import { createViewSql, detectFileFormat, quotedIdentifier } from './format-view'
 import { parseEngineRequest } from './protocol'
 import type {
+  EngineCategoricalTopKEntry,
   EngineColumnSchema,
   EngineFilterSpec,
+  EngineNumericColumnStats,
+  EngineProfileColumn,
   EngineRangeRequest,
   EngineRequest,
   EngineResponse,
 } from './protocol'
 import { validateRowWindow } from './range-window'
 import { OpChannel } from './op-channel'
+import { classifyProfileColumnType } from './profile-classify'
+import { composeProfileBaseSql, composeProfileTopKSql, PROFILE_BASE_SLOT } from './profile-query'
 import { TableRegistry } from './table-registry'
 import type { RegisteredTable } from './table-registry'
 import { composeRowCountSql, composeWindowSql } from './window-query'
@@ -153,6 +159,10 @@ export class EngineOpExecutor {
           await this.runRowCount(request.requestId, request.tableId, request.filters)
           break
         }
+        case 'engine/profile': {
+          await this.runProfile(request.requestId, request.tableId)
+          break
+        }
         case 'engine/dispose': {
           await this.runDispose(request.requestId)
           break
@@ -210,7 +220,20 @@ export class EngineOpExecutor {
   private async runSchema(requestId: number, tableId: string): Promise<void> {
     const entry = this.requireTable(tableId)
     const { conn } = await this.deps.ensureSession()
-    const described = await conn.query(`DESCRIBE ${quotedIdentifier(entry.viewName)}`)
+    const columns = await this.describeView(conn, entry.viewName)
+    this.post({ type: 'engine/schema-result', requestId, columns })
+  }
+
+  /**
+   * DESCRIBE-backed column list for a registered view — the shared
+   * name/type source for `schema` and `profile` (m2-5), so a profile's type
+   * strings can never drift from the schema surface.
+   */
+  private async describeView(
+    conn: EngineConnectionLike,
+    viewName: string,
+  ): Promise<EngineColumnSchema[]> {
+    const described = await conn.query(`DESCRIBE ${quotedIdentifier(viewName)}`)
     // DESCRIBE yields all-VARCHAR columns; the casts assert that shape (Arrow's
     // generic `getChild` cannot know it).
     const names = (described.getChild('column_name')?.toArray() ?? []) as string[]
@@ -218,11 +241,10 @@ export class EngineOpExecutor {
     if (names.length === 0 || names.length !== types.length) {
       throw new Error('DESCRIBE returned an unexpected shape')
     }
-    const columns: EngineColumnSchema[] = names.map((columnName, index) => ({
+    return names.map((columnName, index) => ({
       name: columnName,
       type: types[index] ?? '',
     }))
-    this.post({ type: 'engine/schema-result', requestId, columns })
   }
 
   /**
@@ -280,6 +302,107 @@ export class EngineOpExecutor {
       throw new Error('count(*) returned an unexpected shape')
     }
     this.post({ type: 'engine/row-count-result', requestId, rowCount })
+  }
+
+  /**
+   * Full statistics profile of a registered table (m2-5), composed by
+   * `profile-query.ts` (see the module doc for the scan budget):
+   *
+   * 1. DESCRIBE (metadata only) → classify each column from its DuckDB type
+   *    string (`profile-classify.ts` — numeric / categorical / other).
+   * 2. ONE combined aggregate query — a single scan for row count,
+   *    nullCount/distinctCount of every column, and (numeric columns)
+   *    min/max/mean/stddev plus the p50/p90/p95/p99 quantiles as ONE
+   *    DOUBLE[4] aggregate per column (one values buffer per column).
+   * 3. One top-k query per categorical column (bounded ≤ k rows; NULLs
+   *    excluded — `nullCount` carries them; ties by value ascending).
+   *
+   * Results are strictly bounded (one row; ≤ k rows per categorical column),
+   * so the reads use `conn.query` (materialized) instead of the first-batch
+   * streaming transport — no cancellation surface is needed. Everything runs
+   * inside ONE channel op: the sequential awaits never overlap on the
+   * connection (T2 invariant), and any failure rejects this op with the
+   * engine's own error, leaving the engine reusable.
+   *
+   * Graceful degradation: `other`-kind columns (nested/exotic types) carry
+   * only name/type/nullCount/distinctCount — an exotic type can never fail
+   * the profile (classifier contract).
+   */
+  private async runProfile(requestId: number, tableId: string): Promise<void> {
+    const entry = this.requireTable(tableId)
+    const { conn } = await this.deps.ensureSession()
+    const schema = await this.describeView(conn, entry.viewName)
+    const specs = schema.map((column) => ({
+      name: column.name,
+      kind: classifyProfileColumnType(column.type),
+    }))
+
+    const base = composeProfileBaseSql({ viewName: entry.viewName, columns: specs })
+    const baseRow = await conn.query(base.sql)
+    if (baseRow.numRows !== 1) {
+      throw new Error('profile aggregate returned an unexpected shape')
+    }
+    const readSlot = (index: number): unknown => baseRow.getChildAt(index)?.get(0)
+    const rowCount = readCount(readSlot(0))
+
+    const columns: EngineProfileColumn[] = schema.map((column, index) => {
+      const kind = specs[index]!.kind
+      const offset = base.offsets[index]!
+      const nonNull = readCount(readSlot(offset + PROFILE_BASE_SLOT.nonNull))
+      const profileColumn: EngineProfileColumn = {
+        name: column.name,
+        type: column.type,
+        kind,
+        nullCount: rowCount - nonNull,
+        distinctCount: readCount(readSlot(offset + PROFILE_BASE_SLOT.distinct)),
+      }
+      if (kind === 'numeric') {
+        profileColumn.numeric = {
+          min: readStat(readSlot(offset + PROFILE_BASE_SLOT.min)),
+          max: readStat(readSlot(offset + PROFILE_BASE_SLOT.max)),
+          mean: readStat(readSlot(offset + PROFILE_BASE_SLOT.mean)),
+          stddev: readStat(readSlot(offset + PROFILE_BASE_SLOT.stddev)),
+          quantiles: readQuantiles(readSlot(offset + PROFILE_BASE_SLOT.quantiles)),
+        }
+      }
+      return profileColumn
+    })
+
+    // One bounded grouped scan per categorical column (projection pushdown
+    // reads only that column). NULLs are excluded from top-k values; ties
+    // break by value ascending (both documented in profile-query.ts).
+    for (let index = 0; index < columns.length; index++) {
+      if (specs[index]!.kind !== 'categorical') continue
+      const topK = await this.readTopK(conn, entry.viewName, specs[index]!.name)
+      columns[index]!.categorical = { topK }
+    }
+
+    this.post({ type: 'engine/profile-result', requestId, rowCount, columns })
+  }
+
+  /** Run one categorical column's top-k query and read its ≤ k rows. */
+  private async readTopK(
+    conn: EngineConnectionLike,
+    viewName: string,
+    column: string,
+  ): Promise<EngineCategoricalTopKEntry[]> {
+    const result = await conn.query(composeProfileTopKSql({ viewName, column }))
+    const values = result.getChildAt(0)
+    const counts = result.getChildAt(1)
+    if (values === null || counts === null) {
+      throw new Error('profile top-k query returned an unexpected shape')
+    }
+    const topK: EngineCategoricalTopKEntry[] = []
+    for (let row = 0; row < values.length; row++) {
+      const value: unknown = values.get(row)
+      if (typeof value !== 'string') {
+        // CAST(... AS VARCHAR) renders every non-null value as text; anything
+        // else means the engine deviated from the composed contract.
+        throw new Error('profile top-k value was not rendered text')
+      }
+      topK.push({ value, count: readCount(counts.get(row)) })
+    }
+    return topK
   }
 
   /**
@@ -373,4 +496,49 @@ function transferableBuffer(bytes: Uint8Array): ArrayBuffer | null {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * A count slot (non-null count, distinct count, row count) as a safe
+ * non-negative integer. BIGINT arrives as BigInt; anything else is an engine
+ * deviation and fails this op loudly instead of leaking a bogus stat.
+ */
+function readCount(value: unknown): number {
+  const n = typeof value === 'bigint' ? Number(value) : value
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
+    throw new Error('profile aggregate returned an unexpected shape')
+  }
+  return n
+}
+
+/**
+ * A numeric statistic slot: finite JS number or null (an all-null column, or
+ * an undefined stat like stddev over a single value — DuckDB answers NULL).
+ * Non-finite results (NaN/±Infinity from extreme magnitudes) map to null so
+ * the profile stays finite-number-or-null JSON data (protocol invariant).
+ */
+function readStat(value: unknown): number | null {
+  const n = typeof value === 'bigint' ? Number(value) : value
+  return typeof n === 'number' && Number.isFinite(n) ? n : null
+}
+
+/**
+ * The DOUBLE[4] quantile slot (p50, p90, p95, p99 — the composer's fixed
+ * position order). An all-null column yields a NULL cell → all-`null`
+ * quantiles. A malformed list fails the op loudly (never silent zeros).
+ */
+function readQuantiles(value: unknown): EngineNumericColumnStats['quantiles'] {
+  if (value === null || value === undefined) {
+    return { p50: null, p90: null, p95: null, p99: null }
+  }
+  const list = Array.from(value as Iterable<unknown>)
+  if (list.length !== 4) {
+    throw new Error('profile quantile aggregate returned an unexpected shape')
+  }
+  return {
+    p50: readStat(list[0]),
+    p90: readStat(list[1]),
+    p95: readStat(list[2]),
+    p99: readStat(list[3]),
+  }
 }

@@ -187,6 +187,68 @@ requiredElement<HTMLButtonElement>('#predicate-error-reuse').addEventListener('c
   void evidencePredicateErrorThenReuse()
 })
 
+// ── m2-5 dataset profiling (tests/e2e/engine-profile.spec.ts) ───────────────
+//
+// Drives the REAL client's profile() against the opened fixtures: the flat
+// fixture (numeric stats, categorical top-k incl. the SG/US count tie, a
+// NULL income, DATE-as-categorical), the nested fixture (STRUCT degrades to
+// kind 'other' with no payloads), and the unknown-handle error path with
+// reuse. Results render as JSON — kinds/counts/stats only, never a file name.
+
+interface ProfileEvidence {
+  rowCount?: number
+  columns?: readonly unknown[]
+  error?: string
+  rejected?: boolean
+  rowCountAfterReuse?: number
+  fatal?: string
+}
+
+async function evidenceProfile(key: 'flat' | 'nested'): Promise<void> {
+  const evidence: ProfileEvidence = {}
+  try {
+    const table = handles.get(key)
+    if (table === undefined) throw new Error(`open the ${key} fixture first`)
+    const profile = await client.profile(table)
+    evidence.rowCount = profile.rowCount
+    evidence.columns = profile.columns
+  } catch (error) {
+    evidence.error = errorMessage(error)
+  }
+  setText(`profile-${key}-result`, JSON.stringify(evidence))
+}
+
+async function evidenceProfileUnknownHandleThenReuse(): Promise<void> {
+  const evidence: ProfileEvidence = {}
+  try {
+    const table = handles.get('flat')
+    if (table === undefined) throw new Error('open the flat fixture first')
+    try {
+      await client.profile({ kind: 'table', id: 'assay-no-such-table' })
+      evidence.rejected = false
+    } catch (error) {
+      evidence.rejected = true
+      evidence.error = errorMessage(error)
+    }
+    // The engine must still answer a real profile afterwards (reuse).
+    evidence.rowCountAfterReuse = (await client.profile(table)).rowCount
+    statusEl.textContent = client.status
+  } catch (error) {
+    evidence.fatal = errorMessage(error)
+  }
+  setText('profile-error-reuse-result', JSON.stringify(evidence))
+}
+
+requiredElement<HTMLButtonElement>('#profile-flat').addEventListener('click', () => {
+  void evidenceProfile('flat')
+})
+requiredElement<HTMLButtonElement>('#profile-nested').addEventListener('click', () => {
+  void evidenceProfile('nested')
+})
+requiredElement<HTMLButtonElement>('#profile-error-reuse').addEventListener('click', () => {
+  void evidenceProfileUnknownHandleThenReuse()
+})
+
 // ── T2 worker-side serialization (tests/e2e/engine-parallel.spec.ts) ───────
 //
 // Fires four operations CONCURRENTLY against the opened flat fixture — a

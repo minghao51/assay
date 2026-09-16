@@ -734,3 +734,95 @@ describe('DuckDbEngineClient row count (M1-5)', () => {
     expect(client.status).toBe('ready') // operational failure, engine stays usable
   })
 })
+
+describe('DuckDbEngineClient profile (m2-5)', () => {
+  const source = {
+    name: 'flat.parquet',
+    getFile: () => Promise.resolve(new File([new Uint8Array([1, 2, 3])], 'flat.parquet')),
+  }
+
+  function openResultResponse(requestId: number): EngineResponse {
+    return { type: 'engine/open-result', requestId, tableId: 't1', format: 'parquet' }
+  }
+
+  async function openHandle(): Promise<{
+    client: DuckDbEngineClient
+    worker: FakeWorker
+    handle: Awaited<ReturnType<DuckDbEngineClient['open']>>
+  }> {
+    const { client, workers } = makeClient()
+    // The worker boots lazily on first use — start the open BEFORE grabbing it.
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    return { client, worker, handle: await pendingOpen }
+  }
+
+  it('profile() posts the handle and resolves the full stats payload', async () => {
+    const { client, worker, handle } = await openHandle()
+
+    const pendingProfile = client.profile(handle)
+    await flush()
+    const posted = worker.requestAt(2)
+    expect(posted).toMatchObject({ type: 'engine/profile', tableId: 't1' })
+    worker.respond({
+      type: 'engine/profile-result',
+      requestId: worker.requestAt(2).requestId,
+      rowCount: 5,
+      columns: [
+        {
+          name: 'income',
+          type: 'BIGINT',
+          kind: 'numeric',
+          nullCount: 1,
+          distinctCount: 4,
+          numeric: {
+            min: 48000,
+            max: 75000,
+            mean: 59000,
+            stddev: 11972.189997378648,
+            quantiles: { p50: 56500, p90: 70800, p95: 72900, p99: 74580 },
+          },
+        },
+      ],
+    })
+
+    await expect(pendingProfile).resolves.toEqual({
+      rowCount: 5,
+      columns: [
+        {
+          name: 'income',
+          type: 'BIGINT',
+          kind: 'numeric',
+          nullCount: 1,
+          distinctCount: 4,
+          numeric: {
+            min: 48000,
+            max: 75000,
+            mean: 59000,
+            stddev: 11972.189997378648,
+            quantiles: { p50: 56500, p90: 70800, p95: 72900, p99: 74580 },
+          },
+        },
+      ],
+    })
+    expect(client.status).toBe('ready')
+  })
+
+  it('profile() rejects engine-reported failures with EngineOperationError and stays usable', async () => {
+    const { client, worker, handle } = await openHandle()
+
+    const pendingProfile = client.profile(handle)
+    await flush()
+    worker.respond({
+      type: 'engine/error',
+      requestId: worker.requestAt(2).requestId,
+      message: 'unknown table handle: t1',
+    })
+
+    await expect(pendingProfile).rejects.toThrow(EngineOperationError)
+    expect(client.status).toBe('ready') // operational failure, engine stays usable
+  })
+})
