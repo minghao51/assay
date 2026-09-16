@@ -11,6 +11,7 @@ import {
   summarizePage,
 } from './paged-query'
 import { RunGuard } from './run-guard'
+import { runGuarded } from './guarded-run'
 
 /**
  * SQL editor + result pane (m2-4). A dependency-free textarea editor with a
@@ -82,9 +83,11 @@ export function SqlPanel({ tableId }: SqlPanelProps) {
   const runnable = composePageQuery(draft, { limit: SQL_PAGE_SIZE, offset: 0 }).ok
 
   /**
-   * Execute the statement for one page. Every async tail checks the guard:
-   * a cancelled or superseded run's late result/rejection is discarded, so
-   * it can never clobber the pane's current state.
+   * Execute the statement for one page. The async tail (begin a guard
+   * token, deliver only while that token is active) is the pure helper
+   * `runGuarded` — Node-pinned in `guarded-run.test.ts`: a cancelled or
+   * superseded run's late result/rejection is discarded and can never
+   * clobber the pane's current state.
    */
   const execute = (userSql: string, offset: number): void => {
     const composed = composePageQuery(userSql, { limit: SQL_PAGE_SIZE, offset })
@@ -92,14 +95,11 @@ export function SqlPanel({ tableId }: SqlPanelProps) {
       setRunState({ kind: 'error', message: composed.reason })
       return
     }
-    const token = guard.current.begin()
     lastRunSql.current = userSql
     setRunState({ kind: 'running' })
     setPage(null)
-    void engineClient
-      .query(composed.sql)
-      .then((result) => {
-        if (!guard.current.isActive(token)) return // cancelled/superseded — discard the late page
+    runGuarded(guard.current, engineClient.query(composed.sql), {
+      onResult: (result) => {
         setPage({
           columns: resultColumnNames(result.batch),
           rows: projectBatchToRows(result.batch),
@@ -107,13 +107,13 @@ export function SqlPanel({ tableId }: SqlPanelProps) {
           truncatedInTransport: result.hasMore,
         })
         setRunState({ kind: 'done' })
-      })
-      .catch((cause: unknown) => {
-        if (!guard.current.isActive(token)) return
+      },
+      onError: (cause: unknown) => {
         // Engine errors (EngineQueryError & co.) surface as readable alert
         // text; the pane (and engine) stay usable for the next run.
         setRunState({ kind: 'error', message: errorMessage(cause) })
-      })
+      },
+    })
   }
 
   const run = (): void => {
