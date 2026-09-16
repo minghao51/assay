@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -135,10 +145,33 @@ export function bigFixtureSql(rows: number, destination: string): string {
   ].join('\n')
 }
 
-/** sha256 of a file (whole-file read — the whole file must be verified). */
+/**
+ * sha256 of a file, hashed through a fixed 1 MiB read window (G1-R: the
+ * whole file must be verified, but at multi-GB sizes a whole-file
+ * `readFileSync` allocates the entire fixture in RAM — ~10 GiB against a
+ * ~30 GiB machine — before hashing a byte). Chunked hashing keeps memory
+ * constant and produces the identical digest.
+ *
+ * Synchronous on purpose: the reuse decision in `ensureBigFixture` is sync,
+ * and the hermetic reuse spec (`tests/e2e/big-fixture-reuse.spec.ts`) calls
+ * this from a synchronous test.
+ */
 export function sha256File(filePath: string): string {
   const hash = createHash('sha256')
-  hash.update(readFileSync(filePath))
+  const fd = openSync(filePath, 'r')
+  try {
+    const size = fstatSync(fd).size
+    const chunk = Buffer.alloc(1024 * 1024)
+    let position = 0
+    while (position < size) {
+      const read = readSync(fd, chunk, 0, chunk.length, position)
+      if (read <= 0) break // EOF before size: file truncated under us — hash what we got
+      hash.update(chunk.subarray(0, read))
+      position += read
+    }
+  } finally {
+    closeSync(fd)
+  }
   return hash.digest('hex')
 }
 

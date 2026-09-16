@@ -11,10 +11,15 @@ import os from 'node:os'
 // benchmark, which must never burden the default e2e/CI runtime. Run it with:
 //
 //   ASSAY_E2E_BIG_BENCH=1 ASSAY_E2E_PORT_ENGINE=4179 DUCKDB=/path/to/duckdb \
-//     pnpm test:e2e -- tests/e2e/bench-ttfr.spec.ts
+//     pnpm test:e2e tests/e2e/bench-ttfr.spec.ts
 //
-// (the full suite honors the same env; see docs/engineering/06-m1-benchmarks.md
+// (pnpm passes positional args through verbatim — do NOT add `--`, which
+// pnpm 11 swallows and the whole suite runs; harmless but slow.)
+// (the full suite honors the same env; see docs/engineering/07-m1-benchmarks.md
 // for methodology, results, and reproduction).
+//
+// Fixture size is env-tunable via ASSAY_E2E_BIG_ROWS (default 16M rows ≈
+// 1.1 GiB; the G1-R round used 150M rows ≈ 10 GiB).
 //
 // Path under test (orchestrator scope ruling): the engine-duckdb browser
 // harness — file "pick" (input fallback, same seam as the app) → open() →
@@ -117,6 +122,12 @@ test.skip(
 )
 
 test.beforeAll(() => {
+  // Fixture generation runs here (reused only after a full sha256
+  // re-verification). At multi-GB sizes this takes minutes (G1-R: 150M rows
+  // ≈ 10 GiB, generation + verification ≈ 5–6 min), far beyond the default
+  // 30 s hook timeout (playwright.config.ts sets none). A hook raises its
+  // own timeout by calling test.setTimeout() inside it (Playwright 1.63).
+  test.setTimeout(900_000) // 15 min: generation + sha256 verification headroom
   ensureBigFixture()
 })
 
@@ -190,7 +201,10 @@ function heapMb(sample: HeapSample): number {
 }
 
 test('time-to-first-row and memory over a ~1 GiB Parquet (engine path)', async ({ browser }) => {
-  test.setTimeout(900_000)
+  // 25 min: 3 cold repeats at multi-GB size — in the G1-R round each repeat's
+  // near-full-scan filter alone took ~20–30 s and the 12 sequential windows
+  // (deep offsets) several more; generous by design, like BOUNDS below.
+  test.setTimeout(1_500_000)
   const fixturePath = bigFixturePath()
   const repeats: RepeatResult[] = []
   const browserVersion = browser.version()
