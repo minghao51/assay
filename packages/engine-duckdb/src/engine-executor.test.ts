@@ -993,6 +993,62 @@ describe('EngineOpExecutor profile (m2-5)', () => {
     expect(deps.connection.collisions).toEqual([])
   })
 
+  it('maps non-finite numeric stat slots (NaN/±Infinity) to null instead of leaking them', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(profileRequest(2))
+    await awaitSends(deps.connection, 2)
+    deps.connection.resolveSend(1, describeTable())
+    await awaitSends(deps.connection, 3)
+    // Extreme magnitudes: DuckDB can answer NaN/±Infinity stat slots; the
+    // profile contract is finite-number-or-null JSON data (protocol
+    // invariant), so every non-finite slot degrades to null — only here,
+    // in the executor, is that mapping pinned.
+    deps.connection.resolveSend(
+      2,
+      profileBaseTable({
+        rowCount: 5n,
+        id: {
+          nn: 5n,
+          d: 5n,
+          min: Number.NaN,
+          max: Number.POSITIVE_INFINITY,
+          mean: 3,
+          std: Number.NEGATIVE_INFINITY,
+          q: [Number.NaN, 4.6, Number.POSITIVE_INFINITY, 4.96],
+        },
+        country: { nn: 5n, d: 3n },
+      }),
+    )
+    await awaitSends(deps.connection, 4)
+    deps.connection.resolveSend(3, topKTable([['SG', 2n]]))
+
+    // The op succeeds (no error): non-finite slots are null, finite ones pass.
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/profile-result',
+      columns: [
+        {
+          name: 'customer_id',
+          kind: 'numeric',
+          numeric: {
+            min: null,
+            max: null,
+            mean: 3,
+            stddev: null,
+            quantiles: { p50: null, p90: 4.6, p95: null, p99: 4.96 },
+          },
+        },
+        {
+          name: 'country',
+          kind: 'categorical',
+          categorical: { topK: [{ value: 'SG', count: 2 }] },
+        },
+      ],
+    })
+    expect(deps.connection.collisions).toEqual([])
+  })
+
   it('profiles of unknown handles error their own op without ever touching the connection', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)

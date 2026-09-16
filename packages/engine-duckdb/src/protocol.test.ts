@@ -565,10 +565,23 @@ describe('m2-5: engine/profile protocol', () => {
     })
 
     it('rejects malformed numeric payloads (non-finite numbers are not JSON-able)', () => {
+      // The payload is otherwise-valid; the NaN in `min` is the ONLY violation,
+      // so this pin bites the finite-number guard itself (an otherwise-masked
+      // assertion would stay green if the guard were mutated to accept NaN).
       expect(
         parseEngineResponse(
           profileResultResponse({
-            columns: [profileColumn({ numeric: { min: Number.NaN, quantiles: {} } })],
+            columns: [
+              profileColumn({
+                numeric: {
+                  min: Number.NaN,
+                  max: 2,
+                  mean: 3,
+                  stddev: 4,
+                  quantiles: { p50: 1, p90: 2, p95: 3, p99: 4 },
+                },
+              }),
+            ],
           }),
         ),
       ).toBeNull()

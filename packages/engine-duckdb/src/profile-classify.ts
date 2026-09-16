@@ -19,6 +19,11 @@
  * - `other` — everything else (nested `STRUCT`/`LIST`/`MAP`/`UNION`, `JSON`,
  *   `BLOB`, `INTERVAL`, enums-as-parenthesized declarations, and anything
  *   unrecognized): graceful degradation to name/type/nullCount/distinctCount.
+ *   Lists are detected by the `[]` suffix BEFORE any paren-stripping: a
+ *   parameterized-base list like `DECIMAL(21,1)[]` (DuckDB 1.5.5's exact
+ *   DESCRIBE spelling) would otherwise reduce to `DECIMAL`, be misrouted
+ *   into the numeric aggregate path, and its `avg()`/`quantile_cont()` binder
+ *   error would escape `profile()` — lists are never scalar, so they degrade.
  *
  * The function is total and never throws (m1-6's type-string-parser
  * precedent): an unknown or hostile type string classifies as `other`, never
@@ -81,10 +86,18 @@ const CATEGORICAL_TYPES = new Set([
  * classifies as `other` (never throws).
  */
 export function classifyProfileColumnType(type: string): EngineProfileColumnKind {
+  // List columns (parameterized base included: `DECIMAL(21,1)[]`, `VARCHAR[]`,
+  // `INTEGER[]`) are never scalar: detect the `[]` suffix BEFORE stripping
+  // parens. Stripping first would reduce `DECIMAL(21,1)[]` to `DECIMAL` and
+  // misroute a LIST column into the numeric aggregate path, where `avg()` is
+  // a binder error that would escape `profile()` (verified against DuckDB
+  // 1.5.5: DESCRIBE renders exactly `DECIMAL(21,1)[]`). No scalar type string
+  // can contain `[]`, so this check is total and cannot misclassify.
+  if (type.includes('[]')) return 'other'
   // Strip parameter lists ("DECIMAL(21,1)" → "DECIMAL") before matching, so
-  // parametrized scalars classify as their base type. Nested types keep a
-  // bracket ("VARCHAR[]") or reduce to a container name ("STRUCT") — neither
-  // is in the scalar sets, so they fall through to `other`.
+  // parametrized scalars classify as their base type. Remaining nested types
+  // reduce to a container name ("STRUCT") — not in the scalar sets, so they
+  // fall through to `other`.
   const openParen = type.indexOf('(')
   const base = (openParen === -1 ? type : type.slice(0, openParen)).trim().toUpperCase()
   if (NUMERIC_TYPES.has(base)) return 'numeric'

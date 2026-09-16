@@ -52,6 +52,11 @@ describe('classifyProfileColumnType (m2-5)', () => {
     expect(classifyProfileColumnType('MAP(VARCHAR, BIGINT)')).toBe('other')
     expect(classifyProfileColumnType('UNION(a INTEGER, b VARCHAR)')).toBe('other')
     expect(classifyProfileColumnType('INTEGER[]')).toBe('other')
+    // Parameterized-base list (DuckDB 1.5.5 renders exactly this in DESCRIBE):
+    // the `[]` suffix must win over paren-stripping — reducing to `DECIMAL`
+    // would misclassify a LIST as numeric and its `avg()` binder error would
+    // escape `profile()`. Regression pin for exactly that string.
+    expect(classifyProfileColumnType('DECIMAL(21,1)[]')).toBe('other')
   })
 
   it('never throws: empty, unknown, and hostile strings degrade to other', () => {
