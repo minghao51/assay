@@ -30,9 +30,9 @@ Companions: [execution roadmap](../product/10-execution-roadmap.md) (sequencing/
 - **Positioning:** "Understand any dataset before your code does."
 - **Stack:** TypeScript · React/Vite · DuckDB-WASM · Apache Arrow · pnpm/Turborepo monorepo.
 - **License:** AGPL-3.0-or-later for the open core (ADR 0036).
-- **Phase:** pre-MVP. **M1 (local file explorer) task queue complete** — G1 gate / M1-exit decision pending (§6); next: M1 test-hardening batch (§6), then M2 (query & profiling).
+- **Phase:** pre-MVP. **M1 complete + test-hardening batch (T1–T4) complete**; G1 policy decided (option B): task **G1-R** (multi-GB re-run, §6) is next, then the maintainer's G1 record (manual-actions M5) unblocks **M2** (query & profiling).
 
-## 2. Current state (2026-09-15)
+## 2. Current state (2026-09-16)
 
 Everything below is **verified green locally**: `pnpm install / lint / typecheck (18 tasks) / test (8 tests) / build / e2e smoke / CLI smoke / fixture generation`.
 
@@ -196,6 +196,7 @@ claim (orchestrator assigns, marks in-progress)
 - If a task discovers it must cross its boundary, it stops and reports to the orchestrator, who splits/reassigns.
 - **Parallel-batch recipe (proven, m1-5/m1-8 and m1-6/m1-7):** for tasks with disjoint package columns, give each worker its own git worktree on a task branch (`git worktree add -b <task-id> ../<repo>-<task-id> main`); the e2e ports are env-overridable (`ASSAY_E2E_PORT_WEB/ENGINE/DS`, defaults 4173/4179/4180) so only one worktree runs default ports — the other(s) shift (+100). Reviewers verify inside the matching worktree; the orchestrator cherry-picks to `main`, runs the merged gates, then removes worktrees/branches. `DUCKDB=/tmp/duckdb` (v1.5.5) is needed locally for fixture-generating specs.
 - When in doubt, serialize — this codebase is small; coordination cost exceeds parallelism gains below task 3.
+- **Subagent dispatch mechanics (proven, T-batch):** delegate via the pi subagent extension — `worker` and `reviewer` agents (user scope; both default to `zai/glm-5.3-flash` via the local extension config). **Serialize subagent sessions** — two concurrent glm-5.3-flash sessions hit a provider 429 (§9 i). Write dispatch briefs to `/tmp`, never inside the repo. Worker briefs carry: the §6 task row verbatim + done-when; docs/ADRs to read first; deliverables; explicit pre-authorized boundary exceptions AND forbidden files; the six gates with paste-the-tails evidence (+ port assignment); the block protocol (stop, clean tree, commit nothing, report); a report format. Reviewer briefs carry: the §7.3 checklist adapted to the task, the worker's claims to scrutinize, 'verify by running commands, not diffs alone', read-only discipline, and a final `VERDICT: approve` / `VERDICT: request-changes` line with specific items. Subagent contexts are isolated (no persistent session): a request-changes verdict loops back as a NEW worker dispatch carrying the reviewer's exact required items + the original brief file path, then a fresh reviewer re-verification.
 
 ### 7.5 Operating modes (choose per batch of work)
 
