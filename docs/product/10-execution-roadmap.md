@@ -93,7 +93,7 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
 - [x] Decision: changesets + product changelog + capacity-based sequencing — 2026-09-14.
 - [x] AGENTS.md for AI coding agents — 2026-09-14.
 - [x] M0 remainder: DuckDB-WASM worker spike; first Arrow batch through the worker; first virtualized grid render; measure time-to-first-row and memory (the original Phase-0 spike items). _All done 2026-09-15: m1-1/m1-2 (worker boot + Arrow batch), m1-5 (1M-row virtualized grid), m1-7 (benchmark: 1.09 GiB → TTFR ~0.3 s, heap 4 MB/3.6 GB — `docs/engineering/07-m1-benchmarks.md`; multi-GB re-run open before G1 sign-off)._
-- [ ] **M1 test-hardening batch (T1–T4)** — conformance/behavior suites in `@assay/testing` (docs/engineering/05 §4), worker-side operation serialization, bench-rig hardening; queue and dependencies in `docs/process/handoff.md` §6. _In progress 2026-09-15: T1 (`75a6657`) and T4 (`b7a8587`) done; T2 next, then T3._ **G1 / M1-exit decision (maintainer) blocks M2 feature work.**
+- [ ] **M1 test-hardening batch (T1–T4)** — conformance/behavior suites in `@assay/testing` (docs/engineering/05 §4), worker-side operation serialization, bench-rig hardening; queue and dependencies in `docs/process/handoff.md` §6. _In progress 2026-09-15: T1 (`75a6657`), T4 (`b7a8587`), T2 (`ce54c05`) done; T3 last._ **G1 / M1-exit decision (maintainer) blocks M2 feature work.**
 - [ ] Telemetry vendor + sampling design (D2 tail).
 - [x] Product name decision — **Assay** (ADR 0039) — 2026-09-14.
 - [ ] Demo dataset curation for the MVP demo scenario begins (opportunity O5).
