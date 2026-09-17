@@ -22,9 +22,16 @@ import type { Page } from '@playwright/test'
 //
 // NOT asserted here: the profile error path. No cheap in-app error exists
 // (the panel only profiles a valid open handle), so the error/retry path is
-// unit-covered in apps/web/src/profile/profile-state.test.ts, and the late-
-// /superseded-result discard is pinned by runGuarded's Node tests (the panel
-// reuses that guard unchanged; re-open invalidates the in-flight token).
+// unit-covered in apps/web/src/profile/profile-state.test.ts, and the guard
+// discard itself is pinned by runGuarded's Node tests. The re-open property
+// IS asserted here (m2-6 fix round, last spec): a profile started on table
+// A never renders after the table is re-opened, and the panel returns to
+// idle. Honest mechanics: today the App phase machine upholds that
+// structurally — the whole panel composition unmounts during
+// `ready → opening → ready` — while the panel's RunGuard invalidation is
+// the defensive second layer, operative only if the panel is ever kept
+// mounted across re-opens (e.g. to avoid the grid remount). The spec pins
+// the property so that plausible refactor cannot silently regress it.
 //
 // Picker path (m1-5/m1-6 pattern): an init script removes the FSA global so
 // the app takes the hidden-<input type="file"> fallback. Privacy (ADR 0025):
@@ -50,6 +57,19 @@ test.beforeEach(async ({ page }) => {
 async function openFixture(page: Page, fixturePath: string): Promise<void> {
   await page.goto('/')
   await expect(page.getByTestId('open-status')).toHaveText('idle')
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByTestId('open-button').click()
+  const chooser = await chooserPromise
+  await chooser.setFiles(fixturePath)
+  await expect(page.getByTestId('open-status')).toHaveText('ready')
+}
+
+/**
+ * Open a second file in the SAME page session (no reload): the re-open spec
+ * needs the app to survive a re-open while engine ops are in flight — a
+ * reload would reset the worker and prove nothing about the panel.
+ */
+async function reopenFixture(page: Page, fixturePath: string): Promise<void> {
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
@@ -187,6 +207,43 @@ test('shows the running state while the profile queues behind an in-flight SQL q
     timeout: 90_000,
   })
   await expect(page.getByTestId('profile-rowcount-value')).toHaveText('5')
+})
+
+test('a profile started on table A never renders after re-opening the table: the panel returns to idle (m2-6 fix-round pin)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await openFixture(page, CUSTOMERS_FIXTURE)
+  const tableIdA = await page.getByTestId('profile-table-id').textContent()
+  expect(tableIdA).toBeTruthy()
+
+  // Occupy the engine FIFO with the slow probe (~2.8 s, the sql-editor
+  // probe), then start the profile behind it: it is demonstrably still
+  // queued when the re-open happens.
+  await page
+    .getByTestId('sql-input')
+    .fill('SELECT sum(a.i * b.i) FROM range(20000) AS a(i), range(20000) AS b(i)')
+  await page.getByTestId('sql-run').click()
+  await expect(page.getByTestId('sql-panel')).toHaveAttribute('data-state', 'running')
+  await page.getByTestId('profile-run').click()
+  await expect(page.getByTestId('profile-section')).toHaveAttribute('data-state', 'running')
+
+  // Re-open (table B) while A's profile is still in flight.
+  await reopenFixture(page, NESTED_FIXTURE)
+
+  // Ordering guarantee: every engine op serializes through the single FIFO
+  // (op-channel), and B's `engine/open` queued *behind* A's profile — so by
+  // the time B is ready, A's profile has already settled and its guarded
+  // delivery decision is final. Whatever the panel shows now is what it
+  // will keep showing: it must be the fresh panel for B, back at idle, with
+  // none of A's profile rendered.
+  const section = page.getByTestId('profile-section')
+  await expect(section).toHaveAttribute('data-state', 'idle')
+  expect(await page.getByTestId('profile-table-id').textContent()).not.toEqual(tableIdA)
+  await expect(page.getByTestId('profile-run')).toBeVisible() // the idle trigger is back
+  await expect(page.getByTestId('profile-rowcount')).toHaveCount(0) // A's result never rendered
+  await expect(page.getByTestId('profile-columns')).toHaveCount(0)
+  await expect(section).not.toContainText('Bar chart of top values in column country')
 })
 
 test('degrades STRUCT columns to kind other (no stats, no charts) and pins the nested fixture numeric stats', async ({

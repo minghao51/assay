@@ -29,12 +29,20 @@ import { scaleTopKBars } from './topk-bars'
  *   (user-triggered button) and the running state is a polite live region
  *   (`role="status"`) that says what is happening and why it may take a
  *   while (including the queued-behind-a-busy-engine case).
- * - **Guarded delivery.** The async tail reuses the SQL pane's generation
- *   guard (`RunGuard` + `runGuarded` — imported, not forked): a re-opened
- *   table invalidates the in-flight token (see the effect below), so a late
- *   profile of a *previous* table can never render. Honest limitation,
- *   identical to the SQL pane's cancel: the engine has no op interrupt, so
- *   the abandoned profile still occupies the FIFO until it completes.
+ * - **Guarded delivery (two layers, stated honestly).** Today's operative
+ *   mechanism is structural: App's phase machine unmounts the whole panel
+ *   composition during `ready → opening → ready`, so a re-open destroys
+ *   this component instance together with its in-flight promise tail — a
+ *   late profile of a *previous* table has nothing to render into. The
+ *   generation guard (`RunGuard` + `runGuarded` — the SQL pane's, imported
+ *   not forked) plus the handle-change effect below are the defensive
+ *   second layer: they are inert while the remount exists and become
+ *   operative only if the panel is ever kept mounted across re-opens (a
+ *   plausible refactor to avoid the grid remount). The re-open e2e in
+ *   tests/e2e/profile-panel.spec.ts pins the property under both
+ *   structures. Honest limitation, identical to the SQL pane's cancel: the
+ *   engine has no op interrupt, so the abandoned profile still occupies the
+ *   FIFO until it completes.
  * - **Charts are dependency-free SVG** built from Node-tested geometry
  *   modules: categorical top-k → horizontal bars scaled to the largest
  *   count (`topk-bars.ts`); numeric → a *quantile distribution* strip over
@@ -294,9 +302,13 @@ export function ProfilePanel({ handle }: ProfilePanelProps) {
   const lastTableId = useRef<string | null>(null)
 
   /**
-   * Re-open mid-profile: invalidate the in-flight run's generation token so
-   * the previous table's late profile result can never render (the guard
-   * discards it when it arrives), and drop any stale display. The abandoned
+   * Defensive second layer only: today the App phase machine unmounts this
+   * panel during `ready → opening → ready`, so while a profile is in flight
+   * this effect cannot fire — the remount is what actually protects (see
+   * the "Guarded delivery" note above). Should the panel ever be kept
+   * mounted across a re-open, a handle change invalidates the in-flight
+   * run's generation token (the guard then discards the previous table's
+   * late result when it arrives) and drops any stale display. The abandoned
    * op still occupies the engine FIFO until it completes — same honest
    * UI-level-abandonment semantics as the SQL pane's cancel (no op
    * interrupt exists; m2-7 territory).
