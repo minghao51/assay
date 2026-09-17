@@ -124,3 +124,14 @@ export interface DataProduct {
   datasets: Dataset[]
   contracts: Contract[]
 }
+
+/*
+ * Edit-operations model (m4-1; ADR 0012) — typed ops, logical row identity,
+ * overlay fold semantics with derived inverses, and the transformation
+ * history. Pure: no React, no browser APIs, no engine imports
+ * (docs/engineering/05-repository-structure.md §3, lint-enforced).
+ */
+export * from './edit-ops'
+export * from './history'
+export * from './overlay'
+export * from './row-identity'
