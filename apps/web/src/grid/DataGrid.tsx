@@ -1,8 +1,11 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties } from 'react'
 import type { GridViewportModel } from '@assay/grid'
 import { formatCell } from './format'
+import { nestedActionLabel, nestedActionVerb } from '../sql/nested-actions'
+import type { NestedAction } from '../sql/nested-actions'
+import { parseDuckDbType } from '../schema/parseType'
 import { nextSortSpec } from './query-state'
 
 /** Fixed row height for the DOM renderer (ADR 0022: renderer is replaceable). */
@@ -20,6 +23,12 @@ interface DataGridProps {
    * behind the `…`/`!` placeholders).
    */
   onOpenRecord?: (rowIndex: number) => void
+  /**
+   * m3-5: called when a nested column header's one-click affordance is
+   * activated (STRUCT header → flatten, LIST header → explode). The grid
+   * only emits the intent; composition + execution live in the SQL pane.
+   */
+  onNestedAction: (action: NestedAction) => void
 }
 
 /**
@@ -35,14 +44,41 @@ interface DataGridProps {
  * Command rejections (an engine failure mid-epoch) surface as a footer
  * alert — rendered as text only (ADR 0007 spirit; ADR 0025: nothing here
  * ever shows the file name).
+ *
+ * m3-5: every NESTED column header carries one action button mirroring the
+ * column's type — a STRUCT header flattens it, a LIST header explodes it.
+ * Entry-point rationale: header real estate is one `minmax(9rem, 1fr)` cell
+ * shared with the name and the sort toggle, so a *menu* would crowd it and
+ * hide the operation behind a second click; a single typed button per
+ * nested column is the whole affordance, and every nested column gets its
+ * operation without typing SQL. Path extraction is per-field by nature, so
+ * its single entry point is the schema tree — the only surface where each
+ * field is individually visible and addressable (the tree also declines to
+ * offer extract through list elements, which would need indices it does not
+ * carry).
  */
-export function DataGrid({ model, onOpenRecord }: DataGridProps) {
+export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
 
   const schema = model.schema ?? []
   const totalRows = model.totalRows ?? 0
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [commandError, setCommandError] = useState<string | null>(null)
+
+  /**
+   * m3-5: per-column one-click action, derived from the parsed DESCRIBE type
+   * (STRUCT → flatten, LIST → explode; primitives/maps get none — the
+   * parser is total, so unknown types simply offer nothing).
+   */
+  const headerActions = useMemo(() => {
+    const actions = new Map<string, NestedAction>()
+    for (const column of schema) {
+      const kind = parseDuckDbType(column.type).kind
+      if (kind === 'struct') actions.set(column.name, { kind: 'flatten', column: column.name })
+      if (kind === 'list') actions.set(column.name, { kind: 'explode', column: column.name })
+    }
+    return actions
+  }, [schema])
 
   const cycleSort = (columnName: string): void => {
     setCommandError(null)
@@ -109,6 +145,9 @@ export function DataGrid({ model, onOpenRecord }: DataGridProps) {
               sortDirection === null
                 ? `Sort by ${column.name}`
                 : `Sort by ${column.name} (currently ${sortDirection === 'asc' ? 'ascending' : 'descending'})`
+            const headerAction = headerActions.get(column.name)
+            const headerActionLabel =
+              headerAction === undefined ? '' : nestedActionLabel(headerAction)
             return (
               <div
                 key={column.name}
@@ -138,6 +177,22 @@ export function DataGrid({ model, onOpenRecord }: DataGridProps) {
                     {sortDirection === 'asc' ? '▲' : sortDirection === 'desc' ? '▼' : '↕'}
                   </span>
                 </button>
+                {headerAction !== undefined && (
+                  <button
+                    type="button"
+                    className="grid-nested-action"
+                    data-testid="grid-header-nested-action"
+                    data-col-name={column.name}
+                    data-grid-action={headerAction.kind}
+                    aria-label={headerActionLabel}
+                    title={headerActionLabel}
+                    onClick={() => {
+                      onNestedAction(headerAction)
+                    }}
+                  >
+                    {nestedActionVerb(headerAction)}
+                  </button>
+                )}
               </div>
             )
           })}

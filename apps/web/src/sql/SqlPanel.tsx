@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { viewNameForTableId } from '@assay/engine-duckdb'
 import { formatCell } from '../grid/format'
@@ -39,11 +39,26 @@ import { runGuarded } from './guarded-run'
  *   already displayed by the app shell) and the SQL-facing view name
  *   (`"assay_t1"`, via the engine export `viewNameForTableId`) that raw
  *   queries must use.
+ * - m3-5: composed one-click SQL arrives via `runRequest` (from the
+ *   schema-tree / grid-header nested actions). The pane fills the editor
+ *   with the exact composed statement — the user always sees what ran — and
+ *   executes it through the same guarded path as a manual Run. A new request
+ *   supersedes an in-flight run (`RunGuard.begin`), so the last action wins;
+ *   paging then pages the composed statement like any manually run one.
  */
+
+/** One composed SQL execution request from outside the pane (m3-5 actions). */
+export interface SqlRunRequest {
+  readonly sql: string
+  /** Monotonic per-app counter; the pane runs a request when `seq` advances. */
+  readonly seq: number
+}
 
 interface SqlPanelProps {
   /** Engine-generated id of the opened table (safe to show and query). */
   readonly tableId: string
+  /** Latest external run request, or `null` while there is none. */
+  readonly runRequest: SqlRunRequest | null
 }
 
 /** Run lifecycle of the pane (shown as the section's `data-state`). */
@@ -67,7 +82,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function SqlPanel({ tableId }: SqlPanelProps) {
+export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
   const sqlTable = viewNameForTableId(tableId)
   const [draft, setDraft] = useState('')
   const [runState, setRunState] = useState<RunState>({ kind: 'idle' })
@@ -116,6 +131,23 @@ export function SqlPanel({ tableId }: SqlPanelProps) {
     if (running) return
     execute(draft, 0) // a fresh Run always starts at the first page
   }
+
+  /**
+   * m3-5: run a composed external request when its `seq` advances. The
+   * editor first shows the exact SQL (honesty: what ran is visible), then
+   * the shared guarded execution path runs it — a request supersedes any
+   * in-flight run, and engine errors surface like any other run's.
+   * (`executeRef` is the latest-closure pattern: `execute` touches only
+   * state setters and refs, so the effect can safely invoke the newest
+   * closure.)
+   */
+  const executeRef = useRef(execute)
+  executeRef.current = execute
+  useEffect(() => {
+    if (runRequest === null) return
+    setDraft(runRequest.sql)
+    executeRef.current(runRequest.sql, 0)
+  }, [runRequest])
 
   const cancel = (): void => {
     if (!running) return

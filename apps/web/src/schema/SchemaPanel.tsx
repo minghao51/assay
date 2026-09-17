@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react'
 import type { ColumnSchema } from '@assay/grid'
+import { nestedActionLabel, nestedActionVerb } from '../sql/nested-actions'
+import type { NestedAction } from '../sql/nested-actions'
 import type { DuckDbType } from './parseType'
 import { formatDuckDbType, parseDuckDbType } from './parseType'
 
@@ -11,10 +13,72 @@ import { formatDuckDbType, parseDuckDbType } from './parseType'
  * 0025). Accessibility follows the disclosure pattern (risk R8): native
  * `<button>` toggles with `aria-expanded`/`aria-controls`, nested lists, no
  * custom key handling needed.
+ *
+ * m3-5: nested nodes carry one-click actions — a STRUCT column root offers
+ * **Flatten**, a LIST column root offers **Explode**, and every field reached
+ * through structs only offers **Extract path** of its full dotted path. The
+ * panel only emits the *intent* (`NestedAction`); composition happens in
+ * `sql/nested-actions.ts` and execution in the m2-4 SQL pane. Actions are
+ * native buttons (keyboard reachable) with full accessible names.
  */
 
 interface SchemaPanelProps {
   readonly columns: readonly ColumnSchema[]
+  /** Called with a node's action intent; the caller composes + runs the SQL. */
+  readonly onAction: (action: NestedAction) => void
+}
+
+/**
+ * The one-click action a node offers, if any (m3-5). Column roots act on the
+ * whole column (STRUCT → flatten, LIST → explode); field nodes extract their
+ * dotted path — but only when the chain from the column root traversed
+ * structs alone: the tree has no list indices, so an extract *through* a list
+ * element (e.g. the fields of `events`, a `STRUCT(…)[]` column) would compose
+ * SQL the engine must reject, and those nodes offer no action instead.
+ *
+ * A column root is the single-segment node that is NOT a list element
+ * continuation: a list root renders its element type under the SAME segment
+ * list (`viaList` lifts it out — without that check, a list-of-struct root
+ * would re-offer flatten on its own element).
+ */
+function nodeActionFor(
+  node: DuckDbType,
+  segments: readonly string[],
+  viaList: boolean,
+): NestedAction | null {
+  if (segments.length === 1 && !viaList) {
+    const column = segments[0] ?? ''
+    if (node.kind === 'struct') return { kind: 'flatten', column }
+    if (node.kind === 'list') return { kind: 'explode', column }
+    return null
+  }
+  return viaList ? null : { kind: 'extract', path: segments }
+}
+
+/** The trailing one-click action button of a tree node (native button, named). */
+function NodeActionButton({
+  action,
+  onAction,
+}: {
+  readonly action: NestedAction
+  readonly onAction: (action: NestedAction) => void
+}) {
+  const label = nestedActionLabel(action)
+  return (
+    <button
+      type="button"
+      className="schema-node-action"
+      data-testid="schema-node-action"
+      data-schema-action={action.kind}
+      aria-label={label}
+      title={label}
+      onClick={() => {
+        onAction(action)
+      }}
+    >
+      {nestedActionVerb(action)}
+    </button>
+  )
 }
 
 /** Expansion state: a set of node paths (e.g. `payload/geo`); everything is collapsed by default. */
@@ -26,8 +90,13 @@ interface TypeNodeProps {
   readonly node: DuckDbType
   /** Unique path from the column root, used as expansion key and DOM id seed. */
   readonly path: string
+  /** Field-name segments from the column root to this node (m3-5 action inputs). */
+  readonly segments: readonly string[]
+  /** Whether the chain root→node passed through a list element (blocks extract). */
+  readonly viaList: boolean
   readonly expanded: ExpandedPaths
   readonly onToggle: (path: string) => void
+  readonly onAction: (action: NestedAction) => void
 }
 
 /** DOM-id-safe form of a node path (column names can contain any characters). */
@@ -49,7 +118,19 @@ function TypeBadge({ node }: { node: Extract<DuckDbType, { kind: 'primitive' | '
   )
 }
 
-function TypeNode({ name, node, path, expanded, onToggle }: TypeNodeProps) {
+function TypeNode({
+  name,
+  node,
+  path,
+  segments,
+  viaList,
+  expanded,
+  onToggle,
+  onAction,
+}: TypeNodeProps) {
+  const action = nodeActionFor(node, segments, viaList)
+  const actionButton =
+    action === null ? null : <NodeActionButton action={action} onAction={onAction} />
   const nameSpan =
     name === '' ? null : (
       <span data-testid="schema-name" className="schema-name">
@@ -64,6 +145,7 @@ function TypeNode({ name, node, path, expanded, onToggle }: TypeNodeProps) {
         <span className="schema-leaf" data-testid="schema-leaf">
           {nameSpan}
           <TypeBadge node={node} />
+          {actionButton}
         </span>
       )
     case 'list': {
@@ -76,10 +158,14 @@ function TypeNode({ name, node, path, expanded, onToggle }: TypeNodeProps) {
             node={node.element}
             name=""
             path={path}
+            segments={segments}
+            viaList={true}
             expanded={expanded}
             onToggle={onToggle}
+            onAction={onAction}
           />
           <span className="schema-dims">{node.dimensions === '' ? '[]' : node.dimensions}</span>
+          {actionButton}
         </span>
       )
     }
@@ -96,6 +182,7 @@ function TypeNode({ name, node, path, expanded, onToggle }: TypeNodeProps) {
           >
             {formatDuckDbType(node)}
           </span>
+          {actionButton}
         </span>
       )
     case 'struct':
@@ -127,6 +214,7 @@ function TypeNode({ name, node, path, expanded, onToggle }: TypeNodeProps) {
               {keyword}
             </span>
           </button>
+          {actionButton}
           {open && (
             <ul id={detailId} className="schema-fields" data-testid="schema-struct-fields">
               {node.fields.map((field) => (
@@ -140,8 +228,11 @@ function TypeNode({ name, node, path, expanded, onToggle }: TypeNodeProps) {
                     node={field.type}
                     name={field.name}
                     path={`${path}/${field.name}`}
+                    segments={[...segments, field.name]}
+                    viaList={viaList}
                     expanded={expanded}
                     onToggle={onToggle}
+                    onAction={onAction}
                   />
                 </li>
               ))}
@@ -158,7 +249,7 @@ function TypeNode({ name, node, path, expanded, onToggle }: TypeNodeProps) {
  * it without losing expansion state. Expansion state is a flat path set —
  * collapsing an ancestor keeps descendants' paths valid for re-expansion.
  */
-export function SchemaPanel({ columns }: SchemaPanelProps) {
+export function SchemaPanel({ columns, onAction }: SchemaPanelProps) {
   const [open, setOpen] = useState(true)
   const [expanded, setExpanded] = useState<ExpandedPaths>(() => new Set<string>())
 
@@ -216,8 +307,11 @@ export function SchemaPanel({ columns }: SchemaPanelProps) {
                   node={parseDuckDbType(column.type)}
                   name={column.name}
                   path={column.name}
+                  segments={[column.name]}
+                  viaList={false}
                   expanded={expanded}
                   onToggle={toggle}
+                  onAction={onAction}
                 />
               </li>
             ))}

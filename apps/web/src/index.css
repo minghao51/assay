@@ -329,6 +329,34 @@ h1 {
   flex-wrap: wrap;
 }
 
+/* ---- One-click nested actions (m3-5): schema-tree node buttons ---- */
+
+.schema-node-action,
+.grid-nested-action {
+  flex: none;
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  background: #e7eef7;
+  border: 1px solid #b9c6d4;
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
+  margin-left: 0.35rem;
+  cursor: pointer;
+  color: #23364d;
+}
+
+.schema-node-action:hover,
+.grid-nested-action:hover {
+  background: #d8e4f0;
+}
+
+/* Readable alert for a nested action that cannot compose (m3-5) — text only. */
+.nested-action-error {
+  margin: 0.5rem 0 0;
+  color: #b00020;
+}
+
 /* ---- Column-header sort toggle (m2-3) ---- */
 
 .grid-header-cell {
