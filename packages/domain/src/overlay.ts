@@ -149,7 +149,7 @@ export type NoOpReason =
   | 'cell-already-base'
   /** `row-delete` on an already-tombstoned row. */
   | 'row-already-deleted'
-  /** `row-restore` on a live row, or a byte-identical duplicate `row-insert` (benign replay). */
+  /** `row-restore` on a live row, or a value-identical duplicate `row-insert` (position is not compared — benign replay). */
   | 'row-already-present'
   /** `column-rename` onto its own current name. */
   | 'rename-identity'
