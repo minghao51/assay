@@ -1,0 +1,5 @@
+---
+'@assay/web': patch
+---
+
+test(m4-0): close the M3 reviewer carry-overs on the web side. The m3-5 compose-failure alert render is now pinned by a component test (`apps/web/src/App.test.tsx`) that renders the real app composition root in a per-file `@vitest-environment happy-dom` scope — only the picker/engine boundaries are faked — asserting that a degenerate schema (fixed-size array column) surfaces the composer's exact reason as `role="alert"`, a subsequent successful action clears the prior error, and a fresh failure re-renders a new alert; new dev-only dependencies `happy-dom` + `@testing-library/react` (both MIT, AGPL-compatible). The `DataGrid` `onOpenRecord` prop comment no longer claims a readiness no-op the grid doesn't perform — the grid emits open gestures for any rendered row, and `RecordInspector`'s open effect is documented as the readiness guard's home. `readGridStats` is deduped into `tests/e2e/support/grid-stats.ts` (full-snapshot reader plus a typed `{fetches, cached}` projection); the three consuming specs keep identical assertions. No product behavior changed.

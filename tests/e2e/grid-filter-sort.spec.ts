@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { readGridStats } from './support/grid-stats'
 
 // Task m2-3 proof (handoff §6): the web filter/sort UI over the full stack —
 // header sort toggle → GridViewportModel.setSort → DuckDbGridProvider → the
@@ -80,22 +81,6 @@ function expectCustomerOrder(page: Page, ids: string[]): Promise<void> {
       '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(1)',
     ),
   ).toHaveText(ids)
-}
-
-interface GridStatsSnapshot {
-  readonly fetches: number
-  readonly requested: number
-  readonly maxSpan: number
-}
-
-async function readGridStats(page: Page): Promise<GridStatsSnapshot> {
-  const text = await page.getByTestId('grid-stats').innerText()
-  const field = (key: string): number => {
-    const match = text.match(new RegExp(`${key}=(\\d+)`))
-    if (match === null) throw new Error(`grid stats missing "${key}": ${text}`)
-    return Number(match[1])
-  }
-  return { fetches: field('fetches'), requested: field('requested'), maxSpan: field('maxSpan') }
 }
 
 /** Type a predicate into one column's filter input and press Apply. */

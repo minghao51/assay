@@ -6,6 +6,7 @@ import {
   MILLION_ROW_COUNT,
   millionFixturePath,
 } from './support/million-fixture'
+import { readGridStats } from './support/grid-stats'
 
 // Task M1-5 proof (handoff §6 #5): a 1M-row dataset scrolls smoothly in a
 // virtualized DOM grid, and the grid never materializes the dataset. The app
@@ -37,14 +38,6 @@ const MAX_CUMULATIVE_FETCHED_ROWS = 25_000
 const MAX_SPAN_ROWS = 1000
 
 const FIXTURE_PATH = millionFixturePath()
-
-interface GridStatsSnapshot {
-  readonly fetchCalls: number
-  readonly rowsRequested: number
-  readonly rowsReceived: number
-  readonly maxSpanRows: number
-  readonly cachedRows: number
-}
 
 /** Test-only rAF recorder installed in the page (no `any`: typed seam). */
 interface FrameRecorder {
@@ -110,22 +103,6 @@ async function expectKnownRow(page: Page, rowIndex: number): Promise<void> {
     expected.label,
     expected.valueMaybeNull,
   ])
-}
-
-async function readGridStats(page: Page): Promise<GridStatsSnapshot> {
-  const text = await page.getByTestId('grid-stats').innerText()
-  const field = (key: string): number => {
-    const match = text.match(new RegExp(`${key}=(\\d+)`))
-    if (match === null) throw new Error(`grid stats missing "${key}": ${text}`)
-    return Number(match[1])
-  }
-  return {
-    fetchCalls: field('fetches'),
-    rowsRequested: field('requested'),
-    rowsReceived: field('received'),
-    maxSpanRows: field('maxSpan'),
-    cachedRows: field('cached'),
-  }
 }
 
 test('opens the 1M-row fixture and renders exact known rows at several scroll offsets', async ({
@@ -211,19 +188,19 @@ test('DOM rows stay bounded, fetching stays windowed, and scroll frames stay smo
     .evaluate((el) => el.scrollTop)
   expect(scrollTopAfterBursts).toBeGreaterThan(scrollTopBeforeBursts)
   const stats = await readGridStats(page)
-  expect(stats.fetchCalls).toBeGreaterThan(fetchesBeforeBursts.fetchCalls)
+  expect(stats.fetches).toBeGreaterThan(fetchesBeforeBursts.fetches)
 
   // 2. Virtualization bound held for the whole session (asserted per stop).
   // 3. Never-materializes: cumulative provider-path fetching is far below the
   // dataset; no request ever exceeded the bounded span cap; UI row state is
   // bounded by the model's LRU cap (10_000), never the dataset size.
-  expect(stats.rowsRequested).toBeLessThan(MAX_CUMULATIVE_FETCHED_ROWS)
-  expect(stats.maxSpanRows).toBeLessThanOrEqual(MAX_SPAN_ROWS)
-  expect(stats.cachedRows).toBeLessThanOrEqual(10_000)
+  expect(stats.requested).toBeLessThan(MAX_CUMULATIVE_FETCHED_ROWS)
+  expect(stats.maxSpan).toBeLessThanOrEqual(MAX_SPAN_ROWS)
+  expect(stats.cached).toBeLessThanOrEqual(10_000)
   const statsLine =
-    `[m1-5 fetch stats] fetchCalls=${String(stats.fetchCalls)} rowsRequested=${String(stats.rowsRequested)} ` +
-    `rowsReceived=${String(stats.rowsReceived)} maxSpanRows=${String(stats.maxSpanRows)} cachedRows=${String(stats.cachedRows)} ` +
-    `(dataset=${String(MILLION_ROW_COUNT)} rows; requested = ${(100 * stats.rowsRequested) / MILLION_ROW_COUNT}% of the dataset)`
+    `[m1-5 fetch stats] fetchCalls=${String(stats.fetches)} rowsRequested=${String(stats.requested)} ` +
+    `rowsReceived=${String(stats.received)} maxSpanRows=${String(stats.maxSpan)} cachedRows=${String(stats.cached)} ` +
+    `(dataset=${String(MILLION_ROW_COUNT)} rows; requested = ${(100 * stats.requested) / MILLION_ROW_COUNT}% of the dataset)`
   console.log(statsLine)
 
   // Cache/dedup: revisiting row 0 (still cached — the session touched ≪ the
@@ -232,8 +209,8 @@ test('DOM rows stay bounded, fetching stays windowed, and scroll frames stay smo
   await scrollToRow(page, 0)
   await expectKnownRow(page, 0)
   const afterRevisit = await readGridStats(page)
-  expect(afterRevisit.fetchCalls).toBe(beforeRevisit.fetchCalls)
-  expect(afterRevisit.rowsRequested).toBe(beforeRevisit.rowsRequested)
+  expect(afterRevisit.fetches).toBe(beforeRevisit.fetches)
+  expect(afterRevisit.requested).toBe(beforeRevisit.requested)
 
   // 4. Smoothness sanity signal (deterministic assertions above are primary).
   const deltas = await page.evaluate(() => {

@@ -18,9 +18,11 @@ interface DataGridProps {
   /**
    * m3-3 record inspector affordance: called with the row index when the user
    * clicks a row or presses Enter on a focused row. Omitted = rows are inert
-   * (plain render surface). Non-ready rows deliberately no-op: the inspector
-   * opens only from a `ready` row (there is no record to show honestly
-   * behind the `…`/`!` placeholders).
+   * (plain render surface). The grid emits the gesture for ANY rendered row,
+   * ready or not (comment corrected m4-0: it never filtered non-ready rows
+   * itself) — declining non-ready rows is the record inspector's job (its
+   * open effect is the readiness guard's home: there is no record to show
+   * honestly behind the `…`/`!` placeholders).
    */
   onOpenRecord?: (rowIndex: number) => void
   /**

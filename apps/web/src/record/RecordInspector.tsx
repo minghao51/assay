@@ -209,8 +209,10 @@ export function RecordInspector({ model, request, onClosed }: RecordInspectorPro
   }, [])
 
   // Open: a new gesture reads the row synchronously from the model cache.
-  // Non-ready rows (loading/error/out-of-range) deliberately do not open —
-  // there is no record to show honestly; the grid marks them `…`/`!`.
+  // This effect is the readiness guard's home (m4-0 comment fix): the grid
+  // emits open gestures for ANY rendered row, and HERE non-ready rows
+  // (loading/error/out-of-range) deliberately do not open — there is no
+  // record to show honestly; the grid marks them `…`/`!`.
   useEffect(() => {
     if (request === null) return
     const slot = model.getRow(request.rowIndex)

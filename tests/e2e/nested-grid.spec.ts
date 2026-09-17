@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import path from 'node:path'
+import { readGridFetchCache } from './support/grid-stats'
 
 // Task m3-2 (handoff §6): nested cell previews in the grid. Opens the
 // committed `fixtures/jsonl/nested.jsonl` golden fixture (m3-1) through the
@@ -165,17 +166,6 @@ test('overflow stays a CSS concern; cells carry no title tooltips (m3-2 policy)'
   expect(titles).toBe(0)
 })
 
-/** Parse the footer's per-epoch counters (`fetches=N requested=N … cached=N`). */
-async function readGridStats(page: Page): Promise<Record<'fetches' | 'cached', number>> {
-  const text = await page.getByTestId('grid-stats').innerText()
-  const field = (key: string): number => {
-    const match = text.match(new RegExp(`${key}=(\\d+)`))
-    if (match === null) throw new Error(`grid stats missing "${key}": ${text}`)
-    return Number(match[1])
-  }
-  return { fetches: field('fetches'), cached: field('cached') }
-}
-
 async function scrollToTop(page: Page): Promise<void> {
   await page.evaluate(() => {
     const viewport = document.querySelector('[data-testid="grid-viewport"]')
@@ -201,7 +191,7 @@ test('previews are deterministic across a genuine provider refetch (sort-epoch r
   await openNestedFixture(page)
   const row1 = page.locator('[data-testid="grid-row"][data-row-index="0"]')
   await expect(row1.getByTestId('grid-cell')).toHaveText(ROW_ID_1)
-  const statsAtOpen = await readGridStats(page)
+  const statsAtOpen = await readGridFetchCache(page)
   expect(statsAtOpen.fetches).toBeGreaterThanOrEqual(1)
 
   // Control: on a 12-row dataset a scroll tour can only ever be served from
@@ -216,7 +206,7 @@ test('previews are deterministic across a genuine provider refetch (sort-epoch r
     'ready',
   )
   await scrollToTop(page)
-  const statsAfterTour = await readGridStats(page)
+  const statsAfterTour = await readGridFetchCache(page)
   expect(statsAfterTour.fetches).toBe(statsAtOpen.fetches)
 
   // The genuine refetch: sort by `id` ascending — DuckDB returns the fixture's
@@ -227,7 +217,7 @@ test('previews are deterministic across a genuine provider refetch (sort-epoch r
   await idSort.click()
   await expect(idSort).toHaveAttribute('data-sort', 'asc') // setSort accepted → refresh() ran
   await expect(row1.getByTestId('grid-cell')).toHaveText(ROW_ID_1)
-  const statsAfterEpoch = await readGridStats(page)
+  const statsAfterEpoch = await readGridFetchCache(page)
   // Counters reset with the epoch (pinned unit behavior), so ≥ 1 here is a
   // fresh `fetchRange` — the row-0 page on screen was re-fetched, not cached.
   expect(statsAfterEpoch.fetches).toBeGreaterThanOrEqual(1)
