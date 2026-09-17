@@ -12,6 +12,14 @@ const VIRTUALIZER_OVERSCAN_ROWS = 6
 
 interface DataGridProps {
   model: GridViewportModel
+  /**
+   * m3-3 record inspector affordance: called with the row index when the user
+   * clicks a row or presses Enter on a focused row. Omitted = rows are inert
+   * (plain render surface). Non-ready rows deliberately no-op: the inspector
+   * opens only from a `ready` row (there is no record to show honestly
+   * behind the `…`/`!` placeholders).
+   */
+  onOpenRecord?: (rowIndex: number) => void
 }
 
 /**
@@ -28,7 +36,7 @@ interface DataGridProps {
  * alert — rendered as text only (ADR 0007 spirit; ADR 0025: nothing here
  * ever shows the file name).
  */
-export function DataGrid({ model }: DataGridProps) {
+export function DataGrid({ model, onOpenRecord }: DataGridProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
 
   const schema = model.schema ?? []
@@ -148,11 +156,39 @@ export function DataGrid({ model }: DataGridProps) {
                 key={item.key}
                 role="row"
                 aria-rowindex={item.index + 2} // + header row (1-based)
-                className={`grid-row grid-row-${status}`}
+                className={`grid-row grid-row-${status}${
+                  onOpenRecord === undefined ? '' : ' grid-row-openable'
+                }`}
                 data-testid="grid-row"
                 data-row-index={item.index}
                 data-status={status}
                 title={status === 'error' ? slot.message : undefined}
+                tabIndex={onOpenRecord === undefined ? undefined : 0}
+                onClick={
+                  onOpenRecord === undefined
+                    ? undefined
+                    : () => {
+                        onOpenRecord(item.index)
+                      }
+                }
+                onKeyDown={
+                  onOpenRecord === undefined
+                    ? undefined
+                    : (event) => {
+                        // Enter on a focused row opens the record inspector
+                        // (plain Enter only — modifier combos stay free for
+                        // user-agent/browser conventions).
+                        if (
+                          event.key === 'Enter' &&
+                          !event.shiftKey &&
+                          !event.ctrlKey &&
+                          !event.altKey &&
+                          !event.metaKey
+                        ) {
+                          onOpenRecord(item.index)
+                        }
+                      }
+                }
                 style={{
                   ...rowStyle,
                   height: item.size,

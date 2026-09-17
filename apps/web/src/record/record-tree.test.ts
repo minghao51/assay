@@ -1,0 +1,324 @@
+import { describe, expect, it } from 'vitest'
+import { formatNestedPreview } from '../grid/nested-preview'
+import { buildRecordTree, collectBranchPaths } from './record-tree'
+import type { RecordTreeNode } from './record-tree'
+
+/**
+ * m3-3 unit tests for the record tree model. The pinned fixture expectations
+ * mirror the m3-1 worker-boundary contract (@assay/testing's
+ * `normalizeArrowCell` scenarios over `fixtures/jsonl/nested.jsonl`): structs
+ * arrive as records in field order, lists as arrays / `{length, get}` slices,
+ * 64-bit integers as bigint, timestamps as epoch-ms numbers, NULL as `null`.
+ */
+
+/** Child keys of a node, in order. */
+function keysOf(node: RecordTreeNode): string[] {
+  return node.children.map((child) => child.key)
+}
+
+/** Finds one child by key (tests address nodes by delivered key). */
+function child(node: RecordTreeNode, key: string): RecordTreeNode {
+  const found = node.children.find((candidate) => candidate.key === key)
+  if (found === undefined) throw new Error(`no child keyed ${key}`)
+  return found
+}
+
+/** A grid row shaped like nested.jsonl row id 1 through the Arrow boundary. */
+function rowId1(): { columns: string[]; cells: unknown[] } {
+  return {
+    columns: [
+      'id',
+      'kind',
+      'label',
+      'score',
+      'deep',
+      'meta',
+      'tags',
+      'events',
+      'hole',
+      'weird "quoted" key',
+    ],
+    cells: [
+      1n,
+      'alpha',
+      'plain alpha row',
+      10n,
+      { a: { b: { c: 1n } } },
+      { src: 'sensor-a', ver: 1n },
+      ['x', 'y'],
+      [
+        { at: 1740823200000, ok: true },
+        { at: 1740823500000, ok: false },
+      ],
+      null,
+      1n,
+    ],
+  }
+}
+
+describe('buildRecordTree — shape and ordering', () => {
+  it('keys root children by schema column order, not cell or alphabetic order', () => {
+    const tree = buildRecordTree({ columns: ['z', 'm', 'a'], cells: [1n, 2n, 3n] })
+    expect(tree.kind).toBe('object')
+    expect(keysOf(tree)).toEqual(['z', 'm', 'a'])
+  })
+
+  it('classifies structs as objects in the delivered own-key order (never re-sorted)', () => {
+    const tree = buildRecordTree({ columns: ['meta'], cells: [{ ver: 1n, src: 's' }] })
+    const meta = child(tree, 'meta')
+    expect(meta.kind).toBe('object')
+    expect(keysOf(meta)).toEqual(['ver', 'src']) // delivered order, not alphabetical
+  })
+
+  it('classifies arrays and Arrow list slices as arrays with positional keys', () => {
+    const plain = buildRecordTree({ columns: ['tags'], cells: [['x', 'y']] })
+    const tags = child(plain, 'tags')
+    expect(tags.kind).toBe('array')
+    expect(keysOf(tags)).toEqual(['0', '1'])
+    // The Arrow slice shape: numeric length + positional get.
+    const slice = { length: 2, get: (index: number) => ['x', 'y'][index] }
+    const viaSlice = buildRecordTree({ columns: ['tags'], cells: [slice] })
+    expect(child(viaSlice, 'tags').kind).toBe('array')
+    expect(keysOf(child(viaSlice, 'tags'))).toEqual(['0', '1'])
+    expect(child(child(viaSlice, 'tags'), '1').summary).toBe('"y"')
+  })
+
+  it('traverses sparse arrays positionally — holes surface as undefined leaves', () => {
+    const sparse: string[] = ['x']
+    sparse[2] = 'z'
+    const tree = buildRecordTree({ columns: ['tags'], cells: [sparse] })
+    const tags = child(tree, 'tags')
+    expect(keysOf(tags)).toEqual(['0', '1', '2'])
+    expect(child(tags, '1')).toMatchObject({ kind: 'leaf', summary: 'undefined' })
+  })
+
+  it('keeps duplicate column names as two children (keys are data, not identity)', () => {
+    const tree = buildRecordTree({ columns: ['id', 'id'], cells: [1n, 2n] })
+    expect(keysOf(tree)).toEqual(['id', 'id'])
+    expect(tree.children.map((node) => node.summary)).toEqual(['1', '2'])
+  })
+
+  it('ignores extra cells beyond the schema (unnamed data cannot render honestly)', () => {
+    const tree = buildRecordTree({ columns: ['id'], cells: [1n, 'surplus'] })
+    expect(keysOf(tree)).toEqual(['id'])
+  })
+
+  it('renders an empty row as an empty root', () => {
+    expect(buildRecordTree({ columns: [], cells: [] }).children).toEqual([])
+  })
+})
+
+describe('buildRecordTree — honest value distinctions (nested.jsonl contract)', () => {
+  it('distinguishes NULL vs empty string vs empty list vs empty object', () => {
+    const tree = buildRecordTree({
+      columns: ['n', 's', 'l', 'o'],
+      cells: [null, '', [], {}],
+    })
+    expect(child(tree, 'n')).toMatchObject({ kind: 'null', summary: 'null', children: [] })
+    expect(child(tree, 's')).toMatchObject({ kind: 'leaf', summary: '""', children: [] })
+    expect(child(tree, 'l')).toMatchObject({ kind: 'array', summary: '[]', children: [] })
+    expect(child(tree, 'o')).toMatchObject({ kind: 'object', summary: '{}', children: [] })
+  })
+
+  it('renders 64-bit integers as number-strings (bigint cells)', () => {
+    const tree = buildRecordTree({ columns: ['id', 'score'], cells: [1n, -9n] })
+    expect(child(tree, 'id')).toMatchObject({ kind: 'leaf', summary: '1' })
+    expect(child(tree, 'score')).toMatchObject({ kind: 'leaf', summary: '-9' })
+  })
+
+  it('renders epoch-ms timestamps as plain numbers (m3-1 worker-boundary contract)', () => {
+    const tree = buildRecordTree({
+      columns: ['events'],
+      cells: [[{ at: 1740823200000, ok: true }]],
+    })
+    const at = child(child(child(tree, 'events'), '0'), 'at')
+    expect(at).toMatchObject({ kind: 'leaf', summary: '1740823200000' })
+  })
+
+  it('summarizes binary views as byte counts, never a byte dump', () => {
+    const tree = buildRecordTree({ columns: ['blob'], cells: [new Uint8Array([1, 2, 3])] })
+    expect(child(tree, 'blob')).toMatchObject({ kind: 'leaf', summary: '<3 bytes>' })
+  })
+
+  it('renders Dates as quoted ISO leaves (defensive: the transport does not deliver them)', () => {
+    const tree = buildRecordTree({ columns: ['when'], cells: [new Date('2025-03-01T10:00:00Z')] })
+    expect(child(tree, 'when')).toMatchObject({
+      kind: 'leaf',
+      summary: '"2025-03-01T10:00:00.000Z"',
+    })
+  })
+
+  it('keeps undefined (missing cell) a leaf distinct from null', () => {
+    const tree = buildRecordTree({ columns: ['x'], cells: [] })
+    expect(child(tree, 'x')).toMatchObject({ kind: 'leaf', summary: 'undefined' })
+  })
+})
+
+describe('buildRecordTree — full depth beyond the preview cap', () => {
+  it('carries depth-3+ leaves the capped preview elides', () => {
+    const tree = buildRecordTree(rowId1())
+    const c = child(child(child(child(tree, 'deep'), 'a'), 'b'), 'c')
+    expect(c).toMatchObject({ kind: 'leaf', summary: '1' })
+    // The summary of `deep` is still the capped preview (bounded collapse view).
+    expect(child(tree, 'deep').summary).toBe('{"a":{"b":{"c":…}}}')
+  })
+
+  it('renders the quoting-hostile key verbatim as data', () => {
+    const tree = buildRecordTree(rowId1())
+    expect(keysOf(tree)[9]).toBe('weird "quoted" key')
+    expect(child(tree, 'weird "quoted" key')).toMatchObject({ kind: 'leaf', summary: '1' })
+  })
+
+  it('preserves NULLs at depth: NULL struct field, NULL leaf, NULL list element, NULL element', () => {
+    const tree = buildRecordTree({
+      columns: ['deep', 'meta', 'tags', 'events'],
+      cells: [
+        { a: { b: { c: null } } },
+        { src: null, ver: 3n },
+        ['x', null, 'z'],
+        [{ at: null, ok: true }, null],
+      ],
+    })
+    expect(child(child(child(child(tree, 'deep'), 'a'), 'b'), 'c')).toMatchObject({
+      kind: 'null',
+      summary: 'null',
+    })
+    expect(child(child(tree, 'meta'), 'src')).toMatchObject({ kind: 'null', summary: 'null' })
+    expect(child(child(tree, 'tags'), '1')).toMatchObject({ kind: 'null', summary: 'null' })
+    expect(child(child(child(tree, 'events'), '0'), 'at')).toMatchObject({
+      kind: 'null',
+      summary: 'null',
+    })
+    expect(child(tree, 'events').children[1]).toMatchObject({ kind: 'null', children: [] })
+  })
+
+  it('classifies whole-NULL containers as null nodes without children', () => {
+    const tree = buildRecordTree({ columns: ['deep', 'tags'], cells: [null, null] })
+    expect(child(tree, 'deep')).toMatchObject({ kind: 'null', summary: 'null', children: [] })
+    expect(child(tree, 'tags')).toMatchObject({ kind: 'null', summary: 'null', children: [] })
+  })
+})
+
+describe('buildRecordTree — totality under hostile input', () => {
+  it('never throws on a cyclic value: the re-entered container becomes a marked leaf', () => {
+    const hostile: Record<string, unknown> = { name: 'loop' }
+    hostile['self'] = hostile
+    const tree = buildRecordTree({ columns: ['hostile'], cells: [hostile] })
+    const node = child(tree, 'hostile')
+    expect(node.kind).toBe('object')
+    expect(child(node, 'self')).toMatchObject({ kind: 'leaf', summary: '(circular)', children: [] })
+  })
+
+  it('degrades one throwing getter to a marked leaf without sinking its siblings', () => {
+    const hostile = {
+      get boom(): string {
+        throw new Error('hostile getter')
+      },
+      fine: 'ok',
+    }
+    const tree = buildRecordTree({ columns: ['hostile'], cells: [hostile] })
+    const node = child(tree, 'hostile')
+    expect(keysOf(node)).toEqual(['boom', 'fine'])
+    expect(child(node, 'boom')).toMatchObject({ kind: 'leaf', summary: '(unreadable)' })
+    expect(child(node, 'fine')).toMatchObject({ kind: 'leaf', summary: '"ok"' })
+  })
+
+  it('survives a list whose positional getter throws', () => {
+    const hostileSlice = {
+      length: 2,
+      get(index: number): unknown {
+        if (index === 1) throw new Error('hostile get')
+        return 'x'
+      },
+    }
+    const tree = buildRecordTree({ columns: ['tags'], cells: [hostileSlice] })
+    const tags = child(tree, 'tags')
+    expect(tags.kind).toBe('array')
+    expect(child(tags, '0').summary).toBe('"x"')
+    expect(child(tags, '1')).toMatchObject({ kind: 'leaf', summary: '(unreadable)' })
+  })
+
+  it('survives a proxy whose ownKeys trap throws', () => {
+    const proxy = new Proxy(
+      {},
+      {
+        ownKeys(): readonly string[] {
+          throw new Error('hostile ownKeys')
+        },
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          return { configurable: true, enumerable: true }
+        },
+        get(): unknown {
+          return 1n
+        },
+      },
+    )
+    const tree = buildRecordTree({ columns: ['p'], cells: [proxy] })
+    expect(child(tree, 'p')).toMatchObject({ kind: 'leaf', summary: '(unreadable)', children: [] })
+  })
+
+  it('is total across a seeded sweep of hostile shapes', () => {
+    const shapes: unknown[] = [
+      undefined,
+      null,
+      NaN,
+      Infinity,
+      -0,
+      2n ** 64n,
+      '',
+      new Map([[1, 2]]),
+      new Set([1]),
+      /regex/,
+      Symbol('s'),
+      () => 'function',
+      { length: 'not-a-number', get: () => null },
+      { length: -1, get: () => null },
+      [1, [2, [3, [4, [5]]]]],
+      { toJSON: () => ({ x: 1 }) },
+    ]
+    for (const [index, shape] of shapes.entries()) {
+      expect(() =>
+        buildRecordTree({ columns: [`c${String(index)}`], cells: [shape] }),
+      ).not.toThrow()
+    }
+  })
+})
+
+describe('buildRecordTree — determinism and summary reuse', () => {
+  it('builds the identical tree for identical input', () => {
+    expect(JSON.stringify(buildRecordTree(rowId1()))).toBe(
+      JSON.stringify(buildRecordTree(rowId1())),
+    )
+  })
+
+  it('summaries are formatNestedPreview renders — reuse, not a fork', () => {
+    const tree = buildRecordTree(rowId1())
+    for (const node of [child(tree, 'deep'), child(tree, 'tags'), child(tree, 'hole')]) {
+      const value = rowId1().cells[rowId1().columns.indexOf(node.key)]
+      expect(node.summary).toBe(formatNestedPreview(value))
+    }
+  })
+})
+
+describe('collectBranchPaths — expand-all affordance geometry', () => {
+  it('lists every object/array path in render order, using the component path scheme', () => {
+    const paths = collectBranchPaths(buildRecordTree(rowId1()))
+    expect(paths).toEqual([
+      'deep',
+      'deep/a',
+      'deep/a/b',
+      'meta',
+      'tags',
+      'events',
+      'events/0',
+      'events/1',
+    ])
+  })
+
+  it('returns empty for an all-leaf row and includes empty containers as leaves-to-be', () => {
+    expect(collectBranchPaths(buildRecordTree({ columns: ['id'], cells: [1n] }))).toEqual([])
+    // Empty containers are branches (renderable, expandable — their children list is just empty).
+    const paths = collectBranchPaths(buildRecordTree({ columns: ['l', 'o'], cells: [[], {}] }))
+    expect(paths).toEqual(['l', 'o'])
+  })
+})

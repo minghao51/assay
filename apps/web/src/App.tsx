@@ -8,6 +8,8 @@ import { FilterBar } from './grid/FilterBar'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
 import { ProfilePanel } from './profile/ProfilePanel'
+import { RecordInspector } from './record/RecordInspector'
+import type { RecordRequest } from './record/RecordInspector'
 import { SchemaPanel } from './schema/SchemaPanel'
 import { SqlPanel } from './sql/SqlPanel'
 
@@ -46,9 +48,17 @@ function LiveTableInfo({ model, tableId }: { model: GridViewportModel; tableId: 
 
 export function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  /**
+   * m3-3 record inspector open gesture. App holds it so a row open survives
+   * the grid's re-renders; `seq` makes every gesture distinct so re-opening
+   * the SAME row re-fires the inspector's open effect. Cleared when a new
+   * file is opened — a request must never leak across tables.
+   */
+  const [recordRequest, setRecordRequest] = useState<RecordRequest | null>(null)
 
   const openDataFile = useCallback(async () => {
     setPhase({ kind: 'opening' })
+    setRecordRequest(null)
     try {
       const picked = await pickDataFile()
       if (picked === null) {
@@ -107,7 +117,27 @@ export function App() {
         <>
           <SchemaPanel columns={phase.model.schema ?? []} />
           <FilterBar model={phase.model} />
-          <DataGrid model={phase.model} />
+          <DataGrid
+            model={phase.model}
+            onOpenRecord={(rowIndex) => {
+              setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
+            }}
+          />
+          {/**
+           * Placement (m3-3): directly under the grid it inspects. The app
+           * composes single-column, full-width disclosure sections (schema →
+           * filters → grid → SQL → profile); a side panel would introduce a
+           * new layout concept the app does not have, and the row-level
+           * inspector belongs next to the row-level surface anyway — closer
+           * than the table-level SQL/profile tool panels below it.
+           */}
+          <RecordInspector
+            model={phase.model}
+            request={recordRequest}
+            onClosed={() => {
+              setRecordRequest(null)
+            }}
+          />
           <SqlPanel tableId={phase.tableId} />
           <ProfilePanel handle={phase.handle} />
         </>

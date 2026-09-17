@@ -77,6 +77,134 @@ h1 {
   color: #999;
 }
 
+/* ---- Record inspector (m3-3) ---- */
+
+/* Rows that open the record inspector (m3-3): pointer + visible focus. */
+.grid-row-openable {
+  cursor: pointer;
+}
+
+.grid-row-openable:hover .grid-cell {
+  background: #eef3f9;
+}
+
+.grid-row-openable:focus-visible {
+  outline: 2px solid #4a7db5;
+  outline-offset: -2px;
+}
+
+.record {
+  margin-top: 1.25rem;
+}
+
+.record-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.record-title {
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.record-affordance {
+  font: inherit;
+  font-size: 0.8rem;
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 0.12rem 0.5rem;
+  cursor: pointer;
+}
+
+.record-affordance:hover {
+  background: #eee;
+}
+
+.record-panel {
+  margin-top: 0.35rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fafafa;
+  padding: 0.4rem 0.75rem 0.55rem;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.record-root,
+.record-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Nested members indent along a dotted guide line (disclosure tree, like the
+   schema panel's .schema-fields). */
+.record-children {
+  margin-left: 0.4rem;
+  padding-left: 1rem;
+  border-left: 1px dotted #bbb;
+}
+
+.record-child {
+  padding: 0.15rem 0;
+}
+
+.record-branch,
+.record-leaf {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.record-node-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0.1rem 0.3rem;
+  margin-left: -0.3rem;
+  cursor: pointer;
+}
+
+.record-node-toggle:hover {
+  background: #eee;
+}
+
+.record-key {
+  font-weight: 600;
+  margin-right: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.record-badge {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: #e7eef7;
+  color: #23364d;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.75rem;
+}
+
+.record-summary,
+.record-value {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.8rem;
+  color: #334;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.record-value-null {
+  color: #889;
+  font-style: italic;
+}
+
 .grid-row-error .grid-cell {
   color: #b00020;
   font-weight: 600;

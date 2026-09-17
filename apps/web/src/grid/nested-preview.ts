@@ -109,8 +109,12 @@ class BudgetWriter {
   }
 }
 
-/** True when the value renders as a positional sequence (Arrow list slices satisfy this). */
-function isListLike(value: object): boolean {
+/**
+ * True when the value renders as a positional sequence (Arrow list slices
+ * satisfy this). Exported for the record inspector's tree model (m3-3), which
+ * classifies the same main-thread cell shapes — reuse, not a fork.
+ */
+export function isListLike(value: object): boolean {
   return (
     typeof (value as { length?: unknown }).length === 'number' &&
     typeof (value as { get?: unknown }).get === 'function'
