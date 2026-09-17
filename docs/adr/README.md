@@ -39,6 +39,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0037 | Product Telemetry Is Opt-Out                                                    |
 | 0038 | Golden Parquet Fixtures Are Generated with the DuckDB CLI                       |
 | 0039 | The Product Name Is Assay                                                       |
+| 0040 | Two Op Lanes in the Engine Worker (Query Lane + Registry Lane)                  |
 
 ## Proposed
 

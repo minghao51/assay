@@ -38,8 +38,11 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   single-scan aggregates, graceful degradation on exotic types. A **SQL
   editor** runs queries against the opened table (`assay_tN` views) with
   paged results, readable errors, and cancel-as-abandonment (honest v1:
-  the engine has no query interrupt yet). Profile UI/charts follow in the
-  next slices.
+  the engine has no query interrupt yet). A **profile panel** renders the
+  per-column stats with dependency-free SVG distribution charts (top-k
+  bars, quantile strips), fully labeled and accessible. The engine now
+  schedules ops on **two lanes** (ADR 0040): grid windows no longer queue
+  behind long queries (measured: ~2.4 s stalls → ~0.2–0.6 s).
 
 - **M1 begins — DuckDB runs in the browser (m1-1/m1-2):** `@assay/engine-duckdb`
   boots DuckDB-WASM lazily inside a dedicated Web Worker behind a typed
