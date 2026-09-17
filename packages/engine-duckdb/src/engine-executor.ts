@@ -113,14 +113,35 @@ export interface EngineExecutorDeps {
   post(response: EngineResponse, transfer?: ArrayBuffer[]): void
 }
 
+/**
+ * One pending-query lane: its FIFO channel (`OpChannel`) plus the connection
+ * its ops run on, derived from the session. Routing (`accept`) and connection
+ * choice are the same decision — both come from this object — so rerouting an
+ * op class to another lane moves it onto that lane's connection too. The m2-7
+ * fix round pinned this: with the connection hard-coded per handler, rerouting
+ * `profile` to the registry lane would run its DESCRIBE beside a parked user
+ * query on the query-lane connection — the exact T2 pending-query collision
+ * (guarded by the parked-query unit drill in engine-executor.test.ts).
+ */
+interface OpLane {
+  readonly channel: OpChannel
+  readonly connection: (session: EngineSessionLike) => EngineConnectionLike
+}
+
 export class EngineOpExecutor {
   /**
    * The two pending-query lanes (m2-7): user SQL and profile scans serialize
    * on the query lane; the short registry/window ops serialize on the
    * registry lane. See `./op-channel` for the measured rationale.
    */
-  private readonly queryChannel = new OpChannel()
-  private readonly registryChannel = new OpChannel()
+  private readonly queryLane: OpLane = {
+    channel: new OpChannel(),
+    connection: (session) => session.queryConn,
+  }
+  private readonly registryLane: OpLane = {
+    channel: new OpChannel(),
+    connection: (session) => session.conn,
+  }
   private readonly registry = new TableRegistry()
 
   constructor(private readonly deps: EngineExecutorDeps) {}
@@ -137,17 +158,18 @@ export class EngineOpExecutor {
       return
     }
     // Route to the op class's lane and serialize there: no two operations
-    // are pending on the lane's connection at once. The task's own errors
-    // are caught inside `dispatch` and posted to its caller; the lane tail
-    // settles regardless (op-channel.ts).
+    // are pending on the lane's connection at once. The lane also supplies
+    // that connection, so routing and connection choice are one decision.
+    // The task's own errors are caught inside `dispatch` and posted to its
+    // caller; the lane tail settles regardless (op-channel.ts).
     const lane =
       request.type === 'engine/query' || request.type === 'engine/profile'
-        ? this.queryChannel
-        : this.registryChannel
-    void lane.run(() => this.dispatch(request))
+        ? this.queryLane
+        : this.registryLane
+    void lane.channel.run(() => this.dispatch(request, lane))
   }
 
-  private async dispatch(request: EngineRequest): Promise<void> {
+  private async dispatch(request: EngineRequest, lane: OpLane): Promise<void> {
     try {
       switch (request.type) {
         case 'engine/init': {
@@ -163,8 +185,11 @@ export class EngineOpExecutor {
         case 'engine/query': {
           // Query lane: user SQL shares its lane only with other queries and
           // profile scans — never with the grid's windows.
-          const { queryConn } = await this.deps.ensureSession()
-          const { batchIpc, hasMore } = await this.streamFirstBatch(queryConn, request.sql)
+          const session = await this.deps.ensureSession()
+          const { batchIpc, hasMore } = await this.streamFirstBatch(
+            lane.connection(session),
+            request.sql,
+          )
           this.post({
             type: 'engine/query-result',
             requestId: request.requestId,
@@ -174,27 +199,27 @@ export class EngineOpExecutor {
           break
         }
         case 'engine/open': {
-          await this.runOpen(request.requestId, request.name, request.file)
+          await this.runOpen(request.requestId, request.name, request.file, lane)
           break
         }
         case 'engine/schema': {
-          await this.runSchema(request.requestId, request.tableId)
+          await this.runSchema(request.requestId, request.tableId, lane)
           break
         }
         case 'engine/range': {
-          await this.runRange(request)
+          await this.runRange(request, lane)
           break
         }
         case 'engine/row-count': {
-          await this.runRowCount(request.requestId, request.tableId, request.filters)
+          await this.runRowCount(request.requestId, request.tableId, lane, request.filters)
           break
         }
         case 'engine/profile': {
-          await this.runProfile(request.requestId, request.tableId)
+          await this.runProfile(request.requestId, request.tableId, lane)
           break
         }
         case 'engine/dispose': {
-          await this.runDispose(request.requestId)
+          await this.runDispose(request.requestId, lane)
           break
         }
       }
@@ -214,7 +239,7 @@ export class EngineOpExecutor {
    * enter SQL (see `table-registry.ts` / `format-view.ts`). A failure rolls
    * the registration back so a failed open leaves no phantom entry behind.
    */
-  private async runOpen(requestId: number, name: string, file: File): Promise<void> {
+  private async runOpen(requestId: number, name: string, file: File, lane: OpLane): Promise<void> {
     const format = detectFileFormat(name)
     if (format === null) {
       // No file names in messages (ADR 0025) — the extension kind is enough.
@@ -222,7 +247,7 @@ export class EngineOpExecutor {
         'unsupported dataset format: this engine reads .parquet, .csv, .jsonl and .json files',
       )
     }
-    const { conn } = await this.deps.ensureSession()
+    const conn = lane.connection(await this.deps.ensureSession())
     const entry = this.registry.reserve(format)
     try {
       // Lazy reference registration: with the BROWSER_FILEREADER protocol the
@@ -247,9 +272,9 @@ export class EngineOpExecutor {
    * duplicate DuckDB's type system for no M1 benefit (documented M1-4 choice;
    * m1-6 renders these strings in the schema tree).
    */
-  private async runSchema(requestId: number, tableId: string): Promise<void> {
+  private async runSchema(requestId: number, tableId: string, lane: OpLane): Promise<void> {
     const entry = this.requireTable(tableId)
-    const { conn } = await this.deps.ensureSession()
+    const conn = lane.connection(await this.deps.ensureSession())
     const columns = await this.describeView(conn, entry.viewName)
     this.post({ type: 'engine/schema-result', requestId, columns })
   }
@@ -290,13 +315,13 @@ export class EngineOpExecutor {
    * invalid predicate rejects this op with the engine's own error message and
    * leaves the engine untouched (see `window-query.ts` for composition rules).
    */
-  private async runRange(request: EngineRangeRequest): Promise<void> {
+  private async runRange(request: EngineRangeRequest, lane: OpLane): Promise<void> {
     const entry = this.requireTable(request.tableId)
     const window = validateRowWindow(request.startRow, request.endRow)
     if (!window.valid) {
       throw new Error(`invalid row window: ${window.reason}`)
     }
-    const { conn } = await this.deps.ensureSession()
+    const conn = lane.connection(await this.deps.ensureSession())
     const sql = composeWindowSql({
       viewName: entry.viewName,
       columns: request.columns,
@@ -321,10 +346,11 @@ export class EngineOpExecutor {
   private async runRowCount(
     requestId: number,
     tableId: string,
+    lane: OpLane,
     filters?: EngineFilterSpec[],
   ): Promise<void> {
     const entry = this.requireTable(tableId)
-    const { conn } = await this.deps.ensureSession()
+    const conn = lane.connection(await this.deps.ensureSession())
     const { batchIpc } = await this.streamFirstBatch(
       conn,
       composeRowCountSql({ viewName: entry.viewName, filters }),
@@ -355,26 +381,27 @@ export class EngineOpExecutor {
    * streaming transport — no cancellation surface is needed. Everything runs
    * inside ONE query-lane op (m2-7: profile shares the query lane — it is a
    * heavy scan like user SQL, and must never sit on the registry lane where
-   * it would block the grid's windows for its whole scan): the sequential
-   * awaits never overlap on the query connection (per-lane T2 invariant),
-   * and any failure rejects this op with the engine's own error, leaving the
-   * engine reusable.
+   * it would block the grid's windows for its whole scan) on the connection
+   * that lane provides (`OpLane` — routing and connection are one decision):
+   * the sequential awaits never overlap on the query connection (per-lane T2
+   * invariant), and any failure rejects this op with the engine's own error,
+   * leaving the engine reusable.
    *
    * Graceful degradation: `other`-kind columns (nested/exotic types) carry
    * only name/type/nullCount/distinctCount — an exotic type can never fail
    * the profile (classifier contract).
    */
-  private async runProfile(requestId: number, tableId: string): Promise<void> {
+  private async runProfile(requestId: number, tableId: string, lane: OpLane): Promise<void> {
     const entry = this.requireTable(tableId)
-    const { queryConn } = await this.deps.ensureSession()
-    const schema = await this.describeView(queryConn, entry.viewName)
+    const conn = lane.connection(await this.deps.ensureSession())
+    const schema = await this.describeView(conn, entry.viewName)
     const specs = schema.map((column) => ({
       name: column.name,
       kind: classifyProfileColumnType(column.type),
     }))
 
     const base = composeProfileBaseSql({ viewName: entry.viewName, columns: specs })
-    const baseRow = await queryConn.query(base.sql)
+    const baseRow = await conn.query(base.sql)
     if (baseRow.numRows !== 1) {
       throw new Error('profile aggregate returned an unexpected shape')
     }
@@ -409,7 +436,7 @@ export class EngineOpExecutor {
     // break by value ascending (both documented in profile-query.ts).
     for (let index = 0; index < columns.length; index++) {
       if (specs[index]!.kind !== 'categorical') continue
-      const topK = await this.readTopK(queryConn, entry.viewName, specs[index]!.name)
+      const topK = await this.readTopK(conn, entry.viewName, specs[index]!.name)
       columns[index]!.categorical = { topK }
     }
 
@@ -458,12 +485,12 @@ export class EngineOpExecutor {
    * straggler would get its own clean engine error. The client's dispose
    * timeout bounds the barrier wait and terminates the worker regardless.)
    */
-  private async runDispose(requestId: number): Promise<void> {
+  private async runDispose(requestId: number, lane: OpLane): Promise<void> {
     // Query-lane barrier: resolves once every enqueued query/profile op has
     // settled. It cannot deadlock — the query lane never awaits the registry
     // lane.
-    await this.queryChannel.run(async () => undefined)
-    const { conn } = await this.deps.ensureSession()
+    await this.queryLane.channel.run(async () => undefined)
+    const conn = lane.connection(await this.deps.ensureSession())
     for (const entry of this.registry.clear()) {
       await conn
         .query(`DROP VIEW IF EXISTS ${quotedIdentifier(entry.viewName)}`)

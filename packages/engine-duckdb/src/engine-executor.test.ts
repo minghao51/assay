@@ -1217,4 +1217,59 @@ describe('EngineOpExecutor profile (m2-5; query lane since m2-7)', () => {
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
     expectNoCollisions(deps)
   })
+
+  it('queues behind a parked query: its DESCRIBE starts only after the query settles, on the query lane, with zero collisions', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    // A user query parks on the query lane's connection…
+    executor.accept(queryRequest(2, 'SELECT sum(a.i * b.i) FROM range(20000) a, range(20000) b'))
+    await awaitSends(deps.queryConn, 1)
+    // …and a profile is accepted while that query is still pending. The
+    // profile must wait on the QUERY lane, not run: no send on either
+    // connection (the query lane carries only the parked query; the registry
+    // lane only the open's CREATE VIEW) and no reply for request 3 yet. This
+    // pins profile's lane placement (the m2-7 fix-round drill): rerouting
+    // `profile` to the registry lane either sends its DESCRIBE onto this
+    // busy connection (a pending-query collision) or, with the connection
+    // derived differently, runs the profile's scans while the user query is
+    // still in flight instead of behind it.
+    executor.accept(profileRequest(3))
+    await flush()
+    expect(deps.queryConn.sentSqls).toHaveLength(1)
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    expect(deps.postedResponses.find((response) => response.requestId === 3)).toBeUndefined()
+
+    // The query settles; only then does the profile's DESCRIBE start — on the
+    // QUERY lane's connection, serialized behind the settled query.
+    deps.queryConn.resolveSend(0, intTable([42]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/query-result' })
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toBe('DESCRIBE "assay_t1"')
+    deps.queryConn.resolveSend(1, describeTable())
+
+    // The profile then proceeds normally on the query lane: the base
+    // aggregate scan, one top-k for the categorical column, assembled result.
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(
+      2,
+      profileBaseTable({
+        rowCount: 5n,
+        id: { nn: 5n, d: 5n, min: 1, max: 5, mean: 3, std: 1.58, q: [3, 4.6, 4.8, 4.96] },
+        country: { nn: 5n, d: 3n },
+      }),
+    )
+    await awaitSends(deps.queryConn, 4)
+    deps.queryConn.resolveSend(3, topKTable([['SG', 2n]]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/profile-result',
+      rowCount: 5,
+    })
+
+    // Zero collisions on either connection — the profile's queries never
+    // overlapped the parked query — and the registry lane's connection was
+    // never touched by the profile at all.
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    expectNoCollisions(deps)
+  })
 })
