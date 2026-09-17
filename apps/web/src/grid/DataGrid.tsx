@@ -167,6 +167,14 @@ export function DataGrid({ model }: DataGridProps) {
                         className="grid-cell"
                         data-testid="grid-cell"
                       >
+                        {/* m3-2 title policy: cells deliberately carry NO `title`
+                            attribute. A title mirroring the cell text would put a
+                            copy of every preview into DOM attributes (payload ×
+                            cells), and pre-m3-2 it risked multi-KB tooltips over
+                            raw JSON.stringify output. Overflow stays a CSS
+                            concern (text-overflow: ellipsis); the bounded preview
+                            text is the honest visible content; the full value is
+                            the m3-3 inspector's job. */}
                         {formatCell(cell)}
                       </div>
                     ))

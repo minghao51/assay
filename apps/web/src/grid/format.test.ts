@@ -22,7 +22,21 @@ describe('formatCell (total, deterministic DOM projection of cell values)', () =
     expect(formatCell(new Uint8Array([1, 2, 3]))).toBe('<3 bytes>')
   })
 
-  it('formats nested struct/list values as compact JSON', () => {
+  it('formats nested struct/list values through the bounded nested preview (m3-2)', () => {
+    // Same compact JSON text as before for small values — but now bounded.
     expect(formatCell({ name: 'n1', tags: ['x', 'y'] })).toBe('{"name":"n1","tags":["x","y"]}')
+    // Depth-aware: the depth-3 leaf elides with an honest marker.
+    expect(formatCell({ a: { b: { c: 1 } } })).toBe('{"a":{"b":{"c":…}}}')
+    // Length-capped: a huge value can never flood the cell or a tooltip.
+    const capped = formatCell({ s: 'x'.repeat(500) })
+    expect(capped.length).toBe(120)
+    expect(capped.endsWith('…')).toBe(true)
+  })
+
+  it('renders raw Arrow list slices (array-like {length, get}) as arrays (m3-2)', () => {
+    // m3-1 worker-boundary contract: list cells arrive as Vector slices, not
+    // Arrays — the preview must read them positionally.
+    const slice = { length: 2, get: (index: number) => ['x', 'y'][index] }
+    expect(formatCell(slice)).toBe('["x","y"]')
   })
 })

@@ -325,6 +325,11 @@ export class DuckDbEngineClient {
    * The window is validated and clamped to `MAX_RANGE_ROWS` on this side
    * (fast, honest errors) and again in the worker (the boundary is untrusted)
    * — the engine never implies full-dataset materialization.
+   *
+   * Worker-boundary note (m3-1 pin, mirrored for m3-2/m3-3 consumers): nested
+   * cells cross as Arrow's structural types — Timestamp(MICROSECOND) surfaces
+   * epoch MILLISECONDS through `.get()` (see @assay/testing's
+   * `normalizeArrowCell` and the nested-window-fidelity scenarios).
    */
   async fetchRange(
     handle: EngineTableHandle,
