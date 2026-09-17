@@ -43,6 +43,9 @@ const SCENARIOS = [
   'window-filter-sort',
   'predicate-error-reuse',
   'profile-semantics',
+  'nested-schema-fidelity',
+  'nested-window-fidelity',
+  'nested-window-clamp',
 ] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
@@ -57,6 +60,9 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'window-filter-sort': 'Conformance: window filter sort',
   'predicate-error-reuse': 'Conformance: predicate error reuse',
   'profile-semantics': 'Conformance: profile semantics',
+  'nested-schema-fidelity': 'Conformance: nested schema fidelity',
+  'nested-window-fidelity': 'Conformance: nested window fidelity',
+  'nested-window-clamp': 'Conformance: nested window clamp',
 }
 
 /** Click a scenario button and wait for its JSON result to render. */
@@ -122,6 +128,20 @@ for (const name of SCENARIOS) {
         expect(result.facts['topKTiePinned']).toBe(true)
         expect(result.facts['reusableAfterProfile']).toBe(true)
         break
+      case 'nested-schema-fidelity':
+        expect(result.facts['schemaColumns']).toBe(10)
+        expect(result.facts['rowCount']).toBe(12)
+        break
+      case 'nested-window-fidelity':
+        expect(result.facts['columns']).toBe(10)
+        expect(result.facts['rows']).toBe(12)
+        expect(result.facts['cells']).toBe(120)
+        break
+      case 'nested-window-clamp':
+        expect(result.facts['oversizedRows']).toBe(12)
+        expect(result.facts['offsetRows']).toBe(3)
+        expect(result.facts['invalidRejected']).toBe(3)
+        break
       default:
         break
     }
@@ -131,7 +151,7 @@ for (const name of SCENARIOS) {
 test('conformance run-all: the whole suite passes in one page against engine-duckdb', async ({
   page,
 }) => {
-  test.setTimeout(120_000) // ten scenarios, each with a fresh engine boot
+  test.setTimeout(180_000) // thirteen scenarios, each with a fresh engine boot
   await page.goto(HARNESS_URL)
   await page.getByRole('button', { name: 'Conformance: run all scenarios' }).click()
   const element = page.getByTestId('conformance-run-all')

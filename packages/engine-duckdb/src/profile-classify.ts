@@ -19,11 +19,16 @@
  * - `other` — everything else (nested `STRUCT`/`LIST`/`MAP`/`UNION`, `JSON`,
  *   `BLOB`, `INTERVAL`, enums-as-parenthesized declarations, and anything
  *   unrecognized): graceful degradation to name/type/nullCount/distinctCount.
- *   Lists are detected by the `[]` suffix BEFORE any paren-stripping: a
- *   parameterized-base list like `DECIMAL(21,1)[]` (DuckDB 1.5.5's exact
- *   DESCRIBE spelling) would otherwise reduce to `DECIMAL`, be misrouted
- *   into the numeric aggregate path, and its `avg()`/`quantile_cont()` binder
- *   error would escape `profile()` — lists are never scalar, so they degrade.
+ *   Container types are detected structurally (m3-1): a scan that is bracket-
+ *   and quote-aware decides from the *shape* of the type string — any
+ *   top-level array dimension (`INTEGER[]`, `DECIMAL(21,1)[]`, and fixed-size
+ *   arrays like `INTEGER[2]`, `VARCHAR[4]`, `DECIMAL(21,1)[3]`,
+ *   `STRUCT(a INTEGER)[2]`, `INTEGER[2][3]`) makes the column a list/array
+ *   and therefore never scalar. The check runs before any paren-stripping, so
+ *   a parameterized-base fixed-size list (`DECIMAL(21,1)[3]`, DuckDB 1.5.5's
+ *   exact DESCRIBE spelling) cannot reduce to `DECIMAL` and get misrouted
+ *   into the numeric aggregate path, where its `avg()`/`quantile_cont()`
+ *   binder error would escape `profile()`.
  *
  * The function is total and never throws (m1-6's type-string-parser
  * precedent): an unknown or hostile type string classifies as `other`, never
@@ -84,23 +89,61 @@ const CATEGORICAL_TYPES = new Set([
 /**
  * Classify one DuckDB type string for profiling. Empty/unknown/hostile input
  * classifies as `other` (never throws).
+ *
+ * m3-1 hardening: the scan is structural, not substring-based. One pass
+ * tracks bracket depth and double-quoted identifiers (with `""` escapes) and
+ * records (a) the head — everything before the first top-level `(` or `[` —
+ * and (b) whether any top-level `[` exists. DuckDB renders list and
+ * fixed-size-array dimensions at the top level (`INTEGER[]`, `INTEGER[2]`,
+ * `INTEGER[2][3]`, `DECIMAL(21,1)[3]`, `STRUCT(a INTEGER)[2]`); a scalar type
+ * string can never contain a top-level bracket, so this rule is total and
+ * cannot be slipped past: dimension-looking text inside parens (`MAP(INTEGER[2],
+ * VARCHAR)`) stays out of the decision, hostile strings with stray or
+ * unbalanced brackets/quotes (`INTEGER[2`, `INTEGER]`, `DECIMAL(21,1))[3]`,
+ * unterminated quotes) degrade to `other`, and only a clean, balanced,
+ * dimension-free head reaches the closed scalar sets below.
  */
 export function classifyProfileColumnType(type: string): EngineProfileColumnKind {
-  // List columns (parameterized base included: `DECIMAL(21,1)[]`, `VARCHAR[]`,
-  // `INTEGER[]`) are never scalar: detect the `[]` suffix BEFORE stripping
-  // parens. Stripping first would reduce `DECIMAL(21,1)[]` to `DECIMAL` and
-  // misroute a LIST column into the numeric aggregate path, where `avg()` is
-  // a binder error that would escape `profile()` (verified against DuckDB
-  // 1.5.5: DESCRIBE renders exactly `DECIMAL(21,1)[]`). No scalar type string
-  // can contain `[]`, so this check is total and cannot misclassify.
-  if (type.includes('[]')) return 'other'
-  // Strip parameter lists ("DECIMAL(21,1)" → "DECIMAL") before matching, so
-  // parametrized scalars classify as their base type. Remaining nested types
-  // reduce to a container name ("STRUCT") — not in the scalar sets, so they
-  // fall through to `other`.
-  const openParen = type.indexOf('(')
-  const base = (openParen === -1 ? type : type.slice(0, openParen)).trim().toUpperCase()
-  if (NUMERIC_TYPES.has(base)) return 'numeric'
-  if (CATEGORICAL_TYPES.has(base)) return 'categorical'
+  let depth = 0
+  let inQuote = false
+  let headEnd = type.length
+  let hasArrayDimension = false
+  for (let index = 0; index < type.length; index++) {
+    const char = type[index]
+    if (inQuote) {
+      if (char === '"') {
+        if (type[index + 1] === '"') {
+          index += 1 // escaped "" inside the quoted identifier
+        } else {
+          inQuote = false
+        }
+      }
+      continue
+    }
+    if (char === '"') {
+      inQuote = true
+      continue
+    }
+    if (char === '(' || char === '[') {
+      if (depth === 0) {
+        if (char === '[') hasArrayDimension = true
+        headEnd = Math.min(headEnd, index)
+      }
+      depth += 1
+      continue
+    }
+    if (char === ')' || char === ']') {
+      depth -= 1
+      if (depth < 0) return 'other' // stray closer: hostile/truncated, never scalar
+      continue
+    }
+  }
+  if (inQuote || depth !== 0) return 'other' // unterminated quote or unbalanced brackets
+  if (hasArrayDimension) return 'other' // list / fixed-size array: never scalar
+  // The head is the base type (plus trailing words like "WITH TIME ZONE")
+  // with parameter lists stripped structurally — no substring shortcuts.
+  const head = type.slice(0, headEnd).replace(/\s+/g, ' ').trim().toUpperCase()
+  if (NUMERIC_TYPES.has(head)) return 'numeric'
+  if (CATEGORICAL_TYPES.has(head)) return 'categorical'
   return 'other'
 }

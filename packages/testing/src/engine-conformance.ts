@@ -60,6 +60,25 @@
  *     strings agree with `schema()`; an unknown handle rejects with a
  *     classified error and the engine stays reusable.
  *
+ * m3-1 adds nested-data fidelity scenarios (the surfaces M3's cell preview,
+ * inspector, and flatten/explode drive; expectations are pinned against the
+ * host engine — engine-duckdb: DuckDB CLI + the identical duckdb-wasm build):
+ *
+ * 11. `nested-schema-fidelity` — `schema()` on the nested JSONL fixture
+ *     reports the engine's full nested type strings exactly as pinned (they
+ *     feed the m1-6 type tree and m3-4's composer), and `rowCount` matches.
+ * 12. `nested-window-fidelity` — `fetchRange` over a table with struct/list
+ *     columns delivers values **deep-equal** to the pinned expectations
+ *     across the worker boundary (Arrow IPC): structs as records, lists as
+ *     arrays, NULL preserved at every depth (struct field, list element,
+ *     whole struct/list), 64-bit integers as exact numbers, timestamps as
+ *     exact epoch-millisecond numbers.
+ * 13. `nested-window-clamp` — with nested columns present, window semantics
+ *     are unchanged: a >window-size request is clamped (not rejected) and
+ *     arrives as one honest batch (`hasMore`), a validated offset window
+ *     returns exactly its declared slice deep-equal, and invalid windows
+ *     still reject with the operation category.
+ *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
  * browser, temp files in Node) and which SQL drives engine-specific paths.
@@ -67,7 +86,7 @@
  * engine (`engine-conformance.test.ts`); real engines prove themselves by
  * running the same scenarios in their harness (engine-duckdb: Playwright e2e).
  */
-import type { Table } from 'apache-arrow'
+import { Vector, type Table } from 'apache-arrow'
 
 // ---- Structural surface the suite exercises (implementations adapt to it) ----
 
@@ -251,6 +270,16 @@ export interface EngineConformanceSubject {
    * filtered window/count and the registry probe).
    */
   readonly breakoutFilters: readonly ConformanceFilterSpec[]
+  /**
+   * The nested dataset behind `stageNestedFile()` (m3-1): the pinned schema
+   * type strings, deep-equal window expectations, and the offset window the
+   * clamp scenario replays. Expected values are derived from the host engine
+   * (engine-duckdb: DuckDB CLI 1.5.5 cross-checked against the identical
+   * duckdb-wasm build's Arrow output).
+   */
+  readonly nestedDataset: ConformanceNestedDataset
+  /** Stage the nested dataset (`nestedDataset`; committed JSONL, m3-1). */
+  stageNestedFile(): Promise<ConformanceFileSource>
 }
 
 /** One declared filter/sort expectation over the good dataset (see the subject field). */
@@ -342,6 +371,49 @@ export interface ConformanceProfileDataset {
   readonly columns: readonly ConformanceColumnProfileExpectation[]
 }
 
+// ---- Nested-fidelity types (m3-1) ----
+
+/**
+ * A JSON-shaped cell value: what `normalizeArrowCell` produces from an Arrow
+ * cell and what the nested expectations declare. 64-bit integers and
+ * timestamps must be pinned as exact (safe) JS numbers; NULL at any depth is
+ * `null`.
+ */
+export type ConformanceNestedValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly ConformanceNestedValue[]
+  | { readonly [key: string]: ConformanceNestedValue }
+
+/** One nested column's deep-equal expectations for the fixture's leading rows. */
+export interface ConformanceNestedColumnValues {
+  readonly name: string
+  /** Expected values of rows `[0, values.length)`, in order (null = NULL). */
+  readonly values: readonly ConformanceNestedValue[]
+}
+
+/**
+ * The nested dataset the m3-1 scenarios stage and pin (engine-duckdb: the
+ * `fixtures/jsonl/nested.jsonl` golden fixture):
+ *
+ * - `schema` pins `schema()` exactly — name + full nested type string, in
+ *   column order (these strings feed the m1-6 type tree and m3-4's composer).
+ * - `columns` pins deep-equal values for rows `[0, N)` of selected columns
+ *   across the Arrow IPC worker boundary (structs as records, lists as
+ *   arrays, NULL preserved at every depth).
+ * - `offsetWindow` is a validated mid-file window the clamp scenario replays
+ *   to prove limit/offset semantics are unchanged with nested columns. Its
+ *   end must be covered by the declared value rows (`columns[*].values.length ≥ endRow`).
+ */
+export interface ConformanceNestedDataset {
+  readonly rowCount: number
+  readonly schema: readonly ConformanceColumn[]
+  readonly columns: readonly ConformanceNestedColumnValues[]
+  readonly offsetWindow: ConformanceWindow
+}
+
 // ---- Results ----
 
 /** Stable scenario identifiers (each runs independently, fresh client). */
@@ -356,6 +428,9 @@ export const engineConformanceScenarioNames = [
   'window-filter-sort',
   'predicate-error-reuse',
   'profile-semantics',
+  'nested-schema-fidelity',
+  'nested-window-fidelity',
+  'nested-window-clamp',
 ] as const
 
 export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[number]
@@ -540,6 +615,117 @@ const INVALID_WINDOWS: readonly ConformanceWindow[] = [
   { startRow: 5, endRow: 2 },
   { startRow: 0, endRow: 1.5 },
 ]
+
+/**
+ * Normalizes one Arrow cell into its JSON-shaped value (`ConformanceNestedValue`,
+ * m3-1). This is the traversal the window-fidelity scenario trusts: struct
+ * cells arrive as records (field name → child value), list cells as an Arrow
+ * `Vector` slice (read position-by-position), 64-bit integers and timestamps
+ * as JS `bigint` (converted losslessly; anything beyond a safe integer is a
+ * conformance failure, not a silent precision loss), and NULL at any depth as
+ * `null`. An unexpected cell shape fails loudly — papering over it would let
+ * a fidelity break pass as a match.
+ *
+ * Never mutates the underlying buffers; reads only through the vector API.
+ */
+export function normalizeArrowCell(value: unknown): ConformanceNestedValue {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'bigint') {
+    const number = Number(value)
+    if (!Number.isSafeInteger(number)) {
+      fail(
+        `cell bigint ${String(value)} exceeds the safe-integer range; it cannot be pinned exactly`,
+      )
+    }
+    return number
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
+    return value
+  }
+  if (value instanceof Vector) {
+    const elements: ConformanceNestedValue[] = []
+    for (let index = 0; index < value.length; index++) {
+      elements.push(normalizeArrowCell(value.get(index)))
+    }
+    return elements
+  }
+  if (typeof value === 'object') {
+    if (ArrayBuffer.isView(value)) fail('unexpected binary (typed-array) cell in a nested window')
+    const record: Record<string, ConformanceNestedValue> = {}
+    for (const [field, fieldValue] of Object.entries(value)) {
+      record[field] = normalizeArrowCell(fieldValue)
+    }
+    return record
+  }
+  fail(`unexpected Arrow cell shape: ${typeof value}`)
+}
+
+/** Structural deep-equality over JSON-shaped cell values (array/object-aware). */
+function nestedValuesEqual(
+  actual: ConformanceNestedValue,
+  expected: ConformanceNestedValue,
+): boolean {
+  if (Array.isArray(actual) || Array.isArray(expected)) {
+    if (!Array.isArray(actual) || !Array.isArray(expected)) return false
+    return (
+      actual.length === expected.length &&
+      actual.every((element, index) => nestedValuesEqual(element, expected[index]!))
+    )
+  }
+  const actualIsObject = actual !== null && typeof actual === 'object'
+  const expectedIsObject = expected !== null && typeof expected === 'object'
+  if (actualIsObject || expectedIsObject) {
+    if (!actualIsObject || !expectedIsObject) return false
+    const actualKeys = Object.keys(actual).sort()
+    const expectedKeys = Object.keys(expected).sort()
+    if (actualKeys.length !== expectedKeys.length) return false
+    if (actualKeys.some((key, index) => key !== expectedKeys[index])) return false
+    const record = actual as Record<string, ConformanceNestedValue>
+    const expectedRecord = expected as Record<string, ConformanceNestedValue>
+    return actualKeys.every((key) => nestedValuesEqual(record[key]!, expectedRecord[key]!))
+  }
+  return actual === expected
+}
+
+/** Asserts one normalized cell deep-equals its expectation (path in the message). */
+function expectNestedCellEqual(
+  actual: ConformanceNestedValue,
+  expected: ConformanceNestedValue,
+  label: string,
+): void {
+  if (!nestedValuesEqual(actual, expected)) {
+    fail(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`)
+  }
+}
+
+/**
+ * Asserts the named column of `batch` deep-equals `expected` cell-by-cell
+ * (rows [0, expected.length)) through the Arrow vector API + normalizer.
+ */
+function expectNestedColumnValues(
+  batch: Table,
+  columnName: string,
+  expected: readonly ConformanceNestedValue[],
+  label: string,
+): void {
+  const index = batch.schema.fields.findIndex((field) => field.name === columnName)
+  if (index < 0) {
+    fail(`${label}: the batch is missing column ${columnName}`)
+  }
+  const vector = batch.getChildAt(index)
+  if (vector === null) {
+    fail(`${label}: column ${columnName} has no vector`)
+  }
+  if (vector!.length !== expected.length) {
+    fail(
+      `${label}: column ${columnName} has ${String(vector!.length)} rows, expected ${String(expected.length)}`,
+    )
+  }
+  for (let row = 0; row < expected.length; row++) {
+    const actual = normalizeArrowCell(vector!.get(row))
+    expectNestedCellEqual(actual, expected[row]!, `${label} ${columnName}[${String(row)}]`)
+  }
+}
 
 // ---- Scenarios ----
 
@@ -1231,6 +1417,153 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       nullsOnlyColumn: true,
       topKTiePinned: true,
       reusableAfterProfile: true,
+    }
+  },
+
+  'nested-schema-fidelity': async (subject) => {
+    // Subject preconditions (fail loudly on misconfiguration, never vacuously).
+    const dataset = subject.nestedDataset
+    expectCondition(
+      dataset.rowCount >= 1,
+      'subject misconfiguration: nestedDataset.rowCount must be at least 1',
+    )
+    expectCondition(
+      dataset.schema.length > 0,
+      'subject misconfiguration: declare at least one nested schema column',
+    )
+    const schemaNames = new Set<string>()
+    for (const column of dataset.schema) {
+      expectCondition(
+        !schemaNames.has(column.name),
+        `subject misconfiguration: nested schema declares column "${column.name}" twice`,
+      )
+      schemaNames.add(column.name)
+    }
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageNestedFile())
+
+    // The pinned contract: full nested type strings (e.g. STRUCT(a STRUCT(b
+    // STRUCT(c BIGINT))), STRUCT("at" TIMESTAMP, ok BOOLEAN)[]) exactly as the
+    // engine reports them — these feed the m1-6 type tree and m3-4's composer.
+    const schema = await client.schema(handle)
+    expectColumnsMatch(schema, dataset.schema)
+    expectEqual(await client.rowCount(handle), dataset.rowCount, 'nested fixture rowCount')
+    return { schemaColumns: schema.length, rowCount: dataset.rowCount }
+  },
+
+  'nested-window-fidelity': async (subject) => {
+    // Subject preconditions: every declared column covers the same leading
+    // window of the fixture, and its columns are all declared in the schema.
+    const dataset = subject.nestedDataset
+    expectCondition(
+      dataset.columns.length > 0,
+      'subject misconfiguration: declare at least one nested value column',
+    )
+    const schemaNames = new Set(dataset.schema.map((column) => column.name))
+    const windowRows = dataset.columns[0]!.values.length
+    for (const column of dataset.columns) {
+      expectCondition(
+        schemaNames.has(column.name),
+        `subject misconfiguration: nested value column "${column.name}" is not declared in nestedDataset.schema`,
+      )
+      expectCondition(
+        column.values.length === windowRows,
+        `subject misconfiguration: nested value column "${column.name}" declares ${String(column.values.length)} rows, expected ${String(windowRows)}`,
+      )
+    }
+    expectCondition(
+      windowRows >= 1 && windowRows <= dataset.rowCount,
+      'subject misconfiguration: nested value rows must be within 1…rowCount',
+    )
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageNestedFile())
+
+    const range = await client.fetchRange(handle, { startRow: 0, endRow: windowRows })
+    expectEqual(range.batch.numRows, windowRows, 'nested fidelity window row count')
+    expectEqual(
+      range.hasMore,
+      false,
+      'a window within the fixture must arrive as a single honest batch (hasMore)',
+    )
+    for (const column of dataset.columns) {
+      expectNestedColumnValues(range.batch, column.name, column.values, '[nested fidelity]')
+    }
+    return {
+      columns: dataset.columns.length,
+      rows: windowRows,
+      cells: dataset.columns.length * windowRows,
+    }
+  },
+
+  'nested-window-clamp': async (subject) => {
+    // Subject preconditions: the offset window is valid, inside the fixture,
+    // and covered by the declared value rows (so its slice is checkable).
+    const dataset = subject.nestedDataset
+    const offset = dataset.offsetWindow
+    expectCondition(
+      Number.isSafeInteger(offset.startRow) &&
+        Number.isSafeInteger(offset.endRow) &&
+        offset.startRow >= 0 &&
+        offset.endRow > offset.startRow &&
+        offset.endRow <= dataset.rowCount,
+      'subject misconfiguration: nestedDataset.offsetWindow must be a valid window inside the fixture',
+    )
+    expectCondition(
+      dataset.columns.length > 0 && dataset.columns[0]!.values.length >= offset.endRow,
+      'subject misconfiguration: nested value rows must cover offsetWindow.endRow',
+    )
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageNestedFile())
+
+    // A >window-size request is clamped (not rejected) and arrives as one
+    // honest batch: the whole fixture, hasMore=false (a capped window never
+    // implies further pending rows for this surface).
+    const oversized = await client.fetchRange(handle, {
+      startRow: 0,
+      endRow: dataset.rowCount + subject.maxWindowRows * 10,
+    })
+    expectEqual(
+      oversized.batch.numRows,
+      dataset.rowCount,
+      'an oversized window over the nested fixture must clamp to the dataset (not the cap, not an error)',
+    )
+    expectEqual(oversized.hasMore, false, 'hasMore on the clamped nested window')
+
+    // Validated limit/offset compose unchanged with nested columns: the
+    // mid-file window returns exactly its declared slice, deep-equal.
+    const offsetRows = offset.endRow - offset.startRow
+    const window = await client.fetchRange(handle, offset)
+    expectEqual(window.batch.numRows, offsetRows, 'nested offset window row count')
+    expectEqual(window.hasMore, false, 'hasMore on the nested offset window')
+    for (const column of dataset.columns) {
+      expectNestedColumnValues(
+        window.batch,
+        column.name,
+        column.values.slice(offset.startRow, offset.endRow),
+        '[nested offset window]',
+      )
+    }
+
+    // Window validation is not relaxed by nested columns either.
+    let invalidRejected = 0
+    for (const invalid of INVALID_WINDOWS) {
+      const error = await rejectionOf(client.fetchRange(handle, invalid))
+      expectCondition(
+        error !== null && subject.errors.operation(error),
+        `an invalid window must still reject over nested columns with the operation error category (got: ${errorMessage(error)})`,
+      )
+      invalidRejected += 1
+    }
+    return {
+      oversizedRows: oversized.batch.numRows,
+      offsetRows,
+      invalidRejected,
     }
   },
 }

@@ -451,6 +451,7 @@ requiredElement<HTMLButtonElement>('#run-head-of-line').addEventListener('click'
 
 const conformanceSubject = createDuckDbConformanceSubject({
   goodFixtureUrl: '/fixtures/customers.parquet',
+  nestedFixtureUrl: '/fixtures/nested.jsonl',
 })
 
 async function runConformanceScenario(

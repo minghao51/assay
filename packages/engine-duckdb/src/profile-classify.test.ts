@@ -59,6 +59,51 @@ describe('classifyProfileColumnType (m2-5)', () => {
     expect(classifyProfileColumnType('DECIMAL(21,1)[]')).toBe('other')
   })
 
+  it('classifies fixed-size arrays as other (m3-1; DESCRIBE spellings verified against DuckDB 1.5.5)', () => {
+    // DESCRIBE renders these exact strings for CREATE TABLE t(a INTEGER[2], …):
+    expect(classifyProfileColumnType('INTEGER[2]')).toBe('other')
+    expect(classifyProfileColumnType('VARCHAR[4]')).toBe('other')
+    expect(classifyProfileColumnType('DECIMAL(21,1)[3]')).toBe('other')
+    expect(classifyProfileColumnType('STRUCT(x INTEGER)[2]')).toBe('other')
+    expect(classifyProfileColumnType('BIGINT[1000000]')).toBe('other')
+    // Multi-dimensional arrays are arrays too.
+    expect(classifyProfileColumnType('INTEGER[2][3]')).toBe('other')
+    expect(classifyProfileColumnType('INTEGER[][]')).toBe('other')
+    // Dimension text *inside* parens is not a top-level dimension, but the
+    // container base already degrades:
+    expect(classifyProfileColumnType('MAP(INTEGER[2], VARCHAR)')).toBe('other')
+    expect(classifyProfileColumnType('STRUCT(a INTEGER[2], b VARCHAR[4])')).toBe('other')
+  })
+
+  it('keeps scalar classifications that merely look array-adjacent (m3-1 near-misses)', () => {
+    // Parameterized scalars must stay scalar — the array rule fires only on a
+    // top-level bracket:
+    expect(classifyProfileColumnType('DECIMAL(21,1)')).toBe('numeric')
+    expect(classifyProfileColumnType('NUMERIC(10,2)')).toBe('numeric')
+    expect(classifyProfileColumnType('INTEGER')).toBe('numeric')
+    expect(classifyProfileColumnType('VARCHAR')).toBe('categorical')
+    expect(classifyProfileColumnType('TIMESTAMP WITH TIME ZONE')).toBe('categorical')
+    // A quoted identifier containing bracket-looking text is not an array:
+    expect(classifyProfileColumnType('"INT[2]"')).toBe('other') // unknown, but NOT numeric
+    expect(classifyProfileColumnType('"DECIMAL(21,1)[3]"')).toBe('other')
+  })
+
+  it('degrades hostile fixed-size-array near-misses to other without throwing (m3-1)', () => {
+    // Truncated / unbalanced dimension syntax must never reach the numeric
+    // path (the old substring check could be slipped past; the structural
+    // scan fails closed):
+    expect(classifyProfileColumnType('INTEGER[2')).toBe('other') // unbalanced [
+    expect(classifyProfileColumnType('INTEGER]2[')).toBe('other') // stray closer
+    expect(classifyProfileColumnType('DECIMAL(21,1))[3]')).toBe('other') // extra closer
+    expect(classifyProfileColumnType('INTEGER[')).toBe('other')
+    expect(classifyProfileColumnType('INTEGER [ 2 ]')).toBe('other')
+    expect(classifyProfileColumnType('INTEGER[0]')).toBe('other')
+    expect(classifyProfileColumnType('INTEGER[-1]')).toBe('other')
+    expect(classifyProfileColumnType('DECIMAL(21,1) [3]')).toBe('other')
+    expect(classifyProfileColumnType('[2]')).toBe('other')
+    expect(classifyProfileColumnType('"UNTERMINATED[2]')).toBe('other')
+  })
+
   it('never throws: empty, unknown, and hostile strings degrade to other', () => {
     expect(classifyProfileColumnType('')).toBe('other')
     expect(classifyProfileColumnType('   ')).toBe('other')

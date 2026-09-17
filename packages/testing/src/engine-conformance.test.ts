@@ -6,11 +6,21 @@
  * real-engine proof for engine-duckdb lives in the browser harness + e2e
  * (DuckDB-WASM cannot run under Node vitest).
  */
-import { tableFromArrays } from 'apache-arrow'
+import {
+  Bool,
+  Field,
+  Int64,
+  List,
+  Struct,
+  Utf8,
+  tableFromArrays,
+  vectorFromArray,
+} from 'apache-arrow'
 import { describe, expect, it } from 'vitest'
 import type { Table } from 'apache-arrow'
 import {
   engineConformanceScenarioNames,
+  normalizeArrowCell,
   runEngineConformanceScenario,
   runEngineConformanceScenarios,
 } from './engine-conformance'
@@ -74,6 +84,12 @@ interface FakeMutations {
   misclassifiesProfileKind?: boolean
   /** m2-5: profile() of an unknown handle resolves instead of rejecting. */
   profileUnknownHandleResolves?: boolean
+  /** m3-1: the nested schema reports a degraded scalar type for the struct column. */
+  liesAboutNestedSchemaType?: boolean
+  /** m3-1: a nested struct leaf arrives corrupted (999 instead of the pinned value). */
+  corruptsNestedValues?: boolean
+  /** m3-1: nested windows report hasMore=true although the batch is complete. */
+  liesAboutNestedHasMore?: boolean
 }
 
 const GOOD_DATASET = {
@@ -254,6 +270,152 @@ const PROFILE_DATASET = {
   ],
 } as const
 
+/**
+ * m3-1 nested dataset the fake subject declares — the same shapes the DuckDB
+ * subject pins over `fixtures/jsonl/nested.jsonl`, in miniature: struct-of-
+ * struct with a NULL leaf, NULL struct, empty/NULL lists of scalars, a
+ * list-of-structs with NULL fields and a NULL element, 64-bit integers, and
+ * the quoting-hostile key. Declared independently of the fake's builder rows
+ * below, so a mutation knob can make the two disagree.
+ */
+const NESTED_DATASET = {
+  rowCount: 4,
+  schema: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'deep', type: 'STRUCT(a STRUCT(b STRUCT(c BIGINT)))' },
+    { name: 'tags', type: 'VARCHAR[]' },
+    { name: 'events', type: 'STRUCT("at" TIMESTAMP, ok BOOLEAN)[]' },
+    { name: 'weird "quoted" key', type: 'BIGINT' },
+  ],
+  columns: [
+    { name: 'id', values: [1, 2, 3, 4] },
+    {
+      name: 'deep',
+      values: [{ a: { b: { c: 1 } } }, null, { a: { b: { c: null } } }, { a: { b: { c: 4 } } }],
+    },
+    { name: 'tags', values: [['x', null], [], null, ['solo']] },
+    {
+      name: 'events',
+      values: [
+        [{ at: 1740823200000, ok: true }, null],
+        [{ at: 1740906000000, ok: null }],
+        null,
+        [{ at: 1741071600000, ok: false }],
+      ],
+    },
+    { name: 'weird "quoted" key', values: [1, 2, 3, 4] },
+  ],
+  // Rows [1, 3): a NULL struct + a struct-with-NULL-fields event; both null-
+  // list shapes.
+  offsetWindow: { startRow: 1, endRow: 3 },
+} as const
+
+/** Explicit Arrow types for the fake's nested columns (nulls-rich shapes). */
+const NESTED_DEEP_TYPE = new Struct([
+  new Field('a', new Struct([new Field('b', new Struct([new Field('c', new Int64())]))])),
+])
+const NESTED_TAGS_TYPE = new List(new Field('tag', new Utf8(), true))
+const NESTED_EVENTS_TYPE = new List(
+  new Field(
+    'event',
+    new Struct([new Field('at', new Int64(), true), new Field('ok', new Bool(), true)]),
+    true,
+  ),
+)
+
+/** One in-memory row of the fake's nested dataset. */
+interface FakeNestedRow {
+  id: bigint
+  deep: { a: { b: { c: bigint | null } } } | null
+  tags: readonly (string | null)[] | null
+  events: readonly ({ at: bigint | null; ok: boolean | null } | null)[] | null
+  quoted: bigint
+}
+
+/** The fake's nested dataset in natural order (mirrors NESTED_DATASET). */
+function nestedRows(corruptDeepLeaf = false): FakeNestedRow[] {
+  const rows: FakeNestedRow[] = [
+    {
+      id: 1n,
+      deep: { a: { b: { c: 1n } } },
+      tags: ['x', null],
+      events: [{ at: 1740823200000n, ok: true }, null],
+      quoted: 1n,
+    },
+    {
+      id: 2n,
+      deep: null,
+      tags: [],
+      events: [{ at: 1740906000000n, ok: null }],
+      quoted: 2n,
+    },
+    {
+      id: 3n,
+      deep: { a: { b: { c: null } } },
+      tags: null,
+      events: null,
+      quoted: 3n,
+    },
+    {
+      id: 4n,
+      deep: { a: { b: { c: 4n } } },
+      tags: ['solo'],
+      events: [{ at: 1741071600000n, ok: false }],
+      quoted: 4n,
+    },
+  ]
+  if (corruptDeepLeaf) {
+    rows[0] = { ...rows[0]!, deep: { a: { b: { c: 999n } } } }
+  }
+  return rows
+}
+
+/**
+ * apache-arrow 17's `tableFromArrays` passes Vector columns through at
+ * runtime (vectorFromArray returns them unchanged); its declared input type
+ * omits Vector, so each vector is cast to the declared array arm.
+ */
+function asArrowColumn(vector: unknown): readonly unknown[] {
+  return vector as readonly unknown[]
+}
+
+/** The fake's nested dataset as an Arrow table (declared order, NULL-safe). */
+function nestedTable(start: number, end: number, corruptDeepLeaf = false): Table {
+  const rows = nestedRows(corruptDeepLeaf).slice(start, end)
+  return tableFromArrays({
+    id: asArrowColumn(
+      vectorFromArray(
+        rows.map((row) => row.id),
+        new Int64(),
+      ),
+    ),
+    deep: asArrowColumn(
+      vectorFromArray(
+        rows.map((row) => row.deep),
+        NESTED_DEEP_TYPE,
+      ),
+    ),
+    tags: asArrowColumn(
+      vectorFromArray(
+        rows.map((row) => row.tags),
+        NESTED_TAGS_TYPE,
+      ),
+    ),
+    events: asArrowColumn(
+      vectorFromArray(
+        rows.map((row) => row.events),
+        NESTED_EVENTS_TYPE,
+      ),
+    ),
+    'weird "quoted" key': asArrowColumn(
+      vectorFromArray(
+        rows.map((row) => row.quoted),
+        new Int64(),
+      ),
+    ),
+  })
+}
+
 /** One in-memory row of the fake's good dataset. */
 interface FakeRow {
   id: number
@@ -292,7 +454,7 @@ class FakeEngineClient implements ConformanceEngineClient {
 
   async open(source: ConformanceFileSource): Promise<ConformanceTableHandle> {
     await this.ensureReady()
-    if (!/\.(parquet|csv)$/.test(source.name)) {
+    if (!/\.(parquet|csv|jsonl)$/.test(source.name)) {
       throw new FakeOperationError('unsupported dataset format')
     }
     const bytes = subjectState.staged.get(source.name)
@@ -318,6 +480,15 @@ class FakeEngineClient implements ConformanceEngineClient {
         type: kind === 'numeric' ? 'BIGINT' : 'VARCHAR',
       }))
     }
+    if (this.isNested(handle)) {
+      return NESTED_DATASET.schema.map((column) => ({
+        name: column.name,
+        type:
+          this.mutations.liesAboutNestedSchemaType && column.name === 'deep'
+            ? 'BIGINT'
+            : column.type,
+      }))
+    }
     return GOOD_DATASET.columns.map((column) => ({ name: column.name, type: column.type }))
   }
 
@@ -329,7 +500,11 @@ class FakeEngineClient implements ConformanceEngineClient {
     if (this.mutations.wedgedAfterPredicateError && this.predicateErrorSeen) {
       throw new FakeQueryError('connection wedged after predicate error')
     }
-    const base = this.isWide(handle) ? WIDE_ROW_COUNT : GOOD_DATASET.rowCount
+    const base = this.isWide(handle)
+      ? WIDE_ROW_COUNT
+      : this.isNested(handle)
+        ? NESTED_DATASET.rowCount
+        : GOOD_DATASET.rowCount
     if (options?.filters === undefined || options.filters.length === 0) {
       return base + (this.mutations.rowCountDelta ?? 0)
     }
@@ -362,6 +537,12 @@ class FakeEngineClient implements ConformanceEngineClient {
     if (this.isWide(handle)) {
       const ids = Array.from({ length: WIDE_ROW_COUNT }, (_, i) => i)
       return { batch: wideTable(ids.slice(window.startRow, end)), hasMore: false }
+    }
+    if (this.isNested(handle)) {
+      return {
+        batch: nestedTable(window.startRow, end, this.mutations.corruptsNestedValues === true),
+        hasMore: this.mutations.liesAboutNestedHasMore === true,
+      }
     }
     // m2-2: apply filters (AND), then sort (multi-key, NULLs last), then window.
     let rows = datasetRows()
@@ -448,6 +629,10 @@ class FakeEngineClient implements ConformanceEngineClient {
 
   private isWide(handle: ConformanceTableHandle): boolean {
     return this.registered.get(handle.id) === 'wide.csv'
+  }
+
+  private isNested(handle: ConformanceTableHandle): boolean {
+    return this.registered.get(handle.id) === 'nested.jsonl'
   }
 
   private isProfile(handle: ConformanceTableHandle): boolean {
@@ -701,6 +886,14 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       subjectState.staged.set(name, subjectState.goodBytes)
       return fileSource(name)
     },
+    stageNestedFile: async () => {
+      const name = 'nested.jsonl'
+      // The fake serves nested windows from its in-memory nestedRows(); the
+      // staged bytes only matter for open-time readability checks.
+      subjectState.staged.set(name, subjectState.goodBytes)
+      return fileSource(name)
+    },
+    nestedDataset: NESTED_DATASET,
     goodParquetBytes: async () => subjectState.goodBytes,
     stageBytes: async (bytes, name) => {
       subjectState.staged.set(name, bytes)
@@ -753,6 +946,21 @@ describe('engine conformance suite (compliant fake engine)', () => {
     expect(rollback.facts['registeredAfterGoodOpen']).toBe(1)
     const midStream = await runEngineConformanceScenario(subject, 'mid-stream-error-reuse')
     expect(midStream.facts['followUpValue']).toBe(SMOKE_VALUE)
+  })
+
+  it('exposes nested-fidelity evidence (schema columns, window cells, clamp rows)', async () => {
+    const subject = makeSubject()
+    const schema = await runEngineConformanceScenario(subject, 'nested-schema-fidelity')
+    expect(schema.facts['schemaColumns']).toBe(NESTED_DATASET.schema.length)
+    expect(schema.facts['rowCount']).toBe(NESTED_DATASET.rowCount)
+    const fidelity = await runEngineConformanceScenario(subject, 'nested-window-fidelity')
+    expect(fidelity.facts['columns']).toBe(NESTED_DATASET.columns.length)
+    expect(fidelity.facts['rows']).toBe(4)
+    expect(fidelity.facts['cells']).toBe(NESTED_DATASET.columns.length * 4)
+    const clamp = await runEngineConformanceScenario(subject, 'nested-window-clamp')
+    expect(clamp.facts['oversizedRows']).toBe(NESTED_DATASET.rowCount)
+    expect(clamp.facts['offsetRows']).toBe(2)
+    expect(clamp.facts['invalidRejected']).toBe(3)
   })
 })
 
@@ -909,5 +1117,90 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     )
     expect(passed).toBe(false)
     expect(detail).toContain('must reject')
+  })
+
+  it('nested-schema-fidelity: detects a degraded nested type string', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutNestedSchemaType: true },
+      'nested-schema-fidelity',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('column 1 type') // the `deep` struct column
+  })
+
+  it('nested-window-fidelity: detects a corrupted nested struct leaf', async () => {
+    const { passed, detail } = await runOne(
+      { corruptsNestedValues: true },
+      'nested-window-fidelity',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('deep[0]')
+  })
+
+  it('nested-window-fidelity: detects a dishonest hasMore on a complete batch', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutNestedHasMore: true },
+      'nested-window-fidelity',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('hasMore')
+  })
+
+  it('nested-window-clamp: detects a dishonest hasMore on the clamped window', async () => {
+    const { passed, detail } = await runOne({ liesAboutNestedHasMore: true }, 'nested-window-clamp')
+    expect(passed).toBe(false)
+    expect(detail).toContain('hasMore on the clamped nested window')
+  })
+
+  it('nested-window-clamp: detects invalid windows resolving with nested columns present', async () => {
+    const { passed, detail } = await runOne({ acceptInvalidWindows: true }, 'nested-window-clamp')
+    expect(passed).toBe(false)
+    expect(detail).toContain('invalid window')
+  })
+})
+
+describe('normalizeArrowCell (m3-1 nested-fidelity traversal)', () => {
+  it('normalizes scalars, bigints, records, vectors, and NULL at every depth', () => {
+    expect(normalizeArrowCell(null)).toBe(null)
+    expect(normalizeArrowCell(undefined)).toBe(null)
+    expect(normalizeArrowCell(42)).toBe(42)
+    expect(normalizeArrowCell('s')).toBe('s')
+    expect(normalizeArrowCell(true)).toBe(true)
+    expect(normalizeArrowCell(10n)).toBe(10)
+    // Records (struct cells) recurse field-by-field.
+    expect(normalizeArrowCell({ a: { b: { c: 1n } } })).toEqual({ a: { b: { c: 1 } } })
+    expect(normalizeArrowCell({ src: null, ver: 3n })).toEqual({ src: null, ver: 3 })
+    // Vectors (list cells) read position-by-position through the vector API.
+    const ints = vectorFromArray([1n, null, 3n], new Int64())
+    expect(normalizeArrowCell(ints)).toEqual([1, null, 3])
+    const words = vectorFromArray(['x', null], new Utf8())
+    expect(normalizeArrowCell(words)).toEqual(['x', null])
+    // A full nested combination.
+    const table = tableFromArrays({
+      deep: asArrowColumn(vectorFromArray([{ a: { b: { c: 1n } } }, null], NESTED_DEEP_TYPE)),
+      tags: asArrowColumn(vectorFromArray([['x', null], []], NESTED_TAGS_TYPE)),
+      events: asArrowColumn(
+        vectorFromArray([[{ at: 1740823200000n, ok: true }, null], null], NESTED_EVENTS_TYPE),
+      ),
+    })
+    expect(normalizeArrowCell(table.getChildAt(0)!.get(0))).toEqual({ a: { b: { c: 1 } } })
+    expect(normalizeArrowCell(table.getChildAt(0)!.get(1))).toBe(null)
+    expect(normalizeArrowCell(table.getChildAt(1)!.get(0))).toEqual(['x', null])
+    expect(normalizeArrowCell(table.getChildAt(1)!.get(1))).toEqual([])
+    expect(normalizeArrowCell(table.getChildAt(2)!.get(0))).toEqual([
+      { at: 1740823200000, ok: true },
+      null,
+    ])
+    expect(normalizeArrowCell(table.getChildAt(2)!.get(1))).toBe(null)
+  })
+
+  it('fails loudly instead of losing precision or papering over odd shapes', () => {
+    // Beyond safe-integer range: a silent Number() could compare equal to a
+    // different value — the fidelity contract demands failure, not guessing.
+    expect(() => normalizeArrowCell(9007199254740993n)).toThrow(/safe-integer/)
+    expect(() => normalizeArrowCell(new Uint8Array([1, 2, 3]))).toThrow(/typed-array/)
+    expect(() => normalizeArrowCell(Symbol.iterator as unknown as symbol)).toThrow(
+      /unexpected Arrow cell shape/,
+    )
   })
 })

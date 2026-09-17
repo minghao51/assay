@@ -40,6 +40,7 @@ describe('golden fixtures manifest (docs/engineering/06-testing-security-quality
   it('jsonl fixtures parse line by line', () => {
     const jsonlFixtures = [
       'jsonl/events.jsonl',
+      'jsonl/nested.jsonl',
       'nested-json/messages.jsonl',
       'llm/chat-eval.jsonl',
     ]

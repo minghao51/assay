@@ -29,6 +29,7 @@ import type {
   ConformanceEngineClient,
   ConformanceErrorMatchers,
   ConformanceFileSource,
+  ConformanceNestedDataset,
   EngineConformanceSubject,
 } from '@assay/testing'
 
@@ -234,6 +235,193 @@ const PROFILE_DATASET = {
 const MID_STREAM_FAILURE_SQL =
   "SELECT CASE WHEN i < 2048 THEN i ELSE error('assay conformance mid-stream failure') END AS v FROM range(5000) AS t(i)"
 
+/**
+ * m3-1 nested dataset: the `fixtures/jsonl/nested.jsonl` golden fixture
+ * (committed text; also copied byte-identical into the harness public dir).
+ * Hand-authored synthetic rows covering every nested shape M3 exercises:
+ * struct-of-struct depth 3 (`deep.a.b.c`, incl. a NULL leaf and two whole-
+ * NULL structs), list-of-scalars incl. empty and NULL lists (`tags`),
+ * list-of-structs with NULL fields and NULL elements (`events`), a NULL list
+ * element inside `tags`, an all-NULL column (`hole`), unicode + embedded
+ * quotes/escapes/backslashes in strings, scalar context columns, and the
+ * quoting-hostile key `weird "quoted" key` on every row (the m3-4 injection
+ * surface; see fixtures/jsonl/README.md — JSONL cannot carry comments).
+ *
+ * Pins below derived with the DuckDB CLI (v1.5.5) and cross-checked
+ * cell-by-cell against the identical duckdb-wasm 1.32 build the engine runs,
+ * through the same transport (Arrow IPC → apache-arrow vector API):
+ *
+ *   SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM
+ *     read_json_auto('fixtures/jsonl/nested.jsonl', format='newline_delimited'));
+ *   SELECT id, deep, meta, tags, hole,
+ *     list_transform(events, e -> CASE WHEN e IS NULL THEN NULL ELSE epoch_us(e.at) END),
+ *     list_transform(events, e -> CASE WHEN e IS NULL THEN NULL ELSE e.ok END)
+ *   FROM read_json_auto('fixtures/jsonl/nested.jsonl', format='newline_delimited')
+ *   ORDER BY id;
+ *
+ * Two honest engine-surface divergences are part of the pin:
+ * - `deep.a.b.c`: CLI 1.5.5's JSON sniffer reports HUGEINT, the wasm engine
+ *   BIGINT. The schema pin follows the engine under test (BIGINT); the value
+ *   outputs are identical either way.
+ * - `events.at`: the CLI's epoch_us() gives microseconds (1740823200000000
+ *   for 2025-03-01T10:00:00Z), while apache-arrow surfaces a
+ *   Timestamp(MICROSECOND) cell as epoch MILLISECONDS through `.get()` —
+ *   the window pins below are those milliseconds (1740823200000).
+ */
+const NESTED_DATASET: ConformanceNestedDataset = {
+  rowCount: 12,
+  schema: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'kind', type: 'VARCHAR' },
+    { name: 'label', type: 'VARCHAR' },
+    { name: 'score', type: 'BIGINT' },
+    { name: 'deep', type: 'STRUCT(a STRUCT(b STRUCT(c BIGINT)))' },
+    { name: 'meta', type: 'STRUCT(src VARCHAR, ver BIGINT)' },
+    { name: 'tags', type: 'VARCHAR[]' },
+    { name: 'events', type: 'STRUCT("at" TIMESTAMP, ok BOOLEAN)[]' },
+    { name: 'hole', type: 'JSON' },
+    { name: 'weird "quoted" key', type: 'BIGINT' },
+  ],
+  columns: [
+    { name: 'id', values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+    {
+      name: 'kind',
+      values: [
+        'alpha',
+        'beta',
+        'alpha',
+        'gamma',
+        'beta',
+        'alpha',
+        'gamma',
+        'beta',
+        'alpha',
+        'gamma',
+        'beta',
+        'alpha',
+      ],
+    },
+    {
+      name: 'label',
+      values: [
+        'plain alpha row',
+        'héllo → 世界 🚀',
+        'quote " inside',
+        'back\\slash and \t tab',
+        'emoji 🎛️ knob',
+        'newline \\n escape',
+        'глубина depth',
+        'nested "a.b" path',
+        'синтетика only',
+        "quote ' single",
+        '「かぎ括弧」',
+        'mixed ‽ interrog',
+      ],
+    },
+    { name: 'score', values: [10, 20, null, 40, 50, 60, 70, 80, 90, null, 110, 120] },
+    {
+      name: 'deep',
+      values: [
+        { a: { b: { c: 1 } } },
+        { a: { b: { c: 2 } } },
+        { a: { b: { c: 3 } } },
+        null,
+        { a: { b: { c: 5 } } },
+        { a: { b: { c: 6 } } },
+        { a: { b: { c: null } } },
+        { a: { b: { c: 8 } } },
+        { a: { b: { c: -9 } } },
+        { a: { b: { c: 10 } } },
+        null,
+        { a: { b: { c: 12 } } },
+      ],
+    },
+    {
+      name: 'meta',
+      values: [
+        { src: 'sensor-a', ver: 1 },
+        { src: 'sensor-b', ver: 2 },
+        { src: null, ver: 3 },
+        { src: 'sensor-a', ver: 4 },
+        null,
+        { src: 'sensor-c', ver: 1 },
+        { src: 'sensor-a', ver: 2 },
+        { src: null, ver: 8 },
+        { src: 'sensor-b', ver: 1 },
+        { src: 'sensor-c', ver: 2 },
+        { src: 'sensor-a', ver: 3 },
+        null,
+      ],
+    },
+    {
+      name: 'tags',
+      values: [
+        ['x', 'y'],
+        [],
+        ['x', null, 'z'],
+        null,
+        ['repeat', 'repeat'],
+        ['a', 'b', 'c', 'd'],
+        ['solo'],
+        ['x', 'y'],
+        [],
+        null,
+        ['u', 'v'],
+        ['x', null],
+      ],
+    },
+    {
+      name: 'events',
+      values: [
+        [
+          { at: 1740823200000, ok: true },
+          { at: 1740823500000, ok: false },
+        ],
+        [
+          { at: 1740906000000, ok: true },
+          { at: 1740907800000, ok: null },
+        ],
+        [
+          { at: null, ok: true },
+          { at: 1740988800000, ok: true },
+        ],
+        [{ at: 1741071600000, ok: false }, null],
+        [
+          { at: 1741154400000, ok: true },
+          { at: 1741158000000, ok: true },
+        ],
+        [{ at: 1741237200000, ok: null }],
+        [
+          { at: 1741320000000, ok: true },
+          { at: null, ok: null },
+          { at: 1741322400000, ok: false },
+        ],
+        [
+          { at: 1741402800000, ok: false },
+          { at: 1741404000000, ok: false },
+        ],
+        [{ at: 1741485600000, ok: true }],
+        null,
+        [{ at: 1741654800000, ok: true }, null],
+        [
+          { at: 1741737600000, ok: null },
+          { at: 1741738200000, ok: true },
+        ],
+      ],
+    },
+    {
+      name: 'hole',
+      values: [null, null, null, null, null, null, null, null, null, null, null, null],
+    },
+    { name: 'weird "quoted" key', values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+  ],
+  // Mid-file window rows [4, 7) = ids 5–7: exercises offset semantics over
+  // nested columns, cutting through a whole-NULL `meta` (id 5), a regular
+  // struct (id 6), and a NULL leaf inside `deep` plus a NULL `at` inside an
+  // `events` element (id 7).
+  offsetWindow: { startRow: 4, endRow: 7 },
+}
+
 const ERRORS: ConformanceErrorMatchers = {
   operation: (error) => error instanceof EngineOperationError,
   query: (error) => error instanceof EngineQueryError,
@@ -282,12 +470,15 @@ function asFileSource(handle: FileSystemFileHandle): ConformanceFileSource {
 export interface DuckDbConformanceSubjectOptions {
   /** URL the good Parquet fixture is served from (harness public dir). */
   goodFixtureUrl: string
+  /** URL the nested JSONL fixture is served from (harness public dir, m3-1). */
+  nestedFixtureUrl: string
 }
 
 export function createDuckDbConformanceSubject(
   options: DuckDbConformanceSubjectOptions,
 ): EngineConformanceSubject {
   const goodParquetBytes = async (): Promise<Uint8Array> => fetchBytes(options.goodFixtureUrl)
+  const nestedJsonlBytes = async (): Promise<Uint8Array> => fetchBytes(options.nestedFixtureUrl)
   return {
     name: 'engine-duckdb',
     createClient: () => asConformanceClient(new DuckDbEngineClient()),
@@ -309,6 +500,11 @@ export function createDuckDbConformanceSubject(
       const csv = buildProfileCsv()
       return asFileSource(await stageBytesInOpfs(csv, 'assay-conformance-profile.csv'))
     },
+    stageNestedFile: async () => {
+      const jsonl = await nestedJsonlBytes()
+      return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-nested.jsonl'))
+    },
+    nestedDataset: NESTED_DATASET,
     goodParquetBytes,
     stageBytes: async (bytes, name) => asFileSource(await stageBytesInOpfs(bytes, name)),
     failingSql: () => FAILING_SQL,
