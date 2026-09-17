@@ -12,6 +12,20 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — M3, nested data (m3-0…m3-5)
+
+- **Nested data is first-class in the explorer.** Engine-conformance pins now prove
+  struct/list values survive the Arrow worker boundary exactly (NULLs at every depth;
+  timestamps as epoch-ms). The grid renders **bounded, depth-aware previews** for nested
+  cells (no more raw JSON walls — and never a silent truncation); the **record
+  inspector** discloses a full row to any depth with per-value degradation and an
+  epoch-freshness close policy. The schema tree and nested column headers offer
+  **one-click Flatten / Explode / Extract-path** actions that compose exact,
+  injection-probed SQL (visible verbatim in the editor) and run it in the paged result
+  pane — explode keeps row context + element positions and never silently drops
+  NULL-list rows. Profiling now classifies fixed-size array types robustly (fail-closed
+  to `other`).
+
 ### Changed
 
 - **Product named Assay** (D6, ADR 0039): workspace scope
