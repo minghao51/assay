@@ -314,6 +314,133 @@ async function runParallelCalls(): Promise<void> {
   setText('parallel-result', JSON.stringify(settlements))
 }
 
+// ── m2-7 head-of-line measurement (tests/e2e/engine-head-of-line.spec.ts) ──
+//
+// Quantifies the single-lane head-of-line cost: the interactive ops
+// (fetchRange / rowCount / schema — the grid's scroll traffic) fired while a
+// long user `query()` runs, measured against their idle-engine baseline.
+// Per repeat: baseline timings first (engine idle), then the long query
+// starts, a short delay guarantees it owns the lane head, then the three
+// interactive ops fire CONCURRENTLY and their fire→settle waits are
+// recorded, then the long query's start→settle duration. The per-repeat
+// settle order is architecture evidence: under one shared FIFO the queued
+// ops cannot settle before the query; with a dedicated second connection
+// they can. Magnitude: the m2-4-calibrated ~2.8 s 400M-pair aggregate (mvp
+// bundle; native DuckDB answers in ~0.3 s) — reliably in the 2–5 s band the
+// task calls for. Privacy (ADR 0001/0025): timings, counts, and ids only.
+const HEAD_OF_LINE_SQL =
+  'SELECT sum(a.i * b.i) AS s FROM range(20000) AS a(i), range(20000) AS b(i)'
+const HEAD_OF_LINE_REPEATS = 5
+const HEAD_OF_LINE_HEAD_START_MS = 100
+
+interface HeadOfLineRepeat {
+  /** Idle-engine baselines: the same ops, unqueued. */
+  baselineRangeMs: number
+  baselineCountMs: number
+  baselineSchemaMs: number
+  /** fire→settle waits while the long query owns the lane head. */
+  queuedRangeMs: number
+  queuedCountMs: number
+  queuedSchemaMs: number
+  /** Correctness anchor: the burst window is the real 5-row fixture window. */
+  queuedRangeRows: number
+  /** The long query's start→settle duration. */
+  longQueryMs: number
+  /** Op names in settlement order (architecture evidence). */
+  settleOrder: string[]
+  error?: string
+}
+
+interface HeadOfLineEvidence {
+  repeats: HeadOfLineRepeat[]
+  fatal?: string
+}
+
+async function runHeadOfLineMeasurement(): Promise<void> {
+  const evidence: HeadOfLineEvidence = { repeats: [] }
+  try {
+    const table = handles.get('flat')
+    if (table === undefined) throw new Error('head-of-line: open the flat fixture first')
+    for (let repeat = 0; repeat < HEAD_OF_LINE_REPEATS; repeat++) {
+      try {
+        evidence.repeats.push(await measureHeadOfLineRepeat(table))
+      } catch (error) {
+        evidence.repeats.push({ error: errorMessage(error) } as HeadOfLineRepeat)
+      }
+    }
+  } catch (error) {
+    evidence.fatal = errorMessage(error)
+  }
+  setText('head-of-line-result', JSON.stringify(evidence))
+}
+
+async function measureHeadOfLineRepeat(table: EngineTableHandle): Promise<HeadOfLineRepeat> {
+  const repeat: HeadOfLineRepeat = {
+    baselineRangeMs: 0,
+    baselineCountMs: 0,
+    baselineSchemaMs: 0,
+    queuedRangeMs: 0,
+    queuedCountMs: 0,
+    queuedSchemaMs: 0,
+    queuedRangeRows: 0,
+    longQueryMs: 0,
+    settleOrder: [],
+  }
+  // Idle baselines: the same ops with nothing else in flight.
+  let startedAt = performance.now()
+  await client.fetchRange(table, { startRow: 0, endRow: 5 })
+  repeat.baselineRangeMs = benchMs(startedAt)
+  startedAt = performance.now()
+  await client.rowCount(table)
+  repeat.baselineCountMs = benchMs(startedAt)
+  startedAt = performance.now()
+  await client.schema(table)
+  repeat.baselineSchemaMs = benchMs(startedAt)
+
+  // The long query takes the lane. Its settle-order probe attaches FIRST so
+  // settlement order maps to push order; its failure would be a broken
+  // engine, not a measurement mode — the await below propagates it.
+  const order = repeat.settleOrder
+  const longStartedAt = performance.now()
+  const longQuery = client.query(HEAD_OF_LINE_SQL)
+  void longQuery.then(
+    () => {
+      repeat.longQueryMs = benchMs(longStartedAt)
+      order.push('query')
+    },
+    () => {
+      repeat.longQueryMs = benchMs(longStartedAt)
+      order.push('query')
+    },
+  )
+
+  // Guarantee the query owns the lane head before the burst arrives.
+  await new Promise((resolve) => setTimeout(resolve, HEAD_OF_LINE_HEAD_START_MS))
+
+  // The interactive burst, all waits fire→settle.
+  const burstStartedAt = performance.now()
+  const rangePromise = client.fetchRange(table, { startRow: 0, endRow: 5 }).then((result) => {
+    repeat.queuedRangeMs = benchMs(burstStartedAt)
+    repeat.queuedRangeRows = result.batch.numRows
+    order.push('range')
+  })
+  const countPromise = client.rowCount(table).then(() => {
+    repeat.queuedCountMs = benchMs(burstStartedAt)
+    order.push('count')
+  })
+  const schemaPromise = client.schema(table).then(() => {
+    repeat.queuedSchemaMs = benchMs(burstStartedAt)
+    order.push('schema')
+  })
+  await Promise.all([rangePromise, countPromise, schemaPromise])
+  await longQuery.catch(() => undefined)
+  return repeat
+}
+
+requiredElement<HTMLButtonElement>('#run-head-of-line').addEventListener('click', () => {
+  void runHeadOfLineMeasurement()
+})
+
 // ── T1 engine conformance suite (tests/e2e/engine-conformance.spec.ts) ──────
 //
 // Each button runs ONE scenario from the shared suite in @assay/testing

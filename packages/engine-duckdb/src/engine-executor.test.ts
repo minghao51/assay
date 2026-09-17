@@ -11,20 +11,22 @@ import type {
 import type { EngineRequest, EngineResponse } from './protocol'
 
 /**
- * T2 worker-side concurrency tests: interleaved query/fetchRange/rowCount/
- * schema/dispose driven through the real executor (`EngineOpExecutor`) — the
- * exact class the worker entry wires to DuckDB-WASM — against a fake
- * connection that models duckdb-wasm 1.32's single-pending-query-per-
- * connection constraint.
+ * T2 worker-side concurrency tests, two lanes since m2-7: interleaved
+ * query/fetchRange/rowCount/schema/dispose driven through the real executor
+ * (`EngineOpExecutor`) — the exact class the worker entry wires to
+ * DuckDB-WASM — against TWO fake connections (one per lane) that model
+ * duckdb-wasm 1.32's single-pending-query-per-connection constraint.
  *
  * Determinism: every connection `send` parks on an explicitly-resolved gate,
  * so interleavings are scripted step by step — no timers, no real DuckDB.
  *
- * The collision guard: the fake connection records `busy` from a `send` (or
+ * The collision guard: each fake connection records `busy` from a `send` (or
  * `query`, which is send + drain) until the reader is drained and cancelled.
- * A second `send`/`query` while busy pushes into `collisions` and throws —
- * so ANY test that lets two operations overlap fails loudly. Every test
- * asserts `collisions` stays empty.
+ * A second `send`/`query` while busy pushes into that connection's
+ * `collisions` and throws — so ANY test that lets two operations overlap on
+ * one connection fails loudly. Every test asserts `collisions` stays empty on
+ * BOTH lanes; cross-lane overlap (query lane vs registry lane) is legitimate
+ * since m2-7 and is exactly what the two-lane tests pin.
  */
 interface Deferred<T> {
   promise: Promise<T>
@@ -204,7 +206,10 @@ class FakeDeps implements EngineExecutorDeps {
   readonly postedTransfers: Array<ArrayBuffer[] | undefined> = []
   readonly registeredFiles: Array<{ name: string; file: File }> = []
   readonly droppedFiles: string[] = []
-  readonly connection = new FakeConnection()
+  /** Registry-lane connection: open/schema/range/rowCount/dispose. */
+  readonly conn = new FakeConnection()
+  /** Query-lane connection: engine/query + engine/profile (m2-7). */
+  readonly queryConn = new FakeConnection()
   registerFileError: unknown = null
   sessionGate: Deferred<void> | null = null
   /** `ensureSession` calls by the executor (one per op). */
@@ -220,7 +225,8 @@ class FakeDeps implements EngineExecutorDeps {
       if (this.sessionGate !== null) await this.sessionGate.promise
       return {
         getVersion: async () => 'vX-test',
-        conn: this.connection,
+        conn: this.conn,
+        queryConn: this.queryConn,
       }
     })()
     return this.sessionPromise
@@ -248,6 +254,12 @@ class FakeDeps implements EngineExecutorDeps {
 function makeExecutor(): { executor: EngineOpExecutor; deps: FakeDeps } {
   const deps = new FakeDeps()
   return { executor: new EngineOpExecutor(deps), deps }
+}
+
+/** Both lanes' collision guards, for the standard closing assertion. */
+function expectNoCollisions(deps: FakeDeps): void {
+  expect(deps.conn.collisions, 'registry-lane collisions').toEqual([])
+  expect(deps.queryConn.collisions, 'query-lane collisions').toEqual([])
 }
 
 // ---- request builders ----
@@ -289,7 +301,10 @@ async function awaitSends(connection: FakeConnection, count: number): Promise<vo
     await flush()
   }
   if (connection.sentSqls.length < count) {
-    throw new Error(`expected ${count} sends, saw ${connection.sentSqls.length}`)
+    throw new Error(
+      `expected ${count} sends, saw ${connection.sentSqls.length} ` +
+        `(${connection.sentSqls.join(' | ')})`,
+    )
   }
 }
 
@@ -306,103 +321,125 @@ function firstColumnValues(batchIpc: Uint8Array): number[] {
  */
 async function openFlatTable(executor: EngineOpExecutor, deps: FakeDeps): Promise<void> {
   executor.accept(openRequest(1))
-  await awaitSends(deps.connection, 1) // CREATE VIEW "assay_t1" …
-  expect(deps.connection.sentSqls[0]).toMatch(/CREATE VIEW "assay_t1"/)
-  deps.connection.resolveSend(0, intTable([]))
+  await awaitSends(deps.conn, 1) // CREATE VIEW "assay_t1" … (registry lane)
+  expect(deps.conn.sentSqls[0]).toMatch(/CREATE VIEW "assay_t1"/)
+  deps.conn.resolveSend(0, intTable([]))
   const posted = await awaitPosted(deps, 1)
   expect(posted).toMatchObject({ type: 'engine/open-result', tableId: 't1', format: 'parquet' })
 }
 
-describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
-  it('interleaved query, fetchRange, and rowCount complete with correct results, FIFO, no overlap', async () => {
+describe('EngineOpExecutor two-lane concurrency (T2 guarantees, m2-7 lanes)', () => {
+  it('an interactive burst on the registry lane completes while a long query is parked on the query lane (m2-7 head-of-line relief)', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
-    expect(deps.connection.collisions).toEqual([])
 
-    // Three ops arrive concurrently (single postMessage burst order).
-    executor.accept(queryRequest(2, 'SELECT 42 AS value'))
+    // The long query parks at its send gate (query lane)…
+    executor.accept(queryRequest(2, 'SELECT sum(a.i * b.i) FROM range(20000) a, range(20000) b'))
+    await awaitSends(deps.queryConn, 1)
+    // …and the registry lane is NOT blocked by it: the window and count ops
+    // start (and complete) while the query is still pending.
     executor.accept(rangeRequest(3, 0, 5))
     executor.accept(rowCountRequest(4))
-    await awaitSends(deps.connection, 2) // only the query's send so far
-    expect(deps.connection.sentSqls).toHaveLength(2) // range/rowCount still queued
-
-    // Release the query; assert range starts only after it fully finished.
-    deps.connection.resolveSend(1, intTable([42]))
-    const queryResponse = await awaitPosted(deps, 2)
-    expect(queryResponse.type).toBe('engine/query-result')
-    await awaitSends(deps.connection, 3)
-    expect(deps.connection.sentSqls[2]).toBe('SELECT * FROM "assay_t1" LIMIT 5 OFFSET 0')
-
-    // Range: window slices arrive correctly via the Arrow API.
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(2, intTable([1, 2, 3, 4, 5]))
+    await awaitSends(deps.conn, 2) // range SQL + count SQL (registry lane)
+    expect(deps.conn.sentSqls[1]).toBe('SELECT * FROM "assay_t1" LIMIT 5 OFFSET 0')
+    deps.conn.resolveSend(1, intTable([1, 2, 3, 4, 5]))
     const rangeResponse = await awaitPosted(deps, 3)
     expect(rangeResponse.type).toBe('engine/range-result')
     if (rangeResponse.type === 'engine/range-result') {
-      expect(rangeResponse.hasMore).toBe(false)
       expect(firstColumnValues(rangeResponse.batchIpc)).toEqual([1, 2, 3, 4, 5])
     }
+    deps.conn.resolveSend(2, countTable(5n))
+    expect(await awaitPosted(deps, 4)).toMatchObject({
+      type: 'engine/row-count-result',
+      rowCount: 5,
+    })
 
-    // Row count: BIGINT arrives, converts to a safe number.
-    await awaitSends(deps.connection, 4)
-    expect(deps.connection.sentSqls[3]).toBe('SELECT count(*)::BIGINT AS row_count FROM "assay_t1"')
-    deps.connection.resolveSend(3, countTable(1500n))
-    const countResponse = await awaitPosted(deps, 4)
-    expect(countResponse).toMatchObject({ type: 'engine/row-count-result', rowCount: 1500 })
+    // Registry-lane registry-window per-lane FIFO: rowCount ran only after
+    // the range finished (they shared the lane).
+    expect(deps.conn.sentSqls[2]).toBe('SELECT count(*)::BIGINT AS row_count FROM "assay_t1"')
 
-    // The collision guard held across the whole burst.
-    expect(deps.connection.collisions).toEqual([])
+    // The query was never touched by the burst; it settles last, correctly.
+    expect(deps.queryConn.sentSqls).toHaveLength(1)
+    expect(deps.postedResponses.find((response) => response.requestId === 2)).toBeUndefined()
+    deps.queryConn.resolveSend(0, intTable([42]))
+    const queryResponse = await awaitPosted(deps, 2)
+    expect(queryResponse.type).toBe('engine/query-result')
+    if (queryResponse.type === 'engine/query-result') {
+      expect(firstColumnValues(queryResponse.batchIpc)).toEqual([42])
+    }
+    expectNoCollisions(deps)
   })
 
-  it('a failing query errors only its own request; a queued op is unaffected', async () => {
+  it('queries serialize per lane: a second query only starts after the first settles', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(queryRequest(2, 'SELECT 41 AS value'))
+    executor.accept(queryRequest(3, 'SELECT 1 AS value'))
+    await awaitSends(deps.queryConn, 1)
+    // Per-lane FIFO (T2): the second query cannot be pending on the same
+    // connection while the first holds its pending-query slot.
+    expect(deps.queryConn.sentSqls).toHaveLength(1)
+    deps.queryConn.resolveSend(0, intTable([41]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/query-result' })
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toBe('SELECT 1 AS value')
+    deps.queryConn.resolveSend(1, intTable([1]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it('a failing query errors only its own request; a concurrent registry-lane op is unaffected', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
     executor.accept(queryRequest(2, 'SELEC 1'))
     executor.accept(rangeRequest(3, 0, 2))
-    await awaitSends(deps.connection, 2)
+    // Different lanes: both sends happen concurrently.
+    await awaitSends(deps.queryConn, 1)
+    await awaitSends(deps.conn, 2)
 
     // The query fails at startPendingQuery time (its own gate rejects).
-    deps.connection.rejectSend(1, new Error('Parser Error: syntax error at or near "SELEC"'))
+    deps.queryConn.rejectSend(0, new Error('Parser Error: syntax error at or near "SELEC"'))
     const errorResponse = await awaitPosted(deps, 2)
     expect(errorResponse).toMatchObject({
       type: 'engine/error',
       message: 'Parser Error: syntax error at or near "SELEC"',
     })
 
-    // The queued range then runs on the freed connection and succeeds.
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(2, intTable([1, 2]))
+    // The concurrent range on the other lane runs and succeeds regardless.
+    deps.conn.resolveSend(1, intTable([1, 2]))
     const rangeResponse = await awaitPosted(deps, 3)
     expect(rangeResponse.type).toBe('engine/range-result')
     if (rangeResponse.type === 'engine/range-result') {
       expect(firstColumnValues(rangeResponse.batchIpc)).toEqual([1, 2])
     }
-    expect(deps.connection.collisions).toEqual([])
 
-    // The engine is reusable after the error.
+    // The query LANE itself is reusable after the error (per-lane T2
+    // guarantee: the lane tail always settles).
     executor.accept(queryRequest(4, 'SELECT 7 AS value'))
-    await awaitSends(deps.connection, 4)
-    deps.connection.resolveSend(3, intTable([7]))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, intTable([7]))
     expect(await awaitPosted(deps, 4)).toMatchObject({ type: 'engine/query-result' })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
-  it('a mid-stream failure errors only its own op, releases the reader, and never corrupts a sibling', async () => {
+  it('a mid-stream failure errors only its own op, releases the reader, and never corrupts the other lane', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
     // A query whose SECOND next() rejects (batch one arrives fine) — the same
     // shape as the T1 mid-stream conformance scenario.
     executor.accept(queryRequest(2, 'SELECT i FROM range(5000)'))
-    executor.accept(rangeRequest(3, 0, 1)) // sibling, queued behind
-    await awaitSends(deps.connection, 2)
+    executor.accept(rangeRequest(3, 0, 1)) // sibling, on the registry lane
+    await awaitSends(deps.queryConn, 1)
+    await awaitSends(deps.conn, 2)
 
     const stream = new FakeStream(intTable(Array.from({ length: 16 }, (_, i) => i)).schema, [
       ...intTable(Array.from({ length: 16 }, (_, i) => i)).batches,
     ])
     stream.failNextAt = 1 // the peek call
-    deps.connection.sendAt(1).gate.resolve(stream)
+    deps.queryConn.sendAt(0).gate.resolve(stream)
 
     const errorResponse = await awaitPosted(deps, 2)
     expect(errorResponse).toMatchObject({
@@ -410,20 +447,21 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
       message: 'assay fake mid-stream failure',
     })
 
-    // The sibling range still completes with its own correct result.
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(2, intTable([9]))
+    // The sibling range on the other lane still completes with its own
+    // correct result.
+    deps.conn.resolveSend(1, intTable([9]))
     const rangeResponse = await awaitPosted(deps, 3)
     if (rangeResponse.type === 'engine/range-result') {
       expect(firstColumnValues(rangeResponse.batchIpc)).toEqual([9])
     }
-    expect(deps.connection.collisions).toEqual([])
 
-    // Follow-up query works: the connection was released deterministically.
+    // Follow-up query works: the query-lane connection was released
+    // deterministically.
     executor.accept(queryRequest(4, 'SELECT 5 AS value'))
-    await awaitSends(deps.connection, 4)
-    deps.connection.resolveSend(3, intTable([5]))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, intTable([5]))
     expect(await awaitPosted(deps, 4)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
   })
 
   it('first-batch transport is unchanged: multi-batch results set hasMore and cancel the tail', async () => {
@@ -431,12 +469,12 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
     await openFlatTable(executor, deps)
 
     executor.accept(queryRequest(2, 'SELECT i FROM range(5000)'))
-    await awaitSends(deps.connection, 2)
+    await awaitSends(deps.queryConn, 1)
     // A stream with two batches: the peek sees batch two → hasMore=true and
-    // cancelSent frees the connection (m1-2 behavior, now under serialization).
+    // cancelSent frees the connection (m1-2 behavior, now on the query lane).
     const first = intTable([1, 2, 3]).batches[0]!
     const second = intTable([4, 5, 6]).batches[0]!
-    deps.connection.sendAt(1).gate.resolve(new FakeStream(first.schema, [first, second]))
+    deps.queryConn.sendAt(0).gate.resolve(new FakeStream(first.schema, [first, second]))
     const response = await awaitPosted(deps, 2)
     expect(response.type).toBe('engine/query-result')
     if (response.type === 'engine/query-result') {
@@ -444,19 +482,19 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
       // Only the FIRST batch is transported; the tail is reported, not sent.
       expect(firstColumnValues(response.batchIpc)).toEqual([1, 2, 3])
     }
-    expect(deps.connection.cancelSentCalls).toBe(1)
+    expect(deps.queryConn.cancelSentCalls).toBe(1)
 
     executor.accept(queryRequest(3, 'SELECT 9 AS value'))
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(2, intTable([9]))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, intTable([9]))
     const single = await awaitPosted(deps, 3)
     if (single.type === 'engine/query-result') {
       expect(single.hasMore).toBe(false)
       expect(firstColumnValues(single.batchIpc)).toEqual([9])
     }
     // Single-batch result: nothing to free beyond the reader — no cancelSent.
-    expect(deps.connection.cancelSentCalls).toBe(1)
-    expect(deps.connection.collisions).toEqual([])
+    expect(deps.queryConn.cancelSentCalls).toBe(1)
+    expectNoCollisions(deps)
   })
 
   it('an empty stream errors its own op with the honest no-batches message', async () => {
@@ -464,39 +502,40 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
     await openFlatTable(executor, deps)
 
     executor.accept(queryRequest(2, 'SELECT 1 AS value WHERE 1 = 0'))
-    await awaitSends(deps.connection, 2)
-    deps.connection.sendAt(1).gate.resolve(FakeStream.empty())
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.sendAt(0).gate.resolve(FakeStream.empty())
     expect(await awaitPosted(deps, 2)).toMatchObject({
       type: 'engine/error',
       message: 'query produced no record batches',
     })
-    expect(deps.connection.collisions).toEqual([])
 
     executor.accept(queryRequest(3, 'SELECT 1 AS value'))
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(2, intTable([1]))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, intTable([1]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
   })
 
-  it('dispose during in-flight ops runs last: in-flight op settles first, then cleanup, then clean errors', async () => {
+  it('dispose during in-flight registry ops runs last on its lane: in-flight op settles first, then cleanup, then clean errors', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
-    executor.accept(rangeRequest(2, 1, 3)) // in-flight, held at its send
-    executor.accept(disposeRequest(3)) // queued behind the range
-    await awaitSends(deps.connection, 2)
+    executor.accept(rangeRequest(2, 1, 3)) // in-flight on the registry lane
+    executor.accept(disposeRequest(3)) // queued behind the range (same lane)
+    await awaitSends(deps.conn, 2)
 
     // Dispose must NOT have touched the connection yet (FIFO behind range).
-    expect(deps.connection.sentSqls).toHaveLength(2)
+    expect(deps.conn.sentSqls).toHaveLength(2)
 
-    deps.connection.resolveSend(1, intTable([2, 3]))
+    deps.conn.resolveSend(1, intTable([2, 3]))
     const rangeResponse = await awaitPosted(deps, 2)
     expect(rangeResponse.type).toBe('engine/range-result')
-    // Dispose's own turn: it drops the view (its send needs releasing), then
-    // posts the graceful reply.
-    await awaitSends(deps.connection, 3)
-    expect(deps.connection.sentSqls[2]).toBe('DROP VIEW IF EXISTS "assay_t1"')
-    deps.connection.resolveSend(2, intTable([]))
+    // Dispose's own turn: the query-lane barrier resolves immediately (empty
+    // lane), it drops the view (its send needs releasing), then posts the
+    // graceful reply.
+    await awaitSends(deps.conn, 3)
+    expect(deps.conn.sentSqls[2]).toBe('DROP VIEW IF EXISTS "assay_t1"')
+    deps.conn.resolveSend(2, intTable([]))
     const disposedResponse = await awaitPosted(deps, 3)
     expect(disposedResponse).toMatchObject({ type: 'engine/disposed' })
     // Deterministic order: the range result was posted before the disposed
@@ -514,7 +553,51 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
       type: 'engine/error',
       message: 'unknown table handle: t1',
     })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
+  })
+
+  it('dispose waits for an in-flight query (query-lane barrier) before dropping views', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(queryRequest(2, 'SELECT i FROM range(5000)')) // parked
+    await awaitSends(deps.queryConn, 1)
+    executor.accept(disposeRequest(3))
+    await flush()
+    // The barrier holds: no DROP VIEW while the query is still in flight.
+    expect(deps.conn.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
+    expect(deps.postedResponses.find((response) => response.requestId === 3)).toBeUndefined()
+
+    // The query settles, and only then does dispose drop the view on the
+    // registry lane.
+    deps.queryConn.resolveSend(0, intTable([1]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/query-result' })
+    await awaitSends(deps.conn, 2)
+    expect(deps.conn.sentSqls[1]).toBe('DROP VIEW IF EXISTS "assay_t1"')
+    deps.conn.resolveSend(1, intTable([]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/disposed' })
+    expect(deps.droppedFiles).toEqual(['t1'])
+    expectNoCollisions(deps)
+  })
+
+  it('dispose barrier also waits for a failing query before dropping views', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(queryRequest(2, 'SELEC 1'))
+    await awaitSends(deps.queryConn, 1)
+    executor.accept(disposeRequest(3))
+    await flush()
+    expect(deps.conn.sentSqls).toHaveLength(1)
+
+    // Even a failing query gates the barrier: its error reaches its own
+    // caller, the lane tail settles, and dispose proceeds.
+    deps.queryConn.rejectSend(0, new Error('Parser Error: syntax error at or near "SELEC"'))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/error' })
+    await awaitSends(deps.conn, 2)
+    deps.conn.resolveSend(1, intTable([]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/disposed' })
+    expectNoCollisions(deps)
   })
 
   it('concurrent first ops share one session boot', async () => {
@@ -525,85 +608,87 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
     executor.accept(queryRequest(2, 'SELECT 42 AS value'))
     await flush()
     expect(deps.boots).toBe(1) // the init op's boot
-    expect(deps.bootCalls).toBe(1) // the query op is still queued behind init
+    // Both lanes dispatched; the query lane's ensureSession is memoized.
+    expect(deps.bootCalls).toBe(2)
 
     deps.sessionGate.resolve(undefined)
     const ready = await awaitPosted(deps, 1)
     expect(ready).toMatchObject({ type: 'engine/ready', duckdbVersion: 'vX-test' })
 
-    await awaitSends(deps.connection, 1)
-    deps.connection.resolveSend(0, intTable([42]))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, intTable([42]))
     expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/query-result' })
     // Both ops called ensureSession but only ONE boot happened (memoized).
     expect(deps.boots).toBe(1)
     expect(deps.bootCalls).toBe(2)
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
-  it('a failed open rolls back its registration and never blocks the queued op', async () => {
+  it('a failed open rolls back its registration and never blocks the queued registry-lane op', async () => {
     const { executor, deps } = makeExecutor()
 
     executor.accept(openRequest(1))
-    executor.accept(queryRequest(2, 'SELECT 42 AS value'))
-    await awaitSends(deps.connection, 1) // CREATE VIEW (open is first in FIFO)
+    executor.accept(rowCountRequest(2)) // queued behind the open on the registry lane
+    await awaitSends(deps.conn, 1) // CREATE VIEW (open is first in the lane)
 
     // View creation fails → open rolls back: registry entry removed, file
-    // dropped — and the queued query runs untouched afterwards.
-    deps.connection.rejectSend(0, new Error('Parquet magic bytes not found'))
+    // dropped — and the lane tail settles for the queued op.
+    deps.conn.rejectSend(0, new Error('Parquet magic bytes not found'))
     expect(await awaitPosted(deps, 1)).toMatchObject({
       type: 'engine/error',
       message: 'Parquet magic bytes not found',
     })
     expect(deps.droppedFiles).toEqual(['t1'])
 
-    await awaitSends(deps.connection, 2)
-    expect(deps.connection.sentSqls[1]).toBe('SELECT 42 AS value')
-    deps.connection.resolveSend(1, intTable([42]))
-    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/query-result' })
+    // The rolled-back handle is gone: the queued op gets a clean per-request
+    // error of its own (not a phantom success over the removed entry), and it
+    // never touches the connection — the handle check precedes any SQL.
+    expect(deps.conn.sentSqls).toHaveLength(1) // only the failed open's CREATE VIEW
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      message: 'unknown table handle: t1',
+    })
 
-    // The rolled-back handle is gone; a retry open takes the NEXT id (t2) —
-    // no collision with the phantom t1.
+    // A retry open takes the NEXT id (t2) — no collision with the phantom t1.
     executor.accept(openRequest(3))
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(2, intTable([]))
+    await awaitSends(deps.conn, 2)
+    deps.conn.resolveSend(1, intTable([]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/open-result', tableId: 't2' })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
-  it('an invalid row window errors its own op without ever touching the connection', async () => {
+  it('an invalid row window errors its own op without ever touching its lane', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
     executor.accept(rangeRequest(2, 5, 2)) // inverted window
     executor.accept(queryRequest(3, 'SELECT 1 AS value'))
-    await awaitSends(deps.connection, 2)
-    // The only send so far is the queued query — the invalid range never
-    // reached the connection.
-    expect(deps.connection.sentSqls[1]).toBe('SELECT 1 AS value')
+    await awaitSends(deps.queryConn, 1)
+    // The invalid range never reached the registry lane: the only traffic
+    // there is the open's CREATE VIEW. The query runs on the query lane.
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    expect(deps.queryConn.sentSqls[0]).toBe('SELECT 1 AS value')
 
     expect(await awaitPosted(deps, 2)).toMatchObject({
       type: 'engine/error',
       message: 'invalid row window: endRow must be greater than or equal to startRow',
     })
-    deps.connection.resolveSend(1, intTable([1]))
+    deps.queryConn.resolveSend(0, intTable([1]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
-  it('schema passthrough runs serialized between other ops and reports DuckDB types verbatim', async () => {
+  it('schema runs on the registry lane, serialized with the other registry ops, reporting DuckDB types verbatim', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
-    executor.accept(queryRequest(2, 'SELECT 42 AS value'))
-    executor.accept(schemaRequest(3))
-    await awaitSends(deps.connection, 2)
-    deps.connection.resolveSend(1, intTable([42]))
-    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/query-result' })
-
-    await awaitSends(deps.connection, 3)
-    expect(deps.connection.sentSqls[2]).toBe('DESCRIBE "assay_t1"')
-    deps.connection.resolveSend(2, describeTable())
-    const schemaResponse = await awaitPosted(deps, 3)
+    executor.accept(schemaRequest(2))
+    executor.accept(rowCountRequest(3)) // queued behind the schema (same lane)
+    await awaitSends(deps.conn, 2)
+    expect(deps.queryConn.sentSqls).toHaveLength(0) // the query lane is idle
+    expect(deps.conn.sentSqls[1]).toBe('DESCRIBE "assay_t1"')
+    deps.conn.resolveSend(1, describeTable())
+    const schemaResponse = await awaitPosted(deps, 2)
     expect(schemaResponse).toMatchObject({
       type: 'engine/schema-result',
       columns: [
@@ -611,7 +696,12 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
         { name: 'country', type: 'VARCHAR' },
       ],
     })
-    expect(deps.connection.collisions).toEqual([])
+
+    // Per-lane FIFO: the count starts only after the schema finished.
+    await awaitSends(deps.conn, 3)
+    deps.conn.resolveSend(2, countTable(5n))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/row-count-result' })
+    expectNoCollisions(deps)
   })
 
   it('oversized range windows are re-clamped in the SQL the executor builds', async () => {
@@ -619,12 +709,12 @@ describe('EngineOpExecutor concurrency (T2 worker-side serialization)', () => {
     await openFlatTable(executor, deps)
 
     executor.accept(rangeRequest(2, 10_000, 10_000_000))
-    await awaitSends(deps.connection, 2)
+    await awaitSends(deps.conn, 2)
     // LIMIT capped to MAX_RANGE_ROWS, OFFSET preserved.
-    expect(deps.connection.sentSqls[1]).toBe('SELECT * FROM "assay_t1" LIMIT 1000 OFFSET 10000')
-    deps.connection.resolveSend(1, intTable([]))
+    expect(deps.conn.sentSqls[1]).toBe('SELECT * FROM "assay_t1" LIMIT 1000 OFFSET 10000')
+    deps.conn.resolveSend(1, intTable([]))
     expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/range-result' })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 })
 
@@ -679,23 +769,23 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
         sort: [{ column: 'income', direction: 'desc' }],
       }),
     )
-    await awaitSends(deps.connection, 2)
+    await awaitSends(deps.conn, 2)
     // Predicates are WHERE content; the column identifiers are quoted; the
     // view name is the engine-generated one.
-    expect(deps.connection.sentSqls[1]).toBe(
+    expect(deps.conn.sentSqls[1]).toBe(
       'SELECT * FROM "assay_t1" ' +
         `WHERE ("country" = 'US') AND ("income" > 50000) ` +
         'ORDER BY "income" desc ' +
         'LIMIT 5 OFFSET 0',
     )
-    deps.connection.resolveSend(1, intTable([5, 2]))
+    deps.conn.resolveSend(1, intTable([5, 2]))
     const response = await awaitPosted(deps, 2)
     expect(response.type).toBe('engine/range-result')
     if (response.type === 'engine/range-result') {
       expect(response.hasMore).toBe(false)
       expect(firstColumnValues(response.batchIpc)).toEqual([5, 2])
     }
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
   it('composes byte-identical legacy SQL when filters/sort are absent or empty', async () => {
@@ -703,19 +793,19 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
     await openFlatTable(executor, deps)
 
     executor.accept(filteredRangeRequest(2, { filters: [], sort: [] }))
-    await awaitSends(deps.connection, 2)
-    expect(deps.connection.sentSqls[1]).toBe('SELECT * FROM "assay_t1" LIMIT 5 OFFSET 0')
-    deps.connection.resolveSend(1, intTable([1, 2, 3, 4, 5]))
+    await awaitSends(deps.conn, 2)
+    expect(deps.conn.sentSqls[1]).toBe('SELECT * FROM "assay_t1" LIMIT 5 OFFSET 0')
+    deps.conn.resolveSend(1, intTable([1, 2, 3, 4, 5]))
 
     executor.accept(filteredRowCountRequest(3, []))
-    await awaitSends(deps.connection, 3)
-    expect(deps.connection.sentSqls[2]).toBe('SELECT count(*)::BIGINT AS row_count FROM "assay_t1"')
-    deps.connection.resolveSend(2, countTable(5n))
+    await awaitSends(deps.conn, 3)
+    expect(deps.conn.sentSqls[2]).toBe('SELECT count(*)::BIGINT AS row_count FROM "assay_t1"')
+    deps.conn.resolveSend(2, countTable(5n))
     expect(await awaitPosted(deps, 3)).toMatchObject({
       type: 'engine/row-count-result',
       rowCount: 5,
     })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
   it('re-clamps oversized windows with filters present (LIMIT capped, WHERE kept)', async () => {
@@ -729,13 +819,13 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
         filters: [{ column: 'income', predicate: 'IS NOT NULL' }],
       }),
     )
-    await awaitSends(deps.connection, 2)
-    expect(deps.connection.sentSqls[1]).toBe(
+    await awaitSends(deps.conn, 2)
+    expect(deps.conn.sentSqls[1]).toBe(
       'SELECT * FROM "assay_t1" WHERE ("income" IS NOT NULL) LIMIT 1000 OFFSET 500',
     )
-    deps.connection.resolveSend(1, intTable([]))
+    deps.conn.resolveSend(1, intTable([]))
     expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/range-result' })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
   it('composes the filtered count SQL for engine/row-count', async () => {
@@ -743,16 +833,16 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
     await openFlatTable(executor, deps)
 
     executor.accept(filteredRowCountRequest(2, [{ column: 'income', predicate: '> 50000' }]))
-    await awaitSends(deps.connection, 2)
-    expect(deps.connection.sentSqls[1]).toBe(
+    await awaitSends(deps.conn, 2)
+    expect(deps.conn.sentSqls[1]).toBe(
       'SELECT count(*)::BIGINT AS row_count FROM "assay_t1" WHERE ("income" > 50000)',
     )
-    deps.connection.resolveSend(1, countTable(3n))
+    deps.conn.resolveSend(1, countTable(3n))
     expect(await awaitPosted(deps, 2)).toMatchObject({
       type: 'engine/row-count-result',
       rowCount: 3,
     })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
   it('a failing predicate errors only its own op with the engine message and the engine stays usable', async () => {
@@ -763,22 +853,23 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
       filteredRangeRequest(2, { filters: [{ column: 'income', predicate: ')) FROM ((' }] }),
     )
     executor.accept(filteredRowCountRequest(3, [{ column: 'income', predicate: '> 1' }]))
-    await awaitSends(deps.connection, 2)
+    await awaitSends(deps.conn, 2)
 
-    deps.connection.rejectSend(1, new Error('Parser Error: syntax error at or near "))"'))
+    deps.conn.rejectSend(1, new Error('Parser Error: syntax error at or near "))"'))
     expect(await awaitPosted(deps, 2)).toMatchObject({
       type: 'engine/error',
       message: 'Parser Error: syntax error at or near "))"',
     })
 
-    // The queued filtered count runs afterwards on the freed connection.
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(2, countTable(4n))
+    // The queued filtered count runs afterwards on the freed registry-lane
+    // connection.
+    await awaitSends(deps.conn, 3)
+    deps.conn.resolveSend(2, countTable(4n))
     expect(await awaitPosted(deps, 3)).toMatchObject({
       type: 'engine/row-count-result',
       rowCount: 4,
     })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
   it('silently drops requests whose filters/sort arrive malformed (no reply, no send)', async () => {
@@ -794,15 +885,16 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
       }),
     )
     await flush()
-    expect(deps.connection.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
+    expect(deps.conn.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
     expect(deps.postedResponses.find((response) => response.requestId === 2)).toBeUndefined()
 
-    // The channel was never occupied by the dropped message: a follow-up op runs.
+    // The lane was never occupied by the dropped message: a follow-up query
+    // runs on the query lane.
     executor.accept(queryRequest(3, 'SELECT 42 AS value'))
-    await awaitSends(deps.connection, 2)
-    deps.connection.resolveSend(1, intTable([42]))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, intTable([42]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 })
 
@@ -858,21 +950,23 @@ function topKTable(entries: ReadonlyArray<readonly [string, bigint]>): Table {
   })
 }
 
-describe('EngineOpExecutor profile (m2-5)', () => {
+describe('EngineOpExecutor profile (m2-5; query lane since m2-7)', () => {
   it('composes DESCRIBE + ONE base aggregate + one top-k scan per categorical column and posts the assembled stats', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
     executor.accept(profileRequest(2))
-    // Send 2: DESCRIBE (metadata only).
-    await awaitSends(deps.connection, 2)
-    expect(deps.connection.sentSqls[1]).toBe('DESCRIBE "assay_t1"')
-    deps.connection.resolveSend(1, describeTable())
+    // Profile traffic runs on the QUERY lane (m2-7: a profile is a heavy
+    // scan and must never sit on the registry lane beside the grid's
+    // windows). Query-lane send 1: DESCRIBE (metadata only).
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toBe('DESCRIBE "assay_t1"')
+    deps.queryConn.resolveSend(0, describeTable())
 
-    // Send 3: the combined base aggregate — the single data scan (all
-    // nulls/distinct/numeric stats of both columns in one query).
-    await awaitSends(deps.connection, 3)
-    expect(deps.connection.sentSqls[2]).toBe(
+    // Query-lane send 2: the combined base aggregate — the single data scan
+    // (all nulls/distinct/numeric stats of both columns in one query).
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toBe(
       'SELECT count(*)::BIGINT AS "c0", ' +
         'count("customer_id")::BIGINT AS "c1", count(DISTINCT "customer_id")::BIGINT AS "c2", ' +
         'min("customer_id")::DOUBLE AS "c3", max("customer_id")::DOUBLE AS "c4", ' +
@@ -881,8 +975,8 @@ describe('EngineOpExecutor profile (m2-5)', () => {
         'count("country")::BIGINT AS "c8", count(DISTINCT "country")::BIGINT AS "c9" ' +
         'FROM "assay_t1"',
     )
-    deps.connection.resolveSend(
-      2,
+    deps.queryConn.resolveSend(
+      1,
       profileBaseTable({
         rowCount: 5n,
         id: {
@@ -898,14 +992,15 @@ describe('EngineOpExecutor profile (m2-5)', () => {
       }),
     )
 
-    // Send 4: exactly one top-k scan — for the categorical column only.
-    await awaitSends(deps.connection, 4)
-    expect(deps.connection.sentSqls[3]).toBe(
+    // Query-lane send 3: exactly one top-k scan — for the categorical
+    // column only.
+    await awaitSends(deps.queryConn, 3)
+    expect(deps.queryConn.sentSqls[2]).toBe(
       'SELECT CAST("country" AS VARCHAR) AS "v", count(*)::BIGINT AS "n" ' +
         'FROM "assay_t1" WHERE "country" IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1 ASC LIMIT 10',
     )
-    deps.connection.resolveSend(
-      3,
+    deps.queryConn.resolveSend(
+      2,
       topKTable([
         ['SG', 2n],
         ['US', 2n],
@@ -949,7 +1044,10 @@ describe('EngineOpExecutor profile (m2-5)', () => {
         },
       ],
     })
-    expect(deps.connection.collisions).toEqual([])
+    // The profile never touched the registry-lane connection: its only
+    // traffic remains the open's CREATE VIEW.
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    expectNoCollisions(deps)
   })
 
   it('a numeric-only schema sends exactly the DESCRIBE + base scan (no top-k)', async () => {
@@ -957,11 +1055,11 @@ describe('EngineOpExecutor profile (m2-5)', () => {
     await openFlatTable(executor, deps)
 
     executor.accept(profileRequest(2))
-    await awaitSends(deps.connection, 2)
-    deps.connection.resolveSend(1, numericOnlyDescribeTable())
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(
-      2,
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, numericOnlyDescribeTable())
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(
+      1,
       tableFromArrays({
         c0: BigInt64Array.from([3n]),
         c1: BigInt64Array.from([3n]),
@@ -989,8 +1087,8 @@ describe('EngineOpExecutor profile (m2-5)', () => {
         },
       ],
     })
-    expect(deps.connection.sentSqls).toHaveLength(3)
-    expect(deps.connection.collisions).toEqual([])
+    expect(deps.queryConn.sentSqls).toHaveLength(2)
+    expectNoCollisions(deps)
   })
 
   it('maps non-finite numeric stat slots (NaN/±Infinity) to null instead of leaking them', async () => {
@@ -998,15 +1096,15 @@ describe('EngineOpExecutor profile (m2-5)', () => {
     await openFlatTable(executor, deps)
 
     executor.accept(profileRequest(2))
-    await awaitSends(deps.connection, 2)
-    deps.connection.resolveSend(1, describeTable())
-    await awaitSends(deps.connection, 3)
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, describeTable())
+    await awaitSends(deps.queryConn, 2)
     // Extreme magnitudes: DuckDB can answer NaN/±Infinity stat slots; the
     // profile contract is finite-number-or-null JSON data (protocol
     // invariant), so every non-finite slot degrades to null — only here,
     // in the executor, is that mapping pinned.
-    deps.connection.resolveSend(
-      2,
+    deps.queryConn.resolveSend(
+      1,
       profileBaseTable({
         rowCount: 5n,
         id: {
@@ -1021,8 +1119,8 @@ describe('EngineOpExecutor profile (m2-5)', () => {
         country: { nn: 5n, d: 3n },
       }),
     )
-    await awaitSends(deps.connection, 4)
-    deps.connection.resolveSend(3, topKTable([['SG', 2n]]))
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, topKTable([['SG', 2n]]))
 
     // The op succeeds (no error): non-finite slots are null, finite ones pass.
     expect(await awaitPosted(deps, 2)).toMatchObject({
@@ -1046,10 +1144,10 @@ describe('EngineOpExecutor profile (m2-5)', () => {
         },
       ],
     })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
-  it('profiles of unknown handles error their own op without ever touching the connection', async () => {
+  it('profiles of unknown handles error their own op without ever touching either lane', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
@@ -1058,25 +1156,28 @@ describe('EngineOpExecutor profile (m2-5)', () => {
       type: 'engine/error',
       message: 'unknown table handle: nope',
     })
-    expect(deps.connection.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
+    // Neither lane was touched: the registry lane only ever saw the open's
+    // CREATE VIEW; the query lane saw nothing at all.
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
 
     // The engine is reusable: a real profile still answers.
     executor.accept(profileRequest(3))
-    await awaitSends(deps.connection, 2)
-    deps.connection.resolveSend(1, describeTable())
-    await awaitSends(deps.connection, 3)
-    deps.connection.resolveSend(
-      2,
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, describeTable())
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(
+      1,
       profileBaseTable({
         rowCount: 5n,
         id: { nn: 5n, d: 5n, min: 1, max: 5, mean: 3, std: 1.58, q: [3, 4.6, 4.8, 4.96] },
         country: { nn: 5n, d: 3n },
       }),
     )
-    await awaitSends(deps.connection, 4)
-    deps.connection.resolveSend(3, topKTable([['SG', 2n]]))
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, topKTable([['SG', 2n]]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/profile-result' })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 
   it('a malformed aggregate slot fails the op loudly and the engine stays usable', async () => {
@@ -1084,13 +1185,13 @@ describe('EngineOpExecutor profile (m2-5)', () => {
     await openFlatTable(executor, deps)
 
     executor.accept(profileRequest(2))
-    await awaitSends(deps.connection, 2)
-    deps.connection.resolveSend(1, describeTable())
-    await awaitSends(deps.connection, 3)
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, describeTable())
+    await awaitSends(deps.queryConn, 2)
     // A count slot arriving as a string is an engine deviation: the op fails
     // loudly instead of leaking a bogus stat into the response.
-    deps.connection.resolveSend(
-      2,
+    deps.queryConn.resolveSend(
+      1,
       tableFromArrays({
         c0: ['not-a-count'],
         c1: BigInt64Array.from([5n]),
@@ -1109,11 +1210,11 @@ describe('EngineOpExecutor profile (m2-5)', () => {
       message: 'profile aggregate returned an unexpected shape',
     })
 
-    // The channel/connection were never wedged: a follow-up query answers.
+    // The lane was never wedged: a follow-up query on the same lane answers.
     executor.accept(queryRequest(3, 'SELECT 42 AS value'))
-    await awaitSends(deps.connection, 4)
-    deps.connection.resolveSend(3, intTable([42]))
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, intTable([42]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
-    expect(deps.connection.collisions).toEqual([])
+    expectNoCollisions(deps)
   })
 })

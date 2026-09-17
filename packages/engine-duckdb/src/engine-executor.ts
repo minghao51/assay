@@ -1,29 +1,42 @@
 /**
- * Worker-side engine operation executor (T2): owns every operation the engine
- * worker performs and serializes them through a single pending-query channel
- * (`./op-channel` — the design rationale lives there).
+ * Worker-side engine operation executor (T2, two lanes since m2-7): owns every
+ * operation the engine worker performs, serialized through TWO pending-query
+ * channels (`./op-channel` — the design rationale and the measured m2-7
+ * evidence live there): a query lane (user SQL, profile — heavy scans) on its
+ * own connection, and a registry lane (open/schema/range/rowCount/dispose —
+ * the short, latency-sensitive metadata and window traffic) on another. Each
+ * lane preserves the T2 guarantees (per-connection single pending query,
+ * FIFO order, per-op error isolation); across lanes the connections are
+ * independent, so a long query no longer blocks the grid's windows.
  *
  * The class is the worker's former request loop, extracted behind injected
  * dependencies (`EngineExecutorDeps`) so the concurrency behavior is
- * unit-testable in Node with a fake session/connection: the fake records
- * pending-ness and FAILS if two connection-touching operations overlap, which
- * is exactly the duckdb-wasm 1.32 "one pending query per connection"
- * constraint this executor exists to enforce. The real worker (`./worker.ts`)
- * wires the same class to DuckDB-WASM.
+ * unit-testable in Node with a fake session/connection: the fakes record
+ * pending-ness and FAIL if two connection-touching operations overlap ON THE
+ * SAME connection, which is exactly the duckdb-wasm 1.32 "one pending query
+ * per connection" constraint this executor exists to enforce. The real worker
+ * (`./worker.ts`) wires the same class to DuckDB-WASM.
  *
  * Semantics preserved from the pre-T2 worker (verbatim where noted):
  * - First-batch Arrow transport (ADR 0020): `query`/`range` stream through
  *   `conn.send()`, transport the first record batch as Arrow IPC, report
  *   `hasMore` honestly, and release the reader in `finally` before reporting.
+ *   m2-7: `query`/`profile` stream through the QUERY-lane connection, the
+ *   registry ops through the registry-lane connection — same transport either
+ *   way (protocol unchanged; routing is worker-internal).
  * - File lifecycle (m1-4): `open` registers the picked `File` under the
  *   engine-generated table id (lazy `BROWSER_FILEREADER` reads — no upfront
  *   copy) and creates a per-format view; a failure rolls the registration
  *   back. `schema`/`range`/`rowCount`/`profile` address tables through the
- *   registry.
+ *   registry. The view is created on the registry-lane connection; DuckDB
+ *   persistent views live in the database catalog, so the query lane reads
+ *   them (pinned by e2e: user SQL over `assay_tN` after an open).
  * - `dispose` drops every view/file best-effort per entry and replies when
- *   done. On the channel it is just another FIFO op: it runs after ops that
- *   arrived before it (in-flight work settles first, deterministically), and
- *   anything after it sees an empty registry (clean per-request errors).
+ *   done. On its lane it is just another FIFO op; since m2-7 it ALSO awaits a
+ *   query-lane barrier first, so in-flight queries settle deterministically
+ *   before any view is dropped (the T2 shutdown order, now across both
+ *   lanes; the client's dispose timeout still bounds the wait). Anything
+ *   after it sees an empty registry (clean per-request errors).
  * - Error propagation: every op's failure is caught in `dispatch` and posted
  *   to its own `requestId` — an error never reaches another op's reply and
  *   never leaves the channel (or the connection) wedged.
@@ -78,11 +91,14 @@ export interface EngineConnectionLike {
   cancelSent(): Promise<unknown>
 }
 
-/** Minimal structural view of a booted engine session. */
+/** Minimal structural view of a booted engine session (one lane pair). */
 export interface EngineSessionLike {
   /** Version probe for `engine/init` (db-level, boot-time only). */
   getVersion(): Promise<string>
+  /** Registry-lane connection: open/schema/range/rowCount/dispose. */
   readonly conn: EngineConnectionLike
+  /** Query-lane connection: `engine/query` and `engine/profile` (m2-7). */
+  readonly queryConn: EngineConnectionLike
 }
 
 /** Dependencies injected by the worker entry (or faked by unit tests). */
@@ -98,26 +114,37 @@ export interface EngineExecutorDeps {
 }
 
 export class EngineOpExecutor {
-  /** The single pending-query channel every operation is serialized through. */
-  private readonly channel = new OpChannel()
+  /**
+   * The two pending-query lanes (m2-7): user SQL and profile scans serialize
+   * on the query lane; the short registry/window ops serialize on the
+   * registry lane. See `./op-channel` for the measured rationale.
+   */
+  private readonly queryChannel = new OpChannel()
+  private readonly registryChannel = new OpChannel()
   private readonly registry = new TableRegistry()
 
   constructor(private readonly deps: EngineExecutorDeps) {}
 
   /**
    * Entry point for raw worker messages. Parsing happens synchronously at
-   * arrival so the enqueue order matches message order (FIFO); messages that
-   * are not part of the protocol are ignored (no `requestId` to reply to).
+   * arrival so the enqueue order matches message order (FIFO per lane);
+   * messages that are not part of the protocol are ignored (no `requestId`
+   * to reply to).
    */
   accept(data: unknown): void {
     const request = parseEngineRequest(data)
     if (request === null) {
       return
     }
-    // Serialize: no two operations are pending on the shared connection at
-    // once. The task's own errors are caught inside `dispatch` and posted to
-    // its caller; the channel tail settles regardless (op-channel.ts).
-    void this.channel.run(() => this.dispatch(request))
+    // Route to the op class's lane and serialize there: no two operations
+    // are pending on the lane's connection at once. The task's own errors
+    // are caught inside `dispatch` and posted to its caller; the lane tail
+    // settles regardless (op-channel.ts).
+    const lane =
+      request.type === 'engine/query' || request.type === 'engine/profile'
+        ? this.queryChannel
+        : this.registryChannel
+    void lane.run(() => this.dispatch(request))
   }
 
   private async dispatch(request: EngineRequest): Promise<void> {
@@ -134,7 +161,10 @@ export class EngineOpExecutor {
         }
 
         case 'engine/query': {
-          const { batchIpc, hasMore } = await this.streamFirstBatch(request.sql)
+          // Query lane: user SQL shares its lane only with other queries and
+          // profile scans — never with the grid's windows.
+          const { queryConn } = await this.deps.ensureSession()
+          const { batchIpc, hasMore } = await this.streamFirstBatch(queryConn, request.sql)
           this.post({
             type: 'engine/query-result',
             requestId: request.requestId,
@@ -266,6 +296,7 @@ export class EngineOpExecutor {
     if (!window.valid) {
       throw new Error(`invalid row window: ${window.reason}`)
     }
+    const { conn } = await this.deps.ensureSession()
     const sql = composeWindowSql({
       viewName: entry.viewName,
       columns: request.columns,
@@ -274,7 +305,7 @@ export class EngineOpExecutor {
       limit: window.endRow - window.startRow,
       offset: window.startRow,
     })
-    const { batchIpc, hasMore } = await this.streamFirstBatch(sql)
+    const { batchIpc, hasMore } = await this.streamFirstBatch(conn, sql)
     this.post({ type: 'engine/range-result', requestId: request.requestId, batchIpc, hasMore })
   }
 
@@ -293,7 +324,9 @@ export class EngineOpExecutor {
     filters?: EngineFilterSpec[],
   ): Promise<void> {
     const entry = this.requireTable(tableId)
+    const { conn } = await this.deps.ensureSession()
     const { batchIpc } = await this.streamFirstBatch(
+      conn,
       composeRowCountSql({ viewName: entry.viewName, filters }),
     )
     const value = tableFromIPC(batchIpc).getChildAt(0)?.get(0)
@@ -320,9 +353,12 @@ export class EngineOpExecutor {
    * Results are strictly bounded (one row; ≤ k rows per categorical column),
    * so the reads use `conn.query` (materialized) instead of the first-batch
    * streaming transport — no cancellation surface is needed. Everything runs
-   * inside ONE channel op: the sequential awaits never overlap on the
-   * connection (T2 invariant), and any failure rejects this op with the
-   * engine's own error, leaving the engine reusable.
+   * inside ONE query-lane op (m2-7: profile shares the query lane — it is a
+   * heavy scan like user SQL, and must never sit on the registry lane where
+   * it would block the grid's windows for its whole scan): the sequential
+   * awaits never overlap on the query connection (per-lane T2 invariant),
+   * and any failure rejects this op with the engine's own error, leaving the
+   * engine reusable.
    *
    * Graceful degradation: `other`-kind columns (nested/exotic types) carry
    * only name/type/nullCount/distinctCount — an exotic type can never fail
@@ -330,15 +366,15 @@ export class EngineOpExecutor {
    */
   private async runProfile(requestId: number, tableId: string): Promise<void> {
     const entry = this.requireTable(tableId)
-    const { conn } = await this.deps.ensureSession()
-    const schema = await this.describeView(conn, entry.viewName)
+    const { queryConn } = await this.deps.ensureSession()
+    const schema = await this.describeView(queryConn, entry.viewName)
     const specs = schema.map((column) => ({
       name: column.name,
       kind: classifyProfileColumnType(column.type),
     }))
 
     const base = composeProfileBaseSql({ viewName: entry.viewName, columns: specs })
-    const baseRow = await conn.query(base.sql)
+    const baseRow = await queryConn.query(base.sql)
     if (baseRow.numRows !== 1) {
       throw new Error('profile aggregate returned an unexpected shape')
     }
@@ -373,7 +409,7 @@ export class EngineOpExecutor {
     // break by value ascending (both documented in profile-query.ts).
     for (let index = 0; index < columns.length; index++) {
       if (specs[index]!.kind !== 'categorical') continue
-      const topK = await this.readTopK(conn, entry.viewName, specs[index]!.name)
+      const topK = await this.readTopK(queryConn, entry.viewName, specs[index]!.name)
       columns[index]!.categorical = { topK }
     }
 
@@ -411,12 +447,22 @@ export class EngineOpExecutor {
    * which reclaims the whole engine instance regardless — this graceful path
    * exists so a future non-terminal close can reuse the same cleanup.
    *
-   * On the channel this is an ordinary FIFO op: in-flight operations enqueued
-   * before it settle first (each with its own result or error), so shutdown
-   * is deterministic — the registry is empty once this runs, and later
-   * requests fail with clean per-request errors instead of racing cleanup.
+   * On its lane (registry, m2-7) this is an ordinary FIFO op, and since m2-7
+   * it first awaits a query-lane barrier: in-flight queries (and profile
+   * scans) enqueued before it settle first, each with its own result or
+   * error, so shutdown stays deterministic — the registry is empty once the
+   * drops run, no view is removed under a running query, and later requests
+   * fail with clean per-request errors instead of racing cleanup. (Queries
+   * that arrive after the barrier may still race the drops worker-side — the
+   * client rejects those itself before the dispose message is ever sent; a
+   * straggler would get its own clean engine error. The client's dispose
+   * timeout bounds the barrier wait and terminates the worker regardless.)
    */
   private async runDispose(requestId: number): Promise<void> {
+    // Query-lane barrier: resolves once every enqueued query/profile op has
+    // settled. It cannot deadlock — the query lane never awaits the registry
+    // lane.
+    await this.queryChannel.run(async () => undefined)
     const { conn } = await this.deps.ensureSession()
     for (const entry of this.registry.clear()) {
       await conn
@@ -445,11 +491,14 @@ export class EngineOpExecutor {
    * Cleanup ordering (m1-2 reviewer notes): the reader is always released in
    * `finally` — on success, on the empty-stream error, and when a mid-stream
    * `next()` rejects — *before* anything is reported to the main thread, so an
-   * error can never leave the connection occupied. The caller (the channel)
-   * guarantees no other operation was pending on the connection meanwhile.
+   * error can never leave the connection occupied. The caller (the lane)
+   * guarantees no other operation was pending on THIS connection meanwhile
+   * (m2-7: the other lane's connection is independent).
    */
-  private async streamFirstBatch(sql: string): Promise<{ batchIpc: Uint8Array; hasMore: boolean }> {
-    const { conn } = await this.deps.ensureSession()
+  private async streamFirstBatch(
+    conn: EngineConnectionLike,
+    sql: string,
+  ): Promise<{ batchIpc: Uint8Array; hasMore: boolean }> {
     const reader = await conn.send(sql)
     let hasMore = false
     try {

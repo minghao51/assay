@@ -193,6 +193,27 @@
       </section>
 
       <!--
+        m2-7 head-of-line measurement: quantifies the interactive ops' wait
+        behind a long user query (the grid's scroll traffic queued behind a
+        SQL-editor run) against their idle-engine baseline. Per repeat: idle
+        baselines first, then a long query takes the lane, then a burst
+        (fetchRange + rowCount + schema) fires concurrently; per-op fire→settle
+        waits, the settle order, and the query duration are recorded. Privacy
+        (ADR 0001/0025): timings, counts, and ids only — never file names or
+        dataset contents.
+      -->
+      <section>
+        <h2>Head-of-line measurement (m2-7): interactive burst behind a long query</h2>
+        <button id="run-head-of-line" type="button">
+          Measure interactive-op waits behind a long query (5 repeats)
+        </button>
+        <dl>
+          <dt>head-of-line evidence (JSON)</dt>
+          <dd><pre data-testid="head-of-line-result">not run</pre></dd>
+        </dl>
+      </section>
+
+      <!--
         T1 engine conformance suite: the scenarios live in @assay/testing
         (parameterized over an EngineConformanceSubject); this harness hosts
         the DuckDB-WASM adapter. Each button runs ONE scenario against a fresh

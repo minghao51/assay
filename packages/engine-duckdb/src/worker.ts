@@ -6,13 +6,19 @@
  * bundle's architecture); this worker is a thin protocol adapter speaking the
  * typed messages from `./protocol`.
  *
- * T2 operation serialization: every request is dispatched through a single
- * pending-query channel (`EngineOpExecutor` + `OpChannel`). duckdb-wasm 1.32
- * polls one pending query per connection, so two operations interleaving on
- * the shared connection could collide (misattributed result batches, opaque
- * `_setThrew` failures). Before T2 the one-message-at-a-time behavior was
- * only an accident of postMessage dispatch; now it is structural. The
- * decision (queue vs per-op connections) and its evidence are documented in
+ * T2 operation serialization, two lanes since m2-7: every request is
+ * dispatched through one of two pending-query channels (`EngineOpExecutor` +
+ * `OpChannel`), one per DuckDB connection. duckdb-wasm 1.32 polls one pending
+ * query per connection, so two operations interleaving on ONE connection
+ * could collide (misattributed result batches, opaque `_setThrew` failures).
+ * Before T2 the one-message-at-a-time behavior was only an accident of
+ * postMessage dispatch; T2 made it structural. m2-7 measured the remaining
+ * head-of-line cost (an interactive burst behind a long user query waited
+ * ~2.4 s against a ~2–6 ms idle baseline) and split the single channel into
+ * a query lane (user SQL, profile — on its own connection) and a registry
+ * lane (open/schema/range/rowCount/dispose — on another), so the grid's
+ * windows no longer queue behind a running query; within each lane the T2
+ * guarantees are unchanged. The decision and evidence are documented in
  * `./op-channel`; the operation logic lives in `./engine-executor`.
  *
  * Query results cross the boundary as Apache Arrow (ADR 0020): queries run
@@ -79,14 +85,21 @@ async function bootSession(): Promise<EngineSessionLike> {
   const booted = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), duckdbWorker)
   try {
     await booted.instantiate(duckdbWasmUrl)
+    // One connection per lane (m2-7): the registry lane's connection creates
+    // and drops the persistent views (catalog-level, visible to both); the
+    // query lane's connection runs user SQL and profile scans so a long query
+    // cannot block the registry lane's short window/metadata ops. Per
+    // connection the T2 invariant holds: at most one pending query at a time.
     const conn = await booted.connect()
+    const queryConn = await booted.connect()
     db = booted
     // Structural adaptation to the executor's session seam; the executor
-    // touches the connection only through `query`/`send`/`cancelSent` and —
-    // via the channel — strictly one operation at a time.
+    // touches each connection only through `query`/`send`/`cancelSent` and —
+    // via its lanes — strictly one operation at a time per connection.
     return {
       getVersion: () => booted.getVersion(),
       conn,
+      queryConn,
     }
   } catch (error) {
     // Never leave a half-instantiated engine behind.

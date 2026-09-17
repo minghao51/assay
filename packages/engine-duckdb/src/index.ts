@@ -44,6 +44,7 @@ export {
 } from './client'
 export type {
   DuckDbEngineClientOptions,
+  EngineDatasetProfile,
   EngineFileSource,
   EngineQueryResult,
   EngineRangeResult,
@@ -89,6 +90,10 @@ export type {
 } from './protocol'
 export { MAX_RANGE_ROWS, validateRowWindow } from './range-window'
 export type { RowWindow, RowWindowValidation } from './range-window'
+// m2-7 fold (m2-4 carry-over): the engine-generated SQL-facing view name for
+// a table id (`assay_tN`) is public so consumers stop re-deriving the
+// convention locally.
+export { viewNameForTableId } from './table-registry'
 export { detectFileFormat } from './format-view'
 export type { EngineFileFormat } from './format-view'
 export { classifyProfileColumnType } from './profile-classify'
