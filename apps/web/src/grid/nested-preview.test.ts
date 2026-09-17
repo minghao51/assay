@@ -393,14 +393,12 @@ describe('formatNestedPreview — property sweeps (seeded, deterministic)', () =
       const value = arbitraryJsonish(rng, 1 + Math.floor(rng() * 4))
       const rendered = formatNestedPreview(value)
       if (rendered.length === NESTED_PREVIEW_DEFAULT_MAX_LENGTH) {
-        // Exactly at cap: either the full render fits, or the marker is there.
-        expect(
-          rendered.endsWith('…') ||
-            rendered ===
-              formatNestedPreview(value, {
-                maxLength: Number.MAX_SAFE_INTEGER,
-              }).slice(0, NESTED_PREVIEW_DEFAULT_MAX_LENGTH),
-        ).toBe(true)
+        // Exactly at cap: either the full render fits exactly (marker-free is
+        // then honest), or something was cut and the marker must be there.
+        // The disjunct is `rendered === full`, NOT a prefix comparison — a
+        // strict prefix would pass any silent-cut mutant (a cut IS a prefix).
+        const full = formatNestedPreview(value, { maxLength: Number.MAX_SAFE_INTEGER })
+        expect(rendered.endsWith('…') || rendered === full).toBe(true)
       }
     }
   })
@@ -412,8 +410,11 @@ describe('formatNestedPreview — property sweeps (seeded, deterministic)', () =
       const rendered = formatNestedPreview(value)
       const full = formatNestedPreview(value, { maxLength: Number.MAX_SAFE_INTEGER })
       if (rendered !== full) {
-        // Any difference from the full render must be marker-visible.
-        expect(rendered.endsWith('…') || full.startsWith(rendered.slice(0, -1))).toBe(true)
+        // Any difference from the full render is an elision, and the ONLY
+        // elision this module may hide behind is the marker: a differing
+        // render must end with '…' — never a silent cut (a prefix test here
+        // would be a tautology: every cut is a prefix of the full render).
+        expect(rendered.endsWith('…')).toBe(true)
         expect(rendered.length).toBeLessThanOrEqual(NESTED_PREVIEW_DEFAULT_MAX_LENGTH)
       }
     }

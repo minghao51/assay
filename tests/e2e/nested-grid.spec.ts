@@ -165,24 +165,71 @@ test('overflow stays a CSS concern; cells carry no title tooltips (m3-2 policy)'
   expect(titles).toBe(0)
 })
 
-test('previews are deterministic across refetch (scroll away and back)', async ({ page }) => {
-  await openNestedFixture(page)
-  const row1 = page.locator('[data-testid="grid-row"][data-row-index="0"]')
-  await expect(row1.getByTestId('grid-cell')).toHaveText(ROW_ID_1)
+/** Parse the footer's per-epoch counters (`fetches=N requested=N … cached=N`). */
+async function readGridStats(page: Page): Promise<Record<'fetches' | 'cached', number>> {
+  const text = await page.getByTestId('grid-stats').innerText()
+  const field = (key: string): number => {
+    const match = text.match(new RegExp(`${key}=(\\d+)`))
+    if (match === null) throw new Error(`grid stats missing "${key}": ${text}`)
+    return Number(match[1])
+  }
+  return { fetches: field('fetches'), cached: field('cached') }
+}
 
-  // Scroll the virtualizer to the tail and back — row 0 is refetched from a
-  // fresh engine window and must render the identical preview strings.
-  await page.evaluate(() => {
-    const viewport = document.querySelector('[data-testid="grid-viewport"]')
-    if (viewport === null) throw new Error('grid viewport not found')
-    viewport.scrollTop = 11 * 28
-  })
-  const tailRow = page.locator('[data-testid="grid-row"][data-row-index="11"]')
-  await expect(tailRow).toHaveAttribute('data-status', 'ready')
+async function scrollToTop(page: Page): Promise<void> {
   await page.evaluate(() => {
     const viewport = document.querySelector('[data-testid="grid-viewport"]')
     if (viewport === null) throw new Error('grid viewport not found')
     viewport.scrollTop = 0
   })
+}
+
+// m3-2 fix round: the previous draft claimed "row 0 is refetched from a fresh
+// engine window" after a scroll tour — but 12 rows never exceed the model's
+// 10 000-row LRU (cache-serve with zero provider fetches is pinned in
+// packages/grid/src/viewport-model.test.ts), so that claim was never
+// exercised. This test now proves determinism of a GENUINELY re-fetched cell:
+// the scroll tour is kept as a control (counters must NOT move), and the
+// refetch is forced the way the app really does it — an accepted sort starts
+// a fresh data epoch (setSort → refresh(): cache dropped, per-epoch counters
+// reset, visible window re-fetched from the provider; pinned in
+// viewport-model.test.ts "clears cache and stats and refetches the current
+// viewport"). The footer's fetch counters make the fetch observable.
+test('previews are deterministic across a genuine provider refetch (sort-epoch refresh)', async ({
+  page,
+}) => {
+  await openNestedFixture(page)
+  const row1 = page.locator('[data-testid="grid-row"][data-row-index="0"]')
   await expect(row1.getByTestId('grid-cell')).toHaveText(ROW_ID_1)
+  const statsAtOpen = await readGridStats(page)
+  expect(statsAtOpen.fetches).toBeGreaterThanOrEqual(1)
+
+  // Control: on a 12-row dataset a scroll tour can only ever be served from
+  // the LRU cache — the fetch counters must stay untouched.
+  await page.evaluate(() => {
+    const viewport = document.querySelector('[data-testid="grid-viewport"]')
+    if (viewport === null) throw new Error('grid viewport not found')
+    viewport.scrollTop = 11 * 28
+  })
+  await expect(page.locator('[data-testid="grid-row"][data-row-index="11"]')).toHaveAttribute(
+    'data-status',
+    'ready',
+  )
+  await scrollToTop(page)
+  const statsAfterTour = await readGridStats(page)
+  expect(statsAfterTour.fetches).toBe(statsAtOpen.fetches)
+
+  // The genuine refetch: sort by `id` ascending — DuckDB returns the fixture's
+  // natural order, so row 0 is still id 1, but its cells now come from a fresh
+  // epoch's provider page, not the pre-tour cache. The identical preview
+  // strings prove the previews are deterministic under a real refetch.
+  const idSort = page.locator('[data-testid="grid-sort-toggle"][data-col-name="id"]')
+  await idSort.click()
+  await expect(idSort).toHaveAttribute('data-sort', 'asc') // setSort accepted → refresh() ran
+  await expect(row1.getByTestId('grid-cell')).toHaveText(ROW_ID_1)
+  const statsAfterEpoch = await readGridStats(page)
+  // Counters reset with the epoch (pinned unit behavior), so ≥ 1 here is a
+  // fresh `fetchRange` — the row-0 page on screen was re-fetched, not cached.
+  expect(statsAfterEpoch.fetches).toBeGreaterThanOrEqual(1)
+  expect(statsAfterEpoch.cached).toBeGreaterThanOrEqual(1)
 })
