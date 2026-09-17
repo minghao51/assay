@@ -96,6 +96,10 @@ export type { RowWindow, RowWindowValidation } from './range-window'
 export { viewNameForTableId } from './table-registry'
 export { detectFileFormat } from './format-view'
 export type { EngineFileFormat } from './format-view'
+// m3-4 fold: the engine's identifier-quoting helper is public so web-side SQL
+// composers (m3-4 nested-compose) quote through the same implementation they
+// execute against instead of re-deriving quoting locally.
+export { quotedIdentifier } from './format-view'
 export { classifyProfileColumnType } from './profile-classify'
 export {
   composeProfileBaseSql,
