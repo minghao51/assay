@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { viewNameForTableId } from '@assay/engine-duckdb'
 import {
   SQL_PAGE_SIZE,
   composePageQuery,
   resultColumnNames,
-  sqlTableName,
   stripTrailingStatementTerminator,
   summarizePage,
 } from './paged-query'
@@ -115,14 +115,18 @@ describe('summarizePage — paging math', () => {
   })
 })
 
-describe('sqlTableName — the SQL-facing name of the opened table', () => {
-  it('prefixes the engine table id with the engine view namespace (assay_tN)', () => {
-    // Pins the convention of `viewNameForTableId` in engine-duckdb's
-    // table-registry (whose own unit tests pin 'assay_t42'); if the engine
-    // ever renames its views, this test and the pane's hint break loudly —
-    // the app must never silently rewrite user SQL instead.
-    expect(sqlTableName('t1')).toBe('assay_t1')
-    expect(sqlTableName('t42')).toBe('assay_t42')
+describe('viewNameForTableId — the engine export the SQL pane addresses views with', () => {
+  it('derives the assay_tN view names the pane and the sql-editor e2e pin', () => {
+    // Re-pointed pin (m3-0): SqlPanel consumes the engine export directly,
+    // and this suite imports the same `viewNameForTableId` symbol from
+    // `@assay/engine-duckdb`, so the web-used symbol IS the engine export —
+    // there is no local mirror left to drift. What stays pinned is the
+    // derivation itself: raw SQL must address the engine's `assay_tN` views
+    // (the sql-editor e2e asserts that name verbatim); if the engine ever
+    // renames its views, this fails loudly — the app must never silently
+    // rewrite user SQL instead.
+    expect(viewNameForTableId('t1')).toBe('assay_t1')
+    expect(viewNameForTableId('t42')).toBe('assay_t42')
   })
 })
 

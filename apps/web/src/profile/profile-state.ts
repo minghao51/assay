@@ -1,4 +1,4 @@
-import type { EngineProfileColumn } from '@assay/engine-duckdb'
+import type { EngineDatasetProfile } from '@assay/engine-duckdb'
 
 /**
  * Panel lifecycle state machine for the profile run (m2-6) — pure and
@@ -14,11 +14,12 @@ import type { EngineProfileColumn } from '@assay/engine-duckdb'
  * state always carries the delivered profile.
  */
 
-/** The profile payload the panel keeps (structural slice of the engine's response). */
-export interface ProfileData {
-  readonly rowCount: number
-  readonly columns: readonly EngineProfileColumn[]
-}
+/**
+ * The profile payload the panel keeps — the engine's exported profile type
+ * (m3-0 switch-over: an alias, not a local structural re-slice, so web
+ * tracks the engine surface instead of mirroring it).
+ */
+export type ProfileData = EngineDatasetProfile
 
 export type ProfileState =
   | { readonly kind: 'idle' }

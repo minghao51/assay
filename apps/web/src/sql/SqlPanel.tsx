@@ -1,15 +1,10 @@
 import { useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import { viewNameForTableId } from '@assay/engine-duckdb'
 import { formatCell } from '../grid/format'
 import { projectBatchToRows } from '../grid/provider'
 import { engineClient } from '../lib/engine'
-import {
-  SQL_PAGE_SIZE,
-  composePageQuery,
-  resultColumnNames,
-  sqlTableName,
-  summarizePage,
-} from './paged-query'
+import { SQL_PAGE_SIZE, composePageQuery, resultColumnNames, summarizePage } from './paged-query'
 import { RunGuard } from './run-guard'
 import { runGuarded } from './guarded-run'
 
@@ -42,7 +37,8 @@ import { runGuarded } from './guarded-run'
  *   logged (there is no logging here at all — ADR 0025).
  * - The hint shows both names: the app's table id (`t1`, engine-generated,
  *   already displayed by the app shell) and the SQL-facing view name
- *   (`"assay_t1"`, via `sqlTableName`) that raw queries must use.
+ *   (`"assay_t1"`, via the engine export `viewNameForTableId`) that raw
+ *   queries must use.
  */
 
 interface SqlPanelProps {
@@ -72,7 +68,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function SqlPanel({ tableId }: SqlPanelProps) {
-  const sqlTable = sqlTableName(tableId)
+  const sqlTable = viewNameForTableId(tableId)
   const [draft, setDraft] = useState('')
   const [runState, setRunState] = useState<RunState>({ kind: 'idle' })
   const [page, setPage] = useState<PageResult | null>(null)

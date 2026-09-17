@@ -38,20 +38,6 @@ export const SQL_PAGE_SIZE = 50
 /** The composer-owned alias of the wrapped subquery (never user content). */
 const PAGE_SUBQUERY_ALIAS = '_assay_page'
 
-/**
- * The SQL-facing name of the opened table. The UI displays the engine's
- * generated table id (`t1`), but the DuckDB view the engine registers lives
- * under the engine's `assay_` namespace: `assay_t1` — the convention
- * `viewNameForTableId` in `packages/engine-duckdb/src/table-registry.ts`
- * implements and its unit tests pin (`viewNameForTableId('t42') ===
- * 'assay_t42'`). Raw SQL must use the namespaced view name. Kept local
- * because the engine package does not (yet) export the mapping — noted as a
- * one-line fold-up for the next engine-column task.
- */
-export function sqlTableName(tableId: string): string {
-  return `assay_${tableId}`
-}
-
 /** A requested page over the user's statement. */
 export interface SqlPageSpec {
   /** Page size — `SQL_PAGE_SIZE` in the UI; parameterized for tests. */
