@@ -828,8 +828,10 @@ export function composeOverlayExportSql(
 /**
  * The bare export SELECT (effective view, effective order, CSV guard
  * applied) — what the COPY wraps, and the statement the `arrow` path streams
- * (DuckDB-WASM's bundled build has no Arrow COPY writer, so Arrow IPC files
- * are assembled worker-side from the streamed result; the SELECT is byte-
+ * (DuckDB-WASM's bundled build has no Arrow COPY writer, so Arrow IPC
+ * *streams* are assembled worker-side from the streamed result (the web layer
+ * advertises the stream MIME `application/vnd.apache.arrow.stream` — not the
+ * feather-file MIME); the SELECT is byte-
  * identical to the COPY path's input, keeping the two formats honest
  * siblings).
  */
