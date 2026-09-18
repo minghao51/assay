@@ -82,10 +82,11 @@ function isStringRecord(
 /**
  * Structural form of `validateEngineTypeExpression`: `true` exactly when the
  * string is one complete DuckDB type expression. Used by the payload parser
- * (a malformed type rejects the payload, the parser's never-throws contract)
- * and by `assertValidOverlayTypes` (which surfaces the typed error).
+ * (a malformed type rejects the payload, the parser's never-throws contract),
+ * by `assertValidOverlayTypes` (which surfaces the typed error), and by the
+ * protocol parser for the standalone `engine/overlay-cast-check` target type.
  */
-function isEngineTypeExpression(value: unknown): value is string {
+export function isEngineTypeExpression(value: unknown): value is string {
   try {
     validateEngineTypeExpression(value)
     return true

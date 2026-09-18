@@ -48,6 +48,7 @@ const SCENARIOS = [
   'nested-window-clamp',
   'overlay-window-fidelity',
   'overlay-insert-edits',
+  'overlay-cast-check',
   'export-round-trip',
   'source-immutability',
   'overlay-hostile-types-rejected',
@@ -70,6 +71,7 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'nested-window-clamp': 'Conformance: nested window clamp',
   'overlay-window-fidelity': 'Conformance: overlay window fidelity',
   'overlay-insert-edits': 'Conformance: overlay insert edits',
+  'overlay-cast-check': 'Conformance: overlay cast check',
   'export-round-trip': 'Conformance: export round-trip',
   'source-immutability': 'Conformance: source immutability',
   'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
@@ -172,6 +174,17 @@ for (const name of SCENARIOS) {
         expect(result.facts['engineReopens']).toBe(2)
         expect(result.facts['csvSanitizationProbed']).toBe(true)
         break
+      case 'overlay-cast-check':
+        // m4-4b: validate-before-commit cast check — the classifications a
+        // 1-row probe cannot cover, plus the typed invalid-target/unknown-
+        // column rejections.
+        expect(result.facts['cases']).toBe(5)
+        expect(result.facts['convertible']).toBe(2)
+        expect(result.facts['nonConvertible']).toBe(3)
+        expect(result.facts['invalidRejected']).toBe(3)
+        expect(result.facts['unknownRejected']).toBe(2)
+        expect(result.facts['engineReusable']).toBe(true)
+        break
       case 'export-round-trip':
         expect(result.facts['formats']).toBe(5)
         expect(result.facts['engineReopens']).toBe(4)
@@ -201,7 +214,7 @@ for (const name of SCENARIOS) {
 test('conformance run-all: the whole suite passes in one page against engine-duckdb', async ({
   page,
 }) => {
-  test.setTimeout(300_000) // eighteen scenarios, each with a fresh engine boot
+  test.setTimeout(300_000) // nineteen scenarios, each with a fresh engine boot
   await page.goto(HARNESS_URL)
   await page.getByRole('button', { name: 'Conformance: run all scenarios' }).click()
   const element = page.getByTestId('conformance-run-all')

@@ -535,6 +535,52 @@ export function composeOverlaySchemaSql(composition: OverlayComposition): string
 }
 
 /**
+ * Existence check for a pending `column-cast` (m4-4b): does **any** non-NULL
+ * value of the effective `column` fail to convert to `targetType`? Composed
+ * over the same effective relation every other overlay op reads
+ * (`composeSourceSql`), so edits, inserts, tombstones, renames and prior
+ * casts in the given (pre-cast) state are all respected — the host can
+ * validate-before-commit (ADR 0012) instead of probing row 0 and committing a
+ * dataset whose bad value sits anywhere else.
+ *
+ * Shape: an **existence check with early exit** —
+ * `SELECT 1 FROM (<effective relation>) WHERE <col> IS NOT NULL AND
+ * TRY_CAST(<col> AS <target>) IS NULL LIMIT 1`. NULLs never count as
+ * failures (the `IS NOT NULL` guard), so all-NULL and empty inputs answer
+ * `false`; a convertible value yields a non-NULL `TRY_CAST`, so only a real
+ * conversion failure produces the single probe row. `SELECT 1` (never the
+ * value) keeps dataset contents out of the response (ADR 0025).
+ *
+ * The target type is untrusted host input interpolated into a SQL **type**
+ * position, so it is validated here as exactly one complete DuckDB type
+ * before any SQL is built (`type-expr.ts`, the same last-line-of-defence
+ * discipline as `cellLiteralSql`); `column` must be an effective column of
+ * the folded state, or composition fails with a typed unknown-column
+ * rejection instead of a binder error.
+ */
+export function composeOverlayCastCheckSql(
+  composition: OverlayComposition,
+  column: string,
+  targetType: string,
+): string {
+  validateEngineTypeExpression(targetType)
+  if (!composition.state.columns.some((candidate) => candidate.name === column)) {
+    throw new Error(`unknown overlay column: ${column}`)
+  }
+  const source = composeSourceSql(composition, {
+    withRowIds: false,
+    sanitizeCsv: false,
+    withKey: false,
+  })
+  const quoted = quotedIdentifier(column)
+  return (
+    `SELECT 1 FROM (${source}) ` +
+    `WHERE ${quoted} IS NOT NULL AND TRY_CAST(${quoted} AS ${targetType}) IS NULL ` +
+    `LIMIT 1`
+  )
+}
+
+/**
  * `SELECT count(*)::BIGINT …` over the composed effective relation,
  * optionally narrowed by filters on effective columns (m2-2 grammar).
  */

@@ -951,6 +951,42 @@ describe('DuckDbEngineClient overlay + export (m4-2)', () => {
     expect(valuesOf(result)).toEqual([1, 2])
   })
 
+  it('overlayCastCheck() validates target type and column client-side, posts the check, and resolves the boolean (m4-4b)', async () => {
+    const { client, worker, handle } = await openHandle()
+
+    // Invalid target spelling: typed operation error, nothing posted.
+    await expect(
+      client.overlayCastCheck(handle, overlay, { column: 'label', targetType: 'VARCHAR()' }),
+    ).rejects.toThrow(EngineOperationError)
+    await expect(
+      client.overlayCastCheck(handle, overlay, { column: 'label', targetType: 'DECIMAL(1,2,3)' }),
+    ).rejects.toThrow(EngineOperationError)
+    // Unknown effective column: typed operation error, nothing posted.
+    await expect(
+      client.overlayCastCheck(handle, overlay, { column: 'nope', targetType: 'BIGINT' }),
+    ).rejects.toThrow(EngineOperationError)
+    expect(worker.postedRequests).toHaveLength(2) // boot + open only
+
+    const pending = client.overlayCastCheck(handle, overlay, {
+      column: 'label',
+      targetType: 'BIGINT',
+    })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/overlay-cast-check',
+      tableId: 't1',
+      column: 'label',
+      targetType: 'BIGINT',
+    })
+    worker.respond({
+      type: 'engine/overlay-cast-check-result',
+      requestId: worker.requestAt(2).requestId,
+      hasNonConvertibleValues: true,
+    })
+    await expect(pending).resolves.toEqual({ hasNonConvertibleValues: true })
+    expect(client.status).toBe('ready')
+  })
+
   it('exportView() posts format + overlay and resolves the generated destination with honest counts', async () => {
     const { client, worker, handle } = await openHandle()
     const pending = client.exportView(handle, { format: 'csv', overlay })

@@ -1351,6 +1351,21 @@ function overlaySchemaRequest(id: number): EngineRequest {
   return { type: 'engine/overlay-schema', requestId: id, tableId: 't1', overlay: overlayPayload() }
 }
 
+function overlayCastCheckRequest(
+  id: number,
+  column = 'label',
+  targetType = 'BIGINT',
+): EngineRequest {
+  return {
+    type: 'engine/overlay-cast-check',
+    requestId: id,
+    tableId: 't1',
+    overlay: overlayPayload(),
+    column,
+    targetType,
+  }
+}
+
 function exportRequest(
   id: number,
   format: 'parquet' | 'csv' | 'jsonl' | 'arrow',
@@ -1449,6 +1464,84 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
     expectNoCollisions(deps)
   })
 
+  it('composes the cast-check existence SQL on the query lane and reports the probe-row boolean (m4-4b)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlayCastCheckRequest(2, 'label', 'BIGINT'))
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toBe(
+      'SELECT 1 FROM (SELECT "id" AS "id", ' +
+        `CASE WHEN assay_overlay_ord = 0 THEN CAST('edited' AS VARCHAR) ELSE "label" END AS "label" ` +
+        'FROM (SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1") ' +
+        'WHERE assay_overlay_ord NOT IN (1) ' +
+        'UNION ALL ' +
+        'SELECT CAST(9 AS BIGINT) AS "id", CAST(NULL AS VARCHAR) AS "label") ' +
+        'WHERE "label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL LIMIT 1',
+    )
+    // One probe row: at least one value cannot convert.
+    deps.queryConn.resolveSend(0, intTable([1]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/overlay-cast-check-result',
+      requestId: 2,
+      hasNonConvertibleValues: true,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('reports false when the cast-check probe returns no row (all values convert)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlayCastCheckRequest(2))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, intTable([]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/overlay-cast-check-result',
+      hasNonConvertibleValues: false,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('an unknown effective column errors the cast check before any SQL is composed', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlayCastCheckRequest(2, 'no_such_column'))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'unknown overlay column: no_such_column',
+    })
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
+    expectNoCollisions(deps)
+  })
+
+  it('cast checks queue on the query lane behind a parked query (ADR 0040 lane policy)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    // Park a long query on the query lane.
+    executor.accept(queryRequest(2, 'SELECT long-running'))
+    await awaitSends(deps.queryConn, 1)
+
+    // The check is query-class (a worst-case full-column TRY_CAST scan): it
+    // must NOT start while the query owns the lane.
+    executor.accept(overlayCastCheckRequest(3))
+    await flush()
+    expect(deps.queryConn.sentSqls).toHaveLength(1)
+
+    deps.queryConn.resolveSend(0, intTable([1]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/query-result' })
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, intTable([]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/overlay-cast-check-result',
+      hasNonConvertibleValues: false,
+    })
+    expectNoCollisions(deps)
+  })
+
   it('answers malformed recognised overlay/export requests with one typed error (m4-2 fix round 2)', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
@@ -1475,6 +1568,23 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
       endRow: 5,
       columns: [],
     })
+    // A cast check with a valid overlay but a malformed target type (and a
+    // missing column variant) is a recognised request with a bad payload:
+    // exactly one typed engine/error, never silence, never a composed probe.
+    executor.accept({
+      type: 'engine/overlay-cast-check',
+      requestId: 80,
+      tableId: 't1',
+      overlay: overlayPayload(),
+      column: 'label',
+      targetType: 'VARCHAR()',
+    })
+    executor.accept({
+      type: 'engine/overlay-cast-check',
+      requestId: 81,
+      tableId: 't1',
+      overlay: overlayPayload(),
+    })
     expect(deps.postedResponses.filter((response) => response.requestId === 77)).toHaveLength(1)
     expect(await awaitPosted(deps, 77)).toMatchObject({
       type: 'engine/error',
@@ -1490,6 +1600,16 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
       type: 'engine/error',
       requestId: 79,
       message: 'malformed engine/overlay-range request',
+    })
+    expect(await awaitPosted(deps, 80)).toMatchObject({
+      type: 'engine/error',
+      requestId: 80,
+      message: 'malformed engine/overlay-cast-check request',
+    })
+    expect(await awaitPosted(deps, 81)).toMatchObject({
+      type: 'engine/error',
+      requestId: 81,
+      message: 'malformed engine/overlay-cast-check request',
     })
     // Nothing touched a connection: no SQL was composed for any of them.
     expect(deps.conn.sentSqls).toHaveLength(1) // only the open's CREATE VIEW

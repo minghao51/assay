@@ -22,7 +22,8 @@
 import { tableFromIPC } from 'apache-arrow'
 import type { Table } from 'apache-arrow'
 import type { EditOp, OverlayBase } from '@assay/domain'
-import { EngineTypeError } from './type-expr'
+import { foldOverlay } from '@assay/domain'
+import { EngineTypeError, validateEngineTypeExpression } from './type-expr'
 import { assertValidOverlayTypes } from './overlay-wire'
 import { parseEngineResponse } from './protocol'
 import type {
@@ -157,6 +158,25 @@ export interface EngineOverlayWindow {
 export interface EngineExportRequest {
   readonly format: EngineExportFormat
   readonly overlay?: EngineOverlay
+}
+
+/**
+ * Request for `overlayCastCheck` (m4-4b): test whether the effective
+ * `column` of the given (pre-cast) overlay state has any value that cannot
+ * convert to `targetType`, before committing a `column-cast` (ADR 0012).
+ */
+export interface EngineOverlayCastCheck {
+  readonly column: string
+  readonly targetType: string
+}
+
+/**
+ * Result of `overlayCastCheck`: `true` iff at least one non-NULL value of the
+ * effective column cannot convert. A boolean only — never dataset values
+ * (ADR 0025). All-NULL and empty columns are `false`.
+ */
+export interface EngineOverlayCastCheckResult {
+  readonly hasNonConvertibleValues: boolean
 }
 
 /** Result of `exportView`: where the export landed plus honest counts. The
@@ -582,6 +602,61 @@ export class DuckDbEngineClient {
       return { batch: tableFromIPC(response.batchIpc), hasMore: response.hasMore }
     } catch (cause) {
       throw new EngineProtocolError('worker sent an invalid Arrow IPC payload', { cause })
+    }
+  }
+
+  /**
+   * Validate-before-commit cast check (m4-4b, ADR 0012): over the given
+   * **pre-cast** overlay state, report whether any non-NULL value of the
+   * effective `column` cannot convert to `targetType`. The target type is
+   * validated on this side with the engine's strict type validator (an
+   * invalid spelling rejects with the typed `EngineOperationError` before
+   * anything is posted), and `column` must be a known effective column of
+   * the folded overlay (also a typed `EngineOperationError`). The answer is a
+   * boolean only — dataset values never cross the boundary.
+   */
+  async overlayCastCheck(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    check: EngineOverlayCastCheck,
+  ): Promise<EngineOverlayCastCheckResult> {
+    await this.ensureReady()
+    this.requireValidOverlayTypes(overlay)
+    try {
+      validateEngineTypeExpression(check.targetType)
+    } catch (cause) {
+      const message =
+        cause instanceof EngineTypeError ? cause.message : 'invalid engine type expression'
+      throw new EngineOperationError(message, { cause })
+    }
+    this.requireKnownOverlayColumn(overlay, check.column)
+    const response = await this.send({
+      type: 'engine/overlay-cast-check',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      overlay: { base: overlay.base, ops: overlay.ops === undefined ? [] : [...overlay.ops] },
+      column: check.column,
+      targetType: check.targetType,
+    })
+    if (response.type !== 'engine/overlay-cast-check-result') {
+      throw new EngineProtocolError(
+        `unexpected ${response.type} response for engine/overlay-cast-check`,
+      )
+    }
+    return { hasNonConvertibleValues: response.hasNonConvertibleValues }
+  }
+
+  /**
+   * The effective column check behind `overlayCastCheck` (m4-4b): fold the
+   * overlay on this side and reject an unknown column with the typed
+   * operation error, so a doomed request is never posted. The worker composes
+   * (and re-validates) independently; this is the fast, observable failure.
+   * Column names are schema, never dataset values (ADR 0025).
+   */
+  private requireKnownOverlayColumn(overlay: EngineOverlay, column: string): void {
+    const { state } = foldOverlay(overlay.base, overlay.ops ?? [])
+    if (!state.columns.some((candidate) => candidate.name === column)) {
+      throw new EngineOperationError(`unknown overlay column: ${column}`)
     }
   }
 

@@ -32,6 +32,7 @@ import type {
   ConformanceFileSource,
   ConformanceHostileTypeProbe,
   ConformanceNestedDataset,
+  ConformanceOverlayCastCheckDataset,
   ConformanceOverlayDataset,
   ConformanceOverlayInsertEditsDataset,
   EngineConformanceSubject,
@@ -1064,6 +1065,116 @@ const OVERLAY_INSERT_EDITS_DATASET: ConformanceOverlayInsertEditsDataset = {
 }
 
 /**
+ * m4-4b cast-conversion-check dataset: a runtime-built JSONL base plus a
+ * scripted op sequence whose **effective** relation the check scans. A
+ * dedicated base keeps every required case explicit:
+ *
+ * - `num` — all-numeric base values (no insert touches it): convertible.
+ * - `code` — one bad value at base ordinal 2 (mid-dataset, past the 1-row
+ *   probe m4-4 shipped).
+ * - `ins_code` — all-numeric base values; an inserted row carries `oops`, so
+ *   the only bad value is in an insert.
+ * - `legacy` — renamed to `renamed`, then a post-rename `cell-set` writes a
+ *   bad value: composition must respect both the rename and the edit.
+ * - `blank` — all NULL (DuckDB's JSONL sniffer types it JSON): NULLs must
+ *   never count as conversion failures.
+ *
+ * Every classification was derived with the pinned DuckDB CLI (v1.5.5,
+ * `DUCKDB=/tmp/duckdb`) over the IDENTICAL composed SQL the worker generates
+ * (`composeOverlayCastCheckSql` over `assay_t1 = read_json_auto(<this JSONL>)`)
+ * and round-trip checked against the duckdb-wasm build. Derivation transcript:
+ *
+ *   -- base inference: id BIGINT, num/code/ins_code/legacy VARCHAR, blank JSON
+ *   -- effective relation: base ordinals 0..3 + the end insert (id 100,
+ *   -- ins_code 'oops'); `legacy` renamed to `renamed` with ordinal 1 edited
+ *   -- to 'not-a-number'.
+ *   SELECT 'num', count(*) FROM (SELECT 1 FROM eff
+ *     WHERE "num" IS NOT NULL AND TRY_CAST("num" AS BIGINT) IS NULL LIMIT 1)
+ *   UNION ALL SELECT 'code', ...
+ *   -- num 0, code 1, ins_code 1, renamed 1, blank 0  (bad counts)
+ *
+ * so the checks answer false, true, true, true, false respectively.
+ */
+const CAST_CHECK_BASE: OverlayBase = {
+  baseAnchor: 'conf-cast-v1',
+  overlayAnchor: 'conf-cast-ov-1',
+  columns: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'num', type: 'VARCHAR' },
+    { name: 'code', type: 'VARCHAR' },
+    { name: 'ins_code', type: 'VARCHAR' },
+    { name: 'blank', type: 'JSON' },
+    { name: 'legacy', type: 'VARCHAR' },
+  ],
+  baseRowCount: 4,
+}
+
+const CAST_CHECK_ROWS = [
+  { id: 1, num: '10', code: '10', ins_code: '1', blank: null, legacy: '10' },
+  { id: 2, num: '20', code: '20', ins_code: '2', blank: null, legacy: '20' },
+  { id: 3, num: '30', code: 'bad', ins_code: '3', blank: null, legacy: '30' },
+  { id: 4, num: '40', code: '40', ins_code: '4', blank: null, legacy: '40' },
+] as const
+
+const CAST_CHECK_OPS: EditOp[] = [
+  { kind: 'column-rename', from: 'legacy', to: 'renamed' },
+  {
+    kind: 'cell-set',
+    rowId: baseRowId('conf-cast-v1', 1),
+    column: 'renamed',
+    value: overlayCell({ kind: 'string', value: 'not-a-number' }),
+  },
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('conf-cast-ov-1', 0),
+    position: { kind: 'end' },
+    values: new Map<string, CellValue>([
+      ['id', overlayCell({ kind: 'number', value: 100 })],
+      ['ins_code', overlayCell({ kind: 'string', value: 'oops' })],
+    ]),
+  },
+]
+
+const CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
+  base: CAST_CHECK_BASE,
+  ops: CAST_CHECK_OPS,
+  cases: [
+    {
+      label: 'all-convertible numeric column -> false',
+      column: 'num',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'one bad value mid-dataset -> true',
+      column: 'code',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'bad value only in an inserted row -> true',
+      column: 'ins_code',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'bad value after a rename -> true',
+      column: 'renamed',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'all-NULL column -> false',
+      column: 'blank',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: false,
+    },
+  ],
+  invalidTargetTypes: ['VARCHAR()', 'DECIMAL(1,2,3)', 'BIGINT; DROP TABLE assay_cast_probe'],
+  unknownColumns: ['legacy', 'no_such_column'],
+}
+
+/**
  * m4-2 fix round: the review's exact injection payload (finding 1) plus a
  * base-column spelling of the same attack, both driven against the REAL
  * engine. With the fix the client rejects the overlay with a typed error
@@ -1109,6 +1220,12 @@ const HOSTILE_TYPE_PROBES: readonly ConformanceHostileTypeProbe[] = [
 /** Runtime-built overlay base JSONL (see OVERLAY_BASE_ROWS). */
 function buildOverlayJsonl(): Uint8Array {
   const lines = OVERLAY_BASE_ROWS.map((row) => JSON.stringify(row))
+  return new TextEncoder().encode(lines.join('\n') + '\n')
+}
+
+/** Runtime-built cast-check base JSONL (see CAST_CHECK_ROWS). */
+function buildCastCheckJsonl(): Uint8Array {
+  const lines = CAST_CHECK_ROWS.map((row) => JSON.stringify(row))
   return new TextEncoder().encode(lines.join('\n') + '\n')
 }
 
@@ -1168,6 +1285,11 @@ export function createDuckDbConformanceSubject(
       return asFileSource(
         await stageBytesInOpfs(jsonl, 'assay-conformance-overlay-insert-edits.jsonl'),
       )
+    },
+    overlayCastCheckDataset: CAST_CHECK_DATASET,
+    stageOverlayCastCheckFile: async () => {
+      const jsonl = buildCastCheckJsonl()
+      return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-cast-check.jsonl'))
     },
     hostileTypeProbes: HOSTILE_TYPE_PROBES,
     tableExists: async (client, name) => {

@@ -123,6 +123,14 @@
  *     composer dropped (it read `InsertedRowRecord.values` only); the pins
  *     are host-engine-derived (engine-duckdb: DuckDB CLI 1.5.5 over the
  *     identical composed SQL).
+ * 19. `overlay-cast-check` (m4-4b) — a validate-before-commit cast check
+ *     (ADR 0012) over the **pre-cast** effective relation: all-convertible
+ *     and all-NULL columns answer `false`; a bad value mid-dataset, a bad
+ *     value only in an inserted row, and a bad value carried through a
+ *     rename all answer `true`; invalid target spellings and unknown
+ *     effective columns reject with the typed operation category and the
+ *     engine stays usable. Expected classifications are host-engine-derived
+ *     (engine-duckdb: DuckDB CLI 1.5.5 over the identical composed SQL).
  *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
@@ -327,6 +335,19 @@ export interface ConformanceEngineClient {
     window: ConformanceOverlayWindow,
   ): Promise<ConformanceBatchResult>
   /**
+   * Validate-before-commit cast check (m4-4b, ADR 0012): over the given
+   * **pre-cast** overlay state, report whether any non-NULL value of the
+   * effective `column` cannot convert to `targetType`. `targetType` is
+   * validated with the engine's strict type validator and `column` must be a
+   * known effective column; an invalid target spelling or unknown column
+   * rejects with a typed operation error (never a silent pass).
+   */
+  overlayCastCheck(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+    request: { readonly column: string; readonly targetType: string },
+  ): Promise<ConformanceCastCheckResult>
+  /**
    * Export/rewrite (m4-2): materialize the effective view (absent `overlay`:
    * the plain base view) into a NEW generated file — never the source path
    * (ADR 0012/0017).
@@ -469,6 +490,14 @@ export interface EngineConformanceSubject {
   readonly overlayInsertEdits: ConformanceOverlayInsertEditsDataset
   /** Stage the overlay base dataset (`overlayInsertEdits` composes over). */
   stageOverlayInsertEditsFile(): Promise<ConformanceFileSource>
+  /**
+   * The cast-conversion-check dataset behind `stageOverlayCastCheckFile()`
+   * (m4-4b): the pre-cast base + ops plus the cases, invalid target
+   * spellings, and unknown columns the `overlay-cast-check` scenario drives.
+   */
+  readonly overlayCastCheckDataset: ConformanceOverlayCastCheckDataset
+  /** Stage the cast-check base dataset (`overlayCastCheckDataset`). */
+  stageOverlayCastCheckFile(): Promise<ConformanceFileSource>
   /**
    * Hostile type-expression probes (m4-2 fix round): overlays whose base
    * column type or `column-cast` target is a SQL-injection-shaped string.
@@ -736,6 +765,47 @@ export interface ConformanceOverlayInsertEditsDataset {
 }
 
 /**
+ * One declared cast-check case (m4-4b): the effective column to test over the
+ * pre-cast state, the target type spelling, and the expected classification.
+ */
+export interface ConformanceOverlayCastCheckCase {
+  /** Stable label (scenario facts/messages only — never dataset contents). */
+  readonly label: string
+  /** The effective (post-rename/cast) column to test. */
+  readonly column: string
+  /** The target type spelling the check converts to. */
+  readonly targetType: string
+  /** Expected `hasNonConvertibleValues`. */
+  readonly hasNonConvertibleValues: boolean
+}
+
+/**
+ * The m4-4b cast-conversion-check dataset behind
+ * `stageOverlayCastCheckFile()`: a base dataset plus a scripted op sequence
+ * (a rename, an edit, and an inserted bad value) whose **effective** relation
+ * the check scans. The cases pin the surfaces a 1-row probe cannot cover:
+ * a bad value mid-dataset, a bad value only in an inserted row, a bad value
+ * after a rename, and the all-NULL/all-convertible `false` cases.
+ */
+export interface ConformanceOverlayCastCheckDataset {
+  /** The immutable base metadata the ops compose over. */
+  readonly base: ConformanceOverlayBase
+  /** The scripted op list folded per request (the pre-cast state). */
+  readonly ops: readonly ConformanceEditOp[]
+  /** The cases the check must classify. */
+  readonly cases: readonly ConformanceOverlayCastCheckCase[]
+  /** Target spellings the validator must reject with a typed operation error. */
+  readonly invalidTargetTypes: readonly string[]
+  /** Effective column names that must reject as unknown with a typed error. */
+  readonly unknownColumns: readonly string[]
+}
+
+/** Result of the cast check: a boolean only (never dataset values, ADR 0025). */
+export interface ConformanceCastCheckResult {
+  readonly hasNonConvertibleValues: boolean
+}
+
+/**
  * A hostile engine type-expression probe (m4-2 fix round). Type strings are
  * untrusted input the composer interpolates into SQL type positions; the
  * boundary must reject an injection-shaped spelling with a typed error and
@@ -771,6 +841,7 @@ export const engineConformanceScenarioNames = [
   'nested-window-clamp',
   'overlay-window-fidelity',
   'overlay-insert-edits',
+  'overlay-cast-check',
   'export-round-trip',
   'source-immutability',
   'overlay-hostile-types-rejected',
@@ -2166,6 +2237,117 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       formats: dataset.exports.length,
       engineReopens,
       csvSanitizationProbed: csvDiffers,
+    }
+  },
+
+  'overlay-cast-check': async (subject) => {
+    // m4-4b: a host must be able to test a pending `column-cast` before
+    // committing it (ADR 0012). The check composes over the **pre-cast**
+    // effective relation, so a bad value anywhere — mid-dataset, in an
+    // inserted row, or carried through a rename — is found; the 1-row probe
+    // m4-4 shipped only saw row 0. Invalid target spellings and unknown
+    // columns reject with the typed operation category.
+    const dataset = subject.overlayCastCheckDataset
+    expectCondition(
+      dataset.cases.length > 0,
+      'subject misconfiguration: declare at least one cast-check case',
+    )
+    expectCondition(
+      dataset.cases.some((entry) => entry.hasNonConvertibleValues) &&
+        dataset.cases.some((entry) => !entry.hasNonConvertibleValues),
+      'subject misconfiguration: cast-check cases must cover both classifications',
+    )
+    expectCondition(
+      dataset.invalidTargetTypes.length > 0,
+      'subject misconfiguration: declare at least one invalid target spelling',
+    )
+    expectCondition(
+      dataset.unknownColumns.length > 0,
+      'subject misconfiguration: declare at least one unknown column',
+    )
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageOverlayCastCheckFile())
+
+    // Every case's column must be an effective column of the pre-cast state
+    // (fail loudly on a misconfigured dataset instead of passing vacuously).
+    const effective = new Set(
+      (await client.overlaySchema(handle, dataset)).map((column) => column.name),
+    )
+    for (const entry of dataset.cases) {
+      expectCondition(
+        effective.has(entry.column),
+        `subject misconfiguration: case "${entry.label}" names a non-effective column`,
+      )
+    }
+
+    let convertible = 0
+    let nonConvertible = 0
+    for (const entry of dataset.cases) {
+      const result = await client.overlayCastCheck(handle, dataset, {
+        column: entry.column,
+        targetType: entry.targetType,
+      })
+      expectEqual(
+        result.hasNonConvertibleValues,
+        entry.hasNonConvertibleValues,
+        `[${entry.label}] hasNonConvertibleValues`,
+      )
+      if (entry.hasNonConvertibleValues) nonConvertible += 1
+      else convertible += 1
+    }
+
+    // Invalid target spellings reject with the typed operation category
+    // (validated client-side — no request is posted).
+    let invalidRejected = 0
+    for (let index = 0; index < dataset.invalidTargetTypes.length; index++) {
+      const error = await rejectionOf(
+        client.overlayCastCheck(handle, dataset, {
+          column: dataset.cases[0]!.column,
+          targetType: dataset.invalidTargetTypes[index]!,
+        }),
+      )
+      expectCondition(error !== null, `invalid target spelling ${String(index)} must be rejected`)
+      expectCondition(
+        subject.errors.operation(error),
+        `invalid target spelling ${String(index)} must be the typed operation category (got: ${errorMessage(error)})`,
+      )
+      invalidRejected += 1
+    }
+
+    // Unknown effective columns reject the same way.
+    let unknownRejected = 0
+    for (const column of dataset.unknownColumns) {
+      const error = await rejectionOf(
+        client.overlayCastCheck(handle, dataset, { column, targetType: 'BIGINT' }),
+      )
+      expectCondition(error !== null, 'an unknown column must be rejected')
+      expectCondition(
+        subject.errors.operation(error),
+        `an unknown column must be the typed operation category (got: ${errorMessage(error)})`,
+      )
+      unknownRejected += 1
+    }
+
+    // The engine stays usable after the rejections.
+    const reusable = await client.overlayCastCheck(handle, dataset, {
+      column: dataset.cases[0]!.column,
+      targetType: dataset.cases[0]!.targetType,
+    })
+    expectEqual(
+      reusable.hasNonConvertibleValues,
+      dataset.cases[0]!.hasNonConvertibleValues,
+      'engine reusable after rejected checks',
+    )
+
+    return {
+      cases: dataset.cases.length,
+      convertible,
+      nonConvertible,
+      invalidRejected,
+      unknownRejected,
+      engineReusable: true,
     }
   },
 

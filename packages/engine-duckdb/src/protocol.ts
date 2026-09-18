@@ -56,7 +56,7 @@
  */
 
 import type { EngineOverlayPayload } from './overlay-wire'
-import { parseOverlayPayload } from './overlay-wire'
+import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire'
 export type { EngineOverlayPayload }
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
@@ -245,6 +245,25 @@ export interface EngineExportRequest {
   overlay?: EngineOverlayPayload
 }
 
+/**
+ * Validate-before-commit cast check (m4-4b, ADR 0012): over the given
+ * **pre-cast** overlay state, report whether any non-NULL value of the
+ * effective `column` cannot convert to `targetType`. It runs on the query
+ * lane (see `engine-executor.ts` for the ADR 0040 lane rationale: a
+ * worst-case full-column `TRY_CAST` scan is query-class, like profile).
+ * `targetType` is untrusted host input for a SQL type position: the boundary
+ * re-validates it as one complete DuckDB type (the client already did) and
+ * rejects a malformed instance with exactly one typed `engine/error`.
+ */
+export interface EngineOverlayCastCheckRequest {
+  type: 'engine/overlay-cast-check'
+  requestId: number
+  tableId: string
+  overlay: EngineOverlayPayload
+  column: string
+  targetType: string
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -262,6 +281,7 @@ export type EngineRequest =
   | EngineOverlaySchemaRequest
   | EngineOverlayRowCountRequest
   | EngineOverlayRangeRequest
+  | EngineOverlayCastCheckRequest
   | EngineExportRequest
   | EngineDisposeRequest
 
@@ -347,6 +367,17 @@ export interface EngineOverlayRangeResultResponse {
   requestId: number
   batchIpc: Uint8Array
   hasMore: boolean
+}
+
+/**
+ * Result of the m4-4b cast check: `true` iff at least one non-NULL effective
+ * value of the tested column cannot convert. A boolean only — never dataset
+ * values (ADR 0025).
+ */
+export interface EngineOverlayCastCheckResultResponse {
+  type: 'engine/overlay-cast-check-result'
+  requestId: number
+  hasNonConvertibleValues: boolean
 }
 
 /** Result of the export op: the generated OPFS path plus honest counts. */
@@ -445,6 +476,7 @@ export type EngineResponse =
   | EngineOverlaySchemaResultResponse
   | EngineOverlayRowCountResultResponse
   | EngineOverlayRangeResultResponse
+  | EngineOverlayCastCheckResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
@@ -461,6 +493,7 @@ export type EngineSuccessResponse =
   | EngineOverlaySchemaResultResponse
   | EngineOverlayRowCountResultResponse
   | EngineOverlayRangeResultResponse
+  | EngineOverlayCastCheckResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
 
@@ -525,12 +558,13 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
     (type === 'engine/overlay-schema' ||
       type === 'engine/overlay-row-count' ||
       type === 'engine/overlay-range' ||
+      type === 'engine/overlay-cast-check' ||
       type === 'engine/export') &&
     typeof data.tableId === 'string'
   ) {
     const overlay = parseOverlayPayload(data.overlay)
     // engine/export allows an absent overlay (plain base-view export);
-    // the three overlay query ops require it. A present-but-malformed
+    // the four overlay query ops require it. A present-but-malformed
     // payload rejects the request in both cases (never silently ignored).
     if (overlay === null && !(type === 'engine/export' && data.overlay === undefined)) {
       return null
@@ -574,6 +608,21 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
       }
       return null
     }
+    if (type === 'engine/overlay-cast-check' && overlay !== null) {
+      // The standalone target type is untrusted input for a SQL type
+      // position: reject a malformed spelling at the boundary (the client
+      // already validated it; a hostile sender is answered, never dropped).
+      if (typeof data.column !== 'string' || typeof data.targetType !== 'string') return null
+      if (!isEngineTypeExpression(data.targetType)) return null
+      return {
+        type,
+        requestId,
+        tableId: data.tableId,
+        overlay,
+        column: data.column,
+        targetType: data.targetType,
+      }
+    }
     if (type === 'engine/export' && isExportFormat(data.format)) {
       const overlayPayload = overlay ?? undefined
       return {
@@ -601,6 +650,7 @@ export const OVERLAY_REQUEST_TYPES = [
   'engine/overlay-schema',
   'engine/overlay-row-count',
   'engine/overlay-range',
+  'engine/overlay-cast-check',
   'engine/export',
 ] as const
 
@@ -781,6 +831,12 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
     typeof data.hasMore === 'boolean'
   ) {
     return { type, requestId, batchIpc: data.batchIpc, hasMore: data.hasMore }
+  }
+  if (
+    type === 'engine/overlay-cast-check-result' &&
+    typeof data.hasNonConvertibleValues === 'boolean'
+  ) {
+    return { type, requestId, hasNonConvertibleValues: data.hasNonConvertibleValues }
   }
   if (
     type === 'engine/export-result' &&

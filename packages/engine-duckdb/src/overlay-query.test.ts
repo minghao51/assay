@@ -28,6 +28,7 @@ const rid = (text: string): RowId => text as RowId
 import { describe, expect, it } from 'vitest'
 import {
   cellLiteralSql,
+  composeOverlayCastCheckSql,
   composeOverlayCountSql,
   composeOverlayExportSql,
   composeOverlaySchemaSql,
@@ -615,6 +616,93 @@ describe('cellLiteralSql and the formula-injection guard', () => {
     )
     expect(cellLiteralSql({ kind: 'string', value: 'back\\slash' }, 'TEXT')).toBe(
       "CAST('back\\slash' AS TEXT)",
+    )
+  })
+})
+
+describe('composeOverlayCastCheckSql — the m4-4b validate-before-commit check', () => {
+  it('composes the early-exit existence shape over the plain base relation', () => {
+    expect(composeOverlayCastCheckSql(compositionFor([]), 'label', 'BIGINT')).toBe(
+      'SELECT 1 FROM (SELECT "id" AS "id", "label" AS "label" FROM ' +
+        '(SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1")) ' +
+        'WHERE "label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL LIMIT 1',
+    )
+  })
+
+  it('quotes the effective column and interpolates a validated target type verbatim', () => {
+    const sql = composeOverlayCastCheckSql(compositionFor([]), 'id', 'DECIMAL(10, 2)')
+    expect(sql).toContain('WHERE "id" IS NOT NULL AND TRY_CAST("id" AS DECIMAL(10, 2)) IS NULL')
+    // The `SELECT 1` projection: no dataset value can leave the engine.
+    expect(sql.startsWith('SELECT 1 FROM (')).toBe(true)
+    expect(sql.endsWith('LIMIT 1')).toBe(true)
+  })
+
+  it('uses the renamed effective column and scans edits, inserts and casts (m4-2b/m4-4b)', () => {
+    const ops: EditOp[] = [
+      { kind: 'row-delete', rowId: rid('base:b1#1') },
+      {
+        kind: 'cell-set',
+        rowId: rid('base:b1#0'),
+        column: 'label',
+        value: { kind: 'string', value: 'not-a-number' },
+      },
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([['id', { kind: 'number', value: 9 }]]),
+      },
+      { kind: 'column-rename', from: 'label', to: 'label_v2' },
+    ]
+    const sql = composeOverlayCastCheckSql(compositionFor(ops), 'label_v2', 'BIGINT')
+    // Renamed projection + the edited CASE arm + the live insert branch.
+    expect(sql).toContain(
+      `CASE WHEN assay_overlay_ord = 0 THEN CAST('not-a-number' AS VARCHAR) ELSE "label" END AS "label_v2"`,
+    )
+    expect(sql).toContain('WHERE assay_overlay_ord NOT IN (1)')
+    expect(sql).toContain('UNION ALL')
+    expect(sql).toContain('WHERE "label_v2" IS NOT NULL AND TRY_CAST("label_v2" AS BIGINT) IS NULL')
+  })
+
+  it('rejects an unknown effective column before composing any SQL', () => {
+    expect(() =>
+      composeOverlayCastCheckSql(compositionFor([]), 'no_such_column', 'BIGINT'),
+    ).toThrow('unknown overlay column: no_such_column')
+    // A pre-rename name is not effective once the rename is folded.
+    const composition = compositionFor([{ kind: 'column-rename', from: 'label', to: 'label_v2' }])
+    expect(() => composeOverlayCastCheckSql(composition, 'label', 'BIGINT')).toThrow(
+      'unknown overlay column: label',
+    )
+  })
+
+  it('throws a typed EngineTypeError for an invalid target spelling (no SQL built)', () => {
+    for (const targetType of ['VARCHAR()', 'DECIMAL(1,2,3)', 'BIGINT; DROP TABLE t']) {
+      expect(() => composeOverlayCastCheckSql(compositionFor([]), 'label', targetType)).toThrow(
+        EngineTypeError,
+      )
+    }
+    // The validator runs before the column check, so a bad type never leaks a
+    // partially-built statement even with a valid column.
+    expect(() => composeOverlayCastCheckSql(compositionFor([]), 'id', 'NOPE(')).toThrow(
+      EngineTypeError,
+    )
+  })
+
+  it('validates the effective schema types (defence in depth, like the other composers)', () => {
+    const hostile: OverlayBase = {
+      ...BASE,
+      columns: [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'label', type: 'VARCHAR) ; DROP TABLE t; --' },
+      ],
+    }
+    const composition = {
+      viewName: 'assay_t1',
+      base: hostile,
+      state: foldOverlay(hostile, []).state,
+    }
+    expect(() => composeOverlayCastCheckSql(composition, 'label', 'BIGINT')).toThrow(
+      EngineTypeError,
     )
   })
 })

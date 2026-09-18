@@ -775,6 +775,60 @@ describe('m4-2: overlay + export protocol', () => {
       ).toBeNull()
     })
 
+    it('parses engine/overlay-cast-check and rejects malformed instances', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-cast-check',
+          requestId: 8,
+          tableId: 't1',
+          overlay: OVERLAY,
+          column: 'label',
+          targetType: 'BIGINT',
+        }),
+      ).toEqual({
+        type: 'engine/overlay-cast-check',
+        requestId: 8,
+        tableId: 't1',
+        overlay: OVERLAY,
+        column: 'label',
+        targetType: 'BIGINT',
+      })
+      // A malformed or injection-shaped target type rejects the request (the
+      // boundary never interpolates an unvalidated string into a type slot).
+      for (const targetType of ['VARCHAR()', 'DECIMAL(1,2,3)', 'BIGINT; DROP TABLE t']) {
+        expect(
+          parseEngineRequest({
+            type: 'engine/overlay-cast-check',
+            requestId: 8,
+            tableId: 't1',
+            overlay: OVERLAY,
+            column: 'label',
+            targetType,
+          }),
+        ).toBeNull()
+      }
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-cast-check',
+          requestId: 8,
+          tableId: 't1',
+          overlay: OVERLAY,
+          column: 'label',
+        }),
+      ).toBeNull()
+      // A present-but-malformed overlay rejects too.
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-cast-check',
+          requestId: 8,
+          tableId: 't1',
+          overlay: { base: OVERLAY.base, ops: 42 },
+          column: 'label',
+          targetType: 'BIGINT',
+        }),
+      ).toBeNull()
+    })
+
     it('parses engine/export with or without an overlay, and rejects bad formats', () => {
       expect(
         parseEngineRequest({
@@ -891,6 +945,17 @@ describe('m4-2: overlay + export protocol', () => {
         batchIpc: new Uint8Array([1, 2]),
         hasMore: false,
       })
+      expect(
+        parseEngineResponse({
+          type: 'engine/overlay-cast-check-result',
+          requestId: 9,
+          hasNonConvertibleValues: true,
+        }),
+      ).toEqual({
+        type: 'engine/overlay-cast-check-result',
+        requestId: 9,
+        hasNonConvertibleValues: true,
+      })
     })
 
     it('rejects malformed overlay results', () => {
@@ -913,6 +978,17 @@ describe('m4-2: overlay + export protocol', () => {
           requestId: 6,
           batchIpc: new Uint8Array([1]),
         }),
+      ).toBeNull()
+      // The cast-check result must be a boolean — never a string/1/0.
+      expect(
+        parseEngineResponse({
+          type: 'engine/overlay-cast-check-result',
+          requestId: 9,
+          hasNonConvertibleValues: 'yes',
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({ type: 'engine/overlay-cast-check-result', requestId: 9 }),
       ).toBeNull()
     })
 

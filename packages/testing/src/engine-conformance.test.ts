@@ -40,6 +40,7 @@ import type {
   ConformanceNumericStats,
   ConformanceOverlay,
   ConformanceOverlayBase,
+  ConformanceOverlayCastCheckDataset,
   ConformanceOverlayInsertEditsDataset,
   ConformanceOverlayWindow,
   ConformanceScenarioName,
@@ -118,6 +119,10 @@ interface FakeMutations {
   rewritesSourceFile?: boolean
   /** m4-2 fix round: hostile type expressions are accepted instead of rejected. */
   acceptsHostileTypes?: boolean
+  /** m4-4b: the cast check always answers false (bad values silently pass). */
+  castCheckAlwaysFalse?: boolean
+  /** m4-4b: the cast check always answers true (false positives). */
+  castCheckAlwaysTrue?: boolean
 }
 
 const GOOD_DATASET = {
@@ -554,6 +559,93 @@ const FAKE_OVERLAY_INSERT_EDITS_DATASET: ConformanceOverlayInsertEditsDataset = 
   ],
 }
 
+/**
+ * The m4-4b cast-check dataset the fake subject declares, in miniature: a
+ * base with all-numeric values (`num`, `ins_code`, `legacy`), one
+ * mid-dataset bad value (`code`), an all-NULL column (`blank`), a rename
+ * (`legacy` -> `renamed`) with a post-rename bad edit, and an inserted bad
+ * `ins_code`. The cases cover the classifications a 1-row probe cannot:
+ * a bad value mid-dataset, a bad value only in an inserted row, a bad value
+ * after a rename, and the all-convertible/all-NULL `false` cases.
+ */
+const FAKE_CAST_CHECK_BASE: ConformanceOverlayBase = {
+  baseAnchor: 'fake-cast-base-v1',
+  overlayAnchor: 'fake-cast-ov-1',
+  columns: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'num', type: 'VARCHAR' },
+    { name: 'code', type: 'VARCHAR' },
+    { name: 'ins_code', type: 'VARCHAR' },
+    { name: 'blank', type: 'VARCHAR' },
+    { name: 'legacy', type: 'VARCHAR' },
+  ],
+  baseRowCount: 4,
+}
+
+/** The fake's cast-check base rows in natural order (mirrors the base above). */
+const FAKE_CAST_CHECK_ROWS: readonly Record<string, string | number | null>[] = [
+  { id: 1, num: '10', code: '10', ins_code: '1', blank: null, legacy: '10' },
+  { id: 2, num: '20', code: '20', ins_code: '2', blank: null, legacy: '20' },
+  { id: 3, num: '30', code: 'bad', ins_code: '3', blank: null, legacy: '30' },
+  { id: 4, num: '40', code: '40', ins_code: '4', blank: null, legacy: '40' },
+]
+
+const FAKE_CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
+  base: FAKE_CAST_CHECK_BASE,
+  ops: [
+    { kind: 'column-rename', from: 'legacy', to: 'renamed' },
+    {
+      kind: 'cell-set',
+      rowId: 'base:fake-cast-base-v1#1',
+      column: 'renamed',
+      value: { kind: 'string', value: 'not-a-number' },
+    },
+    {
+      kind: 'row-insert',
+      rowId: 'ins:fake-cast-ov-1#0',
+      position: { kind: 'end' },
+      values: new Map([
+        ['id', { kind: 'number', value: 100 }],
+        ['ins_code', { kind: 'string', value: 'oops' }],
+      ]),
+    },
+  ],
+  cases: [
+    {
+      label: 'all-convertible numeric column',
+      column: 'num',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'bad value mid-dataset',
+      column: 'code',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'bad value only in an inserted row',
+      column: 'ins_code',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'bad value after a rename',
+      column: 'renamed',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'all-NULL column',
+      column: 'blank',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: false,
+    },
+  ],
+  invalidTargetTypes: ['VARCHAR()', 'DECIMAL(1,2,3)', 'BIGINT; DROP TABLE fake_cast_probe'],
+  unknownColumns: ['legacy', 'no_such_column'],
+}
+
 /** The m4-2 review's exact injection payload (finding 1). */
 const FAKE_REVIEWER_PAYLOAD =
   'VARCHAR) AS "c" FROM (...) ); CREATE TABLE fake_injected AS SELECT 31337; --'
@@ -608,6 +700,44 @@ function fakeValidateTypeExpression(type: string): void {
     }
   }
   if (depth !== 0) throw new FakeOperationError('invalid engine type expression')
+  // Empty argument lists (`VARCHAR()`, `DECIMAL()`, …) are malformed, and
+  // DECIMAL/NUMERIC take 1–2 integer modifiers with 1 ≤ scale ≤ precision ≤ 38
+  // (the real validator's closed-arity rules, mirrored just far enough for the
+  // cast-check scenario's invalid spellings).
+  if (/\(\s*\)/.test(type)) throw new FakeOperationError('invalid engine type expression')
+  const decimal = /^DECIMAL\s*\(/i.exec(type)
+  if (decimal !== null) {
+    const match = /^DECIMAL\s*\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\)$/i.exec(type)
+    const precision = match === null ? Number.NaN : Number(match[1])
+    const scale = match === null || match[2] === undefined ? undefined : Number(match[2])
+    if (
+      match === null ||
+      precision < 1 ||
+      precision > 38 ||
+      (scale !== undefined && (scale < 0 || scale > precision))
+    ) {
+      throw new FakeOperationError('invalid engine type expression')
+    }
+  }
+}
+
+/**
+ * The fake's tiny `TRY_CAST(value AS target)` predicate: `true` when the
+ * non-NULL text value converts. Only the spellings the cast-check dataset
+ * declares are understood; anything else is a loud fake error.
+ */
+function fakeCastSucceeds(value: string, targetType: string): boolean {
+  switch (targetType.trim().toUpperCase()) {
+    case 'BIGINT':
+    case 'INTEGER':
+      return /^[+-]?\d+$/.test(value)
+    case 'VARCHAR':
+    case 'TEXT':
+    case 'STRING':
+      return true
+    default:
+      throw new FakeOperationError(`fake cannot convert to ${targetType}`)
+  }
 }
 
 /** Validate every type expression an overlay carries (fake mirror). */
@@ -1325,6 +1455,37 @@ class FakeEngineClient implements ConformanceEngineClient {
     return { batch: tableFromArrays(columns), hasMore: false }
   }
 
+  async overlayCastCheck(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+    request: { readonly column: string; readonly targetType: string },
+  ): Promise<{ readonly hasNonConvertibleValues: boolean }> {
+    this.requireRegistered(handle)
+    if (this.mutations.acceptsHostileTypes !== true) {
+      fakeAssertTypesValid(overlay)
+      fakeValidateTypeExpression(request.targetType)
+    }
+    const state = foldFakeOverlay(overlay.base, overlay.ops ?? [], this.mutations)
+    if (!state.columns.some((column) => column.name === request.column)) {
+      throw new FakeOperationError(`unknown overlay column: ${request.column}`)
+    }
+    // Mutation knobs: the two one-sided lies the scenario must catch.
+    if (this.mutations.castCheckAlwaysFalse) return { hasNonConvertibleValues: false }
+    if (this.mutations.castCheckAlwaysTrue) return { hasNonConvertibleValues: true }
+    const baseRows = this.isCastCheck(handle) ? FAKE_CAST_CHECK_ROWS : FAKE_OVERLAY_ROWS
+    const rows = fakeOverlayRows(overlay.base, state, baseRows, false)
+    for (const row of rows) {
+      const value = row.cells.get(request.column)
+      if (value === undefined) {
+        throw new FakeOperationError(`unknown overlay column: ${request.column}`)
+      }
+      if (value !== null && !fakeCastSucceeds(value, request.targetType)) {
+        return { hasNonConvertibleValues: true }
+      }
+    }
+    return { hasNonConvertibleValues: false }
+  }
+
   async exportView(
     handle: ConformanceTableHandle,
     request: {
@@ -1414,6 +1575,10 @@ class FakeEngineClient implements ConformanceEngineClient {
 
   private isProfile(handle: ConformanceTableHandle): boolean {
     return this.registered.get(handle.id) === 'profile.csv'
+  }
+
+  private isCastCheck(handle: ConformanceTableHandle): boolean {
+    return this.registered.get(handle.id) === 'overlay-cast-check.csv'
   }
 
   /** Typed column read: `undefined` means the column does not exist. */
@@ -1693,6 +1858,19 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
       return fileSource(name)
     },
+    overlayCastCheckDataset: FAKE_CAST_CHECK_DATASET,
+    stageOverlayCastCheckFile: async () => {
+      const name = 'overlay-cast-check.csv'
+      const header = FAKE_CAST_CHECK_BASE.columns.map((column) => column.name).join(',')
+      const lines = [header]
+      for (const row of FAKE_CAST_CHECK_ROWS) {
+        lines.push(
+          FAKE_CAST_CHECK_BASE.columns.map((column) => String(row[column.name] ?? '')).join(','),
+        )
+      }
+      subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
+      return fileSource(name)
+    },
     hostileTypeProbes: FAKE_HOSTILE_TYPE_PROBES,
     tableExists: async () => false, // the fake never executes DDL side-effects
     sourceDigest: async (source) => {
@@ -1820,6 +1998,18 @@ describe('engine conformance suite (compliant fake engine)', () => {
     expect(result.facts['formats']).toBe(FAKE_OVERLAY_INSERT_EDITS_DATASET.exports.length)
     expect(result.facts['engineReopens']).toBe(FAKE_OVERLAY_INSERT_EDITS_DATASET.exports.length)
     expect(result.facts['csvSanitizationProbed']).toBe(true)
+  })
+
+  it('exposes cast-check evidence (m4-4b)', async () => {
+    const subject = makeSubject()
+    const result = await runEngineConformanceScenario(subject, 'overlay-cast-check')
+    expect(result.passed, result.detail).toBe(true)
+    expect(result.facts['cases']).toBe(FAKE_CAST_CHECK_DATASET.cases.length)
+    expect(result.facts['convertible']).toBe(2)
+    expect(result.facts['nonConvertible']).toBe(3)
+    expect(result.facts['invalidRejected']).toBe(FAKE_CAST_CHECK_DATASET.invalidTargetTypes.length)
+    expect(result.facts['unknownRejected']).toBe(FAKE_CAST_CHECK_DATASET.unknownColumns.length)
+    expect(result.facts['engineReusable']).toBe(true)
   })
 })
 
@@ -2093,6 +2283,18 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     )
     expect(passed).toBe(false)
     expect(detail).toContain('must be rejected')
+  })
+
+  it('overlay-cast-check: detects a check that always answers false (bad values pass)', async () => {
+    const { passed, detail } = await runOne({ castCheckAlwaysFalse: true }, 'overlay-cast-check')
+    expect(passed).toBe(false)
+    expect(detail).toContain('hasNonConvertibleValues')
+  })
+
+  it('overlay-cast-check: detects a check that always answers true (false positives)', async () => {
+    const { passed, detail } = await runOne({ castCheckAlwaysTrue: true }, 'overlay-cast-check')
+    expect(passed).toBe(false)
+    expect(detail).toContain('hasNonConvertibleValues')
   })
 })
 

@@ -51,6 +51,7 @@ import type { OverlayBase, OverlayState } from '@assay/domain'
 import { foldOverlay, initialState } from '@assay/domain'
 import { createViewSql, detectFileFormat, quotedIdentifier } from './format-view'
 import {
+  composeOverlayCastCheckSql,
   composeOverlayCountSql,
   composeOverlayExportSql,
   composeOverlayExportSelectSql,
@@ -66,6 +67,7 @@ import type {
   EngineExportRequest,
   EngineFilterSpec,
   EngineNumericColumnStats,
+  EngineOverlayCastCheckRequest,
   EngineOverlayPayload,
   EngineOverlayRangeRequest,
   EngineProfileColumn,
@@ -211,10 +213,15 @@ export class EngineOpExecutor {
     // m4-2: exports join user SQL + profile on the query lane — a long
     // COPY is exactly the heavy, user-initiated class that must never
     // block the grid's windows (ADR 0040); the dispose barrier covers it.
+    // m4-4b: the cast-conversion check is a worst-case full-column
+    // `TRY_CAST` scan (the all-convertible common case), so it is
+    // query-class too — routing it to the registry lane would reintroduce
+    // exactly the head-of-line blocking ADR 0040 exists to prevent.
     const lane =
       request.type === 'engine/query' ||
       request.type === 'engine/profile' ||
-      request.type === 'engine/export'
+      request.type === 'engine/export' ||
+      request.type === 'engine/overlay-cast-check'
         ? this.queryLane
         : this.registryLane
     void lane.channel.run(() => this.dispatch(request, lane))
@@ -285,6 +292,10 @@ export class EngineOpExecutor {
         }
         case 'engine/overlay-range': {
           await this.runOverlayRange(request, lane)
+          break
+        }
+        case 'engine/overlay-cast-check': {
+          await this.runOverlayCastCheck(request, lane)
           break
         }
         case 'engine/export': {
@@ -546,6 +557,42 @@ export class EngineOpExecutor {
       requestId: request.requestId,
       batchIpc,
       hasMore,
+    })
+  }
+
+  /**
+   * Validate-before-commit cast check (m4-4b, ADR 0012): fold the request's
+   * overlay (the **pre-cast** state), compose the early-exit existence check
+   * over the effective relation, and report whether any non-NULL value of
+   * the column fails `TRY_CAST`. The composed relation respects edits,
+   * inserts, tombstones, renames and prior casts (it is `composeSourceSql`),
+   * so a bad value anywhere — not just row 0 — is found. Query lane (ADR
+   * 0040): the all-convertible case scans the whole column, exactly the
+   * heavy query-class work that must never block grid windows. `SELECT 1`
+   * returns no dataset values (only the boolean crosses the boundary).
+   */
+  private async runOverlayCastCheck(
+    request: EngineOverlayCastCheckRequest,
+    lane: OpLane,
+  ): Promise<void> {
+    const entry = this.requireTable(request.tableId)
+    const conn = lane.connection(await this.deps.ensureSession())
+    const { base, state } = this.compositionOf(request.overlay)
+    const sql = composeOverlayCastCheckSql(
+      { base, state, viewName: entry.viewName },
+      request.column,
+      request.targetType,
+    )
+    // `LIMIT 1` guarantees at most one row; anything else is an engine
+    // deviation and fails this op loudly rather than reporting a guess.
+    const result = await conn.query(sql)
+    if (result.numRows > 1) {
+      throw new Error('overlay cast check returned an unexpected shape')
+    }
+    this.post({
+      type: 'engine/overlay-cast-check-result',
+      requestId: request.requestId,
+      hasNonConvertibleValues: result.numRows > 0,
     })
   }
 

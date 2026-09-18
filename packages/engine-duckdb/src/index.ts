@@ -48,6 +48,8 @@ export type {
   EngineExportResult,
   EngineFileSource,
   EngineOverlay,
+  EngineOverlayCastCheck,
+  EngineOverlayCastCheckResult,
   EngineOverlayWindow,
   EngineQueryResult,
   EngineRangeResult,
@@ -75,6 +77,8 @@ export type {
   EngineNumericQuantiles,
   EngineOpenRequest,
   EngineOpenResultResponse,
+  EngineOverlayCastCheckRequest,
+  EngineOverlayCastCheckResultResponse,
   EngineOverlayRangeRequest,
   EngineOverlayRangeResultResponse,
   EngineOverlayRowCountRequest,
@@ -134,6 +138,7 @@ export type { EngineWindowQuery } from './window-query'
 // same composed semantics instead of re-deriving them.
 export {
   cellLiteralSql,
+  composeOverlayCastCheckSql,
   composeOverlayCountSql,
   composeOverlayExportSelectSql,
   composeOverlayExportSql,
