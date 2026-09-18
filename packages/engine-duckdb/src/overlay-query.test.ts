@@ -32,6 +32,7 @@ import {
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
   composeOverlayExportSql,
+  composeOverlayExportSelectSql,
   composeOverlaySchemaSql,
   composeOverlayWindowSql,
   composeSourceSql,
@@ -927,5 +928,91 @@ describe('composeOverlayExportSql — deterministic COPY options', () => {
     expect(exportFileExtension('parquet')).toBe('parquet')
     expect(exportFileExtension('jsonl')).toBe('jsonl')
     expect(exportFileExtension('arrow')).toBe('arrow')
+  })
+})
+
+describe('overlay composition — dead edits of tombstoned base rows (m4-4b round 4)', () => {
+  // A deleted base row's edit is dead: the outer tombstone WHERE excludes the
+  // row, so projecting the edit's CASE arm only gives DuckDB-WASM 1.4.3 a
+  // value to evaluate (it evaluates the projection of a physically-present
+  // deleted row even though native 1.5.5 filters first). The composer must
+  // skip it in EVERY projection; the fold still retains it so a row-restore
+  // brings the arm back (m4-1 semantics).
+  const DEAD_BASE: OverlayBase = {
+    baseAnchor: 'b1',
+    overlayAnchor: 'o1',
+    columns: [{ name: 'price', type: 'DOUBLE' }],
+    baseRowCount: 3,
+  }
+  const compositionForOps = (ops: EditOp[]) => ({
+    viewName: 'assay_t1',
+    base: DEAD_BASE,
+    state: foldOverlay(DEAD_BASE, ops).state,
+  })
+  const DEAD_OPS: EditOp[] = [
+    {
+      kind: 'cell-set',
+      rowId: rid('base:b1#1'),
+      column: 'price',
+      value: { kind: 'string', value: 'oops' },
+    },
+    { kind: 'row-delete', rowId: rid('base:b1#1') },
+  ]
+
+  it('omits the dead edit literal/arm from window, count, schema, export and cast check', () => {
+    const composition = compositionForOps(DEAD_OPS)
+    const projections: readonly (readonly [string, string])[] = [
+      ['window', composeOverlayWindowSql({ ...composition, limit: 5, offset: 0 })],
+      ['count', composeOverlayCountSql(composition)],
+      ['schema', composeOverlaySchemaSql(composition)],
+      ['export', composeOverlayExportSelectSql(composition, 'parquet')],
+      ['cast check', composeOverlayCastCheckSql(composition, 'price', 'INTEGER')],
+    ]
+    for (const [label, sql] of projections) {
+      expect(sql, label).not.toContain('oops')
+      expect(sql, label).not.toContain('CASE WHEN')
+    }
+    // The row itself is still excluded by the outer tombstone filter.
+    expect(projections[0]![1]).toContain('WHERE assay_overlay_ord NOT IN (1)')
+  })
+
+  it('returns the dead arm when the row is restored (state retains the edit)', () => {
+    const restored = compositionForOps([
+      ...DEAD_OPS,
+      { kind: 'row-restore', rowId: rid('base:b1#1') },
+    ])
+    const windowSql = composeOverlayWindowSql({ ...restored, limit: 5, offset: 0 })
+    expect(windowSql).toContain(`CASE WHEN assay_overlay_ord = 1 THEN CAST('oops' AS DOUBLE)`)
+    expect(windowSql).not.toContain('NOT IN (1)')
+    const checkSql = composeOverlayCastCheckSql(restored, 'price', 'INTEGER')
+    expect(checkSql).toContain(
+      `assay_overlay_ord = 1 AND 'oops' IS NOT NULL AND TRY_CAST('oops' AS INTEGER) IS NULL`,
+    )
+  })
+
+  it('omits a prior-cast dead edit arm and restores it (the reviewer flow shape)', () => {
+    const ops: EditOp[] = [
+      { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+      {
+        kind: 'cell-set',
+        rowId: rid('base:b1#2'),
+        column: 'price',
+        value: { kind: 'string', value: 'oops' },
+      },
+      { kind: 'row-delete', rowId: rid('base:b1#2') },
+    ]
+    const composition = compositionForOps(ops)
+    const windowSql = composeOverlayWindowSql({ ...composition, limit: 5, offset: 0 })
+    expect(windowSql).not.toContain("CAST('oops' AS VARCHAR)")
+    expect(windowSql).not.toContain('CASE WHEN')
+    const checkSql = composeOverlayCastCheckSql(composition, 'price', 'INTEGER')
+    expect(checkSql).not.toContain('oops')
+    const restored = compositionForOps([...ops, { kind: 'row-restore', rowId: rid('base:b1#2') }])
+    expect(composeOverlayWindowSql({ ...restored, limit: 5, offset: 0 })).toContain(
+      "CASE WHEN assay_overlay_ord = 2 THEN CAST('oops' AS VARCHAR)",
+    )
+    expect(composeOverlayCastCheckSql(restored, 'price', 'INTEGER')).toContain(
+      `assay_overlay_ord = 2 AND 'oops' IS NOT NULL AND TRY_CAST('oops' AS INTEGER) IS NULL`,
+    )
   })
 })

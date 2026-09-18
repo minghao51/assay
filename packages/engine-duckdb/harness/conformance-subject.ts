@@ -38,8 +38,8 @@ import type {
   ConformanceOverlayInsertEditsDataset,
   EngineConformanceSubject,
 } from '@assay/testing'
-import { baseRowId, insertRowId, foldOverlay, parseRowId } from '@assay/domain'
-import type { CellValue, EditOp, OverlayBase, RowId } from '@assay/domain'
+import { baseRowId, insertRowId } from '@assay/domain'
+import type { CellValue, EditOp, OverlayBase } from '@assay/domain'
 import { tableFromIPC } from 'apache-arrow'
 
 /** The customers.parquet golden fixture, as the DuckDB DESCRIBE reports it. */
@@ -1125,22 +1125,28 @@ const OVERLAY_INSERT_EDITS_DATASET: ConformanceOverlayInsertEditsDataset = {
  *   -- DATE base, invalid edit 'not-a-date' -> DATE true -> Conversion Error
  *   -- insert-only 'oops' with prior cast -> INTEGER true -> Conversion Error
  *   -- insert-only 12 with prior cast -> INTEGER false -> succeeds
+ *   -- reviewer flow (numeric base DOUBLE + prior cast -> VARCHAR + cross-type
+ *   --   edit 'oops' + row-delete): -> INTEGER false -> succeeds (the dead
+ *   --   edit arm must not be projected; the round-4 finding)
  *   -- tombstoned bad edit -> INTEGER false -> succeeds (row excluded)
  *   -- expunged insert 'oops' -> INTEGER false -> succeeds (row excluded)
  *   -- all-NULL column -> BIGINT false -> succeeds (NULLs excluded)
  *   -- empty effective relation -> INTEGER false -> empty result
  *   -- chain A->B->C + edit 'nope' -> INTEGER true -> Conversion Error
- * All twelve were CLI-verified against the identical composed SQL; in every
+ * All thirteen were CLI-verified against the identical composed SQL; in every
  * case `hasNonConvertibleValues` equals whether the committed materialization
  * raises a DuckDB `Conversion Error`.
  *
- * Commit-probe note: the harness drops a base-row `cell-set` whose row is
- * tombstoned before probing the committed window. The domain excludes such a
- * row from the effective view (and native DuckDB 1.5.5 filters before the
- * projection), but the bundled DuckDB-WASM 1.4.3 evaluates the projection of
- * a physically-present deleted row, so probing the raw op list would surface
- * the dead edit's conversion error as an apparent commit failure — a WASM
- * projection-ordering divergence owned by the engine, not by this check.
+ * Commit-probe note (m4-4b round 4): the harness probes the **raw** committed
+ * op list — the same projection the product commit evaluates. The engine
+ * fix makes a tombstoned base row's dead `cell-set` contribute no `CASE` arm
+ * (`baseColumnEdits`), because bundled DuckDB-WASM 1.4.3 evaluates the
+ * projection of a physically-present deleted row even though the outer
+ * `WHERE` excludes it (native 1.5.5 filters first). Before the fix the dead
+ * `CAST('oops' AS INTEGER)` arm threw there while the tombstone-filtered
+ * check answered `false` — the reviewer's demonstrated divergence. The probe
+ * now pages the whole committed column (`overlayRowCount` + `MAX_RANGE_ROWS`
+ * windows) so a bad value past row 1000 cannot be missed either.
  *
  * Shape note (m4-4b round 3): the check renders each raw value arm under its
  * own `TRY_CAST` (`<ordinal> = o AND <literal> IS NOT NULL AND
@@ -1354,6 +1360,28 @@ const CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
       column: 'price',
       targetType: 'INTEGER',
       hasNonConvertibleValues: true,
+    },
+    {
+      // The reviewer's exact flow (m4-4b round 4): numeric base -> cast to
+      // text -> cross-type string edit -> delete that row -> cast back to a
+      // numeric type. The deleted row's dead `CAST('oops' AS INTEGER)` arm
+      // must not be projected on DuckDB-WASM 1.4.3, or the committed cast
+      // throws while the tombstone-filtered check answers false.
+      label:
+        'reviewer flow: DOUBLE base + prior cast to VARCHAR + cross-type edit + delete, target INTEGER (commit succeeds)',
+      ops: [
+        { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+        {
+          kind: 'cell-set',
+          rowId: baseRowId('conf-cast-v1', 2),
+          column: 'price',
+          value: overlayCell({ kind: 'string', value: 'oops' }),
+        },
+        { kind: 'row-delete', rowId: baseRowId('conf-cast-v1', 2) },
+      ],
+      column: 'price',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
     },
     {
       label: 'numeric base + numeric edit + prior cast, target BIGINT (rounds, commit succeeds)',
@@ -1616,34 +1644,36 @@ export function createDuckDbConformanceSubject(
       return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-cast-check.jsonl'))
     },
     committedCastFails: async (client, handle, overlay, request) => {
-      // Ground truth for the agreement pin: append the pending cast and try to
-      // materialize the committed effective view. Tombstoned base rows are not
-      // part of the logical effective view, so their dead `cell-set`s are
-      // dropped first — DuckDB-WASM 1.4.3's projection pushdown still
-      // evaluates the projection of a physically-present deleted row (native
-      // 1.5.5 filters first), which would otherwise make the engine
-      // materialize a value the domain excludes. A conversion failure then
-      // surfaces as the typed operation category with a `Conversion Error`
-      // message, or as the opaque emscripten `_setThrew is not defined` glue
-      // error in the mvp bundle; any other failure propagates.
-      const base = overlay.base as OverlayBase
-      const ops = (overlay.ops ?? []) as EditOp[]
-      const folded = foldOverlay(base, ops).state
-      const liveOps = ops.filter((op) => {
-        if (op.kind !== 'cell-set') return true
-        const parsed = parseRowId(op.rowId as RowId)
-        if (parsed === null || parsed.origin !== 'base') return true
-        return !folded.deletedBase.has(parsed.ordinal)
-      })
+      // Ground truth for the agreement pin: append the pending cast and
+      // materialize the TRUE committed effective view over every live row —
+      // exactly the projection the product commit evaluates. No dead-edit
+      // filtering here: dropping a tombstoned row's `cell-set` would hide the
+      // m4-4b round-4 check/commit divergence (DuckDB-WASM 1.4.3 evaluates the
+      // projection of a physically-present deleted row, so a dead `CASE` arm
+      // can throw while the tombstone-filtered cast check answers `false`).
+      //
+      // Full-column probe: page the committed window so a bad value past the
+      // first `MAX_RANGE_ROWS` (1000) cannot be silently missed. `fetchOverlayRange`
+      // clamps to `MAX_RANGE_ROWS` per call, so iterate over the honest live
+      // row count. A conversion failure on any page surfaces the same typed
+      // category as an un-paged read, or the opaque emscripten `_setThrew is
+      // not defined` glue error in the mvp bundle; any other failure
+      // propagates.
       const committed: ConformanceOverlay = {
-        base,
+        base: overlay.base,
         ops: [
-          ...liveOps,
+          ...(overlay.ops ?? []),
           { kind: 'column-cast', column: request.column, targetType: request.targetType },
         ],
       }
       try {
-        await client.fetchOverlayRange(handle, committed, { startRow: 0, endRow: MAX_RANGE_ROWS })
+        const rowCount = await client.overlayRowCount(handle, committed)
+        for (let startRow = 0; startRow < rowCount; startRow += MAX_RANGE_ROWS) {
+          await client.fetchOverlayRange(handle, committed, {
+            startRow,
+            endRow: Math.min(startRow + MAX_RANGE_ROWS, rowCount),
+          })
+        }
         return false
       } catch (error) {
         // A DuckDB conversion failure surfaces as the typed operation/query

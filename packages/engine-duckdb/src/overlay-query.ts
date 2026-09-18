@@ -24,7 +24,8 @@
  *   guarantee `LIMIT`/`OFFSET` grid windows already rely on in the wasm mvp
  *   bundle), tombstoned ordinals excluded via `NOT IN`, and per-column edit
  *   overlays as bounded `CASE … WHEN <ordinal> THEN <literal>` expressions
- *   (bounded by session activity, never by dataset size). Renames rewrite
+ *   (bounded by session activity, never by dataset size; a tombstoned
+ *   ordinal's edit is **not** projected — m4-4b round 4). Renames rewrite
  *   the alias; casts rewrite the projection (`CAST(base AS <target>)`); a
  *   `text`-kind edit value becomes `CAST('<literal>' AS <column type>)` —
  *   the domain's engine-parseable literal cast, whose failure surfaces as a
@@ -379,6 +380,18 @@ function assertValidEffectiveTypes(state: OverlayState): void {
  * effective projection (`cellLiteralSql` under the effective type) and the
  * m4-4b cast check (raw literals under its per-arm `TRY_CAST`), so the two
  * can never drift on *which* edits apply to a row.
+ *
+ * A **tombstoned** ordinal's edit is dead: the row is already excluded from
+ * the effective view by the outer `WHERE … NOT IN (…)`, so its edit must not
+ * contribute a `CASE … THEN <literal>` arm. The bundled DuckDB-WASM 1.4.3
+ * projection evaluates an arm for a physically-present deleted row even
+ * though the outer filter excludes it (native 1.5.5 filters first), so a
+ * dead arm whose literal cannot convert to the pending cast target made the
+ * committed cast throw while the tombstone-filtered cast check answered
+ * `false` — a product-reachable check/commit disagreement (m4-4b round-4
+ * finding). Skipping dead edits is **composition-only**: the fold still
+ * retains them (m4-1), and a `row-restore` removes the ordinal from
+ * `state.deletedBase`, so the arms return automatically.
  */
 function baseColumnEdits(
   base: OverlayBase,
@@ -390,6 +403,7 @@ function baseColumnEdits(
     const parsed = parseRowId(rowId as RowId)
     if (parsed === null || parsed.origin !== 'base') continue
     if (parsed.anchor !== base.baseAnchor) continue // foreign anchor: absorbed by the fold
+    if (state.deletedBase.has(parsed.ordinal)) continue // dead row: outer WHERE excludes it
     const value = rowEdits.get(effectiveName)
     if (value === undefined) continue
     edits.push({ ordinal: parsed.ordinal, value })
@@ -421,7 +435,9 @@ function insertColumnValue(
  * column at the same index, since renames/casts never reorder), cast under
  * the effective type when a cast applies, wrapped in a bounded CASE that
  * overlays this row's cell edits (edits are keyed by the effective
- * (post-rename) column name; the fold re-keys them). `ordinalRef` is the
+ * (post-rename) column name; the fold re-keys them). Tombstoned ordinals are
+ * skipped by `baseColumnEdits`, so a deleted row never contributes a dead
+ * `CASE` arm. `ordinalRef` is the
  * computed base-ordinal reference visible at the branch's SELECT level.
  */
 function baseColumnExpr(
@@ -623,11 +639,15 @@ export function composeOverlaySchemaSql(composition: OverlayComposition): string
  * TRY_CAST(<raw literal> AS target) IS NULL`) plus one arm over the un-edited
  * base column (`<ordinal> NOT IN (<edited>) AND <base> IS NOT NULL AND
  * TRY_CAST(<base> AS target) IS NULL`), tombstoned ordinals excluded. Each
- * live insert contributes a FROM-less arm over its raw merged value. No
- * literal is hard-cast to any type before its own `TRY_CAST`, so the check
- * cannot throw where the commit would succeed and cannot succeed where the
- * commit would throw. Edits, inserts, tombstones, renames, and prior casts
- * are handled via the same `baseColumnEdits`/`insertColumnValue`/rename-aware
+ * live insert contributes a FROM-less arm over its raw merged value. A
+ * tombstoned ordinal's edit is skipped by `baseColumnEdits`, exactly as in
+ * the committed projection: the outer tombstone `WHERE` excludes the row, and
+ * emitting the dead literal would give DuckDB-WASM 1.4.3 a value to evaluate
+ * that the logical view never contains (m4-4b round-4 finding). No literal
+ * is hard-cast to any type before its own `TRY_CAST`, so the check cannot
+ * throw where the commit would succeed and cannot succeed where the commit
+ * would throw. Edits, inserts, tombstones, renames, and prior casts are
+ * handled via the same `baseColumnEdits`/`insertColumnValue`/rename-aware
  * keying the effective composers use.
  *
  * Shape: `… LIMIT 1` keeps the existence probe early-exit and at most one

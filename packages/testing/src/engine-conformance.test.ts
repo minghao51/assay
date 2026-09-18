@@ -760,6 +760,25 @@ const FAKE_CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
       targetType: 'INTEGER',
       hasNonConvertibleValues: true,
     },
+    {
+      // m4-4b round-4 shape: a prior cast, a cross-type edit, and a delete.
+      // The dead edit is not part of the logical view, so both the check and
+      // the committed materialization must answer false.
+      label: 'prior cast plus edit plus row-delete, target INTEGER (commit succeeds)',
+      ops: [
+        { kind: 'column-cast', column: 'edited_chain', targetType: 'BOOLEAN' },
+        {
+          kind: 'cell-set',
+          rowId: 'base:fake-cast-base-v1#2',
+          column: 'edited_chain',
+          value: { kind: 'text', text: 'nope' },
+        },
+        { kind: 'row-delete', rowId: 'base:fake-cast-base-v1#2' },
+      ],
+      column: 'edited_chain',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
+    },
   ],
   invalidTargetTypes: ['VARCHAR()', 'DECIMAL(1,2,3)', 'BIGINT; DROP TABLE fake_cast_probe'],
   unknownColumns: ['legacy', 'no_such_column'],

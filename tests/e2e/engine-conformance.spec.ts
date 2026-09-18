@@ -183,7 +183,7 @@ for (const name of SCENARIOS) {
         expect(result.facts['cases']).toBe(9)
         expect(result.facts['convertible']).toBe(4)
         expect(result.facts['nonConvertible']).toBe(5)
-        expect(result.facts['agreements']).toBe(12)
+        expect(result.facts['agreements']).toBe(13)
         expect(result.facts['invalidRejected']).toBe(3)
         expect(result.facts['unknownRejected']).toBe(2)
         expect(result.facts['engineReusable']).toBe(true)
