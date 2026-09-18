@@ -269,6 +269,36 @@ export function cellLiteralSql(value: CellValue, effectiveType: string): string 
 }
 
 /**
+ * One `CellValue` as a **raw** SQL literal with no type wrapper (m4-4b cast
+ * check): the committed cast composes `CAST(<this literal> AS target)` and
+ * the check composes `TRY_CAST(<this literal> AS target)`, so both apply the
+ * target conversion to the same raw value. Wrapping the literal in a cast to
+ * the base column type first (the previous source projection) could throw
+ * *before* the check's `TRY_CAST` — e.g. `CAST('hello' AS DOUBLE)` for a
+ * string edit on a DOUBLE base — a check/commit disagreement (m4-4b round-3
+ * finding). `number` values use the same `String()` round-trip form as
+ * `cellLiteralSql`; strings stay single-quote escaped.
+ */
+export function cellLiteralRawSql(value: CellValue): string {
+  switch (value.kind) {
+    case 'null':
+      return 'NULL'
+    case 'boolean':
+      return value.value ? 'TRUE' : 'FALSE'
+    case 'number': {
+      if (!Number.isFinite(value.value)) {
+        throw new Error(`cell number ${String(value.value)} cannot be materialized`)
+      }
+      return String(value.value)
+    }
+    case 'string':
+      return sqlStringLiteral(value.value)
+    case 'text':
+      return sqlStringLiteral(value.text)
+  }
+}
+
+/**
  * CSV formula-injection guard (AGENTS security rule; review-gate hard
  * requirement): wraps a column expression so any cell whose rendered text
  * could initiate a formula in a spreadsheet app is neutralized with the
@@ -343,41 +373,62 @@ function assertValidEffectiveTypes(state: OverlayState): void {
 }
 
 /**
- * How a composed relation renders each column's **value**:
- *
- * - `effective` (default): the post-overlay projection every read op uses —
- *   the base column (plus edit CASEs) cast under the *effective* type, the
- *   final type of the folded cast chain.
- * - `source`: the **un-cast** value expression the m4-4b cast check needs —
- *   the base column (plus edit CASEs) left at the *base* type, with no
- *   effective cast. The domain collapses cast chains to a single direct
- *   `CAST(base AS final_type)` at commit (`stepColumnCast`), so a check that
- *   predicts the committed conversion must apply `TRY_CAST` to this value,
- *   not to the already-cast effective projection. Edit/insert literals are
- *   cast under the base type here so every UNION branch keeps a consistent
- *   type; that base-type wrapper leaves the string-base columns the check is
- *   defined over unchanged (the cast target is applied by the outer
- *   `TRY_CAST`, exactly as the commit applies it).
+ * The base-row edits that apply to an effective column, in ordinal order:
+ * edits keyed by the effective (post-rename) name whose row id belongs to
+ * this base anchor (foreign anchors are absorbed by the fold). Shared by the
+ * effective projection (`cellLiteralSql` under the effective type) and the
+ * m4-4b cast check (raw literals under its per-arm `TRY_CAST`), so the two
+ * can never drift on *which* edits apply to a row.
  */
-type OverlayValueProjection = 'effective' | 'source'
+function baseColumnEdits(
+  base: OverlayBase,
+  state: OverlayState,
+  effectiveName: string,
+): { readonly ordinal: number; readonly value: CellValue }[] {
+  const edits: { ordinal: number; value: CellValue }[] = []
+  for (const [rowId, rowEdits] of state.edits) {
+    const parsed = parseRowId(rowId as RowId)
+    if (parsed === null || parsed.origin !== 'base') continue
+    if (parsed.anchor !== base.baseAnchor) continue // foreign anchor: absorbed by the fold
+    const value = rowEdits.get(effectiveName)
+    if (value === undefined) continue
+    edits.push({ ordinal: parsed.ordinal, value })
+  }
+  edits.sort((a, b) => a.ordinal - b.ordinal)
+  return edits
+}
 
 /**
- * One effective column's base-branch expression. Position `effectiveIndex`
- * corresponds to the base column at the same index, since renames/casts never
- * reorder. `valueProjection` selects the effective (cast) projection or the
- * un-cast source value (see `OverlayValueProjection`). `ordinalRef` is the
- * computed base-ordinal reference visible at the branch's SELECT level; edits
- * are keyed by the effective (post-rename) column name (the fold re-keys
- * them) and rendered as bounded CASE arms under the projection's literal
- * type, so the cast check and the schema/window composers share this
- * value-expression logic rather than forking it.
+ * The effective value of one inserted row's column: the folded `cell-set`
+ * edit when the fold recorded one, else the insert record's value, else NULL
+ * (the documented v1 absent-column rule). Shared by the effective insert
+ * branch and the m4-4b cast check so both see the same merged value.
+ */
+function insertColumnValue(
+  state: OverlayState,
+  record: InsertedRowRecord,
+  effectiveName: string,
+): CellValue {
+  return (
+    state.edits.get(record.id)?.get(effectiveName) ??
+    record.values.get(effectiveName) ?? { kind: 'null' }
+  )
+}
+
+/**
+ * One effective column's base-branch expression: the base column (quoted,
+ * original base name — position `effectiveIndex` corresponds to the base
+ * column at the same index, since renames/casts never reorder), cast under
+ * the effective type when a cast applies, wrapped in a bounded CASE that
+ * overlays this row's cell edits (edits are keyed by the effective
+ * (post-rename) column name; the fold re-keys them). `ordinalRef` is the
+ * computed base-ordinal reference visible at the branch's SELECT level.
  */
 function baseColumnExpr(
   base: OverlayBase,
   state: OverlayState,
   effectiveIndex: number,
   ordinalRef: string,
-  valueProjection: OverlayValueProjection = 'effective',
 ): string {
   const effective = state.columns[effectiveIndex]
   const baseColumn = base.columns[effectiveIndex]
@@ -388,24 +439,13 @@ function baseColumnExpr(
   }
   const source = quotedIdentifier(baseColumn.name)
   const withCast =
-    valueProjection === 'source' || effective.type === baseColumn.type
-      ? source
-      : `CAST(${source} AS ${effective.type})`
-  // Source projection renders literal edits at the base type (no effective
-  // cast); effective projection at the effective type, as before.
-  const literalType = valueProjection === 'source' ? baseColumn.type : effective.type
-  const edits: { ordinal: number; sql: string }[] = []
-  for (const [rowId, rowEdits] of state.edits) {
-    const parsed = parseRowId(rowId as RowId)
-    if (parsed === null || parsed.origin !== 'base') continue
-    if (parsed.anchor !== base.baseAnchor) continue // foreign anchor: absorbed by the fold
-    const value = rowEdits.get(effective.name)
-    if (value === undefined) continue
-    edits.push({ ordinal: parsed.ordinal, sql: cellLiteralSql(value, literalType) })
-  }
+    effective.type === baseColumn.type ? source : `CAST(${source} AS ${effective.type})`
+  const edits = baseColumnEdits(base, state, effective.name)
   if (edits.length === 0) return withCast
-  edits.sort((a, b) => a.ordinal - b.ordinal)
-  const arms = edits.map((edit) => `WHEN ${ordinalRef} = ${String(edit.ordinal)} THEN ${edit.sql}`)
+  const arms = edits.map(
+    (edit) =>
+      `WHEN ${ordinalRef} = ${String(edit.ordinal)} THEN ${cellLiteralSql(edit.value, effective.type)}`,
+  )
   return `CASE ${arms.join(' ')} ELSE ${withCast} END`
 }
 
@@ -417,8 +457,6 @@ interface RelationOptions {
   readonly withRowIds: boolean
   /** Apply the CSV guard to scalar string-family columns (CSV export only). */
   readonly sanitizeCsv: boolean
-  /** Effective (cast) projection or un-cast source value (m4-4b cast check). */
-  readonly valueProjection: OverlayValueProjection
 }
 
 /**
@@ -439,7 +477,7 @@ function baseBranchSql(
     `SELECT ${baseColumns}, (row_number() OVER () - 1) AS ${ORDINAL_COLUMN} ` +
     `FROM ${quotedIdentifier(viewName)}`
   const exprs = state.columns.map((column, index) => {
-    const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN, options.valueProjection)
+    const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN)
     const guarded =
       options.sanitizeCsv && isStringLikeEngineType(column.type)
         ? formulaInjectionGuardSql(raw)
@@ -479,23 +517,13 @@ function baseBranchSql(
  * The old composer read `record.values` only and dropped these edits.
  */
 function insertBranchSql(
-  base: OverlayBase,
   state: OverlayState,
   record: InsertedRowRecord,
   key: readonly number[],
   options: RelationOptions,
 ): string {
-  const exprs = state.columns.map((column, index) => {
-    const edited: CellValue | undefined = state.edits.get(record.id)?.get(column.name)
-    const value: CellValue | undefined = edited ?? record.values.get(column.name)
-    // Source projection renders insert literals at the base type (see
-    // `OverlayValueProjection`); effective projection at the effective type.
-    const baseColumn = base.columns[index]
-    const literalType =
-      options.valueProjection === 'source' && baseColumn !== undefined
-        ? baseColumn.type
-        : column.type
-    const literal = cellLiteralSql(value ?? { kind: 'null' }, literalType)
+  const exprs = state.columns.map((column) => {
+    const literal = cellLiteralSql(insertColumnValue(state, record, column.name), column.type)
     // The CSV guard applies to insert branches too — a bait value in an
     // inserted row must be sanitized exactly like an edited base cell
     // (probed by the conformance suite's export round-trip). Classification
@@ -529,8 +557,6 @@ export function composeSourceSql(
     readonly withRowIds: boolean
     readonly sanitizeCsv: boolean
     readonly withKey: boolean
-    /** Default `effective`; `source` is the m4-4b cast check's un-cast value. */
-    readonly valueProjection?: OverlayValueProjection
   },
 ): string {
   const { base, state, viewName } = composition
@@ -538,14 +564,10 @@ export function composeSourceSql(
   const liveInserts = [...state.inserts.values()].filter((record) => record.live)
   const withKey = options.withKey && liveInserts.length > 0
   const keys = withKey ? insertSortKeys(base, state) : undefined
-  const relationOptions: RelationOptions = {
-    ...options,
-    withKey,
-    valueProjection: options.valueProjection ?? 'effective',
-  }
+  const relationOptions: RelationOptions = { ...options, withKey }
   const branches = [baseBranchSql(base, state, viewName, relationOptions)]
   for (const record of liveInserts) {
-    branches.push(insertBranchSql(base, state, record, keys?.get(record.id) ?? [], relationOptions))
+    branches.push(insertBranchSql(state, record, keys?.get(record.id) ?? [], relationOptions))
   }
   return branches.join(' UNION ALL ')
 }
@@ -579,33 +601,47 @@ export function composeOverlaySchemaSql(composition: OverlayComposition): string
 
 /**
  * Existence check for a pending `column-cast` (m4-4b): does **any** non-NULL
- * value of the effective `column` fail to convert to `targetType`? Composed
- * over the same edit/insert/tombstone/rename-aware relation every other
- * overlay op reads (`composeSourceSql`), but with the **un-cast source**
- * projection: the domain collapses a cast chain to a single direct
- * `CAST(value AS final_type)` at commit (`stepColumnCast` in
- * `packages/domain/src/overlay.ts`), so predicating `TRY_CAST` on the already
- * effective (pre-cast) column would test the intermediate type while the
- * commit tests the final one — the m4-4b review's false negative. Applying
- * `TRY_CAST(<un-cast value> AS target)` makes the check and the commit agree
- * for every covered value; the host can validate-before-commit (ADR 0012)
- * instead of probing row 0 and committing a dataset whose bad value sits
- * anywhere else.
+ * value of the effective `column` fail to convert to `targetType`?
  *
- * Shape: an **existence check with early exit** —
- * `SELECT 1 FROM (<un-cast source relation>) WHERE <col> IS NOT NULL AND
- * TRY_CAST(<col> AS <target>) IS NULL LIMIT 1`. NULLs never count as
- * failures (the `IS NOT NULL` guard), so all-NULL and empty inputs answer
- * `false`; a convertible value yields a non-NULL `TRY_CAST`, so only a real
- * conversion failure produces the single probe row. `SELECT 1` (never the
- * value) keeps dataset contents out of the response (ADR 0025).
+ * The check answers exactly what the committed cast does. The domain
+ * collapses a cast chain to a single direct `CAST(<value> AS final_type)` at
+ * commit (`stepColumnCast` in `packages/domain/src/overlay.ts`), so for a
+ * pending `column -> target` the committed effective view applies the target
+ * conversion to each row's **raw** value: the un-cast base value for an
+ * un-edited row, the raw edit literal for an overlaid cell, the raw
+ * edit-or-insert value for an inserted row (absent columns are NULL). A
+ * check that instead applied `TRY_CAST` to the composed relation's projected
+ * value would either test the pre-cast intermediate type (the m4-4b round-2
+ * false negative) or `CAST` each literal to the base column type first (the
+ * round-3 finding: `CAST('hello' AS DOUBLE)` throws before the outer
+ * `TRY_CAST` can absorb it, while the committed `CAST('hello' AS TEXT)`
+ * succeeds).
+ *
+ * Structure: **per-arm `TRY_CAST` predicates** unioned as an existence
+ * probe. The base branch scans the registered view once, with one predicate
+ * arm per edited ordinal (`<ordinal> = o AND <raw literal> IS NOT NULL AND
+ * TRY_CAST(<raw literal> AS target) IS NULL`) plus one arm over the un-edited
+ * base column (`<ordinal> NOT IN (<edited>) AND <base> IS NOT NULL AND
+ * TRY_CAST(<base> AS target) IS NULL`), tombstoned ordinals excluded. Each
+ * live insert contributes a FROM-less arm over its raw merged value. No
+ * literal is hard-cast to any type before its own `TRY_CAST`, so the check
+ * cannot throw where the commit would succeed and cannot succeed where the
+ * commit would throw. Edits, inserts, tombstones, renames, and prior casts
+ * are handled via the same `baseColumnEdits`/`insertColumnValue`/rename-aware
+ * keying the effective composers use.
+ *
+ * Shape: `… LIMIT 1` keeps the existence probe early-exit and at most one
+ * row; NULLs never count as failures (the `IS NOT NULL` guards), so all-NULL
+ * and empty inputs answer `false`. `SELECT 1` (never a value) keeps dataset
+ * contents out of the response (ADR 0025).
  *
  * The target type is untrusted host input interpolated into a SQL **type**
  * position, so it is validated here as exactly one complete DuckDB type
  * before any SQL is built (`type-expr.ts`, the same last-line-of-defence
  * discipline as `cellLiteralSql`); `column` must be an effective column of
  * the folded state, or composition fails with a typed unknown-column
- * rejection instead of a binder error.
+ * rejection instead of a binder error. The effective schema types are
+ * validated too (defence in depth, like the other composers).
  */
 export function composeOverlayCastCheckSql(
   composition: OverlayComposition,
@@ -613,26 +649,58 @@ export function composeOverlayCastCheckSql(
   targetType: string,
 ): string {
   validateEngineTypeExpression(targetType)
-  if (!composition.state.columns.some((candidate) => candidate.name === column)) {
+  const { base, state, viewName } = composition
+  assertNoReservedNames(state.columns)
+  assertValidEffectiveTypes(state)
+  const effectiveIndex = state.columns.findIndex((candidate) => candidate.name === column)
+  if (effectiveIndex < 0) {
     throw new Error(`unknown overlay column: ${column}`)
   }
-  // `valueProjection: 'source'` is the fix: the domain collapses cast chains
-  // to a single direct `CAST(base AS final_type)` at commit, so the check must
-  // apply `TRY_CAST` to the un-cast value expression, never to the pre-cast
-  // effective projection (`TRY_CAST(CAST(base AS prior_type) AS target)` would
-  // disagree with the committed cast — the m4-4b review's false negative).
-  const source = composeSourceSql(composition, {
-    withRowIds: false,
-    sanitizeCsv: false,
-    withKey: false,
-    valueProjection: 'source',
-  })
-  const quoted = quotedIdentifier(column)
-  return (
-    `SELECT 1 FROM (${source}) ` +
-    `WHERE ${quoted} IS NOT NULL AND TRY_CAST(${quoted} AS ${targetType}) IS NULL ` +
-    `LIMIT 1`
+  const baseColumn = base.columns[effectiveIndex]
+  if (baseColumn === undefined) {
+    throw new Error(
+      `overlay base metadata is inconsistent: effective column ${column} has no base column`,
+    )
+  }
+
+  /** `<raw> IS NOT NULL AND TRY_CAST(<raw> AS target) IS NULL` — the raw
+   *  value is non-NULL and the committed `CAST(<raw> AS target)` would throw. */
+  const conversionFails = (raw: string): string =>
+    `${raw} IS NOT NULL AND TRY_CAST(${raw} AS ${targetType}) IS NULL`
+  const ordinal = ORDINAL_COLUMN
+  const baseRef = quotedIdentifier(baseColumn.name)
+  const edits = baseColumnEdits(base, state, column)
+  const editedOrdinals = edits.map((edit) => edit.ordinal)
+
+  const arms = edits.map(
+    (edit) =>
+      `(${ordinal} = ${String(edit.ordinal)} AND ${conversionFails(cellLiteralRawSql(edit.value))})`,
   )
+  const nonEdited =
+    editedOrdinals.length > 0
+      ? `(${ordinal} NOT IN (${editedOrdinals.map(String).join(', ')}) AND ${conversionFails(baseRef)})`
+      : `(${conversionFails(baseRef)})`
+  arms.push(nonEdited)
+
+  const baseColumns = base.columns.map((entry) => quotedIdentifier(entry.name)).join(', ')
+  const inner =
+    `SELECT ${baseColumns}, (row_number() OVER () - 1) AS ${ordinal} ` +
+    `FROM ${quotedIdentifier(viewName)}`
+  const tombstones = [...state.deletedBase].sort((a, b) => a - b)
+  const tombstoneFilter =
+    tombstones.length > 0 ? ` WHERE ${ordinal} NOT IN (${tombstones.map(String).join(', ')})` : ''
+  const branches = [
+    `SELECT 1 FROM (SELECT ${baseRef}, ${ordinal} FROM (${inner})${tombstoneFilter}) ` +
+      `WHERE ${arms.join(' OR ')}`,
+  ]
+  for (const record of state.inserts.values()) {
+    if (!record.live) continue
+    // The insert value is a constant, so the arm needs no relation.
+    branches.push(
+      `SELECT 1 WHERE ${conversionFails(cellLiteralRawSql(insertColumnValue(state, record, column)))}`,
+    )
+  }
+  return `${branches.join(' UNION ALL ')} LIMIT 1`
 }
 
 /**

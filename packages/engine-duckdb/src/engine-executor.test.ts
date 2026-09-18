@@ -1471,14 +1471,16 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
     executor.accept(overlayCastCheckRequest(2, 'label', 'BIGINT'))
     await awaitSends(deps.queryConn, 1)
     expect(deps.queryConn.sentSqls[0]).toBe(
-      'SELECT 1 FROM (SELECT "id" AS "id", ' +
-        `CASE WHEN assay_overlay_ord = 0 THEN CAST('edited' AS VARCHAR) ELSE "label" END AS "label" ` +
-        'FROM (SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1") ' +
-        'WHERE assay_overlay_ord NOT IN (1) ' +
+      'SELECT 1 FROM (SELECT "label", assay_overlay_ord FROM ' +
+        '(SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1") ' +
+        'WHERE assay_overlay_ord NOT IN (1)) ' +
+        "WHERE (assay_overlay_ord = 0 AND 'edited' IS NOT NULL AND TRY_CAST('edited' AS BIGINT) IS NULL) " +
+        'OR (assay_overlay_ord NOT IN (0) AND "label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL) ' +
         'UNION ALL ' +
-        'SELECT CAST(9 AS BIGINT) AS "id", CAST(NULL AS VARCHAR) AS "label") ' +
-        'WHERE "label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL LIMIT 1',
+        'SELECT 1 WHERE NULL IS NOT NULL AND TRY_CAST(NULL AS BIGINT) IS NULL LIMIT 1',
     )
+    // The edit literal reaches the check raw: no base-type wrapper cast.
+    expect(deps.queryConn.sentSqls[0]).not.toContain("CAST('edited' AS VARCHAR)")
     // One probe row: at least one value cannot convert.
     deps.queryConn.resolveSend(0, intTable([1]))
     expect(await awaitPosted(deps, 2)).toMatchObject({

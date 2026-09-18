@@ -27,6 +27,7 @@ import type { EditOp, OverlayBase, RowId } from '@assay/domain'
 const rid = (text: string): RowId => text as RowId
 import { describe, expect, it } from 'vitest'
 import {
+  cellLiteralRawSql,
   cellLiteralSql,
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
@@ -463,6 +464,18 @@ describe('cellLiteralSql and the formula-injection guard', () => {
     )
   })
 
+  it('renders a raw value literal with no type wrapper for the cast check (m4-4b round 3)', () => {
+    // The check applies `TRY_CAST(<raw literal> AS target)`; a wrapper cast to
+    // the base column type (`CAST('hello' AS DOUBLE)`) could throw before the
+    // TRY_CAST and disagree with the committed `CAST('hello' AS target)`.
+    expect(cellLiteralRawSql({ kind: 'null' })).toBe('NULL')
+    expect(cellLiteralRawSql({ kind: 'boolean', value: false })).toBe('FALSE')
+    expect(cellLiteralRawSql({ kind: 'number', value: 1.5 })).toBe('1.5')
+    expect(cellLiteralRawSql({ kind: 'string', value: "it's" })).toBe("'it''s'")
+    expect(cellLiteralRawSql({ kind: 'text', text: 'hello' })).toBe("'hello'")
+    expect(() => cellLiteralRawSql({ kind: 'number', value: Number.NaN })).toThrow(/materialized/)
+  })
+
   it('guards leading =, +, -, @ and embedded tab/CR, passing NULL through', () => {
     const guard = formulaInjectionGuardSql('"c"')
     // The exact composed bytes (CLI-verified semantics against DuckDB 1.5.5).
@@ -621,23 +634,23 @@ describe('cellLiteralSql and the formula-injection guard', () => {
 })
 
 describe('composeOverlayCastCheckSql — the m4-4b validate-before-commit check', () => {
-  it('composes the early-exit existence shape over the plain base relation', () => {
+  it('composes the early-exit existence shape over the raw base column', () => {
     expect(composeOverlayCastCheckSql(compositionFor([]), 'label', 'BIGINT')).toBe(
-      'SELECT 1 FROM (SELECT "id" AS "id", "label" AS "label" FROM ' +
+      'SELECT 1 FROM (SELECT "label", assay_overlay_ord FROM ' +
         '(SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1")) ' +
-        'WHERE "label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL LIMIT 1',
+        'WHERE ("label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL) LIMIT 1',
     )
   })
 
   it('quotes the effective column and interpolates a validated target type verbatim', () => {
     const sql = composeOverlayCastCheckSql(compositionFor([]), 'id', 'DECIMAL(10, 2)')
-    expect(sql).toContain('WHERE "id" IS NOT NULL AND TRY_CAST("id" AS DECIMAL(10, 2)) IS NULL')
+    expect(sql).toContain('"id" IS NOT NULL AND TRY_CAST("id" AS DECIMAL(10, 2)) IS NULL')
     // The `SELECT 1` projection: no dataset value can leave the engine.
     expect(sql.startsWith('SELECT 1 FROM (')).toBe(true)
     expect(sql.endsWith('LIMIT 1')).toBe(true)
   })
 
-  it('uses the renamed effective column and scans edits, inserts and casts (m4-2b/m4-4b)', () => {
+  it('uses the renamed effective column and scans edits, tombstones and inserts (m4-2b/m4-4b)', () => {
     const ops: EditOp[] = [
       { kind: 'row-delete', rowId: rid('base:b1#1') },
       {
@@ -650,37 +663,45 @@ describe('composeOverlayCastCheckSql — the m4-4b validate-before-commit check'
         kind: 'row-insert',
         rowId: rid('ins:o1#0'),
         position: { kind: 'start' },
-        values: new Map([['id', { kind: 'number', value: 9 }]]),
+        values: new Map([
+          ['id', { kind: 'number', value: 9 }],
+          ['label', { kind: 'string', value: 'also-bad' }],
+        ]),
       },
       { kind: 'column-rename', from: 'label', to: 'label_v2' },
     ]
     const sql = composeOverlayCastCheckSql(compositionFor(ops), 'label_v2', 'BIGINT')
-    // Renamed projection + the edited CASE arm + the live insert branch.
-    expect(sql).toContain(
-      `CASE WHEN assay_overlay_ord = 0 THEN CAST('not-a-number' AS VARCHAR) ELSE "label" END AS "label_v2"`,
-    )
+    // Renamed column: the tombstone filter, the edited-ordinal arm (raw
+    // literal under its own TRY_CAST), the un-edited base arm, and the live
+    // insert's raw merged value.
     expect(sql).toContain('WHERE assay_overlay_ord NOT IN (1)')
+    expect(sql).toContain(
+      `assay_overlay_ord = 0 AND 'not-a-number' IS NOT NULL AND TRY_CAST('not-a-number' AS BIGINT) IS NULL`,
+    )
+    expect(sql).toContain(
+      `assay_overlay_ord NOT IN (0) AND "label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL`,
+    )
+    expect(sql).toContain(
+      `SELECT 1 WHERE 'also-bad' IS NOT NULL AND TRY_CAST('also-bad' AS BIGINT) IS NULL`,
+    )
     expect(sql).toContain('UNION ALL')
-    expect(sql).toContain('WHERE "label_v2" IS NOT NULL AND TRY_CAST("label_v2" AS BIGINT) IS NULL')
   })
 
   it('applies TRY_CAST to the un-cast value when the column already has a prior cast (m4-4b fix)', () => {
     // The domain collapses cast chains: committing a further cast after this
     // state composes `CAST(base AS target)`, NOT
     // `TRY_CAST(CAST(base AS prior) AS target)`. The check must therefore
-    // predicate on the un-cast source projection; a revert to
-    // `valueProjection: 'effective'` reintroduces `CAST("label" AS BOOLEAN)`
-    // and fails this pin.
+    // predicate on the raw base value; a revert to the effective projection
+    // reintroduces `CAST("label" AS BOOLEAN)` and fails this pin.
     const composition = compositionFor([
       { kind: 'column-cast', column: 'label', targetType: 'BOOLEAN' },
     ])
     const sql = composeOverlayCastCheckSql(composition, 'label', 'BIGINT')
     expect(sql).not.toContain('CAST("label" AS BOOLEAN)')
-    expect(sql).toContain('"label" AS "label"')
-    expect(sql).toContain('WHERE "label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL')
+    expect(sql).toContain('"label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL')
   })
 
-  it('renders a prior-cast edit arm at the base type so the outer TRY_CAST matches the commit (m4-4b fix)', () => {
+  it('renders a prior-cast edit arm as a raw literal under TRY_CAST (m4-4b round 3)', () => {
     const composition = compositionFor([
       {
         kind: 'cell-set',
@@ -691,16 +712,16 @@ describe('composeOverlayCastCheckSql — the m4-4b validate-before-commit check'
       { kind: 'column-cast', column: 'label', targetType: 'BOOLEAN' },
     ])
     const sql = composeOverlayCastCheckSql(composition, 'label', 'INTEGER')
-    // Edit arm carried at the base type (VARCHAR), not the prior cast type
-    // (BOOLEAN): the committed cast would apply INTEGER directly to 'true'.
-    expect(sql).toContain(
-      `CASE WHEN assay_overlay_ord = 0 THEN CAST('true' AS VARCHAR) ELSE "label" END`,
-    )
+    // The committed cast applies INTEGER directly to the raw 'true' (the
+    // prior BOOLEAN cast is collapsed away). The literal must reach the
+    // check's TRY_CAST unwrapped: a `CAST('true' AS VARCHAR|BOOLEAN)` wrapper
+    // would test a different value (round-3 finding).
+    expect(sql).toContain(`'true' IS NOT NULL AND TRY_CAST('true' AS INTEGER) IS NULL`)
+    expect(sql).not.toContain("CAST('true' AS VARCHAR)")
     expect(sql).not.toContain("CAST('true' AS BOOLEAN)")
-    expect(sql).toContain('TRY_CAST("label" AS INTEGER)')
   })
 
-  it('renders a prior-cast insert literal at the base type (m4-4b fix)', () => {
+  it('renders a prior-cast insert literal as a raw literal under TRY_CAST (m4-4b round 3)', () => {
     const composition = compositionFor([
       { kind: 'column-cast', column: 'label', targetType: 'BOOLEAN' },
       {
@@ -711,8 +732,50 @@ describe('composeOverlayCastCheckSql — the m4-4b validate-before-commit check'
       },
     ])
     const sql = composeOverlayCastCheckSql(composition, 'label', 'INTEGER')
-    expect(sql).toContain(`CAST('true' AS VARCHAR) AS "label"`)
-    expect(sql).not.toContain(`CAST('true' AS BOOLEAN)`)
+    expect(sql).toContain(
+      `SELECT 1 WHERE 'true' IS NOT NULL AND TRY_CAST('true' AS INTEGER) IS NULL`,
+    )
+    expect(sql).not.toContain("CAST('true' AS VARCHAR)")
+    expect(sql).not.toContain("CAST('true' AS BOOLEAN)")
+    // The base arm still tests the raw base column.
+    expect(sql).toContain('TRY_CAST("label" AS INTEGER)')
+  })
+
+  it('keeps a cross-type string edit on a DOUBLE base raw, matching the commit (reviewer repro)', () => {
+    // Base `price DOUBLE`; a prior cast to VARCHAR then `cell-set 'hello'`
+    // (valid for the VARCHAR effective column) then a pending cast. The old
+    // source projection rendered `CAST('hello' AS DOUBLE)`, which throws
+    // before the check's TRY_CAST while the committed `CAST('hello' AS TEXT)`
+    // succeeds; for INTEGER the committed cast throws and the check must
+    // answer true. Pins that no literal is hard-cast before its TRY_CAST.
+    const priceBase: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [{ name: 'price', type: 'DOUBLE' }],
+      baseRowCount: 2,
+    }
+    const ops: EditOp[] = [
+      { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+      {
+        kind: 'cell-set',
+        rowId: rid('base:b1#0'),
+        column: 'price',
+        value: { kind: 'string', value: 'hello' },
+      },
+    ]
+    const composition = {
+      viewName: 'assay_t1',
+      base: priceBase,
+      state: foldOverlay(priceBase, ops).state,
+    }
+    const asText = composeOverlayCastCheckSql(composition, 'price', 'TEXT')
+    expect(asText).not.toContain("CAST('hello' AS DOUBLE)")
+    expect(asText).not.toContain("CAST('hello' AS VARCHAR)")
+    expect(asText).toContain(`'hello' IS NOT NULL AND TRY_CAST('hello' AS TEXT) IS NULL`)
+    expect(asText).toContain('TRY_CAST("price" AS TEXT)')
+    const asInteger = composeOverlayCastCheckSql(composition, 'price', 'INTEGER')
+    expect(asInteger).toContain(`TRY_CAST('hello' AS INTEGER) IS NULL`)
+    expect(asInteger).not.toContain("CAST('hello' AS DOUBLE)")
   })
 
   it('leaves a no-prior-cast column unaffected by a different column prior cast (m4-4b)', () => {

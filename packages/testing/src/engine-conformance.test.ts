@@ -123,6 +123,8 @@ interface FakeMutations {
   castCheckAlwaysFalse?: boolean
   /** m4-4b: the cast check always answers true (false positives). */
   castCheckAlwaysTrue?: boolean
+  /** m4-4b round 3: the committed-cast ground truth lies (never fails). */
+  committedCastAlwaysSucceeds?: boolean
 }
 
 const GOOD_DATASET = {
@@ -723,6 +725,40 @@ const FAKE_CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
       column: 'neighbor',
       targetType: 'BIGINT',
       hasNonConvertibleValues: false,
+    },
+  ],
+  // Agreement battery (m4-4b round 3), in miniature: the fake models the
+  // committed cast with the same effective-value conversion the check uses,
+  // so a one-sided mutation (`castCheckAlwaysFalse/True`) breaks agreement.
+  agreements: [
+    {
+      label: 'all-convertible base, target INTEGER (commit succeeds)',
+      ops: [],
+      column: 'num',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'bad base value, target INTEGER (commit throws)',
+      ops: [],
+      column: 'code',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'prior cast plus an edit, target INTEGER (commit throws)',
+      ops: [
+        { kind: 'column-cast', column: 'chain', targetType: 'BOOLEAN' },
+        {
+          kind: 'cell-set',
+          rowId: 'base:fake-cast-base-v1#0',
+          column: 'chain',
+          value: { kind: 'text', text: 'true' },
+        },
+      ],
+      column: 'chain',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
     },
   ],
   invalidTargetTypes: ['VARCHAR()', 'DECIMAL(1,2,3)', 'BIGINT; DROP TABLE fake_cast_probe'],
@@ -1569,6 +1605,36 @@ class FakeEngineClient implements ConformanceEngineClient {
     return { hasNonConvertibleValues: false }
   }
 
+  /**
+   * The fake's committed-cast probe (m4-4b round 3 agreement pin): apply the
+   * pending cast to the overlay and report whether any non-NULL effective
+   * value fails `fakeCastSucceeds`. Mirrors the fake's honest
+   * `overlayCastCheck` model, so a one-sided mutation breaks agreement.
+   */
+  committedCastCheck(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+    request: { readonly column: string; readonly targetType: string },
+  ): boolean {
+    const committed: ConformanceOverlay = {
+      base: overlay.base,
+      ops: [
+        ...(overlay.ops ?? []),
+        { kind: 'column-cast', column: request.column, targetType: request.targetType },
+      ],
+    }
+    const state = foldFakeOverlay(committed.base, committed.ops ?? [], this.mutations)
+    const baseRows = this.isCastCheck(handle) ? FAKE_CAST_CHECK_ROWS : FAKE_OVERLAY_ROWS
+    const rows = fakeOverlayRows(committed.base, state, baseRows, false)
+    for (const row of rows) {
+      const value = row.cells.get(request.column)
+      if (value !== undefined && value !== null && !fakeCastSucceeds(value, request.targetType)) {
+        return true
+      }
+    }
+    return false
+  }
+
   async exportView(
     handle: ConformanceTableHandle,
     request: {
@@ -1954,6 +2020,13 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
       return fileSource(name)
     },
+    committedCastFails: async (client, handle, overlay, request) => {
+      if (mutations.committedCastAlwaysSucceeds === true) return false
+      if (!(client instanceof FakeEngineClient)) {
+        throw new Error('fake subject: unexpected client for the committed-cast probe')
+      }
+      return client.committedCastCheck(handle, overlay, request)
+    },
     hostileTypeProbes: FAKE_HOSTILE_TYPE_PROBES,
     tableExists: async () => false, // the fake never executes DDL side-effects
     sourceDigest: async (source) => {
@@ -2090,6 +2163,7 @@ describe('engine conformance suite (compliant fake engine)', () => {
     expect(result.facts['cases']).toBe(FAKE_CAST_CHECK_DATASET.cases.length)
     expect(result.facts['convertible']).toBe(4)
     expect(result.facts['nonConvertible']).toBe(5)
+    expect(result.facts['agreements']).toBe(FAKE_CAST_CHECK_DATASET.agreements.length)
     expect(result.facts['invalidRejected']).toBe(FAKE_CAST_CHECK_DATASET.invalidTargetTypes.length)
     expect(result.facts['unknownRejected']).toBe(FAKE_CAST_CHECK_DATASET.unknownColumns.length)
     expect(result.facts['engineReusable']).toBe(true)
@@ -2378,6 +2452,17 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     const { passed, detail } = await runOne({ castCheckAlwaysTrue: true }, 'overlay-cast-check')
     expect(passed).toBe(false)
     expect(detail).toContain('hasNonConvertibleValues')
+  })
+
+  it('overlay-cast-check: detects a committed-cast ground truth that disagrees with the check', async () => {
+    // The agreement pin is load-bearing on its own: a check that passes every
+    // declared `cases` but disagrees with the actually-committed cast fails.
+    const { passed, detail } = await runOne(
+      { committedCastAlwaysSucceeds: true },
+      'overlay-cast-check',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('committed cast')
   })
 })
 

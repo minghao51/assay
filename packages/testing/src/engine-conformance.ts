@@ -499,6 +499,23 @@ export interface EngineConformanceSubject {
   /** Stage the cast-check base dataset (`overlayCastCheckDataset`). */
   stageOverlayCastCheckFile(): Promise<ConformanceFileSource>
   /**
+   * Ground-truth probe for the cast-check agreement pin (m4-4b round 3):
+   * apply `column-cast column -> targetType` to the pre-cast `overlay` and
+   * attempt to materialize the committed effective view; resolve `true` when
+   * that materialization fails with a conversion rejection, `false` when it
+   * succeeds. The scenario asserts `overlayCastCheck` equals this outcome, so
+   * the check can never disagree with what committing the cast would do.
+   * Implementations treat only conversion-class failures (the operation/query
+   * error category — in DuckDB-WASM's mvp bundle the opaque `_setThrew`
+   * emscripten glue error) as a rejection; every other failure must propagate.
+   */
+  committedCastFails(
+    client: ConformanceEngineClient,
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+    request: { readonly column: string; readonly targetType: string },
+  ): Promise<boolean>
+  /**
    * Hostile type-expression probes (m4-2 fix round): overlays whose base
    * column type or `column-cast` target is a SQL-injection-shaped string.
    * The `overlay-hostile-types-rejected` scenario requires a typed operation
@@ -780,12 +797,35 @@ export interface ConformanceOverlayCastCheckCase {
 }
 
 /**
+ * One agreement-battery case (m4-4b round 3): a self-contained pre-cast
+ * overlay (the shared base + these ops), the effective column and target type
+ * the host would check, and the classification both the check and the
+ * committed cast must produce. The scenario asserts `overlayCastCheck` equals
+ * the committed materialization (via the subject's `committedCastFails`
+ * probe), so the check cannot silently disagree with what committing does.
+ */
+export interface ConformanceOverlayCastCheckAgreement {
+  /** Stable label (scenario facts/messages only — never dataset contents). */
+  readonly label: string
+  /** The pre-cast op list (folded over the shared base) the check runs on. */
+  readonly ops: readonly ConformanceEditOp[]
+  /** The effective column to test. */
+  readonly column: string
+  /** The target type spelling the check converts to. */
+  readonly targetType: string
+  /** Expected `hasNonConvertibleValues` (equal to the committed outcome). */
+  readonly hasNonConvertibleValues: boolean
+}
+
+/**
  * The m4-4b cast-conversion-check dataset behind
  * `stageOverlayCastCheckFile()`: a base dataset plus a scripted op sequence
  * (a rename, an edit, and an inserted bad value) whose **effective** relation
  * the check scans. The cases pin the surfaces a 1-row probe cannot cover:
  * a bad value mid-dataset, a bad value only in an inserted row, a bad value
- * after a rename, and the all-NULL/all-convertible `false` cases.
+ * after a rename, and the all-NULL/all-convertible `false` cases. The
+ * `agreements` battery pins the check against the actually-committed cast for
+ * (state, target) pairs the evaluator must not diverge on.
  */
 export interface ConformanceOverlayCastCheckDataset {
   /** The immutable base metadata the ops compose over. */
@@ -794,6 +834,11 @@ export interface ConformanceOverlayCastCheckDataset {
   readonly ops: readonly ConformanceEditOp[]
   /** The cases the check must classify. */
   readonly cases: readonly ConformanceOverlayCastCheckCase[]
+  /**
+   * Agreement battery (m4-4b round 3): per-case pre-cast ops + target, each
+   * asserting the check's boolean equals the committed cast's outcome.
+   */
+  readonly agreements: readonly ConformanceOverlayCastCheckAgreement[]
   /** Target spellings the validator must reject with a typed operation error. */
   readonly invalidTargetTypes: readonly string[]
   /** Effective column names that must reject as unknown with a typed error. */
@@ -2265,6 +2310,15 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       dataset.unknownColumns.length > 0,
       'subject misconfiguration: declare at least one unknown column',
     )
+    expectCondition(
+      dataset.agreements.length > 0,
+      'subject misconfiguration: declare at least one agreement case',
+    )
+    expectCondition(
+      dataset.agreements.some((entry) => entry.hasNonConvertibleValues) &&
+        dataset.agreements.some((entry) => !entry.hasNonConvertibleValues),
+      'subject misconfiguration: agreement cases must cover both classifications',
+    )
 
     const client = subject.createClient()
     await client.ensureReady()
@@ -2296,6 +2350,34 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       )
       if (entry.hasNonConvertibleValues) nonConvertible += 1
       else convertible += 1
+    }
+
+    // Agreement battery (m4-4b round 3): the check must answer exactly what
+    // committing the pending cast does. For each case, compare the check's
+    // boolean against the subject's committed-materialization probe — a
+    // conversion rejection of the committed effective view means `true`.
+    let agreed = 0
+    for (const entry of dataset.agreements) {
+      const preCast: ConformanceOverlay = { base: dataset.base, ops: entry.ops }
+      const result = await client.overlayCastCheck(handle, preCast, {
+        column: entry.column,
+        targetType: entry.targetType,
+      })
+      expectEqual(
+        result.hasNonConvertibleValues,
+        entry.hasNonConvertibleValues,
+        `[agreement ${entry.label}] hasNonConvertibleValues`,
+      )
+      const committedFails = await subject.committedCastFails(client, handle, preCast, {
+        column: entry.column,
+        targetType: entry.targetType,
+      })
+      expectEqual(
+        result.hasNonConvertibleValues,
+        committedFails,
+        `[agreement ${entry.label}] the check must equal the committed cast outcome`,
+      )
+      agreed += 1
     }
 
     // Invalid target spellings reject with the typed operation category
@@ -2345,6 +2427,7 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       cases: dataset.cases.length,
       convertible,
       nonConvertible,
+      agreements: agreed,
       invalidRejected,
       unknownRejected,
       engineReusable: true,

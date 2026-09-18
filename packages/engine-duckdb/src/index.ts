@@ -137,6 +137,7 @@ export type { EngineWindowQuery } from './window-query'
 // public so the conformance suite, harness, and m4-3's grid all consume the
 // same composed semantics instead of re-deriving them.
 export {
+  cellLiteralRawSql,
   cellLiteralSql,
   composeOverlayCastCheckSql,
   composeOverlayCountSql,

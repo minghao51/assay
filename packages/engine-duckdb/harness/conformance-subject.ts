@@ -32,13 +32,14 @@ import type {
   ConformanceFileSource,
   ConformanceHostileTypeProbe,
   ConformanceNestedDataset,
+  ConformanceOverlay,
   ConformanceOverlayCastCheckDataset,
   ConformanceOverlayDataset,
   ConformanceOverlayInsertEditsDataset,
   EngineConformanceSubject,
 } from '@assay/testing'
-import { baseRowId, insertRowId } from '@assay/domain'
-import type { CellValue, EditOp, OverlayBase } from '@assay/domain'
+import { baseRowId, insertRowId, foldOverlay, parseRowId } from '@assay/domain'
+import type { CellValue, EditOp, OverlayBase, RowId } from '@assay/domain'
 import { tableFromIPC } from 'apache-arrow'
 
 /** The customers.parquet golden fixture, as the DuckDB DESCRIBE reports it. */
@@ -1092,30 +1093,61 @@ const OVERLAY_INSERT_EDITS_DATASET: ConformanceOverlayInsertEditsDataset = {
  *   `CAST('1' AS INTEGER)` succeeds — the symmetric false-positive direction.
  * - `neighbor` — no prior cast while every other cast column carries one:
  *   its classification must be unaffected by another column's prior cast.
+ * - `price` (DOUBLE) / `when` (DATE) — the agreement battery's numeric and
+ *   temporal bases (m4-4b round 3).
  *
  * Every classification was derived with the pinned DuckDB CLI (v1.5.5,
  * `DUCKDB=/tmp/duckdb`) over the IDENTICAL composed SQL the worker generates
  * (`composeOverlayCastCheckSql` over `assay_t1 = read_json_auto(<this JSONL>)`)
- * and round-trip checked against the duckdb-wasm build. Derivation transcript:
+ * and round-trip checked against the duckdb-wasm build.
  *
- *   -- base inference: id BIGINT, the rest VARCHAR (blank JSON)
- *   -- effective relation: base ordinals 0..3 + the end insert (id 100,
- *   -- ins_code 'oops'); `legacy` renamed to `renamed` with ordinal 1 edited
- *   -- to 'not-a-number'; `chain`/`edited_chain` cast to BOOLEAN, `blobby` to
- *   -- BLOB; `edited_chain` ordinal 0 edited to 'true'.
- *   SELECT 'num', count(*) FROM (SELECT 1 FROM eff
- *     WHERE "num" IS NOT NULL AND TRY_CAST("num" AS BIGINT) IS NULL LIMIT 1)
- *   UNION ALL SELECT 'code', ...
- *   -- source-projection (un-cast) bad counts:
+ * The nine `cases` (pre-cast state = CAST_CHECK_OPS) derive as:
+ *   -- base inference (with price/when): id BIGINT, price DOUBLE, when DATE,
+ *   -- the rest VARCHAR (blank JSON)
+ *   -- raw-source bad counts (the per-arm TRY_CAST predicates):
  *   --   num 0, code 1, ins_code 1, renamed 1, blank 0,
  *   --   chain 1, edited_chain 1, blobby 0, neighbor 0
- *   -- old-shape (pre-cast effective projection) for the new columns:
- *   --   chain 0, edited_chain 0, blobby 1  (the two miss directions)
  *   -- committed direct casts: CAST(chain AS INTEGER) / CAST('true' AS
  *   --   INTEGER) throw; CAST(blobby AS INTEGER) = 1 (succeeds)
- *
  * so the checks answer false, true, true, true, false, true, true, false,
- * false respectively.
+ * false respectively (CLI re-verified after the round-3 restructure).
+ *
+ * The `agreements` battery (each a self-contained pre-cast state; CHECK
+ * boolean -> committed `column-cast` materialization) derives as:
+ *   -- reviewer repro: DOUBLE base, prior cast -> VARCHAR, edit 'hello':
+ *   --   -> TEXT    false -> succeeds
+ *   --   -> INTEGER true  -> Conversion Error (could not convert 'hello')
+ *   --   (the round-2 literal-arm shape threw `CAST('hello' AS DOUBLE)` for
+ *   --   BOTH, reporting neither classification)
+ *   -- numeric base + numeric edit + prior cast -> BIGINT false -> succeeds
+ *   --   (1.5 rounds: TRY_CAST(1.5 AS BIGINT) = 2 = CAST)
+ *   -- DATE base, valid edit '2025-12-31' -> DATE false -> succeeds
+ *   -- DATE base, invalid edit 'not-a-date' -> DATE true -> Conversion Error
+ *   -- insert-only 'oops' with prior cast -> INTEGER true -> Conversion Error
+ *   -- insert-only 12 with prior cast -> INTEGER false -> succeeds
+ *   -- tombstoned bad edit -> INTEGER false -> succeeds (row excluded)
+ *   -- expunged insert 'oops' -> INTEGER false -> succeeds (row excluded)
+ *   -- all-NULL column -> BIGINT false -> succeeds (NULLs excluded)
+ *   -- empty effective relation -> INTEGER false -> empty result
+ *   -- chain A->B->C + edit 'nope' -> INTEGER true -> Conversion Error
+ * All twelve were CLI-verified against the identical composed SQL; in every
+ * case `hasNonConvertibleValues` equals whether the committed materialization
+ * raises a DuckDB `Conversion Error`.
+ *
+ * Commit-probe note: the harness drops a base-row `cell-set` whose row is
+ * tombstoned before probing the committed window. The domain excludes such a
+ * row from the effective view (and native DuckDB 1.5.5 filters before the
+ * projection), but the bundled DuckDB-WASM 1.4.3 evaluates the projection of
+ * a physically-present deleted row, so probing the raw op list would surface
+ * the dead edit's conversion error as an apparent commit failure — a WASM
+ * projection-ordering divergence owned by the engine, not by this check.
+ *
+ * Shape note (m4-4b round 3): the check renders each raw value arm under its
+ * own `TRY_CAST` (`<ordinal> = o AND <literal> IS NOT NULL AND
+ * TRY_CAST(<literal> AS target) IS NULL`) so no literal is hard-cast to the
+ * base column type before the check — the round-2 shape's
+ * `CAST('hello' AS DOUBLE)` threw where the committed `CAST('hello' AS TEXT)`
+ * succeeded.
  */
 const CAST_CHECK_BASE: OverlayBase = {
   baseAnchor: 'conf-cast-v1',
@@ -1131,6 +1163,8 @@ const CAST_CHECK_BASE: OverlayBase = {
     { name: 'edited_chain', type: 'VARCHAR' },
     { name: 'blobby', type: 'VARCHAR' },
     { name: 'neighbor', type: 'VARCHAR' },
+    { name: 'price', type: 'DOUBLE' },
+    { name: 'when', type: 'DATE' },
   ],
   baseRowCount: 4,
 }
@@ -1147,6 +1181,8 @@ const CAST_CHECK_ROWS = [
     edited_chain: '0',
     blobby: '1',
     neighbor: '10',
+    price: 1.5,
+    when: '2025-01-01',
   },
   {
     id: 2,
@@ -1159,6 +1195,8 @@ const CAST_CHECK_ROWS = [
     edited_chain: '1',
     blobby: '2',
     neighbor: '20',
+    price: 2.5,
+    when: '2025-01-02',
   },
   {
     id: 3,
@@ -1171,6 +1209,8 @@ const CAST_CHECK_ROWS = [
     edited_chain: '1',
     blobby: '3',
     neighbor: '30',
+    price: 3.5,
+    when: '2025-01-03',
   },
   {
     id: 4,
@@ -1183,6 +1223,8 @@ const CAST_CHECK_ROWS = [
     edited_chain: '0',
     blobby: '4',
     neighbor: '40',
+    price: 4.5,
+    when: '2025-01-04',
   },
 ] as const
 
@@ -1276,6 +1318,180 @@ const CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
       column: 'neighbor',
       targetType: 'BIGINT',
       hasNonConvertibleValues: false,
+    },
+  ],
+  // Agreement battery (m4-4b round 3): the check must answer exactly what
+  // committing the pending `column-cast` does. Each case is a self-contained
+  // pre-cast state over the shared base; the scenario compares the check's
+  // boolean against the committed materialization.
+  agreements: [
+    {
+      label: 'reviewer repro: DOUBLE base + prior cast to VARCHAR + string edit, target TEXT',
+      ops: [
+        { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+        {
+          kind: 'cell-set',
+          rowId: baseRowId('conf-cast-v1', 0),
+          column: 'price',
+          value: overlayCell({ kind: 'string', value: 'hello' }),
+        },
+      ],
+      column: 'price',
+      targetType: 'TEXT',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'reviewer repro: same state, target INTEGER (the committed cast throws)',
+      ops: [
+        { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+        {
+          kind: 'cell-set',
+          rowId: baseRowId('conf-cast-v1', 0),
+          column: 'price',
+          value: overlayCell({ kind: 'string', value: 'hello' }),
+        },
+      ],
+      column: 'price',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'numeric base + numeric edit + prior cast, target BIGINT (rounds, commit succeeds)',
+      ops: [
+        { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+        {
+          kind: 'cell-set',
+          rowId: baseRowId('conf-cast-v1', 1),
+          column: 'price',
+          value: overlayCell({ kind: 'number', value: 7 }),
+        },
+      ],
+      column: 'price',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'DATE base + valid date edit, target DATE (commit succeeds)',
+      ops: [
+        {
+          kind: 'cell-set',
+          rowId: baseRowId('conf-cast-v1', 0),
+          column: 'when',
+          value: overlayCell({ kind: 'string', value: '2025-12-31' }),
+        },
+      ],
+      column: 'when',
+      targetType: 'DATE',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'DATE base + invalid date edit, target DATE (the committed cast throws)',
+      ops: [
+        {
+          kind: 'cell-set',
+          rowId: baseRowId('conf-cast-v1', 0),
+          column: 'when',
+          value: overlayCell({ kind: 'string', value: 'not-a-date' }),
+        },
+      ],
+      column: 'when',
+      targetType: 'DATE',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'insert-only bad value with a prior cast, target INTEGER (commit throws)',
+      ops: [
+        { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+        {
+          kind: 'row-insert',
+          rowId: insertRowId('conf-cast-ov-1', 7),
+          position: { kind: 'end' },
+          values: new Map([['price', overlayCell({ kind: 'string', value: 'oops' })]]),
+        },
+      ],
+      column: 'price',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'insert-only value convertible with a prior cast, target INTEGER (commit succeeds)',
+      ops: [
+        { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+        {
+          kind: 'row-insert',
+          rowId: insertRowId('conf-cast-ov-1', 8),
+          position: { kind: 'end' },
+          values: new Map([['price', overlayCell({ kind: 'number', value: 12 })]]),
+        },
+      ],
+      column: 'price',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'tombstoned bad edit, target INTEGER (the committed view excludes the row)',
+      ops: [
+        {
+          kind: 'cell-set',
+          rowId: baseRowId('conf-cast-v1', 2),
+          column: 'price',
+          value: overlayCell({ kind: 'string', value: 'oops' }),
+        },
+        { kind: 'row-delete', rowId: baseRowId('conf-cast-v1', 2) },
+      ],
+      column: 'price',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'expunged insert with a bad value, target INTEGER (the committed view excludes it)',
+      ops: [
+        {
+          kind: 'row-insert',
+          rowId: insertRowId('conf-cast-ov-1', 9),
+          position: { kind: 'end' },
+          values: new Map([['price', overlayCell({ kind: 'string', value: 'oops' })]]),
+        },
+        { kind: 'row-uninsert', rowId: insertRowId('conf-cast-ov-1', 9) },
+      ],
+      column: 'price',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'all-NULL column, target BIGINT (NULLs never count as failures)',
+      ops: [],
+      column: 'blank',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'empty effective relation (every base row tombstoned), target INTEGER',
+      ops: [
+        { kind: 'row-delete', rowId: baseRowId('conf-cast-v1', 0) },
+        { kind: 'row-delete', rowId: baseRowId('conf-cast-v1', 1) },
+        { kind: 'row-delete', rowId: baseRowId('conf-cast-v1', 2) },
+        { kind: 'row-delete', rowId: baseRowId('conf-cast-v1', 3) },
+      ],
+      column: 'price',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'cast chain A->B->C plus an edit, target INTEGER (the committed edit cast throws)',
+      ops: [
+        { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+        { kind: 'column-cast', column: 'price', targetType: 'DOUBLE' },
+        {
+          kind: 'cell-set',
+          rowId: baseRowId('conf-cast-v1', 0),
+          column: 'price',
+          value: overlayCell({ kind: 'text', text: 'nope' }),
+        },
+      ],
+      column: 'price',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
     },
   ],
   invalidTargetTypes: ['VARCHAR()', 'DECIMAL(1,2,3)', 'BIGINT; DROP TABLE assay_cast_probe'],
@@ -1398,6 +1614,51 @@ export function createDuckDbConformanceSubject(
     stageOverlayCastCheckFile: async () => {
       const jsonl = buildCastCheckJsonl()
       return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-cast-check.jsonl'))
+    },
+    committedCastFails: async (client, handle, overlay, request) => {
+      // Ground truth for the agreement pin: append the pending cast and try to
+      // materialize the committed effective view. Tombstoned base rows are not
+      // part of the logical effective view, so their dead `cell-set`s are
+      // dropped first — DuckDB-WASM 1.4.3's projection pushdown still
+      // evaluates the projection of a physically-present deleted row (native
+      // 1.5.5 filters first), which would otherwise make the engine
+      // materialize a value the domain excludes. A conversion failure then
+      // surfaces as the typed operation category with a `Conversion Error`
+      // message, or as the opaque emscripten `_setThrew is not defined` glue
+      // error in the mvp bundle; any other failure propagates.
+      const base = overlay.base as OverlayBase
+      const ops = (overlay.ops ?? []) as EditOp[]
+      const folded = foldOverlay(base, ops).state
+      const liveOps = ops.filter((op) => {
+        if (op.kind !== 'cell-set') return true
+        const parsed = parseRowId(op.rowId as RowId)
+        if (parsed === null || parsed.origin !== 'base') return true
+        return !folded.deletedBase.has(parsed.ordinal)
+      })
+      const committed: ConformanceOverlay = {
+        base,
+        ops: [
+          ...liveOps,
+          { kind: 'column-cast', column: request.column, targetType: request.targetType },
+        ],
+      }
+      try {
+        await client.fetchOverlayRange(handle, committed, { startRow: 0, endRow: MAX_RANGE_ROWS })
+        return false
+      } catch (error) {
+        // A DuckDB conversion failure surfaces as the typed operation/query
+        // category. The duckdb-wasm mvp bundle masks it as the opaque
+        // emscripten `_setThrew is not defined` glue error (the same signal
+        // m4-3's editing session translates into a readable rejection), so
+        // that counts too. Anything else is a harness bug and must propagate.
+        if (
+          (error instanceof EngineOperationError || error instanceof EngineQueryError) &&
+          /conversion error|^_setThrew\b/i.test(error.message)
+        ) {
+          return true
+        }
+        throw error
+      }
     },
     hostileTypeProbes: HOSTILE_TYPE_PROBES,
     tableExists: async (client, name) => {

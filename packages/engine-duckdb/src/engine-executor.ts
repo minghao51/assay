@@ -563,13 +563,14 @@ export class EngineOpExecutor {
   /**
    * Validate-before-commit cast check (m4-4b, ADR 0012): fold the request's
    * overlay (the **pre-cast** state), compose the early-exit existence check
-   * over the effective relation, and report whether any non-NULL value of
-   * the column fails `TRY_CAST`. The composed relation respects edits,
-   * inserts, tombstones, renames and prior casts (it is `composeSourceSql`),
-   * so a bad value anywhere — not just row 0 — is found. Query lane (ADR
-   * 0040): the all-convertible case scans the whole column, exactly the
-   * heavy query-class work that must never block grid windows. `SELECT 1`
-   * returns no dataset values (only the boolean crosses the boundary).
+   * over the raw edit/insert/tombstone/rename-aware value arms, and report
+   * whether any non-NULL value of the column fails `TRY_CAST`. The composed
+   * arms apply the target conversion to each raw source value, exactly as the
+   * committed cast does — a bad value anywhere, not just row 0, is found.
+   * Query lane (ADR 0040): the all-convertible case scans the whole column,
+   * exactly the heavy query-class work that must never block grid windows.
+   * `SELECT 1` returns no dataset values (only the boolean crosses the
+   * boundary).
    */
   private async runOverlayCastCheck(
     request: EngineOverlayCastCheckRequest,
