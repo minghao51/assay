@@ -58,6 +58,41 @@ const FIXTURE = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parqu
 const EPOCH_2025_01_04 = '1735948800000'
 const EPOCH_2025_03_01 = '1740787200000'
 
+/**
+ * The ENTIRE expected CSV export, byte for byte (review finding: the previous
+ * partial checks ignored the final newline, row order, quoting, dates, and
+ * whole cells). Provenance: derived from the known effective rows of the
+ * re-edit leg below — header `customer_id,country,income,signup_date`; row 0
+ * income edited to 123456; row 1 country NULL; row 3 country = the bait,
+ * sanitized by the engine's in-SELECT apostrophe guard; row 4 = the
+ * delete-undone customer 5; row 5 = the inserted all-NULL-but-ZZ row — under
+ * the engine's pinned COPY options (packages/engine-duckdb/src/overlay-query.ts
+ * `EXPORT_FORMAT_OPTIONS.csv`: `FORMAT CSV, HEADER true, DELIMITER ',', QUOTE
+ * '"', ESCAPE '"'`), which render DATE as ISO, NULL as an empty field, and
+ * quote nothing here (no cell contains a delimiter, quote, or newline).
+ * Cross-checked ONCE in a scratch run (DuckDB CLI v1.5.5 via /tmp/duckdb,
+ * identical COPY options and guard form) — same bytes, final newline
+ * included. The trailing empty element yields the final `\n` byte.
+ */
+const EXPECTED_CSV_BYTES = [
+  'customer_id,country,income,signup_date',
+  '1,SG,123456,2025-01-04',
+  '2,,61000,2025-01-11',
+  '3,SG,,2025-02-02',
+  "4,'=SUM(A1:A2),48000,2025-02-19",
+  '5,US,75000,2025-03-01',
+  ',ZZ,,',
+  '',
+].join('\n')
+
+/**
+ * Wording banned anywhere in the export surface (ADR 0012: copy, never
+ * rewrite). Asserted before the dialog opens AND after each success result
+ * renders (review finding: the ban used to run only before any result
+ * existed, so forbidden wording in a success line escaped the journey).
+ */
+const BANNED_EXPORT_WORDING = /overwrit|in place|in-place/i
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
@@ -225,6 +260,127 @@ function serializeGrid(snapshot: GridSnapshot): string {
   return JSON.stringify(snapshot)
 }
 
+// --- Serialization-sensitivity self-check ---------------------------------------
+
+/** Patch row `i` of a snapshot (structural clone; the input is untouched). */
+function patchRow(
+  snapshot: GridSnapshot,
+  i: number,
+  patch: (row: RowSnapshot) => RowSnapshot,
+): GridSnapshot {
+  return { ...snapshot, rows: snapshot.rows.map((r, j) => (j === i ? patch(r) : r)) }
+}
+
+/** Patch cell `ci` of row `ri` (structural clone; the input is untouched). */
+function patchCell(
+  snapshot: GridSnapshot,
+  ri: number,
+  ci: number,
+  patch: (cell: CellSnapshot) => CellSnapshot,
+): GridSnapshot {
+  return patchRow(snapshot, ri, (r) => ({
+    ...r,
+    cells: r.cells.map((c, j) => (j === ci ? patch(c) : c)),
+  }))
+}
+
+/**
+ * One probe per CAPTURED field: a structural clone of the snapshot with
+ * exactly that one field changed. This is the journey's
+ * serialization-sensitivity self-check (review finding): if any captured
+ * field stops contributing to `serializeGrid`, that field's probe serializes
+ * identically to the original and the journey fails — so the final
+ * byte-identical undo claim is total over the capture, not spot.
+ */
+const SERIALIZATION_SENSITIVITY_PROBES: readonly {
+  readonly field: string
+  readonly perturb: (snapshot: GridSnapshot) => GridSnapshot
+}[] = [
+  {
+    field: 'headers[].name',
+    perturb: (s) => ({
+      ...s,
+      headers: s.headers.map((h, i) => (i === 0 ? { ...h, name: `${h.name}~` } : h)),
+    }),
+  },
+  {
+    field: 'headers[].type',
+    perturb: (s) => ({
+      ...s,
+      headers: s.headers.map((h, i) => (i === 0 ? { ...h, type: `${h.type}~` } : h)),
+    }),
+  },
+  {
+    field: 'rows[].index',
+    perturb: (s) => patchRow(s, 0, (r) => ({ ...r, index: r.index + 1000 })),
+  },
+  {
+    field: 'rows[].status',
+    perturb: (s) => patchRow(s, 0, (r) => ({ ...r, status: `${r.status}~` })),
+  },
+  {
+    field: 'rows[].dirty',
+    perturb: (s) => patchRow(s, 0, (r) => ({ ...r, dirty: r.dirty === '' ? '~' : '' })),
+  },
+  {
+    field: 'rows[].inserted',
+    perturb: (s) => patchRow(s, 0, (r) => ({ ...r, inserted: r.inserted === '' ? '~' : '' })),
+  },
+  {
+    field: 'cells[].col',
+    perturb: (s) => patchCell(s, 0, 0, (c) => ({ ...c, col: `${c.col}~` })),
+  },
+  {
+    field: 'cells[].text',
+    perturb: (s) => patchCell(s, 0, 0, (c) => ({ ...c, text: `${c.text}~` })),
+  },
+  {
+    field: 'cells[].dirty',
+    perturb: (s) => patchCell(s, 0, 0, (c) => ({ ...c, dirty: c.dirty === '' ? '~' : '' })),
+  },
+  {
+    field: 'cells[].nullMarker',
+    // Baseline row 2, cell 2 = customer 3's income, which IS NULL, so the
+    // marker is non-null and the flip below always changes the value.
+    perturb: (s) =>
+      patchCell(s, 2, 2, (c) => ({ ...c, nullMarker: c.nullMarker === null ? '~' : null })),
+  },
+  { field: 'totalRows', perturb: (s) => ({ ...s, totalRows: `${s.totalRows}~` }) },
+  { field: 'columnCount', perturb: (s) => ({ ...s, columnCount: `${s.columnCount}~` }) },
+]
+
+/**
+ * Prove the serialization is sensitive to EVERY captured dimension, right at
+ * the baseline. Two assertions per probe: the probe really changes the
+ * snapshot (no vacuous probes), and `serializeGrid` really notices. The
+ * probe inventory is pinned, so a newly captured field without a probe fails
+ * here too — the guard cannot silently stop being total.
+ */
+function assertSerializationSensitivity(snapshot: GridSnapshot): void {
+  expect(SERIALIZATION_SENSITIVITY_PROBES.map((p) => p.field)).toEqual([
+    'headers[].name',
+    'headers[].type',
+    'rows[].index',
+    'rows[].status',
+    'rows[].dirty',
+    'rows[].inserted',
+    'cells[].col',
+    'cells[].text',
+    'cells[].dirty',
+    'cells[].nullMarker',
+    'totalRows',
+    'columnCount',
+  ])
+  for (const { field, perturb } of SERIALIZATION_SENSITIVITY_PROBES) {
+    const perturbed = perturb(snapshot)
+    expect(perturbed, `sensitivity probe ${field} must change the snapshot`).not.toEqual(snapshot)
+    expect(
+      serializeGrid(perturbed),
+      `serializeGrid must be sensitive to the captured field ${field}`,
+    ).not.toBe(serializeGrid(snapshot))
+  }
+}
+
 /** Export one format through the dialog, capturing the fallback download. */
 async function exportFormat(page: Page, format: string): Promise<Download> {
   await page.getByTestId(`export-format-${format}`).check()
@@ -270,7 +426,14 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
 
   // Full pre-edit baseline (every cell, header, marker, count).
   await settleGrid(page, 5)
-  const baseline = serializeGrid(await captureGrid(page))
+  const baselineSnapshot = await captureGrid(page)
+  // Sensitivity self-check (review finding): prove every captured dimension —
+  // cell text, dirty and NULL markers, header names and types, row
+  // index/status/dirty/inserted markers, the counts — actually contributes to
+  // serializeGrid, so the byte-identical claim after the undo leg is total
+  // over the capture, not spot.
+  assertSerializationSensitivity(baselineSnapshot)
+  const baseline = serializeGrid(baselineSnapshot)
   // Sanity: the baseline is the documented fixture, clean and reversible-ready.
   expect(baseline).toContain('"totalRows":"5"')
   expect(baseline).toContain('"name":"customer_id","type":"BIGINT"')
@@ -285,27 +448,44 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(cell(page, 0, 2)).toHaveText('123456')
   await expect(cell(page, 0, 2)).toHaveAttribute('data-dirty', 'true')
   await settleGrid(page, 5)
+  // Sensitivity delta 1/8: the serialization MOVED with the edit — the cell
+  // text and dirty marker contribute to the live serialization.
+  const afterOp1 = serializeGrid(await captureGrid(page))
+  expect(afterOp1).not.toBe(baseline)
 
   // op2: set a cell NULL through the dedicated affordance.
   await setCellNull(page, 1, 1) // country of customer 2
   await expect(cell(page, 1, 1)).toHaveAttribute('data-null', 'true')
   await expect(cell(page, 1, 1)).toHaveText('NULL')
   await settleGrid(page, 5)
+  // Sensitivity delta 2/8: the NULL marker contributes.
+  const afterOp2 = serializeGrid(await captureGrid(page))
+  expect(afterOp2).not.toBe(afterOp1)
 
   // op3: insert a row (appended, all NULL, marked inserted).
   await page.getByTestId('edit-insert-row').click()
   await settleGrid(page, 6)
   await expect(row(page, 5)).toHaveAttribute('data-inserted', 'true')
   await expect(row(page, 5)).toHaveAttribute('data-dirty', 'true')
+  // Sensitivity delta 3/8: row status/inserted markers and the row count
+  // contribute.
+  const afterOp3 = serializeGrid(await captureGrid(page))
+  expect(afterOp3).not.toBe(afterOp2)
 
   // op4: edit the inserted row (so exports carry its values).
   await editCell(page, 5, 1, 'ZZ')
   await expect(cell(page, 5, 1)).toHaveText('ZZ')
+  // Sensitivity delta 4/8: the inserted row's cell text contributes.
+  const afterOp4 = serializeGrid(await captureGrid(page))
+  expect(afterOp4).not.toBe(afterOp3)
 
   // op5: delete a base row (customer 5, the last base row).
   await row(page, 4).getByTestId('grid-row-delete').click()
   await settleGrid(page, 5)
   await expect(cell(page, 4, 0)).toHaveText('NULL') // the inserted row moved up
+  // Sensitivity delta 5/8: the delete contributes (count and shifted cells).
+  const afterOp5 = serializeGrid(await captureGrid(page))
+  expect(afterOp5).not.toBe(afterOp4)
 
   // op6: rename a column.
   await renameColumn(page, 'country', 'nation')
@@ -313,6 +493,9 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(headerCell(page, 'country')).toHaveCount(0)
   await settleGrid(page, 5)
   await expect(page.getByTestId('grid-column-count')).toHaveText('4')
+  // Sensitivity delta 6/8: the header NAME contributes.
+  const afterOp6 = serializeGrid(await captureGrid(page))
+  expect(afterOp6).not.toBe(afterOp5)
 
   // op7: a SAFE cast (BIGINT → DOUBLE) — the journey must continue through it.
   await castColumn(page, 'income', 'DOUBLE')
@@ -320,10 +503,17 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(page.getByTestId('edit-error')).toHaveCount(0)
   await settleGrid(page, 5)
   await expect(cell(page, 0, 2)).toHaveText('123456') // same value, re-typed column
+  // Sensitivity delta 7/8: the header TYPE contributes — in isolation here,
+  // no cell text changed with the re-type.
+  const afterOp7 = serializeGrid(await captureGrid(page))
+  expect(afterOp7).not.toBe(afterOp6)
 
   // A REFUSED cast mid-journey: VARCHAR values cannot convert to INTEGER.
   // Nothing may be appended, nothing may change — refusals must not corrupt
   // the history the undo leg is about to trust.
+  // Full-integrity snapshot immediately BEFORE the refusal: the whole
+  // serialized grid, not one spot cell (review warning).
+  const beforeRefusal = serializeGrid(await captureGrid(page))
   await castColumn(page, 'nation', 'INTEGER')
   const refusal = page.getByTestId('edit-error')
   await expect(refusal).toBeVisible()
@@ -334,6 +524,9 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(page.getByTestId('history-cursor')).toHaveText('Step 7 of 7 applied')
   await expect(page.getByTestId('edit-undo')).toBeEnabled()
   await expect(cell(page, 0, 1)).toHaveText('SG') // grid untouched by the refusal
+  // …and byte-identical ACROSS the refusal (alert present, history count 7
+  // above, and the full serialization unchanged).
+  expect(serializeGrid(await captureGrid(page))).toBe(beforeRefusal)
 
   // op8: the formula-injection bait cell (for the CSV leg). A new op also
   // proves the grid is still healthy after the refusal, and clears the alert.
@@ -356,6 +549,7 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   expect(edited).toContain('"name":"income","type":"DOUBLE"')
   expect(edited).toContain('=SUM(A1:A2)')
   expect(edited).not.toBe(baseline)
+  expect(edited).not.toBe(afterOp7) // sensitivity delta 8/8: the bait edit contributes
 
   // --- 4. Undo EVERYTHING via the history panel. ---
   // Row counts after each undo (from cursor 8 down to 0), as each op reverses.
@@ -369,7 +563,11 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   }
   await expect(page.getByTestId('edit-undo')).toBeDisabled()
   await expect(page.getByTestId('edit-redo')).toBeEnabled()
-  await expect(page.getByTestId('history-redo-tail')).toContainText('8 later steps are undone')
+  // The FULL rendered truncation warning (review finding): the panel must
+  // not just count the undone tail but warn that a new edit discards it.
+  await expect(page.getByTestId('history-redo-tail')).toContainText(
+    '8 later steps are undone — a new edit will discard them.',
+  )
   await expect(page.getByTestId('pending-changes')).toHaveText('No pending changes.')
 
   // THE M4 CORE PROMISE, asserted totally: the grid is byte-identical to the
@@ -385,7 +583,11 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   // everything else stays undone in the redo tail).
   await page.locator('[data-testid="history-entry"][data-index="1"]').click()
   await expect(page.getByTestId('history-cursor')).toHaveText('Step 2 of 8 applied')
-  await expect(page.getByTestId('history-redo-tail')).toContainText('6 later steps are undone')
+  // Full warning text at the rewind point, too — 6 undone steps, same
+  // discard warning (review finding).
+  await expect(page.getByTestId('history-redo-tail')).toContainText(
+    '6 later steps are undone — a new edit will discard them.',
+  )
   await expect(cell(page, 0, 2)).toHaveText('123456')
   await expect(cell(page, 0, 2)).toHaveAttribute('data-dirty', 'true')
   await expect(cell(page, 1, 1)).toHaveAttribute('data-null', 'true')
@@ -395,6 +597,9 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   // A fresh cell edit truncates the redo tail (the panel said so first).
   await editCell(page, 3, 1, '=SUM(A1:A2)')
   await expect(page.getByTestId('history-redo-tail')).toHaveCount(0)
+  // …and with the tail gone, the rendered warning is gone with it — not just
+  // its element (review finding).
+  await expect(page.getByTestId('history-panel')).not.toContainText('will discard')
   await expect(page.getByTestId('history-item')).toHaveCount(3)
   await expect(page.getByTestId('history-cursor')).toHaveText('Step 3 of 3 applied')
 
@@ -426,13 +631,19 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(page.getByTestId('export-copy-notice')).toContainText(
     'The opened file is not changed',
   )
-  await expect(dialog).not.toContainText(/overwrit|in place|in-place/i)
+  await expect(dialog).not.toContainText(BANNED_EXPORT_WORDING)
   await expect(page.getByTestId('export-view-rows')).toHaveText('6 rows')
 
   const parquetDownload = await exportFormat(page, 'parquet')
   await expect(page.getByTestId('export-result')).toContainText('Exported 6 rows as Parquet')
   await expect(page.getByTestId('export-result')).toContainText('The opened file is unchanged')
   await expect(page.getByTestId('export-reopen-hint')).toContainText('choose the file you wrote')
+  // The ban re-runs NOW that a success result has actually rendered (review
+  // finding: it used to run only before any result existed) — against the
+  // whole dialog AND the whole main region, while the Parquet success line
+  // and its "unchanged" promise are what's showing.
+  await expect(dialog).not.toContainText(BANNED_EXPORT_WORDING)
+  await expect(page.locator('main')).not.toContainText(BANNED_EXPORT_WORDING)
   const parquetPath = await saveDownload(parquetDownload)
   // The bytes are really Parquet (the magic the open flow will read).
   expect(readFileSync(parquetPath).subarray(0, 4).toString('latin1')).toBe('PAR1')
@@ -442,20 +653,23 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(page.getByTestId('export-result')).toContainText(
     'your browser is downloading it as a new file',
   )
+  // Explicit on BOTH successes (review finding): the CSV line carries the
+  // same unchanged-source promise as the Parquet line.
+  await expect(page.getByTestId('export-result')).toContainText('The opened file is unchanged')
+  // …and the ban holds with a second success rendered — the CSV success line
+  // is the one showing now, and the dialog + main stay clean.
+  await expect(dialog).not.toContainText(BANNED_EXPORT_WORDING)
+  await expect(page.locator('main')).not.toContainText(BANNED_EXPORT_WORDING)
   const csvPath = await saveDownload(csvDownload)
   await page.getByTestId('export-close').click()
   await expect(dialog).toHaveCount(0)
 
-  // Node side: the CSV copy really holds the edited state, bait sanitized.
-  const csvLines = readFileSync(csvPath, 'utf8').trimEnd().split('\n')
-  expect(csvLines).toHaveLength(7) // header + 6 rows
-  expect(csvLines[0]).toBe('customer_id,country,income,signup_date')
-  expect(csvLines.some((line) => line.includes("'=SUM(A1:A2)"))).toBe(true) // sanitized
-  expect(csvLines.some((line) => line.includes(',=SUM(A1:A2)'))).toBe(false) // never raw
-  expect(csvLines.some((line) => line.startsWith('1,SG,123456,'))).toBe(true) // edited cell
-  expect(csvLines.some((line) => line.startsWith('2,,61000,'))).toBe(true) // NULL country
-  expect(csvLines.some((line) => line === ',ZZ,,')).toBe(true) // inserted row
-  expect(csvLines.some((line) => line.startsWith('5,US,75000,'))).toBe(true) // delete undone
+  // Node side: the CSV copy is pinned BYTE FOR BYTE against the known
+  // effective rows (review finding): exact quoting, row order, ISO dates,
+  // every cell of every row, and the final newline. This subsumes the old
+  // partial checks — including "bait sanitized, never raw": the raw form
+  // differs byte-wise from the pinned sanitized one.
+  expect(readFileSync(csvPath, 'utf8')).toBe(EXPECTED_CSV_BYTES)
 
   // --- 7. The source was never touched by any edit, undo, or export. ---
   expect(sha256(FIXTURE)).toBe(sourceShaBefore)
@@ -463,8 +677,12 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   // --- 8. Re-open the Parquet export through the normal open flow. ---
   await openFixture(page, parquetPath)
   await settleGrid(page, 6)
-  // Privacy: the re-opened export's own name renders nowhere either.
+  // Privacy: neither the source fixture's name nor the exported file's OWN
+  // basename (the `assay-export.parquet` download under its generated temp
+  // name) renders anywhere (review finding: only the fixture name was
+  // checked, so rendering path.basename(parquetPath) would have escaped).
   await expect(page.locator('main')).not.toContainText('customers.parquet')
+  await expect(page.locator('main')).not.toContainText(path.basename(parquetPath))
   // Parquet round-trips the declared column types exactly…
   await expect(headerCell(page, 'customer_id')).toHaveAttribute('data-col-type', 'BIGINT')
   await expect(headerCell(page, 'country')).toHaveAttribute('data-col-type', 'VARCHAR')
@@ -489,6 +707,8 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await openFixture(page, csvPath)
   await settleGrid(page, 6)
   await expect(page.locator('main')).not.toContainText('customers.parquet')
+  // The CSV export's own basename is absent too (review finding).
+  await expect(page.locator('main')).not.toContainText(path.basename(csvPath))
   await expect(page.getByTestId('grid-column-count')).toHaveText('4')
   await expect(cell(page, 0, 2)).toHaveText('123456') // edited income
   // The sanitized value is the literal text the CSV carries (leading
@@ -497,6 +717,9 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(cell(page, 5, 1)).toHaveText('ZZ') // the inserted row
   await expect(page.getByTestId('history-empty')).toBeVisible()
 
-  // Final honesty sweep: the whole journey never rendered the source's name.
+  // Final honesty sweep: the whole journey never rendered the source's name
+  // nor either exported file's own basename.
   await expect(page.locator('main')).not.toContainText('customers.parquet')
+  await expect(page.locator('main')).not.toContainText(path.basename(parquetPath))
+  await expect(page.locator('main')).not.toContainText(path.basename(csvPath))
 })
