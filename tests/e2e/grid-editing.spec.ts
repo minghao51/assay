@@ -155,12 +155,16 @@ test('typed constraints: a non-numeric input is rejected readably and leaves sta
   await page.getByTestId('grid-editor-input').press('Enter')
   await expect(cell(page, 0, 2)).toHaveText('9007199254740993')
 
-  // The toolbar surfaces a no-op outcome instead of swallowing it.
+  // m4-4 carry-over: re-committing an unchanged draft is a cancel, not a
+  // spurious no-op step — the editor closes, the value is untouched, and no
+  // alert appears (the no-op surface is pinned in column-ops.spec.ts via a
+  // cast-identity op instead).
   await openEditor(page, 0, 2)
   await page.getByTestId('grid-editor-input').fill('9007199254740993')
   await page.getByTestId('grid-editor-input').press('Enter')
-  await expect(page.getByTestId('edit-error')).toBeVisible()
-  await expect(page.getByTestId('edit-error')).toContainText('No change')
+  await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
+  await expect(cell(page, 0, 2)).toHaveText('9007199254740993')
+  await expect(page.getByTestId('grid-edit-error')).toHaveCount(0)
 })
 
 test('engine rejection: an invalid typed value alerts, rolls back, and leaves the grid recoverable', async ({

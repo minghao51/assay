@@ -1,5 +1,5 @@
 /**
- * Overlay-session helpers (m4-3) — pure glue between the domain's
+ * Overlay-session helpers (m4-3/m4-4) — pure glue between the domain's
  * transformation history and the engine's stateless overlay protocol.
  *
  * The web composition root owns the *effects* (React state, grid refresh,
@@ -11,20 +11,21 @@
  *   (`foldOverlay`) per request, so the grid always materializes the active
  *   prefix — undo/redo are cursor moves, never inverse-SQL bookkeeping.
  * - `overlaySnapshot` packages `{ base, ops }` into the engine's
- *   `EngineOverlay`. The engine folds the ops itself; because of a known
- *   m4-2 engine gap (inserted-row cell edits are dropped), the host projects
- *   the folded state into an equivalent op list the engine composes
- *   correctly — see `overlay-projection.ts` for the defect write-up and the
- *   projection rules.
- * - `editOutcomeMessage` turns a typed `OpOutcome` into an honest,
- *   text-only message (or `null` for an applied op). No-op and conflict
- *   outcomes are surfaced, never swallowed: the brief forbids silently
- *   dropping an edit the user asked for.
+ *   `EngineOverlay` as a **pass-through** of the active ops. m4-3 shipped a
+ *   web-side projection here that folded inserted-row cell edits into their
+ *   insert records, working around an m4-2 composer gap; m4-2b fixed the
+ *   engine to merge the folded `state.edits` itself, so the projection is
+ *   redundant and `overlaySnapshot` now hands the raw ops straight to the
+ *   engine (m4-4 simplification — the engine fold is the single source of
+ *   truth for op order, and `stateAtCursor` is by construction the fold of
+ *   exactly these ops).
+ * - `editOutcomeMessage` turns a typed `OpOutcome` into an honest, text-only
+ *   message (or `null` for an applied op). No-op and conflict outcomes are
+ *   surfaced, never swallowed: the brief forbids silently dropping an edit
+ *   the user asked for.
  */
 import type { EditOp, OpOutcome, OverlayBase, TransformationHistory } from '@assay/domain'
-import { stateAtCursor } from '@assay/domain'
 import type { EngineOverlay } from '@assay/engine-duckdb'
-import { isSchemaOp, projectOverlayOps } from './overlay-projection'
 
 /** The ops left of the history cursor, in application order. */
 export function activeOps(history: TransformationHistory): EditOp[] {
@@ -32,16 +33,14 @@ export function activeOps(history: TransformationHistory): EditOp[] {
 }
 
 /**
- * Package the active overlay for one engine request. The engine folds the ops
- * itself, so the host projects the already-folded state into the equivalent op
- * list the engine composes correctly (`projectOverlayOps` — inserted-row cell
- * edits are folded into insert values; schema ops are replayed verbatim).
- * `ops` is always present so the wire payload is byte-stable.
+ * Package the active overlay for one engine request: the raw active ops, in
+ * order. The engine folds them with the same domain model the host used for
+ * `stateAtCursor`, so the two agree by construction (m4-2b merged inserted-row
+ * edits engine-side; the m4-3 projection is gone). `ops` is always present so
+ * the wire payload is byte-stable.
  */
 export function overlaySnapshot(base: OverlayBase, history: TransformationHistory): EngineOverlay {
-  const state = stateAtCursor(base, history)
-  const historyOps = activeOps(history)
-  return { base, ops: projectOverlayOps(base, state, historyOps.filter(isSchemaOp)) }
+  return { base, ops: activeOps(history) }
 }
 
 /** Human-readable reason fragments for the domain's typed non-applied outcomes. */
@@ -84,31 +83,42 @@ export function editOutcomeMessage(outcome: OpOutcome): string | null {
 }
 
 /**
- * Render an engine rejection as a readable, text-only alert message.
- *
- * Engine errors echo the operation's SQL context across several lines; only
- * the first (summary) line is surfaced — the rest is the composed statement,
- * which can carry other cells' values and is neither readable nor something
- * the user asked to see. The whole string is rendered as text (never HTML),
- * and is never logged (it can echo the value the user typed, ADR 0025).
- *
- * The mvp browser bundle surfaces value-space cast failures through its
- * emscripten layer as the opaque `_setThrew is not defined` (the `engine-duckdb`
- * `op-channel` write-up documents that failure mode). A raw glue error is not
- * a readable engine message, so it — and an empty message — become a plain
- * summary: the column's type rejected the value. Genuine DuckDB messages
- * (a `Conversion Error`, a binder error) pass through verbatim.
+ * The mvp browser bundle surfaces some value-space cast failures through its
+ * emscripten layer as the opaque `_setThrew is not defined` (the
+ * `engine-duckdb` `op-channel` write-up documents that failure mode). A raw
+ * glue error is not a readable engine message, so it — and an empty message —
+ * degrade to a plain summary.
  */
 const OPAQUE_GLUE_ERROR = /^_setThrew\b/
 
-export function engineRejectionMessage(error: unknown): string {
+/**
+ * The first (summary) line of an engine/HTTP error, with the opaque glue
+ * error and empty messages translated to `opaqueFallback`. Engine errors echo
+ * the operation's SQL context across several lines; only the summary is
+ * surfaced — the rest is the composed statement, which can carry other cells'
+ * values and is neither readable nor something the user asked to see. The
+ * string is rendered as text (never HTML) and is never logged (it can echo the
+ * value typed, ADR 0025).
+ */
+function errorSummary(error: unknown, opaqueFallback: string): string {
   const raw = error instanceof Error ? error.message : String(error)
   const summary = raw.split('\n')[0]?.trim() ?? ''
-  const detail =
-    summary === '' || OPAQUE_GLUE_ERROR.test(summary)
-      ? "the column's type rejected the value"
-      : summary
-  return `The engine rejected this edit: ${detail}. The previous value is unchanged.`
+  if (summary === '' || OPAQUE_GLUE_ERROR.test(summary)) return opaqueFallback
+  return summary
+}
+
+/** The engine-error summary with the single-failure value-cast fallback. */
+export function engineErrorSummary(error: unknown): string {
+  return errorSummary(error, "the column's type rejected the value")
+}
+
+/**
+ * Render a single engine rejection as a readable, text-only alert message:
+ * the new state was rejected, so it was rolled back and the previous view is
+ * unchanged.
+ */
+export function engineRejectionMessage(error: unknown): string {
+  return `The engine rejected this edit: ${engineErrorSummary(error)}. The previous view is unchanged.`
 }
 
 /** The effects a history commit needs from the composition root. */
@@ -117,6 +127,25 @@ export interface CommitEffects {
   setActive(history: TransformationHistory): void
   /** Re-materialize the active overlay through a fresh data epoch. */
   refresh(): Promise<void>
+  /**
+   * Force the active overlay's *values* to materialize (a bounded probe
+   * fetch). Needed because schema and count queries can succeed without
+   * evaluating a column cast (`DESCRIBE` binds types; `count(*)` prunes the
+   * projection), so a cast whose values cannot convert only fails on a
+   * window read. Optional for callers that only have a schema/count seam.
+   */
+  verify?(): Promise<void>
+}
+
+/**
+ * The outcome of a history commit: `message` is `null` on success, and
+ * `restoreFailed` is true only when the previous view could not be
+ * re-materialized after a rejection (the double-failure case the alert must
+ * attribute honestly and the host must offer a retry for).
+ */
+export interface CommitResult {
+  readonly message: string | null
+  readonly restoreFailed: boolean
 }
 
 /**
@@ -126,35 +155,53 @@ export interface CommitEffects {
  * The repo's contract for a rejected state change is "the previous state stays
  * in effect" (`GridDataProvider.sort`/`filter`, the domain's typed
  * `Conflict`/`NoOp` outcomes). An engine value-space rejection (a bad DATE
- * cast, an out-of-range BIGINT) is the same class of event: the new overlay
- * materializes to an error, so this restores the previous overlay and
- * re-materializes it, leaving the grid renderable instead of all-loading.
+ * cast, an out-of-range BIGINT, a `column-cast` whose values do not convert)
+ * is the same class of event: the new overlay materializes to an error, so
+ * this restores the previous overlay and re-materializes it, leaving the grid
+ * renderable instead of all-loading.
  *
  * `setActive(next)` runs first so the provider reads the new overlay during
- * `refresh()`; on rejection `setActive(previous)` + a second `refresh()`
- * restore the prior effective view, and the engine message is returned for a
- * `role="alert"`. Success returns `null`. Never throws: a failure while
- * restoring the previous view is swallowed (the model already surfaces
- * per-span errors) so a rejected commit can never become an unhandled
- * rejection.
+ * `refresh()`; on rejection `setActive(previous)` + a second `refresh()` +
+ * optional `verify()` restore the prior effective view. **Double-failure
+ * honesty** (m4-3 carry-over): if that restore also rejects, the returned
+ * message names *both* failures — it never claims only the value was
+ * rejected — and `restoreFailed: true` tells the host to surface a retry
+ * affordance, so an engine outage cannot leave the user with an unattributed
+ * alert and no way back. Never throws.
  */
 export async function commitWithRollback(
   previous: TransformationHistory,
   next: TransformationHistory,
   effects: CommitEffects,
-): Promise<string | null> {
+): Promise<CommitResult> {
   effects.setActive(next)
   try {
     await effects.refresh()
-    return null
+    if (effects.verify !== undefined) await effects.verify()
+    return { message: null, restoreFailed: false }
   } catch (error) {
     effects.setActive(previous)
+    let restoreError: unknown = null
     try {
       await effects.refresh()
-    } catch {
-      // The previous view failed to re-materialize too; its per-span errors
-      // are already visible, and the returned alert explains the edit.
+      if (effects.verify !== undefined) await effects.verify()
+    } catch (restoreFailure) {
+      restoreError = restoreFailure
     }
-    return engineRejectionMessage(error)
+    if (restoreError === null) {
+      return { message: engineRejectionMessage(error), restoreFailed: false }
+    }
+    return {
+      // Name both failures and attribute the engine/view, not a value claim:
+      // an opaque glue error here describes an engine outage as much as a bad
+      // cell, so the neutral fallback is the honest one. `restoreFailed` tells
+      // the host to pair this with a retry, so rows can never sit in an
+      // unattributed loading state.
+      message:
+        `The change could not be applied: ${errorSummary(error, 'the engine or view rejected it')}. ` +
+        `Restoring the previous view also failed: ${errorSummary(restoreError, 'the engine or view was unavailable')}. ` +
+        'Use Retry to reload the view.',
+      restoreFailed: true,
+    }
   }
 }

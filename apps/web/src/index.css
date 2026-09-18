@@ -975,3 +975,150 @@ h1 {
   color: #666;
   font-style: italic;
 }
+
+/* ---- Column ops + transformation history (m4-4) ---- */
+
+.schema-column-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.schema-column-controls {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: 0.35rem;
+}
+
+.schema-column-op,
+.schema-column-confirm,
+.schema-column-cancel {
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  background: #eef3f9;
+  border: 1px solid #b9c6d4;
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
+  cursor: pointer;
+  color: #23364d;
+}
+
+.schema-column-confirm {
+  background: #dbe9d8;
+  border-color: #9cba97;
+}
+
+.schema-column-cancel {
+  background: #f2eeee;
+}
+
+.schema-column-editor {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.schema-column-input,
+.schema-column-select {
+  font: inherit;
+  font-size: 0.78rem;
+  border: 1px solid #4a7db5;
+  border-radius: 2px;
+  padding: 0.05rem 0.25rem;
+}
+
+.schema-column-error {
+  flex-basis: 100%;
+  color: #a11;
+  font-size: 0.78rem;
+}
+
+.edit-pending {
+  margin-left: 0.5rem;
+  color: #555;
+  font-size: 0.8rem;
+}
+
+.edit-view-error {
+  margin: 0.25rem 0 0;
+  color: #a11;
+  font-size: 0.85rem;
+}
+
+.history {
+  margin-top: 0.5rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+}
+
+.history-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.history-cursor {
+  color: #555;
+  font-size: 0.8rem;
+  margin-left: 0.35rem;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.history-item {
+  border-bottom: 1px solid #eee;
+}
+
+.history-item-undone {
+  opacity: 0.5;
+}
+
+.history-entry {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.82rem;
+  background: none;
+  border: none;
+  padding: 0.25rem 0.15rem;
+  cursor: pointer;
+}
+
+.history-entry:hover {
+  background: #f6f9fc;
+}
+
+.history-description {
+  overflow-wrap: anywhere;
+}
+
+.history-outcome {
+  flex: none;
+  color: #666;
+  font-size: 0.72rem;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+.history-empty,
+.history-redo-tail {
+  margin: 0.35rem 0 0;
+  color: #666;
+  font-size: 0.8rem;
+}

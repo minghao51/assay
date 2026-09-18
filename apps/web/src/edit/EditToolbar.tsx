@@ -1,12 +1,17 @@
 /**
- * Editing toolbar (m4-3): the session-level affordances around the grid —
- * insert a row, undo/redo the transformation history, and surface non-applied
- * op outcomes as a readable alert.
+ * Editing toolbar (m4-3, extended m4-4): the session-level affordances around
+ * the grid — insert a row, undo/redo the transformation history, and surface
+ * non-applied op outcomes as a readable alert. m4-4 adds the honest
+ * "pending changes" summary (counts by op kind over the active history
+ * prefix): the overlay *is* the preview (ADR 0012 staged changes), so there
+ * is no separate pre-commit staging step to show — this line is what makes
+ * the staged set legible at a glance.
  *
  * Deliberately thin (repo convention: thin components over tested pure
  * modules): it owns no state, only the disabled logic (`canUndo`/`canRedo`
  * come straight from the history cursor) and the render. Text-only; the
- * alert echoes domain-generated reasons, never dataset content (ADR 0025).
+ * alert echoes domain-generated reasons, never dataset content (ADR 0025)
+ * and the summary carries only op kinds/counts.
  */
 interface EditToolbarProps {
   readonly canUndo: boolean
@@ -14,6 +19,8 @@ interface EditToolbarProps {
   readonly onUndo: () => void
   readonly onRedo: () => void
   readonly onInsertRow: () => void
+  /** Pure `pendingChangesSummary` of the active history prefix (m4-4). */
+  readonly pendingSummary: string
   /** Non-applied outcome / commit failure message (null when clean). */
   readonly error: string | null
 }
@@ -24,6 +31,7 @@ export function EditToolbar({
   onUndo,
   onRedo,
   onInsertRow,
+  pendingSummary,
   error,
 }: EditToolbarProps) {
   return (
@@ -53,7 +61,10 @@ export function EditToolbar({
         onClick={onRedo}
       >
         Redo
-      </button>
+      </button>{' '}
+      <span className="edit-pending" data-testid="pending-changes">
+        {pendingSummary}
+      </span>
       {error !== null && (
         <p className="edit-error" role="alert" data-testid="edit-error">
           {error}

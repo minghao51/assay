@@ -47,11 +47,24 @@ interface DataGridProps {
   onDeleteRow?: (rowId: RowId) => void
 }
 
-/** One in-progress edit: which cell and the raw editor draft. */
+/** One in-progress edit: which cell, the raw editor draft, and its initial state. */
 interface EditingCell {
   readonly rowIndex: number
   readonly columnIndex: number
   readonly draft: string
+  /**
+   * The draft the editor opened with (m4-4 temporal-dirty guard): an
+   * unchanged draft for a cell that already had a value means "cancel", not
+   * "commit a no-op" — double-click + Enter on a DATE/TIMESTAMP/TIME cell
+   * must not manufacture a spurious dirty edit.
+   */
+  readonly initialDraft: string
+  /**
+   * Whether the cell was NULL when the editor opened. A NULL cell opens with
+   * an empty draft, but committing empty text there is a *real* value change
+   * (empty string ≠ NULL), so the unchanged-draft cancel never applies to it.
+   */
+  readonly initialNull: boolean
 }
 
 /**
@@ -73,8 +86,12 @@ interface EditingCell {
  *   focused cell keeps opening the record inspector (m3-3).
  * - **Commit**: Enter (or blur) validates the draft against the parsed
  *   column type and emits a typed `CellValue`; Escape cancels and leaves the
- *   overlay untouched. A rejected draft renders a readable `role="alert"`
- *   message and keeps the editor open — state never changes on rejection.
+ *   overlay untouched. An unchanged draft on a cell that already had a value
+ *   is a **cancel** too (m4-4 carry-over: double-click + Enter on a temporal
+ *   cell must not manufacture a spurious dirty edit); a NULL cell's empty
+ *   draft still commits, because empty text is a real value distinct from
+ *   NULL. A rejected draft renders a readable `role="alert"` message and
+ *   keeps the editor open — state never changes on rejection.
  * - **NULL**: a dedicated NULL button commits `{ kind: 'null' }`; NULL cells
  *   render as a distinct `NULL` marker (`data-null`), never as an empty
  *   string, an unset editor, or an error.
@@ -147,13 +164,17 @@ export function DataGrid({
     }
     const slot = model.getRow(rowIndex)
     if (slot.status !== 'ready' || slot.key === undefined) return
+    const cell = slot.row[columnIndex]
+    const initialDraft = cellEditDraft(cell, parsedType)
     setEditError(null)
     setEditing({
       rowIndex,
       columnIndex,
       // Temporal cells cross the engine boundary as epoch numbers; the draft
       // is formatted human-readably and engine-round-trippably (typed-input).
-      draft: cellEditDraft(slot.row[columnIndex], parsedType),
+      draft: initialDraft,
+      initialDraft,
+      initialNull: cell === null || cell === undefined,
     })
   }
 
@@ -177,6 +198,14 @@ export function DataGrid({
     if (editing === null) return
     const column = schema[editing.columnIndex]
     if (column === undefined) {
+      cancelEdit()
+      return
+    }
+    // Temporal/any unchanged draft on a non-NULL cell is a cancel, not a
+    // commit: the editor opened with the current value, so no edit happened.
+    // (A NULL cell's empty draft is *not* the current value — empty text is a
+    // real value distinct from NULL — so it still commits.)
+    if (!editing.initialNull && editing.draft === editing.initialDraft) {
       cancelEdit()
       return
     }

@@ -206,6 +206,26 @@ export class DuckDbGridProvider implements GridDataProvider {
     return this.client.rowCount(this.handle, options)
   }
 
+  /**
+   * Force the active effective view's *values* to materialize with a bounded
+   * one-row probe (m4-4). Schema/count reads cannot catch a per-value cast
+   * failure — `DESCRIBE` only binds types and `count(*)` prunes the
+   * projection — so the commit rollback path probes here before declaring a
+   * schema/value op successful. Uses the empty-overlay fast path when no op
+   * is active, so undoing back to the base stays cheap.
+   */
+  async verifyEffectiveView(): Promise<void> {
+    if (this.usesOverlay) {
+      await this.client.fetchOverlayRange(this.handle, this.overlaySource(), {
+        startRow: 0,
+        endRow: 1,
+        includeRowIds: true,
+      })
+      return
+    }
+    await this.client.fetchRange(this.handle, { startRow: 0, endRow: 1 })
+  }
+
   async fetchRange(range: CellRange): Promise<GridDataPage> {
     // Absent/empty = cleared (m2-2): cleared state is sent as absent fields.
     const filters = this.filterPredicates.length > 0 ? this.filterPredicates : undefined

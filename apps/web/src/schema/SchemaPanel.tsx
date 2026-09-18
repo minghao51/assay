@@ -2,6 +2,12 @@ import { useCallback, useState } from 'react'
 import type { ColumnSchema } from '@assay/grid'
 import { nestedActionLabel, nestedActionVerb } from '../sql/nested-actions'
 import type { NestedAction } from '../sql/nested-actions'
+import {
+  CAST_CUSTOM_OPTION,
+  COMMON_CAST_TARGETS,
+  validateCastTarget,
+  validateRenameTarget,
+} from '../edit/column-ops'
 import type { DuckDbType } from './parseType'
 import { formatDuckDbType, parseDuckDbType } from './parseType'
 
@@ -20,12 +26,28 @@ import { formatDuckDbType, parseDuckDbType } from './parseType'
  * panel only emits the *intent* (`NestedAction`); composition happens in
  * `sql/nested-actions.ts` and execution in the m2-4 SQL pane. Actions are
  * native buttons (keyboard reachable) with full accessible names.
+ *
+ * m4-4: each column root also carries **Rename** / **Cast** controls
+ * (`ColumnControls`). Rename refuses empty names inline and leaves collisions
+ * to the domain (a typed conflict the app surfaces); cast validates every
+ * target spelling with the engine's exported validator before composing an op
+ * (see `edit/column-ops.ts`). The panel still emits intents only — the app
+ * owns the ops.
  */
 
 interface SchemaPanelProps {
   readonly columns: readonly ColumnSchema[]
   /** Called with a node's action intent; the caller composes + runs the SQL. */
   readonly onAction: (action: NestedAction) => void
+  /**
+   * m4-4 column rename affordance. Omitted = no controls (the panel stays a
+   * pure schema viewer, e.g. in the m4-0 component pin). The callback emits
+   * the *intent*; the app appends the domain op and surfaces the typed
+   * outcome/conflict.
+   */
+  readonly onRenameColumn?: (from: string, to: string) => void
+  /** m4-4 column cast affordance; `targetType` is pre-validated by the caller UI. */
+  readonly onCastColumn?: (column: string, targetType: string) => void
 }
 
 /**
@@ -78,6 +100,222 @@ function NodeActionButton({
     >
       {nestedActionVerb(action)}
     </button>
+  )
+}
+
+/**
+ * Per-column rename/cast controls (m4-4). Self-contained editor state per
+ * column (rename draft / cast target / inline error); the component emits
+ * only validated *intents*.
+ *
+ * Failure classes, surfaced honestly and distinctly:
+ * - **Rename**: empty is refused inline (a real reason, no op); a collision
+ *   is *not* pre-checked — it is a domain `rename-collision` conflict the app
+ *   surfaces through the toolbar alert, and the effective schema does not
+ *   change.
+ * - **Cast**: every spelling is run through the engine's exported
+ *   `validateEngineTypeExpression` *before* an op is composed. An invalid
+ *   spelling is refused inline with no op appended. A well-shaped spelling
+ *   the engine does not know still reaches the engine and fails at schema
+ *   materialization; the app's commit rollback path surfaces that and rolls
+ *   back (some `column-cast` spellings are structurally legal but not in the
+ *   engine's catalog).
+ *
+ * Text-only; no dataset values are read here.
+ */
+function ColumnControls({
+  name,
+  type,
+  onRename,
+  onCast,
+}: {
+  readonly name: string
+  readonly type: string
+  readonly onRename: (from: string, to: string) => void
+  readonly onCast: (column: string, targetType: string) => void
+}) {
+  const [mode, setMode] = useState<'idle' | 'rename' | 'cast'>('idle')
+  const [renameDraft, setRenameDraft] = useState(name)
+  const [castChoice, setCastChoice] = useState('')
+  const [customTarget, setCustomTarget] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const reset = (): void => {
+    setMode('idle')
+    setRenameDraft(name)
+    setCastChoice('')
+    setCustomTarget('')
+    setError(null)
+  }
+
+  const submitRename = (): void => {
+    const result = validateRenameTarget(renameDraft)
+    if (!result.ok) {
+      setError(result.reason)
+      return
+    }
+    onRename(name, result.name)
+    reset()
+  }
+
+  const submitCast = (): void => {
+    const target = castChoice === CAST_CUSTOM_OPTION ? customTarget : castChoice
+    const result = validateCastTarget(target)
+    if (!result.ok) {
+      setError(result.reason)
+      return
+    }
+    onCast(name, result.targetType)
+    reset()
+  }
+
+  return (
+    <span className="schema-column-controls" data-testid="schema-column-controls">
+      {mode === 'idle' && (
+        <>
+          <button
+            type="button"
+            className="schema-column-op"
+            data-testid="column-rename-open"
+            data-col-name={name}
+            aria-label={`Rename column ${name}`}
+            title={`Rename column ${name}`}
+            onClick={() => {
+              setMode('rename')
+              setError(null)
+            }}
+          >
+            Rename
+          </button>{' '}
+          <button
+            type="button"
+            className="schema-column-op"
+            data-testid="column-cast-open"
+            data-col-name={name}
+            aria-label={`Cast column ${name}`}
+            title={`Cast column ${name} (currently ${type})`}
+            onClick={() => {
+              setMode('cast')
+              setError(null)
+            }}
+          >
+            Cast
+          </button>
+        </>
+      )}
+      {mode === 'rename' && (
+        <span className="schema-column-editor">
+          <input
+            className="schema-column-input"
+            data-testid="column-rename-input"
+            data-col-name={name}
+            aria-label={`New name for column ${name}`}
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+            value={renameDraft}
+            onChange={(event) => {
+              setRenameDraft(event.target.value)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                submitRename()
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                reset()
+              }
+            }}
+          />{' '}
+          <button
+            type="button"
+            className="schema-column-confirm"
+            data-testid="column-rename-commit"
+            onClick={submitRename}
+          >
+            Rename
+          </button>{' '}
+          <button
+            type="button"
+            className="schema-column-cancel"
+            data-testid="column-op-cancel"
+            onClick={reset}
+          >
+            Cancel
+          </button>
+        </span>
+      )}
+      {mode === 'cast' && (
+        <span className="schema-column-editor">
+          <select
+            className="schema-column-select"
+            data-testid="column-cast-select"
+            data-col-name={name}
+            aria-label={`Target type for column ${name}`}
+            autoFocus
+            value={castChoice}
+            onChange={(event) => {
+              setCastChoice(event.target.value)
+            }}
+          >
+            <option value="" disabled>
+              Choose a type…
+            </option>
+            {COMMON_CAST_TARGETS.map((target) => (
+              <option key={target} value={target}>
+                {target}
+              </option>
+            ))}
+            <option value={CAST_CUSTOM_OPTION}>Custom…</option>
+          </select>{' '}
+          {castChoice === CAST_CUSTOM_OPTION && (
+            <input
+              className="schema-column-input"
+              data-testid="column-cast-custom"
+              data-col-name={name}
+              aria-label={`Custom target type for column ${name}`}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="e.g. DECIMAL(10,2)"
+              value={customTarget}
+              onChange={(event) => {
+                setCustomTarget(event.target.value)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  submitCast()
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  reset()
+                }
+              }}
+            />
+          )}{' '}
+          <button
+            type="button"
+            className="schema-column-confirm"
+            data-testid="column-cast-commit"
+            onClick={submitCast}
+          >
+            Cast
+          </button>{' '}
+          <button
+            type="button"
+            className="schema-column-cancel"
+            data-testid="column-op-cancel"
+            onClick={reset}
+          >
+            Cancel
+          </button>
+        </span>
+      )}
+      {error !== null && (
+        <span className="schema-column-error" role="alert" data-testid="column-op-error">
+          {error}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -249,7 +487,7 @@ function TypeNode({
  * it without losing expansion state. Expansion state is a flat path set —
  * collapsing an ancestor keeps descendants' paths valid for re-expansion.
  */
-export function SchemaPanel({ columns, onAction }: SchemaPanelProps) {
+export function SchemaPanel({ columns, onAction, onRenameColumn, onCastColumn }: SchemaPanelProps) {
   const [open, setOpen] = useState(true)
   const [expanded, setExpanded] = useState<ExpandedPaths>(() => new Set<string>())
 
@@ -303,16 +541,26 @@ export function SchemaPanel({ columns, onAction }: SchemaPanelProps) {
                 data-testid="schema-column"
                 data-col-name={column.name}
               >
-                <TypeNode
-                  node={parseDuckDbType(column.type)}
-                  name={column.name}
-                  path={column.name}
-                  segments={[column.name]}
-                  viaList={false}
-                  expanded={expanded}
-                  onToggle={toggle}
-                  onAction={onAction}
-                />
+                <div className="schema-column-row">
+                  <TypeNode
+                    node={parseDuckDbType(column.type)}
+                    name={column.name}
+                    path={column.name}
+                    segments={[column.name]}
+                    viaList={false}
+                    expanded={expanded}
+                    onToggle={toggle}
+                    onAction={onAction}
+                  />
+                  {onRenameColumn !== undefined && onCastColumn !== undefined && (
+                    <ColumnControls
+                      name={column.name}
+                      type={column.type}
+                      onRename={onRenameColumn}
+                      onCast={onCastColumn}
+                    />
+                  )}
+                </div>
               </li>
             ))}
           </ul>

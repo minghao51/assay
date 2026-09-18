@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { OverlayBase, TransformationHistory } from '@assay/domain'
-import { appendOp, baseRowId, emptyHistory, insertRowId, stateAtCursor, undo } from '@assay/domain'
+import {
+  appendOp,
+  baseRowId,
+  emptyHistory,
+  foldOverlay,
+  insertRowId,
+  stateAtCursor,
+  undo,
+} from '@assay/domain'
 import {
   activeOps,
   commitWithRollback,
@@ -68,6 +76,35 @@ describe('activeOps / overlaySnapshot — the engine-facing history projection',
     expect(state.inserts.size).toBe(0)
     expect(state.deletedBase.size).toBe(0)
   })
+
+  it('is a pass-through of the raw ops (m4-4): the engine folds inserted-row edits itself', () => {
+    // m4-2b made the engine merge folded cell edits over insert values, so the
+    // m4-3 web-side projection is gone. The snapshot must be exactly the active
+    // ops, and folding them must still carry an edit on an inserted row — the
+    // behavior the m4-3 insert e2e observes end to end.
+    const insertedId = insertRowId(BASE.overlayAnchor, 0)
+    let history: TransformationHistory = appendOp(BASE, emptyHistory(), {
+      kind: 'row-insert',
+      rowId: insertedId,
+      position: { kind: 'end' },
+      values: new Map(),
+    }).history
+    history = appendOp(BASE, history, {
+      kind: 'cell-set',
+      rowId: insertedId,
+      column: 'label',
+      value: { kind: 'string', value: 'edited' },
+    }).history
+
+    const snapshot = overlaySnapshot(BASE, history)
+    expect(snapshot.ops).toEqual(activeOps(history))
+    const state = foldOverlay(BASE, snapshot.ops ?? []).state
+    expect(state.inserts.get(insertedId)?.live).toBe(true)
+    expect(state.edits.get(insertedId)?.get('label')).toEqual({
+      kind: 'string',
+      value: 'edited',
+    })
+  })
 })
 
 describe('editOutcomeMessage — surface typed outcomes, never swallow', () => {
@@ -85,6 +122,13 @@ describe('editOutcomeMessage — surface typed outcomes, never swallow', () => {
     expect(editOutcomeMessage({ status: 'conflict', reason: 'row-anchor-mismatch' })).toContain(
       'different file version',
     )
+    // m4-4 column-op conflicts use the same surface.
+    expect(editOutcomeMessage({ status: 'conflict', reason: 'rename-collision' })).toContain(
+      'already exists',
+    )
+    expect(editOutcomeMessage({ status: 'no-op', reason: 'cast-identity' })).toContain(
+      'already has that type',
+    )
   })
 })
 
@@ -97,7 +141,7 @@ describe('engineRejectionMessage — readable, text-only engine summary', () => 
     )
     expect(message).toContain('The engine rejected this edit:')
     expect(message).toContain('Conversion Error')
-    expect(message).toContain('The previous value is unchanged.')
+    expect(message).toContain('The previous view is unchanged.')
     expect(message).not.toContain('LINE 1')
   })
 
@@ -108,7 +152,7 @@ describe('engineRejectionMessage — readable, text-only engine summary', () => 
   it('translates the opaque mvp glue error into a readable summary', () => {
     const message = engineRejectionMessage(new Error('_setThrew is not defined'))
     expect(message).toBe(
-      "The engine rejected this edit: the column's type rejected the value. The previous value is unchanged.",
+      "The engine rejected this edit: the column's type rejected the value. The previous view is unchanged.",
     )
     expect(message).not.toContain('_setThrew')
   })
@@ -123,16 +167,16 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     value: { kind: 'text', text: '2025-01-04' },
   }).history
 
-  it('publishes the new history and returns null when the engine accepts', async () => {
+  it('publishes the new history and returns no message when the engine accepts', async () => {
     const published: TransformationHistory[] = []
     let refreshes = 0
-    const message = await commitWithRollback(previous, next, {
+    const result = await commitWithRollback(previous, next, {
       setActive: (history) => published.push(history),
       refresh: async () => {
         refreshes += 1
       },
     })
-    expect(message).toBeNull()
+    expect(result).toEqual({ message: null, restoreFailed: false })
     expect(published).toEqual([next])
     expect(refreshes).toBe(1)
   })
@@ -140,7 +184,7 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
   it('rolls back to the previous history and re-materializes it after a rejection', async () => {
     const published: TransformationHistory[] = []
     let refreshes = 0
-    const message = await commitWithRollback(previous, next, {
+    const result = await commitWithRollback(previous, next, {
       setActive: (history) => published.push(history),
       refresh: async () => {
         refreshes += 1
@@ -155,19 +199,57 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     // re-materialized: setActive(next) → setActive(previous) → refresh twice.
     expect(published).toEqual([next, previous])
     expect(refreshes).toBe(2)
-    expect(message).toContain('Conversion Error')
-    expect(message).not.toContain('LINE 1')
+    expect(result.message).toContain('Conversion Error')
+    expect(result.message).not.toContain('LINE 1')
+    expect(result.restoreFailed).toBe(false)
   })
 
-  it('never rejects even when restoring the previous view also fails', async () => {
+  it('rolls back when the value probe rejects after schema/count succeeded (m4-4 cast class)', async () => {
     const published: TransformationHistory[] = []
-    const message = await commitWithRollback(previous, next, {
+    let verified = 0
+    const result = await commitWithRollback(previous, next, {
       setActive: (history) => published.push(history),
-      refresh: async () => {
-        throw new Error('engine unavailable')
+      refresh: async () => {},
+      verify: async () => {
+        verified += 1
+        if (verified === 1)
+          throw new Error('Conversion Error: Could not convert string "US" to INT32')
       },
     })
     expect(published).toEqual([next, previous])
-    expect(message).toContain('engine unavailable')
+    expect(verified).toBe(2)
+    expect(result.message).toContain('Conversion Error')
+    expect(result.restoreFailed).toBe(false)
+  })
+
+  it('attributes a double failure honestly and flags the view as unrestored', async () => {
+    const published: TransformationHistory[] = []
+    const result = await commitWithRollback(previous, next, {
+      setActive: (history) => published.push(history),
+      refresh: async () => {
+        throw new Error('_setThrew is not defined')
+      },
+    })
+    expect(published).toEqual([next, previous])
+    // The message must name BOTH failures and must NOT make the value-only
+    // claim for the opaque glue error (m4-3 carry-over b).
+    expect(result.message).not.toContain("the column's type rejected the value")
+    expect(result.message).toContain('the engine or view rejected it')
+    expect(result.message).toContain('Restoring the previous view also failed')
+    expect(result.message).toContain('Retry')
+    expect(result.restoreFailed).toBe(true)
+  })
+
+  it('does not report a restored view when the restore verify probe fails', async () => {
+    const result = await commitWithRollback(previous, next, {
+      setActive: () => {},
+      refresh: async () => {},
+      verify: async () => {
+        throw new Error('engine unavailable')
+      },
+    })
+    expect(result.restoreFailed).toBe(true)
+    expect(result.message).toContain('Restoring the previous view also failed')
+    expect(result.message).toContain('engine unavailable')
   })
 })

@@ -16,8 +16,16 @@ import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
 import { FilterBar } from './grid/FilterBar'
 import { EditToolbar } from './edit/EditToolbar'
+import { HistoryPanel } from './edit/HistoryPanel'
+import {
+  activeOps,
+  commitWithRollback,
+  editOutcomeMessage,
+  engineRejectionMessage,
+  overlaySnapshot,
+} from './edit/session'
+import { pendingChangesSummary } from './edit/op-summary'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
-import { commitWithRollback, editOutcomeMessage, overlaySnapshot } from './edit/session'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
 import { ProfilePanel } from './profile/ProfilePanel'
@@ -58,6 +66,8 @@ type Phase =
       readonly handle: EngineTableHandle
       /** Immutable base metadata for the editing session (ADR 0011/0012). */
       readonly base: OverlayBase
+      /** Overlay-aware provider; the commit path probes it for value failures (m4-4). */
+      readonly provider: DuckDbGridProvider
     }
 
 /**
@@ -109,6 +119,12 @@ export function App() {
   const [history, setHistory] = useState<TransformationHistory>(() => emptyHistory())
   const [overlayRevision, setOverlayRevision] = useState(0)
   const [editError, setEditError] = useState<string | null>(null)
+  /**
+   * m4-4 carry-over: true only when a commit was rejected *and* restoring the
+   * previous view also failed. It renders a retry affordance so an engine
+   * outage cannot leave an unattributed alert over a half-loaded grid.
+   */
+  const [viewError, setViewError] = useState(false)
   const overlayRef = useRef<ReturnType<typeof overlaySnapshot> | null>(null)
 
   const schemaColumns = phase.kind === 'ready' ? (phase.model.schema ?? []) : NO_COLUMNS
@@ -166,13 +182,24 @@ export function App() {
    * or require a manual Undo to recover.
    */
   const commitHistory = useCallback(
-    async (next: TransformationHistory, previous: TransformationHistory): Promise<void> => {
+    async (
+      next: TransformationHistory,
+      previous: TransformationHistory,
+      outcomeMessage: string | null = null,
+    ): Promise<void> => {
       if (phase.kind !== 'ready') return
-      const message = await commitWithRollback(previous, next, {
+      const result = await commitWithRollback(previous, next, {
         setActive: activateHistory,
         refresh: () => phase.model.refresh(),
+        // Bounded value probe (m4-4): a cast whose values cannot convert
+        // passes schema/count reads and only fails on a window read, so the
+        // rollback path verifies values before declaring success.
+        verify: () => phase.provider.verifyEffectiveView(),
       })
-      setEditError(message)
+      // An honest non-applied outcome (a no-op entry) must survive a
+      // successful commit; an engine rejection message wins if present.
+      setEditError(result.message ?? outcomeMessage)
+      setViewError(result.restoreFailed)
     },
     [phase, activateHistory],
   )
@@ -182,9 +209,14 @@ export function App() {
       if (phase.kind !== 'ready') return
       const result = appendOp(phase.base, history, op)
       // Surface the typed outcome honestly (null for `applied`); a conflicted
-      // op changes no state and is not logged (m4-1 `appendOp`).
-      setEditError(editOutcomeMessage(result.outcome))
-      if (result.entry !== null) void commitHistory(result.history, history)
+      // op changes no state and is not logged (m4-1 `appendOp`). No-op entries
+      // *are* logged and keep their message through the commit.
+      const outcomeMessage = editOutcomeMessage(result.outcome)
+      if (result.entry !== null) {
+        void commitHistory(result.history, history, outcomeMessage)
+      } else {
+        setEditError(outcomeMessage)
+      }
     },
     [phase, history, commitHistory],
   )
@@ -230,6 +262,60 @@ export function App() {
     [applyOp],
   )
 
+  /**
+   * m4-4 column ops. Both emit the intent through the same `applyOp` path as
+   * every other edit, so the domain owns conflict/no-op semantics (a rename
+   * collision surfaces as typed text and leaves state unchanged) and the
+   * commit rollback+alert path owns engine rejections (a cast the engine
+   * cannot materialize).
+   */
+  const handleRenameColumn = useCallback(
+    (from: string, to: string) => {
+      applyOp({ kind: 'column-rename', from, to })
+    },
+    [applyOp],
+  )
+
+  const handleCastColumn = useCallback(
+    (column: string, targetType: string) => {
+      applyOp({ kind: 'column-cast', column, targetType })
+    },
+    [applyOp],
+  )
+
+  /**
+   * m4-4 selective undo: move the public cursor (clamped) and refold through
+   * the normal commit path. `stateAtCursor` re-folds the prefix, so the
+   * resulting grid is consistent by construction — no partial application.
+   */
+  const handleSelectCursor = useCallback(
+    (nextCursor: number) => {
+      if (phase.kind !== 'ready') return
+      const clamped = Math.max(0, Math.min(history.entries.length, nextCursor))
+      if (clamped === history.cursor) return
+      setEditError(null)
+      void commitHistory({ ...history, cursor: clamped }, history)
+    },
+    [phase, history, commitHistory],
+  )
+
+  /**
+   * m4-4 double-failure recovery: re-attempt the previous view after an
+   * engine outage. Success clears the honest view error; failure surfaces the
+   * new message and keeps the retry affordance.
+   */
+  const retryView = useCallback(async () => {
+    if (phase.kind !== 'ready') return
+    try {
+      await phase.model.refresh()
+      await phase.provider.verifyEffectiveView()
+      setViewError(false)
+      setEditError(null)
+    } catch (error) {
+      setEditError(engineRejectionMessage(error))
+    }
+  }, [phase])
+
   const openDataFile = useCallback(async () => {
     setPhase({ kind: 'opening' })
     setRecordRequest(null)
@@ -238,6 +324,7 @@ export function App() {
     setSqlRequest(null)
     setActionError(null)
     setEditError(null)
+    setViewError(false)
     overlayRef.current = null
     setHistory(emptyHistory())
     setOverlayRevision(0)
@@ -279,7 +366,7 @@ export function App() {
       )
       const model = new GridViewportModel(provider)
       await model.load()
-      setPhase({ kind: 'ready', model, tableId: handle.id, handle, base })
+      setPhase({ kind: 'ready', model, tableId: handle.id, handle, base, provider })
     } catch (error) {
       setPhase({
         kind: 'error',
@@ -320,14 +407,41 @@ export function App() {
               {actionError}
             </p>
           )}
-          <SchemaPanel columns={schemaColumns} onAction={runNestedAction} />
+          <SchemaPanel
+            columns={schemaColumns}
+            onAction={runNestedAction}
+            onRenameColumn={handleRenameColumn}
+            onCastColumn={handleCastColumn}
+          />
           <EditToolbar
             canUndo={history.cursor > 0}
             canRedo={history.cursor < history.entries.length}
             onUndo={handleUndo}
             onRedo={handleRedo}
             onInsertRow={handleInsertRow}
+            pendingSummary={pendingChangesSummary(activeOps(history))}
             error={editError}
+          />
+          {viewError && (
+            <p className="edit-view-error" role="alert" data-testid="view-error">
+              The grid could not be restored to a trustworthy view.{' '}
+              <button
+                type="button"
+                data-testid="view-retry"
+                onClick={() => {
+                  void retryView()
+                }}
+              >
+                Retry loading the view
+              </button>
+            </p>
+          )}
+          <HistoryPanel
+            entries={history.entries}
+            cursor={history.cursor}
+            onSelectCursor={handleSelectCursor}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
           />
           <FilterBar model={phase.model} />
           <DataGrid
