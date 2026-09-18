@@ -1,5 +1,9 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import type { EngineTableHandle } from '@assay/engine-duckdb'
+import type {
+  EngineExportFormat,
+  EngineExportResult,
+  EngineTableHandle,
+} from '@assay/engine-duckdb'
 import { viewNameForTableId } from '@assay/engine-duckdb'
 import type { CellValue, EditOp, OverlayBase, RowId, TransformationHistory } from '@assay/domain'
 import {
@@ -16,6 +20,9 @@ import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
 import { FilterBar } from './grid/FilterBar'
 import { EditToolbar } from './edit/EditToolbar'
+import { ExportDialog } from './export/ExportDialog'
+import { requestSaveDestination, writeExportCopy } from './export/save-destination'
+import type { SaveDestination, SaveStrategy } from './export/save-destination'
 import { HistoryPanel } from './edit/HistoryPanel'
 import {
   activeOps,
@@ -117,6 +124,13 @@ export function App() {
    * file is opened — a request must never leak across tables.
    */
   const [recordRequest, setRecordRequest] = useState<RecordRequest | null>(null)
+  /**
+   * m4-5 export dialog visibility. Closing unmounts the dialog, so its format
+   * choice and result reset on every open (no stale "Exported…" line from a
+   * previous session). The dialog itself never touches the base source
+   * (ADR 0012).
+   */
+  const [exportOpen, setExportOpen] = useState(false)
 
   /**
    * m3-5 nested-action dispatch: both click surfaces (schema tree, grid
@@ -415,6 +429,35 @@ export function App() {
   )
 
   /**
+   * m4-5 export effects. `runExport` materializes the **active** overlay
+   * snapshot (base + ops at the history cursor) through the engine's merged
+   * export op — never the source path, never the base view alone (ADR 0012).
+   * `overlayRef` is the synchronous source the grid already reads, so the
+   * exported copy is exactly the view on screen.
+   */
+  const runExport = useCallback(
+    (format: EngineExportFormat): Promise<EngineExportResult> => {
+      if (phase.kind !== 'ready') {
+        return Promise.reject(new Error('no table is open'))
+      }
+      const overlay = overlayRef.current ?? overlaySnapshot(phase.base, historyRef.current)
+      return engineClient.exportView(phase.handle, { format, overlay })
+    },
+    [phase],
+  )
+
+  const requestExportDestination = useCallback(
+    (format: EngineExportFormat) => requestSaveDestination(format),
+    [],
+  )
+
+  const deliverExportCopy = useCallback(
+    (destination: SaveDestination, result: EngineExportResult): Promise<SaveStrategy> =>
+      writeExportCopy(destination, result),
+    [],
+  )
+
+  /**
    * m4-4 selective undo: move the public cursor (clamped) and refold through
    * the normal commit path. `stateAtCursor` re-folds the prefix, so the
    * resulting grid is consistent by construction — no partial application.
@@ -449,6 +492,7 @@ export function App() {
   const openDataFile = useCallback(async () => {
     setPhase({ kind: 'opening' })
     setRecordRequest(null)
+    setExportOpen(false)
     // m3-5 / m4-3: a new table invalidates the previous table's dispatch and
     // editing state — an overlay must never leak across files.
     setSqlRequest(null)
@@ -559,6 +603,29 @@ export function App() {
             pendingSummary={pendingChangesSummary(activeOps(history))}
             error={editError}
           />
+          <section className="export-actions" aria-label="Export">
+            <button
+              type="button"
+              className="export-open"
+              data-testid="export-open"
+              onClick={() => {
+                setExportOpen(true)
+              }}
+            >
+              Export a copy…
+            </button>
+            {exportOpen && (
+              <ExportDialog
+                rowCount={phase.model.totalRows ?? 0}
+                runEngineExport={runExport}
+                requestDestination={requestExportDestination}
+                writeCopy={deliverExportCopy}
+                onClose={() => {
+                  setExportOpen(false)
+                }}
+              />
+            )}
+          </section>
           {viewError && (
             <p className="edit-view-error" role="alert" data-testid="view-error">
               The grid could not be restored to a trustworthy view.{' '}

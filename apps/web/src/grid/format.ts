@@ -21,11 +21,14 @@
  */
 import { formatDecimalValue } from './decimal'
 import { formatNestedPreview } from './nested-preview'
+import { parseDuckDbType } from '../schema/parseType'
 
 /**
  * Format one cell value for display. `type` is the column's DuckDB type
  * string (from the effective schema), optional so existing callers that only
- * have a value keep working; when present it enables decimal decoding.
+ * have a value keep working; when present it enables decimal decoding —
+ * top-level via `formatDecimalValue`, and nested struct/list decimal leaves
+ * via the parsed type tree passed to the nested preview (m4-5).
  */
 export function formatCell(value: unknown, type?: string): string {
   if (value === null || value === undefined) return ''
@@ -35,6 +38,10 @@ export function formatCell(value: unknown, type?: string): string {
   }
   if (value instanceof Date) return value.toISOString()
   if (value instanceof Uint8Array) return `<${String(value.length)} bytes>`
-  if (typeof value === 'object') return formatNestedPreview(value)
+  if (typeof value === 'object') {
+    return formatNestedPreview(value, {
+      columnType: type === undefined ? null : parseDuckDbType(type),
+    })
+  }
   return String(value)
 }

@@ -1122,3 +1122,64 @@ h1 {
   color: #666;
   font-size: 0.8rem;
 }
+
+/* ---- Export a copy (m4-5; ADR 0012 copy, never in place) ---- */
+
+.export-actions {
+  margin-top: 0.5rem;
+}
+
+.export-dialog {
+  margin-top: 0.5rem;
+  border: 1px solid #ccd;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  max-width: 42rem;
+  background: #fbfcfe;
+}
+
+.export-dialog h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.35rem;
+}
+
+.export-copy-notice {
+  margin: 0 0 0.65rem;
+}
+
+.export-formats {
+  border: 1px solid #dde;
+  border-radius: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.export-format-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.export-format-description,
+.export-options-note,
+.export-view-note,
+.export-progress,
+.export-cancelled,
+.export-reopen-hint {
+  margin: 0.4rem 0 0;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.export-result {
+  margin: 0.5rem 0 0;
+  color: #153;
+}
+
+.export-error {
+  margin: 0.5rem 0 0;
+  color: #a11;
+  font-size: 0.85rem;
+}

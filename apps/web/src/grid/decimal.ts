@@ -23,15 +23,20 @@
  * - `UHUGEINT` arrives as `FixedSizeBinary(16)` (a `Uint8Array`); it is an
  *   integer, not an offered cast target, and keeps the `<16 bytes>` summary.
  *
- * Boundary (m4-5 carry-over): this decoder is keyed off the *column's* type
- * string, so a decimal nested inside a struct/list (`STRUCT("a" DECIMAL(10,2))`)
- * is not recognized and its cells still render `<16 bytes>`; only top-level
- * DECIMAL/NUMERIC/HUGEINT columns are decoded here.
+ * Boundary: this decoder recognizes **top-level** decimal-like column types
+ * from their type string, and — via `decimalSpecForParsedType` — decimal
+ * leaves at any position in the parsed type tree. The nested preview threads
+ * the parsed struct/list field types through its walk (m4-5), so a decimal
+ * inside `STRUCT("a" DECIMAL(10,2))` or `DECIMAL(10,2)[]` now renders its
+ * exact value too; the m4-4 carry-over (`<16 bytes>`) is closed. `UHUGEINT`
+ * (Arrow `FixedSizeBinary(16)`, not an offered cast target) intentionally
+ * keeps its `<16 bytes>` binary summary.
  *
  * Text-only, total: unknown shapes/lengths return `null` and the caller keeps
  * its existing formatting path. No dataset value is ever logged (ADR 0025).
  */
 import { parseDuckDbType } from '../schema/parseType'
+import type { DuckDbType } from '../schema/parseType'
 
 /** The declared precision/scale of a decimal-like column. */
 export interface DecimalSpec {
@@ -90,6 +95,31 @@ export function formatUnscaledDecimal(unscaled: bigint, scale: number): string {
   const padded = magnitude.padStart(safeScale + 1, '0')
   const split = padded.length - safeScale
   return `${sign}${padded.slice(0, split)}.${padded.slice(split)}`
+}
+
+/**
+ * Recognize a parsed type (m1-6 tree) whose Arrow value is a 128-bit decimal
+ * payload. Used by the nested preview (m4-5) to decode decimals nested inside
+ * structs/lists, where only the parsed field type — not a flat type string —
+ * is available at each leaf.
+ */
+export function decimalSpecForParsedType(type: DuckDbType | null): DecimalSpec | null {
+  if (type === null || type.kind !== 'primitive') return null
+  return decimalSpecForType(type.label)
+}
+
+/**
+ * Format a value when the *parsed* type at its position is decimal-like.
+ * Returns `null` for unrelated types or unrecognized value shapes so callers
+ * keep their existing path (mirrors `formatDecimalValue`, which takes the raw
+ * type string).
+ */
+export function formatDecimalForParsedType(value: unknown, type: DuckDbType | null): string | null {
+  const spec = decimalSpecForParsedType(type)
+  if (spec === null) return null
+  if (ArrayBuffer.isView(value)) return decodeDecimal128(value, spec.scale)
+  if (typeof value === 'bigint') return formatUnscaledDecimal(value, spec.scale)
+  return null
 }
 
 /**

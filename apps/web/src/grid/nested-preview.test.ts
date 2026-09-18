@@ -4,6 +4,7 @@ import {
   NESTED_PREVIEW_DEFAULT_MAX_LENGTH,
   formatNestedPreview,
 } from './nested-preview'
+import { parseDuckDbType } from '../schema/parseType'
 
 /**
  * m3-2 unit + property tests for the nested cell preview.
@@ -418,5 +419,73 @@ describe('formatNestedPreview — property sweeps (seeded, deterministic)', () =
         expect(rendered.length).toBeLessThanOrEqual(NESTED_PREVIEW_DEFAULT_MAX_LENGTH)
       }
     }
+  })
+})
+
+// ---- m4-5: decimal leaves nested in structs/lists (closes the m4-4 carry-over) ----
+//
+// `Vector.get()` delivers a DECIMAL/HUGEINT leaf as a 16-byte Arrow
+// `DecimalBigNum` (`Uint32Array`). Threading the parsed column type through the
+// preview lets a leaf at a declared decimal position decode exactly, using the
+// same `decimal.ts` decoder the top-level `formatCell` path uses. Without the
+// type the render stays the honest `<16 bytes>` summary (no guessing).
+
+/** 16-byte little-endian two's-complement Arrow decimal128 payload. */
+function decimalBytes(unscaled: bigint): Uint8Array {
+  const bytes = new Uint8Array(16)
+  let value = unscaled < 0n ? unscaled + (1n << 128n) : unscaled
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number(value & 0xffn)
+    value >>= 8n
+  }
+  return bytes
+}
+
+describe('formatNestedPreview — nested decimals via the parsed type tree (m4-5)', () => {
+  it('decodes decimal leaves inside a struct (the nested.parquet payload shape)', () => {
+    const type = parseDuckDbType(
+      'STRUCT("name" VARCHAR, geo STRUCT(lat DECIMAL(21,1), lon DECIMAL(21,1)), tags VARCHAR[])',
+    )
+    const value = {
+      name: 'n0',
+      geo: { lat: decimalBytes(10n), lon: decimalBytes(20n) },
+      tags: ['x'],
+    }
+    expect(formatNestedPreview(value, { columnType: type })).toBe(
+      '{"name":"n0","geo":{"lat":1.0,"lon":2.0},"tags":["x"]}',
+    )
+  })
+
+  it('decodes negative and fractional values exactly, never through a float', () => {
+    const type = parseDuckDbType('STRUCT("amount" DECIMAL(10,2))')
+    expect(formatNestedPreview({ amount: decimalBytes(-1234500n) }, { columnType: type })).toBe(
+      '{"amount":-12345.00}',
+    )
+  })
+
+  it('decodes decimal elements of a list, including HUGEINT (Arrow Decimal(38,0))', () => {
+    expect(
+      formatNestedPreview([decimalBytes(5200000n), decimalBytes(1n)], {
+        columnType: parseDuckDbType('DECIMAL(10,2)[]'),
+      }),
+    ).toBe('[52000.00,0.01]')
+    expect(
+      formatNestedPreview(
+        { h: decimalBytes(7n) },
+        { columnType: parseDuckDbType('STRUCT("h" HUGEINT)') },
+      ),
+    ).toBe('{"h":7}')
+  })
+
+  it('stays the honest <N bytes> summary when the type is unknown or not decimal', () => {
+    expect(formatNestedPreview({ lat: decimalBytes(10n) })).toBe('{"lat":<16 bytes>}')
+    expect(
+      formatNestedPreview(
+        { b: new Uint8Array([1, 2, 3]) },
+        {
+          columnType: parseDuckDbType('STRUCT("b" BLOB)'),
+        },
+      ),
+    ).toBe('{"b":<3 bytes>}')
   })
 })

@@ -36,6 +36,9 @@
  * markup, and nothing about dataset contents is logged (ADR 0025).
  */
 
+import type { DuckDbType } from '../schema/parseType'
+import { formatDecimalForParsedType } from './decimal'
+
 /** Default total length cap (truncation marker included), in UTF-16 units. */
 export const NESTED_PREVIEW_DEFAULT_MAX_LENGTH = 120
 
@@ -63,6 +66,13 @@ export interface NestedPreviewOptions {
    * Non-finite or < 1 values fall back to the default.
    */
   readonly maxDepth?: number
+  /**
+   * Parsed type of the value being previewed (m4-5). When supplied, decimal
+   * leaves (`DECIMAL`/`NUMERIC`/`HUGEINT`) nested inside structs/lists are
+   * decoded exactly instead of summarized as `<16 bytes>`, using each field's
+   * type from the m1-6 parser. Omit to keep the type-blind render.
+   */
+  readonly columnType?: DuckDbType | null
 }
 
 /** Resolved, recursion-inert settings for one `formatNestedPreview` call. */
@@ -161,6 +171,23 @@ function formatPrimitive(value: unknown): string {
   return String(value)
 }
 
+/** The element type of a parsed list, or `null` when the type is not a list. */
+function listElementType(type: DuckDbType | null): DuckDbType | null {
+  if (type !== null && type.kind === 'list') return type.element
+  return null
+}
+
+/**
+ * The declared type of one struct/union field, or `null` when unknown. Only
+ * structs and unions expose named fields; a MAP's rendered shape is not
+ * modeled here, so its children stay type-blind (no false decoding).
+ */
+function fieldType(type: DuckDbType | null, name: string): DuckDbType | null {
+  if (type === null) return null
+  if (type.kind !== 'struct' && type.kind !== 'union') return null
+  return type.fields.find((field) => field.name === name)?.type ?? null
+}
+
 /**
  * Renders a positional sequence `[a, b, …]` — elements read lazily through
  * `get` (never re-ordered, never materialized up front, so a hostile getter
@@ -169,6 +196,7 @@ function formatPrimitive(value: unknown): string {
 function renderList(
   length: number,
   get: (index: number) => unknown,
+  elementType: DuckDbType | null,
   depth: number,
   limits: PreviewLimits,
   out: BudgetWriter,
@@ -177,7 +205,7 @@ function renderList(
   out.write('[')
   for (let index = 0; index < length; index++) {
     if (index > 0) out.write(',')
-    renderValue(get(index), depth + 1, limits, out, active)
+    renderValue(get(index), elementType, depth + 1, limits, out, active)
   }
   out.write(']')
 }
@@ -185,6 +213,7 @@ function renderList(
 /** Renders `{"k":v}` — keys in the object's own order (Arrow field order). */
 function renderRecord(
   record: Record<string, unknown>,
+  type: DuckDbType | null,
   depth: number,
   limits: PreviewLimits,
   out: BudgetWriter,
@@ -196,7 +225,7 @@ function renderRecord(
     if (index > 0) out.write(',')
     // JSON.stringify on the key: quoted + escaped, exactly like the values.
     out.write(`${JSON.stringify(keys[index]!)}:`)
-    renderValue(record[keys[index]!], depth + 1, limits, out, active)
+    renderValue(record[keys[index]!], fieldType(type, keys[index]!), depth + 1, limits, out, active)
   }
   out.write('}')
 }
@@ -209,6 +238,7 @@ function renderRecord(
  */
 function renderValue(
   value: unknown,
+  type: DuckDbType | null,
   depth: number,
   limits: PreviewLimits,
   out: BudgetWriter,
@@ -243,21 +273,44 @@ function renderValue(
     return
   }
   // Binary views summarize like the scalar `formatCell` path (never a byte
-  // dump). Checked before list-likeness: `Uint8Array` has a numeric length.
+  // dump) — *except* a 16-byte payload at a declared decimal position, which
+  // is decoded exactly when the parsed field type is known (m4-5). Checked
+  // before list-likeness: `Uint8Array` has a numeric length.
   if (ArrayBuffer.isView(container)) {
+    const decimal = formatDecimalForParsedType(container, type)
+    if (decimal !== null) {
+      out.write(decimal)
+      return
+    }
     out.write(`<${String((container as { byteLength?: number }).byteLength ?? 0)} bytes>`)
     return
   }
   active.add(container)
   if (Array.isArray(container)) {
-    renderList(container.length, (index) => container[index], depth, limits, out, active)
+    renderList(
+      container.length,
+      (index) => container[index],
+      listElementType(type),
+      depth,
+      limits,
+      out,
+      active,
+    )
   } else if (isListLike(container)) {
     // Read positionally — never through property enumeration, whose keys on
     // Arrow `Vector` slices are internal machinery, not elements.
     const listLike = container as { length: number; get(index: number): unknown }
-    renderList(listLike.length, (index) => listLike.get(index), depth, limits, out, active)
+    renderList(
+      listLike.length,
+      (index) => listLike.get(index),
+      listElementType(type),
+      depth,
+      limits,
+      out,
+      active,
+    )
   } else {
-    renderRecord(container as Record<string, unknown>, depth, limits, out, active)
+    renderRecord(container as Record<string, unknown>, type, depth, limits, out, active)
   }
   active.delete(container)
 }
@@ -283,7 +336,7 @@ export function formatNestedPreview(value: unknown, options?: NestedPreviewOptio
   if (maxLength < 1) return ''
   const out = new BudgetWriter(maxLength)
   try {
-    renderValue(value, 0, { maxLength, maxDepth }, out, new WeakSet())
+    renderValue(value, options?.columnType ?? null, 0, { maxLength, maxDepth }, out, new WeakSet())
   } catch {
     // Totality: a hostile input (throwing getter, exotic proxy) must never
     // throw into the render path. Whatever rendered before the failure stays,
