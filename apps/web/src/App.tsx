@@ -19,6 +19,7 @@ import { EditToolbar } from './edit/EditToolbar'
 import { HistoryPanel } from './edit/HistoryPanel'
 import {
   activeOps,
+  castRefusalMessage,
   commitWithRollback,
   editOutcomeMessage,
   engineRejectionMessage,
@@ -66,7 +67,7 @@ type Phase =
       readonly handle: EngineTableHandle
       /** Immutable base metadata for the editing session (ADR 0011/0012). */
       readonly base: OverlayBase
-      /** Overlay-aware provider; the commit path probes it for value failures (m4-4). */
+      /** Overlay-aware provider; the grid reads the effective view through it (m4-3). */
       readonly provider: DuckDbGridProvider
     }
 
@@ -126,6 +127,19 @@ export function App() {
    */
   const [viewError, setViewError] = useState(false)
   const overlayRef = useRef<ReturnType<typeof overlaySnapshot> | null>(null)
+  /**
+   * Synchronous mirror of `history`. Cell/rename ops run synchronously against
+   * the latest value; the cast path `await`s the engine's pre-commit check, so
+   * reading this ref at append time prevents a stale closure from dropping an
+   * edit made while the check was in flight.
+   */
+  const historyRef = useRef<TransformationHistory>(history)
+  /**
+   * Monotonic session token, bumped when a new file opens. The cast check
+   * `await`s the engine, so a result that arrives after the user switched
+   * tables must be dropped rather than applied to the new session's history.
+   */
+  const sessionToken = useRef(0)
 
   const schemaColumns = phase.kind === 'ready' ? (phase.model.schema ?? []) : NO_COLUMNS
   const nestedSpecs = useMemo(
@@ -166,6 +180,7 @@ export function App() {
   const activateHistory = useCallback(
     (next: TransformationHistory): void => {
       if (phase.kind !== 'ready') return
+      historyRef.current = next
       overlayRef.current = overlaySnapshot(phase.base, next)
       setHistory(next)
       setOverlayRevision((revision) => revision + 1)
@@ -174,12 +189,20 @@ export function App() {
   )
 
   /**
-   * Commit a new history and rebuild the grid's data epoch. An engine that
-   * rejects the new overlay (a bad typed value) has the commit rolled back to
-   * `previous` and the previous effective view re-materialized
-   * (`commitWithRollback`) before the engine's message is surfaced as a
-   * text-only alert — a rejected value can never leave the grid all-loading
-   * or require a manual Undo to recover.
+   * Commit `history` as the active overlay and re-materialize it through a
+   * fresh data epoch. An engine that rejects the new overlay (a bad typed
+   * value) has the commit rolled back to `previous` and the previous effective
+   * view re-materialized (`commitWithRollback`) before the engine's message is
+   * surfaced as a text-only alert — a rejected value can never leave the grid
+   * all-loading or require a manual Undo to recover.
+   *
+   * m4-4 fix round: the cast path no longer relies on a bounded post-commit
+   * window probe (`verifyEffectiveView`, removed). Casts are checked *before*
+   * they are appended via the engine's `overlayCastCheck` (see
+   * `handleCastColumn`), which is the only honest point at which a
+   * value-level conversion failure is knowable without risking a committed
+   * broken grid. Other value failures (cell edits, schema materialization)
+   * still reject on the refresh below and roll back here.
    */
   const commitHistory = useCallback(
     async (
@@ -191,10 +214,6 @@ export function App() {
       const result = await commitWithRollback(previous, next, {
         setActive: activateHistory,
         refresh: () => phase.model.refresh(),
-        // Bounded value probe (m4-4): a cast whose values cannot convert
-        // passes schema/count reads and only fails on a window read, so the
-        // rollback path verifies values before declaring success.
-        verify: () => phase.provider.verifyEffectiveView(),
       })
       // An honest non-applied outcome (a no-op entry) must survive a
       // successful commit; an engine rejection message wins if present.
@@ -207,18 +226,21 @@ export function App() {
   const applyOp = useCallback(
     (op: EditOp) => {
       if (phase.kind !== 'ready') return
-      const result = appendOp(phase.base, history, op)
+      // Read the live history (not a possibly stale closure): the cast path
+      // awaits an engine check before calling this.
+      const current = historyRef.current
+      const result = appendOp(phase.base, current, op)
       // Surface the typed outcome honestly (null for `applied`); a conflicted
       // op changes no state and is not logged (m4-1 `appendOp`). No-op entries
       // *are* logged and keep their message through the commit.
       const outcomeMessage = editOutcomeMessage(result.outcome)
       if (result.entry !== null) {
-        void commitHistory(result.history, history, outcomeMessage)
+        void commitHistory(result.history, current, outcomeMessage)
       } else {
         setEditError(outcomeMessage)
       }
     },
-    [phase, history, commitHistory],
+    [phase, commitHistory],
   )
 
   const handleUndo = useCallback(() => {
@@ -263,11 +285,19 @@ export function App() {
   )
 
   /**
-   * m4-4 column ops. Both emit the intent through the same `applyOp` path as
-   * every other edit, so the domain owns conflict/no-op semantics (a rename
-   * collision surfaces as typed text and leaves state unchanged) and the
-   * commit rollback+alert path owns engine rejections (a cast the engine
-   * cannot materialize).
+   * m4-4 column ops. Rename emits its intent through the same `applyOp` path
+   * as every other edit, so the domain owns conflict/no-op semantics (a
+   * rename collision surfaces as typed text and leaves state unchanged).
+   *
+   * Cast is **validate-before-commit**: before appending the op, the engine's
+   * `overlayCastCheck` runs over the current (pre-cast) overlay and reports
+   * whether any non-NULL value cannot convert to the target type. A partial
+   * post-commit window probe was proven false (a bad value past row 0 could
+   * commit and brick the grid), so the check is the *only* place a
+   * value-level cast failure is knowable — the failed cast is never appended
+   * and the grid is never touched. The engine check's own rejection (unknown
+   * column, engine error) is surfaced as readable text and likewise appends
+   * nothing. Non-cast engine failures still use the m4-3 rollback path.
    */
   const handleRenameColumn = useCallback(
     (from: string, to: string) => {
@@ -278,9 +308,30 @@ export function App() {
 
   const handleCastColumn = useCallback(
     (column: string, targetType: string) => {
-      applyOp({ kind: 'column-cast', column, targetType })
+      if (phase.kind !== 'ready') return
+      const preCast = overlaySnapshot(phase.base, historyRef.current)
+      const session = sessionToken.current
+      void (async () => {
+        let check: { readonly hasNonConvertibleValues: boolean }
+        try {
+          check = await engineClient.overlayCastCheck(phase.handle, preCast, {
+            column,
+            targetType,
+          })
+        } catch (error) {
+          if (sessionToken.current === session) setEditError(engineRejectionMessage(error))
+          return
+        }
+        // A table switch while the check was in flight invalidates the intent.
+        if (sessionToken.current !== session) return
+        if (check.hasNonConvertibleValues) {
+          setEditError(castRefusalMessage(column, targetType))
+          return
+        }
+        applyOp({ kind: 'column-cast', column, targetType })
+      })()
     },
-    [applyOp],
+    [phase, applyOp],
   )
 
   /**
@@ -308,7 +359,6 @@ export function App() {
     if (phase.kind !== 'ready') return
     try {
       await phase.model.refresh()
-      await phase.provider.verifyEffectiveView()
       setViewError(false)
       setEditError(null)
     } catch (error) {
@@ -325,8 +375,11 @@ export function App() {
     setActionError(null)
     setEditError(null)
     setViewError(false)
+    sessionToken.current += 1
     overlayRef.current = null
-    setHistory(emptyHistory())
+    const resetHistory = emptyHistory()
+    historyRef.current = resetHistory
+    setHistory(resetHistory)
     setOverlayRevision(0)
     try {
       const picked = await pickDataFile()
@@ -358,6 +411,7 @@ export function App() {
         baseRowCount,
       }
       const initialHistory = emptyHistory()
+      historyRef.current = initialHistory
       overlayRef.current = overlaySnapshot(base, initialHistory)
       const provider = new DuckDbGridProvider(
         engineClient,

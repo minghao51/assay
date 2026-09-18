@@ -242,19 +242,80 @@ test('a structurally valid but engine-unknown cast rolls back and alerts recover
   await expect(cell(page, 0, 2)).toHaveText('52000')
 })
 
+test('a cast whose NON-FIRST-ROW values cannot convert is refused before commit (m4-4 fix)', async ({
+  page,
+}) => {
+  await openCustomersFixture(page)
+
+  // The reviewer's case: make row 0 convertible (so the old bounded 1-row
+  // probe passed and the broken cast committed), while rows 1–4 still cannot
+  // convert. Value-level validation must happen BEFORE the op is appended.
+  await editCell(page, 0, 1, '123')
+  await expect(cell(page, 0, 1)).toHaveText('123')
+
+  await castColumn(page, 'country', 'INTEGER')
+
+  const alert = page.getByTestId('edit-error')
+  await expect(alert).toBeVisible()
+  await expect(alert).toContainText('cannot convert')
+  await expect(alert).toContainText('No cast was applied')
+  // No cast committed: history holds exactly the one cell edit, the declared
+  // type is unchanged, and every row keeps rendering (never the old all-`!`
+  // state with a `Retry 1 failed window` footer that could never recover).
+  await expect(page.getByTestId('history-item')).toHaveCount(1)
+  await expect(page.getByTestId('history-cursor')).toHaveText('Step 1 of 1 applied')
+  await expect(headerCell(page, 'country')).toHaveAttribute('data-col-type', 'VARCHAR')
+  await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
+  await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
+  await expect(page.locator('[data-testid="grid-row"][data-status="error"]')).toHaveCount(0)
+  await expect(cell(page, 1, 1)).toHaveText('US')
+
+  // A subsequent valid cast still works and clears the refusal.
+  await castColumn(page, 'income', 'DOUBLE')
+  await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'DOUBLE')
+  await expect(page.getByTestId('edit-error')).toHaveCount(0)
+  await expect(page.getByTestId('history-item')).toHaveCount(2)
+})
+
+test('casting to DECIMAL(10,2) renders readable decimals, not <16 bytes> (m4-4 warning)', async ({
+  page,
+}) => {
+  await openCustomersFixture(page)
+
+  await castColumn(page, 'income', 'DECIMAL(10,2)')
+
+  await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'DECIMAL(10,2)')
+  await expect(cell(page, 0, 2)).toHaveText('52000.00')
+  await expect(cell(page, 1, 2)).toHaveText('61000.00')
+  await expect(cell(page, 3, 2)).toHaveText('48000.00')
+  await expect(cell(page, 4, 2)).toHaveText('75000.00')
+  // Row 2's income is NULL → the dedicated null marker, distinct from a
+  // byte summary.
+  await expect(cell(page, 2, 2)).toHaveAttribute('data-null', 'true')
+  await expect(cell(page, 2, 2)).toHaveText('NULL')
+  // The old `<16 bytes>` summary is gone from every rendered cell.
+  await expect(page.getByTestId('grid-cell').filter({ hasText: 'bytes' })).toHaveCount(0)
+
+  // Undo restores the BIGINT rendering exactly.
+  await page.getByTestId('edit-undo').click()
+  await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'BIGINT')
+  await expect(cell(page, 0, 2)).toHaveText('52000')
+})
+
 test('a legal cast whose values cannot convert rolls back and alerts recoverably', async ({
   page,
 }) => {
   await openCustomersFixture(page)
 
   // The engine accepts `INTEGER` as a type (schema + count succeed) but the
-  // country values ('SG', 'US', …) cannot convert — this only fails on a
-  // materializing window read, which the m4-4 value probe forces.
+  // country values ('SG', 'US', …) cannot convert. The pre-commit cast check
+  // refuses it before an op is appended (m4-4 fix; previously a partial
+  // window probe was relied on here).
   await castColumn(page, 'country', 'INTEGER')
 
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
-  await expect(alert).toContainText('rejected')
+  await expect(alert).toContainText('No cast was applied')
   await expect(headerCell(page, 'country')).toHaveAttribute('data-col-type', 'VARCHAR')
   await expect(page.getByTestId('history-empty')).toBeVisible()
   await expect(page.getByTestId('edit-undo')).toBeDisabled()

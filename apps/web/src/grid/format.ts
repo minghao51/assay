@@ -11,12 +11,28 @@
  * through the bounded, depth-aware nested preview instead of raw
  * `JSON.stringify`, which was unbounded in length, blind to depth, and
  * dishonest for `NaN`/`undefined` members. Scalars keep their existing paths.
+ *
+ * m4-4 fix round: when the column's declared type is passed, decimal-like
+ * Arrow payloads (`DECIMAL(p,s)` and the `HUGEINT` → Arrow `Decimal(38,0)`
+ * mapping) are decoded to their exact human value first. Arrow's
+ * `DecimalBigNum` is a `Uint32Array` subclass, so the old `Uint8Array`
+ * binary check missed it and the nested preview summarized it as
+ * `<16 bytes>`. See `decimal.ts`.
  */
+import { formatDecimalValue } from './decimal'
 import { formatNestedPreview } from './nested-preview'
 
-/** Format one cell value for display. */
-export function formatCell(value: unknown): string {
+/**
+ * Format one cell value for display. `type` is the column's DuckDB type
+ * string (from the effective schema), optional so existing callers that only
+ * have a value keep working; when present it enables decimal decoding.
+ */
+export function formatCell(value: unknown, type?: string): string {
   if (value === null || value === undefined) return ''
+  if (type !== undefined) {
+    const decimal = formatDecimalValue(value, type)
+    if (decimal !== null) return decimal
+  }
   if (value instanceof Date) return value.toISOString()
   if (value instanceof Uint8Array) return `<${String(value.length)} bytes>`
   if (typeof value === 'object') return formatNestedPreview(value)

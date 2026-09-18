@@ -11,6 +11,7 @@ import {
 } from '@assay/domain'
 import {
   activeOps,
+  castRefusalMessage,
   commitWithRollback,
   editOutcomeMessage,
   engineRejectionMessage,
@@ -158,6 +159,16 @@ describe('engineRejectionMessage — readable, text-only engine summary', () => 
   })
 })
 
+describe('castRefusalMessage — readable, text-only refusal for a doomed cast', () => {
+  it('names the column and target type and states that nothing was applied', () => {
+    const message = castRefusalMessage('country', 'INTEGER')
+    expect(message).toContain('"country"')
+    expect(message).toContain('INTEGER')
+    expect(message).toContain('cannot convert')
+    expect(message).toContain('No cast was applied')
+  })
+})
+
 describe('commitWithRollback — a rejected overlay restores the previous effective view', () => {
   const previous = emptyHistory()
   const next = appendOp(BASE, previous, {
@@ -204,20 +215,20 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(result.restoreFailed).toBe(false)
   })
 
-  it('rolls back when the value probe rejects after schema/count succeeded (m4-4 cast class)', async () => {
+  it('rolls back when the refresh window read rejects (value-level cast class)', async () => {
     const published: TransformationHistory[] = []
-    let verified = 0
+    let refreshes = 0
     const result = await commitWithRollback(previous, next, {
       setActive: (history) => published.push(history),
-      refresh: async () => {},
-      verify: async () => {
-        verified += 1
-        if (verified === 1)
+      refresh: async () => {
+        refreshes += 1
+        if (refreshes === 1) {
           throw new Error('Conversion Error: Could not convert string "US" to INT32')
+        }
       },
     })
     expect(published).toEqual([next, previous])
-    expect(verified).toBe(2)
+    expect(refreshes).toBe(2)
     expect(result.message).toContain('Conversion Error')
     expect(result.restoreFailed).toBe(false)
   })
@@ -240,14 +251,16 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(result.restoreFailed).toBe(true)
   })
 
-  it('does not report a restored view when the restore verify probe fails', async () => {
+  it('does not report a restored view when the restore refresh fails', async () => {
+    let refreshes = 0
     const result = await commitWithRollback(previous, next, {
       setActive: () => {},
-      refresh: async () => {},
-      verify: async () => {
+      refresh: async () => {
+        refreshes += 1
         throw new Error('engine unavailable')
       },
     })
+    expect(refreshes).toBe(2)
     expect(result.restoreFailed).toBe(true)
     expect(result.message).toContain('Restoring the previous view also failed')
     expect(result.message).toContain('engine unavailable')

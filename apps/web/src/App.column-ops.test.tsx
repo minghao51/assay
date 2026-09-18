@@ -24,7 +24,11 @@ import type { ArrowTableLike } from './grid/provider'
  */
 
 /** Mutable engine-health flag shared with the hoisted mock factory. */
-const h = vi.hoisted(() => ({ healthy: true }))
+const h = vi.hoisted(() => ({
+  healthy: true,
+  /** Pre-commit cast check outcome: pass, refuse, or reject (engine error). */
+  castCheck: 'ok' as 'ok' | 'refuse' | 'throw',
+}))
 
 const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
 
@@ -109,6 +113,10 @@ vi.mock('./lib/engine', () => {
       overlaySchema: async (_handle: unknown, overlay: Overlay) =>
         h.healthy ? effectiveSchema(overlay) : unhealthy(),
       overlayRowCount: async () => (h.healthy ? 1 : unhealthy()),
+      overlayCastCheck: async () => {
+        if (h.castCheck === 'throw') throw new Error('engine unavailable')
+        return { hasNonConvertibleValues: h.castCheck === 'refuse' }
+      },
       fetchOverlayRange: async (_handle: unknown, overlay: Overlay) => ({
         batch: h.healthy ? fakeOverlayBatch(effectiveSchema(overlay).length) : unhealthy(),
         hasMore: false,
@@ -123,6 +131,7 @@ vi.mock('./profile/ProfilePanel', () => ({ ProfilePanel: () => null }))
 afterEach(() => {
   cleanup()
   h.healthy = true
+  h.castCheck = 'ok'
 })
 
 async function openFixture(): Promise<void> {
@@ -217,6 +226,61 @@ describe('column rename affordance (m4-4)', () => {
     expect(screen.getByTestId('column-op-error').textContent).toContain('not a valid column type')
     expect(screen.getByTestId('pending-changes').textContent).toBe('No pending changes.')
     expect(screen.queryByTestId('history-description')).toBeNull()
+  })
+})
+
+describe('cast validate-before-commit (m4-4 fix round)', () => {
+  async function castColumn(column: string, target: string): Promise<void> {
+    const panel = within(screen.getByTestId('schema-panel'))
+    await act(async () => {
+      fireEvent.click(panel.getByRole('button', { name: `Cast column ${column}` }))
+    })
+    await act(async () => {
+      fireEvent.change(panel.getByTestId('column-cast-select'), { target: { value: target } })
+    })
+    await act(async () => {
+      fireEvent.click(panel.getByTestId('column-cast-commit'))
+    })
+  }
+
+  it('refuses a cast the engine check proves non-convertible, appending nothing', async () => {
+    await openFixture()
+    h.castCheck = 'refuse'
+
+    await castColumn('income', 'INTEGER')
+
+    expect(screen.getByTestId('edit-error').textContent).toContain('No cast was applied')
+    expect(screen.getByTestId('edit-error').textContent).toContain('"income"')
+    // No op committed: no history entry, pending summary empty, header type
+    // still the base BIGINT.
+    expect(screen.queryByTestId('history-description')).toBeNull()
+    expect(screen.getByTestId('pending-changes').textContent).toBe('No pending changes.')
+    const incomeHeader = screen
+      .getAllByTestId('grid-header-cell')
+      .find((cell) => cell.getAttribute('data-col-name') === 'income')
+    expect(incomeHeader?.getAttribute('data-col-type')).toBe('BIGINT')
+  })
+
+  it('surfaces a rejected check as readable text and appends nothing', async () => {
+    await openFixture()
+    h.castCheck = 'throw'
+
+    await castColumn('income', 'INTEGER')
+
+    expect(screen.getByTestId('edit-error').textContent).toContain('The engine rejected this edit')
+    expect(screen.queryByTestId('history-description')).toBeNull()
+    expect(screen.getByTestId('pending-changes').textContent).toBe('No pending changes.')
+  })
+
+  it('commits the cast only after the check passes', async () => {
+    await openFixture()
+
+    await castColumn('income', 'DECIMAL(10,2)')
+
+    expect(screen.getByTestId('history-description').textContent).toBe(
+      'cast column "income" to DECIMAL(10,2)',
+    )
+    expect(screen.getByTestId('pending-changes').textContent).toContain('1 column cast')
   })
 })
 

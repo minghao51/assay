@@ -539,7 +539,7 @@ export function DataGrid({
                             // m3-2 title policy: cells deliberately carry NO
                             // `title` attribute (payload × cells; CSS overflow
                             // is the display concern; the inspector shows full values).
-                            formatCell(cell)
+                            formatCell(cell, column?.type)
                           )}
                         </div>
                       )

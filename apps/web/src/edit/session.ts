@@ -121,20 +121,26 @@ export function engineRejectionMessage(error: unknown): string {
   return `The engine rejected this edit: ${engineErrorSummary(error)}. The previous view is unchanged.`
 }
 
+/**
+ * Readable refusal for a cast the engine's pre-commit check proved would fail
+ * to convert some of the column's values (m4-4 fix round). Names the column
+ * and target type (schema vocabulary, never cell values) and states plainly
+ * that nothing was applied, so the alert can never be mistaken for a
+ * successful-but-odd commit.
+ */
+export function castRefusalMessage(column: string, targetType: string): string {
+  return (
+    `Cannot cast "${column}" to ${targetType}: ` +
+    'some values cannot convert to that type. No cast was applied; the view is unchanged.'
+  )
+}
+
 /** The effects a history commit needs from the composition root. */
 export interface CommitEffects {
   /** Publish `history` as the active overlay (overlay ref + React state). */
   setActive(history: TransformationHistory): void
   /** Re-materialize the active overlay through a fresh data epoch. */
   refresh(): Promise<void>
-  /**
-   * Force the active overlay's *values* to materialize (a bounded probe
-   * fetch). Needed because schema and count queries can succeed without
-   * evaluating a column cast (`DESCRIBE` binds types; `count(*)` prunes the
-   * projection), so a cast whose values cannot convert only fails on a
-   * window read. Optional for callers that only have a schema/count seam.
-   */
-  verify?(): Promise<void>
 }
 
 /**
@@ -161,13 +167,19 @@ export interface CommitResult {
  * renderable instead of all-loading.
  *
  * `setActive(next)` runs first so the provider reads the new overlay during
- * `refresh()`; on rejection `setActive(previous)` + a second `refresh()` +
- * optional `verify()` restore the prior effective view. **Double-failure
- * honesty** (m4-3 carry-over): if that restore also rejects, the returned
- * message names *both* failures — it never claims only the value was
- * rejected — and `restoreFailed: true` tells the host to surface a retry
- * affordance, so an engine outage cannot leave the user with an unattributed
- * alert and no way back. Never throws.
+ * `refresh()`; on rejection `setActive(previous)` + a second `refresh()`
+ * restore the prior effective view. **Double-failure honesty** (m4-3
+ * carry-over): if that restore also rejects, the returned message names
+ * *both* failures — it never claims only the value was rejected — and
+ * `restoreFailed: true` tells the host to surface a retry affordance, so an
+ * engine outage cannot leave the user with an unattributed alert and no way
+ * back. Never throws.
+ *
+ * m4-4 fix round: the bounded `verify()` probe is gone. A cast whose values
+ * cannot convert is now refused *before* the op is appended via the engine's
+ * `overlayCastCheck` (see `handleCastColumn`), and every other value failure
+ * rejects on the `refresh()` window read itself. A partial-window probe was a
+ * false assurance: a bad value past row 0 could commit and brick the grid.
  */
 export async function commitWithRollback(
   previous: TransformationHistory,
@@ -177,14 +189,12 @@ export async function commitWithRollback(
   effects.setActive(next)
   try {
     await effects.refresh()
-    if (effects.verify !== undefined) await effects.verify()
     return { message: null, restoreFailed: false }
   } catch (error) {
     effects.setActive(previous)
     let restoreError: unknown = null
     try {
       await effects.refresh()
-      if (effects.verify !== undefined) await effects.verify()
     } catch (restoreFailure) {
       restoreError = restoreFailure
     }
