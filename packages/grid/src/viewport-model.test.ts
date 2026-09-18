@@ -103,9 +103,9 @@ class FakeProvider implements GridDataProvider {
     this.filterCalls.push(spec)
   }
 
-  // Still a contract stub: editing state is M4 work (overlay model), the
-  // fake just satisfies the interface.
-  async updateCell(): Promise<void> {}
+  // No `updateCell`: the m4-3 contract removed the positional mutator stub
+  // (editing is an overlay op addressed by logical row identity, owned by
+  // the host's edit layer — see contracts.ts).
 
   /** Resolve (or fail) every held fetch with its request-time page. */
   releaseAll(): void {
@@ -117,6 +117,22 @@ class FakeProvider implements GridDataProvider {
       } else {
         entry.resolve(entry.page)
       }
+    }
+  }
+
+  /**
+   * Resolve exactly one held fetch (FIFO by default) with its request-time
+   * page — used by the m4-3 inflight-tagging regression, which must complete
+   * an OLD epoch's fetch while a NEW epoch's fetch for the same span is
+   * still in flight.
+   */
+  releaseAt(index = 0): void {
+    const [entry] = this.pending.splice(index, 1)
+    if (entry === undefined) throw new Error(`no pending fetch at index ${String(index)}`)
+    if (this.failStartRows.has(entry.range.startRow)) {
+      entry.reject(new Error(`provider failure at row ${String(entry.range.startRow)}`))
+    } else {
+      entry.resolve(entry.page)
     }
   }
 
@@ -548,6 +564,124 @@ describe('GridViewportModel — refresh (new data epoch)', () => {
 
     expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
     expect(model.stats.rowsReceived).toBe(10) // only the fresh epoch counted
+  })
+})
+
+describe('GridViewportModel — inflight markers are epoch-tagged (m4-3 carry-over)', () => {
+  it("an old epoch's late completion must not delete a newer epoch's in-flight marker", async () => {
+    const provider = new FakeProvider({ rowCount: 1000, manual: true })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+
+    // Epoch 0 fetch for span `0:9`, held. refresh() bumps the epoch, clears
+    // the inflight map, and starts an epoch-1 fetch for the SAME span key.
+    model.observeViewport(0, 9)
+    const refreshDone = model.refresh()
+    await flush()
+    expect(provider.fetchLog.length).toBe(2)
+
+    // Complete the OLD fetch while the NEW one is still in flight. Its
+    // `finally` runs `inflight.delete('0:9')`; untagged, that deletes the
+    // epoch-1 marker, so the re-observe below would issue a duplicate fetch.
+    provider.releaseAt(0)
+    await flush()
+
+    model.observeViewport(0, 9)
+    await flush()
+    // The epoch-1 marker survived: no duplicate fetch was issued.
+    expect(provider.fetchLog.length).toBe(2)
+
+    // Releasing the epoch-1 fetch lands the fresh window; the stale page
+    // never rendered (generation guard unchanged).
+    provider.releaseAll()
+    await flush()
+    await refreshDone
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+    expect(model.stats.rowsReceived).toBe(10)
+  })
+
+  it('keeps dedup honest across three rapid epoch shifts (no duplicate spans)', async () => {
+    const provider = new FakeProvider({ rowCount: 1000, manual: true })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+
+    model.observeViewport(0, 9)
+    const first = model.refresh()
+    await flush()
+    const second = model.refresh()
+    await flush()
+    expect(provider.fetchLog.length).toBe(3)
+
+    // Complete the two older fetches; their markers must not remove the
+    // newest epoch's marker for the same key.
+    provider.releaseAt(0)
+    await flush()
+    provider.releaseAt(0)
+    await flush()
+    model.observeViewport(0, 9)
+    await flush()
+    expect(provider.fetchLog.length).toBe(3)
+
+    provider.releaseAll()
+    await flush()
+    await Promise.all([first, second])
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+  })
+})
+
+describe('GridViewportModel — opaque row-key channel (m4-3)', () => {
+  it('carries page rowKeys onto ready slots and clears them with the cache', async () => {
+    const provider = new FakeProvider({ rowCount: 1000, manual: true })
+    provider.pageFor = (range) => ({
+      startRow: range.startRow,
+      rows: Array.from({ length: range.endRow - range.startRow }, (_, i) => [
+        range.startRow + i,
+        `cell-${String(range.startRow + i)}`,
+      ]),
+      rowKeys: Array.from(
+        { length: range.endRow - range.startRow },
+        (_, i) => `base:anchor#${String(range.startRow + i)}`,
+      ),
+    })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 4)
+    provider.releaseAll()
+    await flush()
+
+    expect(model.getRow(2)).toEqual({
+      status: 'ready',
+      row: [2, 'cell-2'],
+      key: 'base:anchor#2',
+    })
+
+    const refreshDone = model.refresh()
+    await flush()
+    // refresh clears the cache synchronously; while the refetch is held the
+    // slot is a loading placeholder with no key from the previous epoch.
+    expect(model.getRow(2)).toEqual({ status: 'loading' })
+
+    provider.releaseAll()
+    await flush()
+    await refreshDone
+    expect(model.getRow(2)).toEqual({
+      status: 'ready',
+      row: [2, 'cell-2'],
+      key: 'base:anchor#2',
+    })
+  })
+
+  it('rejects a page whose rowKeys length disagrees with its rows', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    provider.pageFor = () => ({ startRow: 0, rows: [[0, 'cell-0']], rowKeys: ['a', 'b'] })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 0)
+    await flush()
+    expect(model.getRow(0)).toEqual({
+      status: 'error',
+      message: expect.stringContaining('row keys'),
+    })
   })
 })
 

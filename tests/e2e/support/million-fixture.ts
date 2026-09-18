@@ -25,7 +25,7 @@ export interface MillionRowExpectation {
   readonly id: string
   readonly bucket: string
   readonly label: string
-  readonly valueMaybeNull: string // '' for the generator's NULLs
+  readonly valueMaybeNull: string // 'NULL' for the generator's NULLs (m4-3 marker)
 }
 
 export function expectedMillionRow(index: number): MillionRowExpectation {
@@ -35,8 +35,9 @@ export function expectedMillionRow(index: number): MillionRowExpectation {
     label: `row-${String(index)}`,
     // Every 100,000th row carries a NULL. i * 1.5 is exact in binary floating
     // point for i ≤ 1e6 (integers and halves), so JS String() and DuckDB's
-    // DECIMAL→DOUBLE cast agree digit for digit.
-    valueMaybeNull: index % 100_000 === 0 ? '' : String(index * 1.5),
+    // DECIMAL→DOUBLE cast agree digit for digit. m4-3 renders a SQL NULL as the
+    // distinct `NULL` marker (never a blank cell), hence the string here.
+    valueMaybeNull: index % 100_000 === 0 ? 'NULL' : String(index * 1.5),
   }
 }
 

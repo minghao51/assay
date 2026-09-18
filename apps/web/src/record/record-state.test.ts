@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { buildRecordTree } from './record-tree'
 import type { RecordTreeNode } from './record-tree'
-import { recordContextShifted, reduceRecordInspector } from './record-state'
+import {
+  recordContextNeedsReload,
+  recordContextShifted,
+  reduceRecordInspector,
+} from './record-state'
 import type { RecordContext, RecordInspectorEvent, RecordInspectorState } from './record-state'
 
 /**
- * m3-3 unit tests for the inspector lifecycle + freshness policy. The policy
- * under test (pinned in `record-state.ts`): an epoch shift CLOSES the open
- * record — never re-resolves the position, never keeps a stale snapshot.
+ * m3-3/m4-3 unit tests for the inspector lifecycle + freshness policy. The
+ * policy under test (pinned in `record-state.ts`): a query/schema epoch shift
+ * CLOSES the open record — never re-resolves the position, never keeps a
+ * stale snapshot; an overlay value-only change RELOADS the same logical row
+ * (never paints the old snapshot as current while the refetch is pending).
  */
 
 function context(overrides: Partial<RecordContext> = {}): RecordContext {
@@ -15,6 +21,9 @@ function context(overrides: Partial<RecordContext> = {}): RecordContext {
     sort: null,
     filters: [],
     totalRows: 12,
+    overlayRevision: 0,
+    schemaSignature: 'id\tBIGINT',
+    rowKey: 'base:anchor#0',
     ...overrides,
   }
 }
@@ -141,5 +150,61 @@ describe('recordContextShifted — the freshness predicate', () => {
 
   it('is true when the total row count changed under the same query state', () => {
     expect(recordContextShifted(context(), context({ totalRows: 11 }))).toBe(true)
+  })
+
+  it('is true when the effective schema signature changed (rename/cast, m4-3)', () => {
+    expect(
+      recordContextShifted(context(), context({ schemaSignature: 'id\tBIGINT\nname\tVARCHAR' })),
+    ).toBe(true)
+  })
+
+  it('ignores overlay-revision-only changes (that is a reload, not a shift)', () => {
+    expect(recordContextShifted(context(), context({ overlayRevision: 3 }))).toBe(false)
+  })
+})
+
+describe('recordContextNeedsReload — the value-only freshness predicate (m4-3)', () => {
+  it('is true for an overlay-revision change with the same query state and schema', () => {
+    expect(recordContextNeedsReload(context(), context({ overlayRevision: 2 }))).toBe(true)
+  })
+
+  it('is false when nothing changed', () => {
+    expect(recordContextNeedsReload(context(), context())).toBe(false)
+  })
+
+  it('is false when the change is a structural shift (close wins over reload)', () => {
+    expect(
+      recordContextNeedsReload(
+        context(),
+        context({ overlayRevision: 2, schemaSignature: 'id\tVARCHAR' }),
+      ),
+    ).toBe(false)
+    expect(
+      recordContextNeedsReload(context(), context({ overlayRevision: 2, totalRows: 99 })),
+    ).toBe(false)
+  })
+})
+
+describe('reduceRecordInspector — reloaded event (m4-3)', () => {
+  it('advances the snapshot and context without changing row/token/expansion surface', () => {
+    const opened = reduceRecordInspector({ kind: 'closed' }, openEvent({ rowIndex: 3, token: 7 }))
+    const tree = buildRecordTree({ columns: ['id'], cells: [9n] })
+    const reloaded = reduceRecordInspector(opened, {
+      type: 'reloaded',
+      tree,
+      context: context({ overlayRevision: 1 }),
+    })
+    const open = expectOpen(reloaded)
+    expect(open.rowIndex).toBe(3)
+    expect(open.token).toBe(7)
+    expect(open.tree).toBe(tree)
+    expect(open.context.overlayRevision).toBe(1)
+  })
+
+  it('a late reload over a closed state is inert (never resurrects a record)', () => {
+    const closed = reduceRecordInspector({ kind: 'closed' }, { type: 'closed' })
+    expect(
+      reduceRecordInspector(closed, { type: 'reloaded', tree: TREE, context: context() }),
+    ).toEqual({ kind: 'closed' })
   })
 })

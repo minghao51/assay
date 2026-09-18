@@ -1,30 +1,42 @@
 /**
  * Adapter: `GridDataProvider` over the DuckDB engine client (m1-5; sort/filter
- * wiring m2-3).
+ * wiring m2-3; edit-overlay composition m4-3).
  *
  * Composition-root glue, engine-aware by design — the grid model itself stays
  * engine-free (`@assay/grid` knows only the provider contract). Arrow never
- * crosses this seam as a type: `fetchRange` reconstitutes the engine's Arrow
- * window on the main thread and immediately projects it to row-major JS cells
- * — a *small* UI projection (visible windows are ≤1000 rows after the
- * engine's clamp), explicitly allowed by ADR 0020. The structural
- * `ArrowTableLike`/`ArrowVectorLike` shapes keep `apache-arrow` out of this
- * app's dependency tree entirely; the real engine `Table` satisfies them.
+ * crosses this seam as a type: the engine window is reconstituted on the main
+ * thread and immediately projected to row-major JS cells — a *small* UI
+ * projection (visible windows are ≤1000 rows after the engine's clamp),
+ * explicitly allowed by ADR 0020. The structural `ArrowTableLike` /
+ * `ArrowVectorLike` shapes keep `apache-arrow` out of this app's dependency
+ * tree entirely; the real engine `Table` satisfies them.
+ *
+ * m4-3 — the effective view is the overlay view. Every read goes through the
+ * engine's overlay surface (`overlaySchema` / `overlayRowCount` /
+ * `fetchOverlayRange`), so the grid shows edits, hides deleted rows, places
+ * inserted rows, and uses post-rename/post-cast columns. Two deliberate
+ * narrowings keep the m1-5 non-materialization guarantees intact:
+ *
+ * 1. **Fast base path.** While the overlay is empty *and* no sort/filter is
+ *    active, the provider uses the base `schema`/`rowCount`/`fetchRange`
+ *    methods — the pre-m4-2 SQL, which the million-row benchmark pins. In
+ *    that state the grid's row index *is* the base ordinal, so the provider
+ *    synthesizes the same logical ids the composed view would
+ *    (`base:<anchor>#<index>`), and editing still gets an honest identity
+ *    channel. Once an op or a sort/filter exists, the overlay path takes
+ *    over.
+ * 2. **Row identity channel.** The overlay window asks for `includeRowIds`
+ *    and the provider strips the leading `assay_row_id` column into the
+ *    grid page's opaque `rowKeys` channel (m4-3). The app's edit layer
+ *    addresses rows by that key — never by viewport position (ADR 0011).
  *
  * Query state (m2-3): the provider holds the active sort/filter specs so
- * every subsequent `fetchRange`/`rowCount` carries them — the model mirrors
- * the same state above the contract (`GridViewportModel.sort`/`filters`).
- * The mapping is field-for-field: the grid's `SortSpec`/`FilterSpec` are
- * structural mirrors of the engine protocol's `EngineSortSpec`/
- * `EngineFilterSpec` (predicates are column-qualified engine-SQL fragments —
- * see the v1 grammar documented on `FilterSpec`). Absent/empty means
- * "cleared", so cleared state is sent as *absent* fields and the engine
- * composes byte-identical SQL to the unfiltered query. `sort(spec)`/
- * `filter(null)` implement the contract's clear protocol. The state
- * mutations are local and infallible, so the model's "rejection ⇒ no state
- * change" rule holds trivially at this seam; engine-side failures (e.g. an
- * invalid predicate fragment) reject later — when the model's refresh runs
- * the filtered `rowCount`/window fetches — and propagate to the UI caller.
+ * every subsequent fetch/count carries them. The mapping is field-for-field:
+ * the grid's `SortSpec`/`FilterSpec` are structural mirrors of the engine
+ * protocol's `EngineSortSpec`/`EngineFilterSpec`. Absent/empty means
+ * "cleared", so cleared state is sent as *absent* fields and the fast path
+ * composes byte-identical SQL to the pre-m2-2 query. `sort(spec)` /
+ * `filter(null)` implement the contract's clear protocol.
  */
 import type {
   CellRange,
@@ -34,9 +46,12 @@ import type {
   GridDataProvider,
   SortSpec,
 } from '@assay/grid'
+import { baseRowId } from '@assay/domain'
 import type {
   EngineColumnSchema,
   EngineFilterSpec,
+  EngineOverlay,
+  EngineOverlayWindow,
   EngineRangeWindow,
   EngineRowCountOptions,
   EngineSortSpec,
@@ -55,13 +70,29 @@ export interface ArrowTableLike {
   getChildAt(index: number): ArrowVectorLike | null
 }
 
-/** The slice of the engine client this adapter needs (structural, for fakes). */
+/**
+ * The slice of the engine client this adapter needs (structural, for fakes).
+ * The overlay methods are required: the app's only data path is the composed
+ * effective view (m4-3), with the base methods used as the empty-overlay fast
+ * path.
+ */
 export interface GridEngineClient {
   schema(handle: EngineTableHandle): Promise<EngineColumnSchema[]>
   rowCount(handle: EngineTableHandle, options?: EngineRowCountOptions): Promise<number>
   fetchRange(
     handle: EngineTableHandle,
     window: EngineRangeWindow,
+  ): Promise<{ batch: ArrowTableLike; hasMore: boolean }>
+  overlaySchema(handle: EngineTableHandle, overlay: EngineOverlay): Promise<EngineColumnSchema[]>
+  overlayRowCount(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    options?: EngineRowCountOptions,
+  ): Promise<number>
+  fetchOverlayRange(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    window: EngineOverlayWindow,
   ): Promise<{ batch: ArrowTableLike; hasMore: boolean }>
 }
 
@@ -71,6 +102,44 @@ export interface GridEngineClient {
  * a bounded, small projection — never dataset materialization (ADR 0020).
  */
 export function projectBatchToRows(batch: ArrowTableLike): unknown[][] {
+  const columns = arrowColumns(batch)
+  const rows: unknown[][] = []
+  for (let rowIndex = 0; rowIndex < batch.numRows; rowIndex++) {
+    rows.push(columns.map((column) => column.get(rowIndex)))
+  }
+  return rows
+}
+
+/**
+ * Project an overlay window whose first column is the engine's logical
+ * `assay_row_id`. Returns the data cells (id column stripped) plus the
+ * parallel opaque identity keys. A non-string id or a missing id column is a
+ * provider bug and throws rather than guessing a position.
+ */
+export function projectOverlayPage(batch: ArrowTableLike): {
+  rows: unknown[][]
+  rowKeys: string[]
+} {
+  if (batch.numCols < 1) {
+    throw new Error('overlay batch is missing the row-id column')
+  }
+  const allColumns = arrowColumns(batch)
+  const idColumn = allColumns[0]!
+  const dataColumns = allColumns.slice(1)
+  const rows: unknown[][] = []
+  const rowKeys: string[] = []
+  for (let rowIndex = 0; rowIndex < batch.numRows; rowIndex++) {
+    const key = idColumn.get(rowIndex)
+    if (typeof key !== 'string') {
+      throw new Error(`overlay batch row ${String(rowIndex)} has a non-string row id`)
+    }
+    rowKeys.push(key)
+    rows.push(dataColumns.map((column) => column.get(rowIndex)))
+  }
+  return { rows, rowKeys }
+}
+
+function arrowColumns(batch: ArrowTableLike): ArrowVectorLike[] {
   const columns: ArrowVectorLike[] = []
   for (let index = 0; index < batch.numCols; index++) {
     const vector = batch.getChildAt(index)
@@ -79,58 +148,92 @@ export function projectBatchToRows(batch: ArrowTableLike): unknown[][] {
     }
     columns.push(vector)
   }
-  const rows: unknown[][] = []
-  for (let rowIndex = 0; rowIndex < batch.numRows; rowIndex++) {
-    rows.push(columns.map((column) => column.get(rowIndex)))
-  }
-  return rows
+  return columns
 }
+
+/** Reads the effective overlay for each request (never stored per-request). */
+export type OverlaySource = () => EngineOverlay
 
 /** Opens files through the engine client and serves them to the grid model. */
 export class DuckDbGridProvider implements GridDataProvider {
   private readonly client: GridEngineClient
   private readonly handle: EngineTableHandle
+  private readonly overlaySource: OverlaySource
   /** Active sort keys; empty = natural order (the `sort(null)` clear). */
   private sortKeys: EngineSortSpec[] = []
   /** Active predicates in push order; empty = unfiltered (`filter(null)`). */
   private filterPredicates: EngineFilterSpec[] = []
 
-  constructor(client: GridEngineClient, handle: EngineTableHandle) {
+  constructor(client: GridEngineClient, handle: EngineTableHandle, overlaySource: OverlaySource) {
     this.client = client
     this.handle = handle
+    this.overlaySource = overlaySource
+  }
+
+  /**
+   * True when the read must go through the composed overlay relation: any
+   * active op (edits/deletes/inserts/renames/casts) or any sort/filter. With
+   * an empty overlay and no query state the base methods are used — the
+   * m1-5 fast path (and the synthesized `base:<anchor>#<index>` ids are
+   * exact for natural order).
+   */
+  private get usesOverlay(): boolean {
+    return (
+      (this.overlaySource().ops?.length ?? 0) > 0 ||
+      this.sortKeys.length > 0 ||
+      this.filterPredicates.length > 0
+    )
   }
 
   /** DuckDB's DESCRIBE name/type strings pass through unchanged (m1-4). */
   async schema(): Promise<ColumnSchema[]> {
-    const columns = await this.client.schema(this.handle)
+    const columns = this.usesOverlay
+      ? await this.client.overlaySchema(this.handle, this.overlaySource())
+      : await this.client.schema(this.handle)
     return columns.map((column) => ({ name: column.name, type: column.type }))
   }
 
   /**
-   * Total from the engine's metadata-only `count(*)`; carries the active
-   * filters (m2-2) so the model's post-filter re-read reports the filtered
-   * total.
+   * Total from a metadata-only `count(*)`, carrying the active filters
+   * (m2-2) so the model's post-filter re-read reports the filtered total.
    */
   async rowCount(): Promise<number> {
-    return this.client.rowCount(
-      this.handle,
-      this.filterPredicates.length > 0 ? { filters: this.filterPredicates } : undefined,
-    )
+    const options =
+      this.filterPredicates.length > 0 ? { filters: this.filterPredicates } : undefined
+    if (this.usesOverlay) {
+      return this.client.overlayRowCount(this.handle, this.overlaySource(), options)
+    }
+    return this.client.rowCount(this.handle, options)
   }
 
   async fetchRange(range: CellRange): Promise<GridDataPage> {
-    // Absent/empty = cleared (m2-2): cleared state is sent as absent fields,
-    // so unfiltered/unsorted requests compose the pre-m2-2 SQL verbatim.
-    // The arrays are copy-on-write (never mutated in place) and the client
-    // copies again into the protocol request — no aliasing either way.
-    const window: EngineRangeWindow = {
+    // Absent/empty = cleared (m2-2): cleared state is sent as absent fields.
+    const filters = this.filterPredicates.length > 0 ? this.filterPredicates : undefined
+    const sort = this.sortKeys.length > 0 ? this.sortKeys : undefined
+    if (this.usesOverlay) {
+      const overlay = this.overlaySource()
+      const result = await this.client.fetchOverlayRange(this.handle, overlay, {
+        startRow: range.startRow,
+        endRow: range.endRow,
+        ...(filters === undefined ? {} : { filters }),
+        ...(sort === undefined ? {} : { sort }),
+        // The identity channel is what makes an edit target a logical row
+        // (ADR 0011), not a viewport position.
+        includeRowIds: true,
+      })
+      const page = projectOverlayPage(result.batch)
+      return { startRow: range.startRow, rows: page.rows, rowKeys: page.rowKeys }
+    }
+    const result = await this.client.fetchRange(this.handle, {
       startRow: range.startRow,
       endRow: range.endRow,
-      ...(this.filterPredicates.length > 0 ? { filters: this.filterPredicates } : {}),
-      ...(this.sortKeys.length > 0 ? { sort: this.sortKeys } : {}),
-    }
-    const result = await this.client.fetchRange(this.handle, window)
-    return { startRow: range.startRow, rows: projectBatchToRows(result.batch) }
+    })
+    const rows = projectBatchToRows(result.batch)
+    // Natural order: grid index == base ordinal, so the synthesized ids are
+    // exactly the ids the composed view would emit for these rows.
+    const anchor = this.overlaySource().base.baseAnchor
+    const rowKeys = rows.map((_, offset) => baseRowId(anchor, range.startRow + offset))
+    return { startRow: range.startRow, rows, rowKeys }
   }
 
   /**
@@ -154,14 +257,5 @@ export class DuckDbGridProvider implements GridDataProvider {
       spec === null
         ? []
         : [...this.filterPredicates, { column: spec.column, predicate: spec.predicate }]
-  }
-
-  // Contract placeholder (m1-5 scope ruling, still open): the grid model
-  // keeps updateCell in the interface, but the edit overlay is a later task.
-  // Fail loudly instead of pretending. The parameter-less declaration is
-  // interface-compatible (fewer params); the contract tests call it through
-  // the `GridDataProvider` type.
-  async updateCell(): Promise<void> {
-    throw new Error('editing is not wired to the engine yet (M1 scope: viewport + rows)')
   }
 }

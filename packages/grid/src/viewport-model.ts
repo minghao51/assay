@@ -43,6 +43,22 @@ interface Span {
   readonly end: number
 }
 
+/**
+ * An in-flight span fetch, tagged with the data epoch it was issued under
+ * (m4-3 carry-over fix, m2-1). `refresh()` bumps the generation and clears
+ * the map, but an older fetch can still be awaiting the provider; when it
+ * resolves, its `finally` must not delete a *newer* epoch's marker for the
+ * same `start:end` key (that would make the newer span look uncovered and
+ * trigger a duplicate fetch, corrupting the dedup/fetch-count honesty).
+ * Tagging the marker with its epoch makes the cleanup conditional on the
+ * marker still belonging to the finishing fetch. The "stale page never
+ * lands" guarantee (the `generation !== this.generation` early returns) is
+ * unchanged.
+ */
+interface InflightSpan extends Span {
+  readonly generation: number
+}
+
 /** Observable request/cache counters for the non-materialization proof. */
 export interface GridViewportStats {
   /** `fetchRange` calls issued to the provider (cumulative, per data epoch). */
@@ -119,8 +135,15 @@ export class GridViewportModel {
   private filterState: FilterSpec[] = []
   /** LRU row cache: row index → cells. Insertion order = least- to most-recent. */
   private readonly cache = new Map<number, readonly unknown[]>()
-  /** In-flight span fetches, keyed `start:end` (dedup of overlapping asks). */
-  private readonly inflight = new Map<string, Span>()
+  /**
+   * Opaque row identity per cached row (m4-3): the provider's key channel,
+   * kept in lock-step with `cache` (same insert/evict/clear points) so a
+   * ready slot can expose `key` for the host's logical-row edit layer. The
+   * model never interprets the string.
+   */
+  private readonly rowKeys = new Map<number, string>()
+  /** In-flight span fetches, keyed `start:end`, epoch-tagged (dedup of asks). */
+  private readonly inflight = new Map<string, InflightSpan>()
   /** Failed spans (keyed like `inflight`) with the provider's error message. */
   private readonly failedSpans = new Map<string, Span & { message: string }>()
   private viewport: Span | null = null
@@ -318,6 +341,7 @@ export class GridViewportModel {
   async refresh(): Promise<void> {
     this.generation += 1
     this.cache.clear()
+    this.rowKeys.clear()
     this.failedSpans.clear()
     this.inflight.clear()
     this.currentFetchCalls = 0
@@ -351,7 +375,8 @@ export class GridViewportModel {
       // LRU touch: re-insert so rendering keeps visible rows most-recent.
       this.cache.delete(index)
       this.cache.set(index, row)
-      return { status: 'ready', row }
+      const key = this.rowKeys.get(index)
+      return key === undefined ? { status: 'ready', row } : { status: 'ready', row, key }
     }
     const failed = this.failedSpanCovering(index)
     if (failed !== null) return { status: 'error', message: failed.message }
@@ -394,9 +419,14 @@ export class GridViewportModel {
 
   private requestSpan(start: number, end: number): void {
     const key = `${String(start)}:${String(end)}`
-    if (this.inflight.has(key)) return
-    const span: Span = { start, end }
-    this.inflight.set(key, span)
+    const existing = this.inflight.get(key)
+    // A marker from the *current* epoch means this span is already being
+    // fetched; a marker from an older epoch can never survive `refresh()`
+    // (it clears the map), so an existing current-epoch marker is the only
+    // case that dedups. Defensive generation check keeps the invariant even
+    // if a future caller adds a non-clearing epoch transition.
+    if (existing !== undefined && existing.generation === this.generation) return
+    this.inflight.set(key, { start, end, generation: this.generation })
     void this.fetchSpan(start, end, key, this.generation)
   }
 
@@ -428,8 +458,21 @@ export class GridViewportModel {
           `provider returned ${String(page.rows.length)} rows for a ${String(spanRows)}-row span`,
         )
       }
+      if (page.rowKeys !== undefined && page.rowKeys.length !== spanRows) {
+        throw new Error(
+          `provider returned ${String(page.rowKeys.length)} row keys for a ${String(spanRows)}-row span`,
+        )
+      }
       for (let index = 0; index < page.rows.length; index++) {
         this.cache.set(start + index, page.rows[index])
+        const key = page.rowKeys?.[index]
+        // Keep the identity map aligned with the cache: a page without the
+        // key channel leaves the row without an identity (the host's edit
+        // affordances then decline), never a key from a previous epoch.
+        if (key === undefined) this.rowKeys.delete(start + index)
+        else if (typeof key !== 'string') {
+          throw new Error(`provider returned a non-string row key at ${String(start + index)}`)
+        } else this.rowKeys.set(start + index, key)
       }
       this.currentRowsReceived += page.rows.length
       this.failedSpans.delete(key)
@@ -438,7 +481,13 @@ export class GridViewportModel {
       if (generation !== this.generation) return
       this.failedSpans.set(key, { start, end, message: errorMessage(error) })
     } finally {
-      this.inflight.delete(key)
+      // Conditional cleanup (m4-3): only the marker this fetch installed may
+      // be removed. A newer epoch's marker for the same span survives an old
+      // fetch's late completion, so dedup and `isCovered` stay honest.
+      const marker = this.inflight.get(key)
+      if (marker !== undefined && marker.generation === generation) {
+        this.inflight.delete(key)
+      }
       if (generation === this.generation) this.notify()
     }
   }
@@ -451,11 +500,15 @@ export class GridViewportModel {
     const window = this.currentWindow()
     for (const index of this.cache.keys()) {
       if (this.cache.size <= this.maxCachedRows) return
-      if (index < window.start || index > window.end) this.cache.delete(index)
+      if (index < window.start || index > window.end) {
+        this.cache.delete(index)
+        this.rowKeys.delete(index)
+      }
     }
     for (const index of this.cache.keys()) {
       if (this.cache.size <= this.maxCachedRows) return
       this.cache.delete(index)
+      this.rowKeys.delete(index)
     }
   }
 

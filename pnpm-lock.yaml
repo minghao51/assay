@@ -88,6 +88,9 @@ importers:
       '@assay/data-sources':
         specifier: workspace:*
         version: link:../../packages/data-sources
+      '@assay/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@assay/engine-duckdb':
         specifier: workspace:*
         version: link:../../packages/engine-duckdb

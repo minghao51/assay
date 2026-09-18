@@ -44,7 +44,7 @@ const HEADER_NAMES = [
   'weird "quoted" key',
 ]
 
-/** Exact cell previews for fixture rows, in schema order (`''` = NULL cell). */
+/** Exact cell previews for fixture rows, in schema order ('NULL' = SQL NULL cell). */
 const ROW_ID_1 = [
   '1',
   'alpha',
@@ -54,7 +54,7 @@ const ROW_ID_1 = [
   '{"src":"sensor-a","ver":1}',
   '["x","y"]',
   '[{"at":1740823200000,"ok":true},{"at":1740823500000,"ok":false}]', // list-of-structs, epoch ms
-  '', // `hole` (all-NULL column): NULL renders as an empty cell (m1-5 contract)
+  'NULL', // `hole` (all-NULL column): a SQL NULL renders as the m4-3 NULL marker
   '1', // the quoting-hostile key's value, rendered as plain data
 ]
 
@@ -67,7 +67,7 @@ const ROW_ID_2 = [
   '{"src":"sensor-b","ver":2}',
   '[]', // the empty list — visually distinct from a NULL list
   '[{"at":1740906000000,"ok":true},{"at":1740907800000,"ok":null}]', // NULL field inside a struct
-  '',
+  'NULL',
   '2',
 ]
 
@@ -75,12 +75,12 @@ const ROW_ID_3 = [
   '3',
   'alpha',
   'quote " inside',
-  '', // NULL score
+  'NULL', // NULL score
   '{"a":{"b":{"c":…}}}',
   '{"src":null,"ver":3}', // NULL struct field distinct from a whole-NULL struct
   '["x",null,"z"]', // NULL element inside a list
   '[{"at":null,"ok":true},{"at":1740988800000,"ok":true}]',
-  '',
+  'NULL',
   '3',
 ]
 
@@ -137,14 +137,14 @@ test('nested cells render pinned, bounded previews (structs, lists, NULLs, hosti
   await expect(row3).toHaveAttribute('data-status', 'ready')
   await expect(row3.getByTestId('grid-cell')).toHaveText(ROW_ID_3)
 
-  // Row id 4: the NULL list and the whole-NULL struct render as empty cells
-  // (the top-level NULL contract), while its list-of-structs keeps the NULL
-  // element visible.
+  // Row id 4: the NULL list and the whole-NULL struct render as the distinct
+  // `NULL` marker (m4-3: a NULL is never a blank/empty-looking cell), while
+  // its list-of-structs keeps the NULL element visible.
   const row4 = page.locator('[data-testid="grid-row"][data-row-index="3"]')
   await expect(row4).toHaveAttribute('data-status', 'ready')
   const row4Cells = row4.getByTestId('grid-cell')
-  await expect(row4Cells.nth(4)).toHaveText('') // deep: whole-NULL struct
-  await expect(row4Cells.nth(6)).toHaveText('') // tags: NULL list
+  await expect(row4Cells.nth(4)).toHaveText('NULL') // deep: whole-NULL struct
+  await expect(row4Cells.nth(6)).toHaveText('NULL') // tags: NULL list
   await expect(row4Cells.nth(7)).toHaveText('[{"at":1741071600000,"ok":false},null]')
 })
 

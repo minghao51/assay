@@ -2,7 +2,11 @@ import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalSt
 import type { KeyboardEvent } from 'react'
 import type { GridViewportModel } from '@assay/grid'
 import { RunGuard } from '../sql/run-guard'
-import { recordContextShifted, reduceRecordInspector } from './record-state'
+import {
+  recordContextNeedsReload,
+  recordContextShifted,
+  reduceRecordInspector,
+} from './record-state'
 import type { RecordContext } from './record-state'
 import { buildRecordTree, collectBranchPaths } from './record-tree'
 import type { RecordTreeNode } from './record-tree'
@@ -25,16 +29,20 @@ import type { RecordTreeNode } from './record-tree'
  * - **Thin component over pure modules.** The tree model (`record-tree.ts`)
  *   and the lifecycle/freshness policy (`record-state.ts`) are Node-tested;
  *   this file only reads the grid model, dispatches events, and renders.
- * - **Freshness (the pinned policy, see `record-state.ts`): an epoch shift
- *   closes the inspector.** The grid's row identity is positional in v1, so
- *   after an accepted sort/filter the same index may hold a different record;
- *   the panel closes instead of silently swapping or stale-rendering. The
- *   mechanism mirrors ProfilePanel's guarded delivery (m2-6): the operative
- *   protection is the state machine's `epoch-shifted` transition driven by
- *   the `recordContextShifted` predicate over the model's live query state;
- *   the `RunGuard` token (imported from the SQL pane, not forked) plus the
- *   `isActive` gate below are the explicit defensive layer that keeps the
- *   render path generation-checked.
+ * - **Freshness (the pinned policy, see `record-state.ts`).** m3-3: an epoch
+ *   shift (accepted sort/filter, or a row-count change) closes the inspector —
+ *   positional identity means the same index may hold a different record, and
+ *   a stale snapshot must never render as current. m4-3 extends the rule for
+ *   the editing era: an effective-schema change (rename/cast) closes too; an
+ *   **overlay value change** (a cell edit / undo / redo with the same query
+ *   state and schema) instead **re-reads the same logical row** from the
+ *   fresh grid epoch — while the refetch is in flight the panel renders an
+ *   explicit stale-pending state, so the old values are never painted as
+ *   current. The mechanism mirrors ProfilePanel's guarded delivery (m2-6):
+ *   the state machine's `epoch-shifted` transition is driven by the
+ *   `recordContextShifted` predicate over the model's live state, and the
+ *   `RunGuard` token (imported from the SQL pane, not forked) plus the
+ *   `isActive` gate below keep the render path generation-checked.
  * - **Open gesture.** Rows are focusable and open the inspector on Enter or
  *   click (see `DataGrid`); only `ready` rows open (the model has no record
  *   to show otherwise — the grid shows `…`/`!` placeholders there). Each
@@ -60,6 +68,13 @@ interface RecordInspectorProps {
   readonly request: RecordRequest | null
   /** Called on every close (user, Escape, or epoch shift) to clear the gesture. */
   readonly onClosed: () => void
+  /**
+   * m4-3: monotonic overlay revision from the composition root. A change with
+   * an unchanged query state/schema means the open record's *values* moved
+   * (cell edit / undo / redo): the inspector re-reads the same logical row
+   * from the fresh grid epoch instead of rendering a stale snapshot.
+   */
+  readonly overlayRevision: number
 }
 
 /** Expansion state: a set of node paths (`deep/a/b`); collapsed by default. */
@@ -160,9 +175,19 @@ function NodeView(props: NodeViewProps) {
   return <TerminalNode node={node} />
 }
 
-/** Live snapshot of the grid query state a record's freshness is judged against. */
-function readRecordContext(model: GridViewportModel): RecordContext {
+/**
+ * Live snapshot of the grid state a record's freshness is judged against
+ * (m4-3 shape). `schemaSignature` is a stable serialization of the effective
+ * schema (name + type per column, in order); `rowKey` is the logical row id
+ * the snapshot was read from, when the provider supplies one.
+ */
+function readRecordContext(
+  model: GridViewportModel,
+  overlayRevision: number,
+  rowIndex: number,
+): RecordContext {
   const sort = model.sort
+  const slot = model.getRow(rowIndex)
   return {
     sort: sort === null ? null : { column: sort.column, direction: sort.direction },
     filters: model.filters.map((filter) => ({
@@ -170,6 +195,11 @@ function readRecordContext(model: GridViewportModel): RecordContext {
       predicate: filter.predicate,
     })),
     totalRows: model.totalRows ?? 0,
+    overlayRevision,
+    schemaSignature: (model.schema ?? [])
+      .map((column) => `${column.name}\t${column.type}`)
+      .join('\n'),
+    rowKey: slot.status === 'ready' ? (slot.key ?? null) : null,
   }
 }
 
@@ -178,10 +208,15 @@ function readRecordContext(model: GridViewportModel): RecordContext {
  * (or while the open record is stale pending its close transition) — the
  * panel exists only when an honest record is on display.
  */
-export function RecordInspector({ model, request, onClosed }: RecordInspectorProps) {
+export function RecordInspector({
+  model,
+  request,
+  onClosed,
+  overlayRevision,
+}: RecordInspectorProps) {
   // The model's version drives freshness re-evaluation: every sort/filter
   // accept and every epoch refetch notifies subscribers.
-  useSyncExternalStore(model.subscribe, model.getVersion)
+  const modelVersion = useSyncExternalStore(model.subscribe, model.getVersion)
   const [state, dispatch] = useReducer(reduceRecordInspector, { kind: 'closed' as const })
   const guard = useRef(new RunGuard())
   const [expanded, setExpanded] = useState<ExpandedPaths>(() => new Set<string>())
@@ -229,24 +264,90 @@ export function RecordInspector({ model, request, onClosed }: RecordInspectorPro
         columns: schema.map((column) => column.name),
         cells: slot.row,
       }),
-      context: readRecordContext(model),
+      context: readRecordContext(model, overlayRevision, request.rowIndex),
     })
+    // Deliberately NOT keyed on `overlayRevision`: a new edit must reload the
+    // open snapshot (the reload effect below), not re-open and reset the
+    // user's expansion state. The latest render's `overlayRevision` is read
+    // when a new gesture arrives.
   }, [model, request])
 
-  // Freshness (pinned policy): a shifted query state closes the panel. The
-  // stale record never paints: the render gate below drops it the moment the
-  // shift is observable, and this effect completes the transition + clears
-  // the App gesture.
-  const stale =
-    state.kind === 'open' && recordContextShifted(state.context, readRecordContext(model))
+  const currentContext =
+    state.kind === 'open' ? readRecordContext(model, overlayRevision, state.rowIndex) : null
+  // Structural/query shift → close (pinned m3-3 rule, extended m4-3 with the
+  // schema signature). Value-only overlay shift → reload the same row.
+  const shifted =
+    state.kind === 'open' &&
+    currentContext !== null &&
+    recordContextShifted(state.context, currentContext)
+  const needsReload =
+    state.kind === 'open' &&
+    currentContext !== null &&
+    recordContextNeedsReload(state.context, currentContext)
+
   useEffect(() => {
-    if (!stale) return
+    if (!shifted) return
     guard.current.invalidate()
     dispatch({ type: 'epoch-shifted' })
     onClosedRef.current()
-  }, [stale])
+  }, [shifted])
 
-  if (state.kind !== 'open' || stale || !guard.current.isActive(state.token)) return null
+  // Reload path (m4-3): read the same logical row from the fresh epoch. The
+  // effect runs on model notifications too, so it naturally waits for the
+  // refetch to land. Until then the render below shows a stale-pending state
+  // — the old snapshot is never painted as current.
+  useEffect(() => {
+    if (!needsReload || state.kind !== 'open') return
+    const slot = model.getRow(state.rowIndex)
+    if (slot.status === 'loading') return // wait for the refetch to land
+    if (slot.status === 'error') {
+      guard.current.invalidate()
+      dispatch({ type: 'epoch-shifted' })
+      onClosedRef.current()
+      return
+    }
+    // The position must still hold the same logical row (defence in depth for
+    // a same-count delete+insert displacement): a different key closes rather
+    // than silently swapping the record under the title.
+    if (
+      state.context.rowKey !== null &&
+      slot.key !== undefined &&
+      slot.key !== state.context.rowKey
+    ) {
+      guard.current.invalidate()
+      dispatch({ type: 'epoch-shifted' })
+      onClosedRef.current()
+      return
+    }
+    const schema = model.schema
+    if (schema === null) return
+    dispatch({
+      type: 'reloaded',
+      tree: buildRecordTree({
+        columns: schema.map((column) => column.name),
+        cells: slot.row,
+      }),
+      context: readRecordContext(model, overlayRevision, state.rowIndex),
+    })
+  }, [needsReload, state, model, overlayRevision, modelVersion])
+
+  if (state.kind !== 'open' || shifted || !guard.current.isActive(state.token)) return null
+
+  if (needsReload) {
+    // Stale-until-reloaded: an explicit pending state, never the old values.
+    return (
+      <section
+        className="record record-stale"
+        data-testid="record-inspector"
+        data-stale="true"
+        data-row-index={state.rowIndex}
+        role="status"
+        aria-label={`Reloading record — row ${String(state.rowIndex)}`}
+      >
+        <p data-testid="record-reloading">Reloading record…</p>
+      </section>
+    )
+  }
 
   const expandAll = (): void => {
     setExpanded(new Set<string>(collectBranchPaths(state.tree)))

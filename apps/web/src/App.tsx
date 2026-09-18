@@ -1,11 +1,23 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
 import { viewNameForTableId } from '@assay/engine-duckdb'
+import type { CellValue, EditOp, OverlayBase, RowId, TransformationHistory } from '@assay/domain'
+import {
+  appendOp,
+  emptyHistory,
+  insertRowId,
+  redo as redoHistory,
+  stateAtCursor,
+  undo as undoHistory,
+} from '@assay/domain'
 import { GridViewportModel } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
 import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
 import { FilterBar } from './grid/FilterBar'
+import { EditToolbar } from './edit/EditToolbar'
+import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
+import { editOutcomeMessage, overlaySnapshot } from './edit/session'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
 import { ProfilePanel } from './profile/ProfilePanel'
@@ -24,10 +36,16 @@ import type { SqlRunRequest } from './sql/SqlPanel'
  * (docs/architecture/02-architecture.md §8). Only the table id, row count,
  * and column count are shown — never the picked file's name (ADR 0025).
  *
- * m3-5: the ready phase also wires the one-click nested actions — schema
- * tree and grid headers emit intents, the app composes them through m3-4's
- * pure composer and dispatches the SQL to the m2-4 editor/result pane. No
- * SQL, results, or file names are ever logged (ADR 0025).
+ * m3-5: the ready phase also wires the one-click nested actions.
+ *
+ * m4-3: the ready phase also owns the editing session. The immutable
+ * `OverlayBase` (host tokens + base schema + base row count) is built once
+ * when a file opens; every edit is a typed `EditOp` appended to a
+ * `TransformationHistory`, and the grid's provider reads the active overlay
+ * snapshot (`stateAtCursor` prefix) per request. Undo/redo are cursor moves
+ * on that history; the grid re-materializes via a fresh data epoch. The base
+ * view is never mutated (ADR 0012), and no edit or cell value is logged
+ * (ADR 0025).
  */
 type Phase =
   | { readonly kind: 'idle' }
@@ -38,12 +56,14 @@ type Phase =
       readonly model: GridViewportModel
       readonly tableId: string
       readonly handle: EngineTableHandle
+      /** Immutable base metadata for the editing session (ADR 0011/0012). */
+      readonly base: OverlayBase
     }
 
 /**
  * Live summary line for the opened table (m2-3 row-count truth): the total
  * is read from the model — which re-reads it from the provider after every
- * accepted filter change — so the count always reflects the active filters.
+ * accepted filter change and every overlay epoch.
  */
 function LiveTableInfo({ model, tableId }: { model: GridViewportModel; tableId: string }) {
   useSyncExternalStore(model.subscribe, model.getVersion)
@@ -73,13 +93,24 @@ export function App() {
    * m3-5 nested-action dispatch: both click surfaces (schema tree, grid
    * headers) emit a `NestedAction`; the app composes it through m3-4's pure
    * composer against the parsed schema and the SQL-facing view name, then
-   * hands the SQL to the m2-4 pane via `sqlRequest` (the pane shows the
-   * statement and runs it — one click, honest visibility). Composition
-   * failures surface as a readable alert here — never a silent no-op.
+   * hands the SQL to the m2-4 pane via `sqlRequest`.
    */
   const [sqlRequest, setSqlRequest] = useState<SqlRunRequest | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const requestSeq = useRef(0)
+
+  /**
+   * m4-3 editing session. `history` is React state (pure refolds render it);
+   * `overlayRef` mirrors the active snapshot synchronously so the provider
+   * reads the new ops the moment a commit triggers `model.refresh()`, before
+   * React has re-rendered. `overlayRevision` is the monotonic freshness
+   * signal the record inspector consumes.
+   */
+  const [history, setHistory] = useState<TransformationHistory>(() => emptyHistory())
+  const [overlayRevision, setOverlayRevision] = useState(0)
+  const [editError, setEditError] = useState<string | null>(null)
+  const overlayRef = useRef<ReturnType<typeof overlaySnapshot> | null>(null)
+
   const schemaColumns = phase.kind === 'ready' ? (phase.model.schema ?? []) : NO_COLUMNS
   const nestedSpecs = useMemo(
     () =>
@@ -101,12 +132,96 @@ export function App() {
     [phase, nestedSpecs],
   )
 
+  /**
+   * The effective overlay state at the history cursor. Pure fold — after
+   * undoing every edit it equals the initial state, so the grid is clean
+   * again (the e2e "undo → clean" pin).
+   */
+  const overlayState = useMemo(
+    () => (phase.kind === 'ready' ? stateAtCursor(phase.base, history) : null),
+    [phase, history],
+  )
+
+  /**
+   * Commit a new history and rebuild the grid's data epoch. The overlay ref
+   * is updated synchronously (the provider is read during `refresh()`), then
+   * state change + revision bump re-render and re-read the inspector.
+   */
+  const commitHistory = useCallback(
+    (next: TransformationHistory) => {
+      if (phase.kind !== 'ready') return
+      overlayRef.current = overlaySnapshot(phase.base, next)
+      setHistory(next)
+      setOverlayRevision((revision) => revision + 1)
+      void phase.model.refresh()
+    },
+    [phase],
+  )
+
+  const applyOp = useCallback(
+    (op: EditOp) => {
+      if (phase.kind !== 'ready') return
+      const result = appendOp(phase.base, history, op)
+      // Surface the typed outcome honestly (null for `applied`); a conflicted
+      // op changes no state and is not logged (m4-1 `appendOp`).
+      setEditError(editOutcomeMessage(result.outcome))
+      if (result.entry !== null) commitHistory(result.history)
+    },
+    [phase, history, commitHistory],
+  )
+
+  const handleUndo = useCallback(() => {
+    const step = undoHistory(history)
+    if (step.entry === null) return
+    setEditError(null)
+    commitHistory(step.history)
+  }, [history, commitHistory])
+
+  const handleRedo = useCallback(() => {
+    const step = redoHistory(history)
+    if (step.entry === null) return
+    setEditError(null)
+    commitHistory(step.history)
+  }, [history, commitHistory])
+
+  /**
+   * Insert a row. v1 placement ruling: append at the end (`{'end'}`) — the
+   * simplest honest placement the domain supports, and the one whose position
+   * stays unambiguous under re-sort/re-filter. Anchored insert-before/after
+   * placement is a possible m4-4+ affordance; the domain already handles it.
+   */
+  const handleInsertRow = useCallback(() => {
+    if (phase.kind !== 'ready') return
+    const current = stateAtCursor(phase.base, history)
+    const rowId = insertRowId(phase.base.overlayAnchor, current.nextInsertSeq)
+    applyOp({ kind: 'row-insert', rowId, position: { kind: 'end' }, values: new Map() })
+  }, [phase, history, applyOp])
+
+  const handleCommitCell = useCallback(
+    (rowId: RowId, column: string, value: CellValue) => {
+      applyOp({ kind: 'cell-set', rowId, column, value })
+    },
+    [applyOp],
+  )
+
+  const handleDeleteRow = useCallback(
+    (rowId: RowId) => {
+      applyOp({ kind: 'row-delete', rowId })
+    },
+    [applyOp],
+  )
+
   const openDataFile = useCallback(async () => {
     setPhase({ kind: 'opening' })
     setRecordRequest(null)
-    // m3-5: a new table invalidates the previous table's SQL dispatch state.
+    // m3-5 / m4-3: a new table invalidates the previous table's dispatch and
+    // editing state — an overlay must never leak across files.
     setSqlRequest(null)
     setActionError(null)
+    setEditError(null)
+    overlayRef.current = null
+    setHistory(emptyHistory())
+    setOverlayRevision(0)
     try {
       const picked = await pickDataFile()
       if (picked === null) {
@@ -124,10 +239,28 @@ export function App() {
         name: file.name,
         getFile: () => Promise.resolve(file),
       })
-      const provider = new DuckDbGridProvider(engineClient, handle)
+      // Base metadata for the editing session (ADR 0011/0012). The anchor is
+      // the stable function of the file *version* (size + mtime) — re-opening
+      // the same unchanged file keeps base row ids stable; the token is never
+      // rendered or logged.
+      const baseSchema = await engineClient.schema(handle)
+      const baseRowCount = await engineClient.rowCount(handle)
+      const base: OverlayBase = {
+        baseAnchor: fileVersionAnchor({ size: file.size, lastModified: file.lastModified }),
+        overlayAnchor: createOverlayAnchor(),
+        columns: baseSchema.map((column) => ({ name: column.name, type: column.type })),
+        baseRowCount,
+      }
+      const initialHistory = emptyHistory()
+      overlayRef.current = overlaySnapshot(base, initialHistory)
+      const provider = new DuckDbGridProvider(
+        engineClient,
+        handle,
+        () => overlayRef.current ?? overlaySnapshot(base, initialHistory),
+      )
       const model = new GridViewportModel(provider)
       await model.load()
-      setPhase({ kind: 'ready', model, tableId: handle.id, handle })
+      setPhase({ kind: 'ready', model, tableId: handle.id, handle, base })
     } catch (error) {
       setPhase({
         kind: 'error',
@@ -169,9 +302,20 @@ export function App() {
             </p>
           )}
           <SchemaPanel columns={schemaColumns} onAction={runNestedAction} />
+          <EditToolbar
+            canUndo={history.cursor > 0}
+            canRedo={history.cursor < history.entries.length}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onInsertRow={handleInsertRow}
+            error={editError}
+          />
           <FilterBar model={phase.model} />
           <DataGrid
             model={phase.model}
+            overlayState={overlayState}
+            onCommitCell={handleCommitCell}
+            onDeleteRow={handleDeleteRow}
             onOpenRecord={(rowIndex) => {
               setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
             }}
@@ -180,14 +324,12 @@ export function App() {
           {/**
            * Placement (m3-3): directly under the grid it inspects. The app
            * composes single-column, full-width disclosure sections (schema →
-           * filters → grid → SQL → profile); a side panel would introduce a
-           * new layout concept the app does not have, and the row-level
-           * inspector belongs next to the row-level surface anyway — closer
-           * than the table-level SQL/profile tool panels below it.
+           * editing → filters → grid → record → SQL → profile).
            */}
           <RecordInspector
             model={phase.model}
             request={recordRequest}
+            overlayRevision={overlayRevision}
             onClosed={() => {
               setRecordRequest(null)
             }}

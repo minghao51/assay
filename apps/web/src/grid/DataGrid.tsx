@@ -2,10 +2,13 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties } from 'react'
 import type { GridViewportModel } from '@assay/grid'
+import type { CellValue, OverlayState, RowId } from '@assay/domain'
+import { NULL_VALUE, parseRowId } from '@assay/domain'
 import { formatCell } from './format'
 import { nestedActionLabel, nestedActionVerb } from '../sql/nested-actions'
 import type { NestedAction } from '../sql/nested-actions'
 import { parseDuckDbType } from '../schema/parseType'
+import { cellEditDraft, cellEditorKind, validateCellInput } from '../edit/typed-input'
 import { nextSortSpec } from './query-state'
 
 /** Fixed row height for the DOM renderer (ADR 0022: renderer is replaceable). */
@@ -17,20 +20,38 @@ interface DataGridProps {
   model: GridViewportModel
   /**
    * m3-3 record inspector affordance: called with the row index when the user
-   * clicks a row or presses Enter on a focused row. Omitted = rows are inert
-   * (plain render surface). The grid emits the gesture for ANY rendered row,
-   * ready or not (comment corrected m4-0: it never filtered non-ready rows
-   * itself) — declining non-ready rows is the record inspector's job (its
-   * open effect is the readiness guard's home: there is no record to show
-   * honestly behind the `…`/`!` placeholders).
+   * clicks a row or presses Enter on a focused row (with no cell selected for
+   * editing). Omitted = rows are inert (plain render surface). The grid emits
+   * the gesture for ANY rendered row, ready or not — declining non-ready rows
+   * is the record inspector's job.
    */
   onOpenRecord?: (rowIndex: number) => void
   /**
    * m3-5: called when a nested column header's one-click affordance is
-   * activated (STRUCT header → flatten, LIST header → explode). The grid
-   * only emits the intent; composition + execution live in the SQL pane.
+   * activated (STRUCT header → flatten, LIST header → explode).
    */
   onNestedAction: (action: NestedAction) => void
+  /**
+   * m4-3: the folded overlay state. Non-null enables the editing affordances
+   * (cell editors, dirty markers, row delete); null keeps the grid read-only
+   * (the pre-m4-3 render surface).
+   */
+  overlayState?: OverlayState | null
+  /**
+   * m4-3 commit path. The grid emits a logical `RowId` (from the model's
+   * opaque key channel) plus the column name and typed value; the app turns
+   * it into a `cell-set` op. The grid never mutates data itself (ADR 0012).
+   */
+  onCommitCell?: (rowId: RowId, column: string, value: CellValue) => void
+  /** m4-3 row-delete affordance; emits the row's logical id. */
+  onDeleteRow?: (rowId: RowId) => void
+}
+
+/** One in-progress edit: which cell and the raw editor draft. */
+interface EditingCell {
+  readonly rowIndex: number
+  readonly columnIndex: number
+  readonly draft: string
 }
 
 /**
@@ -42,35 +63,53 @@ interface DataGridProps {
  *
  * m2-3: each column header carries a sort toggle cycling asc → desc →
  * cleared, wired to `model.setSort` (the pure cycle lives in `query-state`).
- * The current sort is indicated by the button's glyph + `data-sort` state.
- * Command rejections (an engine failure mid-epoch) surface as a footer
- * alert — rendered as text only (ADR 0007 spirit; ADR 0025: nothing here
- * ever shows the file name).
  *
  * m3-5: every NESTED column header carries one action button mirroring the
- * column's type — a STRUCT header flattens it, a LIST header explodes it.
- * Entry-point rationale: header real estate is one `minmax(9rem, 1fr)` cell
- * shared with the name and the sort toggle, so a *menu* would crowd it and
- * hide the operation behind a second click; a single typed button per
- * nested column is the whole affordance, and every nested column gets its
- * operation without typing SQL. Path extraction is per-field by nature, so
- * its single entry point is the schema tree — the only surface where each
- * field is individually visible and addressable (the tree also declines to
- * offer extract through list elements, which would need indices it does not
- * carry).
+ * column's type (STRUCT → flatten, LIST → explode).
+ *
+ * m4-3 — editing:
+ * - **Open**: double-click a cell, or focus a cell (click) and press Enter.
+ *   The editor is only offered for non-nested columns; row Enter with no
+ *   focused cell keeps opening the record inspector (m3-3).
+ * - **Commit**: Enter (or blur) validates the draft against the parsed
+ *   column type and emits a typed `CellValue`; Escape cancels and leaves the
+ *   overlay untouched. A rejected draft renders a readable `role="alert"`
+ *   message and keeps the editor open — state never changes on rejection.
+ * - **NULL**: a dedicated NULL button commits `{ kind: 'null' }`; NULL cells
+ *   render as a distinct `NULL` marker (`data-null`), never as an empty
+ *   string, an unset editor, or an error.
+ * - **Dirty**: an edited cell/row carries `data-dirty="true"`; inserted rows
+ *   carry `data-inserted="true"`. After undoing every edit the grid is clean
+ *   again (the state is a pure fold of the history cursor).
+ * - **Delete**: a per-row trailing affordance emits the row's logical id.
+ *
+ * Text-only rendering throughout (ADR 0007 spirit; no `dangerouslySetInnerHTML`).
  */
-export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps) {
+export function DataGrid({
+  model,
+  onOpenRecord,
+  onNestedAction,
+  overlayState = null,
+  onCommitCell,
+  onDeleteRow,
+}: DataGridProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
 
   const schema = model.schema ?? []
   const totalRows = model.totalRows ?? 0
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [commandError, setCommandError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<EditingCell | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  /** Column index of the last focused/clicked cell (Enter-to-edit target). */
+  const [focusedColumn, setFocusedColumn] = useState<number | null>(null)
+
+  const editingEnabled = overlayState !== null && onCommitCell !== undefined
+  const rowActionsEnabled = overlayState !== null && onDeleteRow !== undefined
 
   /**
    * m3-5: per-column one-click action, derived from the parsed DESCRIBE type
-   * (STRUCT → flatten, LIST → explode; primitives/maps get none — the
-   * parser is total, so unknown types simply offer nothing).
+   * (STRUCT → flatten, LIST → explode; primitives/maps get none).
    */
   const headerActions = useMemo(() => {
     const actions = new Map<string, NestedAction>()
@@ -85,11 +124,67 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
   const cycleSort = (columnName: string): void => {
     setCommandError(null)
     model.setSort(nextSortSpec(model.sort, columnName)).catch((error: unknown) => {
-      // Engine-side failure while rebuilding the epoch — never a UI bug.
-      // The provider still holds the attempted sort; rows surface the
-      // data-level failure themselves (error placeholders/retry).
       setCommandError(error instanceof Error ? error.message : String(error))
     })
+  }
+
+  /** The logical row id of a rendered row, when the provider supplied one. */
+  const rowIdAt = (rowIndex: number): RowId | null => {
+    const slot = model.getRow(rowIndex)
+    if (slot.status !== 'ready' || slot.key === undefined) return null
+    return slot.key as RowId
+  }
+
+  const beginEdit = (rowIndex: number, columnIndex: number): void => {
+    if (!editingEnabled) return
+    const column = schema[columnIndex]
+    if (column === undefined) return
+    const kind = cellEditorKind(parseDuckDbType(column.type))
+    if (kind === 'unsupported') {
+      setEditError(`Column "${column.name}" is not editable (nested type).`)
+      return
+    }
+    const slot = model.getRow(rowIndex)
+    if (slot.status !== 'ready' || slot.key === undefined) return
+    setEditError(null)
+    setEditing({
+      rowIndex,
+      columnIndex,
+      draft: cellEditDraft(slot.row[columnIndex]),
+    })
+  }
+
+  const cancelEdit = (): void => {
+    setEditing(null)
+    setEditError(null)
+  }
+
+  const commitEditValue = (value: CellValue): void => {
+    if (editing === null) return
+    const column = schema[editing.columnIndex]
+    const rowId = rowIdAt(editing.rowIndex)
+    if (column !== undefined && rowId !== null && onCommitCell !== undefined) {
+      onCommitCell(rowId, column.name, value)
+    }
+    setEditing(null)
+    setEditError(null)
+  }
+
+  const commitEditDraft = (): void => {
+    if (editing === null) return
+    const column = schema[editing.columnIndex]
+    if (column === undefined) {
+      cancelEdit()
+      return
+    }
+    const parsed = validateCellInput(parseDuckDbType(column.type), editing.draft)
+    if (!parsed.ok) {
+      // Readable rejection; overlay state is untouched and the editor stays
+      // open so the user can correct the value.
+      setEditError(parsed.reason)
+      return
+    }
+    commitEditValue(parsed.value)
   }
 
   const virtualizer = useVirtualizer({
@@ -100,10 +195,6 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
   })
   const virtualItems = virtualizer.getVirtualItems()
 
-  // Drive the model's windowed fetching from the rendered range (inclusive
-  // row indices). Keyed on the range string, so model notifications re-render
-  // rows but never re-trigger observations — failed spans are retried only
-  // when the visible range changes or via the explicit retry button.
   const rangeKey =
     virtualItems.length > 0
       ? `${String(virtualItems[0].index)}:${String(virtualItems[virtualItems.length - 1].index)}`
@@ -119,7 +210,9 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
 
   const stats = model.stats
   const gridTemplateColumns =
-    schema.length > 0 ? `repeat(${String(schema.length)}, minmax(9rem, 1fr))` : '1fr'
+    schema.length > 0
+      ? `repeat(${String(schema.length)}, minmax(9rem, 1fr))${rowActionsEnabled ? ' 5rem' : ''}`
+      : '1fr'
   const rowStyle: CSSProperties = {
     display: 'grid',
     gridTemplateColumns,
@@ -135,13 +228,11 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
       data-testid="grid"
       role="grid"
       aria-rowcount={totalRows + 1}
-      aria-colcount={schema.length}
+      aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0)}
     >
       <div className="grid-header" role="rowgroup">
         <div className="grid-header-row" role="row" style={{ gridTemplateColumns }}>
           {schema.map((column) => {
-            // Active sort indicator: this column's direction when the
-            // model's dataset-wide sort names this column, else unsorted.
             const sortDirection = model.sort?.column === column.name ? model.sort.direction : null
             const sortLabel =
               sortDirection === null
@@ -198,6 +289,14 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
               </div>
             )
           })}
+          {rowActionsEnabled && (
+            <div
+              className="grid-header-cell grid-actions-header"
+              role="columnheader"
+              data-testid="grid-actions-header"
+              aria-label="Row actions"
+            />
+          )}
         </div>
       </div>
       <div className="grid-viewport" data-testid="grid-viewport" ref={scrollRef}>
@@ -208,19 +307,28 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
           {virtualItems.map((item) => {
             const slot = model.getRow(item.index)
             const status = slot.status
+            const rowId = status === 'ready' && slot.key !== undefined ? (slot.key as RowId) : null
+            const rowEdits =
+              rowId !== null && overlayState !== null
+                ? (overlayState.edits.get(rowId) ?? null)
+                : null
+            const inserted = rowId !== null && parseRowId(rowId)?.origin === 'insert'
+            const rowDirty = inserted || (rowEdits !== null && rowEdits.size > 0)
             return (
               <div
                 key={item.key}
                 role="row"
-                aria-rowindex={item.index + 2} // + header row (1-based)
+                aria-rowindex={item.index + 2}
                 className={`grid-row grid-row-${status}${
                   onOpenRecord === undefined ? '' : ' grid-row-openable'
-                }`}
+                }${rowDirty ? ' grid-row-dirty' : ''}`}
                 data-testid="grid-row"
                 data-row-index={item.index}
                 data-status={status}
+                data-dirty={rowDirty ? 'true' : 'false'}
+                data-inserted={inserted ? 'true' : undefined}
                 title={status === 'error' ? slot.message : undefined}
-                tabIndex={onOpenRecord === undefined ? undefined : 0}
+                tabIndex={onOpenRecord === undefined && !editingEnabled ? undefined : 0}
                 onClick={
                   onOpenRecord === undefined
                     ? undefined
@@ -228,24 +336,24 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
                         onOpenRecord(item.index)
                       }
                 }
-                onKeyDown={
-                  onOpenRecord === undefined
-                    ? undefined
-                    : (event) => {
-                        // Enter on a focused row opens the record inspector
-                        // (plain Enter only — modifier combos stay free for
-                        // user-agent/browser conventions).
-                        if (
-                          event.key === 'Enter' &&
-                          !event.shiftKey &&
-                          !event.ctrlKey &&
-                          !event.altKey &&
-                          !event.metaKey
-                        ) {
-                          onOpenRecord(item.index)
-                        }
-                      }
-                }
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== 'Enter' ||
+                    event.shiftKey ||
+                    event.ctrlKey ||
+                    event.altKey ||
+                    event.metaKey
+                  ) {
+                    return
+                  }
+                  // Enter on a focused cell edits it; Enter on the row (no
+                  // cell focused) keeps the m3-3 inspector gesture.
+                  if (focusedColumn !== null && editingEnabled) {
+                    beginEdit(item.index, focusedColumn)
+                  } else if (onOpenRecord !== undefined) {
+                    onOpenRecord(item.index)
+                  }
+                }}
                 style={{
                   ...rowStyle,
                   height: item.size,
@@ -253,24 +361,157 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
                 }}
               >
                 {status === 'ready'
-                  ? slot.row.map((cell, columnIndex) => (
-                      <div
-                        key={columnIndex}
-                        role="gridcell"
-                        className="grid-cell"
-                        data-testid="grid-cell"
-                      >
-                        {/* m3-2 title policy: cells deliberately carry NO `title`
-                            attribute. A title mirroring the cell text would put a
-                            copy of every preview into DOM attributes (payload ×
-                            cells), and pre-m3-2 it risked multi-KB tooltips over
-                            raw JSON.stringify output. Overflow stays a CSS
-                            concern (text-overflow: ellipsis); the bounded preview
-                            text is the honest visible content; the full value is
-                            the m3-3 inspector's job. */}
-                        {formatCell(cell)}
-                      </div>
-                    ))
+                  ? slot.row.map((cell, columnIndex) => {
+                      const column = schema[columnIndex]
+                      const isEditing =
+                        editing !== null &&
+                        editing.rowIndex === item.index &&
+                        editing.columnIndex === columnIndex
+                      const dirty = rowEdits?.has(column?.name ?? '') ?? false
+                      const isNull = cell === null || cell === undefined
+                      const kind =
+                        column === undefined
+                          ? 'unsupported'
+                          : cellEditorKind(parseDuckDbType(column.type))
+                      return (
+                        <div
+                          key={columnIndex}
+                          role="gridcell"
+                          className={`grid-cell${dirty ? ' grid-cell-dirty' : ''}${
+                            isNull ? ' grid-cell-null' : ''
+                          }`}
+                          data-testid="grid-cell"
+                          data-col-name={column?.name}
+                          data-dirty={dirty ? 'true' : 'false'}
+                          data-null={isNull ? 'true' : undefined}
+                          tabIndex={editingEnabled && !isEditing ? -1 : undefined}
+                          onFocus={(event) => {
+                            if (event.target === event.currentTarget && editingEnabled) {
+                              setFocusedColumn(columnIndex)
+                            }
+                          }}
+                          onDoubleClick={
+                            editingEnabled
+                              ? (event) => {
+                                  event.stopPropagation()
+                                  beginEdit(item.index, columnIndex)
+                                }
+                              : undefined
+                          }
+                        >
+                          {isEditing && column !== undefined ? (
+                            kind === 'boolean' ? (
+                              <span
+                                className="grid-cell-editor"
+                                data-testid="grid-cell-editor"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                }}
+                              >
+                                <select
+                                  className="grid-editor-input"
+                                  data-testid="grid-editor-boolean"
+                                  aria-label={`Edit ${column.name} on row ${String(item.index)}`}
+                                  autoFocus
+                                  value={editing.draft === '' ? '' : editing.draft}
+                                  onChange={(event) => {
+                                    const next = event.target.value
+                                    if (next === 'true') {
+                                      commitEditValue({ kind: 'boolean', value: true })
+                                    } else if (next === 'false') {
+                                      commitEditValue({ kind: 'boolean', value: false })
+                                    } else {
+                                      setEditing({ ...editing, draft: next })
+                                    }
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      cancelEdit()
+                                    }
+                                  }}
+                                >
+                                  <option value="">true / false…</option>
+                                  <option value="true">true</option>
+                                  <option value="false">false</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  className="grid-editor-null"
+                                  data-testid="grid-editor-null"
+                                  onMouseDown={(event) => {
+                                    event.preventDefault()
+                                  }}
+                                  onClick={() => {
+                                    commitEditValue(NULL_VALUE)
+                                  }}
+                                >
+                                  NULL
+                                </button>
+                              </span>
+                            ) : (
+                              <span
+                                className="grid-cell-editor"
+                                data-testid="grid-cell-editor"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                }}
+                              >
+                                <input
+                                  className="grid-editor-input"
+                                  data-testid="grid-editor-input"
+                                  aria-label={`Edit ${column.name} on row ${String(item.index)}`}
+                                  autoFocus
+                                  spellCheck={false}
+                                  autoComplete="off"
+                                  value={editing.draft}
+                                  onChange={(event) => {
+                                    setEditing({ ...editing, draft: event.target.value })
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      commitEditDraft()
+                                    } else if (event.key === 'Escape') {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      cancelEdit()
+                                    }
+                                  }}
+                                  onBlur={commitEditDraft}
+                                />
+                                <button
+                                  type="button"
+                                  className="grid-editor-null"
+                                  data-testid="grid-editor-null"
+                                  onMouseDown={(event) => {
+                                    // Keep the input focused: a blur here would
+                                    // commit the draft before the NULL click.
+                                    event.preventDefault()
+                                  }}
+                                  onClick={() => {
+                                    commitEditValue(NULL_VALUE)
+                                  }}
+                                >
+                                  NULL
+                                </button>
+                              </span>
+                            )
+                          ) : isNull ? (
+                            <span className="grid-null-marker" data-testid="grid-cell-null">
+                              NULL
+                            </span>
+                          ) : (
+                            // m3-2 title policy: cells deliberately carry NO
+                            // `title` attribute (payload × cells; CSS overflow
+                            // is the display concern; the inspector shows full values).
+                            formatCell(cell)
+                          )}
+                        </div>
+                      )
+                    })
                   : schema.map((_, columnIndex) => (
                       <div
                         key={columnIndex}
@@ -281,6 +522,24 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
                         {status === 'loading' ? '…' : '!'}
                       </div>
                     ))}
+                {rowActionsEnabled && status === 'ready' && rowId !== null && (
+                  <div className="grid-row-actions" data-testid="grid-row-actions">
+                    <button
+                      type="button"
+                      className="grid-row-delete"
+                      data-testid="grid-row-delete"
+                      data-row-index={item.index}
+                      aria-label={`Delete row ${String(item.index)}`}
+                      title={`Delete row ${String(item.index)}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onDeleteRow(rowId)
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -290,6 +549,11 @@ export function DataGrid({ model, onOpenRecord, onNestedAction }: DataGridProps)
         <span data-testid="grid-stats">
           {`fetches=${String(stats.fetchCalls)} requested=${String(stats.rowsRequested)} received=${String(stats.rowsReceived)} maxSpan=${String(stats.maxSpanRows)} cached=${String(stats.cachedRows)}`}
         </span>
+        {editError !== null && (
+          <span role="alert" data-testid="grid-edit-error">
+            {editError}
+          </span>
+        )}
         {commandError !== null && (
           <span role="alert" data-testid="grid-command-error">
             {commandError}

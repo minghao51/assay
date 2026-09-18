@@ -70,6 +70,23 @@ export interface GridDataPage {
   readonly startRow: number
   /** One entry per requested row; each entry holds that row's cells. */
   readonly rows: readonly (readonly unknown[])[]
+  /**
+   * Optional opaque identity channel (m4-3): `rowKeys[i]` is the backend's
+   * identity for grid row `startRow + i`, parallel to `rows`. It exists so
+   * the editing layer can address rows by **logical identity** rather than
+   * by viewport position (ADR 0011/0012: "temporary positional row numbers
+   * are not durable identity"): a cell edit must target the same logical
+   * row after a re-sort/re-filter, which a row index cannot express. The
+   * grid model treats keys as opaque strings — it never parses them, renders
+   * them, or exposes them to the DOM; it only carries them alongside the
+   * cached row so the host's edit layer can read `GridRowSlot.key`.
+   *
+   * Length must equal `rows.length` when present (the model rejects a page
+   * that disagrees, like it rejects a wrong `startRow`). Omitting keys is a
+   * declared provider choice: the grid then has no identity channel and the
+   * host's edit affordances must stay disabled.
+   */
+  readonly rowKeys?: readonly string[]
 }
 
 /**
@@ -92,7 +109,16 @@ export interface GridDataPage {
  * message for failed spans (and out-of-range indices).
  */
 export type GridRowSlot =
-  | { readonly status: 'ready'; readonly row: readonly unknown[] }
+  | {
+      readonly status: 'ready'
+      readonly row: readonly unknown[]
+      /**
+       * The row's opaque backend identity, when the provider supplied the
+       * `GridDataPage.rowKeys` channel (m4-3). Never rendered; the host's
+       * edit layer uses it to build a logical-row-addressed edit op.
+       */
+      readonly key?: string
+    }
   | { readonly status: 'loading' }
   | { readonly status: 'error'; readonly message: string }
 
@@ -119,6 +145,17 @@ export interface GridDataProvider {
    * rejection must leave the previous list in effect.
    */
   filter(spec: FilterSpec | null): Promise<void>
-  updateCell(row: number, column: string, value: unknown): Promise<void>
   schema(): Promise<ColumnSchema[]>
 }
+
+/*
+ * m4-3 contract note — the former `updateCell(row, column, value)` stub was
+ * REMOVED, not wired. Editing is now an overlay op addressed by *logical row
+ * identity* (ADR 0011/0012): a cell edit names a `RowId`, not a viewport
+ * row index, and it flows through the domain fold and the engine's overlay
+ * composition (`@assay/domain` + `@assay/engine-duckdb` m4-2), then returns
+ * to the grid as an ordinary new data epoch (`refresh()`). Keeping a
+ * positional mutator on the provider would have been a second, lying edit
+ * path that bypasses undo/redo and the base-immutability guarantee; the
+ * grid's contract stays read-only, and the host's edit layer owns mutation.
+ */

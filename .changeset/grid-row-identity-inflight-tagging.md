@@ -1,0 +1,5 @@
+---
+'@assay/grid': minor
+---
+
+feat(m4-3): add an opaque row-identity channel and epoch-tag in-flight spans. `GridDataPage` gains an optional `rowKeys` array (parallel to `rows`) and ready `GridRowSlot`s expose `key`, so a host's edit layer can address a row by logical identity instead of viewport position (ADR 0011/0012 — a cell edit must survive re-sort/re-filter; the model never parses, renders, or DOM-exposes the string). The positional `updateCell` stub is **removed**: editing is an overlay op owned by the host's edit layer and returns through a fresh data epoch, so a second positional mutator would bypass undo/redo and base immutability (contract note in `contracts.ts`). In-flight span markers are now tagged with their data-epoch generation; a stale epoch's late completion only deletes its own marker, so it can no longer erase a newer epoch's in-flight marker for the same span key (which previously caused duplicate fetches). The existing "stale page never lands" generation guard is unchanged. Includes the regression tests (old completion while a newer same-span fetch is in flight → no duplicate; rapid multi-epoch shifts) and row-key channel tests.

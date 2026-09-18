@@ -17,14 +17,35 @@
  */
 import type { RecordTreeNode } from './record-tree'
 
-/** The grid query state a record was opened under. */
+/**
+ * The grid context a record was opened under. m3-3 covered the query state;
+ * m4-3 adds the editing era: `overlayRevision` catches overlay changes
+ * (edits/undo/redo) and `schemaSignature` catches rename/cast, while
+ * `rowKey` records the logical row the snapshot came from. Freshness is
+ * judged against a snapshot of this shape (see `recordFreshness`).
+ */
 export interface RecordContext {
   /** Active sort (`null` = dataset order) at open time. */
   readonly sort: { readonly column: string; readonly direction: 'asc' | 'desc' } | null
   /** Active filters in model order at open time. */
   readonly filters: readonly { readonly column: string; readonly predicate: string }[]
-  /** Total row count at open time (changes under filters / re-reads). */
+  /** Total row count at open time (changes under filters / inserts/deletes). */
   readonly totalRows: number
+  /**
+   * Monotonic overlay revision at open time (m4-3). Every accepted append/
+   * undo/redo bumps it; a change means the record's *values* may have moved
+   * even when the query state did not.
+   */
+  readonly overlayRevision: number
+  /**
+   * Effective schema identity at open time — `name<TAB>type` per column, in
+   * order (m4-3). A rename or cast changes the shape a record's keys/types
+   * are read against, so a snapshot taken under a different signature must
+   * not keep rendering as current.
+   */
+  readonly schemaSignature: string
+  /** Logical row id of the opened row (`null` when the provider gave none). */
+  readonly rowKey: string | null
 }
 
 export type RecordInspectorState =
@@ -48,13 +69,23 @@ export type RecordInspectorEvent =
       readonly tree: RecordTreeNode
       readonly context: RecordContext
     }
+  /**
+   * m4-3 value-only freshness: the same logical row re-read from a fresh grid
+   * epoch (an overlay edit). Keeps the token/position/expansion; only the
+   * snapshot and its context advance.
+   */
+  | {
+      readonly type: 'reloaded'
+      readonly tree: RecordTreeNode
+      readonly context: RecordContext
+    }
   /** User closed the inspector (button / Escape). */
   | { readonly type: 'closed' }
-  /** The grid's query state shifted under the open record (freshness rule). */
+  /** The grid's query/schema state shifted under the open record (freshness rule). */
   | { readonly type: 'epoch-shifted' }
 
 export function reduceRecordInspector(
-  _state: RecordInspectorState,
+  state: RecordInspectorState,
   event: RecordInspectorEvent,
 ): RecordInspectorState {
   switch (event.type) {
@@ -66,6 +97,10 @@ export function reduceRecordInspector(
         tree: event.tree,
         context: event.context,
       }
+    case 'reloaded':
+      // Reload only makes sense over an open record; a closed state ignores
+      // the late event (defensive, never a resurrected stale panel).
+      return state.kind === 'open' ? { ...state, tree: event.tree, context: event.context } : state
     case 'closed':
     case 'epoch-shifted':
       return { kind: 'closed' }
@@ -73,8 +108,9 @@ export function reduceRecordInspector(
 }
 
 /**
- * The pinned freshness policy (m3-3): **an epoch shift closes the inspector —
- * it never re-resolves the position and never keeps a stale snapshot.**
+ * The pinned freshness policy (m3-3, extended m4-3). **An epoch shift closes
+ * the inspector — it never re-resolves the position and never keeps a stale
+ * snapshot.**
  *
  * Rationale, pinned here so the e2e can point at it: after an accepted
  * sort/filter the model starts a new data epoch in which row index N is a
@@ -86,10 +122,21 @@ export function reduceRecordInspector(
  * Enter) if they still want a record.
  *
  * `totalRows` is included so a re-read that changes the count (filter accept,
- * external refresh) also closes, even when sort/filters happen to match.
+ * external refresh, row insert/delete) also closes, even when sort/filters
+ * happen to match. m4-3 adds the second shift axis: `schemaSignature`, so a
+ * column rename/cast closes too — the snapshot's keys and value shapes were
+ * read against the old schema and must not render as current.
+ *
+ * An overlay change *alone* (a cell edit / undo / redo with the same query
+ * state and schema) does **not** close: `recordContextNeedsReload` says the
+ * panel should re-read the same logical row from the fresh grid epoch
+ * instead (its `rowKey` is intact, so it is still the same record). That
+ * distinction — close on structural/query shifts, reload on value-only
+ * shifts — is the m4-3 policy, and both are pinned by tests.
  */
 export function recordContextShifted(opened: RecordContext, current: RecordContext): boolean {
   if (opened.totalRows !== current.totalRows) return true
+  if (opened.schemaSignature !== current.schemaSignature) return true
   if ((opened.sort === null) !== (current.sort === null)) return true
   if (
     opened.sort !== null &&
@@ -106,4 +153,18 @@ export function recordContextShifted(opened: RecordContext, current: RecordConte
     if (before.column !== after.column || before.predicate !== after.predicate) return true
   }
   return false
+}
+
+/**
+ * True when the open record's *values* changed but its identity did not
+ * (m4-3): the overlay revision moved without a query/schema shift. The
+ * inspector re-reads the same logical row from the current grid epoch; the
+ * caller must gate the read on the fresh row being ready so the old snapshot
+ * is never painted as current during the refetch gap (renders a stale-pending
+ * state instead).
+ */
+export function recordContextNeedsReload(opened: RecordContext, current: RecordContext): boolean {
+  return (
+    !recordContextShifted(opened, current) && opened.overlayRevision !== current.overlayRevision
+  )
 }

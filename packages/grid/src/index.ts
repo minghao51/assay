@@ -18,9 +18,13 @@
  * protocol) with epoch-rebuild semantics in the model (`setSort`/
  * `setFilters` + the `sort`/`filters` getters); m2-3 wires them to the
  * engine through the web provider and the column-header/filter UI.
- * `updateCell` remains part of the contract; the edit-overlay wiring is a
- * later task. See `contracts.ts` for why the page type is a structural
- * value rather than an Arrow table.
+ * m4-3: the page gained an optional opaque `rowKeys` identity channel and
+ * ready slots expose `key` — how the host addresses edits by logical row id
+ * (ADR 0011/0012) instead of viewport position; the positional `updateCell`
+ * stub was removed (see `contracts.ts` for the ruling). In-flight spans are
+ * epoch-tagged so a late old-epoch completion cannot delete a newer
+ * epoch's dedup marker. See `contracts.ts` for why the page type is a
+ * structural value rather than an Arrow table.
  */
 export type {
   CellRange,

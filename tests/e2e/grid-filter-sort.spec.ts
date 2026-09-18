@@ -103,7 +103,7 @@ test('column-header sort cycles asc → desc → cleared, reordering the visible
     page.locator(
       '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(3)',
     ),
-  ).toHaveText(['48000', '52000', '61000', '75000', ''])
+  ).toHaveText(['48000', '52000', '61000', '75000', 'NULL'])
   await expectCustomerOrder(page, ['4', '1', '2', '5', '3'])
 
   // desc by income: reversed, NULL still last.
@@ -113,7 +113,7 @@ test('column-header sort cycles asc → desc → cleared, reordering the visible
     page.locator(
       '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(3)',
     ),
-  ).toHaveText(['75000', '61000', '52000', '48000', ''])
+  ).toHaveText(['75000', '61000', '52000', '48000', 'NULL'])
   await expectCustomerOrder(page, ['5', '2', '1', '4', '3'])
 
   // Third click clears the sort (null-clear protocol) — natural order again.

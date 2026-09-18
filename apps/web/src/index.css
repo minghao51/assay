@@ -873,3 +873,105 @@ h1 {
   font-variant-numeric: tabular-nums;
   font-size: 0.85rem;
 }
+
+/* ---- Cell editing + row ops (m4-3) ---- */
+
+.edit-toolbar {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.edit-error {
+  margin: 0.25rem 0 0;
+  color: #a11;
+  font-size: 0.85rem;
+  flex-basis: 100%;
+}
+
+.grid-actions-header {
+  border-left: 1px solid #eee;
+}
+
+/* Dirty cells/rows are visually distinct from unedited cells AND from NULL. */
+.grid-cell-dirty {
+  background: #fff5cc;
+  box-shadow: inset 2px 0 0 #e0a800;
+}
+
+.grid-row-dirty .grid-cell:not(.grid-cell-dirty) {
+  background: #fffaf0;
+}
+
+.grid-row-dirty:nth-child(even) .grid-cell:not(.grid-cell-dirty) {
+  background: #faf5e8;
+}
+
+/* NULL is a value: a distinct marker, never an empty-looking blank cell. */
+.grid-null-marker {
+  color: #8a6d3b;
+  font-style: italic;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.grid-cell-editor {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 100%;
+}
+
+.grid-editor-input {
+  font: inherit;
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 22px;
+  border: 1px solid #4a7db5;
+  border-radius: 2px;
+  padding: 0 0.25rem;
+}
+
+.grid-editor-null {
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1;
+  background: #f0f0f0;
+  border: 1px solid #bbb;
+  border-radius: 2px;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.grid-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border-bottom: 1px solid #eee;
+  border-left: 1px solid #eee;
+}
+
+.grid-row-delete {
+  font: inherit;
+  font-size: 0.7rem;
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
+  cursor: pointer;
+}
+
+.grid-row-delete:hover {
+  border-color: #a11;
+  color: #a11;
+}
+
+/* Stale-until-reloaded inspector state (m4-3): never the old values. */
+.record-stale {
+  color: #666;
+  font-style: italic;
+}
