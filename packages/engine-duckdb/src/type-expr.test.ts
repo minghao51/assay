@@ -1,17 +1,22 @@
 /**
  * Unit tests for the strict engine type-expression validator
- * (`type-expr.ts`, m4-2 fix round). The validator is the m4-2 review's
- * SQL-injection boundary: it must accept exactly one complete DuckDB type
- * expression and reject everything else with a typed `EngineTypeError`,
- * never letting an unvalidated string reach a SQL type position.
+ * (`type-expr.ts`, m4-2 fix rounds). The validator is the m4-2 review's
+ * SQL-injection boundary and the second fix-round review's arity boundary: it
+ * must accept exactly one complete, well-shaped DuckDB type expression and
+ * reject everything else with a typed `EngineTypeError`, never letting an
+ * unvalidated string reach a SQL type position.
  *
  * The accept battery pins the legitimate type space the engine emits or
- * accepts (the review checklist plus nested combinations) so the validator
- * cannot be over-restrictive; the reject battery pins `;`, comments,
- * unbalanced/unterminated delimiters, trailing tokens, empty input, and the
- * exact payload the reviewer proved executed before the fix. The
- * classification pins the canonical string family the CSV guard keys off
- * (`TEXT`/`STRING`/`CHAR`/`BPCHAR`/`CHARACTER`/`ENUM`, not just `VARCHAR`).
+ * accepts (the review checklist, nested combinations, and the exact DESCRIBE
+ * strings every committed Parquet/JSONL fixture produces) so the validator
+ * cannot be over-restrictive. The reject battery pins `;`, comments,
+ * unbalanced/unterminated delimiters, trailing tokens, empty input, the exact
+ * injection payload the reviewer proved executed, and the malformed arities
+ * the fix-round review found (`DECIMAL(1,2,3)`, `DECIMAL()`, `VARCHAR()`,
+ * `MAP(INTEGER)`, `STRUCT()`, `ENUM()`, …). The classification pins the
+ * canonical string family the CSV guard keys off and its **shape-awareness**
+ * (`TEXT`/`STRING`/`CHAR`/`BPCHAR`/`CHARACTER`/`ENUM` scalar yes; `VARCHAR[]`/
+ * `VARCHAR[3]`/`LIST(VARCHAR)` no).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -29,7 +34,9 @@ const ACCEPTED_TYPES: readonly string[] = [
   'VARCHAR',
   'VARCHAR(10)',
   'TEXT',
+  'TEXT(5)',
   'STRING',
+  'STRING(5)',
   'CHAR',
   'CHAR(2)',
   'BPCHAR',
@@ -37,6 +44,7 @@ const ACCEPTED_TYPES: readonly string[] = [
   'CHARACTER VARYING',
   'CHARACTER VARYING(20)',
   'BIT VARYING',
+  'BIT VARYING(3)',
   'INTEGER',
   'BIGINT',
   'SMALLINT',
@@ -47,10 +55,17 @@ const ACCEPTED_TYPES: readonly string[] = [
   'UINTEGER',
   'UBIGINT',
   'FLOAT',
+  'FLOAT(24)',
   'REAL',
   'DOUBLE',
   'DOUBLE PRECISION',
+  'DECIMAL',
   'DECIMAL(10,2)',
+  'DECIMAL(10)',
+  'DECIMAL(38,10)',
+  'DECIMAL(1,1)',
+  'DECIMAL(38,38)',
+  'NUMERIC',
   'NUMERIC(18,4)',
   'BOOLEAN',
   'BLOB',
@@ -70,9 +85,12 @@ const ACCEPTED_TYPES: readonly string[] = [
   'JSON',
   'INTEGER[]',
   'BIGINT[][]',
+  'INTEGER[3][4]',
   'VARCHAR[3]',
   'VARCHAR(3)[]',
   'LIST(INTEGER)',
+  'LIST(VARCHAR)',
+  'LIST(STRUCT(a INTEGER))',
   'STRUCT(a INTEGER, b VARCHAR)',
   'STRUCT(a STRUCT(b INTEGER))',
   'STRUCT("a b" INTEGER, "weird ""quoted"" key" VARCHAR)',
@@ -82,6 +100,7 @@ const ACCEPTED_TYPES: readonly string[] = [
   'UNION(a INTEGER, b VARCHAR)',
   "ENUM('a','b')",
   "ENUM('it''s','b')",
+  "ENUM('a')[]",
   'DECIMAL(10,2)[]',
   "STRUCT(k MAP(VARCHAR, BIGINT[]), e ENUM('x','y'))",
   // The real engine's nested-fixture DESCRIBE strings (m3-1 pins).
@@ -102,7 +121,16 @@ const ACCEPTED_TYPES: readonly string[] = [
   'POINT',
   'UNKNOWN',
   'SQLNULL',
-  'DECIMAL(38,10)',
+  // Exact DESCRIBE outputs of every committed fixture (probed with the pinned
+  // DuckDB CLI 1.5.5 over fixtures/parquet/*.parquet, fixtures/csv/*.csv,
+  // fixtures/jsonl/*.jsonl, fixtures/llm/*.jsonl, fixtures/nested-json/*.jsonl).
+  // Pinned here so the arity validator can never over-restrict real data.
+  'STRUCT("role" VARCHAR, "content" VARCHAR, tool_calls STRUCT("name" VARCHAR, args STRUCT(city VARCHAR))[])[]',
+  'STRUCT(passed BOOLEAN, score DOUBLE)',
+  'STRUCT("name" VARCHAR, geo STRUCT(lat DECIMAL(21,1), lon DECIMAL(21,1)), tags VARCHAR[], scores STRUCT(q1 DOUBLE, q2 INTEGER))',
+  'STRUCT(tags VARCHAR[], geo STRUCT(lat DOUBLE, lon DOUBLE), scores STRUCT(q1 DOUBLE, q2 DOUBLE))',
+  'STRUCT(path VARCHAR, referrer VARCHAR, selector VARCHAR, code BIGINT)',
+  'DECIMAL(21,1)',
 ]
 
 const REJECTED_TYPES: readonly string[] = [
@@ -134,6 +162,51 @@ const REJECTED_TYPES: readonly string[] = [
   'VARCHAR\\INTEGER',
   'VARCHAR|INTEGER',
   'VARCHAR%INTEGER',
+  // Malformed arities the fix-round review found (all independently rejected
+  // by the pinned DuckDB CLI 1.5.5 too, except the two CLI-accepted
+  // default-precision spellings `DECIMAL()`/`BPCHAR()` noted in type-expr.ts).
+  'DECIMAL(1,2,3)',
+  'DECIMAL()',
+  'NUMERIC()',
+  'VARCHAR()',
+  'CHAR()',
+  'BPCHAR()',
+  'BIT()',
+  'MAP(INTEGER)',
+  'MAP()',
+  'MAP(VARCHAR, INTEGER, BIGINT)',
+  'MAP(VARCHAR)',
+  'STRUCT()',
+  'UNION()',
+  'ENUM()',
+  'LIST()',
+  'LIST(INTEGER, VARCHAR)',
+  'LIST(10)',
+  'LIST(a INTEGER)',
+  // MODIFIER bounds and shapes DuckDB rejects.
+  'DECIMAL(200)',
+  'DECIMAL(0)',
+  'DECIMAL(39)',
+  'DECIMAL(1,2)',
+  'DECIMAL(38,39)',
+  'DECIMAL(a)',
+  'DECIMAL(10,b)',
+  "DECIMAL('10')",
+  'VARCHAR(TEXT)',
+  'VARCHAR(10,2)',
+  'STRUCT(INTEGER)',
+  'STRUCT(a)',
+  'UNION(a)',
+  'ENUM(1)',
+  'ENUM(1,2)',
+  "ENUM('a',1)",
+  'INTEGER[0]',
+  'DATE(2)',
+  'INTEGER(2)',
+  'DOUBLE(2)',
+  'TIMESTAMP(3,4)',
+  'TIMESTAMPTZ(3)',
+  'FOO(1)',
 ]
 
 describe('parseEngineTypeExpression — accept battery', () => {
@@ -143,14 +216,37 @@ describe('parseEngineTypeExpression — accept battery', () => {
     }
   })
 
-  it('returns the canonical base and family for representative types', () => {
-    expect(parseEngineTypeExpression('DECIMAL(10,2)')).toEqual({ base: 'DECIMAL', family: 'other' })
+  it('returns the canonical base, family, and shape for representative types', () => {
+    expect(parseEngineTypeExpression('DECIMAL(10,2)')).toEqual({
+      base: 'DECIMAL',
+      family: 'other',
+      shape: 'scalar',
+    })
     expect(parseEngineTypeExpression('STRUCT(a INTEGER)')).toEqual({
       base: 'STRUCT',
       family: 'other',
+      shape: 'scalar',
     })
-    expect(parseEngineTypeExpression('integer[]')).toEqual({ base: 'INTEGER', family: 'other' })
-    expect(parseEngineTypeExpression('text')).toEqual({ base: 'TEXT', family: 'varchar' })
+    expect(parseEngineTypeExpression('integer[]')).toEqual({
+      base: 'INTEGER',
+      family: 'other',
+      shape: 'array',
+    })
+    expect(parseEngineTypeExpression('VARCHAR[3]')).toEqual({
+      base: 'VARCHAR',
+      family: 'other',
+      shape: 'array',
+    })
+    expect(parseEngineTypeExpression('LIST(VARCHAR)')).toEqual({
+      base: 'LIST',
+      family: 'other',
+      shape: 'array',
+    })
+    expect(parseEngineTypeExpression('text')).toEqual({
+      base: 'TEXT',
+      family: 'varchar',
+      shape: 'scalar',
+    })
   })
 })
 
@@ -176,15 +272,17 @@ describe('parseEngineTypeExpression — reject battery (typed EngineTypeError)',
   it('exposes validateEngineTypeExpression as the throwing side-effect form', () => {
     expect(() => validateEngineTypeExpression('VARCHAR')).not.toThrow()
     expect(() => validateEngineTypeExpression(REVIEWER_PAYLOAD)).toThrow(EngineTypeError)
+    expect(() => validateEngineTypeExpression('DECIMAL(1,2,3)')).toThrow(EngineTypeError)
   })
 })
 
-describe('isStringLikeEngineType — canonical string-family classification', () => {
-  it('classifies every textual alias and spelling as string-like', () => {
+describe('isStringLikeEngineType — shape-aware canonical string-family classification', () => {
+  it('classifies every scalar textual alias and spelling as string-like', () => {
     for (const type of [
       'VARCHAR',
       'VARCHAR(10)',
       'TEXT',
+      'TEXT(5)',
       'STRING',
       'CHAR',
       'CHAR(2)',
@@ -192,10 +290,26 @@ describe('isStringLikeEngineType — canonical string-family classification', ()
       'CHARACTER',
       'CHARACTER VARYING',
       'CHARACTER VARYING(20)',
+      'NVARCHAR',
       "ENUM('a','b')",
       'varchar(3)',
     ]) {
       expect(isStringLikeEngineType(type), type).toBe(true)
+    }
+  })
+
+  it('never classifies an array/list of text as a scalar string-like type (m4-2 fix round 2)', () => {
+    for (const type of [
+      'VARCHAR[]',
+      'VARCHAR[3]',
+      'TEXT[]',
+      'CHAR(2)[]',
+      'LIST(VARCHAR)',
+      'LIST(CHAR(2))',
+      'LIST(TEXT)',
+      "ENUM('a','b')[]",
+    ]) {
+      expect(isStringLikeEngineType(type), type).toBe(false)
     }
   })
 
@@ -209,7 +323,11 @@ describe('isStringLikeEngineType — canonical string-family classification', ()
       'UUID',
       'INTEGER[]',
       'STRUCT(a INTEGER)',
+      'STRUCT(a VARCHAR)',
       'MAP(VARCHAR, INTEGER)',
+      'MAP(VARCHAR, VARCHAR)',
+      'DECIMAL(1,2,3)',
+      'VARCHAR()',
       REVIEWER_PAYLOAD,
       '',
       null,

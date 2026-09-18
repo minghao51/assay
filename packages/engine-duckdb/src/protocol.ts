@@ -591,6 +591,70 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
 }
 
 /**
+ * The m4-2 overlay/export request types (m4-2 fix round 2). These carry the
+ * complex, host-supplied overlay payload, so a structurally malformed message
+ * is both plausible and — because the client always holds a pending promise
+ * for its `requestId` — a hang risk if the worker silently drops it. Their
+ * envelope identity is therefore preserved through parsing.
+ */
+export const OVERLAY_REQUEST_TYPES = [
+  'engine/overlay-schema',
+  'engine/overlay-row-count',
+  'engine/overlay-range',
+  'engine/export',
+] as const
+
+export type OverlayRequestType = (typeof OVERLAY_REQUEST_TYPES)[number]
+
+function isOverlayRequestType(value: unknown): value is OverlayRequestType {
+  return (OVERLAY_REQUEST_TYPES as readonly unknown[]).includes(value)
+}
+
+/** A recognisably overlay/export request whose payload failed validation. */
+export interface MalformedEngineRequest {
+  readonly requestId: number
+  readonly requestType: OverlayRequestType
+}
+
+/**
+ * The three-way result of parsing a raw worker message (m4-2 fix round 2):
+ *
+ * - `request` — a well-formed `EngineRequest`;
+ * - `malformed` — a message that is recognisably an overlay/export request
+ *   (a numeric `requestId` plus a known `engine/overlay-*`/`engine/export`
+ *   type) but whose payload is structurally invalid. The worker must answer it
+ *   with exactly one typed `engine/error` so the caller cannot hang; the
+ *   envelope identity (`requestId`, request `type`) survives parsing for that
+ *   purpose.
+ * - `ignored` — anything else (unknown `type`, no correlatable `requestId`,
+ *   or a non-object): the pre-existing contract, unchanged. A message with no
+ *   usable `requestId` cannot be answered at all, and an unrecognised `type`
+ *   is not part of the protocol.
+ */
+export type EngineRequestEnvelope =
+  | { readonly status: 'request'; readonly request: EngineRequest }
+  | { readonly status: 'malformed'; readonly malformed: MalformedEngineRequest }
+  | { readonly status: 'ignored' }
+
+/**
+ * Parse a raw worker message into a request, a typed rejection, or an ignore
+ * (see `EngineRequestEnvelope`). `parseEngineRequest` remains the strict
+ * shape-only parser; this wrapper adds the envelope identity a malformed but
+ * recognised overlay/export message needs to be answered instead of dropped.
+ */
+export function parseEngineRequestEnvelope(data: unknown): EngineRequestEnvelope {
+  const request = parseEngineRequest(data)
+  if (request !== null) return { status: 'request', request }
+  if (isRecord(data)) {
+    const { type, requestId } = data
+    if (typeof requestId === 'number' && isOverlayRequestType(type)) {
+      return { status: 'malformed', malformed: { requestId, requestType: type } }
+    }
+  }
+  return { status: 'ignored' }
+}
+
+/**
  * Optional `columns` projection: either absent or a non-empty array of
  * strings. Returns `null` for malformed input (the request is then rejected).
  */

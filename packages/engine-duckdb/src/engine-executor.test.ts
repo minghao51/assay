@@ -1449,21 +1449,66 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
     expectNoCollisions(deps)
   })
 
-  it('silently drops overlay requests whose payloads arrive malformed (no send, no reply)', async () => {
+  it('answers malformed recognised overlay/export requests with one typed error (m4-2 fix round 2)', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
+    // The reviewer's exact repro: a directly posted malformed
+    // engine/overlay-schema with requestId 77. Before the fix
+    // `parseEngineRequest` returned null and the executor silently returned,
+    // leaving the caller hanging; now the envelope is preserved and answered.
     executor.accept({
       type: 'engine/overlay-schema',
-      requestId: 2,
+      requestId: 77,
       tableId: 't1',
       overlay: { base: { baseAnchor: 'b1' } },
     })
-    executor.accept({ type: 'engine/export', requestId: 3, tableId: 't1', format: 'xlsx' })
-    await flush()
-    expect(deps.postedResponses.filter((response) => response.requestId === 2)).toEqual([])
-    expect(deps.postedResponses.filter((response) => response.requestId === 3)).toEqual([])
+    // A malformed export (unknown format) and a malformed overlay-range
+    // (empty columns) are answered the same way.
+    executor.accept({ type: 'engine/export', requestId: 78, tableId: 't1', format: 'xlsx' })
+    executor.accept({
+      type: 'engine/overlay-range',
+      requestId: 79,
+      tableId: 't1',
+      overlay: overlayPayload(),
+      startRow: 0,
+      endRow: 5,
+      columns: [],
+    })
+    expect(deps.postedResponses.filter((response) => response.requestId === 77)).toHaveLength(1)
+    expect(await awaitPosted(deps, 77)).toMatchObject({
+      type: 'engine/error',
+      requestId: 77,
+      message: 'malformed engine/overlay-schema request',
+    })
+    expect(await awaitPosted(deps, 78)).toMatchObject({
+      type: 'engine/error',
+      requestId: 78,
+      message: 'malformed engine/export request',
+    })
+    expect(await awaitPosted(deps, 79)).toMatchObject({
+      type: 'engine/error',
+      requestId: 79,
+      message: 'malformed engine/overlay-range request',
+    })
+    // Nothing touched a connection: no SQL was composed for any of them.
     expect(deps.conn.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
+    expectNoCollisions(deps)
+  })
+
+  it('still ignores truly unrecognised messages (unchanged contract)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept({ type: 'engine/drop', requestId: 2 })
+    // A recognised type with no correlatable requestId cannot be answered.
+    executor.accept({ type: 'engine/overlay-schema', tableId: 't1' })
+    executor.accept('not a message')
+    await flush()
+    // Only the open's own result was posted.
+    expect(deps.postedResponses.filter((response) => response.requestId !== 1)).toEqual([])
+    expect(deps.conn.sentSqls).toHaveLength(1)
     expect(deps.queryConn.sentSqls).toHaveLength(0)
   })
 

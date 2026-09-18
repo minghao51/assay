@@ -59,7 +59,7 @@ import {
   exportFileExtension,
 } from './overlay-query'
 import type { OverlayComposition } from './overlay-query'
-import { parseEngineRequest } from './protocol'
+import { parseEngineRequestEnvelope } from './protocol'
 import type {
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
@@ -175,15 +175,34 @@ export class EngineOpExecutor {
 
   /**
    * Entry point for raw worker messages. Parsing happens synchronously at
-   * arrival so the enqueue order matches message order (FIFO per lane);
-   * messages that are not part of the protocol are ignored (no `requestId`
-   * to reply to).
+   * arrival so the enqueue order matches message order (FIFO per lane).
+   *
+   * A well-formed request routes to its op class's lane and serializes there.
+   * A **malformed but recognised** overlay/export message (a numeric
+   * `requestId` plus an `engine/overlay-*`/`engine/export` type whose payload
+   * failed structural validation) is answered immediately with exactly one
+   * typed `engine/error` — it never touches a connection, and it can never be
+   * silently dropped and hang the caller (m4-2 fix round 2). Truly
+   * unrecognised messages (unknown `type`, or no correlatable `requestId`)
+   * are still ignored, exactly as before: there is nothing to answer them to.
    */
   accept(data: unknown): void {
-    const request = parseEngineRequest(data)
-    if (request === null) {
+    const envelope = parseEngineRequestEnvelope(data)
+    if (envelope.status === 'ignored') {
       return
     }
+    if (envelope.status === 'malformed') {
+      // No connection work, so this is posted directly (never queued behind a
+      // lane): the caller gets its typed rejection as soon as the message is
+      // parsed. The message names the request type only — never the payload.
+      this.post({
+        type: 'engine/error',
+        requestId: envelope.malformed.requestId,
+        message: `malformed ${envelope.malformed.requestType} request`,
+      })
+      return
+    }
+    const request = envelope.request
     // Route to the op class's lane and serialize there: no two operations
     // are pending on the lane's connection at once. The lane also supplies
     // that connection, so routing and connection choice are one decision.

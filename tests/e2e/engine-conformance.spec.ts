@@ -151,11 +151,13 @@ for (const name of SCENARIOS) {
         expect(result.facts['invalidRejected']).toBe(3)
         break
       case 'overlay-window-fidelity':
-        expect(result.facts['schemaColumns']).toBe(4)
+        // Effective schema includes the two cast array spellings and the plain
+        // list (fix round 2); the value pins cover the five scalar columns.
+        expect(result.facts['schemaColumns']).toBe(8)
         expect(result.facts['liveRowCount']).toBe(9)
         expect(result.facts['filteredCount']).toBe(2)
         expect(result.facts['sliceRows']).toBe(3)
-        expect(result.facts['cells']).toBe(36)
+        expect(result.facts['cells']).toBe(45)
         expect(result.facts['sortedRows']).toBe(9)
         break
       case 'export-round-trip':

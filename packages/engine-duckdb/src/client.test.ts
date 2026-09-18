@@ -1009,4 +1009,38 @@ describe('DuckDbEngineClient overlay + export (m4-2)', () => {
     expect(worker.postedRequests).toHaveLength(2)
     expect(client.status).toBe('ready')
   })
+
+  it('rejects malformed type arities with a typed EngineOperationError before posting (m4-2 fix round 2)', async () => {
+    const { client, worker, handle } = await openHandle()
+    const malformed = [
+      'DECIMAL(1,2,3)',
+      'DECIMAL()',
+      'VARCHAR()',
+      'MAP(INTEGER)',
+      'STRUCT()',
+      'ENUM()',
+      'LIST()',
+      'UNION()',
+      'DECIMAL(200)',
+      'DECIMAL(1,2)',
+      'INTEGER[0]',
+      'DATE(2)',
+    ]
+    for (const targetType of malformed) {
+      const hostile = {
+        base: overlay.base,
+        ops: [{ kind: 'column-cast' as const, column: 'label', targetType }],
+      }
+      await expect(client.overlaySchema(handle, hostile)).rejects.toThrow(EngineOperationError)
+      await expect(client.overlayRowCount(handle, hostile)).rejects.toThrow(EngineOperationError)
+      await expect(
+        client.fetchOverlayRange(handle, hostile, { startRow: 0, endRow: 1 }),
+      ).rejects.toThrow(EngineOperationError)
+      await expect(client.exportView(handle, { format: 'csv', overlay: hostile })).rejects.toThrow(
+        EngineOperationError,
+      )
+    }
+    expect(worker.postedRequests).toHaveLength(2)
+    expect(client.status).toBe('ready')
+  })
 })

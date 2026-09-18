@@ -483,16 +483,66 @@ function buildProfileCsv(): Uint8Array {
 }
 
 /**
- * m4-2 canonical overlay base (runtime-built CSV, never committed data) —
+ * m4-2 canonical overlay base (runtime-built JSONL, never committed data) —
  * five rows whose VARCHAR cells already carry the formula-injection trigger
- * forms (leading `=`, `+`, `@`, `-`, an embedded TAB), plus one NULL BIGINT.
+ * forms (leading `=`, `+`, `@`, `-`, an embedded TAB), one NULL BIGINT, and
+ * three **array** columns for the fix-round-2 shape probe: `tags` is a plain
+ * `VARCHAR[]`, `codes` is cast to the fixed-size `VARCHAR[3]`, and `aliases`
+ * (declared `STRING[]`) is cast to `VARCHAR[]` — before the shape-aware CSV
+ * classification these all matched the string family and the export wrapped
+ * them in `left()`, failing with the reviewer's Binder Error.
  */
 const OVERLAY_BASE_ROWS = [
-  { id: 1, region: 'SG', amount: 52000, note: '=SUM(A1:A2)' },
-  { id: 2, region: 'US', amount: 61000, note: '+CMD' },
-  { id: 3, region: 'SG', amount: null, note: 'has\ttab' },
-  { id: 4, region: 'DE', amount: 48000, note: '@x' },
-  { id: 5, region: 'US', amount: 75000, note: '-1+1' },
+  {
+    id: 1,
+    region: 'SG',
+    amount: 52000,
+    note: '=SUM(A1:A2)',
+    note_alias: '=SUM(A1:A2)',
+    tags: ['x', 'y'],
+    codes: ['a', 'b', 'c'],
+    aliases: ['p', 'q'],
+  },
+  {
+    id: 2,
+    region: 'US',
+    amount: 61000,
+    note: '+CMD',
+    note_alias: '+CMD',
+    tags: ['solo'],
+    codes: ['d', 'e', 'f'],
+    aliases: ['r'],
+  },
+  {
+    id: 3,
+    region: 'SG',
+    amount: null,
+    note: 'has\ttab',
+    note_alias: 'has\ttab',
+    tags: [],
+    codes: ['g', 'h', 'i'],
+    aliases: ['s', 't', 'u'],
+  },
+  {
+    id: 4,
+    region: 'DE',
+    amount: 48000,
+    note: '@x',
+    note_alias: '@x',
+    tags: ['z', null],
+    codes: ['j', 'k', 'l'],
+    aliases: [],
+  },
+  {
+    id: 5,
+    region: 'US',
+    amount: 75000,
+    note: '-1+1',
+    note_alias: '-1+1',
+    tags: ['m', 'n'],
+    codes: ['m', 'n', 'o'],
+    aliases: ['v', 'w'],
+  },
 ] as const
 
 const OVERLAY_BASE: OverlayBase = {
@@ -503,6 +553,10 @@ const OVERLAY_BASE: OverlayBase = {
     { name: 'region', type: 'VARCHAR' },
     { name: 'amount', type: 'BIGINT' },
     { name: 'note', type: 'VARCHAR' },
+    { name: 'note_alias', type: 'VARCHAR' },
+    { name: 'tags', type: 'VARCHAR[]' },
+    { name: 'codes', type: 'VARCHAR[]' },
+    { name: 'aliases', type: 'STRING[]' },
   ],
   baseRowCount: 5,
 }
@@ -534,6 +588,14 @@ const OVERLAY_OPS: EditOp[] = [
     value: overlayCell({ kind: 'string', value: 'a\tb=victim' }),
   },
   {
+    // Mirror the bait edit onto the NVARCHAR-aliased column (fix-round-2
+    // warning: a byte-level round trip for a second textual spelling).
+    kind: 'cell-set',
+    rowId: baseRowId('conf-base-v1', 2),
+    column: 'note_alias',
+    value: overlayCell({ kind: 'string', value: 'a\tb=victim' }),
+  },
+  {
     kind: 'row-insert',
     rowId: insertRowId('conf-ov-1', 0),
     position: { kind: 'start' },
@@ -542,6 +604,7 @@ const OVERLAY_OPS: EditOp[] = [
       ['region', overlayCell({ kind: 'string', value: 'XX' })],
       ['amount', overlayCell({ kind: 'text', text: '9000' })],
       ['note', overlayCell({ kind: 'string', value: '-1+1' })],
+      ['note_alias', overlayCell({ kind: 'string', value: '-1+1' })],
     ]),
   },
   {
@@ -552,6 +615,7 @@ const OVERLAY_OPS: EditOp[] = [
       ['id', overlayCell({ kind: 'number', value: 101 })],
       ['region', overlayCell({ kind: 'string', value: 'YY' })],
       ['note', overlayCell({ kind: 'string', value: '@x' })],
+      ['note_alias', overlayCell({ kind: 'string', value: '@x' })],
     ]),
   },
   {
@@ -571,6 +635,7 @@ const OVERLAY_OPS: EditOp[] = [
       ['id', overlayCell({ kind: 'number', value: 103 })],
       ['region', overlayCell({ kind: 'string', value: 'W W' })],
       ['note', overlayCell({ kind: 'string', value: 'cr\rcarriage' })],
+      ['note_alias', overlayCell({ kind: 'string', value: 'cr\rcarriage' })],
     ]),
   },
   {
@@ -590,6 +655,14 @@ const OVERLAY_OPS: EditOp[] = [
   // exactly the spelling the exact-`'VARCHAR'` CSV guard missed — this op is
   // what makes the export-round-trip pin non-vacuous for the alias fix.
   { kind: 'column-cast', column: 'note', targetType: 'TEXT' },
+  // m4-2 fix round 2 warning: pin a SECOND textual alias (NVARCHAR) on the
+  // mirrored bait column, so the byte-level CSV round trip is not TEXT-only.
+  { kind: 'column-cast', column: 'note_alias', targetType: 'NVARCHAR' },
+  // m4-2 fix round 2: array casts. `codes` becomes a fixed-size
+  // `VARCHAR[3]` and `aliases` a `VARCHAR[]` produced by `column-cast`;
+  // `tags` stays a plain `VARCHAR[]`. The CSV guard must skip all three.
+  { kind: 'column-cast', column: 'codes', targetType: 'VARCHAR[3]' },
+  { kind: 'column-cast', column: 'aliases', targetType: 'VARCHAR[]' },
   // Absorbed by the fold (no-op replay + foreign anchor): state unchanged.
   {
     kind: 'cell-set',
@@ -632,6 +705,47 @@ const EFFECTIVE_NOTE = [
   null,
 ] as const
 
+/**
+ * Effective-order array values, rendered exactly as the CSV export re-opens
+ * them (`read_csv_auto` infers the rendered list text as VARCHAR). `tags` and
+ * `aliases` are `VARCHAR[]`; `codes` is the fixed-size `VARCHAR[3]` the
+ * `column-cast` produces. Insert branches carry no array values -> NULL.
+ * Derived with the pinned DuckDB CLI 1.5.5 (see the dataset comment).
+ */
+const EFFECTIVE_TAGS_CSV = [
+  null,
+  '[x, y]',
+  '[solo]',
+  null,
+  '[]',
+  null,
+  null,
+  '[m, n]',
+  null,
+] as const
+const EFFECTIVE_CODES_CSV = [
+  null,
+  '[a, b, c]',
+  '[d, e, f]',
+  null,
+  '[g, h, i]',
+  null,
+  null,
+  '[m, n, o]',
+  null,
+] as const
+const EFFECTIVE_ALIASES_CSV = [
+  null,
+  '[p, q]',
+  '[r]',
+  null,
+  '[s, t, u]',
+  null,
+  null,
+  '[v, w]',
+  null,
+] as const
+
 /** The CSV export sanitizes every trigger cell (apostrophe-prefix convention). */
 const CSV_SANITIZED_NOTE = [
   "'-1+1",
@@ -649,8 +763,11 @@ const CSV_SANITIZED_NOTE = [
  * m4-2 overlay dataset pins — every expectation below was derived with the
  * pinned DuckDB CLI (v1.5.5, `DUCKDB=/tmp/duckdb`) over the IDENTICAL
  * composed SQL the worker generates (`composeOverlayWindowSql` and friends
- * over `assay_t1 = SELECT * FROM read_csv(<this CSV>)`), then round-trip
+ * over `assay_t1 = SELECT * FROM read_json_auto(<this JSONL>)`), then round-trip
  * checked cell-by-cell against the duckdb-wasm 1.32 build through Arrow IPC.
+ * (The base file is JSONL, not CSV, so the array columns are inferred as
+ * `VARCHAR[]`; the `codes`/`aliases` casts give the fixed-size and
+ * cast-produced array spellings.)
  * Derivation transcript (control chars marked <TAB>/<CR>):
  *
  *   WITH eff AS (<the composed includeRowIds window, LIMIT 1000 OFFSET 0>)
@@ -684,6 +801,10 @@ const OVERLAY_DATASET: ConformanceOverlayDataset = {
     { name: 'region', type: 'VARCHAR' },
     { name: 'amount_eur', type: 'BIGINT' },
     { name: 'note', type: 'VARCHAR' },
+    { name: 'note_alias', type: 'VARCHAR' },
+    { name: 'tags', type: 'VARCHAR[]' },
+    { name: 'codes', type: 'VARCHAR[3]' },
+    { name: 'aliases', type: 'VARCHAR[]' },
   ],
   liveRowCount: 9,
   rowIds: EFFECTIVE_ROW_IDS,
@@ -693,6 +814,7 @@ const OVERLAY_DATASET: ConformanceOverlayDataset = {
     { name: 'region', values: EFFECTIVE_REGION },
     { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
     { name: 'note', values: EFFECTIVE_NOTE },
+    { name: 'note_alias', values: EFFECTIVE_NOTE },
   ],
   offsetWindow: { startRow: 2, endRow: 5 },
   filtered: {
@@ -721,6 +843,15 @@ const OVERLAY_DATASET: ConformanceOverlayDataset = {
         { name: 'region', values: EFFECTIVE_REGION },
         { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
         { name: 'note', values: CSV_SANITIZED_NOTE },
+        // The NVARCHAR-aliased, mirrored bait column is sanitized identically
+        // (fix-round-2 warning: a second textual spelling, not just TEXT).
+        { name: 'note_alias', values: CSV_SANITIZED_NOTE },
+        // Array columns: the shape-aware guard skips them, so the export
+        // succeeds and the re-opened CSV carries DuckDB's rendered list
+        // literals verbatim (fix round 2). Insert rows have no arrays -> NULL.
+        { name: 'tags', values: EFFECTIVE_TAGS_CSV },
+        { name: 'codes', values: EFFECTIVE_CODES_CSV },
+        { name: 'aliases', values: EFFECTIVE_ALIASES_CSV },
       ],
     },
     {
@@ -732,8 +863,10 @@ const OVERLAY_DATASET: ConformanceOverlayDataset = {
         { name: 'region', values: EFFECTIVE_REGION },
         { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
         // Raw content stays visible in JSONL — the non-vacuous counterpart
-        // of the CSV sanitization pin (m4-5 pins the UI side).
+        // of the CSV sanitization pin (m4-5 pins the UI side), including the
+        // mirrored NVARCHAR-aliased column.
         { name: 'note', values: EFFECTIVE_NOTE },
+        { name: 'note_alias', values: EFFECTIVE_NOTE },
       ],
     },
     {
@@ -815,13 +948,9 @@ const HOSTILE_TYPE_PROBES: readonly ConformanceHostileTypeProbe[] = [
   },
 ]
 
-/** Runtime-built overlay base CSV (see OVERLAY_BASE_ROWS). */
-function buildOverlayCsv(): Uint8Array {
-  const lines = ['id,region,amount,note']
-  for (const row of OVERLAY_BASE_ROWS) {
-    const amount = row.amount === null ? '' : String(row.amount)
-    lines.push(`${String(row.id)},${row.region},${amount},${row.note}`)
-  }
+/** Runtime-built overlay base JSONL (see OVERLAY_BASE_ROWS). */
+function buildOverlayJsonl(): Uint8Array {
+  const lines = OVERLAY_BASE_ROWS.map((row) => JSON.stringify(row))
   return new TextEncoder().encode(lines.join('\n') + '\n')
 }
 
@@ -870,8 +999,8 @@ export function createDuckDbConformanceSubject(
     nestedDataset: NESTED_DATASET,
     overlayDataset: OVERLAY_DATASET,
     stageOverlayFile: async () => {
-      const csv = buildOverlayCsv()
-      return asFileSource(await stageBytesInOpfs(csv, 'assay-conformance-overlay.csv'))
+      const jsonl = buildOverlayJsonl()
+      return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-overlay.jsonl'))
     },
     hostileTypeProbes: HOSTILE_TYPE_PROBES,
     tableExists: async (client, name) => {

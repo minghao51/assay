@@ -9,9 +9,14 @@
  * statement injection. The m4-2 review found the boundary accepted arbitrary
  * strings and a payload
  * `VARCHAR) AS "c" FROM (...) ); CREATE TABLE assay_injected AS SELECT 31337; --`
- * reached DuckDB and executed. This module is the single, total validator:
- * `parseEngineTypeExpression` either returns a canonical `EngineTypeInfo` or
- * throws a typed `EngineTypeError`; there is no pass-through path.
+ * reached DuckDB and executed. A second fix-round review then found the
+ * *argument lists* of recognised types were still unvalidated: `DECIMAL(1,2,3)`,
+ * `VARCHAR()`, `MAP(INTEGER)`, `STRUCT()`, `ENUM()` and friends shaped like
+ * types but were malformed DuckDB, so they reached SQL type positions and
+ * failed later with a binder error. This module is the single, total
+ * validator: `parseEngineTypeExpression` either returns a canonical
+ * `EngineTypeInfo` or throws a typed `EngineTypeError`; there is no
+ * pass-through path.
  *
  * Grammar enforced — exactly one complete type expression, then EOF:
  *
@@ -23,10 +28,10 @@
  *              | 'PRECISION'                       -- DOUBLE PRECISION
  *              | 'VARYING' ['(' arglist ')']       -- CHARACTER/BIT VARYING
  *   arglist   := arg (',' arg)*
- *   arg       := type
- *              | fieldname type                    -- STRUCT/UNION members
- *              | number                            -- DECIMAL(10,2), VARCHAR(10)
+ *   arg       := number                            -- DECIMAL(10,2), VARCHAR(10)
  *              | string                            -- ENUM('a','b') labels
+ *              | type                              -- LIST(INTEGER), MAP(k, v)
+ *              | fieldname type                    -- STRUCT/UNION members
  *   fieldname := IDENT | QUOTED_IDENT
  *
  * Lexer allowlist: identifiers (`[A-Za-z_][A-Za-z0-9_]*`), unsigned integers,
@@ -38,28 +43,60 @@
  * consume the whole input, so trailing tokens (`VARCHAR foo`) and injected
  * closers (`VARCHAR)`) are `EngineTypeError`s.
  *
- * Accept set: the type space DuckDB can emit or accept, including the m4-2
- * review checklist — `VARCHAR`, `VARCHAR(10)`, `TEXT`, `STRING`, `CHAR(2)`,
- * `BPCHAR`, `CHARACTER [VARYING]`, the integer families (`INTEGER`…`UBIGINT`,
- * `HUGEINT`), `FLOAT`/`REAL`/`DOUBLE [PRECISION]`, `DECIMAL(p,s)` /
- * `NUMERIC(p,s)`, `BOOLEAN`, `BLOB`/`BYTEA`, `DATE`, `TIME`/`TIMESTAMP`
- * `[WITH|WITHOUT TIME ZONE]`, `TIMESTAMPTZ`, `INTERVAL`, `UUID`, `JSON`,
- * `INTEGER[]`, `LIST(INTEGER)`, `VARCHAR[3]`, `STRUCT(name type, …)`,
- * `MAP(k, v)`, `UNION(name type, …)`, `ENUM('a','b')`, and nested
- * combinations. Unknown identifiers are accepted as long as they are a single
- * well-formed type-shaped token sequence: the validator's job is to prove
- * "exactly one type expression", not to re-implement DuckDB's type catalog
- * (the engine still rejects a genuinely unknown type with its own binder
- * error — a readable typed failure, never injection).
+ * **Argument shape (arity/modifier) validation** is type-aware, derived from
+ * the pinned DuckDB CLI 1.5.5 (`/tmp/duckdb`). The closed set of
+ * arity-validated spellings and the rules encoded for each:
+ *
+ * - `DECIMAL`/`NUMERIC`: bare, or exactly 1 or 2 **integer literals**;
+ *   precision in `[1, 38]`, scale in `[0, precision]`. (CLI rejects
+ *   `DECIMAL(1,2,3)` "at most two type modifiers", `DECIMAL(200)`/`DECIMAL(0)`
+ *   "width must be between 1 and 38", and `DECIMAL(1,2)` "scale cannot be
+ *   greater than width". Note: bare `DECIMAL()` is accepted by the 1.5.5 CLI
+ *   as a default-precision spelling, but it is deliberately rejected here —
+ *   the engine never emits it, and a fix-round finding requires the closed
+ *   `p[,s]` arity, so the two spellings that *are* emitted (`DECIMAL` and
+ *   `DECIMAL(p,s)`) both stay accepted.)
+ * - `VARCHAR`/`CHAR`/`CHARACTER`/`BPCHAR`/`BIT`/`VARBIT`/`TEXT`/`STRING`/
+ *   `NVARCHAR`/`FLOAT` and `TIME`/`TIMESTAMP`: bare, or exactly one integer
+ *   modifier (`VARCHAR(10)`, `TIMESTAMP(3)`). `VARCHAR()`, `CHAR()`,
+ *   `BIT()` and `TIMESTAMP(3,4)` are rejected. (`BPCHAR()` is accepted by the
+ *   1.5.5 CLI but rejected here for the same closed-arity reason as
+ *   `DECIMAL()`; the engine emits only the bare spelling.) `CHARACTER VARYING`
+ *   and `BIT VARYING` take the modifier after `VARYING`.
+ * - `LIST`: exactly one **type** argument (`LIST(INTEGER)`); `LIST`,
+ *   `LIST()` and `LIST(INTEGER, VARCHAR)` are rejected.
+ * - `MAP`: exactly two **type** arguments (`MAP(VARCHAR, INTEGER)`);
+ *   `MAP(INTEGER)` and `MAP(VARCHAR, INTEGER, BIGINT)` are rejected.
+ * - `STRUCT`/`UNION`: at least one `name type` member; `STRUCT()`,
+ *   `STRUCT(INTEGER)` and `UNION()` are rejected.
+ * - `ENUM`: at least one **string literal** (`ENUM('a','b')`); `ENUM()` and
+ *   `ENUM(1)` are rejected.
+ * - `T[]`/`T[n]` fixed-size arrays: the extent must be an unsigned integer
+ *   `>= 1` (`INTEGER[0]` is rejected; `INTEGER[]` is the unbounded form).
+ *
+ * Everything else (an identifier this closed set does not name — `INTEGER`,
+ * `DATE`, `UUID`, `JSON`, `TIMESTAMP_S`, `GEOMETRY`, …) takes the **permissive
+ * identifier path**: it is accepted only as a plain identifier, with no
+ * argument list, so `DATE(2)`/`INTEGER(3)`/`GEOMETRY('x')` are rejected even
+ * though the path does not know the type's real grammar. Array suffixes are
+ * always allowed (`INTEGER[]`, `GEOMETRY[]`) because the suffix is itself
+ * structurally validated. This documents the closed set of arity-validated
+ * spellings versus the permissive identifier path; the validator's job is to
+ * prove "exactly one well-shaped type expression", not to re-implement
+ * DuckDB's type catalog (the engine still rejects a genuinely unknown type
+ * with its own readable binder error — never injection).
  *
  * Classification: `family` is the canonical string family the CSV
- * formula-injection guard keys off. DuckDB reports every textual scalar as
- * `VARCHAR` in DESCRIBE, but an overlay's *declared* cast type or base type
- * may spell it `TEXT`, `STRING`, `CHAR(n)`, `BPCHAR`, `CHARACTER [VARYING]`,
- * or `ENUM(...)`. All of those render as text and can be formula-shaped, so
- * they classify as `'varchar'`; every other type is `'other'`. Matching the
- * declared spelling (rather than the DESCRIBE output) is exactly the m4-2
- * review's CSV finding: an exact-`'VARCHAR'` check missed a `TEXT` cast.
+ * formula-injection guard keys off, and it is **shape-aware** — only a
+ * *scalar* textual type is string-like. DuckDB reports every textual scalar
+ * as `VARCHAR` in DESCRIBE, but an overlay's *declared* cast type or base
+ * type may spell it `TEXT`, `STRING`, `CHAR(n)`, `BPCHAR`,
+ * `CHARACTER [VARYING]`, `NVARCHAR`, or `ENUM(...)`; all of those render as
+ * text and can be formula-shaped, so they classify as `'varchar'`. Arrays of
+ * textual types (`VARCHAR[]`, `VARCHAR[3]`, `LIST(VARCHAR)`) deliberately do
+ * **not**: the CSV guard must never apply scalar string functions (`left()`,
+ * `contains()`) to an array value — the fix-round review caught exactly that
+ * binder error. Every other type is `'other'`.
  */
 
 /** A typed rejection of an engine type expression (never a pass-through). */
@@ -73,19 +110,29 @@ export class EngineTypeError extends Error {
 /** Canonical string family used by the CSV formula-injection guard. */
 export type EngineTypeFamily = 'varchar' | 'other'
 
+/** Top-level shape: an array/list constructor versus a scalar type. */
+export type EngineTypeShape = 'scalar' | 'array'
+
 /** The validated shape of one engine type expression. */
 export interface EngineTypeInfo {
-  /** Uppercase base identifier (e.g. `VARCHAR`, `DECIMAL`, `STRUCT`). */
+  /** Uppercase base identifier (e.g. `VARCHAR`, `DECIMAL`, `STRUCT`, `LIST`). */
   readonly base: string
-  /** Canonical family of the type (`varchar` = renders as text). */
+  /** Canonical family of the type (`varchar` = a scalar that renders as text). */
   readonly family: EngineTypeFamily
+  /**
+   * `'array'` for `T[]`/`T[n]` and `LIST(...)`; `'scalar'` otherwise. The CSV
+   * guard keys off `family`, which already folds this in — the field is
+   * exposed so callers/tests can reason about top-level array shape directly.
+   */
+  readonly shape: EngineTypeShape
 }
 
 /**
  * Base identifiers whose values render as text and can therefore be
  * formula-shaped in a spreadsheet. `ENUM` renders its label; the rest are the
  * DuckDB textual aliases (all of which `DESCRIBE` canonicalizes to
- * `VARCHAR`, but which an overlay may declare verbatim).
+ * `VARCHAR`, but which an overlay may declare verbatim). Only the **scalar**
+ * form of any of these is `family: 'varchar'` (see `parseTypeExpression`).
  */
 const STRING_FAMILY_BASES: ReadonlySet<string> = new Set([
   'VARCHAR',
@@ -106,12 +153,35 @@ const MULTI_WORD_CONTINUATIONS: ReadonlySet<string> = new Set([
   'VARYING',
 ])
 
+/** Types whose argument list is a single optional integer modifier. */
+const OPTIONAL_INTEGER_MODIFIER_BASES: ReadonlySet<string> = new Set([
+  'VARCHAR',
+  'CHAR',
+  'CHARACTER',
+  'BPCHAR',
+  'BIT',
+  'VARBIT',
+  'TEXT',
+  'STRING',
+  'NVARCHAR',
+  'FLOAT',
+  'TIME',
+  'TIMESTAMP',
+])
+
 type Token =
   | { readonly kind: 'ident'; readonly value: string; readonly upper: string }
   | { readonly kind: 'number'; readonly value: string }
   | { readonly kind: 'string'; readonly value: string }
   | { readonly kind: 'quotedIdent'; readonly value: string }
   | { readonly kind: 'punct'; readonly value: '(' | ')' | '[' | ']' | ',' | '.' }
+
+/** One parsed argument inside a type's `( … )` list. */
+type ParsedArg =
+  | { readonly kind: 'number'; readonly value: number }
+  | { readonly kind: 'string' }
+  | { readonly kind: 'type'; readonly info: EngineTypeInfo }
+  | { readonly kind: 'field'; readonly name: string; readonly info: EngineTypeInfo }
 
 const IDENT_START = /[A-Za-z_]/
 const IDENT_PART = /[A-Za-z0-9_]/
@@ -218,14 +288,11 @@ class TypeExpressionParser {
     if (this.tokens.length === 0) {
       throw new EngineTypeError('empty engine type expression')
     }
-    const base = this.parseType()
+    const info = this.parseTypeExpression()
     if (this.index < this.tokens.length) {
       throw new EngineTypeError('unexpected trailing token after a complete engine type expression')
     }
-    return {
-      base,
-      family: STRING_FAMILY_BASES.has(base) ? 'varchar' : 'other',
-    }
+    return info
   }
 
   private peek(): Token | undefined {
@@ -261,16 +328,38 @@ class TypeExpressionParser {
     return false
   }
 
-  private parseType(): string {
+  /**
+   * `primary array*`: parse the base identifier with its argument list and
+   * multi-word suffix (validated for arity), then any number of array
+   * suffixes. `LIST(...)` is itself an array constructor, so it also reports
+   * `shape: 'array'`.
+   */
+  private parseTypeExpression(): EngineTypeInfo {
     const base = this.parsePrimary()
+    let shape: EngineTypeShape = base === 'LIST' ? 'array' : 'scalar'
     while (this.isPunct('[')) {
       this.index += 1
-      if (this.peek()?.kind === 'number') this.index += 1
+      const extent = this.peek()
+      if (extent !== undefined && extent.kind === 'number') {
+        this.index += 1
+        const size = Number(extent.value)
+        if (!Number.isSafeInteger(size) || size < 1) {
+          throw new EngineTypeError('fixed-size array extent must be at least 1')
+        }
+      } else if (extent !== undefined && extent.kind !== 'punct') {
+        throw new EngineTypeError('array extent must be an unsigned integer')
+      }
       this.expectPunct(']')
+      shape = 'array'
     }
-    return base
+    return {
+      base,
+      shape,
+      family: shape === 'scalar' && STRING_FAMILY_BASES.has(base) ? 'varchar' : 'other',
+    }
   }
 
+  /** Parse one base identifier, its argument list, suffix, and arity rules. */
   private parsePrimary(): string {
     const token = this.peek()
     if (token === undefined || token.kind !== 'ident') {
@@ -278,7 +367,8 @@ class TypeExpressionParser {
     }
     this.index += 1
     const base = token.upper
-    if (this.isPunct('(')) this.parseArgList()
+    let args: readonly ParsedArg[] | undefined
+    if (this.isPunct('(')) args = this.parseArgList()
     switch (base) {
       case 'TIMESTAMP':
       case 'TIME': {
@@ -299,22 +389,40 @@ class TypeExpressionParser {
         break
       case 'CHARACTER':
       case 'BIT':
-        if (this.matchIdent('VARYING') && this.isPunct('(')) this.parseArgList()
+        // The optional modifier of `CHARACTER VARYING` / `BIT VARYING`
+        // follows `VARYING`; a modifier directly after the base was already
+        // consumed above and is then a malformed double modifier.
+        if (this.matchIdent('VARYING')) {
+          if (this.isPunct('(')) {
+            if (args !== undefined) {
+              throw new EngineTypeError(`${base} VARYING has a duplicate type modifier`)
+            }
+            args = this.parseArgList()
+          }
+        }
         break
       default:
         break
     }
+    this.validateArgumentShape(base, args)
     return base
   }
 
-  private parseArgList(): void {
+  /**
+   * Parse a `( … )` argument list into typed arguments. An empty list is a
+   * valid *parse* (returns `[]`); whether zero arguments is acceptable is the
+   * arity rule's decision, so `VARCHAR()` and `DECIMAL()` reach their
+   * validators rather than a generic syntax error.
+   */
+  private parseArgList(): ParsedArg[] {
     this.expectPunct('(')
+    const args: ParsedArg[] = []
     if (this.isPunct(')')) {
       this.index += 1
-      return
+      return args
     }
     for (;;) {
-      this.parseArg()
+      args.push(this.parseArg())
       if (this.isPunct(',')) {
         this.index += 1
         continue
@@ -322,22 +430,26 @@ class TypeExpressionParser {
       break
     }
     this.expectPunct(')')
+    return args
   }
 
-  private parseArg(): void {
+  private parseArg(): ParsedArg {
     const token = this.peek()
     if (token === undefined) {
       throw new EngineTypeError('unexpected end of engine type expression')
     }
-    if (token.kind === 'number' || token.kind === 'string') {
+    if (token.kind === 'number') {
       this.index += 1
-      return
+      return { kind: 'number', value: Number(token.value) }
+    }
+    if (token.kind === 'string') {
+      this.index += 1
+      return { kind: 'string' }
     }
     if (token.kind === 'quotedIdent') {
       // A quoted name is always a STRUCT/UNION field name, never a bare type.
       this.index += 1
-      this.parseType()
-      return
+      return { kind: 'field', name: token.value, info: this.parseTypeExpression() }
     }
     // `fieldname type` (STRUCT/UNION) vs a bare type argument. A following
     // identifier is a field name unless it continues a multi-word type name
@@ -349,20 +461,111 @@ class TypeExpressionParser {
       !(next.kind === 'ident' && MULTI_WORD_CONTINUATIONS.has(next.upper))
     ) {
       this.index += 1
-      this.parseType()
-      return
+      return { kind: 'field', name: token.value, info: this.parseTypeExpression() }
     }
-    this.parseType()
+    return { kind: 'type', info: this.parseTypeExpression() }
+  }
+
+  /**
+   * Type-aware arity/modifier validation (see the module doc for the CLI
+   * probes behind every rule). Types outside the closed set take the
+   * permissive identifier path: no argument list is allowed.
+   */
+  private validateArgumentShape(base: string, args: readonly ParsedArg[] | undefined): void {
+    switch (base) {
+      case 'DECIMAL':
+      case 'NUMERIC':
+        this.validateDecimalModifiers(base, args)
+        return
+      case 'LIST':
+        this.requireTypeArguments(base, args, 1)
+        return
+      case 'MAP':
+        this.requireTypeArguments(base, args, 2)
+        return
+      case 'STRUCT':
+      case 'UNION':
+        this.requireFieldArguments(base, args)
+        return
+      case 'ENUM':
+        this.requireStringArguments(base, args)
+        return
+      default:
+        if (OPTIONAL_INTEGER_MODIFIER_BASES.has(base)) {
+          this.requireOptionalIntegerModifier(base, args)
+          return
+        }
+        if (args !== undefined) {
+          throw new EngineTypeError(`engine type ${base} does not accept type parameters`)
+        }
+    }
+  }
+
+  private validateDecimalModifiers(base: string, args: readonly ParsedArg[] | undefined): void {
+    if (args === undefined) return // bare DECIMAL/NUMERIC: default precision
+    if (args.length < 1 || args.length > 2) {
+      throw new EngineTypeError(`${base} takes only a precision and an optional scale`)
+    }
+    const precision = args[0]!
+    if (precision.kind !== 'number') {
+      throw new EngineTypeError(`${base} precision must be an integer literal`)
+    }
+    if (precision.value < 1 || precision.value > 38) {
+      throw new EngineTypeError(`${base} precision must be between 1 and 38`)
+    }
+    const scale = args[1]
+    if (scale === undefined) return
+    if (scale.kind !== 'number') {
+      throw new EngineTypeError(`${base} scale must be an integer literal`)
+    }
+    if (scale.value < 0 || scale.value > precision.value) {
+      throw new EngineTypeError(`${base} scale must be between 0 and the precision`)
+    }
+  }
+
+  private requireOptionalIntegerModifier(
+    base: string,
+    args: readonly ParsedArg[] | undefined,
+  ): void {
+    if (args === undefined) return
+    if (args.length !== 1 || args[0]!.kind !== 'number') {
+      throw new EngineTypeError(`${base} takes at most one integer modifier`)
+    }
+  }
+
+  private requireTypeArguments(
+    base: string,
+    args: readonly ParsedArg[] | undefined,
+    count: number,
+  ): void {
+    if (args === undefined || args.length !== count || args.some((arg) => arg.kind !== 'type')) {
+      throw new EngineTypeError(
+        `${base} requires exactly ${String(count)} type argument${count === 1 ? '' : 's'}`,
+      )
+    }
+  }
+
+  private requireFieldArguments(base: string, args: readonly ParsedArg[] | undefined): void {
+    if (args === undefined || args.length < 1 || args.some((arg) => arg.kind !== 'field')) {
+      throw new EngineTypeError(`${base} requires at least one "name type" member`)
+    }
+  }
+
+  private requireStringArguments(base: string, args: readonly ParsedArg[] | undefined): void {
+    if (args === undefined || args.length < 1 || args.some((arg) => arg.kind !== 'string')) {
+      throw new EngineTypeError(`${base} requires at least one string label`)
+    }
   }
 }
 
 /**
  * Validate one engine type expression as **exactly one complete DuckDB type**
- * and return its canonical base/family. Throws `EngineTypeError` for anything
- * else — statement separators, comments, unbalanced brackets, unterminated
- * quotes, trailing tokens, empty input, or disallowed characters. The
- * returned string is never used to rebuild SQL; callers interpolate the
- * already-validated original.
+ * and return its canonical base/family/shape. Throws `EngineTypeError` for
+ * anything else — statement separators, comments, unbalanced brackets,
+ * unterminated quotes, trailing tokens, empty input, disallowed characters,
+ * or a malformed argument list (`DECIMAL(1,2,3)`, `VARCHAR()`, `MAP(INTEGER)`,
+ * `STRUCT()`, `ENUM()`, …). The returned string is never used to rebuild SQL;
+ * callers interpolate the already-validated original.
  */
 export function parseEngineTypeExpression(text: unknown): EngineTypeInfo {
   if (typeof text !== 'string') {
@@ -377,9 +580,12 @@ export function validateEngineTypeExpression(text: unknown): void {
 }
 
 /**
- * Whether a type expression renders as text and can be formula-shaped —
- * the CSV guard's classification. Total: an invalid expression is `false`
- * (composition validates separately and reports the typed error).
+ * Whether a type expression is a **scalar** textual type that can be
+ * formula-shaped — the CSV guard's classification. Shape-aware: `VARCHAR[]`,
+ * `VARCHAR[3]` and `LIST(VARCHAR)` are arrays, not scalar strings, and are
+ * deliberately `false` (the guard must never apply `left()`/`contains()` to a
+ * list). Total: an invalid expression is `false` (composition validates
+ * separately and reports the typed error).
  */
 export function isStringLikeEngineType(text: unknown): boolean {
   try {

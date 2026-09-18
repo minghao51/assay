@@ -419,6 +419,50 @@ describe('cellLiteralSql and the formula-injection guard', () => {
     expect(numeric).not.toContain('chr(39)')
   })
 
+  it('leaves array columns unguarded while still guarding scalar text (m4-2 fix round 2)', () => {
+    // The second fix-round review: `VARCHAR[]`/`VARCHAR[3]` matched the old
+    // exact-family check, so the CSV guard wrapped an array in `left()` and
+    // DuckDB rejected the export with a Binder Error. Arrays must never get
+    // scalar string functions; only a SCALAR textual column does.
+    const arrayBase: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'note', type: 'VARCHAR' },
+        { name: 'tags', type: 'VARCHAR[]' },
+        { name: 'codes', type: 'VARCHAR[]' },
+        { name: 'aliases', type: 'STRING[]' },
+      ],
+      baseRowCount: 2,
+    }
+    const ops: EditOp[] = [
+      { kind: 'column-cast', column: 'codes', targetType: 'VARCHAR[3]' },
+      { kind: 'column-cast', column: 'aliases', targetType: 'VARCHAR[]' },
+      {
+        kind: 'cell-set',
+        rowId: rid('base:b1#0'),
+        column: 'note',
+        value: { kind: 'string', value: '=1+1' },
+      },
+    ]
+    const state = foldOverlay(arrayBase, ops).state
+    const csv = composeSourceSql(
+      { viewName: 'assay_t1', base: arrayBase, state },
+      { withRowIds: false, sanitizeCsv: true, withKey: false },
+    )
+    // The scalar bait is guarded…
+    expect(csv).toContain('chr(39)')
+    // …exactly once (one scalar guard): no array expression is wrapped.
+    expect(csv.match(/\bleft\(/g)?.length).toBe(1)
+    expect(csv).not.toContain('contains("tags"')
+    expect(csv).not.toContain('contains(CAST("codes"')
+    expect(csv).not.toContain('contains(CAST("aliases"')
+    // The array casts still compose verbatim.
+    expect(csv).toContain('CAST("codes" AS VARCHAR[3])')
+    expect(csv).toContain('CAST("aliases" AS VARCHAR[])')
+  })
+
   it('pins the text-value literal escaping (single quotes and backslashes)', () => {
     // `text` becomes CAST('<escaped>' AS <type>); DuckDB string literals use
     // '' for a quote and treat backslashes literally, so only quotes need

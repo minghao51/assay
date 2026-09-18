@@ -282,8 +282,18 @@ export function cellLiteralSql(value: CellValue, effectiveType: string): string 
  * that can be formula-shaped; numbers/dates/booleans render as
  * numeric/temporal literals). The m4-2 review caught an exact-`'VARCHAR'`
  * check here: a `column-cast` to DuckDB's `TEXT` alias left bait cells raw.
- * The documented trade-off: a string cell that legitimately starts with `-`
- * gains the prefix too.
+ * The second fix-round review then caught a shape bug: `VARCHAR[]`,
+ * `VARCHAR[3]` and `LIST(VARCHAR)` matched the same check, so the guard
+ * wrapped an **array** value in `left()`/`contains()` and DuckDB failed the
+ * export with a binder error. Classification is now shape-aware
+ * (`type-expr.ts`): only a *scalar* textual type is guarded; an array's
+ * rendered form is the engine's list literal (`[a, b]`, `[]`) and is left
+ * unguarded. That is safe for the CSV attack surface: a DuckDB-rendered list
+ * literal always starts with `[`, and a spreadsheet never evaluates `[` as a
+ * formula introducer (`=`/`+`/`-`/`@`; a leading `-` inside a list cannot
+ * begin the cell because the cell begins with `[`). The documented trade-off
+ * on the scalar path: a string cell that legitimately starts with `-` gains
+ * the prefix too.
  */
 export function formulaInjectionGuardSql(expr: string): string {
   const triggers = `'=', '+', '-', '@', chr(9), chr(13)`
@@ -371,7 +381,7 @@ interface RelationOptions {
   readonly withKey: boolean
   /** Include the logical row-id column (`assay_row_id`). */
   readonly withRowIds: boolean
-  /** Apply the CSV formula-injection guard to VARCHAR columns (CSV export). */
+  /** Apply the CSV guard to scalar string-family columns (CSV export only). */
   readonly sanitizeCsv: boolean
 }
 

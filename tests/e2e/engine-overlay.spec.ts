@@ -78,21 +78,25 @@ for (const name of SCENARIOS) {
     // Scenario-specific evidence beyond the pass flag.
     switch (name) {
       case 'overlay-window-fidelity':
-        // Effective schema (rename + cast visible), live/filtered counts,
-        // the full 9-row effective order with every cell value pinned, the
+        // Effective schema (rename + cast visible, including the two cast
+        // array spellings and the plain list), live/filtered counts, the full
+        // 9-row effective order with every scalar cell value pinned, the
         // LIMIT/OFFSET slice, and the sorted window.
-        expect(result.facts['schemaColumns']).toBe(4)
+        expect(result.facts['schemaColumns']).toBe(8)
         expect(result.facts['liveRowCount']).toBe(9)
         expect(result.facts['filteredCount']).toBe(2)
         expect(result.facts['sliceRows']).toBe(3)
-        expect(result.facts['cells']).toBe(36)
+        expect(result.facts['cells']).toBe(45)
         expect(result.facts['sortedRows']).toBe(9)
         break
       case 'export-round-trip':
         // All five shipped formats verified; four re-opened through the
         // engine (parquet/jsonl/json/csv), arrow through its IPC container
         // (the engine cannot re-open .arrow files yet — m1-4 deferral);
-        // the CSV pin is non-vacuously probed (sanitized ≠ effective).
+        // the CSV pin is non-vacuously probed (sanitized ≠ effective), and
+        // the CSV check pins the three array columns (`VARCHAR[]`,
+        // `VARCHAR[3]`, cast-produced `VARCHAR[]`) — the fix-round-2 shape
+        // guard that used to fail the whole export with a Binder Error.
         expect(result.facts['formats']).toBe(5)
         expect(result.facts['engineReopens']).toBe(4)
         expect(result.facts['arrowVerified']).toBe(1)

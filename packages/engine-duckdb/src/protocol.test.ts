@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseEngineRequest, parseEngineResponse } from './protocol'
+import {
+  OVERLAY_REQUEST_TYPES,
+  parseEngineRequest,
+  parseEngineRequestEnvelope,
+  parseEngineResponse,
+} from './protocol'
 
 describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
   describe('parseEngineRequest', () => {
@@ -807,6 +812,53 @@ describe('m4-2: overlay + export protocol', () => {
       expect(
         parseEngineRequest({ type: 'engine/export', requestId: 7, tableId: 't1', format: 'xlsx' }),
       ).toBeNull()
+    })
+  })
+
+  describe('parseEngineRequestEnvelope (m4-2 fix round 2)', () => {
+    it('returns the request for a well-formed message', () => {
+      expect(parseEngineRequestEnvelope({ type: 'engine/init', requestId: 1 })).toEqual({
+        status: 'request',
+        request: { type: 'engine/init', requestId: 1 },
+      })
+    })
+
+    it('preserves requestId for a malformed recognised overlay request (reviewer repro 77)', () => {
+      // The reviewer posted directly to the worker protocol: the client's
+      // pending promise for request 77 hung because the parser returned null
+      // and the executor silently returned. The envelope keeps the id.
+      expect(
+        parseEngineRequestEnvelope({
+          type: 'engine/overlay-schema',
+          requestId: 77,
+          tableId: 't1',
+        }),
+      ).toEqual({
+        status: 'malformed',
+        malformed: { requestId: 77, requestType: 'engine/overlay-schema' },
+      })
+    })
+
+    it('covers every recognised overlay/export request type', () => {
+      for (const requestType of OVERLAY_REQUEST_TYPES) {
+        expect(parseEngineRequestEnvelope({ type: requestType, requestId: 9 })).toEqual({
+          status: 'malformed',
+          malformed: { requestId: 9, requestType },
+        })
+      }
+    })
+
+    it('ignores unrecognised types and uncorrelatable messages (unchanged contract)', () => {
+      for (const data of [
+        { type: 'engine/drop', requestId: 1 },
+        { type: 'engine/overlay-schema', tableId: 't1' },
+        { type: 'engine/overlay-schema', requestId: '77' },
+        'engine/overlay-schema',
+        42,
+        null,
+      ]) {
+        expect(parseEngineRequestEnvelope(data)).toEqual({ status: 'ignored' })
+      }
     })
   })
 
