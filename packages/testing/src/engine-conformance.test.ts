@@ -26,12 +26,20 @@ import {
 } from './engine-conformance'
 import type {
   ConformanceBatchResult,
+  ConformanceCellValue,
   ConformanceCategoricalStats,
   ConformanceDatasetProfile,
+  ConformanceEditOp,
   ConformanceEngineClient,
+  ConformanceExportFormat,
+  ConformanceExportResult,
   ConformanceFileSource,
   ConformanceFilterSpec,
+  ConformanceInsertPosition,
   ConformanceNumericStats,
+  ConformanceOverlay,
+  ConformanceOverlayBase,
+  ConformanceOverlayWindow,
   ConformanceScenarioName,
   ConformanceSortSpec,
   ConformanceTableHandle,
@@ -90,6 +98,22 @@ interface FakeMutations {
   corruptsNestedValues?: boolean
   /** m3-1: nested windows report hasMore=true although the batch is complete. */
   liesAboutNestedHasMore?: boolean
+  /** m4-2: overlay cell edits are silently dropped (base values served). */
+  skipsOverlayEdits?: boolean
+  /** m4-2: insert positions are ignored — every live insert degrades to the end. */
+  misordersOverlayInserts?: boolean
+  /** m4-2: tombstoned base rows are served anyway (deletes not reflected). */
+  keepsDeletedRows?: boolean
+  /** m4-2: the effective schema is reported as the base schema (rename/cast invisible). */
+  liesAboutOverlaySchema?: boolean
+  /** m4-2: the overlay row count ignores tombstoned base rows. */
+  liesAboutOverlayRowCount?: boolean
+  /** m4-2: CSV exports skip the formula-injection sanitization. */
+  skipsCsvSanitization?: boolean
+  /** m4-2: the export result's row count is inflated by one. */
+  liesAboutExportRowCount?: boolean
+  /** m4-2: exporting rewrites the staged source file (breaks byte-identity). */
+  rewritesSourceFile?: boolean
 }
 
 const GOOD_DATASET = {
@@ -310,6 +334,140 @@ const NESTED_DATASET = {
   offsetWindow: { startRow: 1, endRow: 3 },
 } as const
 
+/**
+ * m4-2 overlay dataset the fake subject declares — the same probe shapes the
+ * DuckDB subject pins over its runtime-built CSV, in miniature: leading-
+ * formula bait cells in the BASE data (`=SUM(A1:A2)`, `-1+1`), baits and a
+ * NULL introduced by edits/inserts, an anchored insert chain, a tombstoned
+ * base row, a rename, and a cast. Expectations are hand-written literals
+ * independent of the fake's fold/emission code below, so mutation knobs can
+ * make the two disagree.
+ */
+const FAKE_OVERLAY_BASE = {
+  baseAnchor: 'fake-base-v1',
+  overlayAnchor: 'fake-ov-1',
+  columns: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'label', type: 'VARCHAR' },
+  ],
+  baseRowCount: 4,
+} as const
+
+const FAKE_OVERLAY_OPS: readonly ConformanceEditOp[] = [
+  // Edit introduces a bait cell (and covers the last-write-wins path).
+  {
+    kind: 'cell-set',
+    rowId: 'base:fake-base-v1#1',
+    column: 'label',
+    value: { kind: 'string', value: '+CMD' },
+  },
+  {
+    kind: 'row-insert',
+    rowId: 'ins:fake-ov-1#0',
+    position: { kind: 'start' },
+    values: new Map([
+      ['id', { kind: 'text', text: '50' }],
+      ['label', { kind: 'string', value: '@start' }],
+    ]),
+  },
+  {
+    kind: 'row-insert',
+    rowId: 'ins:fake-ov-1#1',
+    position: { kind: 'after', rowId: 'base:fake-base-v1#0' },
+    values: new Map([['id', { kind: 'number', value: 51 }]]),
+  },
+  { kind: 'row-delete', rowId: 'base:fake-base-v1#2' },
+  { kind: 'column-rename', from: 'label', to: 'label_v2' },
+  { kind: 'column-cast', column: 'id', targetType: 'VARCHAR' },
+]
+
+/** The fake's overlay base rows in natural order (mirrors FAKE_OVERLAY_BASE). */
+const FAKE_OVERLAY_ROWS: readonly { id: number; label: string | null }[] = [
+  { id: 1, label: '=SUM(A1:A2)' },
+  { id: 2, label: 'b' },
+  { id: 3, label: null },
+  { id: 4, label: '-1+1' },
+]
+
+/** Exact m4-2 expectations (hand-written; see the block comment above). */
+const FAKE_OVERLAY_DATASET = {
+  base: FAKE_OVERLAY_BASE,
+  ops: FAKE_OVERLAY_OPS,
+  effectiveSchema: [
+    { name: 'id', type: 'VARCHAR' },
+    { name: 'label_v2', type: 'VARCHAR' },
+  ],
+  liveRowCount: 5,
+  // ins#1 anchors `after base#0`, so it emits between base#0 and base#1
+  // (the domain's `effectiveRowIds` emission order).
+  rowIds: [
+    'ins:fake-ov-1#0',
+    'base:fake-base-v1#0',
+    'ins:fake-ov-1#1',
+    'base:fake-base-v1#1',
+    'base:fake-base-v1#3',
+  ],
+  rowIdColumn: 'assay_row_id',
+  columns: [
+    { name: 'id', values: ['50', '1', '51', '2', '4'] },
+    { name: 'label_v2', values: ['@start', '=SUM(A1:A2)', null, '+CMD', '-1+1'] },
+  ],
+  offsetWindow: { startRow: 1, endRow: 3 },
+  filtered: {
+    label: 'filter label_v2 IS NOT NULL',
+    filters: [{ column: 'label_v2', predicate: 'IS NOT NULL' }],
+    expectColumn: 'label_v2',
+    expectValues: ['@start', '=SUM(A1:A2)', '+CMD', '-1+1'],
+    expectRowCount: 4,
+  },
+  sorted: {
+    label: 'sort id asc (VARCHAR after the cast — lexicographic)',
+    sort: [{ column: 'id', direction: 'asc' }],
+    expectColumn: 'id',
+    expectValues: ['1', '2', '4', '50', '51'],
+    expectRowCount: 5,
+  },
+  exports: [
+    {
+      format: 'csv',
+      roundTrip: 'engine',
+      rowCount: 5,
+      columns: [
+        { name: 'id', values: ['50', '1', '51', '2', '4'] },
+        // Sanitized: every formula-trigger cell gains the apostrophe prefix.
+        { name: 'label_v2', values: ["'@start", "'=SUM(A1:A2)", null, "'+CMD", "'-1+1"] },
+      ],
+    },
+    {
+      format: 'jsonl',
+      roundTrip: 'engine',
+      rowCount: 5,
+      columns: [
+        { name: 'id', values: ['50', '1', '51', '2', '4'] },
+        { name: 'label_v2', values: ['@start', '=SUM(A1:A2)', null, '+CMD', '-1+1'] },
+      ],
+    },
+    {
+      format: 'parquet',
+      roundTrip: 'engine',
+      rowCount: 5,
+      columns: [
+        { name: 'id', values: ['50', '1', '51', '2', '4'] },
+        { name: 'label_v2', values: ['@start', '=SUM(A1:A2)', null, '+CMD', '-1+1'] },
+      ],
+    },
+    {
+      format: 'arrow',
+      roundTrip: 'arrow-container',
+      rowCount: 5,
+      columns: [
+        { name: 'id', values: ['50', '1', '51', '2', '4'] },
+        { name: 'label_v2', values: ['@start', '=SUM(A1:A2)', null, '+CMD', '-1+1'] },
+      ],
+    },
+  ],
+} as const
+
 /** Explicit Arrow types for the fake's nested columns (nulls-rich shapes). */
 const NESTED_DEEP_TYPE = new Struct([
   new Field('a', new Struct([new Field('b', new Struct([new Field('c', new Int64())]))])),
@@ -330,6 +488,270 @@ interface FakeNestedRow {
   tags: readonly (string | null)[] | null
   events: readonly ({ at: bigint | null; ok: boolean | null } | null)[] | null
   quoted: bigint
+}
+
+// ---- m4-2 fake overlay machinery (mini-fold + emission + sanitization) ----
+
+/** One live/tombstoned overlay insert of the fake's mini-fold. */
+interface FakeInsert {
+  readonly id: string
+  live: boolean
+  readonly position: ConformanceInsertPosition
+  readonly values: ReadonlyMap<string, ConformanceCellValue>
+  readonly seq: number
+}
+
+/** The fake's folded overlay state (the domain fold in miniature). */
+interface FakeOverlayState {
+  readonly columns: { name: string; type: string }[]
+  readonly edits: Map<string, Map<string, ConformanceCellValue>>
+  readonly inserts: Map<string, FakeInsert>
+  readonly deletedBase: Set<number>
+}
+
+/**
+ * The fake's mini-fold: applies the (conflict-free, dataset-scripted) ops
+ * left-to-right — last-write-wins edits, insert records with their seq,
+ * tombstones, rename re-keying, cast type overrides. Mutation knobs make it
+ * dishonest in exactly one way afterwards (the fold itself stays honest so
+ * each knob is a single load-bearing break).
+ */
+function foldFakeOverlay(
+  base: ConformanceOverlayBase,
+  ops: readonly ConformanceEditOp[],
+  mutations: FakeMutations,
+): FakeOverlayState {
+  const state: {
+    columns: { name: string; type: string }[]
+    edits: Map<string, Map<string, ConformanceCellValue>>
+    inserts: Map<string, FakeInsert>
+    deletedBase: Set<number>
+  } = {
+    columns: base.columns.map((column) => ({ ...column })),
+    edits: new Map(),
+    inserts: new Map(),
+    deletedBase: new Set(),
+  }
+  for (const op of ops) {
+    switch (op.kind) {
+      case 'cell-set': {
+        const inner = state.edits.get(op.rowId) ?? new Map<string, ConformanceCellValue>()
+        inner.set(op.column, op.value)
+        state.edits.set(op.rowId, inner)
+        break
+      }
+      case 'cell-revert':
+        state.edits.get(op.rowId)?.delete(op.column)
+        break
+      case 'row-insert': {
+        const seq = Number(op.rowId.slice(op.rowId.lastIndexOf('#') + 1))
+        state.inserts.set(op.rowId, {
+          id: op.rowId,
+          live: true,
+          position: op.position,
+          values: op.values,
+          seq,
+        })
+        break
+      }
+      case 'row-uninsert':
+        state.inserts.delete(op.rowId)
+        state.edits.delete(op.rowId)
+        break
+      case 'row-delete': {
+        const record = state.inserts.get(op.rowId)
+        if (record !== undefined) {
+          state.inserts.set(op.rowId, { ...record, live: false })
+        } else {
+          state.deletedBase.add(fakeBaseOrdinal(op.rowId))
+        }
+        break
+      }
+      case 'row-restore': {
+        const record = state.inserts.get(op.rowId)
+        if (record !== undefined) {
+          state.inserts.set(op.rowId, { ...record, live: true })
+        } else {
+          state.deletedBase.delete(fakeBaseOrdinal(op.rowId))
+        }
+        break
+      }
+      case 'column-rename': {
+        state.columns = state.columns.map((column) =>
+          column.name === op.from ? { name: op.to, type: column.type } : column,
+        )
+        for (const [rowId, inner] of state.edits) {
+          if (!inner.has(op.from)) continue
+          const rekeyed = new Map<string, ConformanceCellValue>()
+          for (const [column, value] of inner) {
+            rekeyed.set(column === op.from ? op.to : column, value)
+          }
+          state.edits.set(rowId, rekeyed)
+        }
+        for (const [rowId, record] of state.inserts) {
+          if (!record.values.has(op.from)) continue
+          const rekeyed = new Map<string, ConformanceCellValue>()
+          for (const [column, value] of record.values) {
+            rekeyed.set(column === op.from ? op.to : column, value)
+          }
+          state.inserts.set(rowId, { ...record, values: rekeyed })
+        }
+        break
+      }
+      case 'column-cast':
+        state.columns = state.columns.map((column) =>
+          column.name === op.column ? { name: column.name, type: op.targetType } : column,
+        )
+        break
+    }
+  }
+  // Mutation knobs: each degrades the folded state in exactly one way.
+  if (mutations.skipsOverlayEdits) state.edits.clear()
+  if (mutations.keepsDeletedRows) state.deletedBase.clear()
+  return state
+}
+
+/** The base ordinal of a `base:<anchor>#<ordinal>` id (shape trusted). */
+function fakeBaseOrdinal(rowId: string): number {
+  return Number(rowId.slice(rowId.lastIndexOf('#') + 1))
+}
+
+/** Renders one cell (base scalar or tagged overlay value) as output text. */
+function fakeRenderCell(
+  value: ConformanceCellValue | string | number | boolean | null,
+): string | null {
+  if (value === null) return null
+  if (typeof value === 'object') {
+    switch (value.kind) {
+      case 'null':
+        return null
+      case 'boolean':
+        return String(value.value)
+      case 'number':
+        return String(value.value)
+      case 'string':
+        return value.value
+      case 'text':
+        return value.text
+    }
+  }
+  return String(value)
+}
+
+/**
+ * The fake's effective rows: the domain's `effectiveRowIds` emission order in
+ * miniature (start sweep, base ordinals minus tombstones with before/after
+ * chains nested depth-first, end sweep, leftover sweep by seq), with cell
+ * maps keyed by EFFECTIVE column names (base value at the same position,
+ * edit overlaid). `misorder` collapses every insert position to the end —
+ * the m4-2 misordering mutation.
+ */
+function fakeOverlayRows(
+  base: ConformanceOverlayBase,
+  state: FakeOverlayState,
+  baseRows: readonly Record<string, string | number | null>[],
+  misorder: boolean,
+): { id: string; cells: ReadonlyMap<string, string | null> }[] {
+  const beforeByAnchor = new Map<string, FakeInsert[]>()
+  const afterByAnchor = new Map<string, FakeInsert[]>()
+  const start: FakeInsert[] = []
+  const end: FakeInsert[] = []
+  for (const record of state.inserts.values()) {
+    if (!record.live) continue
+    const position = misorder ? ({ kind: 'end' } as const) : record.position
+    if (position.kind === 'start') start.push(record)
+    else if (position.kind === 'end') end.push(record)
+    else if (position.kind === 'before') {
+      const list = beforeByAnchor.get(position.rowId) ?? []
+      list.push(record)
+      beforeByAnchor.set(position.rowId, list)
+    } else {
+      const list = afterByAnchor.get(position.rowId) ?? []
+      list.push(record)
+      afterByAnchor.set(position.rowId, list)
+    }
+  }
+  const bySeq = (a: FakeInsert, b: FakeInsert): number => a.seq - b.seq
+  start.sort(bySeq)
+  end.sort(bySeq)
+  for (const list of beforeByAnchor.values()) list.sort(bySeq)
+  for (const list of afterByAnchor.values()) list.sort(bySeq)
+
+  const ordered: { id: string; baseOrdinal?: number; insert?: FakeInsert }[] = []
+  const emitted = new Set<string>()
+  const emitChain = (record: FakeInsert): void => {
+    if (emitted.has(record.id)) return
+    emitted.add(record.id)
+    for (const child of beforeByAnchor.get(record.id) ?? []) emitChain(child)
+    ordered.push({ id: record.id, insert: record })
+    for (const child of afterByAnchor.get(record.id) ?? []) emitChain(child)
+  }
+  for (const record of start) emitChain(record)
+  for (let ordinal = 0; ordinal < base.baseRowCount; ordinal++) {
+    if (state.deletedBase.has(ordinal)) continue
+    const id = `base:${base.baseAnchor}#${String(ordinal)}`
+    for (const child of beforeByAnchor.get(id) ?? []) emitChain(child)
+    ordered.push({ id, baseOrdinal: ordinal })
+    for (const child of afterByAnchor.get(id) ?? []) emitChain(child)
+  }
+  for (const record of end) emitChain(record)
+  for (const record of [...state.inserts.values()]
+    .filter((r) => r.live && !emitted.has(r.id))
+    .sort(bySeq)) {
+    emitChain(record)
+  }
+
+  return ordered.map((entry) => {
+    const cells = new Map<string, string | null>()
+    state.columns.forEach((column, index) => {
+      const baseName = base.columns[index]!.name
+      const raw =
+        entry.baseOrdinal === undefined
+          ? (entry.insert!.values.get(column.name) ?? { kind: 'null' as const })
+          : (baseRows[entry.baseOrdinal]?.[baseName] ?? null)
+      const rendered = fakeRenderCell(raw as ConformanceCellValue | string | number | null)
+      const edit = state.edits.get(entry.id)?.get(column.name)
+      cells.set(column.name, edit === undefined ? rendered : fakeRenderCell(edit))
+    })
+    return { id: entry.id, cells }
+  })
+}
+
+/**
+ * The CSV formula-injection guard in miniature (the composed guard's exact
+ * documented trigger set): leading `=`, `+`, `-`, `@`, or tab/CR anywhere
+ * gains the apostrophe prefix. `skip` is the m4-2 sanitization mutation.
+ */
+function fakeSanitizeCsvCell(value: string | null, skip: boolean): string | null {
+  if (value === null || skip) return value
+  if (
+    ['=', '+', '-', '@'].includes(value.charAt(0)) ||
+    value.includes('\t') ||
+    value.includes('\r')
+  ) {
+    return `'${value}`
+  }
+  return value
+}
+
+/** The logical row-id column name overlay windows add when asked (m4-2). */
+const ROW_ID_COLUMN = 'assay_row_id'
+
+/** One exported (materialized) fake file, re-openable through `open()`. */
+interface FakeExportFile {
+  readonly columns: readonly string[]
+  readonly rows: readonly Record<string, string | null>[]
+  readonly bytes: Uint8Array
+}
+
+/** A stored export as an Arrow table window (the re-open round-trip path). */
+function exportTable(exported: FakeExportFile, start: number, end: number): Table {
+  const slice = exported.rows.slice(start, end)
+  const columns: Record<string, (string | null)[]> = {}
+  for (const name of exported.columns) {
+    columns[name] = slice.map((row) => row[name] ?? null)
+  }
+  return tableFromArrays(columns)
 }
 
 /** The fake's nested dataset in natural order (mirrors NESTED_DATASET). */
@@ -426,6 +848,8 @@ interface FakeRow {
 /** Mutable staging state shared between the fake subject and its clients. */
 const subjectState = {
   staged: new Map<string, Uint8Array>(),
+  /** Completed exports, re-openable through `open()` (m4-2). */
+  exports: new Map<string, FakeExportFile>(),
   goodBytes: new Uint8Array([80, 65, 82, 49, 1, 2, 3, 4]), // "PAR1" + payload
 }
 
@@ -443,6 +867,8 @@ class FakeEngineClient implements ConformanceEngineClient {
   private midStreamFailed = false
   /** Set by `wedgedAfterPredicateError`: a predicate error poisons the engine. */
   private predicateErrorSeen = false
+  /** Monotonic export sequence for generated destination names (m4-2). */
+  private nextExportSeq = 1
 
   constructor(private readonly mutations: FakeMutations) {}
 
@@ -456,6 +882,13 @@ class FakeEngineClient implements ConformanceEngineClient {
     await this.ensureReady()
     if (!/\.(parquet|csv|jsonl)$/.test(source.name)) {
       throw new FakeOperationError('unsupported dataset format')
+    }
+    // Completed exports re-open through the ordinary open path (m4-2).
+    const exported = subjectState.exports.get(source.name)
+    if (exported !== undefined) {
+      const tableId = `fake-t${this.nextTableId++}`
+      this.registered.set(tableId, source.name)
+      return { kind: 'table', id: tableId }
     }
     const bytes = subjectState.staged.get(source.name)
     if (bytes === undefined) {
@@ -500,6 +933,9 @@ class FakeEngineClient implements ConformanceEngineClient {
     if (this.mutations.wedgedAfterPredicateError && this.predicateErrorSeen) {
       throw new FakeQueryError('connection wedged after predicate error')
     }
+    // Re-opened exports answer from the stored materialization (m4-2).
+    const exported = this.exportedFile(handle)
+    if (exported !== null) return exported.rows.length
     const base = this.isWide(handle)
       ? WIDE_ROW_COUNT
       : this.isNested(handle)
@@ -531,6 +967,14 @@ class FakeEngineClient implements ConformanceEngineClient {
         return { batch: emptyGoodTable(), hasMore: false }
       }
       throw new FakeOperationError('invalid row window')
+    }
+    // Re-opened exports serve their stored (materialized) content (m4-2).
+    const exported = this.exportedFile(handle)
+    if (exported !== null) {
+      return {
+        batch: exportTable(exported, window.startRow, window.endRow),
+        hasMore: false,
+      }
     }
     const cap = this.mutations.ignoreWindowCap ? Number.MAX_SAFE_INTEGER : MAX_WINDOW_ROWS
     const end = Math.min(window.endRow, window.startRow + cap)
@@ -620,6 +1064,184 @@ class FakeEngineClient implements ConformanceEngineClient {
   async dispose(): Promise<void> {
     this.status = 'disposed'
     this.registered.clear()
+  }
+
+  // ---- m4-2 overlay + export surface (stateless: every call carries ops) ----
+
+  async overlaySchema(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+  ): Promise<readonly { name: string; type: string }[]> {
+    this.requireRegistered(handle)
+    if (this.mutations.liesAboutOverlaySchema) {
+      // Rename/cast invisible: the base schema, verbatim.
+      return overlay.base.columns.map((column) => ({ ...column }))
+    }
+    const state = foldFakeOverlay(overlay.base, overlay.ops ?? [], this.mutations)
+    return state.columns.map((column) => ({ ...column }))
+  }
+
+  async overlayRowCount(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+    options?: { readonly filters?: readonly ConformanceFilterSpec[] },
+  ): Promise<number> {
+    this.requireRegistered(handle)
+    if (this.mutations.liesAboutOverlayRowCount) {
+      // Tombstones ignored: base + live inserts (the fake dataset has one
+      // delete, so this lies by exactly one row).
+      const state = foldFakeOverlay(overlay.base, overlay.ops ?? [], this.mutations)
+      let live = 0
+      for (const record of state.inserts.values()) if (record.live) live += 1
+      return overlay.base.baseRowCount + live
+    }
+    const rows = this.overlayRows(overlay)
+    const filters = options?.filters ?? []
+    if (filters.length === 0) return rows.length
+    return rows.filter((row) =>
+      filters.every((filter) => {
+        const value = row.cells.get(filter.column)
+        if (value === undefined) {
+          throw new FakeQueryError(`Binder Error: no such column ${filter.column}`)
+        }
+        if (filter.predicate === 'IS NOT NULL') return value !== null
+        throw new FakeQueryError('Parser Error: fake overlay predicates are IS NOT NULL only')
+      }),
+    ).length
+  }
+
+  async fetchOverlayRange(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+    window: ConformanceOverlayWindow,
+  ): Promise<ConformanceBatchResult> {
+    this.requireRegistered(handle)
+    if (
+      !isRowIndex(window.startRow) ||
+      !isRowIndex(window.endRow) ||
+      window.endRow < window.startRow
+    ) {
+      throw new FakeOperationError('invalid row window')
+    }
+    const state = foldFakeOverlay(overlay.base, overlay.ops ?? [], this.mutations)
+    let rows = fakeOverlayRows(
+      overlay.base,
+      state,
+      FAKE_OVERLAY_ROWS,
+      this.mutations.misordersOverlayInserts === true,
+    )
+    // Filters over effective columns (the fake interprets its tiny language).
+    for (const filter of window.filters ?? []) {
+      rows = rows.filter((row) => {
+        const value = row.cells.get(filter.column)
+        if (value === undefined) {
+          throw new FakeQueryError(`Binder Error: no such column ${filter.column}`)
+        }
+        if (filter.predicate === 'IS NOT NULL') return value !== null
+        throw new FakeQueryError('Parser Error: fake overlay predicates are IS NOT NULL only')
+      })
+    }
+    // Multi-key sort, later keys first (stable), NULLs last — like DuckDB.
+    const sort = window.sort ?? []
+    for (let index = sort.length - 1; index >= 0; index--) {
+      const key = sort[index]!
+      const factor = key.direction === 'desc' ? -1 : 1
+      rows = [...rows].sort((a, b) => {
+        const va = a.cells.get(key.column)
+        const vb = b.cells.get(key.column)
+        if (va === undefined || vb === undefined) return 0
+        if (va === null) return vb === null ? 0 : 1
+        if (vb === null) return -1
+        if (va === vb) return 0
+        return va < vb ? -1 * factor : factor
+      })
+    }
+    const end = Math.min(window.endRow, window.startRow + MAX_WINDOW_ROWS)
+    const slice = rows.slice(window.startRow, end)
+    const names = state.columns.map((column) => column.name)
+    const fields = window.includeRowIds === true ? [ROW_ID_COLUMN, ...names] : names
+    const columns: Record<string, (string | null)[]> = {}
+    for (const field of fields) {
+      columns[field] =
+        field === ROW_ID_COLUMN
+          ? slice.map((row) => row.id)
+          : slice.map((row) => row.cells.get(field) ?? null)
+    }
+    return { batch: tableFromArrays(columns), hasMore: false }
+  }
+
+  async exportView(
+    handle: ConformanceTableHandle,
+    request: {
+      readonly format: ConformanceExportFormat
+      readonly overlay?: ConformanceOverlay
+    },
+  ): Promise<ConformanceExportResult> {
+    this.requireRegistered(handle)
+    if (request.overlay === undefined) {
+      throw new FakeQueryError('fake exports carry an overlay')
+    }
+    const seq = this.nextExportSeq++
+    const name = `fake-export-${String(seq)}.${request.format}`
+    const state = foldFakeOverlay(request.overlay.base, request.overlay.ops ?? [], this.mutations)
+    const rows = fakeOverlayRows(
+      request.overlay.base,
+      state,
+      FAKE_OVERLAY_ROWS,
+      this.mutations.misordersOverlayInserts === true,
+    )
+    const sanitize = request.format === 'csv' && !this.mutations.skipsCsvSanitization
+    const materialized = rows.map((row) => {
+      const record: Record<string, string | null> = {}
+      for (const column of state.columns) {
+        const value = row.cells.get(column.name) ?? null
+        record[column.name] = sanitize ? fakeSanitizeCsvCell(value, false) : value
+      }
+      return record
+    })
+    const bytes = new TextEncoder().encode(
+      materialized.map((row) => state.columns.map((c) => row[c.name] ?? '').join(',')).join('\n'),
+    )
+    subjectState.exports.set(name, {
+      columns: state.columns.map((column) => column.name),
+      rows: materialized,
+      bytes,
+    })
+    if (this.mutations.rewritesSourceFile) {
+      // The mutation: exporting rewrites the staged source in place.
+      const sourceName = this.registered.get(handle.id)
+      const staged = sourceName === undefined ? undefined : subjectState.staged.get(sourceName)
+      if (staged !== undefined) {
+        const mutated = new Uint8Array(staged.length + 1)
+        mutated.set(staged)
+        mutated[staged.length] = 35
+        subjectState.staged.set(sourceName!, mutated)
+      }
+    }
+    return {
+      path: `assay-exports/${name}`,
+      format: request.format,
+      rowCount: rows.length + (this.mutations.liesAboutExportRowCount ? 1 : 0),
+      bytes: bytes.length,
+    }
+  }
+
+  /** The folded + emitted overlay rows this client serves (knob-aware). */
+  private overlayRows(overlay: ConformanceOverlay) {
+    const state = foldFakeOverlay(overlay.base, overlay.ops ?? [], this.mutations)
+    return fakeOverlayRows(
+      overlay.base,
+      state,
+      FAKE_OVERLAY_ROWS,
+      this.mutations.misordersOverlayInserts === true,
+    )
+  }
+
+  /** The stored export behind a handle, or `null` for staged datasets. */
+  private exportedFile(handle: ConformanceTableHandle): FakeExportFile | null {
+    const name = this.registered.get(handle.id)
+    if (name === undefined) return null
+    return subjectState.exports.get(name) ?? null
   }
 
   /** The fake subject's registry probe reads the live set (same class). */
@@ -851,6 +1473,7 @@ function wideTable(ids: readonly number[]): Table {
 
 function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
   subjectState.staged.clear()
+  subjectState.exports.clear()
   return {
     name: 'fake-engine',
     createClient: () => {
@@ -892,6 +1515,36 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       // staged bytes only matter for open-time readability checks.
       subjectState.staged.set(name, subjectState.goodBytes)
       return fileSource(name)
+    },
+    overlayDataset: FAKE_OVERLAY_DATASET,
+    stageOverlayFile: async () => {
+      const name = 'overlay.csv'
+      // Runtime-built base bytes with the formula-injection bait cells
+      // (never committed data), matching FAKE_OVERLAY_ROWS.
+      const lines = ['id,label']
+      for (const row of FAKE_OVERLAY_ROWS) {
+        lines.push(`${String(row.id)},${row.label ?? ''}`)
+      }
+      subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
+      return fileSource(name)
+    },
+    sourceDigest: async (source) => {
+      const bytes = subjectState.staged.get(source.name)
+      if (bytes === undefined) throw new Error('fake digest: unstaged file')
+      // FNV-1a: deterministic, changes when any byte changes.
+      let hash = 0x811c9dc5
+      for (const byte of bytes) {
+        hash ^= byte
+        hash = Math.imul(hash, 0x01000193) >>> 0
+      }
+      return hash.toString(16).padStart(8, '0')
+    },
+    exportedSource: async (result) => fileSource(result.path.split('/').pop() ?? result.path),
+    readExportedArrowTable: async (result) => {
+      const name = result.path.split('/').pop() ?? result.path
+      const exported = subjectState.exports.get(name)
+      if (exported === undefined) throw new Error('fake container read: unstaged export')
+      return { batch: exportTable(exported, 0, exported.rows.length), hasMore: false }
     },
     nestedDataset: NESTED_DATASET,
     goodParquetBytes: async () => subjectState.goodBytes,
@@ -961,6 +1614,28 @@ describe('engine conformance suite (compliant fake engine)', () => {
     expect(clamp.facts['oversizedRows']).toBe(NESTED_DATASET.rowCount)
     expect(clamp.facts['offsetRows']).toBe(2)
     expect(clamp.facts['invalidRejected']).toBe(3)
+  })
+
+  it('exposes overlay-fidelity, export, and immutability evidence (m4-2)', async () => {
+    const subject = makeSubject()
+    const overlay = await runEngineConformanceScenario(subject, 'overlay-window-fidelity')
+    expect(overlay.facts['schemaColumns']).toBe(FAKE_OVERLAY_DATASET.effectiveSchema.length)
+    expect(overlay.facts['liveRowCount']).toBe(FAKE_OVERLAY_DATASET.liveRowCount)
+    expect(overlay.facts['filteredCount']).toBe(FAKE_OVERLAY_DATASET.filtered.expectRowCount)
+    expect(overlay.facts['sliceRows']).toBe(2)
+    expect(overlay.facts['cells']).toBe(
+      FAKE_OVERLAY_DATASET.columns.length * FAKE_OVERLAY_DATASET.rowIds.length,
+    )
+    expect(overlay.facts['sortedRows']).toBe(FAKE_OVERLAY_DATASET.sorted.expectRowCount)
+    const roundTrip = await runEngineConformanceScenario(subject, 'export-round-trip')
+    expect(roundTrip.facts['formats']).toBe(FAKE_OVERLAY_DATASET.exports.length)
+    expect(roundTrip.facts['engineReopens']).toBe(3)
+    expect(roundTrip.facts['arrowVerified']).toBe(1)
+    expect(roundTrip.facts['csvSanitizationProbed']).toBe(true)
+    const immutable = await runEngineConformanceScenario(subject, 'source-immutability')
+    expect(immutable.facts['exports']).toBe(FAKE_OVERLAY_DATASET.exports.length)
+    expect(immutable.facts['distinctDestinations']).toBe(FAKE_OVERLAY_DATASET.exports.length)
+    expect(immutable.facts['digestUnchanged']).toBe(true)
   })
 })
 
@@ -1156,6 +1831,65 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     const { passed, detail } = await runOne({ acceptInvalidWindows: true }, 'nested-window-clamp')
     expect(passed).toBe(false)
     expect(detail).toContain('invalid window')
+  })
+
+  it('overlay-window-fidelity: detects dropped cell edits', async () => {
+    const { passed, detail } = await runOne({ skipsOverlayEdits: true }, 'overlay-window-fidelity')
+    expect(passed).toBe(false)
+    expect(detail).toContain('label_v2[3]') // first edited-cell divergence ('+CMD' at base#1, index 3)
+  })
+
+  it('overlay-window-fidelity: detects collapsed insert positions', async () => {
+    const { passed, detail } = await runOne(
+      { misordersOverlayInserts: true },
+      'overlay-window-fidelity',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('assay_row_id[0]') // the start insert must lead
+  })
+
+  it('overlay-window-fidelity: detects tombstoned base rows served anyway', async () => {
+    const { passed, detail } = await runOne({ keepsDeletedRows: true }, 'overlay-window-fidelity')
+    expect(passed).toBe(false)
+    expect(detail).toContain('row count')
+  })
+
+  it('overlay-window-fidelity: detects an invisible rename/cast in the effective schema', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutOverlaySchema: true },
+      'overlay-window-fidelity',
+    )
+    expect(passed).toBe(false)
+    // The cast is the first divergence (column 0: VARCHAR effective vs BIGINT
+    // base); the rename shows at column 1 ('label' vs 'label_v2').
+    expect(detail).toContain('column 0 type')
+  })
+
+  it('overlay-window-fidelity: detects a row count that ignores tombstones', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutOverlayRowCount: true },
+      'overlay-window-fidelity',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('overlay live row count')
+  })
+
+  it('export-round-trip: detects CSV exports without formula-injection sanitization', async () => {
+    const { passed, detail } = await runOne({ skipsCsvSanitization: true }, 'export-round-trip')
+    expect(passed).toBe(false)
+    expect(detail).toContain('[csv export] round-trip')
+  })
+
+  it('export-round-trip: detects a lying export row count', async () => {
+    const { passed, detail } = await runOne({ liesAboutExportRowCount: true }, 'export-round-trip')
+    expect(passed).toBe(false)
+    expect(detail).toContain('honest row count')
+  })
+
+  it('source-immutability: detects a source rewritten in place by the export', async () => {
+    const { passed, detail } = await runOne({ rewritesSourceFile: true }, 'source-immutability')
+    expect(passed).toBe(false)
+    expect(detail).toContain('byte-identical')
   })
 })
 

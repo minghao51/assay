@@ -47,13 +47,27 @@
  */
 import { Table, tableFromIPC, tableToIPC } from 'apache-arrow'
 import type { RecordBatch } from 'apache-arrow'
+import type { OverlayBase, OverlayState } from '@assay/domain'
+import { foldOverlay, initialState } from '@assay/domain'
 import { createViewSql, detectFileFormat, quotedIdentifier } from './format-view'
+import {
+  composeOverlayCountSql,
+  composeOverlayExportSql,
+  composeOverlayExportSelectSql,
+  composeOverlaySchemaSql,
+  composeOverlayWindowSql,
+  exportFileExtension,
+} from './overlay-query'
+import type { OverlayComposition } from './overlay-query'
 import { parseEngineRequest } from './protocol'
 import type {
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
+  EngineExportRequest,
   EngineFilterSpec,
   EngineNumericColumnStats,
+  EngineOverlayPayload,
+  EngineOverlayRangeRequest,
   EngineProfileColumn,
   EngineRangeRequest,
   EngineRequest,
@@ -109,6 +123,17 @@ export interface EngineExecutorDeps {
   registerFileHandle(registeredFileName: string, file: File): Promise<void>
   /** Best-effort file deregistration (rollback + dispose). */
   dropFile(registeredFileName: string): Promise<unknown>
+  /**
+   * Read a file DuckDB wrote into its virtual filesystem (m4-2 export:
+   * `COPY … TO` lands there; the bytes then move to OPFS scratch space).
+   */
+  copyExportBytes(registeredFileName: string): Promise<Uint8Array>
+  /**
+   * Persist export bytes into OPFS scratch space under the generated
+   * destination path (ADR 0017 disposable-cache framing — never the source
+   * path). Injected because the executor must stay Node-testable.
+   */
+  writeExportFile(path: string, bytes: Uint8Array): Promise<void>
   /** Deliver a protocol response (with an optional zero-copy transfer list). */
   post(response: EngineResponse, transfer?: ArrayBuffer[]): void
 }
@@ -143,6 +168,8 @@ export class EngineOpExecutor {
     connection: (session) => session.conn,
   }
   private readonly registry = new TableRegistry()
+  /** Monotonic export sequence: generated, collision-free destination names. */
+  private nextExportSeq = 1
 
   constructor(private readonly deps: EngineExecutorDeps) {}
 
@@ -162,8 +189,13 @@ export class EngineOpExecutor {
     // that connection, so routing and connection choice are one decision.
     // The task's own errors are caught inside `dispatch` and posted to its
     // caller; the lane tail settles regardless (op-channel.ts).
+    // m4-2: exports join user SQL + profile on the query lane — a long
+    // COPY is exactly the heavy, user-initiated class that must never
+    // block the grid's windows (ADR 0040); the dispose barrier covers it.
     const lane =
-      request.type === 'engine/query' || request.type === 'engine/profile'
+      request.type === 'engine/query' ||
+      request.type === 'engine/profile' ||
+      request.type === 'engine/export'
         ? this.queryLane
         : this.registryLane
     void lane.channel.run(() => this.dispatch(request, lane))
@@ -216,6 +248,28 @@ export class EngineOpExecutor {
         }
         case 'engine/profile': {
           await this.runProfile(request.requestId, request.tableId, lane)
+          break
+        }
+        case 'engine/overlay-schema': {
+          await this.runOverlaySchema(request.requestId, request.tableId, request.overlay, lane)
+          break
+        }
+        case 'engine/overlay-row-count': {
+          await this.runOverlayRowCount(
+            request.requestId,
+            request.tableId,
+            request.overlay,
+            lane,
+            request.filters,
+          )
+          break
+        }
+        case 'engine/overlay-range': {
+          await this.runOverlayRange(request, lane)
+          break
+        }
+        case 'engine/export': {
+          await this.runExport(request, lane)
           break
         }
         case 'engine/dispose': {
@@ -361,6 +415,242 @@ export class EngineOpExecutor {
       throw new Error('count(*) returned an unexpected shape')
     }
     this.post({ type: 'engine/row-count-result', requestId, rowCount })
+  }
+
+  // -----------------------------------------------------------------------
+  // Edit-overlay surface (m4-2) — stateless composition over the base view
+  // -----------------------------------------------------------------------
+
+  /**
+   * Fold the request's op list against its base metadata (the domain's
+   * `foldOverlay` — the single source of truth for what a log means) and
+   * return the composition input. Stateless: nothing is cached between
+   * requests; the composed SQL is a pure function of (base view, ops).
+   */
+  private compositionOf(overlay: EngineOverlayPayload): {
+    base: OverlayBase
+    state: OverlayState
+  } {
+    const { state } = foldOverlay(overlay.base, overlay.ops)
+    return { base: overlay.base, state }
+  }
+
+  /**
+   * Effective schema (m4-2): `DESCRIBE` over the composed projection —
+   * post-rename names, post-cast DuckDB types. A cast to a type string the
+   * engine rejects fails here with a readable binder error (declared-type
+   * validation); the engine stays reusable (ordinary per-op error path).
+   * Registry lane: the grid reads the schema on every rename/cast —
+   * metadata-class traffic (ADR 0040).
+   */
+  private async runOverlaySchema(
+    requestId: number,
+    tableId: string,
+    overlay: EngineOverlayPayload,
+    lane: OpLane,
+  ): Promise<void> {
+    const entry = this.requireTable(tableId)
+    const conn = lane.connection(await this.deps.ensureSession())
+    const { base, state } = this.compositionOf(overlay)
+    const sql = composeOverlaySchemaSql({ base, state, viewName: entry.viewName })
+    const described = await conn.query(sql)
+    const names = (described.getChild('column_name')?.toArray() ?? []) as string[]
+    const types = (described.getChild('column_type')?.toArray() ?? []) as string[]
+    if (names.length === 0 || names.length !== types.length) {
+      throw new Error('DESCRIBE returned an unexpected shape')
+    }
+    this.post({
+      type: 'engine/overlay-schema-result',
+      requestId,
+      columns: names.map((columnName, index) => ({ name: columnName, type: types[index] ?? '' })),
+    })
+  }
+
+  /**
+   * Live row count over the composed effective view (m4-2), optionally
+   * filtered with the m2-2 grammar over effective columns. Unfiltered this
+   * reproduces the domain's `liveRowCount` exactly (tombstoned base rows
+   * excluded, live inserts added) — pinned by the conformance suite.
+   * Registry lane: the editing grid re-counts on every row op (ADR 0040).
+   */
+  private async runOverlayRowCount(
+    requestId: number,
+    tableId: string,
+    overlay: EngineOverlayPayload,
+    lane: OpLane,
+    filters?: EngineFilterSpec[],
+  ): Promise<void> {
+    const entry = this.requireTable(tableId)
+    const conn = lane.connection(await this.deps.ensureSession())
+    const { base, state } = this.compositionOf(overlay)
+    const { batchIpc } = await this.streamFirstBatch(
+      conn,
+      composeOverlayCountSql({ base, state, viewName: entry.viewName }, filters),
+    )
+    const value = tableFromIPC(batchIpc).getChildAt(0)?.get(0)
+    const rowCount = typeof value === 'bigint' ? Number(value) : value
+    if (typeof rowCount !== 'number' || !Number.isSafeInteger(rowCount) || rowCount < 0) {
+      throw new Error('count(*) returned an unexpected shape')
+    }
+    this.post({ type: 'engine/overlay-row-count-result', requestId, rowCount })
+  }
+
+  /**
+   * Window over the composed effective view (m4-2): edits visible, deletes
+   * excluded, inserts at anchored positions (the domain's `effectiveRowIds`
+   * order, reproduced by the composed sort key). Same window validation and
+   * first-batch transport as `runRange`. Registry lane: grid-class scroll
+   * traffic (ADR 0040) — overlay windows queue behind nothing but each other.
+   */
+  private async runOverlayRange(request: EngineOverlayRangeRequest, lane: OpLane): Promise<void> {
+    const entry = this.requireTable(request.tableId)
+    const window = validateRowWindow(request.startRow, request.endRow)
+    if (!window.valid) {
+      throw new Error(`invalid row window: ${window.reason}`)
+    }
+    const conn = lane.connection(await this.deps.ensureSession())
+    const { base, state } = this.compositionOf(request.overlay)
+    const sql = composeOverlayWindowSql({
+      viewName: entry.viewName,
+      base,
+      state,
+      columns: request.columns,
+      filters: request.filters,
+      sort: request.sort,
+      limit: window.endRow - window.startRow,
+      offset: window.startRow,
+      includeRowIds: request.includeRowIds,
+    })
+    const { batchIpc, hasMore } = await this.streamFirstBatch(conn, sql)
+    this.post({
+      type: 'engine/overlay-range-result',
+      requestId: request.requestId,
+      batchIpc,
+      hasMore,
+    })
+  }
+
+  /**
+   * Export/rewrite op (m4-2; query lane — a long-running user-initiated
+   * materialization that must never block the grid's windows, ADR 0040):
+   * materializes the effective view (base + overlay; absent overlay = the
+   * plain base view) into a NEW file. The source file is never touched: the
+   * COPY writes an engine-generated name in DuckDB's virtual filesystem,
+   * the bytes move to OPFS scratch space (`assay-exports/…`, ADR 0017
+   * disposable-cache framing), and the response carries that generated path
+   * so the host can re-open/verify the export (round-trip).
+   *
+   * Per-format: parquet/csv/jsonl/json go through `COPY` with the pinned
+   * deterministic options (CSV with the formula-injection guard);
+   * `arrow` streams the identical SELECT and assembles an Arrow IPC *file*
+   * worker-side (DuckDB-WASM's bundled build has no Arrow COPY writer).
+   * The reported rowCount comes from the COPY's count relation, with an
+   * explicit count fallback (honest numbers over shape-guessing), or the
+   * streamed batch total for arrow.
+   */
+  private async runExport(request: EngineExportRequest, lane: OpLane): Promise<void> {
+    const entry = this.requireTable(request.tableId)
+    const conn = lane.connection(await this.deps.ensureSession())
+    const seq = this.nextExportSeq++
+    const stem = `assay-export-${String(seq)}`
+    const composition: OverlayComposition =
+      request.overlay === undefined
+        ? await this.baseViewComposition(conn, entry.viewName)
+        : {
+            viewName: entry.viewName,
+            base: request.overlay.base,
+            state: this.compositionOf(request.overlay).state,
+          }
+
+    let bytes: Uint8Array
+    let rowCount: number
+    if (request.format === 'arrow') {
+      const drained = await this.drainAllBatches(
+        conn,
+        composeOverlayExportSelectSql(composition, 'arrow'),
+      )
+      rowCount = drained.rowCount
+      bytes = tableToIPC(new Table(drained.batches))
+    } else {
+      const copySql = composeOverlayExportSql(composition, request.format, stem)
+      if (copySql === null) {
+        throw new Error(`unsupported export format: ${request.format}`)
+      }
+      const copyResult = await conn.query(copySql)
+      const copyCount = readCopyRowCount(copyResult)
+      if (copyCount !== null) {
+        rowCount = copyCount
+      } else {
+        // Defensive fallback: an explicit count over the same select —
+        // never guess a total from an unexpected COPY result shape.
+        const counted = await conn.query(composeOverlayCountSql(composition))
+        const value = counted.getChildAt(0)?.get(0)
+        const n = typeof value === 'bigint' ? Number(value) : value
+        if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
+          throw new Error('export row count returned an unexpected shape')
+        }
+        rowCount = n
+      }
+      try {
+        bytes = await this.deps.copyExportBytes(stem)
+      } finally {
+        await this.deps.dropFile(stem).catch(() => undefined)
+      }
+    }
+    const path = `assay-exports/${stem}.${exportFileExtension(request.format)}`
+    await this.deps.writeExportFile(path, bytes)
+    this.post({
+      type: 'engine/export-result',
+      requestId: request.requestId,
+      path,
+      format: request.format,
+      rowCount,
+      bytes: bytes.byteLength,
+    })
+  }
+
+  /**
+   * Base metadata for an overlay-free export: DESCRIBE supplies the columns
+   * (the composition projects them verbatim, plus the CSV guard for csv),
+   * and the empty state adds nothing. Tokens are irrelevant here (no edits,
+   * no inserts, no deletes), and `baseRowCount` 0 is safe because an empty
+   * state never references base ordinals.
+   */
+  private async baseViewComposition(
+    conn: EngineConnectionLike,
+    viewName: string,
+  ): Promise<OverlayComposition> {
+    const columns = await this.describeView(conn, viewName)
+    const base = { baseAnchor: '', overlayAnchor: '', columns, baseRowCount: 0 }
+    const state: OverlayState = initialState(base)
+    return { viewName, base, state }
+  }
+
+  /**
+   * Stream a query to its LAST batch (m4-2 export): the export surface is
+   * explicitly a full materialization, so — unlike `streamFirstBatch` — every
+   * batch is drained. Cleanup mirrors the first-batch discipline: the reader
+   * is always released in `finally`, before anything is reported.
+   */
+  private async drainAllBatches(
+    conn: EngineConnectionLike,
+    sql: string,
+  ): Promise<{ batches: RecordBatch[]; rowCount: number }> {
+    const reader = await conn.send(sql)
+    const batches: RecordBatch[] = []
+    try {
+      for (;;) {
+        const next = await reader.next()
+        if (next.done) break
+        if (next.value !== undefined) batches.push(next.value)
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined)
+    }
+    if (batches.length === 0) {
+      throw new Error('export produced no record batches')
+    }
+    return { batches, rowCount: batches.reduce((sum, batch) => sum + batch.numRows, 0) }
   }
 
   /**
@@ -554,7 +844,11 @@ export class EngineOpExecutor {
     // joined output normally does), transfer the buffer instead of cloning it.
     // Ownership moves to the main thread; we never touch the bytes again.
     const transfer: ArrayBuffer[] = []
-    if (response.type === 'engine/query-result' || response.type === 'engine/range-result') {
+    if (
+      response.type === 'engine/query-result' ||
+      response.type === 'engine/range-result' ||
+      response.type === 'engine/overlay-range-result'
+    ) {
       const buffer = transferableBuffer(response.batchIpc)
       if (buffer !== null) transfer.push(buffer)
     }
@@ -572,6 +866,18 @@ function transferableBuffer(bytes: Uint8Array): ArrayBuffer | null {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The COPY statement's count relation (one row, one BIGINT "Count" cell) —
+ * or `null` when the result does not carry it (a defensive fallback counts
+ * explicitly rather than trusting an unexpected shape).
+ */
+function readCopyRowCount(result: Table): number | null {
+  if (result.numRows !== 1) return null
+  const value: unknown = result.getChildAt(0)?.get(0)
+  const n = typeof value === 'bigint' ? Number(value) : value
+  return typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 ? n : null
 }
 
 /**

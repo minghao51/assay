@@ -117,6 +117,42 @@ async function requireDb(): Promise<duckdb.AsyncDuckDB> {
   return db
 }
 
+/**
+ * Write export bytes into OPFS scratch space (ADR 0017 disposable-cache
+ * framing) under the generated destination path. Dedicated workers have the
+ * same origin OPFS as the page, so exports land next to the staged sources
+ * without any main-thread hop. The path is slash-separated; all but the last
+ * segment are created as directories.
+ */
+async function writeExportFileToOpfs(path: string, bytes: Uint8Array): Promise<void> {
+  const segments = path.split('/').filter((segment) => segment.length > 0)
+  const fileName = segments.pop()
+  if (fileName === undefined || segments.length === 0) {
+    throw new Error(`invalid export destination path: ${JSON.stringify(path)}`)
+  }
+  let dir = await navigator.storage.getDirectory()
+  for (const segment of segments) {
+    dir = await dir.getDirectoryHandle(segment, { create: true })
+  }
+  let fileHandle: FileSystemFileHandle
+  try {
+    fileHandle = await dir.getFileHandle(fileName, { create: true })
+  } catch {
+    // A stale entry of the wrong kind under the engine's own scratch
+    // namespace (e.g. left by an interrupted older write) is removed and
+    // recreated — this tree is a rebuildable disposable cache (ADR 0017),
+    // never user data.
+    await dir.removeEntry(fileName, { recursive: true }).catch(() => undefined)
+    fileHandle = await dir.getFileHandle(fileName, { create: true })
+  }
+  const writable = await fileHandle.createWritable()
+  // Copy once: the incoming bytes' buffer is transferred/cloned downstream.
+  const chunk = new Uint8Array(bytes.byteLength)
+  chunk.set(bytes)
+  await writable.write(chunk)
+  await writable.close()
+}
+
 const executor = new EngineOpExecutor({
   ensureSession,
   // Lazy reference registration (m1-4): the file bytes stay in the picked
@@ -134,6 +170,12 @@ const executor = new EngineOpExecutor({
     ),
   dropFile: (registeredFileName) =>
     requireDb().then((database) => database.dropFile(registeredFileName)),
+  // m4-2 export: COPY writes an engine-generated file into DuckDB's virtual
+  // filesystem; the bytes are read back once and moved to OPFS scratch space
+  // (see writeExportFileToOpfs). The wasm-side copy is dropped by the executor.
+  copyExportBytes: (registeredFileName) =>
+    requireDb().then((database) => database.copyFileToBuffer(registeredFileName)),
+  writeExportFile: (path, bytes) => writeExportFileToOpfs(path, bytes),
   post: (response, transfer) => scope.postMessage(response, transfer),
 })
 

@@ -186,6 +186,9 @@ importers:
 
   packages/engine-duckdb:
     dependencies:
+      '@assay/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@duckdb/duckdb-wasm':
         specifier: ^1.32.0
         version: 1.32.0

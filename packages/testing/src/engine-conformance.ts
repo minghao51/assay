@@ -79,6 +79,35 @@
  *     returns exactly its declared slice deep-equal, and invalid windows
  *     still reject with the operation category.
  *
+ * m4-2 adds the edit-overlay scenarios (the surfaces M4's editing grid and
+ * export dialog drive; ADR 0012 overlay materialization + export/rewrite):
+ *
+ * 14. `overlay-window-fidelity` — a scripted op sequence (edits, inserts at
+ *     anchored/nested/dead positions, a delete, rename, cast, plus no-op and
+ *     foreign-anchor replays) composed over the staged base delivers the
+ *     pinned **effective schema** (post-rename, post-cast), the pinned live
+ *     row count (tombstoned base rows excluded, live inserts added, filtered
+ *     count included), and windows whose row order reproduces the domain's
+ *     `effectiveRowIds` contract exactly — start rows first, base order,
+ *     before/after chains nested depth-first, dead anchors degraded to the
+ *     end — with every cell value pinned (host-engine-derived; engine-duckdb:
+ *     DuckDB CLI 1.5.5 over the identical composed SQL), plus filter and
+ *     sort over the effective (renamed) columns and a LIMIT/OFFSET slice.
+ * 15. `export-round-trip` — `exportView` materializes the effective view
+ *     into a NEW file per declared format with honest counts; the exported
+ *     file is re-opened (through the engine for the formats the engine
+ *     reads; through its Arrow IPC container for `arrow`, which the engine
+ *     cannot re-open until the m1-4 arrow-reader deferral lands) and its
+ *     content must equal the declared per-format expectations — in
+ *     particular the CSV export must be **formula-injection-sanitized**
+ *     (apostrophe-prefix convention) while the JSONL export keeps the raw
+ *     content visible (both non-vacuously asserted).
+ * 16. `source-immutability` — the staged source file's digest is captured
+ *     before an edit+export session and re-checked after windows, counts,
+ *     schema reads, and exports of every declared format: byte-identical
+ *     (ADR 0012 — the source is never rewritten in place), and no export
+ *     path ever equals the source path.
+ *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
  * browser, temp files in Node) and which SQL drives engine-specific paths.
@@ -150,6 +179,92 @@ export interface ConformanceBatchResult {
   readonly hasMore: boolean
 }
 
+// ---- Edit-overlay + export types (m4-2) ----
+//
+// Structural mirrors of the domain's edit-operations model (m4-1: `CellValue`,
+// `InsertPosition`, `EditOp`, `OverlayBase` — same precedent as the profile
+// mirrors above): the suite never imports `@assay/domain`; engine
+// implementations whose clients take the domain types satisfy these
+// structurally, and subjects build ops that are valid domain ops.
+
+/** One overlay cell value (structural mirror of the domain's `CellValue`). */
+export type ConformanceCellValue =
+  | { readonly kind: 'null' }
+  | { readonly kind: 'boolean'; readonly value: boolean }
+  | { readonly kind: 'number'; readonly value: number }
+  | { readonly kind: 'string'; readonly value: string }
+  | { readonly kind: 'text'; readonly text: string }
+
+/** Where an overlay insert asks to appear (mirror of `InsertPosition`). */
+export type ConformanceInsertPosition =
+  | { readonly kind: 'start' }
+  | { readonly kind: 'end' }
+  | { readonly kind: 'before'; readonly rowId: string }
+  | { readonly kind: 'after'; readonly rowId: string }
+
+/**
+ * The closed 8-kind edit-op vocabulary (mirror of the domain's `EditOp`).
+ * Insert values are keyed by column; absent columns materialize as NULL.
+ */
+export type ConformanceEditOp =
+  | {
+      readonly kind: 'cell-set'
+      readonly rowId: string
+      readonly column: string
+      readonly value: ConformanceCellValue
+    }
+  | { readonly kind: 'cell-revert'; readonly rowId: string; readonly column: string }
+  | {
+      readonly kind: 'row-insert'
+      readonly rowId: string
+      readonly position: ConformanceInsertPosition
+      readonly values: ReadonlyMap<string, ConformanceCellValue>
+    }
+  | { readonly kind: 'row-uninsert'; readonly rowId: string }
+  | { readonly kind: 'row-delete'; readonly rowId: string }
+  | { readonly kind: 'row-restore'; readonly rowId: string }
+  | { readonly kind: 'column-rename'; readonly from: string; readonly to: string }
+  | { readonly kind: 'column-cast'; readonly column: string; readonly targetType: string }
+
+/** The immutable base an overlay composes over (mirror of `OverlayBase`). */
+export interface ConformanceOverlayBase {
+  /** Opaque host token for the immutable base version. */
+  readonly baseAnchor: string
+  /** Opaque host token for the editing session (insert-id scope). */
+  readonly overlayAnchor: string
+  /** The base schema, in base order (unique names). */
+  readonly columns: readonly { readonly name: string; readonly type: string }[]
+  /** Rows in the base version. */
+  readonly baseRowCount: number
+}
+
+/** The overlay a request composes over: base metadata + the op list. */
+export interface ConformanceOverlay {
+  readonly base: ConformanceOverlayBase
+  readonly ops?: readonly ConformanceEditOp[]
+}
+
+/** A requested window over the composed effective view (m4-2). */
+export interface ConformanceOverlayWindow {
+  readonly startRow: number
+  readonly endRow: number
+  readonly filters?: readonly ConformanceFilterSpec[]
+  readonly sort?: readonly ConformanceSortSpec[]
+  /** Prepend the logical row-id column to the projection. */
+  readonly includeRowIds?: boolean
+}
+
+/** Export formats of the m4-2 export/rewrite op. */
+export type ConformanceExportFormat = 'parquet' | 'jsonl' | 'json' | 'csv' | 'arrow'
+
+/** Result of the export op: generated destination path + honest counts. */
+export interface ConformanceExportResult {
+  readonly path: string
+  readonly format: ConformanceExportFormat
+  readonly rowCount: number
+  readonly bytes: number
+}
+
 /** The client surface the conformance scenarios drive. */
 export interface ConformanceEngineClient {
   /** Lifecycle state; the subject defines which strings mean idle/ready. */
@@ -170,6 +285,40 @@ export interface ConformanceEngineClient {
   query(sql: string): Promise<ConformanceBatchResult>
   /** Full statistics profile of a registered table (m2-5). */
   profile(handle: ConformanceTableHandle): Promise<ConformanceDatasetProfile>
+  /** Effective schema of the composed overlay — post-rename, post-cast (m4-2). */
+  overlaySchema(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+  ): Promise<readonly ConformanceColumn[]>
+  /**
+   * Live row count of the composed overlay (tombstones excluded, live
+   * inserts added); `options.filters` narrows with the m2-2 grammar over
+   * effective columns.
+   */
+  overlayRowCount(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+    options?: { readonly filters?: readonly ConformanceFilterSpec[] },
+  ): Promise<number>
+  /**
+   * Window over the composed effective view: edits visible, deletes
+   * excluded, inserts at their anchored positions (the `effectiveRowIds`
+   * order). `window.includeRowIds` prepends the logical row-id column.
+   */
+  fetchOverlayRange(
+    handle: ConformanceTableHandle,
+    overlay: ConformanceOverlay,
+    window: ConformanceOverlayWindow,
+  ): Promise<ConformanceBatchResult>
+  /**
+   * Export/rewrite (m4-2): materialize the effective view (absent `overlay`:
+   * the plain base view) into a NEW generated file — never the source path
+   * (ADR 0012/0017).
+   */
+  exportView(
+    handle: ConformanceTableHandle,
+    request: { readonly format: ConformanceExportFormat; readonly overlay?: ConformanceOverlay },
+  ): Promise<ConformanceExportResult>
   /** Terminal, idempotent; safe before the first boot. */
   dispose(): Promise<void>
 }
@@ -280,6 +429,37 @@ export interface EngineConformanceSubject {
   readonly nestedDataset: ConformanceNestedDataset
   /** Stage the nested dataset (`nestedDataset`; committed JSONL, m3-1). */
   stageNestedFile(): Promise<ConformanceFileSource>
+  /**
+   * The edit-overlay dataset behind `stageOverlayFile()` (m4-2): the base
+   * metadata + the scripted op list, and the host-engine-pinned effective
+   * expectations (schema, counts, full row order/values, slice, filter,
+   * sort, per-format export checks). engine-duckdb derives every pin with
+   * the DuckDB CLI 1.5.5 over the identical composed SQL (see the subject
+   * adapter for the derivation). Runtime-built staging bytes with embedded
+   * formula-injection bait cells (never committed as data).
+   */
+  readonly overlayDataset: ConformanceOverlayDataset
+  /** Stage the overlay base dataset (`overlayDataset.base`). */
+  stageOverlayFile(): Promise<ConformanceFileSource>
+  /**
+   * A stable content digest (e.g. sha-256 hex) of the staged file behind
+   * `source` — the byte-identity probe the source-immutability scenario
+   * asserts with. Must reflect the file's CURRENT bytes on every call.
+   */
+  sourceDigest(source: ConformanceFileSource): Promise<string>
+  /**
+   * A file source that re-opens a completed export through the engine's
+   * ordinary `open()` path (its name carries the exported extension so the
+   * engine picks the right reader). OPFS-backed in the browser.
+   */
+  exportedSource(result: ConformanceExportResult): Promise<ConformanceFileSource>
+  /**
+   * Read a completed export's bytes through its native container reader and
+   * return the resulting Arrow table — the content check for formats the
+   * engine cannot re-open yet (`arrow`; the m1-4 arrow-reader deferral).
+   * Must reflect the file's CURRENT bytes.
+   */
+  readExportedArrowTable(result: ConformanceExportResult): Promise<ConformanceBatchResult>
 }
 
 /** One declared filter/sort expectation over the good dataset (see the subject field). */
@@ -414,6 +594,75 @@ export interface ConformanceNestedDataset {
   readonly offsetWindow: ConformanceWindow
 }
 
+// ---- Edit-overlay dataset types (m4-2) ----
+
+/** One effective column's pinned values for the whole effective row set. */
+export interface ConformanceOverlayColumnValues {
+  readonly name: string
+  readonly values: readonly (string | null)[]
+}
+
+/** One declared filter/sort expectation over the effective view (m4-2). */
+export interface ConformanceOverlaySemantics {
+  /** Stable label (scenario facts/messages only). */
+  readonly label: string
+  readonly filters?: readonly ConformanceFilterSpec[]
+  readonly sort?: readonly ConformanceSortSpec[]
+  /** The effective column whose rendered values `expectValues` declares. */
+  readonly expectColumn: string
+  /** Expected values over the whole matching set, in expected order. */
+  readonly expectValues: readonly (string | null)[]
+  readonly expectRowCount: number
+}
+
+/**
+ * One export check: a format to export with, how its content is verified,
+ * and the pinned re-opened content (effective order, rendered values).
+ */
+export interface ConformanceExportCheck {
+  readonly format: ConformanceExportFormat
+  /**
+   * `'engine'` — re-open the exported file through the engine's ordinary
+   * `open()` path (the formats the engine reads back). `'arrow-container'`
+   * — verify through the export's native Arrow IPC container (the engine
+   * cannot re-open `.arrow` files yet: the m1-4 arrow-reader deferral).
+   */
+  readonly roundTrip: 'engine' | 'arrow-container'
+  /** Expected row count (the export result's honest count). */
+  readonly rowCount: number
+  /** Expected re-opened columns: names + rendered values, in order. */
+  readonly columns: readonly ConformanceOverlayColumnValues[]
+}
+
+/** The m4-2 overlay dataset a subject stages and pins (see the subject field). */
+export interface ConformanceOverlayDataset {
+  /** The immutable base metadata the ops compose over. */
+  readonly base: ConformanceOverlayBase
+  /** The scripted op list folded per request (stateless composition). */
+  readonly ops: readonly ConformanceEditOp[]
+  /** Effective schema: post-rename names, post-cast engine type strings. */
+  readonly effectiveSchema: readonly ConformanceColumn[]
+  /** Live row count: base − tombstones + live inserts. */
+  readonly liveRowCount: number
+  /**
+   * The effective row order as logical row ids — the `effectiveRowIds`
+   * emission order the engine's windows must reproduce exactly.
+   */
+  readonly rowIds: readonly string[]
+  /** The row-id column's name in `includeRowIds` windows. */
+  readonly rowIdColumn: string
+  /** Every effective column's pinned values over the whole effective set. */
+  readonly columns: readonly ConformanceOverlayColumnValues[]
+  /** A LIMIT/OFFSET slice over the effective order. */
+  readonly offsetWindow: { readonly startRow: number; readonly endRow: number }
+  /** A filtered window over effective columns (m2-2 grammar). */
+  readonly filtered: ConformanceOverlaySemantics
+  /** A sorted window over effective columns (m2-2 grammar). */
+  readonly sorted: ConformanceOverlaySemantics
+  /** Per-format export checks (CSV must probe sanitization — see the scenario). */
+  readonly exports: readonly ConformanceExportCheck[]
+}
+
 // ---- Results ----
 
 /** Stable scenario identifiers (each runs independently, fresh client). */
@@ -431,6 +680,9 @@ export const engineConformanceScenarioNames = [
   'nested-schema-fidelity',
   'nested-window-fidelity',
   'nested-window-clamp',
+  'overlay-window-fidelity',
+  'export-round-trip',
+  'source-immutability',
 ] as const
 
 export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[number]
@@ -1564,6 +1816,308 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       oversizedRows: oversized.batch.numRows,
       offsetRows,
       invalidRejected,
+    }
+  },
+
+  'overlay-window-fidelity': async (subject) => {
+    // Subject preconditions (fail loudly on misconfiguration, never vacuously).
+    const dataset = subject.overlayDataset
+    expectCondition(
+      dataset.base.baseRowCount >= 1,
+      'subject misconfiguration: overlayDataset.base.baseRowCount must be at least 1',
+    )
+    expectCondition(
+      dataset.ops.length > 0,
+      'subject misconfiguration: overlayDataset.ops must script at least one op',
+    )
+    expectCondition(
+      dataset.liveRowCount === dataset.rowIds.length,
+      'subject misconfiguration: overlayDataset.liveRowCount must equal rowIds.length',
+    )
+    expectCondition(
+      dataset.columns.length > 0,
+      'subject misconfiguration: declare values for at least one effective column',
+    )
+    for (const column of dataset.columns) {
+      expectCondition(
+        column.values.length === dataset.rowIds.length,
+        `subject misconfiguration: effective column "${column.name}" declares ${String(column.values.length)} values, expected ${String(dataset.rowIds.length)}`,
+      )
+    }
+    const offset = dataset.offsetWindow
+    expectCondition(
+      Number.isSafeInteger(offset.startRow) &&
+        Number.isSafeInteger(offset.endRow) &&
+        offset.startRow >= 0 &&
+        offset.endRow > offset.startRow &&
+        offset.endRow <= dataset.liveRowCount,
+      'subject misconfiguration: offsetWindow must be a valid window inside the effective row set',
+    )
+    for (const entry of [dataset.filtered, dataset.sorted]) {
+      expectCondition(
+        entry.expectValues.length === entry.expectRowCount,
+        `subject misconfiguration: semantics entry "${entry.label}" declares ${String(entry.expectValues.length)} values for ${String(entry.expectRowCount)} rows`,
+      )
+      expectCondition(
+        entry.expectRowCount >= 0 && entry.expectRowCount <= subject.maxWindowRows,
+        `subject misconfiguration: semantics entry "${entry.label}" row count must fit one window`,
+      )
+    }
+    expectCondition(
+      (dataset.filtered.filters?.length ?? 0) > 0,
+      'subject misconfiguration: the filtered semantics entry must declare at least one filter',
+    )
+    expectCondition(
+      (dataset.sorted.sort?.length ?? 0) > 0,
+      'subject misconfiguration: the sorted semantics entry must declare at least one sort key',
+    )
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageOverlayFile())
+
+    // Effective schema: post-rename names, post-cast engine type strings.
+    const schema = await client.overlaySchema(handle, dataset)
+    expectColumnsMatch(schema, dataset.effectiveSchema)
+
+    // Live counts: unfiltered (tombstones excluded, live inserts added) and
+    // narrowed by the declared filter over effective columns.
+    expectEqual(
+      await client.overlayRowCount(handle, dataset),
+      dataset.liveRowCount,
+      'overlay live row count',
+    )
+    expectEqual(
+      await client.overlayRowCount(handle, dataset, { filters: dataset.filtered.filters }),
+      dataset.filtered.expectRowCount,
+      `[${dataset.filtered.label}] filtered row count`,
+    )
+
+    // The full effective window, with row ids: order AND values pinned.
+    const full = await client.fetchOverlayRange(handle, dataset, {
+      startRow: 0,
+      endRow: dataset.liveRowCount,
+      includeRowIds: true,
+    })
+    expectEqual(full.batch.numRows, dataset.liveRowCount, 'full overlay window row count')
+    expectColumnValues(full.batch, dataset.rowIdColumn, dataset.rowIds, '[overlay fidelity]')
+    for (const column of dataset.columns) {
+      expectColumnValues(full.batch, column.name, column.values, '[overlay fidelity]')
+    }
+
+    // LIMIT/OFFSET slices the effective order (never the base order).
+    const sliceRows = offset.endRow - offset.startRow
+    const slice = await client.fetchOverlayRange(handle, dataset, {
+      startRow: offset.startRow,
+      endRow: offset.endRow,
+      includeRowIds: true,
+    })
+    expectEqual(slice.batch.numRows, sliceRows, 'overlay offset window row count')
+    expectColumnValues(
+      slice.batch,
+      dataset.rowIdColumn,
+      dataset.rowIds.slice(offset.startRow, offset.endRow),
+      '[overlay offset]',
+    )
+
+    // Filter over effective (edited/renamed) values.
+    const filtered = await client.fetchOverlayRange(handle, dataset, {
+      startRow: 0,
+      endRow: subject.maxWindowRows,
+      filters: dataset.filtered.filters,
+    })
+    expectEqual(
+      filtered.batch.numRows,
+      dataset.filtered.expectRowCount,
+      `[${dataset.filtered.label}] window rows`,
+    )
+    expectColumnValues(
+      filtered.batch,
+      dataset.filtered.expectColumn,
+      dataset.filtered.expectValues,
+      `[${dataset.filtered.label}]`,
+    )
+
+    // Sort over effective columns (renamed + cast), ties deterministic.
+    const sorted = await client.fetchOverlayRange(handle, dataset, {
+      startRow: 0,
+      endRow: subject.maxWindowRows,
+      sort: dataset.sorted.sort,
+    })
+    expectEqual(
+      sorted.batch.numRows,
+      dataset.sorted.expectRowCount,
+      `[${dataset.sorted.label}] window rows`,
+    )
+    expectColumnValues(
+      sorted.batch,
+      dataset.sorted.expectColumn,
+      dataset.sorted.expectValues,
+      `[${dataset.sorted.label}]`,
+    )
+
+    return {
+      schemaColumns: schema.length,
+      liveRowCount: dataset.liveRowCount,
+      filteredCount: dataset.filtered.expectRowCount,
+      sliceRows,
+      cells: dataset.columns.length * dataset.rowIds.length,
+      sortedRows: dataset.sorted.expectRowCount,
+    }
+  },
+
+  'export-round-trip': async (subject) => {
+    // Subject preconditions: at least one format; the CSV check must probe
+    // sanitization non-vacuously (its expectations differ from the effective
+    // values somewhere), and a declared JSONL check must pin the raw content
+    // (its expectations equal the effective values exactly).
+    const dataset = subject.overlayDataset
+    expectCondition(
+      dataset.exports.length > 0,
+      'subject misconfiguration: declare at least one export check',
+    )
+    const formats = new Set(dataset.exports.map((check) => check.format))
+    expectCondition(
+      formats.size === dataset.exports.length,
+      'subject misconfiguration: export checks must declare distinct formats',
+    )
+    const effectiveValues = new Map(dataset.columns.map((column) => [column.name, column.values]))
+    const csvCheck = dataset.exports.find((check) => check.format === 'csv')
+    expectCondition(
+      csvCheck !== undefined,
+      'subject misconfiguration: declare a csv export check (the formula-injection-sanitized format)',
+    )
+    const csvDiffers = csvCheck!.columns.some((column) => {
+      const expected = effectiveValues.get(column.name)
+      return (
+        expected !== undefined && column.values.some((value, index) => value !== expected[index])
+      )
+    })
+    expectCondition(
+      csvDiffers,
+      'subject misconfiguration: the csv export expectations must differ from the effective values somewhere — the formula-injection sanitization pin would be vacuous',
+    )
+    const jsonlCheck = dataset.exports.find((check) => check.format === 'jsonl')
+    if (jsonlCheck !== undefined) {
+      const identical = jsonlCheck.columns.every((column) => {
+        const expected = effectiveValues.get(column.name)
+        return (
+          expected === undefined ||
+          (column.values.length === expected.length &&
+            column.values.every((value, index) => value === expected[index]))
+        )
+      })
+      expectCondition(
+        identical,
+        'subject misconfiguration: the jsonl export expectations must equal the effective values — raw content must stay visible (no sanitization)',
+      )
+    }
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const source = await subject.stageOverlayFile()
+    const handle = await client.open(source)
+
+    let engineReopens = 0
+    let arrowVerified = 0
+    for (const check of dataset.exports) {
+      const label = `[${check.format} export]`
+      const result = await client.exportView(handle, { format: check.format, overlay: dataset })
+      expectEqual(result.format, check.format, `${label} format`)
+      expectEqual(result.rowCount, check.rowCount, `${label} honest row count`)
+      expectCondition(result.bytes > 0, `${label} byte size must be positive`)
+      expectCondition(
+        result.path !== source.name,
+        `${label} the export destination must never be the source path`,
+      )
+      if (check.roundTrip === 'engine') {
+        // Re-open the exported file through the engine's ordinary open path
+        // and verify the pinned (per-format) content, effective order.
+        const reopened = await client.open(await subject.exportedSource(result))
+        expectEqual(await client.rowCount(reopened), check.rowCount, `${label} re-opened row count`)
+        const range = await client.fetchRange(reopened, { startRow: 0, endRow: check.rowCount })
+        expectEqual(range.batch.numRows, check.rowCount, `${label} re-opened window rows`)
+        for (const column of check.columns) {
+          expectColumnValues(range.batch, column.name, column.values, `${label} round-trip`)
+        }
+        engineReopens += 1
+      } else {
+        // The engine cannot re-open .arrow files yet (m1-4 deferral): the
+        // exported bytes are verified through their native Arrow IPC
+        // container instead — same content contract.
+        const container = await subject.readExportedArrowTable(result)
+        expectEqual(container.batch.numRows, check.rowCount, `${label} container rows`)
+        for (const column of check.columns) {
+          expectColumnValues(container.batch, column.name, column.values, `${label} container`)
+        }
+        arrowVerified += 1
+      }
+    }
+    return {
+      formats: dataset.exports.length,
+      engineReopens,
+      arrowVerified,
+      csvSanitizationProbed: csvDiffers,
+    }
+  },
+
+  'source-immutability': async (subject) => {
+    // A full edit+export session over the staged source must leave the
+    // source file byte-identical (ADR 0012: the base is never mutated in
+    // place; exports are NEW generated files, never the source path).
+    const dataset = subject.overlayDataset
+    expectCondition(
+      dataset.exports.length > 0,
+      'subject misconfiguration: declare at least one export check so the session exports',
+    )
+    const source = await subject.stageOverlayFile()
+    const digestBefore = await subject.sourceDigest(source)
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(source)
+
+    // Schema + counts + windows: the ordinary editing-session reads.
+    await client.overlaySchema(handle, dataset)
+    await client.overlayRowCount(handle, dataset)
+    await client.fetchOverlayRange(handle, dataset, {
+      startRow: 0,
+      endRow: dataset.liveRowCount,
+      includeRowIds: true,
+    })
+    await client.fetchOverlayRange(handle, dataset, {
+      startRow: dataset.offsetWindow.startRow,
+      endRow: dataset.offsetWindow.endRow,
+    })
+    await client.fetchOverlayRange(handle, dataset, {
+      startRow: 0,
+      endRow: subject.maxWindowRows,
+      filters: dataset.filtered.filters,
+      sort: dataset.sorted.sort,
+    })
+
+    // Exports of every declared format, each to its own generated destination.
+    const destinations = new Set<string>()
+    for (const check of dataset.exports) {
+      const result = await client.exportView(handle, { format: check.format, overlay: dataset })
+      expectCondition(
+        result.path !== source.name,
+        `[${check.format}] the export destination must never be the source path`,
+      )
+      destinations.add(result.path)
+    }
+
+    // The byte-identity assertion: source digest unchanged after everything.
+    const digestAfter = await subject.sourceDigest(source)
+    expectEqual(
+      digestAfter,
+      digestBefore,
+      'the staged source file must be byte-identical after the edit+export session (ADR 0012: never rewritten in place)',
+    )
+    return {
+      exports: dataset.exports.length,
+      distinctDestinations: destinations.size,
+      digestUnchanged: true,
     }
   },
 }

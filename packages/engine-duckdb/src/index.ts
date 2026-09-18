@@ -45,7 +45,10 @@ export {
 export type {
   DuckDbEngineClientOptions,
   EngineDatasetProfile,
+  EngineExportResult,
   EngineFileSource,
+  EngineOverlay,
+  EngineOverlayWindow,
   EngineQueryResult,
   EngineRangeResult,
   EngineRangeWindow,
@@ -63,12 +66,21 @@ export type {
   EngineDisposedResponse,
   EngineDisposeRequest,
   EngineErrorResponse,
+  EngineExportFormat,
+  EngineExportRequest,
+  EngineExportResultResponse,
   EngineFilterSpec,
   EngineInitRequest,
   EngineNumericColumnStats,
   EngineNumericQuantiles,
   EngineOpenRequest,
   EngineOpenResultResponse,
+  EngineOverlayRangeRequest,
+  EngineOverlayRangeResultResponse,
+  EngineOverlayRowCountRequest,
+  EngineOverlayRowCountResultResponse,
+  EngineOverlaySchemaRequest,
+  EngineOverlaySchemaResultResponse,
   EngineProfileColumn,
   EngineProfileColumnKind,
   EngineProfileRequest,
@@ -116,6 +128,28 @@ export {
   whereClauseSql,
 } from './window-query'
 export type { EngineWindowQuery } from './window-query'
+// m4-2 fold: overlay composition (stateless SQL over base view + ops), the
+// CSV formula-injection guard, and the boundary-validated overlay payload —
+// public so the conformance suite, harness, and m4-3's grid all consume the
+// same composed semantics instead of re-deriving them.
+export {
+  cellLiteralSql,
+  composeOverlayCountSql,
+  composeOverlayExportSelectSql,
+  composeOverlayExportSql,
+  composeOverlaySchemaSql,
+  composeOverlayWindowSql,
+  composeSourceSql,
+  exportFileExtension,
+  formulaInjectionGuardSql,
+  insertSortKeys,
+  OVERLAY_ROW_ID_COLUMN,
+  OVERLAY_SORT_KEY_COLUMN,
+  RESERVED_OVERLAY_COLUMN_NAMES,
+} from './overlay-query'
+export type { OverlayComposition, OverlayWindowQuery } from './overlay-query'
+export { parseOverlayPayload } from './overlay-wire'
+export type { EngineOverlayPayload } from './overlay-wire'
 
 // The worker entry (`./worker.ts`) is intentionally not part of the
 // main-thread surface: the client loads it via

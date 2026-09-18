@@ -1,5 +1,7 @@
 import { Table, tableFromArrays, tableFromIPC } from 'apache-arrow'
 import type { RecordBatch } from 'apache-arrow'
+import { baseRowId, insertRowId } from '@assay/domain'
+import type { EditOp } from '@assay/domain'
 import { describe, expect, it } from 'vitest'
 import { EngineOpExecutor } from './engine-executor'
 import type {
@@ -243,6 +245,22 @@ class FakeDeps implements EngineExecutorDeps {
   dropFile(registeredFileName: string): Promise<unknown> {
     this.droppedFiles.push(registeredFileName)
     return Promise.resolve(null)
+  }
+
+  // m4-2 export seams: the wasm-side byte read + the OPFS scratch write.
+  readonly copiedExportBytes: string[] = []
+  readonly writtenExports: Array<{ path: string; bytes: Uint8Array }> = []
+  copyExportBytesError: unknown = null
+
+  copyExportBytes(registeredFileName: string): Promise<Uint8Array> {
+    this.copiedExportBytes.push(registeredFileName)
+    if (this.copyExportBytesError !== null) return Promise.reject(this.copyExportBytesError)
+    return Promise.resolve(new TextEncoder().encode('assay-export-bytes'))
+  }
+
+  writeExportFile(path: string, bytes: Uint8Array): Promise<void> {
+    this.writtenExports.push({ path, bytes })
+    return Promise.resolve()
   }
 
   post(response: EngineResponse, transfer?: ArrayBuffer[]): void {
@@ -1270,6 +1288,356 @@ describe('EngineOpExecutor profile (m2-5; query lane since m2-7)', () => {
     // overlapped the parked query — and the registry lane's connection was
     // never touched by the profile at all.
     expect(deps.conn.sentSqls).toHaveLength(1)
+    expectNoCollisions(deps)
+  })
+})
+
+// ---- m4-2: overlay windows/counts/schema + export/rewrite -----------------
+
+/** The scripted overlay ops the executor tests compose over t1 (2×2 base). */
+const OVERLAY_OPS: readonly EditOp[] = [
+  { kind: 'row-delete', rowId: baseRowId('b1', 1) },
+  {
+    kind: 'cell-set',
+    rowId: baseRowId('b1', 0),
+    column: 'label',
+    value: { kind: 'string', value: 'edited' },
+  },
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('o1', 0),
+    position: { kind: 'start' },
+    values: new Map([['id', { kind: 'number', value: 9 }]]),
+  },
+]
+
+function overlayPayload() {
+  return {
+    base: {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'label', type: 'VARCHAR' },
+      ],
+      baseRowCount: 2,
+    },
+    ops: OVERLAY_OPS,
+  }
+}
+
+function overlayRangeRequest(id: number, includeRowIds = false): EngineRequest {
+  return {
+    type: 'engine/overlay-range',
+    requestId: id,
+    tableId: 't1',
+    overlay: overlayPayload(),
+    startRow: 0,
+    endRow: 5,
+    ...(includeRowIds ? { includeRowIds: true } : {}),
+  }
+}
+
+function overlayRowCountRequest(id: number): EngineRequest {
+  return {
+    type: 'engine/overlay-row-count',
+    requestId: id,
+    tableId: 't1',
+    overlay: overlayPayload(),
+  }
+}
+
+function overlaySchemaRequest(id: number): EngineRequest {
+  return { type: 'engine/overlay-schema', requestId: id, tableId: 't1', overlay: overlayPayload() }
+}
+
+function exportRequest(
+  id: number,
+  format: 'parquet' | 'csv' | 'jsonl' | 'arrow',
+  withOverlay = true,
+): EngineRequest {
+  return {
+    type: 'engine/export',
+    requestId: id,
+    tableId: 't1',
+    format,
+    ...(withOverlay ? { overlay: overlayPayload() } : {}),
+  }
+}
+
+/** The one-row BIGINT count relation DuckDB's COPY statement returns. */
+function copyCountTable(count: bigint): Table {
+  return tableFromArrays({ Count: BigInt64Array.from([count]) })
+}
+
+describe('EngineOpExecutor overlay surface (m4-2)', () => {
+  it('composes the overlay window SQL over the registered view on the registry lane and streams the first batch', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlayRangeRequest(2, true))
+    await awaitSends(deps.conn, 2)
+    expect(deps.conn.sentSqls[1]).toBe(
+      'SELECT "assay_row_id", "id", "label" FROM (' +
+        'SELECT "id" AS "id", ' +
+        // Edited base cell as a typed CASE arm; the tombstoned ordinal excluded.
+        `CASE WHEN assay_overlay_ord = 0 THEN CAST('edited' AS VARCHAR) ELSE "label" END AS "label", ` +
+        '\'base:b1#\' || CAST(assay_overlay_ord AS VARCHAR) AS "assay_row_id", ' +
+        '[0, assay_overlay_ord, 1] AS "assay_key" ' +
+        'FROM (SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1") ' +
+        'WHERE assay_overlay_ord NOT IN (1) ' +
+        'UNION ALL ' +
+        `SELECT CAST(9 AS BIGINT) AS "id", CAST(NULL AS VARCHAR) AS "label", 'ins:o1#0' AS "assay_row_id", [-1, 0, 1] AS "assay_key"` +
+        ') ORDER BY "assay_key" LIMIT 5 OFFSET 0',
+    )
+    deps.conn.resolveSend(1, intTable([1, 9]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/overlay-range-result' })
+    expectNoCollisions(deps)
+  })
+
+  it('composes the overlay count and schema SQL, re-checks the count shape, and passes DESCRIBE types through', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlayRowCountRequest(2))
+    await awaitSends(deps.conn, 2)
+    expect(deps.conn.sentSqls[1]).toContain('SELECT count(*)::BIGINT AS row_count FROM (')
+    expect(deps.conn.sentSqls[1]).toContain('WHERE assay_overlay_ord NOT IN (1)')
+    expect(deps.conn.sentSqls[1]).toContain('UNION ALL')
+    deps.conn.resolveSend(1, countTable(2n))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/overlay-row-count-result',
+      rowCount: 2,
+    })
+
+    executor.accept(overlaySchemaRequest(3))
+    await awaitSends(deps.conn, 3)
+    expect(deps.conn.sentSqls[2]).toContain('DESCRIBE SELECT')
+    expect(deps.conn.sentSqls[2]).toContain('AS "label"') // the edited projection
+    deps.conn.resolveSend(2, describeTable())
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/overlay-schema-result',
+      columns: [
+        { name: 'customer_id', type: 'BIGINT' },
+        { name: 'country', type: 'VARCHAR' },
+      ],
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('a count that arrives in an unexpected shape errors its own op only', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlayRowCountRequest(2))
+    await awaitSends(deps.conn, 2)
+    // A text cell: not the BIGINT count value the composer asks for.
+    deps.conn.resolveSend(1, tableFromArrays({ row_count: ['oops'] }))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'count(*) returned an unexpected shape',
+    })
+    // The engine stays usable: the next op still answers.
+    executor.accept(overlayRowCountRequest(3))
+    await awaitSends(deps.conn, 3)
+    deps.conn.resolveSend(2, countTable(2n))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/overlay-row-count-result',
+      rowCount: 2,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('silently drops overlay requests whose payloads arrive malformed (no send, no reply)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept({
+      type: 'engine/overlay-schema',
+      requestId: 2,
+      tableId: 't1',
+      overlay: { base: { baseAnchor: 'b1' } },
+    })
+    executor.accept({ type: 'engine/export', requestId: 3, tableId: 't1', format: 'xlsx' })
+    await flush()
+    expect(deps.postedResponses.filter((response) => response.requestId === 2)).toEqual([])
+    expect(deps.postedResponses.filter((response) => response.requestId === 3)).toEqual([])
+    expect(deps.conn.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
+  })
+
+  it('an unknown table handle errors the overlay op without ever touching a connection', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept({
+      type: 'engine/overlay-range',
+      requestId: 2,
+      tableId: 'assay-no-such-table',
+      overlay: overlayPayload(),
+      startRow: 0,
+      endRow: 5,
+    })
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'unknown table handle: assay-no-such-table',
+    })
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
+  })
+})
+
+describe('EngineOpExecutor export (m4-2; query lane)', () => {
+  it('COPYs the effective view to a generated destination on the query lane, moves the bytes to OPFS scratch, and drops the wasm-side copy', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(exportRequest(2, 'parquet'))
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toBe(
+      'COPY (SELECT "id", "label" FROM (SELECT "id" AS "id", ' +
+        `CASE WHEN assay_overlay_ord = 0 THEN CAST('edited' AS VARCHAR) ELSE "label" END AS "label", ` +
+        '[0, assay_overlay_ord, 1] AS "assay_key" ' +
+        'FROM (SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1") ' +
+        'WHERE assay_overlay_ord NOT IN (1) ' +
+        'UNION ALL ' +
+        `SELECT CAST(9 AS BIGINT) AS "id", CAST(NULL AS VARCHAR) AS "label", [-1, 0, 1] AS "assay_key") ` +
+        'ORDER BY "assay_key"' +
+        `) TO 'assay-export-1' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)`,
+    )
+    deps.queryConn.resolveSend(0, copyCountTable(2n))
+    const response = await awaitPosted(deps, 2)
+    expect(response).toMatchObject({
+      type: 'engine/export-result',
+      requestId: 2,
+      path: 'assay-exports/assay-export-1.parquet',
+      format: 'parquet',
+      rowCount: 2,
+      bytes: new TextEncoder().encode('assay-export-bytes').length,
+    })
+    // The wasm-side copy is dropped after the byte read (the registry-lane
+    // dropFile seam), and the bytes landed in OPFS scratch under the same
+    // generated path — never the source.
+    expect(deps.droppedFiles).toContain('assay-export-1')
+    expect(deps.writtenExports).toHaveLength(1)
+    expect(deps.writtenExports[0]!.path).toBe('assay-exports/assay-export-1.parquet')
+    expect(new TextDecoder().decode(deps.writtenExports[0]!.bytes)).toBe('assay-export-bytes')
+    expectNoCollisions(deps)
+  })
+
+  it('falls back to an explicit count when the COPY result shape is unexpected, and cleans up on read failure', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(exportRequest(2, 'csv'))
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toContain('FORMAT CSV')
+    deps.queryConn.resolveSend(0, intTable([1, 2])) // two rows: not the count relation
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toContain('count(*)::BIGINT AS row_count')
+    deps.queryConn.resolveSend(1, countTable(2n))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/export-result',
+      rowCount: 2,
+    })
+
+    // A byte-read failure errors the export but still drops the wasm copy.
+    deps.copyExportBytesError = new Error('wasm fs read failed')
+    executor.accept(exportRequest(3, 'csv'))
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, copyCountTable(2n))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/error',
+      requestId: 3,
+      message: 'wasm fs read failed',
+    })
+    expect(deps.droppedFiles.filter((name) => name === 'assay-export-2')).toHaveLength(1)
+    expectNoCollisions(deps)
+  })
+
+  it('assembles the arrow export by draining the identical SELECT on the query lane', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(exportRequest(2, 'arrow'))
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toBe(
+      'SELECT "id", "label" FROM (SELECT "id" AS "id", ' +
+        `CASE WHEN assay_overlay_ord = 0 THEN CAST('edited' AS VARCHAR) ELSE "label" END AS "label", ` +
+        '[0, assay_overlay_ord, 1] AS "assay_key" ' +
+        'FROM (SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1") ' +
+        'WHERE assay_overlay_ord NOT IN (1) ' +
+        'UNION ALL ' +
+        `SELECT CAST(9 AS BIGINT) AS "id", CAST(NULL AS VARCHAR) AS "label", [-1, 0, 1] AS "assay_key") ` +
+        'ORDER BY "assay_key"',
+    )
+    // Two batches: the drain must consume both (honest rowCount 2).
+    const twoBatches = new Table(intTable([1]).schema, [
+      ...intTable([1]).batches,
+      ...intTable([2]).batches,
+    ])
+    deps.queryConn.resolveSend(0, twoBatches)
+    const response = await awaitPosted(deps, 2)
+    expect(response).toMatchObject({
+      type: 'engine/export-result',
+      path: 'assay-exports/assay-export-1.arrow',
+      format: 'arrow',
+      rowCount: 2,
+    })
+    expect(deps.droppedFiles).toHaveLength(0) // no wasm-side copy for arrow
+    expect(deps.writtenExports[0]!.path).toBe('assay-exports/assay-export-1.arrow')
+    expectNoCollisions(deps)
+  })
+
+  it('exports the plain base view when no overlay is carried (DESCRIBE-derived composition)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(exportRequest(2, 'jsonl', false))
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toBe('DESCRIBE "assay_t1"')
+    deps.queryConn.resolveSend(0, describeTable())
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toContain(`TO 'assay-export-1' (FORMAT JSON, ARRAY false)`)
+    deps.queryConn.resolveSend(1, copyCountTable(5n))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/export-result',
+      path: 'assay-exports/assay-export-1.jsonl',
+      rowCount: 5,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('overlay windows answer on the registry lane while a query is parked; exports queue behind the parked query (ADR 0040 lane policy)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    // Park a long query on the query lane.
+    executor.accept(queryRequest(2, 'SELECT long-running'))
+    await awaitSends(deps.queryConn, 1)
+
+    // The overlay window answers NOW on the registry lane (grid class).
+    executor.accept(overlayRangeRequest(3))
+    await awaitSends(deps.conn, 2)
+    deps.conn.resolveSend(1, intTable([7]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/overlay-range-result' })
+
+    // The export's COPY must NOT interleave on the busy query connection.
+    executor.accept(exportRequest(4, 'parquet'))
+    await flush()
+    expect(deps.queryConn.sentSqls).toHaveLength(1)
+
+    // The parked query settles; only then does the COPY start (FIFO).
+    deps.queryConn.resolveSend(0, intTable([1]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/query-result' })
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, copyCountTable(9n))
+    expect(await awaitPosted(deps, 4)).toMatchObject({
+      type: 'engine/export-result',
+      rowCount: 9,
+    })
     expectNoCollisions(deps)
   })
 })

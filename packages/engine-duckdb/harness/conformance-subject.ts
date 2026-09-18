@@ -28,10 +28,15 @@ import type {
   ConformanceBatchResult,
   ConformanceEngineClient,
   ConformanceErrorMatchers,
+  ConformanceExportResult,
   ConformanceFileSource,
   ConformanceNestedDataset,
+  ConformanceOverlayDataset,
   EngineConformanceSubject,
 } from '@assay/testing'
+import { baseRowId, insertRowId } from '@assay/domain'
+import type { CellValue, EditOp, OverlayBase } from '@assay/domain'
+import { tableFromIPC } from 'apache-arrow'
 
 /** The customers.parquet golden fixture, as the DuckDB DESCRIBE reports it. */
 const GOOD_DATASET = {
@@ -449,6 +454,20 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
   return new Uint8Array(await response.arrayBuffer())
 }
 
+/** Resolve an engine-generated OPFS-relative path to its file handle. */
+async function opfsFileForPath(path: string): Promise<FileSystemFileHandle> {
+  const segments = path.split('/').filter((segment) => segment.length > 0)
+  const fileName = segments.at(-1)
+  if (fileName === undefined || segments.length === 0) {
+    throw new Error(`invalid export path: ${JSON.stringify(path)}`)
+  }
+  let dir = await navigator.storage.getDirectory()
+  for (const segment of segments.slice(0, -1)) {
+    dir = await dir.getDirectoryHandle(segment)
+  }
+  return dir.getFileHandle(fileName)
+}
+
 /** Runtime-built wide CSV (`id` header + `wideRowCount` integer rows). */
 function buildWideCsv(rowCount: number): Uint8Array {
   const lines = ['id']
@@ -459,6 +478,301 @@ function buildWideCsv(rowCount: number): Uint8Array {
 /** Runtime-built profiling CSV (see PROFILE_DATASET for the exact contract). */
 function buildProfileCsv(): Uint8Array {
   const lines = ['score,label,flag,empty,when,tier', ...PROFILE_CSV_ROWS]
+  return new TextEncoder().encode(lines.join('\n') + '\n')
+}
+
+/**
+ * m4-2 canonical overlay base (runtime-built CSV, never committed data) —
+ * five rows whose VARCHAR cells already carry the formula-injection trigger
+ * forms (leading `=`, `+`, `@`, `-`, an embedded TAB), plus one NULL BIGINT.
+ */
+const OVERLAY_BASE_ROWS = [
+  { id: 1, region: 'SG', amount: 52000, note: '=SUM(A1:A2)' },
+  { id: 2, region: 'US', amount: 61000, note: '+CMD' },
+  { id: 3, region: 'SG', amount: null, note: 'has\ttab' },
+  { id: 4, region: 'DE', amount: 48000, note: '@x' },
+  { id: 5, region: 'US', amount: 75000, note: '-1+1' },
+] as const
+
+const OVERLAY_BASE: OverlayBase = {
+  baseAnchor: 'conf-base-v1',
+  overlayAnchor: 'conf-ov-1',
+  columns: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'region', type: 'VARCHAR' },
+    { name: 'amount', type: 'BIGINT' },
+    { name: 'note', type: 'VARCHAR' },
+  ],
+  baseRowCount: 5,
+}
+
+function overlayCell(value: CellValue): CellValue {
+  return value
+}
+
+/**
+ * The scripted op sequence (domain ops): an edit per value kind (`text` =
+ * the engine-parseable literal cast under the column's type; a string with
+ * an embedded TAB), five inserts exercising every position kind — start,
+ * after a base row, before a base row, an after-chain nested on an insert,
+ * and a DEAD anchor (a tombstoned base row, degrading to the end) — a base
+ * delete, the rename, the cast, a no-op replay, and a foreign-anchor op the
+ * fold absorbs. State-changing ops never overlap the no-op/conflict ones.
+ */
+const OVERLAY_OPS: EditOp[] = [
+  {
+    kind: 'cell-set',
+    rowId: baseRowId('conf-base-v1', 1),
+    column: 'amount',
+    value: overlayCell({ kind: 'text', text: '66000' }),
+  },
+  {
+    kind: 'cell-set',
+    rowId: baseRowId('conf-base-v1', 2),
+    column: 'note',
+    value: overlayCell({ kind: 'string', value: 'a\tb=victim' }),
+  },
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('conf-ov-1', 0),
+    position: { kind: 'start' },
+    values: new Map<string, CellValue>([
+      ['id', overlayCell({ kind: 'text', text: '100' })],
+      ['region', overlayCell({ kind: 'string', value: 'XX' })],
+      ['amount', overlayCell({ kind: 'text', text: '9000' })],
+      ['note', overlayCell({ kind: 'string', value: '-1+1' })],
+    ]),
+  },
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('conf-ov-1', 1),
+    position: { kind: 'after', rowId: baseRowId('conf-base-v1', 1) },
+    values: new Map<string, CellValue>([
+      ['id', overlayCell({ kind: 'number', value: 101 })],
+      ['region', overlayCell({ kind: 'string', value: 'YY' })],
+      ['note', overlayCell({ kind: 'string', value: '@x' })],
+    ]),
+  },
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('conf-ov-1', 2),
+    position: { kind: 'before', rowId: baseRowId('conf-base-v1', 4) },
+    values: new Map<string, CellValue>([
+      ['id', overlayCell({ kind: 'number', value: 102 })],
+      ['region', overlayCell({ kind: 'string', value: 'ZZ' })],
+    ]),
+  },
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('conf-ov-1', 3),
+    position: { kind: 'after', rowId: insertRowId('conf-ov-1', 2) },
+    values: new Map<string, CellValue>([
+      ['id', overlayCell({ kind: 'number', value: 103 })],
+      ['region', overlayCell({ kind: 'string', value: 'W W' })],
+      ['note', overlayCell({ kind: 'string', value: 'cr\rcarriage' })],
+    ]),
+  },
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('conf-ov-1', 4),
+    position: { kind: 'after', rowId: baseRowId('conf-base-v1', 3) },
+    values: new Map<string, CellValue>([
+      ['id', overlayCell({ kind: 'text', text: '999' })],
+      ['region', overlayCell({ kind: 'string', value: 'Q' })],
+    ]),
+  },
+  { kind: 'row-delete', rowId: baseRowId('conf-base-v1', 3) },
+  { kind: 'column-rename', from: 'amount', to: 'amount_eur' },
+  { kind: 'column-cast', column: 'id', targetType: 'VARCHAR' },
+  // Absorbed by the fold (no-op replay + foreign anchor): state unchanged.
+  {
+    kind: 'cell-set',
+    rowId: baseRowId('conf-base-v1', 1),
+    column: 'amount',
+    value: overlayCell({ kind: 'text', text: '66000' }),
+  },
+  {
+    kind: 'cell-set',
+    rowId: baseRowId('other-version', 0),
+    column: 'region',
+    value: overlayCell({ kind: 'string', value: 'X' }),
+  },
+]
+
+const EFFECTIVE_ROW_IDS = [
+  'ins:conf-ov-1#0',
+  'base:conf-base-v1#0',
+  'base:conf-base-v1#1',
+  'ins:conf-ov-1#1',
+  'base:conf-base-v1#2',
+  'ins:conf-ov-1#2',
+  'ins:conf-ov-1#3',
+  'base:conf-base-v1#4',
+  'ins:conf-ov-1#4',
+] as const
+
+const EFFECTIVE_ID = ['100', '1', '2', '101', '3', '102', '103', '5', '999'] as const
+const EFFECTIVE_REGION = ['XX', 'SG', 'US', 'YY', 'SG', 'ZZ', 'W W', 'US', 'Q'] as const
+const EFFECTIVE_AMOUNT = ['9000', '52000', '66000', null, null, null, null, '75000', null] as const
+const EFFECTIVE_NOTE = [
+  '-1+1',
+  '=SUM(A1:A2)',
+  '+CMD',
+  '@x',
+  'a\tb=victim',
+  null,
+  'cr\rcarriage',
+  '-1+1',
+  null,
+] as const
+
+/** The CSV export sanitizes every trigger cell (apostrophe-prefix convention). */
+const CSV_SANITIZED_NOTE = [
+  "'-1+1",
+  "'=SUM(A1:A2)",
+  "'+CMD",
+  "'@x",
+  "'a\tb=victim",
+  null,
+  "'cr\rcarriage",
+  "'-1+1",
+  null,
+] as const
+
+/**
+ * m4-2 overlay dataset pins — every expectation below was derived with the
+ * pinned DuckDB CLI (v1.5.5, `DUCKDB=/tmp/duckdb`) over the IDENTICAL
+ * composed SQL the worker generates (`composeOverlayWindowSql` and friends
+ * over `assay_t1 = SELECT * FROM read_csv(<this CSV>)`), then round-trip
+ * checked cell-by-cell against the duckdb-wasm 1.32 build through Arrow IPC.
+ * Derivation transcript (control chars marked <TAB>/<CR>):
+ *
+ *   WITH eff AS (<the composed includeRowIds window, LIMIT 1000 OFFSET 0>)
+ *   SELECT assay_row_id, id, region, amount_eur, note FROM eff;
+ *
+ *   ins:conf-ov-1#0 | 100 | XX | 9000 | -1+1
+ *   base:conf-base-v1#0 | 1 | SG | 52000 | =SUM(A1:A2)
+ *   base:conf-base-v1#1 | 2 | US | 66000 | +CMD
+ *   ins:conf-ov-1#1 | 101 | YY | NULL | @x
+ *   base:conf-base-v1#2 | 3 | SG | NULL | a<TAB>b=victim
+ *   ins:conf-ov-1#2 | 102 | ZZ | NULL | NULL
+ *   ins:conf-ov-1#3 | 103 | W W | NULL | cr<CR>carriage
+ *   base:conf-base-v1#4 | 5 | US | 75000 | -1+1
+ *   ins:conf-ov-1#4 | 999 | Q | NULL | NULL
+ *
+ * (start insert leads; the deleted base row #3 is gone; the after-chain
+ * ins#2→ins#3 nests before base#4; the dead-anchor insert #4 degrades to
+ * the end) — the effectiveRowIds equivalence pin. Counts (9; region='SG'
+ * filtered: 2), the effective schema (id VARCHAR — the cast; amount_eur
+ * BIGINT — the rename), the LIMIT 3 OFFSET 2 slice (rows [2,5)), the
+ * amount_eur desc sort (NULLs last, assay_key tiebreak: 101,3,102,103,999),
+ * and the per-format exports (CSV sanitized byte-level via `cat -A`:
+ * every trigger cell prefixed with `\x27`, the CR cell quoted by the CSV
+ * writer; JSONL/JSON/Parquet raw) were all captured from the same session.
+ */
+const OVERLAY_DATASET: ConformanceOverlayDataset = {
+  base: OVERLAY_BASE,
+  ops: OVERLAY_OPS,
+  effectiveSchema: [
+    { name: 'id', type: 'VARCHAR' },
+    { name: 'region', type: 'VARCHAR' },
+    { name: 'amount_eur', type: 'BIGINT' },
+    { name: 'note', type: 'VARCHAR' },
+  ],
+  liveRowCount: 9,
+  rowIds: EFFECTIVE_ROW_IDS,
+  rowIdColumn: 'assay_row_id',
+  columns: [
+    { name: 'id', values: EFFECTIVE_ID },
+    { name: 'region', values: EFFECTIVE_REGION },
+    { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
+    { name: 'note', values: EFFECTIVE_NOTE },
+  ],
+  offsetWindow: { startRow: 2, endRow: 5 },
+  filtered: {
+    label: "filter region = 'SG' over the effective view",
+    filters: [{ column: 'region', predicate: "= 'SG'" }],
+    expectColumn: 'region',
+    expectValues: ['SG', 'SG'],
+    expectRowCount: 2,
+  },
+  sorted: {
+    label: 'sort amount_eur desc (renamed column; NULLs last, assay_key tiebreak)',
+    sort: [{ column: 'amount_eur', direction: 'desc' }],
+    expectColumn: 'amount_eur',
+    expectValues: ['75000', '66000', '52000', '9000', null, null, null, null, null],
+    expectRowCount: 9,
+  },
+  exports: [
+    {
+      format: 'csv',
+      roundTrip: 'engine',
+      rowCount: 9,
+      columns: [
+        // Re-opened via read_csv: id/amount_eur re-infer BIGINT — the
+        // rendered values are identical to the effective view.
+        { name: 'id', values: EFFECTIVE_ID },
+        { name: 'region', values: EFFECTIVE_REGION },
+        { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
+        { name: 'note', values: CSV_SANITIZED_NOTE },
+      ],
+    },
+    {
+      format: 'jsonl',
+      roundTrip: 'engine',
+      rowCount: 9,
+      columns: [
+        { name: 'id', values: EFFECTIVE_ID },
+        { name: 'region', values: EFFECTIVE_REGION },
+        { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
+        // Raw content stays visible in JSONL — the non-vacuous counterpart
+        // of the CSV sanitization pin (m4-5 pins the UI side).
+        { name: 'note', values: EFFECTIVE_NOTE },
+      ],
+    },
+    {
+      format: 'json',
+      roundTrip: 'engine',
+      rowCount: 9,
+      columns: [
+        { name: 'id', values: EFFECTIVE_ID },
+        { name: 'region', values: EFFECTIVE_REGION },
+        { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
+        { name: 'note', values: EFFECTIVE_NOTE },
+      ],
+    },
+    {
+      format: 'parquet',
+      roundTrip: 'engine',
+      rowCount: 9,
+      columns: [
+        { name: 'id', values: EFFECTIVE_ID },
+        { name: 'region', values: EFFECTIVE_REGION },
+        { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
+        { name: 'note', values: EFFECTIVE_NOTE },
+      ],
+    },
+    {
+      format: 'arrow',
+      roundTrip: 'arrow-container',
+      rowCount: 9,
+      columns: [
+        { name: 'id', values: EFFECTIVE_ID },
+        { name: 'region', values: EFFECTIVE_REGION },
+        { name: 'amount_eur', values: EFFECTIVE_AMOUNT },
+        { name: 'note', values: EFFECTIVE_NOTE },
+      ],
+    },
+  ],
+}
+
+/** Runtime-built overlay base CSV (see OVERLAY_BASE_ROWS). */
+function buildOverlayCsv(): Uint8Array {
+  const lines = ['id,region,amount,note']
+  for (const row of OVERLAY_BASE_ROWS) {
+    const amount = row.amount === null ? '' : String(row.amount)
+    lines.push(`${String(row.id)},${row.region},${amount},${row.note}`)
+  }
   return new TextEncoder().encode(lines.join('\n') + '\n')
 }
 
@@ -505,6 +819,23 @@ export function createDuckDbConformanceSubject(
       return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-nested.jsonl'))
     },
     nestedDataset: NESTED_DATASET,
+    overlayDataset: OVERLAY_DATASET,
+    stageOverlayFile: async () => {
+      const csv = buildOverlayCsv()
+      return asFileSource(await stageBytesInOpfs(csv, 'assay-conformance-overlay.csv'))
+    },
+    sourceDigest: async (source) => {
+      const file = await (source as FileSystemFileHandle).getFile()
+      const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+    },
+    exportedSource: async (result: ConformanceExportResult) =>
+      asFileSource(await opfsFileForPath(result.path)),
+    readExportedArrowTable: async (result: ConformanceExportResult) => {
+      const handle = await opfsFileForPath(result.path)
+      const bytes = new Uint8Array(await (await handle.getFile()).arrayBuffer())
+      return { batch: tableFromIPC(bytes), hasMore: false }
+    },
     goodParquetBytes,
     stageBytes: async (bytes, name) => asFileSource(await stageBytesInOpfs(bytes, name)),
     failingSql: () => FAILING_SQL,

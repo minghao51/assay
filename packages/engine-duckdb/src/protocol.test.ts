@@ -637,3 +637,271 @@ describe('m2-5: engine/profile protocol', () => {
     })
   })
 })
+
+describe('m4-2: overlay + export protocol', () => {
+  const OVERLAY = {
+    base: {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'label', type: 'VARCHAR' },
+      ],
+      baseRowCount: 3,
+    },
+    ops: [
+      {
+        kind: 'cell-set',
+        rowId: 'base:b1#0',
+        column: 'label',
+        value: { kind: 'string', value: 'x' },
+      },
+    ],
+  }
+
+  describe('parseEngineRequest', () => {
+    it('parses engine/overlay-schema with its overlay payload', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-schema',
+          requestId: 4,
+          tableId: 't1',
+          overlay: OVERLAY,
+        }),
+      ).toEqual({ type: 'engine/overlay-schema', requestId: 4, tableId: 't1', overlay: OVERLAY })
+    })
+
+    it('rejects engine/overlay-schema without a well-formed overlay payload', () => {
+      expect(
+        parseEngineRequest({ type: 'engine/overlay-schema', requestId: 4, tableId: 't1' }),
+      ).toBeNull()
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-schema',
+          requestId: 4,
+          tableId: 't1',
+          overlay: { base: { ...OVERLAY.base, baseRowCount: -1 }, ops: [] },
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-schema',
+          requestId: 4,
+          tableId: 't1',
+          overlay: { base: OVERLAY.base, ops: [{ kind: 'wat' }] },
+        }),
+      ).toBeNull()
+    })
+
+    it('parses engine/overlay-row-count with optional filters', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-row-count',
+          requestId: 5,
+          tableId: 't1',
+          overlay: OVERLAY,
+          filters: [{ column: 'label', predicate: "> 'a'" }],
+        }),
+      ).toEqual({
+        type: 'engine/overlay-row-count',
+        requestId: 5,
+        tableId: 't1',
+        overlay: OVERLAY,
+        filters: [{ column: 'label', predicate: "> 'a'" }],
+      })
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-row-count',
+          requestId: 5,
+          tableId: 't1',
+          overlay: OVERLAY,
+        }),
+      ).toEqual({ type: 'engine/overlay-row-count', requestId: 5, tableId: 't1', overlay: OVERLAY })
+    })
+
+    it('parses engine/overlay-range with window/sort/filter/id flags', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-range',
+          requestId: 6,
+          tableId: 't1',
+          overlay: OVERLAY,
+          startRow: 0,
+          endRow: 5,
+          columns: ['id'],
+          filters: [{ column: 'id', predicate: '> 1' }],
+          sort: [{ column: 'id', direction: 'asc' }],
+          includeRowIds: true,
+        }),
+      ).toEqual({
+        type: 'engine/overlay-range',
+        requestId: 6,
+        tableId: 't1',
+        overlay: OVERLAY,
+        startRow: 0,
+        endRow: 5,
+        columns: ['id'],
+        filters: [{ column: 'id', predicate: '> 1' }],
+        sort: [{ column: 'id', direction: 'asc' }],
+        includeRowIds: true,
+      })
+      // Malformed optional fields reject (the boundary is untrusted).
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-range',
+          requestId: 6,
+          tableId: 't1',
+          overlay: OVERLAY,
+          startRow: 0,
+          endRow: 5,
+          columns: [],
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineRequest({
+          type: 'engine/overlay-range',
+          requestId: 6,
+          tableId: 't1',
+          overlay: OVERLAY,
+          startRow: 0,
+          endRow: 5,
+          includeRowIds: 'yes',
+        }),
+      ).toBeNull()
+    })
+
+    it('parses engine/export with or without an overlay, and rejects bad formats', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/export',
+          requestId: 7,
+          tableId: 't1',
+          format: 'parquet',
+        }),
+      ).toEqual({ type: 'engine/export', requestId: 7, tableId: 't1', format: 'parquet' })
+      expect(
+        parseEngineRequest({
+          type: 'engine/export',
+          requestId: 7,
+          tableId: 't1',
+          format: 'csv',
+          overlay: OVERLAY,
+        }),
+      ).toEqual({
+        type: 'engine/export',
+        requestId: 7,
+        tableId: 't1',
+        format: 'csv',
+        overlay: OVERLAY,
+      })
+      // A present-but-malformed overlay rejects even for export.
+      expect(
+        parseEngineRequest({
+          type: 'engine/export',
+          requestId: 7,
+          tableId: 't1',
+          format: 'csv',
+          overlay: { base: OVERLAY.base, ops: 42 },
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineRequest({ type: 'engine/export', requestId: 7, tableId: 't1', format: 'xlsx' }),
+      ).toBeNull()
+    })
+  })
+
+  describe('parseEngineResponse', () => {
+    it('parses the overlay schema/row-count/range results', () => {
+      expect(
+        parseEngineResponse({
+          type: 'engine/overlay-schema-result',
+          requestId: 4,
+          columns: [{ name: 'id', type: 'BIGINT' }],
+        }),
+      ).toEqual({
+        type: 'engine/overlay-schema-result',
+        requestId: 4,
+        columns: [{ name: 'id', type: 'BIGINT' }],
+      })
+      expect(
+        parseEngineResponse({ type: 'engine/overlay-row-count-result', requestId: 5, rowCount: 3 }),
+      ).toEqual({ type: 'engine/overlay-row-count-result', requestId: 5, rowCount: 3 })
+      expect(
+        parseEngineResponse({
+          type: 'engine/overlay-range-result',
+          requestId: 6,
+          batchIpc: new Uint8Array([1, 2]),
+          hasMore: false,
+        }),
+      ).toEqual({
+        type: 'engine/overlay-range-result',
+        requestId: 6,
+        batchIpc: new Uint8Array([1, 2]),
+        hasMore: false,
+      })
+    })
+
+    it('rejects malformed overlay results', () => {
+      expect(
+        parseEngineResponse({ type: 'engine/overlay-schema-result', requestId: 4, columns: 'no' }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({
+          type: 'engine/overlay-row-count-result',
+          requestId: 5,
+          rowCount: -1,
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({ type: 'engine/overlay-row-count-result', requestId: 5 }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({
+          type: 'engine/overlay-range-result',
+          requestId: 6,
+          batchIpc: new Uint8Array([1]),
+        }),
+      ).toBeNull()
+    })
+
+    it('parses the export result with honest counts', () => {
+      expect(
+        parseEngineResponse({
+          type: 'engine/export-result',
+          requestId: 7,
+          path: 'assay-exports/assay-export-1.parquet',
+          format: 'parquet',
+          rowCount: 8,
+          bytes: 1234,
+        }),
+      ).toEqual({
+        type: 'engine/export-result',
+        requestId: 7,
+        path: 'assay-exports/assay-export-1.parquet',
+        format: 'parquet',
+        rowCount: 8,
+        bytes: 1234,
+      })
+      expect(
+        parseEngineResponse({
+          type: 'engine/export-result',
+          requestId: 7,
+          path: 'p',
+          format: 'parquet',
+          rowCount: 1,
+          bytes: -1,
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({
+          type: 'engine/export-result',
+          requestId: 7,
+          path: 'p',
+          format: 'xlsx',
+          rowCount: 1,
+          bytes: 1,
+        }),
+      ).toBeNull()
+    })
+  })
+})

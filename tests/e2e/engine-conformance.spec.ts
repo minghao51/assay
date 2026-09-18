@@ -46,6 +46,9 @@ const SCENARIOS = [
   'nested-schema-fidelity',
   'nested-window-fidelity',
   'nested-window-clamp',
+  'overlay-window-fidelity',
+  'export-round-trip',
+  'source-immutability',
 ] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
@@ -63,6 +66,9 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'nested-schema-fidelity': 'Conformance: nested schema fidelity',
   'nested-window-fidelity': 'Conformance: nested window fidelity',
   'nested-window-clamp': 'Conformance: nested window clamp',
+  'overlay-window-fidelity': 'Conformance: overlay window fidelity',
+  'export-round-trip': 'Conformance: export round-trip',
+  'source-immutability': 'Conformance: source immutability',
 }
 
 /** Click a scenario button and wait for its JSON result to render. */
@@ -142,6 +148,25 @@ for (const name of SCENARIOS) {
         expect(result.facts['offsetRows']).toBe(3)
         expect(result.facts['invalidRejected']).toBe(3)
         break
+      case 'overlay-window-fidelity':
+        expect(result.facts['schemaColumns']).toBe(4)
+        expect(result.facts['liveRowCount']).toBe(9)
+        expect(result.facts['filteredCount']).toBe(2)
+        expect(result.facts['sliceRows']).toBe(3)
+        expect(result.facts['cells']).toBe(36)
+        expect(result.facts['sortedRows']).toBe(9)
+        break
+      case 'export-round-trip':
+        expect(result.facts['formats']).toBe(5)
+        expect(result.facts['engineReopens']).toBe(4)
+        expect(result.facts['arrowVerified']).toBe(1)
+        expect(result.facts['csvSanitizationProbed']).toBe(true)
+        break
+      case 'source-immutability':
+        expect(result.facts['exports']).toBe(5)
+        expect(result.facts['distinctDestinations']).toBe(5)
+        expect(result.facts['digestUnchanged']).toBe(true)
+        break
       default:
         break
     }
@@ -151,7 +176,7 @@ for (const name of SCENARIOS) {
 test('conformance run-all: the whole suite passes in one page against engine-duckdb', async ({
   page,
 }) => {
-  test.setTimeout(180_000) // thirteen scenarios, each with a fresh engine boot
+  test.setTimeout(240_000) // sixteen scenarios, each with a fresh engine boot
   await page.goto(HARNESS_URL)
   await page.getByRole('button', { name: 'Conformance: run all scenarios' }).click()
   const element = page.getByTestId('conformance-run-all')

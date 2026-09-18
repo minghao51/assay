@@ -41,7 +41,23 @@
  * (protocol-local types, same convention as m2-2): every number is a finite
  * JSON number or `null`, so the response survives structured clone and a
  * future non-postMessage transport unchanged.
+ *
+ * m4-2 adds the edit-overlay surface (ADR 0012) and export: requests carry an
+ * `overlay` payload (immutable base metadata + the host's op list — see
+ * `overlay-wire.ts` for the boundary validation) and the worker composes SQL
+ * as a pure function of (base view, ops) — stateless composition, restart-
+ * safe by construction. `engine/overlay-range` / `engine/overlay-row-count`
+ * / `engine/overlay-schema` are grid-class registry-lane ops over the
+ * *effective* view (ADR 0040 lane policy); `engine/export` is a long-running
+ * user-initiated materialization and shares the query lane. Export writes a
+ * NEW file in OPFS scratch space (ADR 0017 disposable-cache framing) and
+ * never touches the source path; the response carries the generated path so
+ * the host can re-open/verify the export through the engine (round-trip).
  */
+
+import type { EngineOverlayPayload } from './overlay-wire'
+import { parseOverlayPayload } from './overlay-wire'
+export type { EngineOverlayPayload }
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
 export interface EngineColumnSchema {
@@ -161,6 +177,74 @@ export interface EngineProfileRequest {
   tableId: string
 }
 
+// ---- Edit-overlay surface (m4-2) ----
+//
+// Grid-class ops over the effective view (base view + overlay ops, ADR
+// 0012): registry lane per ADR 0040 (short, latency-sensitive window/meta
+// traffic — exactly the class the registry lane exists for). Each request
+// carries the overlay payload (base metadata + ops) statelessly; the worker
+// folds and composes per request (see `overlay-query.ts`).
+
+/** Export formats of the m4-2 export/rewrite op (COPY/IPC materialization). */
+export type EngineExportFormat = 'parquet' | 'jsonl' | 'json' | 'csv' | 'arrow'
+
+/** Effective schema of a composed overlay (renames/casts visible). */
+export interface EngineOverlaySchemaRequest {
+  type: 'engine/overlay-schema'
+  requestId: number
+  tableId: string
+  overlay: EngineOverlayPayload
+}
+
+/**
+ * Live row count of the composed overlay, optionally filtered (m2-2 grammar
+ * over effective columns). Matches the domain's `liveRowCount` when no
+ * filters are given.
+ */
+export interface EngineOverlayRowCountRequest {
+  type: 'engine/overlay-row-count'
+  requestId: number
+  tableId: string
+  overlay: EngineOverlayPayload
+  filters?: EngineFilterSpec[]
+}
+
+/**
+ * Window over the composed effective view. `includeRowIds` prepends the
+ * logical row-id column (`assay_row_id`) so callers can map rows back to
+ * overlay identities (m4-3's editing grid); the emitted order reproduces the
+ * domain's `effectiveRowIds` exactly.
+ */
+export interface EngineOverlayRangeRequest {
+  type: 'engine/overlay-range'
+  requestId: number
+  tableId: string
+  overlay: EngineOverlayPayload
+  startRow: number
+  endRow: number
+  columns?: string[]
+  filters?: EngineFilterSpec[]
+  sort?: EngineSortSpec[]
+  includeRowIds?: boolean
+}
+
+/**
+ * Export/rewrite op (ADR 0012: commit creates a new file — the source is
+ * never written in place). Materializes the effective view (base + overlay;
+ * absent `overlay` = the plain base view) into OPFS scratch space (ADR 0017)
+ * under a generated path. v1 ships fixed deterministic per-format options
+ * (documented in `overlay-query.ts`); CSV exports apply the formula-injection
+ * guard. The response's `path` lets the host re-open the export through the
+ * engine (round-trip) without new browser capabilities.
+ */
+export interface EngineExportRequest {
+  type: 'engine/export'
+  requestId: number
+  tableId: string
+  format: EngineExportFormat
+  overlay?: EngineOverlayPayload
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -175,6 +259,10 @@ export type EngineRequest =
   | EngineRangeRequest
   | EngineRowCountRequest
   | EngineProfileRequest
+  | EngineOverlaySchemaRequest
+  | EngineOverlayRowCountRequest
+  | EngineOverlayRangeRequest
+  | EngineExportRequest
   | EngineDisposeRequest
 
 // ---- Responses (worker → main thread) ----
@@ -237,6 +325,41 @@ export interface EngineRowCountResultResponse {
   type: 'engine/row-count-result'
   requestId: number
   rowCount: number
+}
+
+/** Effective columns of the composed overlay (DuckDB types post-cast). */
+export interface EngineOverlaySchemaResultResponse {
+  type: 'engine/overlay-schema-result'
+  requestId: number
+  columns: EngineColumnSchema[]
+}
+
+/** Live row count of the composed overlay (safe non-negative integer). */
+export interface EngineOverlayRowCountResultResponse {
+  type: 'engine/overlay-row-count-result'
+  requestId: number
+  rowCount: number
+}
+
+/** Arrow IPC stream (schema + first batch) of the requested overlay window. */
+export interface EngineOverlayRangeResultResponse {
+  type: 'engine/overlay-range-result'
+  requestId: number
+  batchIpc: Uint8Array
+  hasMore: boolean
+}
+
+/** Result of the export op: the generated OPFS path plus honest counts. */
+export interface EngineExportResultResponse {
+  type: 'engine/export-result'
+  requestId: number
+  /** OPFS-relative destination path (e.g. `assay-exports/…`); never the source. */
+  path: string
+  format: EngineExportFormat
+  /** Rows materialized (honest feedback for the m4-5 export dialog). */
+  rowCount: number
+  /** Exported byte size. */
+  bytes: number
 }
 
 // ---- Profile payload types (m2-5) ----
@@ -319,6 +442,10 @@ export type EngineResponse =
   | EngineRangeResultResponse
   | EngineRowCountResultResponse
   | EngineProfileResultResponse
+  | EngineOverlaySchemaResultResponse
+  | EngineOverlayRowCountResultResponse
+  | EngineOverlayRangeResultResponse
+  | EngineExportResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
 
@@ -331,6 +458,10 @@ export type EngineSuccessResponse =
   | EngineRangeResultResponse
   | EngineRowCountResultResponse
   | EngineProfileResultResponse
+  | EngineOverlaySchemaResultResponse
+  | EngineOverlayRowCountResultResponse
+  | EngineOverlayRangeResultResponse
+  | EngineExportResultResponse
   | EngineDisposedResponse
 
 // ---- Runtime guards ----
@@ -390,6 +521,71 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
   if (type === 'engine/profile' && typeof data.tableId === 'string') {
     return { type, requestId, tableId: data.tableId }
   }
+  if (
+    (type === 'engine/overlay-schema' ||
+      type === 'engine/overlay-row-count' ||
+      type === 'engine/overlay-range' ||
+      type === 'engine/export') &&
+    typeof data.tableId === 'string'
+  ) {
+    const overlay = parseOverlayPayload(data.overlay)
+    // engine/export allows an absent overlay (plain base-view export);
+    // the three overlay query ops require it. A present-but-malformed
+    // payload rejects the request in both cases (never silently ignored).
+    if (overlay === null && !(type === 'engine/export' && data.overlay === undefined)) {
+      return null
+    }
+    if (type === 'engine/overlay-schema' && overlay !== null) {
+      return { type, requestId, tableId: data.tableId, overlay }
+    }
+    if (type === 'engine/overlay-row-count' && overlay !== null) {
+      const filters = parseOptionalFilters(data.filters)
+      if (filters === null) return null
+      return {
+        type,
+        requestId,
+        tableId: data.tableId,
+        overlay,
+        ...(filters === undefined ? {} : { filters }),
+      }
+    }
+    if (type === 'engine/overlay-range' && overlay !== null) {
+      const columns = parseOptionalColumns(data.columns)
+      if (columns === null) return null
+      const filters = parseOptionalFilters(data.filters)
+      if (filters === null) return null
+      const sort = parseOptionalSorts(data.sort)
+      if (sort === null) return null
+      const includeRowIds = parseOptionalFlag(data.includeRowIds)
+      if (includeRowIds === null) return null
+      if (typeof data.startRow === 'number' && typeof data.endRow === 'number') {
+        return {
+          type,
+          requestId,
+          tableId: data.tableId,
+          overlay,
+          startRow: data.startRow,
+          endRow: data.endRow,
+          ...(columns === undefined ? {} : { columns }),
+          ...(filters === undefined ? {} : { filters }),
+          ...(sort === undefined ? {} : { sort }),
+          ...(includeRowIds === undefined ? {} : { includeRowIds }),
+        }
+      }
+      return null
+    }
+    if (type === 'engine/export' && isExportFormat(data.format)) {
+      const overlayPayload = overlay ?? undefined
+      return {
+        type,
+        requestId,
+        tableId: data.tableId,
+        format: data.format,
+        ...(overlayPayload === undefined ? {} : { overlay: overlayPayload }),
+      }
+    }
+    return null
+  }
   if (type === 'engine/dispose') return { type, requestId }
   return null
 }
@@ -418,6 +614,23 @@ function isSortSpec(value: unknown): value is EngineSortSpec {
     isRecord(value) &&
     typeof value['column'] === 'string' &&
     (value['direction'] === 'asc' || value['direction'] === 'desc')
+  )
+}
+
+/** An optional boolean flag: absent, or a real boolean (nothing else). */
+function parseOptionalFlag(value: unknown): boolean | undefined | null {
+  if (value === undefined) return undefined
+  return typeof value === 'boolean' ? value : null
+}
+
+/** A valid export format discriminant. */
+function isExportFormat(value: unknown): value is EngineExportFormat {
+  return (
+    value === 'parquet' ||
+    value === 'jsonl' ||
+    value === 'json' ||
+    value === 'csv' ||
+    value === 'arrow'
   )
 }
 
@@ -491,6 +704,35 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
     isProfileColumnList(data.columns)
   ) {
     return { type, requestId, rowCount: data.rowCount, columns: data.columns }
+  }
+  if (type === 'engine/overlay-schema-result' && isColumnSchemaList(data.columns)) {
+    return { type, requestId, columns: data.columns }
+  }
+  if (type === 'engine/overlay-row-count-result' && isRowCount(data.rowCount)) {
+    return { type, requestId, rowCount: data.rowCount }
+  }
+  if (
+    type === 'engine/overlay-range-result' &&
+    isUint8Array(data.batchIpc) &&
+    typeof data.hasMore === 'boolean'
+  ) {
+    return { type, requestId, batchIpc: data.batchIpc, hasMore: data.hasMore }
+  }
+  if (
+    type === 'engine/export-result' &&
+    typeof data.path === 'string' &&
+    isExportFormat(data.format) &&
+    isRowCount(data.rowCount) &&
+    isRowCount(data.bytes)
+  ) {
+    return {
+      type,
+      requestId,
+      path: data.path,
+      format: data.format,
+      rowCount: data.rowCount,
+      bytes: data.bytes,
+    }
   }
   if (type === 'engine/disposed') return { type, requestId }
   if (type === 'engine/error' && typeof data.message === 'string') {

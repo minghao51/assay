@@ -21,9 +21,11 @@
  */
 import { tableFromIPC } from 'apache-arrow'
 import type { Table } from 'apache-arrow'
+import type { EditOp, OverlayBase } from '@assay/domain'
 import { parseEngineResponse } from './protocol'
 import type {
   EngineColumnSchema,
+  EngineExportFormat,
   EngineFilterSpec,
   EngineProfileColumn,
   EngineReadyInfo,
@@ -118,6 +120,53 @@ export interface EngineRangeWindow {
 export interface EngineRowCountOptions {
   /** Ordered predicates, AND-composed; omit/empty for the unfiltered total. */
   readonly filters?: readonly EngineFilterSpec[]
+}
+
+/**
+ * The overlay a request composes over (m4-2): the immutable base metadata
+ * (host tokens, base schema, base row count — the domain's `OverlayBase`)
+ * plus the op list. Stateless: every call carries its overlay; the worker
+ * folds and composes per request (restart-safe, pure in the request).
+ * `ops` is copied shallowly on this side; cell-value Maps cross the worker
+ * boundary by structured clone.
+ */
+export interface EngineOverlay {
+  readonly base: OverlayBase
+  readonly ops?: readonly EditOp[]
+}
+
+/** A requested row window over the composed effective view (m4-2). */
+export interface EngineOverlayWindow {
+  readonly startRow: number
+  readonly endRow: number
+  /** Optional projection (effective column names); omit for all columns. */
+  readonly columns?: readonly string[]
+  /** Optional ordered predicates over effective columns, AND-composed. */
+  readonly filters?: readonly EngineFilterSpec[]
+  /** Optional ordered sort keys; omit for effective order. */
+  readonly sort?: readonly EngineSortSpec[]
+  /** Prepend the logical row-id column (`assay_row_id`) to the projection. */
+  readonly includeRowIds?: boolean
+}
+
+/** Request for `exportView` (m4-2): format plus optional overlay. Absent
+ * `overlay` exports the plain base view.
+ */
+export interface EngineExportRequest {
+  readonly format: EngineExportFormat
+  readonly overlay?: EngineOverlay
+}
+
+/** Result of `exportView`: where the export landed plus honest counts. The
+ * `path` is OPFS-relative (ADR 0017 disposable cache) and never the source
+ * path; re-open it through `open()` (with a source whose `name` carries the
+ * file extension) to verify content (the conformance round-trip).
+ */
+export interface EngineExportResult {
+  readonly path: string
+  readonly format: EngineExportFormat
+  readonly rowCount: number
+  readonly bytes: number
 }
 
 /** The slice of the `Worker` API the client relies on (kept narrow for fakes). */
@@ -396,6 +445,159 @@ export class DuckDbEngineClient {
       throw new EngineProtocolError(`unexpected ${response.type} response for engine/profile`)
     }
     return { rowCount: response.rowCount, columns: response.columns }
+  }
+
+  /**
+   * Effective schema of the composed overlay (m4-2): post-rename names and
+   * post-cast DuckDB types, exactly as `DESCRIBE` reports them over the
+   * composed projection. A cast whose target type string the engine rejects
+   * fails HERE with a readable binder error (declared-type validation);
+   * value-level cast failures surface on the first materializing op.
+   */
+  async overlaySchema(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+  ): Promise<EngineColumnSchema[]> {
+    await this.ensureReady()
+    const response = await this.send({
+      type: 'engine/overlay-schema',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      overlay: { base: overlay.base, ops: overlay.ops === undefined ? [] : [...overlay.ops] },
+    })
+    if (response.type !== 'engine/overlay-schema-result') {
+      throw new EngineProtocolError(
+        `unexpected ${response.type} response for engine/overlay-schema`,
+      )
+    }
+    return response.columns
+  }
+
+  /**
+   * Live row count of the composed overlay (m4-2) — the domain's
+   * `liveRowCount` when unfiltered (deletes excluded, live inserts added);
+   * with `options.filters` (m2-2 grammar over effective columns) the count
+   * narrows to the matching effective rows.
+   */
+  async overlayRowCount(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    options?: EngineRowCountOptions,
+  ): Promise<number> {
+    await this.ensureReady()
+    const request: EngineRequest = {
+      type: 'engine/overlay-row-count',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      overlay: { base: overlay.base, ops: overlay.ops === undefined ? [] : [...overlay.ops] },
+    }
+    if (options?.filters !== undefined) {
+      request.filters = options.filters.map((filter) => ({
+        column: filter.column,
+        predicate: filter.predicate,
+      }))
+    }
+    const response = await this.send(request)
+    if (response.type !== 'engine/overlay-row-count-result') {
+      throw new EngineProtocolError(
+        `unexpected ${response.type} response for engine/overlay-row-count`,
+      )
+    }
+    return response.rowCount
+  }
+
+  /**
+   * Fetch a row window of the composed effective view (m4-2): edits visible,
+   * deletes excluded, inserts at their anchored positions (the domain's
+   * `effectiveRowIds` order, reproduced exactly). The window is validated
+   * and clamped on this side and again in the worker, like `fetchRange`.
+   * With `includeRowIds`, the result's first column (`assay_row_id`) carries
+   * logical row ids — how m4-3's grid targets edits at rows.
+   */
+  async fetchOverlayRange(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    window: EngineOverlayWindow,
+  ): Promise<EngineRangeResult> {
+    await this.ensureReady()
+    const validated = validateRowWindow(window.startRow, window.endRow)
+    if (!validated.valid) {
+      throw new EngineOperationError(`invalid row window: ${validated.reason}`)
+    }
+    const request: EngineRequest = {
+      type: 'engine/overlay-range',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      overlay: { base: overlay.base, ops: overlay.ops === undefined ? [] : [...overlay.ops] },
+      startRow: validated.startRow,
+      endRow: validated.endRow,
+    }
+    if (window.columns !== undefined) {
+      if (window.columns.length === 0) {
+        throw new EngineOperationError('columns must not be empty when provided')
+      }
+      request.columns = [...window.columns]
+    }
+    if (window.filters !== undefined) {
+      request.filters = window.filters.map((filter) => ({
+        column: filter.column,
+        predicate: filter.predicate,
+      }))
+    }
+    if (window.sort !== undefined) {
+      request.sort = window.sort.map((key) => ({ column: key.column, direction: key.direction }))
+    }
+    if (window.includeRowIds !== undefined) {
+      request.includeRowIds = window.includeRowIds
+    }
+    const response = await this.send(request)
+    if (response.type !== 'engine/overlay-range-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/overlay-range`)
+    }
+    try {
+      return { batch: tableFromIPC(response.batchIpc), hasMore: response.hasMore }
+    } catch (cause) {
+      throw new EngineProtocolError('worker sent an invalid Arrow IPC payload', { cause })
+    }
+  }
+
+  /**
+   * Export/rewrite op (m4-2): materialize the effective view (base +
+   * overlay; absent `overlay` = the plain base view) into OPFS scratch space
+   * under a generated path — a NEW file, never the source (ADR 0012/0017).
+   * Deterministic per-format options are pinned in v1 (see
+   * `overlay-query.ts`); CSV exports are formula-injection-sanitized. Re-open
+   * the result through `open()` for the round-trip (give the source a name
+   * with the exported extension so the engine picks the right reader).
+   */
+  async exportView(
+    handle: EngineTableHandle,
+    request: EngineExportRequest,
+  ): Promise<EngineExportResult> {
+    await this.ensureReady()
+    const response = await this.send({
+      type: 'engine/export',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      format: request.format,
+      ...(request.overlay === undefined
+        ? {}
+        : {
+            overlay: {
+              base: request.overlay.base,
+              ops: request.overlay.ops === undefined ? [] : [...request.overlay.ops],
+            },
+          }),
+    })
+    if (response.type !== 'engine/export-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/export`)
+    }
+    return {
+      path: response.path,
+      format: response.format,
+      rowCount: response.rowCount,
+      bytes: response.bytes,
+    }
   }
 
   /**

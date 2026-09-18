@@ -1,5 +1,6 @@
 import { tableFromArrays, tableToIPC } from 'apache-arrow'
 import { describe, expect, it } from 'vitest'
+import { baseRowId } from '@assay/domain'
 import {
   DuckDbEngineClient,
   EngineDisposedError,
@@ -824,5 +825,159 @@ describe('DuckDbEngineClient profile (m2-5)', () => {
 
     await expect(pendingProfile).rejects.toThrow(EngineOperationError)
     expect(client.status).toBe('ready') // operational failure, engine stays usable
+  })
+})
+
+describe('DuckDbEngineClient overlay + export (m4-2)', () => {
+  const source = {
+    name: 'flat.parquet',
+    getFile: () => Promise.resolve(new File([new Uint8Array([1, 2, 3])], 'flat.parquet')),
+  }
+
+  const overlay = {
+    base: {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'label', type: 'VARCHAR' },
+      ],
+      baseRowCount: 2,
+    },
+    ops: [
+      {
+        kind: 'cell-set' as const,
+        rowId: baseRowId('b1', 0),
+        column: 'label',
+        value: { kind: 'string' as const, value: 'edited' },
+      },
+    ],
+  }
+
+  async function openHandle(): Promise<{
+    client: DuckDbEngineClient
+    worker: FakeWorker
+    handle: Awaited<ReturnType<DuckDbEngineClient['open']>>
+  }> {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond({
+      type: 'engine/open-result',
+      requestId: worker.requestAt(1).requestId,
+      tableId: 't1',
+      format: 'parquet',
+    })
+    const handle = await pendingOpen
+    return { client, worker, handle }
+  }
+
+  it('overlaySchema() posts the overlay payload (ops copied) and resolves the effective columns', async () => {
+    const { client, worker, handle } = await openHandle()
+    const pending = client.overlaySchema(handle, overlay)
+    await flush()
+    const posted = worker.requestAt(2)
+    expect(posted).toMatchObject({ type: 'engine/overlay-schema', tableId: 't1' })
+    expect(posted.type === 'engine/overlay-schema' && posted.overlay).toEqual(overlay)
+    // The ops array is a defensive copy: mutating the caller's list must not
+    // change what was posted.
+    overlay.ops.length = 0
+    expect(posted.type === 'engine/overlay-schema' && posted.overlay.ops).toHaveLength(1)
+    worker.respond({
+      type: 'engine/overlay-schema-result',
+      requestId: worker.requestAt(2).requestId,
+      columns: [
+        { name: 'id', type: 'VARCHAR' },
+        { name: 'label', type: 'VARCHAR' },
+      ],
+    })
+    await expect(pending).resolves.toEqual([
+      { name: 'id', type: 'VARCHAR' },
+      { name: 'label', type: 'VARCHAR' },
+    ])
+  })
+
+  it('overlayRowCount() posts optional filters; engine failures keep the engine usable', async () => {
+    const { client, worker, handle } = await openHandle()
+    const pending = client.overlayRowCount(handle, overlay, {
+      filters: [{ column: 'label', predicate: 'IS NOT NULL' }],
+    })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/overlay-row-count',
+      filters: [{ column: 'label', predicate: 'IS NOT NULL' }],
+    })
+    worker.respond({
+      type: 'engine/error',
+      requestId: worker.requestAt(2).requestId,
+      message: 'binder error',
+    })
+    await expect(pending).rejects.toThrow(EngineOperationError)
+    expect(client.status).toBe('ready')
+  })
+
+  it('fetchOverlayRange() validates windows client-side, posts the composed window, and reconstitutes the Arrow batch', async () => {
+    const { client, worker, handle } = await openHandle()
+
+    await expect(
+      client.fetchOverlayRange(handle, overlay, { startRow: 5, endRow: 2 }),
+    ).rejects.toThrow(EngineOperationError)
+    expect(worker.postedRequests).toHaveLength(2) // nothing posted for the invalid window
+
+    const pending = client.fetchOverlayRange(handle, overlay, {
+      startRow: 0,
+      endRow: 5,
+      includeRowIds: true,
+      sort: [{ column: 'label', direction: 'asc' }],
+    })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/overlay-range',
+      startRow: 0,
+      endRow: 5,
+      includeRowIds: true,
+      sort: [{ column: 'label', direction: 'asc' }],
+    })
+    worker.respond({
+      type: 'engine/overlay-range-result',
+      requestId: worker.requestAt(2).requestId,
+      batchIpc: arrowIpc([1, 2]),
+      hasMore: false,
+    })
+    const result = await pending
+    expect(result.hasMore).toBe(false)
+    expect(valuesOf(result)).toEqual([1, 2])
+  })
+
+  it('exportView() posts format + overlay and resolves the generated destination with honest counts', async () => {
+    const { client, worker, handle } = await openHandle()
+    const pending = client.exportView(handle, { format: 'csv', overlay })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({ type: 'engine/export', format: 'csv' })
+    worker.respond({
+      type: 'engine/export-result',
+      requestId: worker.requestAt(2).requestId,
+      path: 'assay-exports/assay-export-1.csv',
+      format: 'csv',
+      rowCount: 3,
+      bytes: 42,
+    })
+    await expect(pending).resolves.toEqual({
+      path: 'assay-exports/assay-export-1.csv',
+      format: 'csv',
+      rowCount: 3,
+      bytes: 42,
+    })
+
+    // An unexpected response type is a protocol error, not a silent lie.
+    const pending2 = client.exportView(handle, { format: 'parquet', overlay })
+    await flush()
+    worker.respond({
+      type: 'engine/disposed',
+      requestId: worker.requestAt(3).requestId,
+    })
+    await expect(pending2).rejects.toThrow(EngineProtocolError)
   })
 })
