@@ -96,6 +96,63 @@ function primitiveBase(label: string): string {
   return label.trim().toUpperCase().split(/[\s(]/)[0] ?? ''
 }
 
+/** The temporal family a parsed primitive belongs to (`null` when not temporal). */
+type TemporalFamily = 'date' | 'timestamp' | 'time'
+
+function temporalFamily(type: DuckDbType): TemporalFamily | null {
+  if (type.kind !== 'primitive') return null
+  const base = primitiveBase(type.label)
+  if (base === 'DATE') return 'date'
+  if (base === 'TIME') return 'time'
+  if (base.startsWith('TIMESTAMP')) return 'timestamp'
+  return null
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/**
+ * Format one temporal cell value as a human-readable, engine-round-trippable
+ * literal (the m3-1 worker-boundary representations):
+ *
+ * - **DATE** crosses as epoch **milliseconds** (Arrow `Date32<DAY>.get()`),
+ *   formatted `YYYY-MM-DD` in UTC.
+ * - **TIMESTAMP** / **TIMESTAMP WITH TIME ZONE** cross as epoch
+ *   **milliseconds** (Arrow `timestamp[us].get()` converts to ms), formatted
+ *   as the UTC ISO-8601 instant `YYYY-MM-DDTHH:MM:SS.sssZ`. DuckDB parses
+ *   both the naive and the zoned column type from this text (the `Z` is
+ *   honoured for a zoned column and treated as wall time for a naive one).
+ * - **TIME** crosses as **microseconds since midnight** (Arrow
+ *   `Time64<MICROSECOND>.get()` → bigint), formatted `HH:MM:SS[.ffffff]`.
+ *
+ * Returns `null` when the value is not a finite temporal sample so the caller
+ * falls back to the generic draft — the editor never fabricates a date from a
+ * value it cannot interpret (never silent corruption). Committing the result
+ * goes through the domain's `text` kind, so the engine parses it under the
+ * column's type.
+ */
+function temporalDraft(value: unknown, family: TemporalFamily): string | null {
+  if (family === 'time') {
+    const micros = typeof value === 'bigint' ? Number(value) : value
+    if (typeof micros !== 'number' || !Number.isFinite(micros) || micros < 0) return null
+    const total = Math.trunc(micros)
+    const hours = Math.floor(total / 3_600_000_000)
+    const minutes = Math.floor((total % 3_600_000_000) / 60_000_000)
+    const seconds = Math.floor((total % 60_000_000) / 1_000_000)
+    const micro = total % 1_000_000
+    const base = `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`
+    return micro === 0 ? base : `${base}.${String(micro).padStart(6, '0')}`
+  }
+  const millis =
+    value instanceof Date ? value.getTime() : typeof value === 'bigint' ? Number(value) : value
+  if (typeof millis !== 'number' || !Number.isFinite(millis)) return null
+  const date = new Date(millis)
+  if (Number.isNaN(date.getTime())) return null
+  const iso = date.toISOString()
+  return family === 'date' ? iso.slice(0, 10) : iso
+}
+
 /**
  * Classify a parsed type into the editor's constraint family. Composite
  * kinds (struct/list/map/union) are read-only; `unknown` degrades to a
@@ -174,11 +231,21 @@ export function validateCellInput(type: DuckDbType, text: string): CellInputResu
  * empty editor (there is no honest textual NULL), binary/nested values are
  * empty and not editable, everything else uses its display string. `bigint`
  * uses `String` so no precision is lost on re-commit.
+ *
+ * `type` (optional) lets a temporal column format the engine's epoch
+ * representation as a human-readable, engine-round-trippable draft (see
+ * `temporalDraft`) instead of the raw epoch number, so double-click + Enter
+ * unchanged is a valid cast rather than a rejection.
  */
-export function cellEditDraft(value: unknown): string {
+export function cellEditDraft(value: unknown, type?: DuckDbType): string {
   if (value === null || value === undefined) return ''
-  if (value instanceof Date) return value.toISOString()
   if (value instanceof Uint8Array) return ''
+  const family = type === undefined ? null : temporalFamily(type)
+  if (family !== null) {
+    const temporal = temporalDraft(value, family)
+    if (temporal !== null) return temporal
+  }
+  if (value instanceof Date) return value.toISOString()
   if (typeof value === 'object') return ''
   return String(value)
 }

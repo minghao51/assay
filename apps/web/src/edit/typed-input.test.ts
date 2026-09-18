@@ -119,4 +119,41 @@ describe('cellEditDraft — the honest starting text of an editor', () => {
     expect(cellEditDraft(123n)).toBe('123')
     expect(cellEditDraft('x')).toBe('x')
   })
+
+  // m4-3 fix round: temporal cells arrive from the engine as epoch numbers
+  // (DATE/TIMESTAMP ms, TIME µs). A raw epoch draft makes Enter-unchanged an
+  // engine cast failure; the type-aware draft is human-readable and the
+  // engine parses it under the column type (the domain `text` kind).
+  const EPOCH_MS = 1735948800000 // 2025-01-04T00:00:00.000Z
+
+  it('formats DATE epoch-ms as YYYY-MM-DD (UTC)', () => {
+    expect(cellEditDraft(EPOCH_MS, type('DATE'))).toBe('2025-01-04')
+  })
+
+  it('formats TIMESTAMP epoch-ms as a UTC ISO-8601 instant, zoned or naive', () => {
+    expect(cellEditDraft(1735994096789, type('TIMESTAMP'))).toBe('2025-01-04T12:34:56.789Z')
+    expect(cellEditDraft(1735994096789, type('TIMESTAMP WITH TIME ZONE'))).toBe(
+      '2025-01-04T12:34:56.789Z',
+    )
+  })
+
+  it('formats TIME microseconds-since-midnight as HH:MM:SS[.ffffff]', () => {
+    expect(cellEditDraft(45296000000n, type('TIME'))).toBe('12:34:56')
+    expect(cellEditDraft(45296789000n, type('TIME'))).toBe('12:34:56.789000')
+  })
+
+  it('round-trips the temporal draft through validateCellInput as engine-parseable text', () => {
+    expect(validateCellInput(type('DATE'), cellEditDraft(EPOCH_MS, type('DATE')))).toEqual({
+      ok: true,
+      value: { kind: 'text', text: '2025-01-04' },
+    })
+  })
+
+  it('keeps the generic draft for non-temporal columns and unformattable temporal values', () => {
+    // A temporal type with a non-temporal value falls back rather than lying.
+    expect(cellEditDraft(EPOCH_MS, type('BIGINT'))).toBe('1735948800000')
+    expect(cellEditDraft('already text', type('DATE'))).toBe('already text')
+    // Out of the representable Date range → generic String, never a fabricated date.
+    expect(cellEditDraft(1e21, type('DATE'))).toBe('1e+21')
+  })
 })

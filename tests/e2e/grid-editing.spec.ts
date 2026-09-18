@@ -20,10 +20,16 @@ import { readGridStats } from './support/grid-stats'
 //   1. edit → visibility → undo → clean (an edited cell shows the edit, is
 //      marked dirty, and after undo shows the base value and is clean again);
 //   2. typed-constraint rejections are readable and leave state unchanged;
+//      a rejection the engine (not the client) makes — a bad DATE, an
+//      out-of-range BIGINT — surfaces readably, rolls the overlay back, and
+//      leaves the grid recoverable (fix round);
 //   3. NULL is a distinct affordance and a distinct rendering (never an empty
 //      string, an unset editor, or an error);
 //   4. insert/delete row journeys;
-//   5. rapid epoch changes never leave a stale/in-flight window rendered.
+//   5. temporal cells open with a human-readable, engine-round-trippable
+//      draft, so double-click + Enter unchanged cannot brick the grid (fix
+//      round);
+//   6. rapid epoch changes never leave a stale/in-flight window rendered.
 //
 // Privacy (ADR 0025): the picked file name and the opaque row anchors are
 // never rendered; values are asserted as text only.
@@ -155,6 +161,70 @@ test('typed constraints: a non-numeric input is rejected readably and leaves sta
   await page.getByTestId('grid-editor-input').press('Enter')
   await expect(page.getByTestId('edit-error')).toBeVisible()
   await expect(page.getByTestId('edit-error')).toContainText('No change')
+})
+
+test('engine rejection: an invalid typed value alerts, rolls back, and leaves the grid recoverable', async ({
+  page,
+}) => {
+  await openCustomersFixture(page)
+
+  // Double-click the DATE column (signup_date, column 3). The client cannot
+  // know `not-a-date` is invalid (temporal values defer to the engine), so the
+  // engine's own message must surface and the commit must be recoverable.
+  await openEditor(page, 0, 3)
+  const editor = page.getByTestId('grid-editor-input')
+  await expect(editor).toHaveValue('2025-01-04')
+  await editor.fill('not-a-date')
+  await editor.press('Enter')
+
+  // Readable alert as text. The mvp bundle masks the underlying cast failure
+  // as an opaque `_setThrew` glue error; the app translates that (and any
+  // empty message) into a plain summary rather than showing glue.
+  const alert = page.getByTestId('edit-error')
+  await expect(alert).toBeVisible()
+  await expect(alert).toContainText('rejected')
+  await expect(alert).toContainText("the column's type rejected the value")
+  await expect(alert).not.toContainText('_setThrew')
+
+  // Recoverable: the previous effective view is restored — every row ready,
+  // nothing left perpetually loading, and the edit is not in the history.
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
+  await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
+  await expect(cell(page, 0, 3)).toHaveAttribute('data-dirty', 'false')
+  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+
+  // A subsequent valid edit still works and clears the alert.
+  await openEditor(page, 0, 2)
+  await page.getByTestId('grid-editor-input').fill('12345')
+  await page.getByTestId('grid-editor-input').press('Enter')
+  await expect(cell(page, 0, 2)).toHaveText('12345')
+  await expect(page.getByTestId('edit-error')).toHaveCount(0)
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+})
+
+test('temporal editing: a human-readable draft round-trips, and Enter-unchanged does not brick', async ({
+  page,
+}) => {
+  await openCustomersFixture(page)
+
+  // The editor opens with `2025-01-04` (the engine's epoch-ms value formatted
+  // honestly), not the raw `1735948800000` that would fail `CAST(... AS DATE)`.
+  await openEditor(page, 0, 3)
+  const editor = page.getByTestId('grid-editor-input')
+  await expect(editor).toHaveValue('2025-01-04')
+
+  // Enter unchanged commits the same date as engine-parseable text: the cast
+  // succeeds, the editor closes, and the grid stays healthy (no alert, no
+  // perpetual loading).
+  await editor.press('Enter')
+  await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
+  await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
+  await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
+  await expect(page.getByTestId('edit-error')).toHaveCount(0)
+  // Display formatting is out of m4-3 scope, so the cell still shows the
+  // engine's epoch representation — but it is a ready cell, not an error.
+  await expect(cell(page, 0, 3)).toHaveText('1735948800000')
 })
 
 test('NULL is a distinct affordance and rendering, never an empty string', async ({ page }) => {

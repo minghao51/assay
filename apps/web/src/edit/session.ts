@@ -82,3 +82,79 @@ export function editOutcomeMessage(outcome: OpOutcome): string | null {
       return `Cannot apply the edit: ${CONFLICT_TEXT[outcome.reason] ?? outcome.reason}.`
   }
 }
+
+/**
+ * Render an engine rejection as a readable, text-only alert message.
+ *
+ * Engine errors echo the operation's SQL context across several lines; only
+ * the first (summary) line is surfaced — the rest is the composed statement,
+ * which can carry other cells' values and is neither readable nor something
+ * the user asked to see. The whole string is rendered as text (never HTML),
+ * and is never logged (it can echo the value the user typed, ADR 0025).
+ *
+ * The mvp browser bundle surfaces value-space cast failures through its
+ * emscripten layer as the opaque `_setThrew is not defined` (the `engine-duckdb`
+ * `op-channel` write-up documents that failure mode). A raw glue error is not
+ * a readable engine message, so it — and an empty message — become a plain
+ * summary: the column's type rejected the value. Genuine DuckDB messages
+ * (a `Conversion Error`, a binder error) pass through verbatim.
+ */
+const OPAQUE_GLUE_ERROR = /^_setThrew\b/
+
+export function engineRejectionMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  const summary = raw.split('\n')[0]?.trim() ?? ''
+  const detail =
+    summary === '' || OPAQUE_GLUE_ERROR.test(summary)
+      ? "the column's type rejected the value"
+      : summary
+  return `The engine rejected this edit: ${detail}. The previous value is unchanged.`
+}
+
+/** The effects a history commit needs from the composition root. */
+export interface CommitEffects {
+  /** Publish `history` as the active overlay (overlay ref + React state). */
+  setActive(history: TransformationHistory): void
+  /** Re-materialize the active overlay through a fresh data epoch. */
+  refresh(): Promise<void>
+}
+
+/**
+ * Commit one history against the engine's (re)materialization, rolling back to
+ * the previous history when the new overlay is rejected.
+ *
+ * The repo's contract for a rejected state change is "the previous state stays
+ * in effect" (`GridDataProvider.sort`/`filter`, the domain's typed
+ * `Conflict`/`NoOp` outcomes). An engine value-space rejection (a bad DATE
+ * cast, an out-of-range BIGINT) is the same class of event: the new overlay
+ * materializes to an error, so this restores the previous overlay and
+ * re-materializes it, leaving the grid renderable instead of all-loading.
+ *
+ * `setActive(next)` runs first so the provider reads the new overlay during
+ * `refresh()`; on rejection `setActive(previous)` + a second `refresh()`
+ * restore the prior effective view, and the engine message is returned for a
+ * `role="alert"`. Success returns `null`. Never throws: a failure while
+ * restoring the previous view is swallowed (the model already surfaces
+ * per-span errors) so a rejected commit can never become an unhandled
+ * rejection.
+ */
+export async function commitWithRollback(
+  previous: TransformationHistory,
+  next: TransformationHistory,
+  effects: CommitEffects,
+): Promise<string | null> {
+  effects.setActive(next)
+  try {
+    await effects.refresh()
+    return null
+  } catch (error) {
+    effects.setActive(previous)
+    try {
+      await effects.refresh()
+    } catch {
+      // The previous view failed to re-materialize too; its per-span errors
+      // are already visible, and the returned alert explains the edit.
+    }
+    return engineRejectionMessage(error)
+  }
+}

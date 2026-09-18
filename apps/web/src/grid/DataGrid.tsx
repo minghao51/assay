@@ -139,7 +139,8 @@ export function DataGrid({
     if (!editingEnabled) return
     const column = schema[columnIndex]
     if (column === undefined) return
-    const kind = cellEditorKind(parseDuckDbType(column.type))
+    const parsedType = parseDuckDbType(column.type)
+    const kind = cellEditorKind(parsedType)
     if (kind === 'unsupported') {
       setEditError(`Column "${column.name}" is not editable (nested type).`)
       return
@@ -150,7 +151,9 @@ export function DataGrid({
     setEditing({
       rowIndex,
       columnIndex,
-      draft: cellEditDraft(slot.row[columnIndex]),
+      // Temporal cells cross the engine boundary as epoch numbers; the draft
+      // is formatted human-readably and engine-round-trippably (typed-input).
+      draft: cellEditDraft(slot.row[columnIndex], parsedType),
     })
   }
 

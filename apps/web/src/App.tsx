@@ -17,7 +17,7 @@ import { DuckDbGridProvider } from './grid/provider'
 import { FilterBar } from './grid/FilterBar'
 import { EditToolbar } from './edit/EditToolbar'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
-import { editOutcomeMessage, overlaySnapshot } from './edit/session'
+import { commitWithRollback, editOutcomeMessage, overlaySnapshot } from './edit/session'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
 import { ProfilePanel } from './profile/ProfilePanel'
@@ -143,19 +143,38 @@ export function App() {
   )
 
   /**
-   * Commit a new history and rebuild the grid's data epoch. The overlay ref
-   * is updated synchronously (the provider is read during `refresh()`), then
-   * state change + revision bump re-render and re-read the inspector.
+   * Publish one history as the active overlay. `overlayRef` is updated
+   * synchronously (the provider is read during `refresh()`), then React state
+   * re-renders and the revision bump makes the inspector re-read.
    */
-  const commitHistory = useCallback(
-    (next: TransformationHistory) => {
+  const activateHistory = useCallback(
+    (next: TransformationHistory): void => {
       if (phase.kind !== 'ready') return
       overlayRef.current = overlaySnapshot(phase.base, next)
       setHistory(next)
       setOverlayRevision((revision) => revision + 1)
-      void phase.model.refresh()
     },
     [phase],
+  )
+
+  /**
+   * Commit a new history and rebuild the grid's data epoch. An engine that
+   * rejects the new overlay (a bad typed value) has the commit rolled back to
+   * `previous` and the previous effective view re-materialized
+   * (`commitWithRollback`) before the engine's message is surfaced as a
+   * text-only alert — a rejected value can never leave the grid all-loading
+   * or require a manual Undo to recover.
+   */
+  const commitHistory = useCallback(
+    async (next: TransformationHistory, previous: TransformationHistory): Promise<void> => {
+      if (phase.kind !== 'ready') return
+      const message = await commitWithRollback(previous, next, {
+        setActive: activateHistory,
+        refresh: () => phase.model.refresh(),
+      })
+      setEditError(message)
+    },
+    [phase, activateHistory],
   )
 
   const applyOp = useCallback(
@@ -165,7 +184,7 @@ export function App() {
       // Surface the typed outcome honestly (null for `applied`); a conflicted
       // op changes no state and is not logged (m4-1 `appendOp`).
       setEditError(editOutcomeMessage(result.outcome))
-      if (result.entry !== null) commitHistory(result.history)
+      if (result.entry !== null) void commitHistory(result.history, history)
     },
     [phase, history, commitHistory],
   )
@@ -174,14 +193,14 @@ export function App() {
     const step = undoHistory(history)
     if (step.entry === null) return
     setEditError(null)
-    commitHistory(step.history)
+    void commitHistory(step.history, history)
   }, [history, commitHistory])
 
   const handleRedo = useCallback(() => {
     const step = redoHistory(history)
     if (step.entry === null) return
     setEditError(null)
-    commitHistory(step.history)
+    void commitHistory(step.history, history)
   }, [history, commitHistory])
 
   /**
