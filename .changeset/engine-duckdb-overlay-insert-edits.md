@@ -1,0 +1,5 @@
+---
+'@assay/engine-duckdb': patch
+---
+
+fix(m4-2b): the overlay composer now merges folded cell edits on **inserted** rows. `insertBranchSql` (`src/overlay-query.ts`) read only `InsertedRowRecord.values`, so a `cell-set`/`cell-revert` targeting a live insert (recorded by the m4-1 fold in `OverlayState.edits`, keyed by the insert's `RowId`) was silently dropped — a `cell-set` on a column the insert left NULL composed `CAST(NULL AS <type>)` despite the edit, and a `column-rename` re-keyed the edit that the composer then ignored. The branch now takes the effective value from `state.edits` for the insert id when present, falling back to the insert record's value (matching the domain's `overlayEdit`/`stepOverlay` semantics: last write wins; `cell-revert` deletes the entry so the insert value stands again). Tombstoned inserts stay excluded, the CSV formula-injection guard applies to the merged value, renames/casts stay effective, and emission order is unchanged. The module doc records the merge rule and the defect.

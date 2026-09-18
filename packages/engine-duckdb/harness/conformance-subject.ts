@@ -33,6 +33,7 @@ import type {
   ConformanceHostileTypeProbe,
   ConformanceNestedDataset,
   ConformanceOverlayDataset,
+  ConformanceOverlayInsertEditsDataset,
   EngineConformanceSubject,
 } from '@assay/testing'
 import { baseRowId, insertRowId } from '@assay/domain'
@@ -906,6 +907,163 @@ const OVERLAY_DATASET: ConformanceOverlayDataset = {
 }
 
 /**
+ * m4-2b inserted-row-edit dataset: a focused op sequence over the canonical
+ * overlay base (`OVERLAY_BASE`) that reproduces the defect the m4-2 composer
+ * had — `cell-set`/`cell-revert` on an **inserted** row, plus renames after
+ * the edits. Three discriminating cases coexist in the single inserted row:
+ *
+ * - `region` is absent from the insert (NULL); the `cell-set` must materialize
+ *   it, then the rename moves it to `region_code` (the reviewer's proven
+ *   case: the old composer emitted `CAST(NULL AS VARCHAR)`).
+ * - `note_alias` **is** carried by the insert (`'inserted-alias'`); the
+ *   `cell-set` must win, then the rename moves it to `alias_v2`.
+ * - `note` is inserted as `'original'`, edited to `'edited'`, then reverted:
+ *   the insert value must stand again.
+ *
+ * Every pin below was derived with the pinned DuckDB CLI (v1.5.5,
+ * `DUCKDB=/tmp/duckdb`) over the IDENTICAL composed SQL the worker generates
+ * (`composeOverlayWindowSql` / `composeOverlayExportSelectSql` over
+ * `assay_t1 = SELECT * FROM read_json_auto(<this JSONL>)`) and round-trip
+ * checked against the duckdb-wasm build. Derivation transcript (control
+ * chars marked <TAB>/<CR>):
+ *
+ *   -- effective window (includeRowIds), LIMIT 1000 OFFSET 0
+ *   SELECT assay_row_id, id, region_code, amount, note, alias_v2 FROM eff;
+ *
+ *   ins:conf-ov-1#0     | 100 | XX | NULL  | original    | =SUM(A1:A2)
+ *   base:conf-base-v1#0 | 1   | SG | 52000 | =SUM(A1:A2) | =SUM(A1:A2)
+ *   base:conf-base-v1#1 | 2   | US | 61000 | +CMD        | +CMD
+ *   base:conf-base-v1#2 | 3   | SG | NULL  | has<TAB>tab | has<TAB>tab
+ *   base:conf-base-v1#3 | 4   | DE | 48000 | @x          | @x
+ *   base:conf-base-v1#4 | 5   | US | 75000 | -1+1        | -1+1
+ *
+ *   -- CSV export reopened via read_csv_auto (sanitized: leading `'`):
+ *   note/alias_v2: original, '=SUM(A1:A2), '+CMD, 'has<TAB>tab, '@x, '-1+1
+ *   -- JSONL export reopened via read_json_auto: identical to the effective
+ *   window (raw content stays visible).
+ */
+const OVERLAY_INSERT_EDITS_OPS: EditOp[] = [
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('conf-ov-1', 0),
+    position: { kind: 'start' },
+    values: new Map<string, CellValue>([
+      ['id', overlayCell({ kind: 'number', value: 100 })],
+      ['note', overlayCell({ kind: 'string', value: 'original' })],
+      ['note_alias', overlayCell({ kind: 'string', value: 'inserted-alias' })],
+    ]),
+  },
+  // The insert left `region` NULL: the edit must materialize it.
+  {
+    kind: 'cell-set',
+    rowId: insertRowId('conf-ov-1', 0),
+    column: 'region',
+    value: overlayCell({ kind: 'string', value: 'XX' }),
+  },
+  // The edit must win over the insert record's own `note_alias` value.
+  {
+    kind: 'cell-set',
+    rowId: insertRowId('conf-ov-1', 0),
+    column: 'note_alias',
+    value: overlayCell({ kind: 'string', value: '=SUM(A1:A2)' }),
+  },
+  // Edit then revert: the insert value must stand again.
+  {
+    kind: 'cell-set',
+    rowId: insertRowId('conf-ov-1', 0),
+    column: 'note',
+    value: overlayCell({ kind: 'string', value: 'edited' }),
+  },
+  { kind: 'cell-revert', rowId: insertRowId('conf-ov-1', 0), column: 'note' },
+  // Renames after the edits: the edits follow their renamed columns.
+  { kind: 'column-rename', from: 'note_alias', to: 'alias_v2' },
+  { kind: 'column-rename', from: 'region', to: 'region_code' },
+]
+
+const INSERT_EDITS_ROW_IDS = [
+  'ins:conf-ov-1#0',
+  'base:conf-base-v1#0',
+  'base:conf-base-v1#1',
+  'base:conf-base-v1#2',
+  'base:conf-base-v1#3',
+  'base:conf-base-v1#4',
+] as const
+const INSERT_EDITS_ID = ['100', '1', '2', '3', '4', '5'] as const
+const INSERT_EDITS_REGION = ['XX', 'SG', 'US', 'SG', 'DE', 'US'] as const
+const INSERT_EDITS_AMOUNT = [null, '52000', '61000', null, '48000', '75000'] as const
+const INSERT_EDITS_NOTE = ['original', '=SUM(A1:A2)', '+CMD', 'has\ttab', '@x', '-1+1'] as const
+const INSERT_EDITS_ALIAS = ['=SUM(A1:A2)', '=SUM(A1:A2)', '+CMD', 'has\ttab', '@x', '-1+1'] as const
+const INSERT_EDITS_CSV_NOTE = [
+  'original',
+  "'=SUM(A1:A2)",
+  "'+CMD",
+  "'has\ttab",
+  "'@x",
+  "'-1+1",
+] as const
+// The inserted row's `alias_v2` is the *edited* `=SUM(A1:A2)` (not the
+// reverted `note` value), sanitized to a leading apostrophe.
+const INSERT_EDITS_CSV_ALIAS = [
+  "'=SUM(A1:A2)",
+  "'=SUM(A1:A2)",
+  "'+CMD",
+  "'has\ttab",
+  "'@x",
+  "'-1+1",
+] as const
+
+const OVERLAY_INSERT_EDITS_DATASET: ConformanceOverlayInsertEditsDataset = {
+  base: OVERLAY_BASE,
+  ops: OVERLAY_INSERT_EDITS_OPS,
+  effectiveSchema: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'region_code', type: 'VARCHAR' },
+    { name: 'amount', type: 'BIGINT' },
+    { name: 'note', type: 'VARCHAR' },
+    { name: 'alias_v2', type: 'VARCHAR' },
+    { name: 'tags', type: 'VARCHAR[]' },
+    { name: 'codes', type: 'VARCHAR[]' },
+    { name: 'aliases', type: 'VARCHAR[]' },
+  ],
+  liveRowCount: 6,
+  rowIds: INSERT_EDITS_ROW_IDS,
+  rowIdColumn: 'assay_row_id',
+  columns: [
+    { name: 'id', values: INSERT_EDITS_ID },
+    { name: 'region_code', values: INSERT_EDITS_REGION },
+    { name: 'amount', values: INSERT_EDITS_AMOUNT },
+    { name: 'note', values: INSERT_EDITS_NOTE },
+    { name: 'alias_v2', values: INSERT_EDITS_ALIAS },
+  ],
+  exports: [
+    {
+      format: 'csv',
+      roundTrip: 'engine',
+      rowCount: 6,
+      columns: [
+        { name: 'id', values: INSERT_EDITS_ID },
+        { name: 'region_code', values: INSERT_EDITS_REGION },
+        { name: 'amount', values: INSERT_EDITS_AMOUNT },
+        { name: 'note', values: INSERT_EDITS_CSV_NOTE },
+        { name: 'alias_v2', values: INSERT_EDITS_CSV_ALIAS },
+      ],
+    },
+    {
+      format: 'jsonl',
+      roundTrip: 'engine',
+      rowCount: 6,
+      columns: [
+        { name: 'id', values: INSERT_EDITS_ID },
+        { name: 'region_code', values: INSERT_EDITS_REGION },
+        { name: 'amount', values: INSERT_EDITS_AMOUNT },
+        { name: 'note', values: INSERT_EDITS_NOTE },
+        { name: 'alias_v2', values: INSERT_EDITS_ALIAS },
+      ],
+    },
+  ],
+}
+
+/**
  * m4-2 fix round: the review's exact injection payload (finding 1) plus a
  * base-column spelling of the same attack, both driven against the REAL
  * engine. With the fix the client rejects the overlay with a typed error
@@ -1001,6 +1159,15 @@ export function createDuckDbConformanceSubject(
     stageOverlayFile: async () => {
       const jsonl = buildOverlayJsonl()
       return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-overlay.jsonl'))
+    },
+    overlayInsertEdits: OVERLAY_INSERT_EDITS_DATASET,
+    stageOverlayInsertEditsFile: async () => {
+      // Same canonical base bytes; a distinct OPFS name keeps the scenario's
+      // staging self-describing and independent of the other scenarios.
+      const jsonl = buildOverlayJsonl()
+      return asFileSource(
+        await stageBytesInOpfs(jsonl, 'assay-conformance-overlay-insert-edits.jsonl'),
+      )
     },
     hostileTypeProbes: HOSTILE_TYPE_PROBES,
     tableExists: async (client, name) => {

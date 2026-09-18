@@ -40,6 +40,7 @@ import type {
   ConformanceNumericStats,
   ConformanceOverlay,
   ConformanceOverlayBase,
+  ConformanceOverlayInsertEditsDataset,
   ConformanceOverlayWindow,
   ConformanceScenarioName,
   ConformanceSortSpec,
@@ -470,6 +471,88 @@ const FAKE_OVERLAY_DATASET = {
     },
   ],
 } as const
+
+/**
+ * The m4-2b inserted-row-edit dataset the fake subject declares, in
+ * miniature: one inserted row whose `label` is overridden by a later
+ * `cell-set` (the edit must win over the insert's own value), whose `id` is
+ * edited then reverted (the insert value must stand again), followed by a
+ * rename of the edited column. Expectations are hand-written literals
+ * independent of the fake's fold/emission code, so the `skipsOverlayEdits`
+ * mutation (which drops `state.edits`) makes the two disagree on the merged
+ * `label_v2` value. The DuckDB subject pins the full NULL-materialization
+ * shape over the same defect; the fake keeps the suite's logic honest.
+ */
+const FAKE_OVERLAY_INSERT_EDITS_DATASET: ConformanceOverlayInsertEditsDataset = {
+  base: FAKE_OVERLAY_BASE,
+  ops: [
+    {
+      kind: 'row-insert',
+      rowId: 'ins:fake-ov-1#0',
+      position: { kind: 'start' },
+      values: new Map([
+        ['id', { kind: 'number', value: 50 }],
+        ['label', { kind: 'string', value: 'original' }],
+      ]),
+    },
+    // Edit wins over the insert record's `label` value.
+    {
+      kind: 'cell-set',
+      rowId: 'ins:fake-ov-1#0',
+      column: 'label',
+      value: { kind: 'string', value: '=SUM(A1:A2)' },
+    },
+    // Edit then revert: the insert value must stand again.
+    {
+      kind: 'cell-set',
+      rowId: 'ins:fake-ov-1#0',
+      column: 'id',
+      value: { kind: 'number', value: 77 },
+    },
+    { kind: 'cell-revert', rowId: 'ins:fake-ov-1#0', column: 'id' },
+    // Rename after the edit: the edit follows the renamed column.
+    { kind: 'column-rename', from: 'label', to: 'label_v2' },
+  ],
+  effectiveSchema: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'label_v2', type: 'VARCHAR' },
+  ],
+  liveRowCount: 5,
+  rowIds: [
+    'ins:fake-ov-1#0',
+    'base:fake-base-v1#0',
+    'base:fake-base-v1#1',
+    'base:fake-base-v1#2',
+    'base:fake-base-v1#3',
+  ],
+  rowIdColumn: 'assay_row_id',
+  columns: [
+    // The reverted edit falls back to the insert's id 50.
+    { name: 'id', values: ['50', '1', '2', '3', '4'] },
+    // The retained edit wins over the insert's 'original'.
+    { name: 'label_v2', values: ['=SUM(A1:A2)', '=SUM(A1:A2)', 'b', null, '-1+1'] },
+  ],
+  exports: [
+    {
+      format: 'csv',
+      roundTrip: 'engine',
+      rowCount: 5,
+      columns: [
+        { name: 'id', values: ['50', '1', '2', '3', '4'] },
+        { name: 'label_v2', values: ["'=SUM(A1:A2)", "'=SUM(A1:A2)", 'b', null, "'-1+1"] },
+      ],
+    },
+    {
+      format: 'jsonl',
+      roundTrip: 'engine',
+      rowCount: 5,
+      columns: [
+        { name: 'id', values: ['50', '1', '2', '3', '4'] },
+        { name: 'label_v2', values: ['=SUM(A1:A2)', '=SUM(A1:A2)', 'b', null, '-1+1'] },
+      ],
+    },
+  ],
+}
 
 /** The m4-2 review's exact injection payload (finding 1). */
 const FAKE_REVIEWER_PAYLOAD =
@@ -1600,6 +1683,16 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
       return fileSource(name)
     },
+    overlayInsertEdits: FAKE_OVERLAY_INSERT_EDITS_DATASET,
+    stageOverlayInsertEditsFile: async () => {
+      const name = 'overlay-insert-edits.csv'
+      const lines = ['id,label']
+      for (const row of FAKE_OVERLAY_ROWS) {
+        lines.push(`${String(row.id)},${row.label ?? ''}`)
+      }
+      subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
+      return fileSource(name)
+    },
     hostileTypeProbes: FAKE_HOSTILE_TYPE_PROBES,
     tableExists: async () => false, // the fake never executes DDL side-effects
     sourceDigest: async (source) => {
@@ -1710,6 +1803,23 @@ describe('engine conformance suite (compliant fake engine)', () => {
     expect(immutable.facts['exports']).toBe(FAKE_OVERLAY_DATASET.exports.length)
     expect(immutable.facts['distinctDestinations']).toBe(FAKE_OVERLAY_DATASET.exports.length)
     expect(immutable.facts['digestUnchanged']).toBe(true)
+  })
+
+  it('exposes inserted-row-edit evidence (m4-2b)', async () => {
+    const subject = makeSubject()
+    const result = await runEngineConformanceScenario(subject, 'overlay-insert-edits')
+    expect(result.passed, result.detail).toBe(true)
+    expect(result.facts['schemaColumns']).toBe(
+      FAKE_OVERLAY_INSERT_EDITS_DATASET.effectiveSchema.length,
+    )
+    expect(result.facts['liveRowCount']).toBe(FAKE_OVERLAY_INSERT_EDITS_DATASET.liveRowCount)
+    expect(result.facts['cells']).toBe(
+      FAKE_OVERLAY_INSERT_EDITS_DATASET.columns.length *
+        FAKE_OVERLAY_INSERT_EDITS_DATASET.rowIds.length,
+    )
+    expect(result.facts['formats']).toBe(FAKE_OVERLAY_INSERT_EDITS_DATASET.exports.length)
+    expect(result.facts['engineReopens']).toBe(FAKE_OVERLAY_INSERT_EDITS_DATASET.exports.length)
+    expect(result.facts['csvSanitizationProbed']).toBe(true)
   })
 })
 
@@ -1911,6 +2021,16 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     const { passed, detail } = await runOne({ skipsOverlayEdits: true }, 'overlay-window-fidelity')
     expect(passed).toBe(false)
     expect(detail).toContain('label_v2[3]') // first edited-cell divergence ('+CMD' at base#1, index 3)
+  })
+
+  it('overlay-insert-edits: detects dropped edits on inserted rows (m4-2b)', async () => {
+    // The m4-2 defect, in miniature: `skipsOverlayEdits` clears the folded
+    // edits, so the inserted row falls back to its insert record value —
+    // exactly what the old composer did. The scenario must fail on the
+    // merged `label_v2` (insert's 'original' where the edit's bait belongs).
+    const { passed, detail } = await runOne({ skipsOverlayEdits: true }, 'overlay-insert-edits')
+    expect(passed).toBe(false)
+    expect(detail).toContain('label_v2[0]')
   })
 
   it('overlay-window-fidelity: detects collapsed insert positions', async () => {

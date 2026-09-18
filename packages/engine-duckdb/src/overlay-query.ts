@@ -32,7 +32,14 @@
  * - **Insert branches**: one SELECT per *live* inserted row, every value cast
  *   to the effective column type (absent columns materialize as NULL — the
  *   documented v1 rule); tombstoned inserts are omitted (their edits are
- *   kept in the state for `row-restore`, but never projected).
+ *   kept in the state for `row-restore`, but never projected). Each cell's
+ *   effective value **merges the folded `state.edits` for that insert id**
+ *   over the insert record's value: a later `cell-set` wins, and a
+ *   `cell-revert` removes the edit so the insert value stands again —
+ *   exactly the domain's `overlayEdit` semantics (`column-rename` re-keys
+ *   both maps, so an edit follows its renamed column). Before the m4-2b fix
+ *   the branch read `InsertedRowRecord.values` only and silently dropped
+ *   inserted-row edits.
  * - **Ordering**: `effectiveRowIds` (domain `overlay.ts`) is reproduced
  *   exactly by an INTEGER-list sort key (`assay_key`), which DuckDB compares
  *   element-wise with prefix-smaller-first (verified against the pinned
@@ -433,6 +440,14 @@ function baseBranchSql(
  * One live insert's branch: every effective column cast to its effective
  * type (absent values NULL — the documented v1 rule), the logical row id as
  * a literal, and the insert's sort key from `insertSortKeys`.
+ *
+ * The effective value for a column is the folded overlay edit when the fold
+ * recorded one for this insert id, otherwise the insert record's value (m4-2b
+ * fix). The domain's `stepOverlay` materializes `cell-set` into `state.edits`
+ * (re-keyed by a later `column-rename`) and `cell-revert` by deleting that
+ * entry, so consulting `state.edits` here reproduces `overlayEdit` exactly:
+ * a reverted edit falls back to the insert value at the current fold position.
+ * The old composer read `record.values` only and dropped these edits.
  */
 function insertBranchSql(
   state: OverlayState,
@@ -441,7 +456,8 @@ function insertBranchSql(
   options: RelationOptions,
 ): string {
   const exprs = state.columns.map((column) => {
-    const value: CellValue | undefined = record.values.get(column.name)
+    const edited: CellValue | undefined = state.edits.get(record.id)?.get(column.name)
+    const value: CellValue | undefined = edited ?? record.values.get(column.name)
     const literal = cellLiteralSql(value ?? { kind: 'null' }, column.type)
     // The CSV guard applies to insert branches too — a bait value in an
     // inserted row must be sanitized exactly like an edited base cell

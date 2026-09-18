@@ -113,6 +113,16 @@
  *     rejected with the typed operation category, the injection's named
  *     side-effect table does not exist afterwards, and the engine stays
  *     reusable with the ordinary overlay surface intact.
+ * 18. `overlay-insert-edits` (m4-2b defect fix) — a focused op sequence over
+ *     the canonical overlay base inserts a row, edits a cell the insert left
+ *     NULL, edits then reverts a second cell, and renames the edited columns:
+ *     the composed effective schema, live count, window order/values and a
+ *     CSV+JSONL export round-trip must show the folded **merged** values —
+ *     the edit wins over the insert record's value, and a reverted edit falls
+ *     back to the insert value. These are exactly the values the m4-2
+ *     composer dropped (it read `InsertedRowRecord.values` only); the pins
+ *     are host-engine-derived (engine-duckdb: DuckDB CLI 1.5.5 over the
+ *     identical composed SQL).
  *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
@@ -448,6 +458,18 @@ export interface EngineConformanceSubject {
   /** Stage the overlay base dataset (`overlayDataset.base`). */
   stageOverlayFile(): Promise<ConformanceFileSource>
   /**
+   * The inserted-row-edit dataset behind `stageOverlayInsertEditsFile()`
+   * (m4-2b defect fix): a focused op sequence over the canonical overlay base
+   * that edits cells of an **inserted** row (one the insert left NULL, one
+   * overriding the insert's own value, one edited then reverted) and renames
+   * the edited columns. Pins the merged effective schema/count/order/values
+   * and the CSV+JSONL export round-trip; every pin is host-engine-derived
+   * (engine-duckdb: DuckDB CLI 1.5.5 over the identical composed SQL).
+   */
+  readonly overlayInsertEdits: ConformanceOverlayInsertEditsDataset
+  /** Stage the overlay base dataset (`overlayInsertEdits` composes over). */
+  stageOverlayInsertEditsFile(): Promise<ConformanceFileSource>
+  /**
    * Hostile type-expression probes (m4-2 fix round): overlays whose base
    * column type or `column-cast` target is a SQL-injection-shaped string.
    * The `overlay-hostile-types-rejected` scenario requires a typed operation
@@ -683,6 +705,37 @@ export interface ConformanceOverlayDataset {
 }
 
 /**
+ * The m4-2b inserted-row-edit dataset behind `stageOverlayInsertEditsFile()`:
+ * a focused op sequence over the canonical overlay base that inserts a row,
+ * edits a cell the insert left NULL, edits then reverts a second cell, and
+ * renames the edited columns. The pins below are the folded **merged** values
+ * the fixed composer must project (edit wins over the insert record's value;
+ * a revert falls back to it) — the exact values the m4-2 composer dropped by
+ * reading `InsertedRowRecord.values` only. Narrower than
+ * {@link ConformanceOverlayDataset} on purpose: schema, live count, the
+ * effective order/values, and the export round-trip are the surfaces this
+ * defect touches.
+ */
+export interface ConformanceOverlayInsertEditsDataset {
+  /** The immutable base metadata the ops compose over. */
+  readonly base: ConformanceOverlayBase
+  /** The scripted op list folded per request (stateless composition). */
+  readonly ops: readonly ConformanceEditOp[]
+  /** Effective schema: post-rename names, post-cast engine type strings. */
+  readonly effectiveSchema: readonly ConformanceColumn[]
+  /** Live row count: base − tombstones + live inserts. */
+  readonly liveRowCount: number
+  /** The effective row order as logical row ids (`effectiveRowIds` order). */
+  readonly rowIds: readonly string[]
+  /** The row-id column's name in `includeRowIds` windows. */
+  readonly rowIdColumn: string
+  /** Every pinned column's values over the whole effective set. */
+  readonly columns: readonly ConformanceOverlayColumnValues[]
+  /** Per-format export checks (CSV must probe the merged-edit sanitization). */
+  readonly exports: readonly ConformanceExportCheck[]
+}
+
+/**
  * A hostile engine type-expression probe (m4-2 fix round). Type strings are
  * untrusted input the composer interpolates into SQL type positions; the
  * boundary must reject an injection-shaped spelling with a typed error and
@@ -717,6 +770,7 @@ export const engineConformanceScenarioNames = [
   'nested-window-fidelity',
   'nested-window-clamp',
   'overlay-window-fidelity',
+  'overlay-insert-edits',
   'export-round-trip',
   'source-immutability',
   'overlay-hostile-types-rejected',
@@ -2000,6 +2054,118 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       sliceRows,
       cells: dataset.columns.length * dataset.rowIds.length,
       sortedRows: dataset.sorted.expectRowCount,
+    }
+  },
+
+  'overlay-insert-edits': async (subject) => {
+    // m4-2b defect pin: cell edits on *inserted* rows must reach the composed
+    // SQL. The subject's ops edit a cell the insert left NULL (materialized
+    // where the broken composer emitted NULL), override a value the insert
+    // record itself carried (the edit must win), edit-then-revert a third
+    // (the insert value must stand), and rename the edited columns after the
+    // fact. Windows, the live count, the effective schema and the export
+    // round-trip all pin the merged values.
+    const dataset = subject.overlayInsertEdits
+    expectCondition(
+      dataset.ops.length > 0,
+      'subject misconfiguration: overlayInsertEdits.ops must script at least one op',
+    )
+    expectCondition(
+      dataset.liveRowCount === dataset.rowIds.length,
+      'subject misconfiguration: overlayInsertEdits.liveRowCount must equal rowIds.length',
+    )
+    expectCondition(
+      dataset.columns.length > 0,
+      'subject misconfiguration: declare values for at least one effective column',
+    )
+    for (const column of dataset.columns) {
+      expectCondition(
+        column.values.length === dataset.rowIds.length,
+        `subject misconfiguration: effective column "${column.name}" declares ${String(column.values.length)} values, expected ${String(dataset.rowIds.length)}`,
+      )
+    }
+    expectCondition(
+      dataset.exports.length > 0,
+      'subject misconfiguration: declare at least one export check',
+    )
+    const effectiveValues = new Map(dataset.columns.map((column) => [column.name, column.values]))
+    const csvCheck = dataset.exports.find((check) => check.format === 'csv')
+    expectCondition(
+      csvCheck !== undefined,
+      'subject misconfiguration: declare a csv export check (the formula-injection-sanitized format)',
+    )
+    const csvDiffers = csvCheck!.columns.some((column) => {
+      const expected = effectiveValues.get(column.name)
+      return (
+        expected !== undefined && column.values.some((value, index) => value !== expected[index])
+      )
+    })
+    expectCondition(
+      csvDiffers,
+      'subject misconfiguration: the csv export expectations must differ from the effective values somewhere — the sanitization pin would be vacuous',
+    )
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageOverlayInsertEditsFile())
+
+    // Effective schema: the post-edit renames are visible, the merged values
+    // do not change column types.
+    const schema = await client.overlaySchema(handle, dataset)
+    expectColumnsMatch(schema, dataset.effectiveSchema)
+    expectEqual(
+      await client.overlayRowCount(handle, dataset),
+      dataset.liveRowCount,
+      'insert-edit live row count',
+    )
+
+    // The full effective window with row ids: the inserted row's merged
+    // values must appear (not the insert record's values, and not NULL).
+    const full = await client.fetchOverlayRange(handle, dataset, {
+      startRow: 0,
+      endRow: dataset.liveRowCount,
+      includeRowIds: true,
+    })
+    expectEqual(full.batch.numRows, dataset.liveRowCount, 'insert-edit window row count')
+    expectColumnValues(full.batch, dataset.rowIdColumn, dataset.rowIds, '[overlay insert edits]')
+    for (const column of dataset.columns) {
+      expectColumnValues(full.batch, column.name, column.values, '[overlay insert edits]')
+    }
+
+    // Export round-trip: the merged values (incl. the edited-then-renamed
+    // column) must survive the write/re-open for CSV (sanitized) and JSONL.
+    let engineReopens = 0
+    for (const check of dataset.exports) {
+      const label = `[${check.format} insert-edit export]`
+      const result = await client.exportView(handle, { format: check.format, overlay: dataset })
+      expectEqual(result.format, check.format, `${label} format`)
+      expectEqual(result.rowCount, check.rowCount, `${label} honest row count`)
+      expectCondition(result.bytes > 0, `${label} byte size must be positive`)
+      if (check.roundTrip === 'engine') {
+        const reopened = await client.open(await subject.exportedSource(result))
+        expectEqual(await client.rowCount(reopened), check.rowCount, `${label} re-opened row count`)
+        const range = await client.fetchRange(reopened, { startRow: 0, endRow: check.rowCount })
+        expectEqual(range.batch.numRows, check.rowCount, `${label} re-opened window rows`)
+        for (const column of check.columns) {
+          expectColumnValues(range.batch, column.name, column.values, `${label} round-trip`)
+        }
+        engineReopens += 1
+      } else {
+        const container = await subject.readExportedArrowTable(result)
+        expectEqual(container.batch.numRows, check.rowCount, `${label} container rows`)
+        for (const column of check.columns) {
+          expectColumnValues(container.batch, column.name, column.values, `${label} container`)
+        }
+      }
+    }
+
+    return {
+      schemaColumns: schema.length,
+      liveRowCount: dataset.liveRowCount,
+      cells: dataset.columns.length * dataset.rowIds.length,
+      formats: dataset.exports.length,
+      engineReopens,
+      csvSanitizationProbed: csvDiffers,
     }
   },
 

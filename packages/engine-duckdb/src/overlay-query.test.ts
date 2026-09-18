@@ -218,6 +218,146 @@ describe('overlay composition — insert branches and the sort-key grammar', () 
   })
 })
 
+describe('overlay composition — edits on inserted rows merge into the insert branch (m4-2b)', () => {
+  it('projects the folded cell-set value instead of the insert value or NULL', () => {
+    // The m4-2b defect: the insert carried no `label` and the composer read
+    // `InsertedRowRecord.values` only, so it emitted `CAST(NULL AS VARCHAR)
+    // AS "label"` and silently dropped the edit. The merged value must win.
+    const ops: EditOp[] = [
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([['id', { kind: 'number', value: 1 }]]),
+      },
+      {
+        kind: 'cell-set',
+        rowId: rid('ins:o1#0'),
+        column: 'label',
+        value: { kind: 'string', value: 'edited' },
+      },
+    ]
+    const sql = composeSourceSql(compositionFor(ops), {
+      withRowIds: false,
+      sanitizeCsv: false,
+      withKey: true,
+    })
+    expect(sql).toContain('CAST(1 AS BIGINT) AS "id", CAST(\'edited\' AS VARCHAR) AS "label"')
+    expect(sql).not.toContain('CAST(NULL AS VARCHAR) AS "label"')
+  })
+
+  it('lets the edit win over the insert value on the same column', () => {
+    const ops: EditOp[] = [
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([
+          ['id', { kind: 'number', value: 1 }],
+          ['label', { kind: 'string', value: 'inserted' }],
+        ]),
+      },
+      {
+        kind: 'cell-set',
+        rowId: rid('ins:o1#0'),
+        column: 'label',
+        value: { kind: 'string', value: 'edited' },
+      },
+    ]
+    const sql = composeSourceSql(compositionFor(ops), {
+      withRowIds: false,
+      sanitizeCsv: false,
+      withKey: true,
+    })
+    expect(sql).toContain('CAST(\'edited\' AS VARCHAR) AS "label"')
+    expect(sql).not.toContain('CAST(\'inserted\' AS VARCHAR) AS "label"')
+  })
+
+  it('falls back to the insert value when the edit is reverted', () => {
+    // `cell-revert` deletes the fold entry (`no state.edits` entry left), so
+    // the insert value stands again at this fold position — exactly what
+    // `overlayEdit` returns for the reverted cell.
+    const ops: EditOp[] = [
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([
+          ['id', { kind: 'number', value: 1 }],
+          ['label', { kind: 'string', value: 'inserted' }],
+        ]),
+      },
+      {
+        kind: 'cell-set',
+        rowId: rid('ins:o1#0'),
+        column: 'label',
+        value: { kind: 'string', value: 'edited' },
+      },
+      { kind: 'cell-revert', rowId: rid('ins:o1#0'), column: 'label' },
+    ]
+    const sql = composeSourceSql(compositionFor(ops), {
+      withRowIds: false,
+      sanitizeCsv: false,
+      withKey: true,
+    })
+    expect(sql).toContain('CAST(\'inserted\' AS VARCHAR) AS "label"')
+    expect(sql).not.toContain("CAST('edited' AS VARCHAR)")
+  })
+
+  it('keeps the edit on the renamed column after a column-rename', () => {
+    // `column-rename` re-keys `state.edits` AND `record.values`, so the merge
+    // that reads the effective column name follows the rename.
+    const ops: EditOp[] = [
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([
+          ['id', { kind: 'number', value: 1 }],
+          ['label', { kind: 'string', value: 'inserted' }],
+        ]),
+      },
+      {
+        kind: 'cell-set',
+        rowId: rid('ins:o1#0'),
+        column: 'label',
+        value: { kind: 'string', value: 'edited' },
+      },
+      { kind: 'column-rename', from: 'label', to: 'label_v2' },
+    ]
+    const sql = composeSourceSql(compositionFor(ops), {
+      withRowIds: false,
+      sanitizeCsv: false,
+      withKey: true,
+    })
+    expect(sql).toContain('CAST(\'edited\' AS VARCHAR) AS "label_v2"')
+    expect(sql).not.toContain("CAST('inserted' AS VARCHAR)")
+  })
+
+  it('applies the CSV guard to the merged edit value', () => {
+    const ops: EditOp[] = [
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([['id', { kind: 'number', value: 1 }]]),
+      },
+      {
+        kind: 'cell-set',
+        rowId: rid('ins:o1#0'),
+        column: 'label',
+        value: { kind: 'string', value: '=1+1' },
+      },
+    ]
+    const sql = composeSourceSql(compositionFor(ops), {
+      withRowIds: false,
+      sanitizeCsv: true,
+      withKey: true,
+    })
+    expect(sql).toContain("contains(CAST('=1+1' AS VARCHAR)")
+  })
+})
+
 describe('insertSortKeys — the effectiveRowIds key grammar', () => {
   it('assigns start/end/before/after/leftover keys per the documented scheme', () => {
     const ops: EditOp[] = [

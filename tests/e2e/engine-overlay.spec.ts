@@ -20,6 +20,11 @@ import type { Page } from '@playwright/test'
 //   formula-injection-sanitized (apostrophe-prefix convention; the probed
 //   baits: `=SUM(A1:A2)`, `+CMD`, `-1+1`, `@x`, embedded TAB, embedded CR)
 //   while JSONL keeps the raw content visible.
+// - overlay-insert-edits (m4-2b defect fix): cell edits on an *inserted*
+//   row (one the insert left NULL, one overriding the insert value, one
+//   edited then reverted, plus a rename after the edits) must survive
+//   windows, counts, the effective schema, and the export round-trip — the
+//   old composer read `InsertedRowRecord.values` only and dropped them.
 // - source-immutability: the staged source file's sha-256 is unchanged by a
 //   full edit+export session, and no export ever targets the source path.
 //
@@ -41,6 +46,7 @@ interface ScenarioResult {
 
 const SCENARIOS = [
   'overlay-window-fidelity',
+  'overlay-insert-edits',
   'export-round-trip',
   'source-immutability',
   'overlay-hostile-types-rejected',
@@ -49,6 +55,7 @@ const SCENARIOS = [
 /** Button labels as rendered by the harness (kept human-readable there). */
 const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'overlay-window-fidelity': 'Conformance: overlay window fidelity',
+  'overlay-insert-edits': 'Conformance: overlay insert edits',
   'export-round-trip': 'Conformance: export round-trip',
   'source-immutability': 'Conformance: source immutability',
   'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
@@ -88,6 +95,18 @@ for (const name of SCENARIOS) {
         expect(result.facts['sliceRows']).toBe(3)
         expect(result.facts['cells']).toBe(45)
         expect(result.facts['sortedRows']).toBe(9)
+        break
+      case 'overlay-insert-edits':
+        // m4-2b: the inserted row's merged edits survive windows and export
+        // even though the insert branch composes them (edit wins over the
+        // insert value; a revert falls back; the renamed columns carry the
+        // edits). Five columns x six effective rows pinned; CSV+JSONL round trip.
+        expect(result.facts['schemaColumns']).toBe(8)
+        expect(result.facts['liveRowCount']).toBe(6)
+        expect(result.facts['cells']).toBe(30)
+        expect(result.facts['formats']).toBe(2)
+        expect(result.facts['engineReopens']).toBe(2)
+        expect(result.facts['csvSanitizationProbed']).toBe(true)
         break
       case 'export-round-trip':
         // All five shipped formats verified; four re-opened through the
