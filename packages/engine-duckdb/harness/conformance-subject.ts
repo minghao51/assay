@@ -1078,22 +1078,44 @@ const OVERLAY_INSERT_EDITS_DATASET: ConformanceOverlayInsertEditsDataset = {
  *   bad value: composition must respect both the rename and the edit.
  * - `blank` — all NULL (DuckDB's JSONL sniffer types it JSON): NULLs must
  *   never count as conversion failures.
+ * - `chain` — prior `column-cast chain -> BOOLEAN`; the pending `BOOLEAN ->
+ *   INTEGER` check must test the **un-cast** base value. The domain collapses
+ *   cast chains, so committing the pending cast composes `CAST(chain AS
+ *   INTEGER)` (which throws on `'true'`) — the review's false-negative repro.
+ * - `edited_chain` — prior `column-cast -> BOOLEAN` plus a `cell-set` edit to
+ *   `'true'`: the same collapse means the edit is committed as `CAST('true'
+ *   AS INTEGER)` (throws), while the old shape tested the edit through
+ *   BOOLEAN and saw `true -> 1` (a false negative).
+ * - `blobby` — prior `column-cast -> BLOB`; the pending `BLOB -> INTEGER`
+ *   check must test the un-cast base value. `CAST('1' AS BLOB)` succeeds and
+ *   the old shape's `TRY_CAST(<blob> AS INTEGER)` fails, but the committed
+ *   `CAST('1' AS INTEGER)` succeeds — the symmetric false-positive direction.
+ * - `neighbor` — no prior cast while every other cast column carries one:
+ *   its classification must be unaffected by another column's prior cast.
  *
  * Every classification was derived with the pinned DuckDB CLI (v1.5.5,
  * `DUCKDB=/tmp/duckdb`) over the IDENTICAL composed SQL the worker generates
  * (`composeOverlayCastCheckSql` over `assay_t1 = read_json_auto(<this JSONL>)`)
  * and round-trip checked against the duckdb-wasm build. Derivation transcript:
  *
- *   -- base inference: id BIGINT, num/code/ins_code/legacy VARCHAR, blank JSON
+ *   -- base inference: id BIGINT, the rest VARCHAR (blank JSON)
  *   -- effective relation: base ordinals 0..3 + the end insert (id 100,
  *   -- ins_code 'oops'); `legacy` renamed to `renamed` with ordinal 1 edited
- *   -- to 'not-a-number'.
+ *   -- to 'not-a-number'; `chain`/`edited_chain` cast to BOOLEAN, `blobby` to
+ *   -- BLOB; `edited_chain` ordinal 0 edited to 'true'.
  *   SELECT 'num', count(*) FROM (SELECT 1 FROM eff
  *     WHERE "num" IS NOT NULL AND TRY_CAST("num" AS BIGINT) IS NULL LIMIT 1)
  *   UNION ALL SELECT 'code', ...
- *   -- num 0, code 1, ins_code 1, renamed 1, blank 0  (bad counts)
+ *   -- source-projection (un-cast) bad counts:
+ *   --   num 0, code 1, ins_code 1, renamed 1, blank 0,
+ *   --   chain 1, edited_chain 1, blobby 0, neighbor 0
+ *   -- old-shape (pre-cast effective projection) for the new columns:
+ *   --   chain 0, edited_chain 0, blobby 1  (the two miss directions)
+ *   -- committed direct casts: CAST(chain AS INTEGER) / CAST('true' AS
+ *   --   INTEGER) throw; CAST(blobby AS INTEGER) = 1 (succeeds)
  *
- * so the checks answer false, true, true, true, false respectively.
+ * so the checks answer false, true, true, true, false, true, true, false,
+ * false respectively.
  */
 const CAST_CHECK_BASE: OverlayBase = {
   baseAnchor: 'conf-cast-v1',
@@ -1105,15 +1127,63 @@ const CAST_CHECK_BASE: OverlayBase = {
     { name: 'ins_code', type: 'VARCHAR' },
     { name: 'blank', type: 'JSON' },
     { name: 'legacy', type: 'VARCHAR' },
+    { name: 'chain', type: 'VARCHAR' },
+    { name: 'edited_chain', type: 'VARCHAR' },
+    { name: 'blobby', type: 'VARCHAR' },
+    { name: 'neighbor', type: 'VARCHAR' },
   ],
   baseRowCount: 4,
 }
 
 const CAST_CHECK_ROWS = [
-  { id: 1, num: '10', code: '10', ins_code: '1', blank: null, legacy: '10' },
-  { id: 2, num: '20', code: '20', ins_code: '2', blank: null, legacy: '20' },
-  { id: 3, num: '30', code: 'bad', ins_code: '3', blank: null, legacy: '30' },
-  { id: 4, num: '40', code: '40', ins_code: '4', blank: null, legacy: '40' },
+  {
+    id: 1,
+    num: '10',
+    code: '10',
+    ins_code: '1',
+    blank: null,
+    legacy: '10',
+    chain: 'true',
+    edited_chain: '0',
+    blobby: '1',
+    neighbor: '10',
+  },
+  {
+    id: 2,
+    num: '20',
+    code: '20',
+    ins_code: '2',
+    blank: null,
+    legacy: '20',
+    chain: 'false',
+    edited_chain: '1',
+    blobby: '2',
+    neighbor: '20',
+  },
+  {
+    id: 3,
+    num: '30',
+    code: 'bad',
+    ins_code: '3',
+    blank: null,
+    legacy: '30',
+    chain: 'true',
+    edited_chain: '1',
+    blobby: '3',
+    neighbor: '30',
+  },
+  {
+    id: 4,
+    num: '40',
+    code: '40',
+    ins_code: '4',
+    blank: null,
+    legacy: '40',
+    chain: 'false',
+    edited_chain: '0',
+    blobby: '4',
+    neighbor: '40',
+  },
 ] as const
 
 const CAST_CHECK_OPS: EditOp[] = [
@@ -1123,6 +1193,19 @@ const CAST_CHECK_OPS: EditOp[] = [
     rowId: baseRowId('conf-cast-v1', 1),
     column: 'renamed',
     value: overlayCell({ kind: 'string', value: 'not-a-number' }),
+  },
+  // The m4-4b review's chain: a prior cast on the same column makes the old
+  // check predicate on the intermediate type while the commit collapses.
+  { kind: 'column-cast', column: 'chain', targetType: 'BOOLEAN' },
+  { kind: 'column-cast', column: 'edited_chain', targetType: 'BOOLEAN' },
+  // A cast whose intermediate type is not convertible to INTEGER though the
+  // base string is (the symmetric false-positive direction).
+  { kind: 'column-cast', column: 'blobby', targetType: 'BLOB' },
+  {
+    kind: 'cell-set',
+    rowId: baseRowId('conf-cast-v1', 0),
+    column: 'edited_chain',
+    value: overlayCell({ kind: 'text', text: 'true' }),
   },
   {
     kind: 'row-insert',
@@ -1166,6 +1249,31 @@ const CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
     {
       label: 'all-NULL column -> false',
       column: 'blank',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'prior cast A->B then check B->C with a value whose direct base->C cast fails -> true',
+      column: 'chain',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'prior cast plus a same-column edit -> true',
+      column: 'edited_chain',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label:
+        'prior cast whose intermediate value fails the target while the direct base cast succeeds -> false',
+      column: 'blobby',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'no prior cast on this column while others carry one -> false',
+      column: 'neighbor',
       targetType: 'BIGINT',
       hasNonConvertibleValues: false,
     },

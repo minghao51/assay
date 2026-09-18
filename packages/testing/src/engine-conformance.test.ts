@@ -578,16 +578,64 @@ const FAKE_CAST_CHECK_BASE: ConformanceOverlayBase = {
     { name: 'ins_code', type: 'VARCHAR' },
     { name: 'blank', type: 'VARCHAR' },
     { name: 'legacy', type: 'VARCHAR' },
+    { name: 'chain', type: 'VARCHAR' },
+    { name: 'edited_chain', type: 'VARCHAR' },
+    { name: 'blobby', type: 'VARCHAR' },
+    { name: 'neighbor', type: 'VARCHAR' },
   ],
   baseRowCount: 4,
 }
 
 /** The fake's cast-check base rows in natural order (mirrors the base above). */
 const FAKE_CAST_CHECK_ROWS: readonly Record<string, string | number | null>[] = [
-  { id: 1, num: '10', code: '10', ins_code: '1', blank: null, legacy: '10' },
-  { id: 2, num: '20', code: '20', ins_code: '2', blank: null, legacy: '20' },
-  { id: 3, num: '30', code: 'bad', ins_code: '3', blank: null, legacy: '30' },
-  { id: 4, num: '40', code: '40', ins_code: '4', blank: null, legacy: '40' },
+  {
+    id: 1,
+    num: '10',
+    code: '10',
+    ins_code: '1',
+    blank: null,
+    legacy: '10',
+    chain: 'true',
+    edited_chain: '0',
+    blobby: '1',
+    neighbor: '10',
+  },
+  {
+    id: 2,
+    num: '20',
+    code: '20',
+    ins_code: '2',
+    blank: null,
+    legacy: '20',
+    chain: 'false',
+    edited_chain: '1',
+    blobby: '2',
+    neighbor: '20',
+  },
+  {
+    id: 3,
+    num: '30',
+    code: 'bad',
+    ins_code: '3',
+    blank: null,
+    legacy: '30',
+    chain: 'true',
+    edited_chain: '1',
+    blobby: '3',
+    neighbor: '30',
+  },
+  {
+    id: 4,
+    num: '40',
+    code: '40',
+    ins_code: '4',
+    blank: null,
+    legacy: '40',
+    chain: 'false',
+    edited_chain: '0',
+    blobby: '4',
+    neighbor: '40',
+  },
 ]
 
 const FAKE_CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
@@ -599,6 +647,17 @@ const FAKE_CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
       rowId: 'base:fake-cast-base-v1#1',
       column: 'renamed',
       value: { kind: 'string', value: 'not-a-number' },
+    },
+    // The review's chain (`chain`), a prior-cast-plus-edit column
+    // (`edited_chain`), and the symmetric false-positive column (`blobby`).
+    { kind: 'column-cast', column: 'chain', targetType: 'BOOLEAN' },
+    { kind: 'column-cast', column: 'edited_chain', targetType: 'BOOLEAN' },
+    { kind: 'column-cast', column: 'blobby', targetType: 'BLOB' },
+    {
+      kind: 'cell-set',
+      rowId: 'base:fake-cast-base-v1#0',
+      column: 'edited_chain',
+      value: { kind: 'text', text: 'true' },
     },
     {
       kind: 'row-insert',
@@ -638,6 +697,30 @@ const FAKE_CAST_CHECK_DATASET: ConformanceOverlayCastCheckDataset = {
     {
       label: 'all-NULL column',
       column: 'blank',
+      targetType: 'BIGINT',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'prior cast A->B then check B->C (review chain)',
+      column: 'chain',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'prior cast plus a same-column edit',
+      column: 'edited_chain',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: true,
+    },
+    {
+      label: 'prior cast intermediate fails but direct base cast succeeds',
+      column: 'blobby',
+      targetType: 'INTEGER',
+      hasNonConvertibleValues: false,
+    },
+    {
+      label: 'unaffected by a prior cast on a different column',
+      column: 'neighbor',
       targetType: 'BIGINT',
       hasNonConvertibleValues: false,
     },
@@ -2005,8 +2088,8 @@ describe('engine conformance suite (compliant fake engine)', () => {
     const result = await runEngineConformanceScenario(subject, 'overlay-cast-check')
     expect(result.passed, result.detail).toBe(true)
     expect(result.facts['cases']).toBe(FAKE_CAST_CHECK_DATASET.cases.length)
-    expect(result.facts['convertible']).toBe(2)
-    expect(result.facts['nonConvertible']).toBe(3)
+    expect(result.facts['convertible']).toBe(4)
+    expect(result.facts['nonConvertible']).toBe(5)
     expect(result.facts['invalidRejected']).toBe(FAKE_CAST_CHECK_DATASET.invalidTargetTypes.length)
     expect(result.facts['unknownRejected']).toBe(FAKE_CAST_CHECK_DATASET.unknownColumns.length)
     expect(result.facts['engineReusable']).toBe(true)

@@ -176,11 +176,13 @@ for (const name of SCENARIOS) {
         break
       case 'overlay-cast-check':
         // m4-4b: validate-before-commit cast check — the classifications a
-        // 1-row probe cannot cover, plus the typed invalid-target/unknown-
+        // 1-row probe cannot cover, the multi-cast-chain false negative the
+        // review found, the prior-cast+edit case, the symmetric
+        // false-positive direction, and the typed invalid-target/unknown-
         // column rejections.
-        expect(result.facts['cases']).toBe(5)
-        expect(result.facts['convertible']).toBe(2)
-        expect(result.facts['nonConvertible']).toBe(3)
+        expect(result.facts['cases']).toBe(9)
+        expect(result.facts['convertible']).toBe(4)
+        expect(result.facts['nonConvertible']).toBe(5)
         expect(result.facts['invalidRejected']).toBe(3)
         expect(result.facts['unknownRejected']).toBe(2)
         expect(result.facts['engineReusable']).toBe(true)

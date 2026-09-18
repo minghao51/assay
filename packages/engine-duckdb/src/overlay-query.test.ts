@@ -664,6 +664,68 @@ describe('composeOverlayCastCheckSql — the m4-4b validate-before-commit check'
     expect(sql).toContain('WHERE "label_v2" IS NOT NULL AND TRY_CAST("label_v2" AS BIGINT) IS NULL')
   })
 
+  it('applies TRY_CAST to the un-cast value when the column already has a prior cast (m4-4b fix)', () => {
+    // The domain collapses cast chains: committing a further cast after this
+    // state composes `CAST(base AS target)`, NOT
+    // `TRY_CAST(CAST(base AS prior) AS target)`. The check must therefore
+    // predicate on the un-cast source projection; a revert to
+    // `valueProjection: 'effective'` reintroduces `CAST("label" AS BOOLEAN)`
+    // and fails this pin.
+    const composition = compositionFor([
+      { kind: 'column-cast', column: 'label', targetType: 'BOOLEAN' },
+    ])
+    const sql = composeOverlayCastCheckSql(composition, 'label', 'BIGINT')
+    expect(sql).not.toContain('CAST("label" AS BOOLEAN)')
+    expect(sql).toContain('"label" AS "label"')
+    expect(sql).toContain('WHERE "label" IS NOT NULL AND TRY_CAST("label" AS BIGINT) IS NULL')
+  })
+
+  it('renders a prior-cast edit arm at the base type so the outer TRY_CAST matches the commit (m4-4b fix)', () => {
+    const composition = compositionFor([
+      {
+        kind: 'cell-set',
+        rowId: rid('base:b1#0'),
+        column: 'label',
+        value: { kind: 'text', text: 'true' },
+      },
+      { kind: 'column-cast', column: 'label', targetType: 'BOOLEAN' },
+    ])
+    const sql = composeOverlayCastCheckSql(composition, 'label', 'INTEGER')
+    // Edit arm carried at the base type (VARCHAR), not the prior cast type
+    // (BOOLEAN): the committed cast would apply INTEGER directly to 'true'.
+    expect(sql).toContain(
+      `CASE WHEN assay_overlay_ord = 0 THEN CAST('true' AS VARCHAR) ELSE "label" END`,
+    )
+    expect(sql).not.toContain("CAST('true' AS BOOLEAN)")
+    expect(sql).toContain('TRY_CAST("label" AS INTEGER)')
+  })
+
+  it('renders a prior-cast insert literal at the base type (m4-4b fix)', () => {
+    const composition = compositionFor([
+      { kind: 'column-cast', column: 'label', targetType: 'BOOLEAN' },
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([['label', { kind: 'text', text: 'true' }]]),
+      },
+    ])
+    const sql = composeOverlayCastCheckSql(composition, 'label', 'INTEGER')
+    expect(sql).toContain(`CAST('true' AS VARCHAR) AS "label"`)
+    expect(sql).not.toContain(`CAST('true' AS BOOLEAN)`)
+  })
+
+  it('leaves a no-prior-cast column unaffected by a different column prior cast (m4-4b)', () => {
+    const composition = compositionFor([
+      { kind: 'column-cast', column: 'id', targetType: 'VARCHAR' },
+    ])
+    const sql = composeOverlayCastCheckSql(composition, 'label', 'BIGINT')
+    expect(sql).toContain('TRY_CAST("label" AS BIGINT)')
+    // `label` carries no cast of its own, and `id`'s prior cast never leaks
+    // into `label`'s value expression.
+    expect(sql).not.toContain('CAST("label" AS VARCHAR)')
+  })
+
   it('rejects an unknown effective column before composing any SQL', () => {
     expect(() =>
       composeOverlayCastCheckSql(compositionFor([]), 'no_such_column', 'BIGINT'),
