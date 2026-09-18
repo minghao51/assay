@@ -11,7 +11,7 @@
  *   bytes }` (m4-2) — nothing is estimated;
  * - failures are readable summaries, never raw multi-line engine SQL text.
  */
-import type { EngineExportResult } from '@assay/engine-duckdb'
+import type { EngineExportFormat, EngineExportResult } from '@assay/engine-duckdb'
 import { exportFormatInfo } from './formats'
 import type { SaveStrategy } from './save-destination'
 
@@ -55,6 +55,39 @@ export function exportSuccessMessage(result: EngineExportResult, strategy: SaveS
       : '— your browser is downloading it as a new file.'
   return `${head} ${where} The opened file is unchanged.`
 }
+
+/**
+ * Formats the engine's open flow can actually read back
+ * (`engine-duckdb` opens `.parquet`, `.csv`, `.jsonl` and `.json` — an
+ * exported `.arrow` is rejected with "unsupported dataset format"). Only
+ * these formats may suggest the re-open journey; suggesting it for arrow
+ * promised a journey the app cannot deliver (m4-5 review finding).
+ */
+const REOPENABLE_FORMATS: readonly EngineExportFormat[] = ['parquet', 'csv', 'jsonl', 'json']
+
+/**
+ * The guidance shown under a successful export, per format. For the formats
+ * the engine can read back, the normal open flow is the re-open journey. For
+ * everything else (arrow today), the text must not promise a re-open: it
+ * names the file an interchange format for other tools and states what the
+ * app does open, so the guidance is never false.
+ */
+export function exportReopenGuidance(format: EngineExportFormat): string {
+  if (REOPENABLE_FORMATS.includes(format)) {
+    return 'To view it here, use “Open a data file…” and choose the file you wrote.'
+  }
+  const info = exportFormatInfo(format)
+  return `${info.label} is an interchange format for other tools; Assay opens .parquet, .csv, .jsonl and .json files.`
+}
+
+/**
+ * Same-source refusal (m4-5 fix round): the save picker returned the opened
+ * file's own entry. The dialog shows this instead of doing any engine work
+ * or byte write — writing an export to the opened file is exactly the
+ * in-place rewrite ADR 0012 forbids, whatever the format.
+ */
+export const EXPORT_SAME_SOURCE_MESSAGE =
+  'That is the opened file — writing the copy there would change the source. Choose a different name or location. Nothing was written, and the opened file is unchanged.'
 
 /** Cancelled-save line: nothing was written, and the app stays usable. */
 export const EXPORT_CANCELLED_MESSAGE =

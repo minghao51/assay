@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   EXPORT_CANCELLED_MESSAGE,
+  EXPORT_SAME_SOURCE_MESSAGE,
   exportErrorSummary,
   exportFailureMessage,
+  exportReopenGuidance,
   exportSuccessMessage,
   formatBytes,
   formatRowCount,
@@ -87,5 +89,43 @@ describe('exportErrorSummary / exportFailureMessage — readable, never glue', (
     expect(exportFailureMessage(new Error('disk full'))).toBe(
       'Export failed: disk full. No copy was written, and the opened file is unchanged.',
     )
+  })
+})
+
+describe('exportReopenGuidance — per-format honesty (m4-5 fix round)', () => {
+  it('offers the re-open journey only for the formats the engine can read back', () => {
+    // The engine opens .parquet, .csv, .jsonl and .json — exactly these may
+    // suggest the open flow as the way to view the copy.
+    for (const format of ['parquet', 'csv', 'jsonl', 'json'] as const) {
+      const guidance = exportReopenGuidance(format)
+      expect(guidance).toContain('Open a data file')
+      expect(guidance).toContain('choose the file you wrote')
+    }
+  })
+
+  it('does not promise a re-open for arrow; names it an interchange format for other tools', () => {
+    // The engine rejects .arrow on open ("unsupported dataset format"), so
+    // the previous unconditional hint promised a journey that could not
+    // happen. The arrow guidance must be honest instead.
+    const guidance = exportReopenGuidance('arrow')
+    expect(guidance).toContain('interchange format for other tools')
+    expect(guidance).toContain('Assay opens .parquet, .csv, .jsonl and .json files')
+    expect(guidance).not.toContain('Open a data file')
+    expect(guidance).not.toContain('view it here')
+    expect(guidance).not.toContain('choose the file you wrote')
+  })
+})
+
+describe('EXPORT_SAME_SOURCE_MESSAGE — same-source refusal (m4-5 fix round)', () => {
+  it('names the problem and the way out, and states nothing was written', () => {
+    expect(EXPORT_SAME_SOURCE_MESSAGE).toContain('That is the opened file')
+    expect(EXPORT_SAME_SOURCE_MESSAGE).toContain('would change the source')
+    expect(EXPORT_SAME_SOURCE_MESSAGE).toContain('Choose a different name or location')
+    expect(EXPORT_SAME_SOURCE_MESSAGE).toContain('Nothing was written')
+    expect(EXPORT_SAME_SOURCE_MESSAGE).toContain('the opened file is unchanged')
+  })
+
+  it('never implies an in-place rewrite', () => {
+    expect(EXPORT_SAME_SOURCE_MESSAGE).not.toMatch(/overwrit|in place|in-place/i)
   })
 })

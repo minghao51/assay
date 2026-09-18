@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
@@ -33,6 +33,13 @@ import type { Download, Locator, Page } from '@playwright/test'
 // anchor-download fallback, whose download this spec captures and re-opens
 // through the filechooser flow. Privacy (ADR 0025): the picked file name is
 // never rendered.
+//
+// Fix-round pins (m4-5 review): (1) a save picker aimed at the opened file is
+// refused before any engine work or byte write (ADR 0012 data-loss guard);
+// (2) with a grid filter active, the dialog shows the effective unfiltered
+// count, says filters are not applied, and the copy really holds every row;
+// (3) the arrow guidance names an interchange format for other tools instead
+// of promising a re-open, and the bytes match the advertised IPC stream type.
 
 const FIXTURE = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
 
@@ -83,6 +90,12 @@ async function exportFormat(page: Page, format: string): Promise<Download> {
   const downloadPromise = page.waitForEvent('download')
   await page.getByTestId('export-confirm').click()
   return downloadPromise
+}
+
+/** Apply one column predicate through the filter bar (m2-3 pattern). */
+async function filterBy(page: Page, column: string, predicate: string): Promise<void> {
+  await page.locator(`[data-testid="filter-input"][data-col-name="${column}"]`).fill(predicate)
+  await page.locator(`[data-testid="filter-apply"][data-col-name="${column}"]`).click()
 }
 
 /**
@@ -195,4 +208,129 @@ test('a dismissed save picker reports cancellation and writes nothing', async ({
   await expect(page.getByTestId('export-cancelled')).toContainText('no new file was written')
   await expect(page.getByTestId('export-result')).toHaveCount(0)
   await expect(page.getByTestId('export-error')).toHaveCount(0)
+})
+
+// m4-5 fix round (reviewer finding 1): the save picker can return the opened
+// source's own entry, and a direct handle write then replaces the source (a
+// real FSA probe turned a 682-byte Parquet file into 144 bytes of CSV while
+// the UI claimed the source was unchanged). This pin drives the app through
+// the input-fallback open (the identity-probe path: name+size+lastModified)
+// against a fake picker whose handle's file MATCHES the opened source. The
+// app must refuse before any engine work or byte write; the fake writable
+// records instead of writing, so a missing guard fails on the refusal
+// assertions — never by corrupting the golden fixture.
+test('a save picker aimed at the opened file is refused before any write', async ({ page }) => {
+  test.setTimeout(180_000)
+  const before = readFileSync(FIXTURE)
+  const { size, mtimeMs } = statSync(FIXTURE)
+  await page.addInitScript(
+    ({ sourceName, sourceSize, sourceLastModified }) => {
+      ;(window as { showSaveFilePicker?: unknown }).showSaveFilePicker = () => {
+        const probe = { wrote: false }
+        ;(window as { __assaySameSourceProbe?: { wrote: boolean } }).__assaySameSourceProbe = probe
+        return Promise.resolve({
+          getFile: async () =>
+            new File([new Uint8Array(sourceSize)], sourceName, {
+              lastModified: sourceLastModified,
+            }),
+          createWritable: async () => ({
+            write: async () => {
+              probe.wrote = true
+            },
+            close: async () => undefined,
+          }),
+        })
+      }
+    },
+    {
+      sourceName: path.basename(FIXTURE),
+      sourceSize: size,
+      // Playwright wires stat.mtimeMs (float) into the input File's
+      // lastModified, and the browser coerces it to an integer by truncation
+      // (WebIDL long long) — mirror exactly that, or the probe mismatches by
+      // a millisecond and the guard legitimately finds "different file".
+      sourceLastModified: Math.trunc(mtimeMs),
+    },
+  )
+  await openFixture(page, FIXTURE)
+  await page.getByTestId('export-open').click()
+  await page.getByTestId('export-format-csv').check()
+  await page.getByTestId('export-confirm').click()
+  const refused = page.getByTestId('export-refused')
+  await expect(refused).toBeVisible()
+  await expect(refused).toContainText('That is the opened file')
+  await expect(refused).toContainText('different name or location')
+  // Refusal precedes engine work: no result line, no error, and the fake
+  // writable was never acquired — no bytes anywhere, the source included.
+  await expect(page.getByTestId('export-result')).toHaveCount(0)
+  await expect(page.getByTestId('export-error')).toHaveCount(0)
+  const probe = await page.evaluate(
+    () => (window as { __assaySameSourceProbe?: { wrote: boolean } }).__assaySameSourceProbe,
+  )
+  expect(probe?.wrote ?? false).toBe(false)
+  // The opened file is byte-identical.
+  expect(readFileSync(FIXTURE).equals(before)).toBe(true)
+})
+
+// m4-5 fix round (reviewer finding 2): the dialog used to echo the grid's
+// FILTERED count while `exportView` exported the unfiltered, naturally
+// ordered dataset — the copy and the count must describe the export
+// honestly. Filter income > 50000 leaves 3 of the 5 fixture rows in the
+// grid; the dialog must show 5 (effective), say filters are not applied,
+// and the written copy must actually hold all 5 rows.
+test('with a grid filter active, the dialog shows the effective count and the copy holds every row', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  await openFixture(page, FIXTURE)
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  await filterBy(page, 'income', '> 50000')
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+
+  await page.getByTestId('export-open').click()
+  // NOT the grid's filtered 3: the effective (unfiltered) edited count.
+  await expect(page.getByTestId('export-view-rows')).toHaveText('5 rows')
+  await expect(page.getByTestId('export-view-note')).toContainText('complete edited dataset')
+  await expect(page.getByTestId('export-view-note')).toContainText('natural order')
+  await expect(page.getByTestId('export-view-note')).toContainText('not applied')
+  await expect(page.getByTestId('export-filtered-note')).toBeVisible()
+  await expect(page.getByTestId('export-filtered-note')).toContainText('filtered/sorted subset')
+
+  // The engine result agrees with the copy: all 5 rows, filter ignored.
+  const download = await exportFormat(page, 'jsonl')
+  await expect(page.getByTestId('export-result')).toContainText('Exported 5 rows as JSON Lines')
+  const jsonlPath = await saveDownload(download)
+  const lines = readFileSync(jsonlPath, 'utf8').trimEnd().split('\n')
+  expect(lines).toHaveLength(5)
+  // Rows the grid view filtered out are all present in the copy.
+  expect(lines.some((line) => line.includes('"income":48000'))).toBe(true) // customer 4
+  expect(lines.some((line) => line.includes('"income":null'))).toBe(true) // customer 3
+
+  // The grid view itself is untouched by the export.
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+})
+
+// m4-5 fix round (reviewer finding 3): the success guidance used to tell
+// users to re-open EVERY format, but the engine rejects .arrow on open — and
+// the advertised arrow MIME claimed the IPC file container while the bytes
+// are an IPC stream. The arrow copy must be honest on both counts.
+test('the arrow copy is honest: interchange for other tools, no re-open promise, stream bytes', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  await openFixture(page, FIXTURE)
+  await page.getByTestId('export-open').click()
+  const download = await exportFormat(page, 'arrow')
+  await expect(page.getByTestId('export-result')).toContainText('Exported 5 rows as Arrow IPC')
+  await expect(page.getByTestId('export-result')).toContainText('The opened file is unchanged')
+  const hint = page.getByTestId('export-reopen-hint')
+  await expect(hint).toContainText('interchange format for other tools')
+  await expect(hint).not.toContainText('Open a data file')
+  await expect(hint).not.toContainText('choose the file you wrote')
+  // The advertised type follows the bytes: an IPC stream starts with the
+  // 0xFFFFFFFF continuation marker, never the ARROW1 file magic.
+  const arrowPath = await saveDownload(download)
+  const head = readFileSync(arrowPath).subarray(0, 6)
+  expect([...head.subarray(0, 4)]).toEqual([0xff, 0xff, 0xff, 0xff])
+  expect(head.subarray(0, 6).toString('latin1')).not.toBe('ARROW1\u0000\u0000')
 })

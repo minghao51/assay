@@ -19,22 +19,32 @@ import type { EngineExportFormat, EngineExportResult } from '@assay/engine-duckd
 import { EXPORT_FORMATS, exportFormatInfo } from './formats'
 import {
   EXPORT_CANCELLED_MESSAGE,
+  EXPORT_SAME_SOURCE_MESSAGE,
   exportFailureMessage,
+  exportReopenGuidance,
   exportSuccessMessage,
   formatRowCount,
 } from './messages'
-import type { SaveDestination, SaveStrategy } from './save-destination'
+import type { SaveDestination, SaveStrategy, WritableSaveDestination } from './save-destination'
 
 export interface ExportDialogProps {
-  /** Row count of the current edited view (engine-backed, from the grid model). */
+  /**
+   * Effective (unfiltered) row count of the edited dataset — the domain's
+   * `liveRowCount` at the history cursor, NOT the grid's filtered count:
+   * `exportView` exports base + overlay in natural order, with no view
+   * filters or sorting (m4-5 review finding: the dialog used to echo the
+   * grid's filtered count while the export contained every row).
+   */
   readonly rowCount: number
+  /** True when the grid view currently applies filters or sorting. */
+  readonly viewFiltered: boolean
   /** Runs the engine's export op for `format` over the active overlay. */
   readonly runEngineExport: (format: EngineExportFormat) => Promise<EngineExportResult>
   /** Acquires a save destination; resolves `null` when the user cancels. */
   readonly requestDestination: (format: EngineExportFormat) => Promise<SaveDestination | null>
   /** Reads the OPFS scratch bytes and delivers them to the destination. */
   readonly writeCopy: (
-    destination: SaveDestination,
+    destination: WritableSaveDestination,
     result: EngineExportResult,
   ) => Promise<SaveStrategy>
   readonly onClose: () => void
@@ -50,10 +60,17 @@ type ExportPhase =
       readonly strategy: SaveStrategy
     }
   | { readonly kind: 'cancelled' }
+  /**
+   * The save picker returned the opened source's own entry. Rendered before
+   * any engine work or byte write — a save to the opened file is the exact
+   * in-place rewrite ADR 0012 forbids.
+   */
+  | { readonly kind: 'refused' }
   | { readonly kind: 'error'; readonly message: string }
 
 export function ExportDialog({
   rowCount,
+  viewFiltered,
   runEngineExport,
   requestDestination,
   writeCopy,
@@ -75,6 +92,13 @@ export function ExportDialog({
         // failed. The engine export is never even attempted, so there is no
         // wasted materialization to explain.
         setPhase({ kind: 'cancelled' })
+        return
+      }
+      if (destination.via === 'refused-source') {
+        // The picked destination is the opened file itself. Refused inside
+        // the destination request — before any engine work and before any
+        // byte write — so the source cannot be replaced by its own export.
+        setPhase({ kind: 'refused' })
         return
       }
       const result = await runEngineExport(selectedFormat)
@@ -124,8 +148,16 @@ export function ExportDialog({
         user-adjustable options in this version.
       </p>
       <p className="export-view-note" data-testid="export-view-note">
-        Current edited view: <span data-testid="export-view-rows">{formatRowCount(rowCount)}</span>.
+        Exports the <strong>complete edited dataset</strong> — all{' '}
+        <span data-testid="export-view-rows">{formatRowCount(rowCount)}</span> in natural order.
+        Grid filters and sorting are not applied.
       </p>
+      {viewFiltered && (
+        <p className="export-filtered-note" data-testid="export-filtered-note">
+          The grid currently shows a filtered/sorted subset of those rows; the copy ignores the
+          view’s filters and sorting and contains every row.
+        </p>
+      )}
 
       {phase.kind === 'working' && (
         <p className="export-progress" role="status" data-testid="export-progress">
@@ -138,13 +170,18 @@ export function ExportDialog({
             {exportSuccessMessage(phase.result, phase.strategy)}
           </p>
           <p className="export-reopen-hint" data-testid="export-reopen-hint">
-            To view it here, use “Open a data file…” and choose the file you wrote.
+            {exportReopenGuidance(phase.result.format)}
           </p>
         </>
       )}
       {phase.kind === 'cancelled' && (
         <p className="export-cancelled" role="status" data-testid="export-cancelled">
           {EXPORT_CANCELLED_MESSAGE}
+        </p>
+      )}
+      {phase.kind === 'refused' && (
+        <p className="export-refused" role="alert" data-testid="export-refused">
+          {EXPORT_SAME_SOURCE_MESSAGE}
         </p>
       )}
       {phase.kind === 'error' && (

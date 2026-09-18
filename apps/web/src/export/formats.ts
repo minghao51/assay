@@ -22,8 +22,14 @@ export interface ExportFormatInfo {
 
 /**
  * The engine's formats, in a stable display order. `arrow` is an Arrow IPC
- * *file* (`application/vnd.apache.arrow.file`), assembled worker-side because
- * the bundled DuckDB-WASM build has no Arrow COPY writer (m4-2).
+ * **stream** — the engine assembles it worker-side with apache-arrow's
+ * `tableToIPC` default, which is `RecordBatchStreamWriter` (no `ARROW1` file
+ * magic), because the bundled DuckDB-WASM build has no Arrow COPY writer
+ * (m4-2). The advertised MIME is therefore the IPC *stream* type; the bytes
+ * are pinned to this in `formats.test.ts` and e2e (first bytes `FF FF FF FF`,
+ * never the `ARROW1` container magic). Arrow is also the one format the
+ * engine's open flow cannot read back, so `description` says interchange,
+ * and the success guidance never suggests re-opening it (messages.ts).
  */
 export const EXPORT_FORMATS: readonly ExportFormatInfo[] = [
   {
@@ -59,8 +65,9 @@ export const EXPORT_FORMATS: readonly ExportFormatInfo[] = [
     format: 'arrow',
     label: 'Arrow IPC',
     extension: 'arrow',
-    mimeType: 'application/vnd.apache.arrow.file',
-    description: 'An Arrow IPC file; values and types are written as they are.',
+    mimeType: 'application/vnd.apache.arrow.stream',
+    description:
+      'An Arrow IPC stream for other tools; values and types are written as they are. Assay cannot re-open it.',
   },
 ]
 

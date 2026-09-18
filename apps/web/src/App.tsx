@@ -10,6 +10,7 @@ import {
   appendOp,
   emptyHistory,
   insertRowId,
+  liveRowCount,
   redo as redoHistory,
   stateAtCursor,
   undo as undoHistory,
@@ -22,7 +23,11 @@ import { FilterBar } from './grid/FilterBar'
 import { EditToolbar } from './edit/EditToolbar'
 import { ExportDialog } from './export/ExportDialog'
 import { requestSaveDestination, writeExportCopy } from './export/save-destination'
-import type { SaveDestination, SaveStrategy } from './export/save-destination'
+import type {
+  SaveStrategy,
+  SourceIdentity,
+  WritableSaveDestination,
+} from './export/save-destination'
 import { HistoryPanel } from './edit/HistoryPanel'
 import {
   activeOps,
@@ -131,6 +136,17 @@ export function App() {
    * (ADR 0012).
    */
   const [exportOpen, setExportOpen] = useState(false)
+
+  /**
+   * Identity of the opened source, retained from the open flow for the
+   * export same-source guard (m4-5 fix round): the save picker can return
+   * the opened file's own entry, and writing the export there would replace
+   * the source. `requestExportDestination` threads this into
+   * `requestSaveDestination`, which refuses such a destination before any
+   * engine work or byte write. Null until a file is open (and briefly
+   * during each open attempt). Never rendered or logged (ADR 0025).
+   */
+  const sourceIdentityRef = useRef<SourceIdentity | null>(null)
 
   /**
    * m3-5 nested-action dispatch: both click surfaces (schema tree, grid
@@ -447,12 +463,17 @@ export function App() {
   )
 
   const requestExportDestination = useCallback(
-    (format: EngineExportFormat) => requestSaveDestination(format),
+    (format: EngineExportFormat) =>
+      requestSaveDestination(format, {
+        // Undefined before the first open — the guard cannot suspect a
+        // same-entry destination without the source's identity.
+        sourceIdentity: sourceIdentityRef.current ?? undefined,
+      }),
     [],
   )
 
   const deliverExportCopy = useCallback(
-    (destination: SaveDestination, result: EngineExportResult): Promise<SaveStrategy> =>
+    (destination: WritableSaveDestination, result: EngineExportResult): Promise<SaveStrategy> =>
       writeExportCopy(destination, result),
     [],
   )
@@ -494,11 +515,14 @@ export function App() {
     setRecordRequest(null)
     setExportOpen(false)
     // m3-5 / m4-3: a new table invalidates the previous table's dispatch and
-    // editing state — an overlay must never leak across files.
+    // editing state — an overlay must never leak across files. The previous
+    // source's identity must not leak into the new session's export guard
+    // either (m4-5 fix round).
     setSqlRequest(null)
     setActionError(null)
     setEditError(null)
     setViewError(false)
+    sourceIdentityRef.current = null
     sessionToken.current += 1
     historyRevision.current += 1
     setCastPendingColumn(null)
@@ -507,8 +531,24 @@ export function App() {
     historyRef.current = resetHistory
     setHistory(resetHistory)
     setOverlayRevision(0)
+    // Retained so the export same-source guard can compare the save picker's
+    // destination against the opened entry. `pickDataFile` does not expose
+    // the picked FSA handle (packages/** is outside this task's
+    // authorization), so the open flow passes its own `showOpenFilePicker`
+    // wrapper: the same call the package's default makes, plus capture. The
+    // captured handle is the ground truth for the FSA path, so the flow does
+    // not branch on `picked.via` (structural fakes may omit it). A holder
+    // object defeats TS's control-flow narrowing of the plain local across
+    // the closure assignment.
+    const openCapture: { handle: FileSystemFileHandle | null } = { handle: null }
     try {
-      const picked = await pickDataFile()
+      const picked = await pickDataFile({
+        showOpenFilePicker: async (options) => {
+          const handles = await showOpenFilePicker(options)
+          openCapture.handle = handles[0] ?? null
+          return handles
+        },
+      })
       if (picked === null) {
         // User dismissed the picker — back to idle, nothing opened.
         setPhase({ kind: 'idle' })
@@ -520,6 +560,25 @@ export function App() {
       // ADR 0001); the name is transported per protocol but never rendered or
       // logged (ADR 0025).
       const file = await picked.source.getFile()
+      // Export same-source guard identity (m4-5 fix round). FSA opens retain
+      // the handle — the platform's authoritative `isSameEntry` verdict.
+      // Everything else (hidden-input fallback; structural fakes) falls back
+      // to the honest best-effort `file-matching` suspicion: name + size +
+      // lastModified. The guard treats doubt as refusal where identity is
+      // authoritative; see `save-destination.ts`.
+      const pickedHandle = openCapture.handle
+      sourceIdentityRef.current =
+        pickedHandle !== null
+          ? {
+              kind: 'provable',
+              isSameEntry: pickedHandle.isSameEntry.bind(pickedHandle),
+            }
+          : {
+              kind: 'file-matching',
+              name: file.name,
+              size: file.size,
+              lastModified: file.lastModified,
+            }
       const handle = await engineClient.open({
         name: file.name,
         getFile: () => Promise.resolve(file),
@@ -616,7 +675,15 @@ export function App() {
             </button>
             {exportOpen && (
               <ExportDialog
-                rowCount={phase.model.totalRows ?? 0}
+                // The effective (unfiltered) count at the history cursor —
+                // never the grid's filtered `totalRows` (m4-5 review
+                // finding): `exportView` exports every row in natural order.
+                // The memo is null only pre-ready; this branch is ready.
+                rowCount={liveRowCount(
+                  phase.base,
+                  overlayState ?? stateAtCursor(phase.base, history),
+                )}
+                viewFiltered={phase.model.filters.length > 0 || phase.model.sort !== null}
                 runEngineExport={runExport}
                 requestDestination={requestExportDestination}
                 writeCopy={deliverExportCopy}

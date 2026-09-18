@@ -9,6 +9,7 @@ afterEach(cleanup)
 function renderDialog(overrides: Partial<ExportDialogProps> = {}) {
   const props: ExportDialogProps = {
     rowCount: 6,
+    viewFiltered: false,
     runEngineExport: vi.fn(async (format) => ({
       path: `assay-exports/assay-export-1.${format}`,
       format,
@@ -44,6 +45,27 @@ describe('ExportDialog — copy-vs-rewrite wording (ADR 0012)', () => {
       'no user-adjustable options',
     )
   })
+
+  it('says the export is the complete dataset, in natural order, without filters or sorting', () => {
+    renderDialog({ rowCount: 5 })
+    const note = screen.getByTestId('export-view-note').textContent ?? ''
+    expect(note).toContain('complete edited dataset')
+    expect(note).toContain('all 5 rows')
+    expect(note).toContain('natural order')
+    expect(note).toContain('filters and sorting are not applied')
+    expect(screen.queryByTestId('export-filtered-note')).toBeNull()
+  })
+
+  it('says explicitly, when a view filter/sort is active, that the copy ignores it', () => {
+    // The grid may show a filtered subset while the export holds every row;
+    // the dialog must never let the two be conflated (m4-5 review finding).
+    renderDialog({ rowCount: 5, viewFiltered: true })
+    expect(screen.getByTestId('export-view-rows').textContent).toBe('5 rows')
+    const note = screen.getByTestId('export-filtered-note').textContent ?? ''
+    expect(note).toContain('filtered/sorted subset')
+    expect(note).toContain('contains every row')
+    expect(document.body.textContent ?? '').not.toMatch(/overwrit|in place|in-place/i)
+  })
 })
 
 describe('ExportDialog — format selection state machine', () => {
@@ -71,6 +93,25 @@ describe('ExportDialog — format selection state machine', () => {
       'Exported 6 rows as CSV (1.5 KB) — your browser is downloading it as a new file. The opened file is unchanged.',
     )
     expect(screen.getByTestId('export-reopen-hint')).toBeTruthy()
+  })
+
+  it('offers the re-open journey for csv, which the engine can read back', async () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('export-format-csv'))
+    fireEvent.click(screen.getByTestId('export-confirm'))
+    const hint = await screen.findByTestId('export-reopen-hint')
+    expect(hint.textContent).toContain('Open a data file')
+  })
+
+  it('never promises a re-open for arrow — it is an interchange format for other tools', async () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('export-format-arrow'))
+    fireEvent.click(screen.getByTestId('export-confirm'))
+    const hint = await screen.findByTestId('export-reopen-hint')
+    expect(hint.textContent).toContain('interchange format for other tools')
+    expect(hint.textContent).toContain('.parquet, .csv, .jsonl and .json')
+    expect(hint.textContent).not.toContain('Open a data file')
+    expect(hint.textContent).not.toContain('choose the file you wrote')
   })
 })
 
@@ -109,6 +150,33 @@ describe('ExportDialog — cancel and failure paths leave the app usable', () =>
     expect((await screen.findByTestId('export-error')).textContent).toContain(
       'Export failed: COPY failed',
     )
+  })
+})
+
+describe('ExportDialog — same-source refusal (m4-5 fix round)', () => {
+  it('refuses before any engine work when the destination is the opened source', async () => {
+    const props = renderDialog({
+      requestDestination: vi.fn(async () => ({ via: 'refused-source' }) as const),
+    })
+    fireEvent.click(screen.getByTestId('export-confirm'))
+    const refused = await screen.findByTestId('export-refused')
+    expect(refused.textContent).toContain('That is the opened file')
+    expect(refused.textContent).toContain('would change the source')
+    expect(refused.textContent).toContain('Choose a different name or location')
+    expect(refused.textContent).toContain('Nothing was written')
+    // Refusal precedes engine work and byte writes: no export op, no copy.
+    expect(props.runEngineExport).not.toHaveBeenCalled()
+    expect(props.writeCopy).not.toHaveBeenCalled()
+    // The dialog stays usable — the user can pick a different destination.
+    expect((screen.getByTestId('export-confirm') as HTMLButtonElement).disabled).toBe(false)
+    expect(document.body.textContent ?? '').not.toMatch(/overwrit|in place|in-place/i)
+  })
+
+  it('renders no refusal when the destination is a different file', async () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('export-confirm'))
+    await screen.findByTestId('export-result')
+    expect(screen.queryByTestId('export-refused')).toBeNull()
   })
 })
 
