@@ -58,13 +58,19 @@
  * reach SQL only as typed literals via `cellLiteralSql` (single-quote
  * escaped strings); host anchors reach SQL only inside string literals; the
  * CSV formula-injection guard composes from SQL functions, never by
- * concatenating data into the statement.
+ * concatenating data into the statement. Engine type expressions are
+ * untrusted input: every effective `state.columns[].type` (base or
+ * `column-cast` target) is validated as exactly one complete DuckDB type by
+ * `assertValidEffectiveTypes` before it reaches a `CAST(x AS <type>)`
+ * position, and `cellLiteralSql` re-validates its own type parameter
+ * (`type-expr.ts`) — an unvalidated string can never be interpolated.
  */
 import type { OverlayBase } from '@assay/domain'
 import { baseRowId, parseRowId } from '@assay/domain'
 import type { CellValue, InsertedRowRecord, OverlayState, RowId } from '@assay/domain'
 import { quotedIdentifier, sqlStringLiteral } from './format-view'
 import type { EngineExportFormat, EngineFilterSpec, EngineSortSpec } from './protocol'
+import { isStringLikeEngineType, validateEngineTypeExpression } from './type-expr'
 import { orderByClauseSql, whereClauseSql } from './window-query'
 
 /**
@@ -228,6 +234,10 @@ function bucketByAnchor(
  * through the engine's own cast (documented v1 behavior).
  */
 export function cellLiteralSql(value: CellValue, effectiveType: string): string {
+  // The type string reaches SQL verbatim; validate it here as the last line
+  // of defence (the wire boundary and the composer already did — a caller
+  // reaching this directly must not bypass the validator).
+  validateEngineTypeExpression(effectiveType)
   switch (value.kind) {
     case 'null':
       return `CAST(NULL AS ${effectiveType})`
@@ -266,10 +276,14 @@ export function cellLiteralSql(value: CellValue, effectiveType: string): string 
  * re-parsing quoted CSV and risks corrupting legitimate quoting, (2) the SQL
  * form is a pure, deterministic function of the query, and (3) it composes
  * with the overlay projection in one statement. It applies only to CSV
- * exports and only to columns whose effective type is VARCHAR — the only
- * renderings that can be formula-shaped (numbers/dates/booleans render as
- * numeric/temporal literals). The documented trade-off: a VARCHAR cell that
- * legitimately starts with `-` gains the prefix too.
+ * exports and only to columns whose **effective type classifies as the
+ * canonical string family** (`type-expr.ts`: `VARCHAR`/`TEXT`/`STRING`/
+ * `CHAR(n)`/`BPCHAR`/`CHARACTER [VARYING]`/`ENUM(…)` — the only renderings
+ * that can be formula-shaped; numbers/dates/booleans render as
+ * numeric/temporal literals). The m4-2 review caught an exact-`'VARCHAR'`
+ * check here: a `column-cast` to DuckDB's `TEXT` alias left bait cells raw.
+ * The documented trade-off: a string cell that legitimately starts with `-`
+ * gains the prefix too.
  */
 export function formulaInjectionGuardSql(expr: string): string {
   const triggers = `'=', '+', '-', '@', chr(9), chr(13)`
@@ -292,6 +306,22 @@ function assertNoReservedNames(columns: readonly { readonly name: string }[]): v
         `column name "${column.name}" is reserved by the engine overlay composer and cannot be composed`,
       )
     }
+  }
+}
+
+/**
+ * Validate every effective column type before any of them is interpolated
+ * into SQL (m4-2 fix round, defence in depth): `state.columns[].type` is the
+ * post-cast effective schema, so this single check covers both hostile base
+ * column types and hostile `column-cast` targets. Throws the typed
+ * `EngineTypeError`; composition has produced no SQL by then. The wire
+ * boundary already drops such payloads — this path exists so a future caller
+ * (or a bug in the boundary) can never reach a `CAST(x AS …)` with an
+ * unvalidated string.
+ */
+function assertValidEffectiveTypes(state: OverlayState): void {
+  for (const column of state.columns) {
+    validateEngineTypeExpression(column.type)
   }
 }
 
@@ -365,7 +395,9 @@ function baseBranchSql(
   const exprs = state.columns.map((column, index) => {
     const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN)
     const guarded =
-      options.sanitizeCsv && column.type === 'VARCHAR' ? formulaInjectionGuardSql(raw) : raw
+      options.sanitizeCsv && isStringLikeEngineType(column.type)
+        ? formulaInjectionGuardSql(raw)
+        : raw
     return `${guarded} AS ${quotedIdentifier(column.name)}`
   })
   if (options.withRowIds) {
@@ -403,9 +435,13 @@ function insertBranchSql(
     const literal = cellLiteralSql(value ?? { kind: 'null' }, column.type)
     // The CSV guard applies to insert branches too — a bait value in an
     // inserted row must be sanitized exactly like an edited base cell
-    // (probed by the conformance suite's export round-trip).
+    // (probed by the conformance suite's export round-trip). Classification
+    // is the canonical string family, not an exact `VARCHAR` spelling: the
+    // m4-2 review found a `CAST(… AS TEXT)` column skipped the guard.
     const guarded =
-      options.sanitizeCsv && column.type === 'VARCHAR' ? formulaInjectionGuardSql(literal) : literal
+      options.sanitizeCsv && isStringLikeEngineType(column.type)
+        ? formulaInjectionGuardSql(literal)
+        : literal
     return `${guarded} AS ${quotedIdentifier(column.name)}`
   })
   if (options.withRowIds) {
@@ -433,6 +469,7 @@ export function composeSourceSql(
   },
 ): string {
   const { base, state, viewName } = composition
+  assertValidEffectiveTypes(state)
   const liveInserts = [...state.inserts.values()].filter((record) => record.live)
   const withKey = options.withKey && liveInserts.length > 0
   const keys = withKey ? insertSortKeys(base, state) : undefined
@@ -459,6 +496,7 @@ export function composeSourceSql(
  */
 export function composeOverlaySchemaSql(composition: OverlayComposition): string {
   assertNoReservedNames(composition.state.columns)
+  assertValidEffectiveTypes(composition.state)
   const { base, state, viewName } = composition
   const exprs = state.columns.map((column, index) => {
     const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN)

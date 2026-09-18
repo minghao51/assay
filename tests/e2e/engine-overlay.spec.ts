@@ -39,13 +39,19 @@ interface ScenarioResult {
   facts: Record<string, string | number | boolean>
 }
 
-const SCENARIOS = ['overlay-window-fidelity', 'export-round-trip', 'source-immutability'] as const
+const SCENARIOS = [
+  'overlay-window-fidelity',
+  'export-round-trip',
+  'source-immutability',
+  'overlay-hostile-types-rejected',
+] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
 const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'overlay-window-fidelity': 'Conformance: overlay window fidelity',
   'export-round-trip': 'Conformance: export round-trip',
   'source-immutability': 'Conformance: source immutability',
+  'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
 }
 
 /** Click a scenario button and wait for its JSON result to render. */
@@ -99,6 +105,15 @@ for (const name of SCENARIOS) {
         expect(result.facts['exports']).toBe(5)
         expect(result.facts['distinctDestinations']).toBe(5)
         expect(result.facts['digestUnchanged']).toBe(true)
+        break
+      case 'overlay-hostile-types-rejected':
+        // The review's injection payload (and a base-column variant) is
+        // rejected with a typed operation error before any SQL is composed;
+        // neither side-effect table exists and the engine stays reusable.
+        expect(result.facts['probes']).toBe(2)
+        expect(result.facts['rejected']).toBe(2)
+        expect(result.facts['injectedAbsent']).toBe(true)
+        expect(result.facts['engineReusable']).toBe(true)
         break
       default:
         break

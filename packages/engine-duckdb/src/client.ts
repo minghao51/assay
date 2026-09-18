@@ -22,6 +22,8 @@
 import { tableFromIPC } from 'apache-arrow'
 import type { Table } from 'apache-arrow'
 import type { EditOp, OverlayBase } from '@assay/domain'
+import { EngineTypeError } from './type-expr'
+import { assertValidOverlayTypes } from './overlay-wire'
 import { parseEngineResponse } from './protocol'
 import type {
   EngineColumnSchema,
@@ -448,6 +450,25 @@ export class DuckDbEngineClient {
   }
 
   /**
+   * Validate an overlay's engine type expressions on this side of the
+   * boundary (m4-2 fix round). The worker validates too — but a type-shaped
+   * injection would otherwise make the worker silently drop the request
+   * (its malformed-payload contract), hanging this caller. Failing here with
+   * the typed `EngineOperationError` keeps the rejection observable and
+   * prevents a single byte of the hostile type string from reaching the
+   * worker. The underlying `EngineTypeError` is attached as the cause.
+   */
+  private requireValidOverlayTypes(overlay: EngineOverlay): void {
+    try {
+      assertValidOverlayTypes(overlay)
+    } catch (cause) {
+      const message =
+        cause instanceof EngineTypeError ? cause.message : 'invalid engine type expression'
+      throw new EngineOperationError(message, { cause })
+    }
+  }
+
+  /**
    * Effective schema of the composed overlay (m4-2): post-rename names and
    * post-cast DuckDB types, exactly as `DESCRIBE` reports them over the
    * composed projection. A cast whose target type string the engine rejects
@@ -459,6 +480,7 @@ export class DuckDbEngineClient {
     overlay: EngineOverlay,
   ): Promise<EngineColumnSchema[]> {
     await this.ensureReady()
+    this.requireValidOverlayTypes(overlay)
     const response = await this.send({
       type: 'engine/overlay-schema',
       requestId: this.takeRequestId(),
@@ -485,6 +507,7 @@ export class DuckDbEngineClient {
     options?: EngineRowCountOptions,
   ): Promise<number> {
     await this.ensureReady()
+    this.requireValidOverlayTypes(overlay)
     const request: EngineRequest = {
       type: 'engine/overlay-row-count',
       requestId: this.takeRequestId(),
@@ -520,6 +543,7 @@ export class DuckDbEngineClient {
     window: EngineOverlayWindow,
   ): Promise<EngineRangeResult> {
     await this.ensureReady()
+    this.requireValidOverlayTypes(overlay)
     const validated = validateRowWindow(window.startRow, window.endRow)
     if (!validated.valid) {
       throw new EngineOperationError(`invalid row window: ${validated.reason}`)
@@ -575,6 +599,7 @@ export class DuckDbEngineClient {
     request: EngineExportRequest,
   ): Promise<EngineExportResult> {
     await this.ensureReady()
+    if (request.overlay !== undefined) this.requireValidOverlayTypes(request.overlay)
     const response = await this.send({
       type: 'engine/export',
       requestId: this.takeRequestId(),

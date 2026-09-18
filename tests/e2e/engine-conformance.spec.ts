@@ -49,6 +49,7 @@ const SCENARIOS = [
   'overlay-window-fidelity',
   'export-round-trip',
   'source-immutability',
+  'overlay-hostile-types-rejected',
 ] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
@@ -69,6 +70,7 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'overlay-window-fidelity': 'Conformance: overlay window fidelity',
   'export-round-trip': 'Conformance: export round-trip',
   'source-immutability': 'Conformance: source immutability',
+  'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
 }
 
 /** Click a scenario button and wait for its JSON result to render. */
@@ -166,6 +168,15 @@ for (const name of SCENARIOS) {
         expect(result.facts['exports']).toBe(5)
         expect(result.facts['distinctDestinations']).toBe(5)
         expect(result.facts['digestUnchanged']).toBe(true)
+        break
+      case 'overlay-hostile-types-rejected':
+        // Both hostile type positions (cast target + base column) rejected
+        // with the typed operation category; the injection side-effect tables
+        // absent; the engine reusable afterwards.
+        expect(result.facts['probes']).toBe(2)
+        expect(result.facts['rejected']).toBe(2)
+        expect(result.facts['injectedAbsent']).toBe(true)
+        expect(result.facts['engineReusable']).toBe(true)
         break
       default:
         break

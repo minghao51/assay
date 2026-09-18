@@ -35,6 +35,7 @@ import type {
   ConformanceExportResult,
   ConformanceFileSource,
   ConformanceFilterSpec,
+  ConformanceHostileTypeProbe,
   ConformanceInsertPosition,
   ConformanceNumericStats,
   ConformanceOverlay,
@@ -114,6 +115,8 @@ interface FakeMutations {
   liesAboutExportRowCount?: boolean
   /** m4-2: exporting rewrites the staged source file (breaks byte-identity). */
   rewritesSourceFile?: boolean
+  /** m4-2 fix round: hostile type expressions are accepted instead of rejected. */
+  acceptsHostileTypes?: boolean
 }
 
 const GOOD_DATASET = {
@@ -467,6 +470,70 @@ const FAKE_OVERLAY_DATASET = {
     },
   ],
 } as const
+
+/** The m4-2 review's exact injection payload (finding 1). */
+const FAKE_REVIEWER_PAYLOAD =
+  'VARCHAR) AS "c" FROM (...) ); CREATE TABLE fake_injected AS SELECT 31337; --'
+
+/**
+ * Fake hostile type probes (m4-2 fix round): the same shapes the DuckDB
+ * subject declares, in miniature. The fake's `overlaySchema` rejects them
+ * with a typed operation error unless the `acceptsHostileTypes` mutation
+ * makes it accept — proving the scenario's assertion bites.
+ */
+const FAKE_HOSTILE_TYPE_PROBES: readonly ConformanceHostileTypeProbe[] = [
+  {
+    label: 'hostile column-cast target type (review payload)',
+    injectedTable: 'fake_injected',
+    overlay: {
+      base: FAKE_OVERLAY_BASE,
+      ops: [{ kind: 'column-cast', column: 'label', targetType: FAKE_REVIEWER_PAYLOAD }],
+    },
+  },
+  {
+    label: 'hostile base column type',
+    injectedTable: 'fake_base_injected',
+    overlay: {
+      base: {
+        ...FAKE_OVERLAY_BASE,
+        columns: FAKE_OVERLAY_BASE.columns.map((column) =>
+          column.name === 'label' ? { name: column.name, type: FAKE_REVIEWER_PAYLOAD } : column,
+        ),
+      },
+      ops: [],
+    },
+  },
+]
+
+/**
+ * The fake's minimal mirror of `type-expr.ts`: rejects statement separators,
+ * comments, and unbalanced/inverted brackets. Enough to reject the hostile
+ * probes; the real validator's full grammar is pinned by the engine package's
+ * own unit tests.
+ */
+function fakeValidateTypeExpression(type: string): void {
+  if (type.length === 0) throw new FakeOperationError('empty engine type expression')
+  if (type.includes(';') || type.includes('--') || type.includes('/*') || type.includes('*/')) {
+    throw new FakeOperationError('invalid engine type expression')
+  }
+  let depth = 0
+  for (const character of type) {
+    if (character === '(') depth += 1
+    else if (character === ')') {
+      depth -= 1
+      if (depth < 0) throw new FakeOperationError('invalid engine type expression')
+    }
+  }
+  if (depth !== 0) throw new FakeOperationError('invalid engine type expression')
+}
+
+/** Validate every type expression an overlay carries (fake mirror). */
+function fakeAssertTypesValid(overlay: ConformanceOverlay): void {
+  for (const column of overlay.base.columns) fakeValidateTypeExpression(column.type)
+  for (const op of overlay.ops ?? []) {
+    if (op.kind === 'column-cast') fakeValidateTypeExpression(op.targetType)
+  }
+}
 
 /** Explicit Arrow types for the fake's nested columns (nulls-rich shapes). */
 const NESTED_DEEP_TYPE = new Struct([
@@ -1073,6 +1140,11 @@ class FakeEngineClient implements ConformanceEngineClient {
     overlay: ConformanceOverlay,
   ): Promise<readonly { name: string; type: string }[]> {
     this.requireRegistered(handle)
+    if (this.mutations.acceptsHostileTypes !== true) {
+      // m4-2 fix round: the boundary rejects injection-shaped type strings
+      // with a typed operation error (the fake mirror of the real validator).
+      fakeAssertTypesValid(overlay)
+    }
     if (this.mutations.liesAboutOverlaySchema) {
       // Rename/cast invisible: the base schema, verbatim.
       return overlay.base.columns.map((column) => ({ ...column }))
@@ -1528,6 +1600,8 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
       return fileSource(name)
     },
+    hostileTypeProbes: FAKE_HOSTILE_TYPE_PROBES,
+    tableExists: async () => false, // the fake never executes DDL side-effects
     sourceDigest: async (source) => {
       const bytes = subjectState.staged.get(source.name)
       if (bytes === undefined) throw new Error('fake digest: unstaged file')
@@ -1890,6 +1964,15 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     const { passed, detail } = await runOne({ rewritesSourceFile: true }, 'source-immutability')
     expect(passed).toBe(false)
     expect(detail).toContain('byte-identical')
+  })
+
+  it('overlay-hostile-types-rejected: detects an engine that accepts a hostile type expression', async () => {
+    const { passed, detail } = await runOne(
+      { acceptsHostileTypes: true },
+      'overlay-hostile-types-rejected',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('must be rejected')
   })
 })
 

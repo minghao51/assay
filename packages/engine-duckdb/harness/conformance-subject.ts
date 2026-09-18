@@ -30,6 +30,7 @@ import type {
   ConformanceErrorMatchers,
   ConformanceExportResult,
   ConformanceFileSource,
+  ConformanceHostileTypeProbe,
   ConformanceNestedDataset,
   ConformanceOverlayDataset,
   EngineConformanceSubject,
@@ -584,6 +585,11 @@ const OVERLAY_OPS: EditOp[] = [
   { kind: 'row-delete', rowId: baseRowId('conf-base-v1', 3) },
   { kind: 'column-rename', from: 'amount', to: 'amount_eur' },
   { kind: 'column-cast', column: 'id', targetType: 'VARCHAR' },
+  // m4-2 fix round: cast the bait column through DuckDB's TEXT alias. The
+  // effective DECLARED type becomes TEXT (DESCRIBE reports VARCHAR), which is
+  // exactly the spelling the exact-`'VARCHAR'` CSV guard missed — this op is
+  // what makes the export-round-trip pin non-vacuous for the alias fix.
+  { kind: 'column-cast', column: 'note', targetType: 'TEXT' },
   // Absorbed by the fold (no-op replay + foreign anchor): state unchanged.
   {
     kind: 'cell-set',
@@ -766,6 +772,49 @@ const OVERLAY_DATASET: ConformanceOverlayDataset = {
   ],
 }
 
+/**
+ * m4-2 fix round: the review's exact injection payload (finding 1) plus a
+ * base-column spelling of the same attack, both driven against the REAL
+ * engine. With the fix the client rejects the overlay with a typed error
+ * before any SQL is composed; the scenario additionally proves the
+ * injection's side-effect tables never land in the DuckDB catalog.
+ */
+const HOSTILE_TYPE_PROBES: readonly ConformanceHostileTypeProbe[] = [
+  {
+    label: 'hostile column-cast target type (review payload)',
+    injectedTable: 'assay_injected',
+    overlay: {
+      base: OVERLAY_BASE,
+      ops: [
+        {
+          kind: 'column-cast',
+          column: 'note',
+          targetType:
+            'VARCHAR) AS "c" FROM (...) ); CREATE TABLE assay_injected AS SELECT 31337; --',
+        },
+      ],
+    },
+  },
+  {
+    label: 'hostile base column type (same validator path)',
+    injectedTable: 'assay_base_injected',
+    overlay: {
+      base: {
+        ...OVERLAY_BASE,
+        columns: OVERLAY_BASE.columns.map((column) =>
+          column.name === 'note'
+            ? {
+                name: column.name,
+                type: 'VARCHAR) ); CREATE TABLE assay_base_injected AS SELECT 31337; --',
+              }
+            : column,
+        ),
+      },
+      ops: [],
+    },
+  },
+]
+
 /** Runtime-built overlay base CSV (see OVERLAY_BASE_ROWS). */
 function buildOverlayCsv(): Uint8Array {
   const lines = ['id,region,amount,note']
@@ -823,6 +872,18 @@ export function createDuckDbConformanceSubject(
     stageOverlayFile: async () => {
       const csv = buildOverlayCsv()
       return asFileSource(await stageBytesInOpfs(csv, 'assay-conformance-overlay.csv'))
+    },
+    hostileTypeProbes: HOSTILE_TYPE_PROBES,
+    tableExists: async (client, name) => {
+      // Standard information_schema query; `name` is a trusted test constant
+      // (single-quote escaped anyway, so this helper stays safe for any input).
+      const escaped = name.replaceAll("'", "''")
+      const result: ConformanceBatchResult = await client.query(
+        `SELECT count(*)::BIGINT AS n FROM information_schema.tables WHERE table_name = '${escaped}'`,
+      )
+      const value: unknown = result.batch.getChildAt(0)?.get(0)
+      const count = typeof value === 'bigint' ? Number(value) : value
+      return typeof count === 'number' && count > 0
     },
     sourceDigest: async (source) => {
       const file = await (source as FileSystemFileHandle).getFile()

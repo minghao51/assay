@@ -15,11 +15,16 @@
  *   outcomes — so a payload carrying them still parses.
  */
 import { describe, expect, it } from 'vitest'
-import { parseOverlayPayload } from './overlay-wire'
+import { assertValidOverlayTypes, parseOverlayPayload } from './overlay-wire'
+import { EngineTypeError } from './type-expr'
 import type { EditOp, OverlayBase, RowId } from '@assay/domain'
 
 /** Test-side branded-id constructor for canonical literal ids. */
 const rid = (text: string): RowId => text as RowId
+
+/** The exact payload from the m4-2 review finding 1. */
+const REVIEWER_PAYLOAD =
+  'VARCHAR) AS "c" FROM (...) ); CREATE TABLE assay_injected AS SELECT 31337; --'
 
 const BASE: OverlayBase = {
   baseAnchor: 'b1',
@@ -193,5 +198,94 @@ describe('parseOverlayPayload — cell values and ops', () => {
     })
     expect(parsed).not.toBeNull()
     expect(parsed!.ops).toHaveLength(2)
+  })
+})
+
+describe('parseOverlayPayload — hostile engine type expressions (m4-2 fix round)', () => {
+  it("rejects the reviewer's exact injection payload as a column-cast target", () => {
+    const castOverlay = {
+      base: BASE,
+      ops: [{ kind: 'column-cast' as const, column: 'id', targetType: REVIEWER_PAYLOAD }],
+    }
+    // Rejected at the boundary (the payload parser's drop contract) …
+    expect(parseOverlayPayload(payload(castOverlay.ops))).toBeNull()
+    // … and the same validator produces the typed error the client surfaces.
+    expect(() => assertValidOverlayTypes(castOverlay)).toThrow(EngineTypeError)
+  })
+
+  it('rejects the same payload smuggled through a base column type', () => {
+    expect(
+      parseOverlayPayload(
+        payload([], {
+          ...BASE,
+          columns: [
+            { name: 'id', type: 'BIGINT' },
+            { name: 'label', type: REVIEWER_PAYLOAD },
+          ],
+        }),
+      ),
+    ).toBeNull()
+  })
+
+  it('rejects separators, comments, unbalanced delimiters, and trailing tokens in either position', () => {
+    const hostile = [
+      "VARCHAR' OR '1'='1",
+      'BIGINT; DROP TABLE t',
+      'BIGINT -- comment',
+      'BIGINT /* comment */',
+      'VARCHAR) ', // unbalanced closer
+      'VARCHAR extra', // trailing token
+      '', // empty
+    ]
+    for (const type of hostile) {
+      expect(
+        parseOverlayPayload(payload([{ kind: 'column-cast', column: 'id', targetType: type }])),
+        `cast target ${JSON.stringify(type)}`,
+      ).toBeNull()
+      expect(
+        parseOverlayPayload(
+          payload([], {
+            ...BASE,
+            columns: [{ name: 'id', type }],
+          }),
+        ),
+        `base type ${JSON.stringify(type)}`,
+      ).toBeNull()
+    }
+  })
+
+  it('still accepts the benign battery so the validator is not over-restrictive', () => {
+    const parsed = parseOverlayPayload(
+      payload(
+        [
+          { kind: 'column-cast', column: 'id', targetType: 'TEXT' },
+          { kind: 'column-cast', column: 'label', targetType: 'VARCHAR(20)' },
+        ],
+        {
+          ...BASE,
+          columns: [
+            { name: 'id', type: 'DECIMAL(10,2)' },
+            { name: 'label', type: "ENUM('a','b')" },
+          ],
+        },
+      ),
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed!.base.columns[0]!.type).toBe('DECIMAL(10,2)')
+  })
+
+  it('assertValidOverlayTypes throws the typed EngineTypeError directly', () => {
+    expect(() =>
+      assertValidOverlayTypes({
+        base: { ...BASE, columns: [{ name: 'id', type: REVIEWER_PAYLOAD }] },
+      }),
+    ).toThrow(EngineTypeError)
+    expect(() =>
+      assertValidOverlayTypes({
+        base: BASE,
+        ops: [{ kind: 'column-cast', column: 'id', targetType: REVIEWER_PAYLOAD }],
+      }),
+    ).toThrow(EngineTypeError)
+    expect(() => assertValidOverlayTypes({ base: BASE })).not.toThrow()
   })
 })

@@ -39,6 +39,7 @@ import {
   OVERLAY_ROW_ID_COLUMN,
   RESERVED_OVERLAY_COLUMN_NAMES,
 } from './overlay-query'
+import { EngineTypeError } from './type-expr'
 
 const BASE: OverlayBase = {
   baseAnchor: 'b1',
@@ -367,6 +368,113 @@ describe('cellLiteralSql and the formula-injection guard', () => {
       withKey: true,
     })
     expect(plain).not.toContain('chr(9)')
+  })
+
+  it('classifies every textual alias as string-like so the CSV guard covers a TEXT cast (m4-2 fix)', () => {
+    // A `column-cast` to DuckDB's TEXT alias sets the EFFECTIVE type to TEXT
+    // (DESCRIBE canonicalizes it back to VARCHAR). An exact-`'VARCHAR'`
+    // check skipped the guard here — the m4-2 review's finding 2.
+    for (const alias of [
+      'TEXT',
+      'STRING',
+      'CHAR(2)',
+      'BPCHAR',
+      'VARCHAR(20)',
+      'CHARACTER VARYING',
+    ]) {
+      const ops: EditOp[] = [
+        {
+          kind: 'cell-set',
+          rowId: rid('base:b1#0'),
+          column: 'label',
+          value: { kind: 'string', value: '=1+1' },
+        },
+        { kind: 'column-cast', column: 'label', targetType: alias },
+      ]
+      const csv = composeSourceSql(compositionFor(ops), {
+        withRowIds: false,
+        sanitizeCsv: true,
+        withKey: false,
+      })
+      expect(csv, alias).toContain('chr(39)')
+      expect(csv, alias).toContain(`AS ${alias}`)
+    }
+    // A numeric cast is not guarded (the guard would break the rendering).
+    const numericBase: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [{ name: 'id', type: 'BIGINT' }],
+      baseRowCount: 3,
+    }
+    const numeric = composeSourceSql(
+      {
+        viewName: 'assay_t1',
+        base: numericBase,
+        state: foldOverlay(numericBase, [
+          { kind: 'column-cast', column: 'id', targetType: 'DOUBLE' },
+        ]).state,
+      },
+      { withRowIds: false, sanitizeCsv: true, withKey: false },
+    )
+    expect(numeric).not.toContain('chr(39)')
+  })
+
+  it('pins the text-value literal escaping (single quotes and backslashes)', () => {
+    // `text` becomes CAST('<escaped>' AS <type>); DuckDB string literals use
+    // '' for a quote and treat backslashes literally, so only quotes need
+    // doubling (pinned against the pinned DuckDB CLI 1.5.5).
+    expect(cellLiteralSql({ kind: 'text', text: "a\\b'c" }, 'VARCHAR')).toBe(
+      "CAST('a\\b''c' AS VARCHAR)",
+    )
+    expect(cellLiteralSql({ kind: 'text', text: "'); DROP TABLE t; --" }, 'TEXT')).toBe(
+      "CAST('''); DROP TABLE t; --' AS TEXT)",
+    )
+    expect(cellLiteralSql({ kind: 'string', value: 'back\\slash' }, 'TEXT')).toBe(
+      "CAST('back\\slash' AS TEXT)",
+    )
+  })
+})
+
+describe('overlay composition — hostile type expressions produce no SQL (m4-2 fix)', () => {
+  const PAYLOAD = 'VARCHAR) AS "c" FROM (...) ); CREATE TABLE assay_injected AS SELECT 31337; --'
+
+  it('throws a typed EngineTypeError before composing a hostile column-cast target', () => {
+    const state = stateFor([{ kind: 'column-cast', column: 'label', targetType: PAYLOAD }])
+    const composition = { viewName: 'assay_t1', base: BASE, state }
+    expect(() =>
+      composeSourceSql(composition, { withRowIds: false, sanitizeCsv: false, withKey: false }),
+    ).toThrow(EngineTypeError)
+    expect(() => composeOverlaySchemaSql(composition)).toThrow(EngineTypeError)
+    expect(() => composeOverlayWindowSql({ ...composition, limit: 1, offset: 0 })).toThrow(
+      EngineTypeError,
+    )
+    expect(() => composeOverlayCountSql(composition)).toThrow(EngineTypeError)
+    expect(() => composeOverlayExportSql(composition, 'csv', 'e1')).toThrow(EngineTypeError)
+  })
+
+  it('throws before composing a hostile base column type', () => {
+    const hostile: OverlayBase = {
+      ...BASE,
+      columns: [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'label', type: PAYLOAD },
+      ],
+    }
+    const composition = {
+      viewName: 'assay_t1',
+      base: hostile,
+      state: foldOverlay(hostile, []).state,
+    }
+    expect(() =>
+      composeSourceSql(composition, { withRowIds: false, sanitizeCsv: true, withKey: false }),
+    ).toThrow(EngineTypeError)
+  })
+
+  it('cellLiteralSql validates its effective type (last-line defence)', () => {
+    expect(() => cellLiteralSql({ kind: 'null' }, PAYLOAD)).toThrow(EngineTypeError)
+    expect(() => cellLiteralSql({ kind: 'string', value: 'x' }, 'BIGINT; DROP TABLE t')).toThrow(
+      EngineTypeError,
+    )
   })
 })
 

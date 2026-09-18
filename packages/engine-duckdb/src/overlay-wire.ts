@@ -17,12 +17,21 @@
  *   pass domain records verbatim; a plain object is a caller bug and is
  *   rejected rather than coerced);
  * - base column names must be unique (the host contract from
- *   `OverlayBase`) and `baseRowCount` a safe non-negative integer.
+ *   `OverlayBase`) and `baseRowCount` a safe non-negative integer;
+ * - **every engine type expression must be exactly one complete DuckDB type**
+ *   (`type-expr.ts`): base `columns[].type` and `column-cast.targetType` are
+ *   interpolated into SQL type positions by the composer, so an invalid
+ *   spelling (statement separators, comments, unbalanced brackets, trailing
+ *   tokens, …) rejects the whole payload here — the untrusted boundary — and
+ *   again in the composer (`overlay-query.ts`). The m4-2 review's payload
+ *   `VARCHAR) AS "c" FROM (...) ); CREATE TABLE assay_injected …` is rejected
+ *   by this check.
  *
  * The returned objects are the *domain* types (`OverlayBase`, `EditOp[]`) —
  * the composer and fold consume them directly; no second mapping layer.
  */
 import type { CellValue, EditOp, InsertPosition, OverlayBase, RowId } from '@assay/domain'
+import { validateEngineTypeExpression } from './type-expr'
 
 /** The overlay payload every overlay request carries (base + op list). */
 export interface EngineOverlayPayload {
@@ -71,6 +80,46 @@ function isStringRecord(
 }
 
 /**
+ * Structural form of `validateEngineTypeExpression`: `true` exactly when the
+ * string is one complete DuckDB type expression. Used by the payload parser
+ * (a malformed type rejects the payload, the parser's never-throws contract)
+ * and by `assertValidOverlayTypes` (which surfaces the typed error).
+ */
+function isEngineTypeExpression(value: unknown): value is string {
+  try {
+    validateEngineTypeExpression(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Validate every engine type expression an overlay carries — base column
+ * types and `column-cast` target types — as exactly one complete DuckDB type.
+ * Throws the typed `EngineTypeError` on the first invalid expression.
+ *
+ * `parseOverlayPayload` calls this indirectly through the per-field check
+ * (returning `null` for the reject-and-drop boundary contract); the
+ * main-thread client calls it directly so a hostile overlay fails fast with
+ * a typed `EngineOperationError` instead of being silently dropped by the
+ * worker (which would hang the caller). Both are the same validator, applied
+ * at both sides of the untrusted boundary — the composer applies it a third
+ * time as defence in depth (`overlay-query.ts`).
+ */
+export function assertValidOverlayTypes(payload: {
+  readonly base: OverlayBase
+  readonly ops?: readonly EditOp[]
+}): void {
+  for (const column of payload.base.columns) {
+    validateEngineTypeExpression(column.type)
+  }
+  for (const op of payload.ops ?? []) {
+    if (op.kind === 'column-cast') validateEngineTypeExpression(op.targetType)
+  }
+}
+
+/**
  * Parse one op of the closed 8-kind union; `null` when malformed.
  * (Documented above: `row-uninsert`/`row-delete`/`row-restore` share the
  * `{ kind, rowId }` shape, so the switch falls through by design.)
@@ -109,9 +158,9 @@ function parseEditOp(value: unknown): EditOp | null {
         ? { kind: 'column-rename', from: record['from'], to: record['to'] }
         : null
     case 'column-cast':
-      return isStringRecord(record, ['column', 'targetType'])
-        ? { kind: 'column-cast', column: record['column'], targetType: record['targetType'] }
-        : null
+      if (!isStringRecord(record, ['column', 'targetType'])) return null
+      if (!isEngineTypeExpression(record['targetType'])) return null
+      return { kind: 'column-cast', column: record['column'], targetType: record['targetType'] }
     default:
       return null
   }
@@ -157,6 +206,7 @@ export function parseOverlayPayload(value: unknown): EngineOverlayPayload | null
   if (!Array.isArray(rawColumns)) return null
   const columns = rawColumns.map((column) => {
     if (!isStringRecord(column, ['name', 'type'])) return null
+    if (!isEngineTypeExpression(column['type'])) return null
     return { name: column['name'], type: column['type'] }
   })
   if (columns.some((column) => column === null)) return null

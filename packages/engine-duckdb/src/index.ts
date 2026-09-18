@@ -148,8 +148,19 @@ export {
   RESERVED_OVERLAY_COLUMN_NAMES,
 } from './overlay-query'
 export type { OverlayComposition, OverlayWindowQuery } from './overlay-query'
-export { parseOverlayPayload } from './overlay-wire'
+export { parseOverlayPayload, assertValidOverlayTypes } from './overlay-wire'
 export type { EngineOverlayPayload } from './overlay-wire'
+// m4-2 fix-round fold: the strict engine type-expression validator and the
+// canonical string-family classifier the CSV formula-injection guard keys
+// off. Public so hosts can validate declared cast types before submitting an
+// overlay and so the guard's classification is inspectable.
+export {
+  EngineTypeError,
+  isStringLikeEngineType,
+  parseEngineTypeExpression,
+  validateEngineTypeExpression,
+} from './type-expr'
+export type { EngineTypeFamily, EngineTypeInfo } from './type-expr'
 
 // The worker entry (`./worker.ts`) is intentionally not part of the
 // main-thread surface: the client loads it via

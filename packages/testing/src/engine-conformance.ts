@@ -107,6 +107,12 @@
  *     schema reads, and exports of every declared format: byte-identical
  *     (ADR 0012 — the source is never rewritten in place), and no export
  *     path ever equals the source path.
+ * 17. `overlay-hostile-types-rejected` (m4-2 fix round) — hostile engine
+ *     type expressions (base `columns[].type` and `column-cast.targetType`,
+ *     incl. the review's `VARCHAR) AS "c" … ; CREATE TABLE …` payload) are
+ *     rejected with the typed operation category, the injection's named
+ *     side-effect table does not exist afterwards, and the engine stays
+ *     reusable with the ordinary overlay surface intact.
  *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
@@ -442,6 +448,19 @@ export interface EngineConformanceSubject {
   /** Stage the overlay base dataset (`overlayDataset.base`). */
   stageOverlayFile(): Promise<ConformanceFileSource>
   /**
+   * Hostile type-expression probes (m4-2 fix round): overlays whose base
+   * column type or `column-cast` target is a SQL-injection-shaped string.
+   * The `overlay-hostile-types-rejected` scenario requires a typed operation
+   * rejection for each and asserts any named `injectedTable` absent.
+   */
+  readonly hostileTypeProbes: readonly ConformanceHostileTypeProbe[]
+  /**
+   * Whether a table/view with this name is currently registered — the
+   * side-effect probe for hostile type payloads. Return `false` when the
+   * engine cannot observe it.
+   */
+  tableExists(client: ConformanceEngineClient, name: string): Promise<boolean>
+  /**
    * A stable content digest (e.g. sha-256 hex) of the staged file behind
    * `source` — the byte-identity probe the source-immutability scenario
    * asserts with. Must reflect the file's CURRENT bytes on every call.
@@ -663,6 +682,23 @@ export interface ConformanceOverlayDataset {
   readonly exports: readonly ConformanceExportCheck[]
 }
 
+/**
+ * A hostile engine type-expression probe (m4-2 fix round). Type strings are
+ * untrusted input the composer interpolates into SQL type positions; the
+ * boundary must reject an injection-shaped spelling with a typed error and
+ * never build a statement. `overlay` carries the hostile base column type or
+ * `column-cast` target; `injectedTable`, when named, is the side-effect table
+ * the payload attempts to create and the scenario asserts absent afterwards.
+ */
+export interface ConformanceHostileTypeProbe {
+  /** Stable label (scenario facts/messages only — never dataset contents). */
+  readonly label: string
+  /** An overlay carrying the hostile type expression in one type position. */
+  readonly overlay: ConformanceOverlay
+  /** Table the payload attempts to create; asserted absent after the probe. */
+  readonly injectedTable?: string
+}
+
 // ---- Results ----
 
 /** Stable scenario identifiers (each runs independently, fresh client). */
@@ -683,6 +719,7 @@ export const engineConformanceScenarioNames = [
   'overlay-window-fidelity',
   'export-round-trip',
   'source-immutability',
+  'overlay-hostile-types-rejected',
 ] as const
 
 export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[number]
@@ -2118,6 +2155,58 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       exports: dataset.exports.length,
       distinctDestinations: destinations.size,
       digestUnchanged: true,
+    }
+  },
+
+  'overlay-hostile-types-rejected': async (subject) => {
+    // The m4-2 review's finding 1: type strings reached SQL type positions
+    // unvalidated, and a payload closed the position with
+    // `VARCHAR) AS "c" … ; CREATE TABLE assay_injected …`. The boundary must
+    // reject every injection-shaped spelling with a typed error and build no
+    // statement; the named side-effect table must not exist afterwards.
+    expectCondition(
+      subject.hostileTypeProbes.length > 0,
+      'subject misconfiguration: declare at least one hostile type-expression probe',
+    )
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageOverlayFile())
+
+    let rejected = 0
+    for (const probe of subject.hostileTypeProbes) {
+      const error = await rejectionOf(client.overlaySchema(handle, probe.overlay))
+      expectCondition(
+        error !== null,
+        `[${probe.label}] a hostile engine type expression must be rejected (no SQL may be composed)`,
+      )
+      expectCondition(
+        subject.errors.operation(error),
+        `[${probe.label}] the rejection must be the typed operation category (got: ${errorMessage(error)})`,
+      )
+      rejected += 1
+      if (probe.injectedTable !== undefined) {
+        const exists = await subject.tableExists(client, probe.injectedTable)
+        expectCondition(
+          !exists,
+          `[${probe.label}] the injection's side-effect table must not exist after the rejected probe`,
+        )
+      }
+    }
+
+    // The engine must stay usable and the ordinary overlay surface unchanged.
+    const schema = await client.overlaySchema(handle, subject.overlayDataset)
+    expectColumnsMatch(schema, subject.overlayDataset.effectiveSchema)
+    const liveRowCount = await client.overlayRowCount(handle, subject.overlayDataset)
+    expectEqual(
+      liveRowCount,
+      subject.overlayDataset.liveRowCount,
+      'hostile probes must not change the overlay surface',
+    )
+    return {
+      probes: subject.hostileTypeProbes.length,
+      rejected,
+      injectedAbsent: true,
+      engineReusable: true,
     }
   },
 }

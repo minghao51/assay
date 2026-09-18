@@ -980,4 +980,33 @@ describe('DuckDbEngineClient overlay + export (m4-2)', () => {
     })
     await expect(pending2).rejects.toThrow(EngineProtocolError)
   })
+
+  it('rejects hostile overlay type expressions with a typed EngineOperationError before posting (m4-2 fix)', async () => {
+    const { client, worker, handle } = await openHandle()
+    const PAYLOAD = 'VARCHAR) AS "c" FROM (...) ); CREATE TABLE assay_injected AS SELECT 31337; --'
+    const hostileCast = {
+      base: overlay.base,
+      ops: [{ kind: 'column-cast' as const, column: 'label', targetType: PAYLOAD }],
+    }
+    const hostileBase = {
+      base: {
+        ...overlay.base,
+        columns: [overlay.base.columns[0]!, { name: 'label', type: PAYLOAD }],
+      },
+      ops: [],
+    }
+    for (const hostile of [hostileCast, hostileBase]) {
+      await expect(client.overlaySchema(handle, hostile)).rejects.toThrow(EngineOperationError)
+      await expect(client.overlayRowCount(handle, hostile)).rejects.toThrow(EngineOperationError)
+      await expect(
+        client.fetchOverlayRange(handle, hostile, { startRow: 0, endRow: 1 }),
+      ).rejects.toThrow(EngineOperationError)
+      await expect(client.exportView(handle, { format: 'csv', overlay: hostile })).rejects.toThrow(
+        EngineOperationError,
+      )
+    }
+    // Nothing crossed the worker boundary: only the open's boot + open posts.
+    expect(worker.postedRequests).toHaveLength(2)
+    expect(client.status).toBe('ready')
+  })
 })
