@@ -28,6 +28,20 @@ const h = vi.hoisted(() => ({
   healthy: true,
   /** Pre-commit cast check outcome: pass, refuse, or reject (engine error). */
   castCheck: 'ok' as 'ok' | 'refuse' | 'throw',
+  /**
+   * When set, `overlayCastCheck` awaits this before resolving — lets a test
+   * land a same-table history change in the window between the pre-cast
+   * snapshot and the check result (the m4-4 race guard's target).
+   */
+  castCheckGate: null as Promise<void> | null,
+  /**
+   * When true, refuse iff the checked overlay already has ops. Models a value
+   * that cannot convert under the *changed* state, so a stale check against
+   * the empty overlay would wrongly pass.
+   */
+  castCheckRefuseWhenNonEmpty: false,
+  /** Ops count of each overlay the check was asked to validate. */
+  castCheckOpCounts: [] as number[],
 }))
 
 const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
@@ -113,8 +127,14 @@ vi.mock('./lib/engine', () => {
       overlaySchema: async (_handle: unknown, overlay: Overlay) =>
         h.healthy ? effectiveSchema(overlay) : unhealthy(),
       overlayRowCount: async () => (h.healthy ? 1 : unhealthy()),
-      overlayCastCheck: async () => {
+      overlayCastCheck: async (_handle: unknown, overlay: Overlay) => {
+        const opCount = overlay.ops?.length ?? 0
+        h.castCheckOpCounts.push(opCount)
+        if (h.castCheckGate !== null) await h.castCheckGate
         if (h.castCheck === 'throw') throw new Error('engine unavailable')
+        if (h.castCheckRefuseWhenNonEmpty && opCount > 0) {
+          return { hasNonConvertibleValues: true }
+        }
         return { hasNonConvertibleValues: h.castCheck === 'refuse' }
       },
       fetchOverlayRange: async (_handle: unknown, overlay: Overlay) => ({
@@ -132,6 +152,9 @@ afterEach(() => {
   cleanup()
   h.healthy = true
   h.castCheck = 'ok'
+  h.castCheckGate = null
+  h.castCheckRefuseWhenNonEmpty = false
+  h.castCheckOpCounts = []
 })
 
 async function openFixture(): Promise<void> {
@@ -281,6 +304,107 @@ describe('cast validate-before-commit (m4-4 fix round)', () => {
       'cast column "income" to DECIMAL(10,2)',
     )
     expect(screen.getByTestId('pending-changes').textContent).toContain('1 column cast')
+  })
+
+  it('re-checks and drops a stale verdict when the history changes mid-check', async () => {
+    await openFixture()
+
+    // Defer the engine's check so a same-table history change can land while
+    // it is in flight, and make the *changed* state refuse the cast — the
+    // reviewer's race: a stale `hasNonConvertibleValues:false` computed over
+    // the empty overlay must not append a cast over the changed state.
+    let releaseCheck!: () => void
+    h.castCheckGate = new Promise<void>((resolve) => {
+      releaseCheck = resolve
+    })
+    h.castCheckRefuseWhenNonEmpty = true
+
+    await castColumn('income', 'DECIMAL(10,2)')
+    // The first call validated the empty overlay, and pending is visible.
+    expect(h.castCheckOpCounts).toEqual([0])
+    expect(screen.getByTestId('column-cast-pending').textContent).toBe('Checking…')
+
+    // A same-table edit (rename) lands during the check window.
+    const panel = within(screen.getByTestId('schema-panel'))
+    await act(async () => {
+      fireEvent.click(panel.getByRole('button', { name: 'Rename column country' }))
+    })
+    const input = panel.getByTestId('column-rename-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'nation' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    // Release the stale (empty-overlay) verdict: it must be discarded and the
+    // check re-run against the renamed state, which then refuses.
+    await act(async () => {
+      releaseCheck()
+    })
+    await screen.findByTestId('edit-error')
+
+    expect(screen.getByTestId('edit-error').textContent).toContain('No cast was applied')
+    // Two checks ran: the stale one (no ops) and the re-check (one op).
+    expect(h.castCheckOpCounts).toEqual([0, 1])
+    // Only the rename was applied; the stale cast was never appended over it.
+    expect(screen.getByTestId('pending-changes').textContent).toContain('1 column rename')
+    expect(screen.getByTestId('pending-changes').textContent).not.toContain('column cast')
+    expect(screen.queryByTestId('column-cast-pending')).toBeNull()
+  })
+})
+
+describe('schema panel freshness (m4-4 fix round 2)', () => {
+  it('re-keys names/types after rename and cast, and casts the renamed column', async () => {
+    await openFixture()
+    const panel = within(screen.getByTestId('schema-panel'))
+
+    // Rename income → salary through the panel.
+    await act(async () => {
+      fireEvent.click(panel.getByRole('button', { name: 'Rename column income' }))
+    })
+    const input = panel.getByTestId('column-rename-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'salary' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    // The panel followed the rename: the new name is present with its badge,
+    // the pre-rename entry is gone (the stale-panel bug kept `income`).
+    expect(
+      screen.getAllByTestId('schema-column').map((el) => el.getAttribute('data-col-name')),
+    ).toEqual(['id', 'country', 'salary'])
+    expect(panel.queryByRole('button', { name: 'Rename column income' })).toBeNull()
+    const salaryColumn = screen
+      .getAllByTestId('schema-column')
+      .find((el) => el.getAttribute('data-col-name') === 'salary')
+    expect(salaryColumn).toBeDefined()
+    expect(within(salaryColumn!).getByTestId('schema-type-badge').textContent).toBe('BIGINT')
+
+    // Cast the renamed column through the panel — it must target `salary`, not
+    // the pre-rename name (which surfaced as an unknown-column engine error).
+    await act(async () => {
+      fireEvent.click(within(salaryColumn!).getByRole('button', { name: 'Cast column salary' }))
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('column-cast-select'), { target: { value: 'DOUBLE' } })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('column-cast-commit'))
+    })
+
+    expect(screen.queryByTestId('edit-error')).toBeNull()
+    expect(screen.getAllByTestId('history-description').map((el) => el.textContent)).toEqual([
+      'rename column "income" to "salary"',
+      'cast column "salary" to DOUBLE',
+    ])
+    const header = screen
+      .getAllByTestId('grid-header-cell')
+      .find((el) => el.getAttribute('data-col-name') === 'salary')
+    expect(header?.getAttribute('data-col-type')).toBe('DOUBLE')
+    // The panel badge re-keyed to the cast type too.
+    const castSalary = screen
+      .getAllByTestId('schema-column')
+      .find((el) => el.getAttribute('data-col-name') === 'salary')
+    expect(within(castSalary!).getByTestId('schema-type-badge').textContent).toBe('DOUBLE')
   })
 })
 

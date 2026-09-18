@@ -190,6 +190,35 @@ test('column cast round-trips (values re-typed) and undo restores', async ({ pag
   await expect(page.getByTestId('edit-undo')).toBeDisabled()
 })
 
+test('the schema panel re-keys after rename; cast-after-rename works through the panel', async ({
+  page,
+}) => {
+  await openCustomersFixture(page)
+
+  // Rename income → salary through the panel.
+  await renameColumn(page, 'income', 'salary')
+  await expect(headerCell(page, 'salary')).toBeVisible()
+
+  // The panel (the surface hosting Rename/Cast) must follow the model's
+  // asynchronous schema re-key, or the next op targets the pre-rename name.
+  const panel = page.getByTestId('schema-panel')
+  const salaryColumn = panel.locator('[data-testid="schema-column"][data-col-name="salary"]')
+  await expect(salaryColumn).toBeVisible()
+  await expect(panel.locator('[data-testid="schema-column"][data-col-name="income"]')).toHaveCount(
+    0,
+  )
+  await expect(salaryColumn.getByTestId('schema-type-badge')).toHaveText('BIGINT')
+
+  // Cast the *renamed* column through the panel: a stale panel would emit
+  // `income` and fail with an unknown-overlay-column engine error. Here it
+  // must apply cleanly, re-typing the values and the panel badge.
+  await castColumn(page, 'salary', 'DOUBLE')
+  await expect(headerCell(page, 'salary')).toHaveAttribute('data-col-type', 'DOUBLE')
+  await expect(salaryColumn.getByTestId('schema-type-badge')).toHaveText('DOUBLE')
+  await expect(page.getByTestId('edit-error')).toHaveCount(0)
+  await expect(cell(page, 0, 2)).toHaveText('52000')
+})
+
 test('a cast to the current type is an honest no-op surfaced with its outcome', async ({
   page,
 }) => {
@@ -289,6 +318,13 @@ test('casting to DECIMAL(10,2) renders readable decimals, not <16 bytes> (m4-4 w
   await expect(cell(page, 1, 2)).toHaveText('61000.00')
   await expect(cell(page, 3, 2)).toHaveText('48000.00')
   await expect(cell(page, 4, 2)).toHaveText('75000.00')
+  // The schema panel badge follows the cast (subscription freshness).
+  await expect(
+    page
+      .getByTestId('schema-panel')
+      .locator('[data-testid="schema-column"][data-col-name="income"]')
+      .getByTestId('schema-type-badge'),
+  ).toHaveText('DECIMAL(10,2)')
   // Row 2's income is NULL → the dedicated null marker, distinct from a
   // byte summary.
   await expect(cell(page, 2, 2)).toHaveAttribute('data-null', 'true')

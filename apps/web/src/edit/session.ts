@@ -135,6 +135,19 @@ export function castRefusalMessage(column: string, targetType: string): string {
   )
 }
 
+/**
+ * Readable refusal for a cast whose pre-commit check kept being invalidated by
+ * a concurrent same-table change (m4-4 fix round 2). The check never completed
+ * against a state the append could trust, so nothing was applied — the user is
+ * asked to retry rather than being handed a stale verdict.
+ */
+export function castRacedMessage(column: string, targetType: string): string {
+  return (
+    `Cannot cast "${column}" to ${targetType}: ` +
+    'the view changed while the cast was being checked. No cast was applied; try again.'
+  )
+}
+
 /** The effects a history commit needs from the composition root. */
 export interface CommitEffects {
   /** Publish `history` as the active overlay (overlay ref + React state). */

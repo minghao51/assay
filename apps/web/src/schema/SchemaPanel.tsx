@@ -48,6 +48,13 @@ interface SchemaPanelProps {
   readonly onRenameColumn?: (from: string, to: string) => void
   /** m4-4 column cast affordance; `targetType` is pre-validated by the caller UI. */
   readonly onCastColumn?: (column: string, targetType: string) => void
+  /**
+   * Column whose cast pre-check is in flight (m4-4 fix round 2). Its cast
+   * control renders a pending state and is disabled, so a slow engine check
+   * is visible and a double-click cannot queue a second intent. `null`/
+   * omitted means no check is running.
+   */
+  readonly castPendingColumn?: string | null
 }
 
 /**
@@ -126,11 +133,13 @@ function NodeActionButton({
 function ColumnControls({
   name,
   type,
+  castPending,
   onRename,
   onCast,
 }: {
   readonly name: string
   readonly type: string
+  readonly castPending: boolean
   readonly onRename: (from: string, to: string) => void
   readonly onCast: (column: string, targetType: string) => void
 }) {
@@ -180,6 +189,7 @@ function ColumnControls({
             data-col-name={name}
             aria-label={`Rename column ${name}`}
             title={`Rename column ${name}`}
+            disabled={castPending}
             onClick={() => {
               setMode('rename')
               setError(null)
@@ -194,13 +204,24 @@ function ColumnControls({
             data-col-name={name}
             aria-label={`Cast column ${name}`}
             title={`Cast column ${name} (currently ${type})`}
+            disabled={castPending}
             onClick={() => {
               setMode('cast')
               setError(null)
             }}
           >
             Cast
-          </button>
+          </button>{' '}
+          {castPending && (
+            <span
+              className="schema-column-pending"
+              data-testid="column-cast-pending"
+              role="status"
+              data-col-name={name}
+            >
+              Checking…
+            </span>
+          )}
         </>
       )}
       {mode === 'rename' && (
@@ -487,7 +508,13 @@ function TypeNode({
  * it without losing expansion state. Expansion state is a flat path set —
  * collapsing an ancestor keeps descendants' paths valid for re-expansion.
  */
-export function SchemaPanel({ columns, onAction, onRenameColumn, onCastColumn }: SchemaPanelProps) {
+export function SchemaPanel({
+  columns,
+  onAction,
+  onRenameColumn,
+  onCastColumn,
+  castPendingColumn = null,
+}: SchemaPanelProps) {
   const [open, setOpen] = useState(true)
   const [expanded, setExpanded] = useState<ExpandedPaths>(() => new Set<string>())
 
@@ -556,6 +583,7 @@ export function SchemaPanel({ columns, onAction, onRenameColumn, onCastColumn }:
                     <ColumnControls
                       name={column.name}
                       type={column.type}
+                      castPending={castPendingColumn === column.name}
                       onRename={onRenameColumn}
                       onCast={onCastColumn}
                     />

@@ -23,6 +23,11 @@
  * - `UHUGEINT` arrives as `FixedSizeBinary(16)` (a `Uint8Array`); it is an
  *   integer, not an offered cast target, and keeps the `<16 bytes>` summary.
  *
+ * Boundary (m4-5 carry-over): this decoder is keyed off the *column's* type
+ * string, so a decimal nested inside a struct/list (`STRUCT("a" DECIMAL(10,2))`)
+ * is not recognized and its cells still render `<16 bytes>`; only top-level
+ * DECIMAL/NUMERIC/HUGEINT columns are decoded here.
+ *
  * Text-only, total: unknown shapes/lengths return `null` and the caller keeps
  * its existing formatting path. No dataset value is ever logged (ADR 0025).
  */

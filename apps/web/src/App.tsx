@@ -19,6 +19,7 @@ import { EditToolbar } from './edit/EditToolbar'
 import { HistoryPanel } from './edit/HistoryPanel'
 import {
   activeOps,
+  castRacedMessage,
   castRefusalMessage,
   commitWithRollback,
   editOutcomeMessage,
@@ -90,6 +91,23 @@ function LiveTableInfo({ model, tableId }: { model: GridViewportModel; tableId: 
 /** Stable empty-schema constant for the pre-open phases (useMemo stability). */
 const NO_COLUMNS: readonly { readonly name: string; readonly type: string }[] = []
 
+/**
+ * Stable no-op model subscription/snapshot for the pre-open phases. `App`
+ * must call `useSyncExternalStore` unconditionally (hook rules); these stand
+ * in until a table is ready. Both are module constants so React never
+ * re-subscribes between renders.
+ */
+const NO_SUBSCRIPTION = (): (() => void) => () => {}
+const NO_VERSION = (): number => 0
+
+/**
+ * How many times the cast path re-runs the engine's pre-commit check when a
+ * same-table history change invalidates a result. Each attempt awaits the
+ * engine, so this is a contention bound, not a hot loop; if the state keeps
+ * changing the intent is refused honestly rather than appended unchecked.
+ */
+const MAX_CAST_CHECK_ATTEMPTS = 3
+
 export function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   /**
@@ -140,8 +158,38 @@ export function App() {
    * tables must be dropped rather than applied to the new session's history.
    */
   const sessionToken = useRef(0)
+  /**
+   * Monotonic revision of the *active history*, bumped by every
+   * `activateHistory` (each op, undo/redo, and selective-cursor move). The
+   * cast path `await`s the engine's pre-commit check against a snapshot; if
+   * the history changed while that check was in flight, the result describes
+   * state the append would no longer commit over (the reviewer's same-table
+   * race: a cell edit/undo/insert landing during the check let a stale
+   * `hasNonConvertibleValues:false` append a cast over un-checked values).
+   * The revision captured with the snapshot is re-compared at append time.
+   */
+  const historyRevision = useRef(0)
+  /**
+   * Column whose cast pre-check is currently in flight (or `null`). Renders
+   * a pending state on that column's cast control so a slow check is honest
+   * and a double-click cannot queue a second intent.
+   */
+  const [castPendingColumn, setCastPendingColumn] = useState<string | null>(null)
 
-  const schemaColumns = phase.kind === 'ready' ? (phase.model.schema ?? []) : NO_COLUMNS
+  /**
+   * Subscribe to the model so schema re-keys after a rename/cast re-render the
+   * panel (and the nested-action specs). `DataGrid`/`LiveTableInfo` already
+   * subscribe; `schemaColumns` is derived from `model.schema`, which
+   * `refresh()` replaces asynchronously, so without a subscription App never
+   * re-rendered and the panel kept the pre-rename names/types.
+   */
+  const activeModel = phase.kind === 'ready' ? phase.model : null
+  useSyncExternalStore(
+    activeModel?.subscribe ?? NO_SUBSCRIPTION,
+    activeModel?.getVersion ?? NO_VERSION,
+  )
+
+  const schemaColumns = activeModel?.schema ?? NO_COLUMNS
   const nestedSpecs = useMemo(
     () =>
       schemaColumns.map((column) => ({ name: column.name, type: parseDuckDbType(column.type) })),
@@ -181,6 +229,9 @@ export function App() {
     (next: TransformationHistory): void => {
       if (phase.kind !== 'ready') return
       historyRef.current = next
+      // Bump before publishing: the cast guard reads this ref synchronously at
+      // both snapshot and append time, so any activation between them is seen.
+      historyRevision.current += 1
       overlayRef.current = overlaySnapshot(phase.base, next)
       setHistory(next)
       setOverlayRevision((revision) => revision + 1)
@@ -298,6 +349,13 @@ export function App() {
    * and the grid is never touched. The engine check's own rejection (unknown
    * column, engine error) is surfaced as readable text and likewise appends
    * nothing. Non-cast engine failures still use the m4-3 rollback path.
+   *
+   * The check spans an `await`, so its result is only trustworthy if the
+   * effective history did not change while it ran: the pre-cast snapshot is
+   * tagged with `historyRevision`, and a mismatch at append time re-runs the
+   * check against the new state (bounded) instead of appending a stale
+   * verdict — covering cell edits, insert/delete, undo/redo and table
+   * switches, not just table switches.
    */
   const handleRenameColumn = useCallback(
     (from: string, to: string) => {
@@ -309,26 +367,48 @@ export function App() {
   const handleCastColumn = useCallback(
     (column: string, targetType: string) => {
       if (phase.kind !== 'ready') return
-      const preCast = overlaySnapshot(phase.base, historyRef.current)
       const session = sessionToken.current
+      setCastPendingColumn(column)
       void (async () => {
-        let check: { readonly hasNonConvertibleValues: boolean }
         try {
-          check = await engineClient.overlayCastCheck(phase.handle, preCast, {
-            column,
-            targetType,
-          })
-        } catch (error) {
-          if (sessionToken.current === session) setEditError(engineRejectionMessage(error))
-          return
+          for (let attempt = 0; attempt < MAX_CAST_CHECK_ATTEMPTS; attempt++) {
+            // Capture the history revision *and* the exact snapshot the check
+            // will validate. They are read together (no await between), so a
+            // change after this point is unambiguously a concurrent edit.
+            const revision = historyRevision.current
+            const preCast = overlaySnapshot(phase.base, historyRef.current)
+            let check: { readonly hasNonConvertibleValues: boolean }
+            try {
+              check = await engineClient.overlayCastCheck(phase.handle, preCast, {
+                column,
+                targetType,
+              })
+            } catch (error) {
+              if (sessionToken.current === session) setEditError(engineRejectionMessage(error))
+              return
+            }
+            // A table switch while the check was in flight invalidates the intent.
+            if (sessionToken.current !== session) return
+            // A *same-table* history change also invalidates it: the check
+            // described state that is no longer what the append would commit
+            // over (the original silent-brick defect). Re-run against the new
+            // state rather than appending a stale result.
+            if (historyRevision.current !== revision) continue
+            if (check.hasNonConvertibleValues) {
+              setEditError(castRefusalMessage(column, targetType))
+              return
+            }
+            applyOp({ kind: 'column-cast', column, targetType })
+            return
+          }
+          // Every attempt was invalidated by a concurrent change; refuse
+          // honestly rather than append a result we could never trust.
+          if (sessionToken.current === session) {
+            setEditError(castRacedMessage(column, targetType))
+          }
+        } finally {
+          setCastPendingColumn((pending) => (pending === column ? null : pending))
         }
-        // A table switch while the check was in flight invalidates the intent.
-        if (sessionToken.current !== session) return
-        if (check.hasNonConvertibleValues) {
-          setEditError(castRefusalMessage(column, targetType))
-          return
-        }
-        applyOp({ kind: 'column-cast', column, targetType })
       })()
     },
     [phase, applyOp],
@@ -376,6 +456,8 @@ export function App() {
     setEditError(null)
     setViewError(false)
     sessionToken.current += 1
+    historyRevision.current += 1
+    setCastPendingColumn(null)
     overlayRef.current = null
     const resetHistory = emptyHistory()
     historyRef.current = resetHistory
@@ -466,6 +548,7 @@ export function App() {
             onAction={runNestedAction}
             onRenameColumn={handleRenameColumn}
             onCastColumn={handleCastColumn}
+            castPendingColumn={castPendingColumn}
           />
           <EditToolbar
             canUndo={history.cursor > 0}
