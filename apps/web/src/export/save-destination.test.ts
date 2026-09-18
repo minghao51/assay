@@ -13,18 +13,9 @@ function fakeHandle(writes: Uint8Array[]): SaveFileHandle {
   }
 }
 
-/** A handle whose `getFile` resolves the given probe file (DOM handles do). */
-function fakeHandleWithFile(writes: Uint8Array[], file: File): SaveFileHandle {
+/** Identity whose authoritative verdict is fixed (an FSA-opened source). */
+function fsaIdentity(sameEntry: boolean | Error): SourceIdentity {
   return {
-    ...fakeHandle(writes),
-    getFile: async () => file,
-  }
-}
-
-/** Identity whose authoritative verdict is fixed. */
-function provableIdentity(sameEntry: boolean | Error): SourceIdentity {
-  return {
-    kind: 'provable',
     isSameEntry: async () => {
       if (sameEntry instanceof Error) throw sameEntry
       return sameEntry
@@ -63,6 +54,9 @@ describe('requestSaveDestination — established picker patterns', () => {
     const destination = await requestSaveDestination('jsonl', {
       capabilities: { fileSavePicker: true },
       showSaveFilePicker: pick,
+      // FSA-opened source, provably a different entry — the only session
+      // shape still offered the picker (m4-5 fix round 2).
+      sourceIdentity: fsaIdentity(false),
     })
     expect(destination).toEqual({ via: 'file-system-access', handle })
     // Engine-generated-looking name; never the opened source's name (ADR 0025).
@@ -76,6 +70,7 @@ describe('requestSaveDestination — established picker patterns', () => {
         showSaveFilePicker: async () => {
           throw abortError()
         },
+        sourceIdentity: fsaIdentity(false),
       }),
     ).resolves.toBeNull()
   })
@@ -87,12 +82,36 @@ describe('requestSaveDestination — established picker patterns', () => {
         showSaveFilePicker: async () => {
           throw new Error('security error')
         },
+        sourceIdentity: fsaIdentity(false),
       }),
     ).rejects.toThrow('security error')
   })
 })
 
-describe('requestSaveDestination — same-source refusal (m4-5 fix round)', () => {
+describe('requestSaveDestination — input-fallback sessions are download-only (m4-5 fix round 2)', () => {
+  it('never offers the direct-write picker when the opened source has no retained FSA handle', async () => {
+    // Regression pin for the reviewer's round-2 finding: round 1 let an
+    // input-fallback session use the save picker behind a
+    // name+size+lastModified suspicion — which a source externally touched
+    // after opening defeats (different mtime ⇒ same-entry write allowed).
+    // Without a retained FSA handle, identity cannot be proven, so the
+    // picker is not offered AT ALL: the destination is the anchor download
+    // (our code never acquires a writable; the browser manages the target).
+    // The stub below throws if the picker is ever invoked.
+    const pick = vi.fn(async () => {
+      throw new Error('the save picker must never be offered to an input-fallback session')
+    })
+    const destination = await requestSaveDestination('csv', {
+      capabilities: { fileSavePicker: true },
+      showSaveFilePicker: pick,
+      // No `sourceIdentity`: the hidden-input open retained no handle.
+    })
+    expect(destination).toEqual({ via: 'download' })
+    expect(pick).not.toHaveBeenCalled()
+  })
+})
+
+describe('requestSaveDestination — same-source refusal for FSA-opened sources', () => {
   it('refuses the destination when the picked handle IS the opened source, before any write', async () => {
     // Regression pin for the ADR 0012 data-loss path: a real FSA probe opened
     // a source and saved the export to the SAME OPFS handle, silently
@@ -105,7 +124,7 @@ describe('requestSaveDestination — same-source refusal (m4-5 fix round)', () =
     const destination = await requestSaveDestination('csv', {
       capabilities: { fileSavePicker: true },
       showSaveFilePicker: async () => handle,
-      sourceIdentity: provableIdentity(true),
+      sourceIdentity: fsaIdentity(true),
     })
     expect(destination).toEqual({ via: 'refused-source' })
     expect(writes).toHaveLength(0)
@@ -117,7 +136,7 @@ describe('requestSaveDestination — same-source refusal (m4-5 fix round)', () =
     const destination = await requestSaveDestination('parquet', {
       capabilities: { fileSavePicker: true },
       showSaveFilePicker: async () => handle,
-      sourceIdentity: provableIdentity(false),
+      sourceIdentity: fsaIdentity(false),
     })
     expect(destination).toEqual({ via: 'file-system-access', handle })
   })
@@ -128,69 +147,9 @@ describe('requestSaveDestination — same-source refusal (m4-5 fix round)', () =
     const destination = await requestSaveDestination('csv', {
       capabilities: { fileSavePicker: true },
       showSaveFilePicker: async () => fakeHandle([]),
-      sourceIdentity: provableIdentity(new Error('handle disconnected')),
+      sourceIdentity: fsaIdentity(new Error('handle disconnected')),
     })
     expect(destination).toEqual({ via: 'refused-source' })
-  })
-
-  it('suspects a file-matching identity from name+size+lastModified and refuses the match', async () => {
-    // The hidden-input fallback has no handle, so identity is only ever a
-    // suspicion — but a save picker aimed at a file matching the opened
-    // source's name, size, and mtime must still be refused.
-    const writes: Uint8Array[] = []
-    const probeFile = new File([new Uint8Array(682)], 'customers.parquet', {
-      lastModified: 1_700_000_000_000,
-    })
-    const destination = await requestSaveDestination('csv', {
-      capabilities: { fileSavePicker: true },
-      showSaveFilePicker: async () => fakeHandleWithFile(writes, probeFile),
-      sourceIdentity: {
-        kind: 'file-matching',
-        name: 'customers.parquet',
-        size: 682,
-        lastModified: 1_700_000_000_000,
-      },
-    })
-    expect(destination).toEqual({ via: 'refused-source' })
-    expect(writes).toHaveLength(0)
-  })
-
-  it('allows a destination whose probe differs from the file-matching identity', async () => {
-    const writes: Uint8Array[] = []
-    const probeFile = new File([new Uint8Array(100)], 'elsewhere.csv', { lastModified: 5 })
-    const destination = await requestSaveDestination('csv', {
-      capabilities: { fileSavePicker: true },
-      showSaveFilePicker: async () => fakeHandleWithFile(writes, probeFile),
-      sourceIdentity: {
-        kind: 'file-matching',
-        name: 'customers.parquet',
-        size: 682,
-        lastModified: 1_700_000_000_000,
-      },
-    })
-    expect(destination?.via).toBe('file-system-access')
-  })
-
-  it('does not fabricate a suspicion when the handle exposes no file to probe', async () => {
-    const destination = await requestSaveDestination('csv', {
-      capabilities: { fileSavePicker: true },
-      showSaveFilePicker: async () => fakeHandle([]), // no getFile
-      sourceIdentity: {
-        kind: 'file-matching',
-        name: 'customers.parquet',
-        size: 682,
-        lastModified: 1,
-      },
-    })
-    expect(destination?.via).toBe('file-system-access')
-  })
-
-  it('stays out of the way when no source identity is known', async () => {
-    const destination = await requestSaveDestination('jsonl', {
-      capabilities: { fileSavePicker: true },
-      showSaveFilePicker: async () => fakeHandle([]),
-    })
-    expect(destination?.via).toBe('file-system-access')
   })
 })
 

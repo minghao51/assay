@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
@@ -40,6 +40,19 @@ import type { Download, Locator, Page } from '@playwright/test'
 // count, says filters are not applied, and the copy really holds every row;
 // (3) the arrow guidance names an interchange format for other tools instead
 // of promising a re-open, and the bytes match the advertised IPC stream type.
+//
+// Fix-round-2 pins (m4-5 review, round 2): (4) an input-fallback session is
+// NEVER offered the direct-write save picker — same-entry identity cannot be
+// proven without a retained FSA handle (round 1's name+size+lastModified
+// probe missed a source externally touched after opening), so delivery rides
+// the anchor download even though the browser has a picker, and that picker
+// is never invoked; (5) an FSA-opened session still gets the picker, and a
+// picked destination that IS the opened entry is still refused before any
+// write — proven end-to-end by opening through a FAKE FSA handle (the native
+// open picker is not automatable) whose `isSameEntry` the app consumes; (6)
+// the view note tracks filtering and sorting separately: a filter-only view
+// says "filtered subset", a sort-only view says the sorting is not applied
+// and never mentions filters, both → "filtered/sorted subset".
 
 const FIXTURE = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
 
@@ -96,6 +109,81 @@ async function exportFormat(page: Page, format: string): Promise<Download> {
 async function filterBy(page: Page, column: string, predicate: string): Promise<void> {
   await page.locator(`[data-testid="filter-input"][data-col-name="${column}"]`).fill(predicate)
   await page.locator(`[data-testid="filter-apply"][data-col-name="${column}"]`).click()
+}
+
+/** Click a column header's sort toggle once (m2-3 pattern: first click = asc). */
+async function sortBy(page: Page, column: string): Promise<void> {
+  await page.locator(`[data-testid="grid-sort-toggle"][data-col-name="${column}"]`).click()
+}
+
+/**
+ * Open the fixture through a FAKE File System Access open (the native open
+ * picker is not automatable through Playwright's filechooser): an init
+ * script installs `showOpenFilePicker`, returning a handle over the real
+ * fixture bytes. This is the identity-provable open — the only session shape
+ * still offered the direct-write save picker (m4-5 fix round 2).
+ *
+ * `savePicker` installs the save-side stub in the same document:
+ * - 'same-entry': resolves with the SAME handle the open flow retained, so
+ *   the platform-shaped `isSameEntry` verdict is `true` — the app must
+ *   refuse before any write (the fake writable records any acquisition).
+ * - 'abort': rejects like a dismissed native picker (AbortError).
+ */
+async function openFixtureViaFakeFsa(
+  page: Page,
+  fixturePath: string,
+  savePicker: 'same-entry' | 'abort',
+): Promise<void> {
+  await page.addInitScript(
+    ({ bytesBase64, fileName }) => {
+      const bytes = Uint8Array.from(atob(bytesBase64), (c) => c.charCodeAt(0))
+      const win = window as {
+        showOpenFilePicker?: unknown
+        showSaveFilePicker?: unknown
+        __assayFsaHandle?: unknown
+        __assayWritableAcquired?: boolean
+        __assayWrote?: boolean
+      }
+      const handle = {
+        kind: 'file' as const,
+        name: fileName,
+        isSameEntry: async (other: unknown) => other === handle,
+        getFile: async () => new File([bytes], fileName, { lastModified: 1_700_000_000_000 }),
+        createWritable: async () => {
+          win.__assayWritableAcquired = true
+          return {
+            write: async () => {
+              win.__assayWrote = true
+            },
+            close: async () => undefined,
+          }
+        },
+      }
+      win.showOpenFilePicker = async () => [handle]
+      win.__assayFsaHandle = handle
+    },
+    {
+      bytesBase64: readFileSync(fixturePath).toString('base64'),
+      fileName: path.basename(fixturePath),
+    },
+  )
+  if (savePicker === 'same-entry') {
+    await page.addInitScript(() => {
+      ;(window as { showSaveFilePicker?: unknown }).showSaveFilePicker = async () =>
+        (window as { __assayFsaHandle?: unknown }).__assayFsaHandle
+    })
+  } else {
+    await page.addInitScript(() => {
+      ;(window as { showSaveFilePicker?: unknown }).showSaveFilePicker = () =>
+        Promise.reject(Object.assign(new Error('dismissed'), { name: 'AbortError' }))
+    })
+  }
+  // No filechooser here: the fake `showOpenFilePicker` resolves directly, so
+  // the app goes idle → ready without Playwright's file-chooser flow.
+  await page.goto('/')
+  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await page.getByTestId('open-button').click()
+  await expect(page.getByTestId('open-status')).toHaveText('ready')
 }
 
 /**
@@ -193,66 +281,89 @@ test('the source fixture is never written by an export (ADR 0012)', async ({ pag
   expect(readFileSync(FIXTURE).equals(before)).toBe(true)
 })
 
-test('a dismissed save picker reports cancellation and writes nothing', async ({ page }) => {
+// m4-5 fix round 2: the dismissed-picker cancellation path now only exists
+// for FSA-opened sessions — an input-fallback session is never offered the
+// picker at all (see the download-only pin below), so the round-1 harness
+// (input-fallback open + AbortError picker) can no longer reach it. This pin
+// drives the SAME cancellation through a fake FSA open: the picker path is
+// genuinely offered, dismissal is reported as a cancellation, nothing runs,
+// nothing is written.
+test('an FSA-opened session: a dismissed save picker reports cancellation and writes nothing', async ({
+  page,
+}) => {
   test.setTimeout(180_000)
-  // Re-add a save picker that behaves like a user dismiss (AbortError) — the
-  // File System Access path is not reachable through a native dialog in tests,
-  // so this seam exercises the dialog's cancel handling end-to-end.
-  await page.addInitScript(() => {
-    ;(window as { showSaveFilePicker?: unknown }).showSaveFilePicker = () =>
-      Promise.reject(Object.assign(new Error('dismissed'), { name: 'AbortError' }))
-  })
-  await openFixture(page, FIXTURE)
+  const before = readFileSync(FIXTURE)
+  await openFixtureViaFakeFsa(page, FIXTURE, 'abort')
   await page.getByTestId('export-open').click()
+  await page.getByTestId('export-format-csv').check()
   await page.getByTestId('export-confirm').click()
   await expect(page.getByTestId('export-cancelled')).toContainText('no new file was written')
   await expect(page.getByTestId('export-result')).toHaveCount(0)
   await expect(page.getByTestId('export-error')).toHaveCount(0)
+  // No writable was ever acquired and the source is byte-identical.
+  expect(
+    await page.evaluate(
+      () => (window as { __assayWritableAcquired?: boolean }).__assayWritableAcquired ?? false,
+    ),
+  ).toBe(false)
+  expect(readFileSync(FIXTURE).equals(before)).toBe(true)
 })
 
-// m4-5 fix round (reviewer finding 1): the save picker can return the opened
-// source's own entry, and a direct handle write then replaces the source (a
-// real FSA probe turned a 682-byte Parquet file into 144 bytes of CSV while
-// the UI claimed the source was unchanged). This pin drives the app through
-// the input-fallback open (the identity-probe path: name+size+lastModified)
-// against a fake picker whose handle's file MATCHES the opened source. The
-// app must refuse before any engine work or byte write; the fake writable
-// records instead of writing, so a missing guard fails on the refusal
-// assertions — never by corrupting the golden fixture.
-test('a save picker aimed at the opened file is refused before any write', async ({ page }) => {
+// m4-5 fix round 2 (reviewer finding 1): an input-fallback open retains no
+// FSA handle, so same-entry identity can never be proven — round 1's
+// name+size+lastModified probe let a source externally touched after opening
+// straight through to a direct write (the reviewer reproduced the data
+// loss). Fail-closed by construction now: even though this browser HAS a
+// save picker, the session is never offered it (the stub below throws and
+// records if it is ever invoked), and the copy is delivered as a browser
+// download whose destination our code cannot point at the source.
+test('an input-fallback session exports via download; the present save picker is never invoked', async ({
+  page,
+}) => {
   test.setTimeout(180_000)
   const before = readFileSync(FIXTURE)
-  const { size, mtimeMs } = statSync(FIXTURE)
-  await page.addInitScript(
-    ({ sourceName, sourceSize, sourceLastModified }) => {
-      ;(window as { showSaveFilePicker?: unknown }).showSaveFilePicker = () => {
-        const probe = { wrote: false }
-        ;(window as { __assaySameSourceProbe?: { wrote: boolean } }).__assaySameSourceProbe = probe
-        return Promise.resolve({
-          getFile: async () =>
-            new File([new Uint8Array(sourceSize)], sourceName, {
-              lastModified: sourceLastModified,
-            }),
-          createWritable: async () => ({
-            write: async () => {
-              probe.wrote = true
-            },
-            close: async () => undefined,
-          }),
-        })
-      }
-    },
-    {
-      sourceName: path.basename(FIXTURE),
-      sourceSize: size,
-      // Playwright wires stat.mtimeMs (float) into the input File's
-      // lastModified, and the browser coerces it to an integer by truncation
-      // (WebIDL long long) — mirror exactly that, or the probe mismatches by
-      // a millisecond and the guard legitimately finds "different file".
-      sourceLastModified: Math.trunc(mtimeMs),
-    },
-  )
+  await page.addInitScript(() => {
+    ;(window as { showSaveFilePicker?: unknown }).showSaveFilePicker = () => {
+      ;(window as { __assayPickerInvoked?: boolean }).__assayPickerInvoked = true
+      throw new Error(
+        'the direct-write save picker must never be offered to an input-fallback session',
+      )
+    }
+  })
   await openFixture(page, FIXTURE)
+  await page.getByTestId('export-open').click()
+  await page.getByTestId('export-format-csv').check()
+  const download = await exportFormat(page, 'csv')
+  const result = page.getByTestId('export-result')
+  await expect(result).toContainText('Exported 5 rows as CSV')
+  // Honest delivery copy: the browser downloaded it; no destination was
+  // chosen through a picker.
+  await expect(result).toContainText('your browser is downloading it as a new file')
+  await expect(result).toContainText('The opened file is unchanged')
+  // The picker was never invoked.
+  expect(
+    await page.evaluate(
+      () => (window as { __assayPickerInvoked?: boolean }).__assayPickerInvoked ?? false,
+    ),
+  ).toBe(false)
+  // The download really holds the whole dataset (header + 5 rows).
+  const csvPath = await saveDownload(download)
+  expect(readFileSync(csvPath, 'utf8').trimEnd().split('\n')).toHaveLength(6)
+  // The opened file is byte-identical.
+  expect(readFileSync(FIXTURE).equals(before)).toBe(true)
+})
+
+// m4-5 fix round 2: the FSA-opened session still gets the picker, and the
+// same-entry refusal still holds — now against a genuinely FSA-shaped open
+// (a fake handle whose `isSameEntry` the app consumes). The picker resolves
+// with the SAME handle the open flow retained; the app must refuse before
+// any engine work or byte write (ADR 0012 data-loss guard, round-1 finding).
+test('an FSA-opened session: a save picker aimed at the opened file is refused before any write', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  const before = readFileSync(FIXTURE)
+  await openFixtureViaFakeFsa(page, FIXTURE, 'same-entry')
   await page.getByTestId('export-open').click()
   await page.getByTestId('export-format-csv').check()
   await page.getByTestId('export-confirm').click()
@@ -264,10 +375,11 @@ test('a save picker aimed at the opened file is refused before any write', async
   // writable was never acquired — no bytes anywhere, the source included.
   await expect(page.getByTestId('export-result')).toHaveCount(0)
   await expect(page.getByTestId('export-error')).toHaveCount(0)
-  const probe = await page.evaluate(
-    () => (window as { __assaySameSourceProbe?: { wrote: boolean } }).__assaySameSourceProbe,
-  )
-  expect(probe?.wrote ?? false).toBe(false)
+  expect(
+    await page.evaluate(
+      () => (window as { __assayWritableAcquired?: boolean }).__assayWritableAcquired ?? false,
+    ),
+  ).toBe(false)
   // The opened file is byte-identical.
   expect(readFileSync(FIXTURE).equals(before)).toBe(true)
 })
@@ -293,8 +405,11 @@ test('with a grid filter active, the dialog shows the effective count and the co
   await expect(page.getByTestId('export-view-note')).toContainText('complete edited dataset')
   await expect(page.getByTestId('export-view-note')).toContainText('natural order')
   await expect(page.getByTestId('export-view-note')).toContainText('not applied')
+  // Filter-only view (m4-5 fix round 2): the note names the filtered subset
+  // and says nothing about sorting.
   await expect(page.getByTestId('export-filtered-note')).toBeVisible()
-  await expect(page.getByTestId('export-filtered-note')).toContainText('filtered/sorted subset')
+  await expect(page.getByTestId('export-filtered-note')).toContainText('filtered subset')
+  await expect(page.getByTestId('export-filtered-note')).not.toContainText('sorted')
 
   // The engine result agrees with the copy: all 5 rows, filter ignored.
   const download = await exportFormat(page, 'jsonl')
@@ -308,6 +423,34 @@ test('with a grid filter active, the dialog shows the effective count and the co
 
   // The grid view itself is untouched by the export.
   await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+})
+
+// m4-5 fix round 2 (reviewer finding 2): filtering and sorting are tracked
+// separately. A sort-only view used to set the same flag as a filter, so the
+// dialog claimed a "filtered/sorted subset" and referred to filters that do
+// not exist. The sort-only wording must describe only the sorting.
+test('a sort-only view: the dialog says the sorting is not applied and never mentions filters', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  await openFixture(page, FIXTURE)
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  await sortBy(page, 'income')
+  await expect(
+    page.locator('[data-testid="grid-sort-toggle"][data-col-name="income"]'),
+  ).toHaveAttribute('data-sort', 'asc')
+
+  await page.getByTestId('export-open').click()
+  await expect(page.getByTestId('export-view-rows')).toHaveText('5 rows')
+  const note = page.getByTestId('export-filtered-note')
+  await expect(note).toBeVisible()
+  await expect(note).toContainText('currently sorted')
+  await expect(note).toContainText('not applied to the copy')
+  await expect(note).toContainText('contains every row')
+  // Sort-only: no filter language anywhere in the note.
+  await expect(note).not.toContainText('filter')
+  // And the base line still tells the truth about the export's ordering.
+  await expect(page.getByTestId('export-view-note')).toContainText('natural order')
 })
 
 // m4-5 fix round (reviewer finding 3): the success guidance used to tell

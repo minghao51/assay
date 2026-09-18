@@ -10,6 +10,7 @@ function renderDialog(overrides: Partial<ExportDialogProps> = {}) {
   const props: ExportDialogProps = {
     rowCount: 6,
     viewFiltered: false,
+    viewSorted: false,
     runEngineExport: vi.fn(async (format) => ({
       path: `assay-exports/assay-export-1.${format}`,
       format,
@@ -55,16 +56,42 @@ describe('ExportDialog — copy-vs-rewrite wording (ADR 0012)', () => {
     expect(note).toContain('filters and sorting are not applied')
     expect(screen.queryByTestId('export-filtered-note')).toBeNull()
   })
+})
 
-  it('says explicitly, when a view filter/sort is active, that the copy ignores it', () => {
+describe('ExportDialog — view-state copy describes filters and sorting separately (m4-5 fix round 2)', () => {
+  it('names the filtered subset when only a filter is active', () => {
     // The grid may show a filtered subset while the export holds every row;
     // the dialog must never let the two be conflated (m4-5 review finding).
-    renderDialog({ rowCount: 5, viewFiltered: true })
+    renderDialog({ rowCount: 5, viewFiltered: true, viewSorted: false })
+    expect(screen.getByTestId('export-view-rows').textContent).toBe('5 rows')
+    const note = screen.getByTestId('export-filtered-note').textContent ?? ''
+    expect(note).toContain('filtered subset')
+    expect(note).toContain('contains every row')
+    expect(note).toMatch(/filters/)
+    // Filter-only: no claim about sorting.
+    expect(note).not.toMatch(/sort/i)
+    expect(document.body.textContent ?? '').not.toMatch(/overwrit|in place|in-place/i)
+  })
+
+  it('says the sorting is not applied — and never mentions filters — when only a sort is active', () => {
+    // Round-2 pin: a sort-only view used to claim a "filtered/sorted
+    // subset" and refer to active filters that do not exist.
+    renderDialog({ rowCount: 5, viewFiltered: false, viewSorted: true })
+    expect(screen.getByTestId('export-view-rows').textContent).toBe('5 rows')
+    const note = screen.getByTestId('export-filtered-note').textContent ?? ''
+    expect(note).toContain('sorted')
+    expect(note).toContain('not applied to the copy')
+    expect(note).toContain('contains every row')
+    expect(note).not.toMatch(/filter/i)
+    expect(document.body.textContent ?? '').not.toMatch(/overwrit|in place|in-place/i)
+  })
+
+  it('names the filtered/sorted subset when both are active', () => {
+    renderDialog({ rowCount: 5, viewFiltered: true, viewSorted: true })
     expect(screen.getByTestId('export-view-rows').textContent).toBe('5 rows')
     const note = screen.getByTestId('export-filtered-note').textContent ?? ''
     expect(note).toContain('filtered/sorted subset')
     expect(note).toContain('contains every row')
-    expect(document.body.textContent ?? '').not.toMatch(/overwrit|in place|in-place/i)
   })
 })
 

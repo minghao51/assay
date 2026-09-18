@@ -23,6 +23,7 @@ import {
   exportFailureMessage,
   exportReopenGuidance,
   exportSuccessMessage,
+  exportViewSubsetNote,
   formatRowCount,
 } from './messages'
 import type { SaveDestination, SaveStrategy, WritableSaveDestination } from './save-destination'
@@ -36,8 +37,14 @@ export interface ExportDialogProps {
    * grid's filtered count while the export contained every row).
    */
   readonly rowCount: number
-  /** True when the grid view currently applies filters or sorting. */
+  /**
+   * True when the grid view currently applies at least one filter. Tracked
+   * separately from sorting (m4-5 fix round 2) so the dialog describes only
+   * the state that is actually active.
+   */
   readonly viewFiltered: boolean
+  /** True when the grid view currently applies a sort. */
+  readonly viewSorted: boolean
   /** Runs the engine's export op for `format` over the active overlay. */
   readonly runEngineExport: (format: EngineExportFormat) => Promise<EngineExportResult>
   /** Acquires a save destination; resolves `null` when the user cancels. */
@@ -71,6 +78,7 @@ type ExportPhase =
 export function ExportDialog({
   rowCount,
   viewFiltered,
+  viewSorted,
   runEngineExport,
   requestDestination,
   writeCopy,
@@ -81,6 +89,9 @@ export function ExportDialog({
 
   const working = phase.kind === 'working'
   const selectedInfo = exportFormatInfo(selectedFormat)
+  // Honest per-state wording (m4-5 fix round 2): filtering and sorting are
+  // described separately; `null` adds no note when the grid is unmodified.
+  const viewSubsetNote = exportViewSubsetNote(viewFiltered, viewSorted)
 
   const run = async (): Promise<void> => {
     if (working) return
@@ -152,10 +163,9 @@ export function ExportDialog({
         <span data-testid="export-view-rows">{formatRowCount(rowCount)}</span> in natural order.
         Grid filters and sorting are not applied.
       </p>
-      {viewFiltered && (
+      {viewSubsetNote !== null && (
         <p className="export-filtered-note" data-testid="export-filtered-note">
-          The grid currently shows a filtered/sorted subset of those rows; the copy ignores the
-          view’s filters and sorting and contains every row.
+          {viewSubsetNote}
         </p>
       )}
 

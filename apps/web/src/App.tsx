@@ -143,8 +143,12 @@ export function App() {
    * the opened file's own entry, and writing the export there would replace
    * the source. `requestExportDestination` threads this into
    * `requestSaveDestination`, which refuses such a destination before any
-   * engine work or byte write. Null until a file is open (and briefly
-   * during each open attempt). Never rendered or logged (ADR 0025).
+   * engine work or byte write. Only FSA opens retain an identity (the
+   * handle's authoritative `isSameEntry`); an open without a retained
+   * handle keeps this null — identity cannot be proven, so that session is
+   * never offered a direct-write destination at all (m4-5 fix round 2).
+   * Null until a file is open (and briefly during each open attempt). Never
+   * rendered or logged (ADR 0025).
    */
   const sourceIdentityRef = useRef<SourceIdentity | null>(null)
 
@@ -465,8 +469,9 @@ export function App() {
   const requestExportDestination = useCallback(
     (format: EngineExportFormat) =>
       requestSaveDestination(format, {
-        // Undefined before the first open — the guard cannot suspect a
-        // same-entry destination without the source's identity.
+        // Undefined before the first open and for opens without a retained
+        // FSA handle — the latter is what keeps input-fallback sessions on
+        // the download-only delivery path (m4-5 fix round 2).
         sourceIdentity: sourceIdentityRef.current ?? undefined,
       }),
     [],
@@ -560,25 +565,19 @@ export function App() {
       // ADR 0001); the name is transported per protocol but never rendered or
       // logged (ADR 0025).
       const file = await picked.source.getFile()
-      // Export same-source guard identity (m4-5 fix round). FSA opens retain
-      // the handle — the platform's authoritative `isSameEntry` verdict.
-      // Everything else (hidden-input fallback; structural fakes) falls back
-      // to the honest best-effort `file-matching` suspicion: name + size +
-      // lastModified. The guard treats doubt as refusal where identity is
-      // authoritative; see `save-destination.ts`.
+      // Export same-source guard identity (m4-5 fix round, hardened in
+      // round 2). FSA opens retain the handle — the platform's
+      // authoritative `isSameEntry` verdict, so a picked save destination
+      // that IS the opened file is refused. Every other open (the
+      // hidden-input fallback; structural fakes) retains NO identity: a
+      // plain `File` has no `FileSystemHandle` representation, so same-entry
+      // can never be proven — and round 1's name+size+lastModified suspicion
+      // missed a source externally touched after opening. Such a session is
+      // therefore never offered the direct-write picker at all; its exports
+      // ride the browser download (see `save-destination.ts`).
       const pickedHandle = openCapture.handle
       sourceIdentityRef.current =
-        pickedHandle !== null
-          ? {
-              kind: 'provable',
-              isSameEntry: pickedHandle.isSameEntry.bind(pickedHandle),
-            }
-          : {
-              kind: 'file-matching',
-              name: file.name,
-              size: file.size,
-              lastModified: file.lastModified,
-            }
+        pickedHandle !== null ? { isSameEntry: pickedHandle.isSameEntry.bind(pickedHandle) } : null
       const handle = await engineClient.open({
         name: file.name,
         getFile: () => Promise.resolve(file),
@@ -683,7 +682,11 @@ export function App() {
                   phase.base,
                   overlayState ?? stateAtCursor(phase.base, history),
                 )}
-                viewFiltered={phase.model.filters.length > 0 || phase.model.sort !== null}
+                // Filtering and sorting tracked separately (m4-5 fix
+                // round 2): a sort-only view must not claim a "filtered
+                // subset"; the dialog describes only the active state.
+                viewFiltered={phase.model.filters.length > 0}
+                viewSorted={phase.model.sort !== null}
                 runEngineExport={runExport}
                 requestDestination={requestExportDestination}
                 writeCopy={deliverExportCopy}

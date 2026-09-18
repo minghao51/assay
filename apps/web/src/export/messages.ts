@@ -94,6 +94,31 @@ export const EXPORT_CANCELLED_MESSAGE =
   'Export cancelled — no new file was written, and the opened file is unchanged.'
 
 /**
+ * The extra honesty note describing how the current grid view differs from
+ * what the copy holds, or `null` when the grid shows the dataset as-is (the
+ * base line already covers that). Filtering and sorting are tracked
+ * separately (m4-5 fix round 2): a sort-only view used to be told it saw a
+ * "filtered/sorted subset" and referred to filters that do not exist. Each
+ * state describes only what is actually active:
+ *
+ * - filter-only → a filtered subset; the copy ignores the view's filters;
+ * - sort-only → the sorting is not applied to the copy (filters unmentioned);
+ * - both → the filtered/sorted subset wording.
+ */
+export function exportViewSubsetNote(viewFiltered: boolean, viewSorted: boolean): string | null {
+  if (viewFiltered && viewSorted) {
+    return 'The grid currently shows a filtered/sorted subset of those rows; the copy ignores the view’s filters and sorting and contains every row.'
+  }
+  if (viewFiltered) {
+    return 'The grid currently shows a filtered subset of those rows; the copy ignores the view’s filters and contains every row.'
+  }
+  if (viewSorted) {
+    return 'The grid is currently sorted; that sorting is not applied to the copy — it contains every row in natural order.'
+  }
+  return null
+}
+
+/**
  * The opaque emscripten glue error the mvp DuckDB-WASM bundle can surface
  * (documented in `edit/session.ts`): not a readable message, so it degrades to
  * the caller's neutral fallback.

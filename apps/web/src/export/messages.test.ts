@@ -6,6 +6,7 @@ import {
   exportFailureMessage,
   exportReopenGuidance,
   exportSuccessMessage,
+  exportViewSubsetNote,
   formatBytes,
   formatRowCount,
 } from './messages'
@@ -127,5 +128,37 @@ describe('EXPORT_SAME_SOURCE_MESSAGE — same-source refusal (m4-5 fix round)', 
 
   it('never implies an in-place rewrite', () => {
     expect(EXPORT_SAME_SOURCE_MESSAGE).not.toMatch(/overwrit|in place|in-place/i)
+  })
+})
+
+describe('exportViewSubsetNote — filters and sorting described separately (m4-5 fix round 2)', () => {
+  it('is null for a plain view — no subset claim without a subset', () => {
+    expect(exportViewSubsetNote(false, false)).toBeNull()
+  })
+
+  it('describes only the filter for a filter-only view', () => {
+    const note = exportViewSubsetNote(true, false)
+    expect(note).toContain('filtered subset')
+    expect(note).toContain('the copy ignores the view’s filters')
+    expect(note).toContain('contains every row')
+    // Filter-only: no claim about sorting.
+    expect(note).not.toMatch(/sort/i)
+  })
+
+  it('describes only the sorting for a sort-only view — filters are not mentioned', () => {
+    // Round-2 pin: a sort-only view used to produce the "filtered/sorted
+    // subset" wording and refer to active filters that do not exist.
+    const note = exportViewSubsetNote(false, true)
+    expect(note).toContain('The grid is currently sorted')
+    expect(note).toContain('not applied to the copy')
+    expect(note).toContain('every row in natural order')
+    expect(note).not.toMatch(/filter/i)
+  })
+
+  it('names the filtered/sorted subset when both are active', () => {
+    const note = exportViewSubsetNote(true, true)
+    expect(note).toContain('filtered/sorted subset')
+    expect(note).toContain('ignores the view’s filters and sorting')
+    expect(note).toContain('contains every row')
   })
 })

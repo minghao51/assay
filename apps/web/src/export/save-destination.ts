@@ -16,13 +16,27 @@
  * touched (ADR 0012). That promise is enforced, not just worded (m4-5 fix
  * round): the save picker can return the *opened source's own entry*, and a
  * direct handle write would then silently replace the source — a real FSA
- * probe turned a 682-byte Parquet source into 144 bytes of CSV that way. The
- * caller therefore threads the identity the open flow retained
- * (`SourceIdentity`); when the picked handle is (or may be) that same entry,
- * `requestSaveDestination` resolves a `refused-source` outcome **before any
- * engine work or byte write**, which the dialog renders as an alert. Cancel
- * is a real outcome (the picker's `AbortError`), not a failure. No dataset
- * content is logged (ADR 0025).
+ * probe turned a 682-byte Parquet source into 144 bytes of CSV that way.
+ *
+ * Enforcement is keyed on what the open flow can prove (m4-5 fix round 2,
+ * hardening round 1's heuristic):
+ *
+ * - The source was opened through a File System Access handle → the flow
+ *   retained it (`SourceIdentity`), and the platform's authoritative
+ *   `isSameEntry` verdict refuses a picked handle that IS that entry
+ *   **before any engine work or byte write** (rendered as an alert).
+ * - The source was opened without a handle (hidden-input fallback: a plain
+ *   `File` has no `FileSystemHandle` representation in the web platform) →
+ *   same-entry identity cannot be proven at all. Round 1 suspected matches
+ *   from name + size + lastModified, but that probe misses the same entry
+ *   after an external touch (mtime moved on), and no web API closes the
+ *   gap — so such a session is **never offered the direct-write picker**:
+ *   `requestSaveDestination` routes delivery through the anchor-download
+ *   fallback, whose destination the browser manages and this code cannot
+ *   point at the source. Fail-closed by construction, not by heuristic.
+ *
+ * Cancel is a real outcome (the picker's `AbortError`), not a failure. No
+ * dataset content is logged (ADR 0025).
  */
 import type { EngineExportResult, EngineExportFormat } from '@assay/engine-duckdb'
 import { exportFormatInfo } from './formats'
@@ -34,12 +48,6 @@ export type SaveStrategy = 'file-system-access' | 'download'
 /** The writable slice of a picked save handle (DOM `FileSystemFileHandle` satisfies it). */
 export interface SaveFileHandle {
   createWritable(): Promise<SaveWritable>
-  /**
-   * Optional because only the `file-matching` identity probe reads it (the
-   * DOM handle has it; minimal test fakes may omit it — then there is no
-   * probe and no suspicion, see `sameEntryRefusal`).
-   */
-  getFile?(): Promise<File>
 }
 
 export interface SaveWritable {
@@ -69,29 +77,16 @@ export type WritableSaveDestination = Exclude<SaveDestination, { readonly via: '
  * What the open flow can attest about the opened source, threaded into the
  * save-picker request so a destination that *is* the opened file can be
  * refused before any engine work or byte write (ADR 0012 data-loss guard).
- *
- * - `provable` — the source was opened through a File System Access handle;
- *   `isSameEntry` is the platform's authoritative same-entry verdict.
- * - `file-matching` — the source has no handle (hidden-input fallback path:
- *   a plain `File` has no `FileSystemHandle` representation in the web
- *   platform), so same-entry identity can only be *suspected*, from
- *   name + size + lastModified. A full match refuses conservatively. A
- *   mismatch can still, rarely, be the same entry (externally modified since
- *   open) — a documented residual risk this heuristic cannot close; no web
- *   API proves entry identity for a plain `File`.
+ * Present only when the source was opened through a File System Access
+ * handle: `isSameEntry` is the platform's authoritative same-entry verdict.
+ * When it is absent, identity cannot be proven and the save picker is not
+ * offered at all (see `requestSaveDestination`) — there is no heuristic
+ * fallback, because none can be made sound.
  */
-export type SourceIdentity =
-  | {
-      readonly kind: 'provable'
-      /** The DOM handle's own `isSameEntry`, bound (authoritative verdict). */
-      readonly isSameEntry: (other: FileSystemHandle) => Promise<boolean>
-    }
-  | {
-      readonly kind: 'file-matching'
-      readonly name: string
-      readonly size: number
-      readonly lastModified: number
-    }
+export interface SourceIdentity {
+  /** The DOM handle's own `isSameEntry`, bound (authoritative verdict). */
+  readonly isSameEntry: (other: FileSystemHandle) => Promise<boolean>
+}
 
 /** What the browser can do for saving. */
 export interface SaveCapabilities {
@@ -122,8 +117,10 @@ export interface RequestDestinationDeps {
   readonly showSaveFilePicker?: ShowSaveFilePickerLike
   /**
    * Opened-source identity for the same-source refusal (m4-5 fix round).
-   * Absent when nothing is known — the guard then cannot suspect anything
-   * and stays out of the way (see `sameEntryRefusal`).
+   * Present only for FSA-opened sources (the open flow retained the
+   * handle). Absent for input-fallback sessions — identity cannot be
+   * proven — and that absence means the picker is never offered (see
+   * `requestSaveDestination`), not that the guard steps aside.
    */
   readonly sourceIdentity?: SourceIdentity
 }
@@ -135,39 +132,21 @@ export type ReadExportBytes = (path: string) => Promise<Uint8Array<ArrayBuffer>>
 export type DeliverDownload = (blob: Blob, fileName: string) => void
 
 /**
- * Whether the picked save handle is (or may be) the opened source itself —
- * checked **before** the engine export runs and before any byte is written.
- * Any doubt refuses: the cost of a false refusal is the user picking another
- * name/location; the cost of a false allow is the opened file silently
- * replaced by its own export (the ADR 0012 data-loss path this guard exists
- * for), so uncertainty always breaks toward refusal on the authoritative
- * path and toward allowing on the heuristic one (a flaky probe must not
- * block legitimate saves — the probe is only ever a suspicion).
+ * Whether the picked save handle IS the opened source's entry — checked
+ * **before** the engine export runs and before any byte is written. The
+ * verdict is the platform's own (`isSameEntry`); if it is unavailable or
+ * rejects, identity cannot be proven different — refuse (fail closed). The
+ * cost of a false refusal is the user picking another name/location; the
+ * cost of a false allow is the opened file silently replaced by its own
+ * export (the ADR 0012 data-loss path this guard exists for). The cast is
+ * sound at runtime: a real picker resolves a DOM FileSystemFileHandle (the
+ * structural `SaveFileHandle` simply does not re-declare the DOM
+ * supertype), and a fake identity's `isSameEntry` ignores the argument.
  */
 async function sameEntryRefusal(
-  identity: SourceIdentity | undefined,
+  identity: SourceIdentity,
   handle: SaveFileHandle,
 ): Promise<boolean> {
-  if (identity === undefined) return false
-  if (identity.kind === 'file-matching') {
-    const probe = handle.getFile
-    if (typeof probe !== 'function') return false // nothing to suspect from
-    try {
-      const file = await probe.call(handle)
-      return (
-        file.name === identity.name &&
-        file.size === identity.size &&
-        file.lastModified === identity.lastModified
-      )
-    } catch {
-      return false // probe failed: no suspicion, never a fabricated one
-    }
-  }
-  // `provable`: the platform's own verdict. If it is unavailable or rejects,
-  // identity cannot be proven different — refuse (fail closed). The cast is
-  // sound at runtime: a real picker resolves a DOM FileSystemFileHandle (the
-  // structural `SaveFileHandle` simply does not re-declare the DOM
-  // supertype), and a fake identity's `isSameEntry` ignores the argument.
   try {
     return await identity.isSameEntry(handle as unknown as FileSystemHandle)
   } catch {
@@ -186,6 +165,14 @@ export async function requestSaveDestination(
   format: EngineExportFormat,
   deps: RequestDestinationDeps = {},
 ): Promise<SaveDestination | null> {
+  // Input-fallback session (no retained FSA handle): same-entry identity can
+  // never be proven for a picked destination, so the direct-write picker is
+  // not offered at all (m4-5 fix round 2 — round 1's name+size+lastModified
+  // probe missed a source externally touched after opening, the exact
+  // data-loss shape this guard exists for). Delivery rides the anchor
+  // download instead: the browser picks the destination, our code never
+  // acquires a writable, and the opened source is unreachable (ADR 0012).
+  if (deps.sourceIdentity === undefined) return { via: 'download' }
   const capabilities = deps.capabilities ?? detectSaveCapabilities()
   if (!capabilities.fileSavePicker) return { via: 'download' }
   const pick: ShowSaveFilePickerLike =
