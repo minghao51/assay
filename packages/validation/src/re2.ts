@@ -40,9 +40,19 @@
  *
  * ## Rejected (each with a stable reason string)
  *
- * - decimal escapes `\0`–`\9`: RE2 has no backreferences and would
- *   silently read `\1` as the byte U+0001 — refused outright (DuckDB 1.5.5
- *   rejects them too, as "invalid escape sequence")
+ * - decimal escapes `\0`–`\9`: refused outright as one class. DuckDB's
+ *   actual behavior (verified against the pinned 1.5.5 CLI) is split:
+ *   `\1`–`\9` are **rejected** ("invalid escape sequence: \1" — RE2 has
+ *   no backreferences, and its octal escapes require the leading `0`),
+ *   while `\0` — and longer octal forms like `\012` — are **accepted** as
+ *   RE2's octal character-code escape (`\0` matches the NUL byte).
+ *   This checker nevertheless refuses the **whole** `\0`–`\9` class — a
+ *   deliberate, documented stricter-than-DuckDB policy: a pattern
+ *   containing a NUL byte is refused here exactly like a literal NUL
+ *   character (both are unbindable in the compiled SQL text), and no
+ *   decimal spelling is ever silently re-read as a byte escape. Pinned
+ *   against DuckDB 1.5.5 in `re2.test.ts` (accepted-by-DuckDB-but-refused-
+ *   by-us for `\0`, rejected-by-both for `\1`–`\9`)
  * - escaped non-ASCII codepoints (`\é`, `\😀`): RE2's "invalid escape
  *   sequence" (pinned against DuckDB 1.5.5) — only ASCII
  *   non-alphanumerics can be escaped
@@ -53,8 +63,10 @@
  *   (including `(?<name>` — some RE2 builds accept named groups that way;
  *   refused here for lookbehind-ambiguity, `(?P<name>` is the spelling)
  * - possessive quantifiers (surface as nested repetition), `\K`, `\Z`,
- *   `\Q…\E` quoting, Unicode classes `\p{…}`/`\P{…}`, octal escapes,
- *   `\v`, `\b`/`\B`/`\A`/`\z` inside classes, unknown letter escapes
+ *   `\Q…\E` quoting, Unicode classes `\p{…}`/`\P{…}`, octal escapes
+ *   (`\0NN` — same refused `\0`–`\9` class as above, again stricter than
+ *   DuckDB, which accepts the leading-zero forms), `\v`,
+ *   `\b`/`\B`/`\A`/`\z` inside classes, unknown letter escapes
  * - structural errors: unbalanced groups/classes, empty classes (`]`
  *   always terminates — `[]a]` is refused, RE2's own error is near), a
  *   `]`-must-be-escaped strictness, reversed class ranges, malformed POSIX
@@ -165,8 +177,14 @@ function parseEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
   if (atEnd(cursor)) reject('trailing backslash')
   const ch = consume(cursor)
   if (ch >= '0' && ch <= '9') {
+    // DuckDB 1.5.5 splits this class (verified against the pinned CLI):
+    // \1–\9 → "invalid escape sequence" (backreference escapes; RE2 has
+    // none and its octal forms need the leading 0), \0 → the octal NUL-byte
+    // escape, accepted. The checker refuses the whole class anyway — the
+    // documented stricter-than-DuckDB policy (module doc, "Rejected");
+    // pinned from both sides in re2.test.ts.
     reject(
-      'decimal escapes \\0–\\9 are refused: RE2 has no backreferences and would silently read them as byte escapes',
+      "decimal escapes \\0–\\9 are refused outright — a deliberate stricter-than-DuckDB policy (\\1–\\9 are backreference escapes and RE2 has no backreferences; \\0 would be DuckDB's octal NUL-byte escape, refused here with the class)",
     )
   }
   if (ch.charCodeAt(0) > 0x7f) {

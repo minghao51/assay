@@ -10,6 +10,12 @@ import { checkRe2Pattern } from './re2'
  * pool is every documented refusal class with its reason substance. The
  * policy is strict: where a spelling's RE2 acceptance is uncertain, the
  * checker refuses (see the module doc for the asymmetric cost).
+ *
+ * The pool's size is itself pinned (50 unique patterns after the m5-1
+ * re-review round 2 — which added the three claimed accepted-edge flag
+ * patterns and removed an accidental `(?i)abc` duplicate; see the
+ * "accepted pool is the claim" describe), and every entry is executed
+ * against the pinned DuckDB CLI in the gated suite below.
  */
 
 const ACCEPTED = [
@@ -53,9 +59,11 @@ const ACCEPTED = [
   '(abc)*',
   '(?:abc)+',
   '(?i)abc',
-  '(?i)abc',
   '(?im)abc',
   '(?-i)abc',
+  '(?ii)', // repeated flag letters — the m5-1 round-2 claimed accepted edges
+  '(?i-i)', // on-then-off within one group
+  '(?-imsU:)', // negated full flag set, group form
   '(?i:abc)def',
   '(?i-s:abc)',
   '(?P<year>\\d{4})-(?P<month>\\d{2})',
@@ -82,6 +90,20 @@ describe('checkRe2Pattern — accepted subset', () => {
       '^(a|b)+c?',
       '[a-z-]+_[0-9]{1,3}',
     ]) {
+      expect(checkRe2Pattern(pattern)).toEqual({ valid: true })
+    }
+  })
+})
+
+describe('checkRe2Pattern — the accepted pool is the claim (m5-1 re-review round 2)', () => {
+  it('the accepted pool has its exact size and uniqueness pinned — 50 unique patterns, all DuckDB-executed', () => {
+    expect(ACCEPTED).toHaveLength(50)
+    expect(new Set(ACCEPTED).size).toBe(ACCEPTED.length)
+  })
+
+  it('the three claimed accepted-edge flag patterns are in the pool and accepted', () => {
+    for (const pattern of ['(?ii)', '(?i-i)', '(?-imsU:)']) {
+      expect(ACCEPTED).toContain(pattern)
       expect(checkRe2Pattern(pattern)).toEqual({ valid: true })
     }
   })
@@ -264,5 +286,22 @@ describe.skipIf(!hasDuckDbCli)('checkRe2Pattern — real DuckDB agreement (pinne
   it('the nesting bound is a checker bound, not a DuckDB one (DuckDB accepts 5,000 deep)', () => {
     expect(duckdbAcceptsRegex(nestFor(100))).toBe(true) // inside our bound: both accept
     expect(duckdbAcceptsRegex(nestFor(5000))).toBe(true) // past our bound: DuckDB still accepts — we refuse as documented strictness
+  })
+
+  it('decimal escapes: DuckDB 1.5.5 accepts \\0 (octal NUL) but rejects \\1–\\9 — the checker refuses the whole class (documented stricter policy)', () => {
+    // DuckDB's actual split behavior (m5-1 re-review round 2, CLI-verified):
+    // \0 (and longer leading-zero octal forms like \012) is RE2's octal
+    // character-code escape — \0 matches the NUL byte — while \1–\9 are
+    // backreference escapes and die with "invalid escape sequence". The
+    // checker refuses the entire \\0–\\9 class regardless: a NUL-byte
+    // pattern is unbindable in the compiled SQL text, and no decimal
+    // spelling is ever silently re-read as a byte escape (re2.ts "Rejected").
+    expect(duckdbAcceptsRegex('\\0')).toBe(true)
+    expect(duckdbAcceptsRegex('\\012')).toBe(true)
+    expect(checkRe2Pattern('\\0').valid).toBe(false)
+    for (const pattern of ['\\1', '\\2', '\\7', '\\8', '\\9']) {
+      expect(duckdbAcceptsRegex(pattern), `pattern ${JSON.stringify(pattern)}`).toBe(false)
+      expect(checkRe2Pattern(pattern).valid).toBe(false)
+    }
   })
 })

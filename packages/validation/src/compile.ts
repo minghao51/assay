@@ -10,6 +10,11 @@
  *
  * - **Total** — never throws, over any input (even a caller bug behind a
  *   cast degrades to typed errors, mirroring the never-throws convention).
+ *   Compile options are resolved **once** through a guarded read
+ *   ({@link readOptionOnce}): a *throwing* option getter degrades to a
+ *   typed `invalid-options` error, and the resolved values — never the
+ *   live object — feed every downstream use, so a stateful accessor can
+ *   only ever yield one consistent snapshot.
  *   A validated contract + schema always yield `{ ok: true, plan }` or
  *   `{ ok: false, errors }`; all independent binding errors are collected,
  *   m5-0-style, and every rule either compiles or is rejected — no silent
@@ -900,12 +905,68 @@ function compileDatasetRule(
 // Input validation (options / schema / defensive contract shape)
 // ---------------------------------------------------------------------------
 
-/** Validate compile options; returns resolved values or null (error pushed). */
-function validateOptions(
-  ctx: Ctx,
-  options: CompileOptions,
-): { readonly sampleLimit: number } | null {
-  const relation = (options as CompileOptions | null)?.relation
+/** The options' resolved values — each property read exactly once, then inert. */
+interface ResolvedOptions {
+  readonly relation: string
+  readonly sampleLimit: number
+}
+
+/** One guarded property read: a value, or "the accessor threw" as data. */
+type OptionRead = { readonly ok: true; readonly value: unknown } | { readonly ok: false }
+
+/**
+ * Read one compile-option property **exactly once**, total over hostile
+ * accessors: a getter that throws degrades to `{ ok: false }` data instead
+ * of escaping as a raw exception (compiler totality — a caller bug behind
+ * a cast must end as a typed error, never a throw). `options` itself may
+ * be any value behind a broken cast (null, a primitive): optional chaining
+ * degrades those to `undefined`, the ordinary invalid-value path.
+ */
+function readOptionOnce(options: unknown, key: 'relation' | 'sampleLimit'): OptionRead {
+  try {
+    return { ok: true, value: (options as Partial<CompileOptions> | undefined)?.[key] }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/**
+ * Resolve and validate the compile options; returns the resolved values or
+ * null (error pushed). **Resolution precedes validation and reads each
+ * property exactly once, in this fixed order** (relation, then
+ * sampleLimit) through the guarded {@link readOptionOnce}. The returned
+ * values are the only ones the rest of the compiler ever uses — there are
+ * no re-reads of the live object — so a stateful (value-changing) accessor
+ * yields **one consistent snapshot**: whatever the single read returned is
+ * what gets validated and what the plan carries (the documented choice
+ * between "typed error" and "single consistent read" for stateful
+ * accessors). A throwing getter is a typed `invalid-options` error with
+ * stable text; the thrown value is deliberately never interpolated (the
+ * message must stay total and deterministic over anything a getter can
+ * throw).
+ */
+function validateOptions(ctx: Ctx, options: CompileOptions): ResolvedOptions | null {
+  const relationRead = readOptionOnce(options, 'relation')
+  const limitRead = readOptionOnce(options, 'sampleLimit')
+  if (!relationRead.ok) {
+    pushError(
+      ctx,
+      'invalid-options',
+      'options',
+      "reading 'relation' threw an exception — compile options must be plain values, not throwing getters (the compiler is total, so this typed error replaces the raw exception)",
+    )
+    return null
+  }
+  if (!limitRead.ok) {
+    pushError(
+      ctx,
+      'invalid-options',
+      'options',
+      "reading 'sampleLimit' threw an exception — compile options must be plain values, not throwing getters (the compiler is total, so this typed error replaces the raw exception)",
+    )
+    return null
+  }
+  const relation = relationRead.value
   if (typeof relation !== 'string' || relation === '') {
     pushError(
       ctx,
@@ -924,7 +985,7 @@ function validateOptions(
     )
     return null
   }
-  const sampleLimit = options.sampleLimit ?? DEFAULT_SAMPLE_LIMIT
+  const sampleLimit = limitRead.value ?? DEFAULT_SAMPLE_LIMIT
   if (typeof sampleLimit !== 'number' || !Number.isSafeInteger(sampleLimit) || sampleLimit < 1) {
     pushError(
       ctx,
@@ -934,7 +995,7 @@ function validateOptions(
     )
     return null
   }
-  return { sampleLimit }
+  return { relation, sampleLimit }
 }
 
 /** Validate the schema; returns the by-name map or null (errors pushed). */
@@ -1149,7 +1210,11 @@ export function compileContract(
   if (ctx.errors.length > 0 || byName === null || resolved === null || !contractOk) {
     return { ok: false, errors: ctx.errors }
   }
-  ctx.rel = q(options.relation)
+  // Only the resolved (inert) option values flow onward — the live
+  // `options` object is never read again (m5-1 re-review: a stateful
+  // accessor cannot make the validated relation differ from the compiled
+  // one).
+  ctx.rel = q(resolved.relation)
   ctx.sampleLimit = resolved.sampleLimit
 
   // Column rules in canonical contract order; dataset rules after. Each
@@ -1198,7 +1263,7 @@ export function compileContract(
     planVersion: PLAN_VERSION,
     contractName: contract.metadata.name,
     contractVersion: contract.metadata.version,
-    relation: options.relation,
+    relation: resolved.relation,
     sampleLimit: ctx.sampleLimit,
     rules: ctx.rules,
     summarySql:

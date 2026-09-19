@@ -535,6 +535,101 @@ describe('invalid-options — compile options are validated before any SQL exist
   })
 })
 
+describe('invalid-options — hostile option accessors resolve once to typed errors (m5-1 re-review round 2, item 1)', () => {
+  it('a throwing relation getter degrades to typed invalid-options — never a raw exception', () => {
+    let result: ReturnType<typeof compileContract> | undefined
+    expect(() => {
+      result = compileContract(contractOf([]), BASE_SCHEMA, {
+        get relation(): string {
+          throw new Error('boom')
+        },
+      })
+    }).not.toThrow()
+    const error = firstError(result as ReturnType<typeof compileContract>)
+    expect(error.code).toBe('invalid-options')
+    expect(error.path).toBe('options')
+    expect(error.message).toContain("'relation'")
+    expect(error.message).toContain('threw an exception')
+  })
+
+  it('a throwing sampleLimit getter after a valid relation is typed too — never raw', () => {
+    let result: ReturnType<typeof compileContract> | undefined
+    expect(() => {
+      result = compileContract(contractOf([{ name: 'id', required: true }]), BASE_SCHEMA, {
+        relation: 't1',
+        get sampleLimit(): number {
+          throw new RangeError('nope')
+        },
+      })
+    }).not.toThrow()
+    const error = firstError(result as ReturnType<typeof compileContract>)
+    expect(error.code).toBe('invalid-options')
+    expect(error.path).toBe('options')
+    expect(error.message).toContain("'sampleLimit'")
+    expect(error.message).toContain('threw an exception')
+  })
+
+  it('totality holds over what the getter throws, not just that it throws', () => {
+    for (const thrown of [undefined, Object.create(null), Symbol('x'), 'boom']) {
+      let result: ReturnType<typeof compileContract> | undefined
+      expect(() => {
+        result = compileContract(contractOf([]), BASE_SCHEMA, {
+          get relation(): string {
+            throw thrown
+          },
+        })
+      }).not.toThrow()
+      const error = firstError(result as ReturnType<typeof compileContract>)
+      expect(error.code).toBe('invalid-options')
+      expect(error.message).toContain('threw an exception')
+    }
+  })
+
+  it('a stateful (value-changing) relation accessor is read exactly once — one consistent value validated and compiled', () => {
+    // The documented policy for stateful accessors: a single consistent
+    // read. Resolution reads the property once, in a fixed order; the
+    // validated value is the value quoted into every query and the plan.
+    const reads: string[] = []
+    const result = compileContract(contractOf([{ name: 'id', required: true }]), BASE_SCHEMA, {
+      get relation(): string {
+        reads.push('read')
+        return reads.length === 1 ? 't1' : 't2'
+      },
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.plan.relation).toBe('t1')
+      for (const rule of result.plan.rules) {
+        expect(rule.sql).toContain('"t1"')
+        expect(rule.sql).not.toContain('"t2"')
+      }
+      expect(result.plan.summarySql).toContain('"t1"')
+      expect(result.plan.summarySql).not.toContain('"t2"')
+    }
+    expect(reads).toHaveLength(1)
+  })
+
+  it('a stateful sampleLimit accessor is likewise read exactly once (plan and LIMIT agree on the first value)', () => {
+    let reads = 0
+    const result = compileContract(contractOf([{ name: 'id', required: true }]), BASE_SCHEMA, {
+      relation: 't1',
+      get sampleLimit(): number {
+        reads += 1
+        return reads === 1 ? 5 : 99
+      },
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.plan.sampleLimit).toBe(5)
+      for (const rule of result.plan.rules) {
+        expect(rule.sql).toContain('LIMIT 5')
+        expect(rule.sql).not.toContain('LIMIT 99')
+      }
+    }
+    expect(reads).toBe(1)
+  })
+})
+
 describe('invalid-schema-input — the target schema is validated, not trusted', () => {
   it('rejects duplicate column names with the entry path', () => {
     const error = firstError(
