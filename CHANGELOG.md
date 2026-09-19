@@ -12,6 +12,47 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — M5, validation and contracts (m5-0…m5-6)
+
+- **Data quality contracts, end to end.** Author a contract in human-readable YAML
+  (`@assay/contracts`: canonical typed AST, total parser with located errors, byte-stable
+  serializer, documented 21-spelling type vocabulary, exact-or-rejected numerics) or import
+  an existing JSON Schema (documented 2020-12 subset — every unsupported key is reported as
+  a typed error with its JSON Pointer path, never silently dropped; non-RE2-safe `pattern`
+  keys refused at import, dialect-honest). Compile it against your dataset's real schema
+  (`@assay/validation`): binding errors (missing column, inapplicable type) are typed and
+  collected before anything runs; identical inputs compile to byte-identical, injection-safe
+  DuckDB SQL (range-qualified references, escaped literals, RE2-subset regex validation with
+  a documented nesting bound).
+- **Run validation on both surfaces — web and CLI agree exactly.** The engine executes the
+  plan on the query lane against the effective view (your in-progress edits included):
+  per-rule counts, integer half-up fail percentages, K-bounded failure samples carrying
+  logical row keys that resolve to grid rows. The CLI gains `assay validate <path>
+--contract <file>` (`--format json`, exit codes 0/1/2) on a Node DuckDB runtime behind a
+  shared seam (ADR 0041) — the M5 exit journey proves web and CLI agree exactly on every
+  rule for the same contract + file.
+- **Explore and fix violations.** The web panel orders failing rules by a documented
+  severity policy, lists sample failures as text with jump-to-row, filters the grid to
+  failing rows (only when the sample set is complete — honest partial-set copy otherwise),
+  exports the failure report as a sanitized new CSV/JSON file, and marks verdicts stale
+  under editing until you re-validate. Fix violations in place via M4 editing and watch the
+  verdict flip to clean.
+
+### Added — M4, editing and transforms (m4-0…m4-6)
+
+- **Grid editing with an immutable overlay.** Click-to-edit cells with per-type editors and
+  validation, row insert/tombstone, full undo/redo history; edits never touch the source —
+  the engine composes an effective view (ADR 0012) so every surface (grid, profiling,
+  export, validation) sees base-plus-edits consistently, and logical row identity (ADR 0011)
+  keeps rows addressable across edits.
+- **Export and save-as.** Export the current view as Parquet/CSV/JSONL/JSON/Arrow through a
+  save dialog or download fallback, with formula-injection-safe CSV sanitization, engine-
+  numbered feedback, and re-open journeys that prove the round trip; "save as" writes to a
+  new file and refuses to overwrite the opened source.
+- **Milestone exit proof.** An M4 exit journey verifies open → edit → export → re-open →
+  content matches byte-for-byte; an M5 journey extends the discipline to validation
+  (see above).
+
 ### Added — M3, nested data (m3-0…m3-5)
 
 - **Nested data is first-class in the explorer.** Engine-conformance pins now prove
