@@ -30,7 +30,7 @@ Companions: [execution roadmap](../product/10-execution-roadmap.md) (sequencing/
 - **Positioning:** "Understand any dataset before your code does."
 - **Stack:** TypeScript · React/Vite · DuckDB-WASM · Apache Arrow · pnpm/Turborepo monorepo.
 - **License:** AGPL-3.0-or-later for the open core (ADR 0036).
-- **Phase:** pre-MVP. **M1–M4 complete** (G1 passed 2026-09-16; M4 exit journey green 2026-09-19). **M5 queue authored (§6, m5-0…m5-6)** — dispatch on maintainer sign-off; checkpoints 1–2 in the queue header first.
+- **Phase:** pre-MVP. **M1–M4 complete** (G1 passed 2026-09-16; M4 exit journey green 2026-09-19). **M5 dispatch in progress** — queue signed off 2026-09-19 (maintainer pickup, same pattern as M4); D10 default stands (npm-only); CLI backend decided spike-first in m5-4, ADR finalized by the orchestrator.
 
 ## 2. Current state (2026-09-19)
 

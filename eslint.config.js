@@ -31,6 +31,27 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/contracts/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'react', message: 'The contracts package must stay UI-free (docs 05 §3).' },
+            { name: 'react-dom', message: 'The contracts package must stay UI-free (docs 05 §3).' },
+          ],
+          patterns: [
+            {
+              group: ['@assay/*'],
+              message:
+                'The contracts package is a pure leaf: no @assay dependencies (docs/engineering/05-repository-structure.md §3, ADR 0013).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['packages/domain/**/*.ts'],
     rules: {
       'no-restricted-imports': [
