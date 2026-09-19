@@ -40,8 +40,11 @@ export interface CanonicalDecimal {
 /**
  * A plain decimal literal: optional sign, digits with optional fraction
  * (`1`, `1.5`, `1.`, `.5`), optional exponent (`1e2`, `9.0e+15`). This is
- * the only spelling this format verifies; anything else (hexadecimal, tagged
- * scalars, underscores) fails closed — see {@link isExactDecimalLiteral}.
+ * the only *content* spelling this format can verify: content outside it
+ * (hexadecimal, underscores) fails closed, a tagged scalar is judged by this
+ * same gate applied to its content literal (see
+ * {@link isExactDecimalLiteral}), and a tag the YAML library cannot resolve
+ * never reaches the gate at all — it is already a `yaml-syntax` error.
  */
 const DECIMAL_LITERAL = /^([-+]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([-+]?\d+))?$/
 
@@ -70,14 +73,16 @@ export function canonicalDecimal(text: string): CanonicalDecimal | null {
  * decimal spelling whose exact value can be verified (`'0x1F'`):
  * unverifiable is rejected, fail closed.
  *
- * An explicit standard tag (`!!int`, `!!float`) is deliberately *accepted*:
- * the tag sits outside the scalar's source range, so the text checked here is
- * the content literal and the gate is exactly as strict as for the plain
- * spelling — `!!int 5` is the same verified value as `5`, while `!!int 0x1F`
- * is unverifiable and rejected. Tags that cannot resolve are library parse
- * warnings (already `yaml-syntax` errors) and non-numeric tags fail
- * `wrong-type` before this check, so no tag path bypasses the gate. Pinned
- * in `parse.test.ts`.
+ * A standard tag the library *resolves* (`!!int 5`, `!!float 1.5`) is
+ * deliberately *accepted*: the tag sits outside the scalar's source range,
+ * so the text checked here is the content literal and the gate is exactly as
+ * strict as for the plain spelling — `!!int 5` is the same verified value as
+ * `5`, while `!!int 0x1F` is unverifiable and rejected. Acceptance is
+ * exactly as wide as library resolution: a standard-looking but
+ * unresolvable tag (`!!float 2`, whose content lacks the `.`/exponent the
+ * float resolver requires) is a library parse warning — already a
+ * `yaml-syntax` error — and non-numeric tags fail `wrong-type` before this
+ * check, so no tag path bypasses the gate. Pinned in `parse.test.ts`.
  */
 export function isExactDecimalLiteral(raw: string, value: number): boolean {
   const written = canonicalDecimal(raw)

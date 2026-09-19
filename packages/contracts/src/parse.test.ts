@@ -450,7 +450,7 @@ columns:
     expect(parseContract(text)).toEqual(result) // fixpoint: serialization re-parses identically
   })
 
-  it('hexadecimal literals fail closed; standard tags are accepted by their content literal', () => {
+  it('hexadecimal literals fail closed; library-resolvable tags are accepted by their content literal', () => {
     // 0x1F parses to the number 31, but the written spelling is not a plain
     // decimal literal whose exact value the format can verify — rejected.
     expectImprecise(
@@ -464,14 +464,14 @@ columns:
       { path: 'columns[0].min', line: 6, column: 10 },
       'cannot verify the exact value of "0x1F"',
     )
-    // Deliberate policy (documented in numeric.ts / errors.ts, pinned here):
-    // a standard tag is accepted — it sits *outside* the scalar's source
-    // range, so the exactness gate judges the *content* literal under
-    // exactly the same rule as the plain spelling. The accepted spellings
-    // are `!!int`/`!!float` whose content resolves to a number; any tag the
-    // library cannot resolve is a parse warning — already a `yaml-syntax`
-    // error — and a non-numeric tag fails `wrong-type`, so no tag path
-    // bypasses the gate.
+    // Deliberate policy (documented in numeric.ts / errors.ts, pinned
+    // here): a *library-resolvable* tagged form is accepted — the tag sits
+    // *outside* the scalar's source range, so the exactness gate judges the
+    // *content* literal under exactly the same rule as the plain spelling.
+    // Acceptance is exactly as wide as library resolution: a tag the library
+    // cannot resolve is a parse warning — already a `yaml-syntax` error —
+    // and a non-numeric tag fails `wrong-type`, so no tag path bypasses the
+    // gate.
     for (const [literal, expected] of [
       ['!!int 5', 5],
       ['!!int +5', 5],
@@ -519,6 +519,29 @@ columns:
       { path: 'columns[0].min', line: 6, column: 16 },
       'cannot verify the exact value of "0x1F"',
     )
+  })
+
+  it('a standard-looking tag the library cannot resolve (!!float 2) → yaml-syntax, never the exactness gate', () => {
+    // Pin of the acceptance boundary: the float resolver needs a `.` or
+    // exponent in the content, so `!!float 2` stays unresolved — the parse
+    // warns "Unresolved tag" and the contract fails `yaml-syntax` before any
+    // numeric rule is read (documented in numeric.ts / errors.ts).
+    const result = parseFailing(`format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: !!float 2
+`)
+    expect(result.errors).toEqual([
+      {
+        code: 'yaml-syntax',
+        message: expect.stringContaining('Unresolved tag'),
+        path: 'document',
+        line: 6,
+        column: 10,
+      },
+    ])
   })
 })
 
