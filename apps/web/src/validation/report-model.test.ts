@@ -82,35 +82,69 @@ function resultA(): EngineValidationResult {
     valid: false,
     rowCount: 7,
     rules: [
-      { ruleId: 'columns[0].type', failCount: 0, failPercent: 0, sampleFailures: [] },
       {
+        outcome: 'row-samples',
+        ruleId: 'columns[0].type',
+        failCount: 0,
+        failPercent: 0,
+        sampleFailures: [],
+      },
+      {
+        outcome: 'row-samples',
         ruleId: 'columns[0].required',
         failCount: 1,
         failPercent: 14,
         sampleFailures: [sample('base:anchor#6', null)],
       },
       {
+        outcome: 'row-samples',
         ruleId: 'columns[0].unique',
         failCount: 2,
         failPercent: 29,
         sampleFailures: [sample('base:anchor#0', 1001), sample('base:anchor#5', 1001)],
       },
-      { ruleId: 'columns[1].type', failCount: 0, failPercent: 0, sampleFailures: [] },
-      { ruleId: 'columns[1].required', failCount: 0, failPercent: 0, sampleFailures: [] },
       {
+        outcome: 'row-samples',
+        ruleId: 'columns[1].type',
+        failCount: 0,
+        failPercent: 0,
+        sampleFailures: [],
+      },
+      {
+        outcome: 'row-samples',
+        ruleId: 'columns[1].required',
+        failCount: 0,
+        failPercent: 0,
+        sampleFailures: [],
+      },
+      {
+        outcome: 'row-samples',
         ruleId: 'columns[1].allowed-values',
         failCount: 1,
         failPercent: 14,
         sampleFailures: [sample('base:anchor#2', 'emea')],
       },
-      { ruleId: 'columns[2].type', failCount: 0, failPercent: 0, sampleFailures: [] },
       {
+        outcome: 'row-samples',
+        ruleId: 'columns[2].type',
+        failCount: 0,
+        failPercent: 0,
+        sampleFailures: [],
+      },
+      {
+        outcome: 'row-samples',
         ruleId: 'columns[2].max',
         failCount: 1,
         failPercent: 14,
         sampleFailures: [sample('base:anchor#1', 999)],
       },
-      { ruleId: 'dataset.min-rows', failCount: 0, failPercent: 0, sampleFailures: [] },
+      {
+        outcome: 'dataset-fact',
+        ruleId: 'dataset.min-rows',
+        failCount: 0,
+        failPercent: 0,
+        sampleFailures: [],
+      },
     ],
   }
 }
@@ -189,6 +223,7 @@ describe('buildValidationReport: severity ordering (the documented four clauses)
       rowCount: 0,
       rules: [
         {
+          outcome: 'dataset-fact',
           ruleId: 'dataset.min-rows',
           failCount: 1,
           failPercent: 0,
@@ -407,6 +442,7 @@ describe('compareReportRules is a total order (mutation-resistant tiebreaks)', (
   const row = (
     overdides: Partial<Parameters<typeof compareReportRules>[0]>,
   ): Parameters<typeof compareReportRules>[0] => ({
+    outcome: 'row-samples',
     ruleId: 'columns[0].required',
     column: 'c',
     kind: 'required',
@@ -414,7 +450,6 @@ describe('compareReportRules is a total order (mutation-resistant tiebreaks)', (
     failCount: 1,
     failPercent: 14,
     failing: true,
-    outcome: 'row-samples',
     samples: [],
     samplesComplete: true,
     filter: { kind: 'ready', predicate: 'IS NULL' },
