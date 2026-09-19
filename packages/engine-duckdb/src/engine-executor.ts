@@ -74,6 +74,7 @@ import type {
   EngineRangeRequest,
   EngineRequest,
   EngineResponse,
+  EngineValidateRequest,
 } from './protocol'
 import { validateRowWindow } from './range-window'
 import { OpChannel } from './op-channel'
@@ -81,6 +82,21 @@ import { classifyProfileColumnType } from './profile-classify'
 import { composeProfileBaseSql, composeProfileTopKSql, PROFILE_BASE_SLOT } from './profile-query'
 import { TableRegistry } from './table-registry'
 import type { RegisteredTable } from './table-registry'
+import {
+  buildSampleFailures,
+  composeValidationCountSql,
+  composeValidationRowKeySql,
+  composeValidationViewDropSql,
+  composeValidationViewSql,
+  failPercentFromCounts,
+  readValidationRowCount,
+  readValidationRuleRows,
+  readValidationRowKeys,
+  readValidationSummaryRows,
+} from './validate-query'
+import type { ValidationSampleRow } from './validate-query'
+import { assertValidationPlanRelationBinding } from './validate-plan-wire'
+import type { EngineValidationRuleResult } from './validate-plan-wire'
 import { composeRowCountSql, composeWindowSql } from './window-query'
 
 /**
@@ -217,11 +233,14 @@ export class EngineOpExecutor {
     // `TRY_CAST` scan (the all-convertible common case), so it is
     // query-class too — routing it to the registry lane would reintroduce
     // exactly the head-of-line blocking ADR 0040 exists to prevent.
+    // m5-2: validation may scan whole datasets per planned rule — the same
+    // heavy class; it queues behind queries/profile, never behind windows.
     const lane =
       request.type === 'engine/query' ||
       request.type === 'engine/profile' ||
       request.type === 'engine/export' ||
-      request.type === 'engine/overlay-cast-check'
+      request.type === 'engine/overlay-cast-check' ||
+      request.type === 'engine/validate'
         ? this.queryLane
         : this.registryLane
     void lane.channel.run(() => this.dispatch(request, lane))
@@ -296,6 +315,10 @@ export class EngineOpExecutor {
         }
         case 'engine/overlay-cast-check': {
           await this.runOverlayCastCheck(request, lane)
+          break
+        }
+        case 'engine/validate': {
+          await this.runValidate(request, lane)
           break
         }
         case 'engine/export': {
@@ -595,6 +618,127 @@ export class EngineOpExecutor {
       requestId: request.requestId,
       hasNonConvertibleValues: result.numRows > 0,
     })
+  }
+
+  /**
+   * Validation execution (m5-2, query lane per ADR 0040): execute a compiled
+   * m5-1 `ValidationPlan` against the table's **effective view** — the m4-2
+   * composed relation (base + overlay; absent `overlay` = the plain base
+   * view) — so an edit/insert/delete that fixes or violates a rule flips that
+   * rule's verdict (the conformance overlay-interaction pins exercise all
+   * four directions).
+   *
+   * The plan's SQL is executed byte-identically: the executor materializes
+   * the composed effective view under the plan's own binding name (see
+   * `validate-query.ts` for the shape and the row-key channel), runs each
+   * rule query plus the summary, then drops the view. The whole sequence is
+   * ONE query-lane FIFO op, so create → run → drop can never interleave with
+   * another query-lane op on this connection; the view is dropped in
+   * `finally`, and a failed create/drop sequence leaves no object behind.
+   *
+   * Boundary posture (the m4-2 strictness, applied to plans): the wire shape
+   * was validated at the envelope; here the plan's binding name is checked
+   * against the registry (no shadowing) and its SQL against the compiler's
+   * relation-rendering shape — rejections are exactly one typed
+   * `engine/error`, before any SQL runs. Per-rule fail counts must agree
+   * with the summary (the plan contract's no-divergence invariant), samples
+   * are clamped to the documented hard max, and row keys resolve through the
+   * composed view (samples carry logical row keys, never bare positions).
+   */
+  private async runValidate(request: EngineValidateRequest, lane: OpLane): Promise<void> {
+    const entry = this.requireTable(request.tableId)
+    const conn = lane.connection(await this.deps.ensureSession())
+    const plan = request.plan
+    assertValidationPlanRelationBinding(
+      plan,
+      this.registry.list().map((registered) => registered.viewName),
+    )
+
+    const composition: OverlayComposition =
+      request.overlay === undefined
+        ? await this.baseViewComposition(conn, entry.viewName)
+        : {
+            viewName: entry.viewName,
+            base: request.overlay.base,
+            state: this.compositionOf(request.overlay).state,
+          }
+
+    try {
+      await conn.query(composeValidationViewSql(composition, plan.relation))
+      const rowCount = readValidationRowCount(
+        await conn.query(composeValidationCountSql(plan.relation)),
+      )
+
+      // Per-rule queries in plan order: failCount + plan-bounded samples (the
+      // plan's own LIMIT bounds the scan; the hard max bounds the payload).
+      const perRule: {
+        readonly ruleId: string
+        readonly failCount: number
+        readonly samples: ValidationSampleRow[]
+      }[] = []
+      const ordinals = new Set<number>()
+      for (const rule of plan.rules) {
+        const rows = readValidationRuleRows(await conn.query(rule.sql), rule.outcome)
+        if (rows.samples.length > plan.sampleLimit) {
+          throw new Error(`rule '${rule.ruleId}' returned more samples than the plan's bound`)
+        }
+        for (const sample of rows.samples) {
+          if (sample.ordinal >= rowCount) {
+            throw new Error(`rule '${rule.ruleId}' sampled an ordinal past the effective row count`)
+          }
+          ordinals.add(sample.ordinal)
+        }
+        perRule.push({ ruleId: rule.ruleId, failCount: rows.failCount, samples: [...rows.samples] })
+      }
+
+      // Row keys for every sampled ordinal, one scan of the composed view —
+      // samples carry logical row keys (m4-3 grammar), never bare positions.
+      const keys =
+        ordinals.size > 0
+          ? readValidationRowKeys(
+              await conn.query(
+                composeValidationRowKeySql(
+                  plan.relation,
+                  [...ordinals].sort((a, b) => a - b),
+                ),
+              ),
+            )
+          : new Map<number, string>()
+
+      // Summary agreement (the plan contract: per-rule ≡ summary is
+      // structural; the engine still asserts it so a diverging plan fails
+      // loudly instead of reporting counts that disagree with themselves).
+      const summary = readValidationSummaryRows(await conn.query(plan.summarySql))
+      if (summary.size !== plan.rules.length) {
+        throw new Error('validation summary did not report exactly one row per planned rule')
+      }
+
+      const rules: EngineValidationRuleResult[] = perRule.map((rule) => {
+        const summaryCount = summary.get(rule.ruleId)
+        if (summaryCount === undefined) {
+          throw new Error(`validation summary is missing rule '${rule.ruleId}'`)
+        }
+        if (summaryCount !== rule.failCount) {
+          throw new Error(
+            `validation summary disagrees with the per-rule count for '${rule.ruleId}'`,
+          )
+        }
+        return {
+          ruleId: rule.ruleId,
+          failCount: rule.failCount,
+          failPercent: failPercentFromCounts(rule.failCount, rowCount),
+          sampleFailures: buildSampleFailures(rule.samples, keys),
+        }
+      })
+
+      this.post({
+        type: 'engine/validate-result',
+        requestId: request.requestId,
+        result: { valid: rules.every((rule) => rule.failCount === 0), rowCount, rules },
+      })
+    } finally {
+      await conn.query(composeValidationViewDropSql(plan.relation)).catch(() => undefined)
+    }
   }
 
   /**

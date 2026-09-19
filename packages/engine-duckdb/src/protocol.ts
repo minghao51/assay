@@ -57,7 +57,9 @@
 
 import type { EngineOverlayPayload } from './overlay-wire'
 import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire'
-export type { EngineOverlayPayload }
+import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
+import { parseValidationPlan } from './validate-plan-wire'
+export type { EngineOverlayPayload, EngineValidationPlan, EngineValidationResult }
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
 export interface EngineColumnSchema {
@@ -264,6 +266,26 @@ export interface EngineOverlayCastCheckRequest {
   targetType: string
 }
 
+/**
+ * Validation execution (m5-2, ADR 0040): execute the m5-1 `ValidationPlan`
+ * against the **effective view** of the addressed table — base view plus the
+ * optional overlay (absent `overlay` = the plain base view, the export
+ * convention). The plan is boundary-validated strictly (see
+ * `validate-plan-wire.ts`): a structurally malformed plan is answered with
+ * exactly one typed `engine/error` before any SQL runs; the executor
+ * additionally refuses a binding name that would shadow a registered view
+ * or whose SQL does not bind the relation in the compiler's FROM shape.
+ * Query lane: validation may scan whole datasets — exactly the heavy class
+ * that must never head-of-line block the grid's windows.
+ */
+export interface EngineValidateRequest {
+  type: 'engine/validate'
+  requestId: number
+  tableId: string
+  plan: EngineValidationPlan
+  overlay?: EngineOverlayPayload
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -282,6 +304,7 @@ export type EngineRequest =
   | EngineOverlayRowCountRequest
   | EngineOverlayRangeRequest
   | EngineOverlayCastCheckRequest
+  | EngineValidateRequest
   | EngineExportRequest
   | EngineDisposeRequest
 
@@ -380,7 +403,9 @@ export interface EngineOverlayCastCheckResultResponse {
   hasNonConvertibleValues: boolean
 }
 
-/** Result of the export op: the generated OPFS path plus honest counts. */
+/**
+ * Result of the export op: the generated OPFS path plus honest counts.
+ */
 export interface EngineExportResultResponse {
   type: 'engine/export-result'
   requestId: number
@@ -391,6 +416,18 @@ export interface EngineExportResultResponse {
   rowCount: number
   /** Exported byte size. */
   bytes: number
+}
+
+/**
+ * Result of the validate op (m5-2): per-rule `{ruleId, failCount,
+ * failPercent, sampleFailures}` in plan order, the effective row count, and
+ * the total verdict. Sample values are report content (bounded,
+ * engine-clamped) — never logged or telemetried (ADR 0025).
+ */
+export interface EngineValidateResultResponse {
+  type: 'engine/validate-result'
+  requestId: number
+  result: EngineValidationResult
 }
 
 // ---- Profile payload types (m2-5) ----
@@ -477,6 +514,7 @@ export type EngineResponse =
   | EngineOverlayRowCountResultResponse
   | EngineOverlayRangeResultResponse
   | EngineOverlayCastCheckResultResponse
+  | EngineValidateResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
@@ -494,6 +532,7 @@ export type EngineSuccessResponse =
   | EngineOverlayRowCountResultResponse
   | EngineOverlayRangeResultResponse
   | EngineOverlayCastCheckResultResponse
+  | EngineValidateResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
 
@@ -635,16 +674,34 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
     }
     return null
   }
+  if (type === 'engine/validate' && typeof data.tableId === 'string') {
+    // The plan is the request's complex payload: strictly shape-checked at
+    // the boundary (validate-plan-wire.ts). `overlay` follows the export
+    // convention — absent = the plain base view; a present-but-malformed
+    // payload rejects the request.
+    const plan = parseValidationPlan(data.plan)
+    if (plan === null) return null
+    const overlay = parseOverlayPayload(data.overlay)
+    if (data.overlay !== undefined && overlay === null) return null
+    return {
+      type,
+      requestId,
+      tableId: data.tableId,
+      plan,
+      ...(overlay === null ? {} : { overlay }),
+    }
+  }
   if (type === 'engine/dispose') return { type, requestId }
   return null
 }
 
 /**
- * The m4-2 overlay/export request types (m4-2 fix round 2). These carry the
- * complex, host-supplied overlay payload, so a structurally malformed message
- * is both plausible and — because the client always holds a pending promise
- * for its `requestId` — a hang risk if the worker silently drops it. Their
- * envelope identity is therefore preserved through parsing.
+ * The m4-2/m5-2 request types whose complex host-supplied payloads (overlay
+ * lists, compiled validation plans) get the typed-rejection treatment. These
+ * carry enough structure that a malformed message is both plausible and —
+ * because the client always holds a pending promise for its `requestId` — a
+ * hang risk if the worker silently dropped it. Their envelope identity is
+ * therefore preserved through parsing.
  */
 export const OVERLAY_REQUEST_TYPES = [
   'engine/overlay-schema',
@@ -652,6 +709,7 @@ export const OVERLAY_REQUEST_TYPES = [
   'engine/overlay-range',
   'engine/overlay-cast-check',
   'engine/export',
+  'engine/validate',
 ] as const
 
 export type OverlayRequestType = (typeof OVERLAY_REQUEST_TYPES)[number]
@@ -854,6 +912,9 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
       bytes: data.bytes,
     }
   }
+  if (type === 'engine/validate-result' && isValidationResult(data.result)) {
+    return { type, requestId, result: data.result }
+  }
   if (type === 'engine/disposed') return { type, requestId }
   if (type === 'engine/error' && typeof data.message === 'string') {
     return { type, requestId, message: data.message }
@@ -894,6 +955,42 @@ function isUint8Array(value: unknown): value is Uint8Array {
 /** A row count must be a safe non-negative integer (never a float/string). */
 function isRowCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/** An integer percent in [0, 100] (the failPercent contract). */
+function isPercent(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 100
+}
+
+/** A wire-safe sample value: string, finite number, boolean, or null. */
+function isSampleValue(value: unknown): value is string | number | boolean | null {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  )
+}
+
+/** A well-formed validation result (shape only — the worker guarantees the rest). */
+function isValidationResult(value: unknown): value is EngineValidationResult {
+  if (!isRecord(value)) return false
+  if (typeof value['valid'] !== 'boolean' || !isRowCount(value['rowCount'])) return false
+  const rules = value['rules']
+  if (!Array.isArray(rules)) return false
+  return rules.every((rule) => {
+    if (!isRecord(rule)) return false
+    if (typeof rule['ruleId'] !== 'string' || !isRowCount(rule['failCount'])) return false
+    if (!isPercent(rule['failPercent'])) return false
+    const samples = rule['sampleFailures']
+    if (!Array.isArray(samples)) return false
+    return samples.every((sample) => {
+      if (!isRecord(sample)) return false
+      const rowKey = sample['rowKey']
+      if (rowKey !== null && typeof rowKey !== 'string') return false
+      return isSampleValue(sample['value'])
+    })
+  })
 }
 
 /** A statistic: a finite number (JSON-able; never NaN/±Infinity) or null. */

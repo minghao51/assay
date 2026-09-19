@@ -22,7 +22,15 @@ import type {
   EngineRangeWindow,
   EngineTableHandle,
 } from '../src/index'
+import type { EditOp, RowId } from '@assay/domain'
 import { createDuckDbConformanceSubject } from './conformance-subject'
+import {
+  VALIDATION_BASE,
+  VALIDATION_FIX_ALL_OPS,
+  VALIDATION_SAMPLE_LIMIT,
+  buildValidationJsonl,
+  compileValidationPlan,
+} from './validation-dataset'
 
 const client = new DuckDbEngineClient()
 
@@ -476,6 +484,115 @@ for (const name of engineConformanceScenarioNames) {
 }
 requiredElement<HTMLButtonElement>('#conformance-run-all').addEventListener('click', () => {
   void runAllConformanceScenarios()
+})
+
+// ── m5-2 validation journey (tests/e2e/validation-journey.spec.ts) ──────────
+//
+// Open the on-demand dirty dataset (runtime-built JSONL, never committed),
+// compile the contract with the real m5-1 compiler against the engine's own
+// schema, then validate three times over the SAME plan: the plain base view,
+// a one-edit overlay, and a fix-everything overlay. The per-step JSON proves
+// the edit→re-validate→verdict-flip journey the m5-3 panel builds on.
+// Privacy (ADR 0001/0025): rule ids, counts, and row counts only — sample
+// values stay out of the evidence entirely.
+
+interface ValidationStepEvidence {
+  step: string
+  valid?: boolean
+  rowCount?: number
+  failingRules?: number
+  changedFromPrevious?: string[]
+  error?: string
+}
+
+/** ruleId → "failCount/failPercent" summary (counts only, never values). */
+function summarizeRules(result: {
+  valid: boolean
+  rowCount: number
+  rules: readonly { ruleId: string; failCount: number; failPercent: number }[]
+}): { valid: boolean; rowCount: number; failingRules: number; rules: Record<string, string> } {
+  const rules: Record<string, string> = {}
+  let failingRules = 0
+  for (const rule of result.rules) {
+    rules[rule.ruleId] = `${String(rule.failCount)}/${String(rule.failPercent)}`
+    if (rule.failCount > 0) failingRules += 1
+  }
+  return { valid: result.valid, rowCount: result.rowCount, failingRules, rules }
+}
+
+async function runValidationJourney(): Promise<void> {
+  const evidence: ValidationStepEvidence[] = []
+  try {
+    // Stage the runtime-built dirty dataset and open it through the engine.
+    const bytes = buildValidationJsonl()
+    const root = await navigator.storage.getDirectory()
+    const fileHandle = await root.getFileHandle('assay-journey-validation.jsonl', {
+      create: true,
+    })
+    const writable = await fileHandle.createWritable()
+    const chunk = new Uint8Array(bytes.byteLength)
+    chunk.set(bytes)
+    await writable.write(chunk)
+    await writable.close()
+    const table: EngineTableHandle = await client.open(fileHandle)
+
+    // The plan is the real compiler's output for the engine's own schema.
+    const schema = await client.schema(table)
+    const plan = compileValidationPlan(schema, VALIDATION_SAMPLE_LIMIT)
+    const overlayOf = (
+      ops: readonly EditOp[],
+    ): { base: typeof VALIDATION_BASE; ops: readonly EditOp[] } => ({
+      base: VALIDATION_BASE,
+      ops,
+    })
+
+    // Step 1: the plain base view.
+    const base = summarizeRules(await client.validate(table, plan))
+    evidence.push({ step: 'base', ...base })
+
+    // Step 2: one edit fixes one violation (region #4 XX -> SG).
+    const fixOne = summarizeRules(
+      await client.validate(
+        table,
+        plan,
+        overlayOf([
+          {
+            kind: 'cell-set',
+            rowId: 'base:val-anchor-v1#4' as RowId,
+            column: 'region',
+            value: { kind: 'string', value: 'SG' },
+          },
+        ]),
+      ),
+    )
+    evidence.push({
+      step: 'fix-one',
+      ...fixOne,
+      changedFromPrevious: Object.keys(fixOne.rules).filter(
+        (ruleId) => (fixOne.rules[ruleId] ?? '') !== (base.rules[ruleId] ?? ''),
+      ),
+    })
+
+    // Step 3: fix every violating cell — the verdict flips to valid.
+    const fixAll = summarizeRules(
+      await client.validate(table, plan, overlayOf(VALIDATION_FIX_ALL_OPS)),
+    )
+    evidence.push({
+      step: 'fix-all',
+      ...fixAll,
+      changedFromPrevious: Object.keys(fixAll.rules).filter(
+        (ruleId) => (fixAll.rules[ruleId] ?? '') !== (fixOne.rules[ruleId] ?? ''),
+      ),
+    })
+  } catch (error) {
+    evidence.push({ step: 'error', error: errorMessage(error) })
+  }
+  statusEl.textContent = client.status
+  setText('validate-journey-result', JSON.stringify(evidence))
+}
+
+requiredElement<HTMLButtonElement>('#validate-journey').addEventListener('click', () => {
+  void runValidationJourney()
 })
 
 // ── M1-7 bench hooks (tests/e2e/bench-ttfr.spec.ts) ──────────────────────────

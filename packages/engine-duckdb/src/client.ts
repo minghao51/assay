@@ -25,6 +25,8 @@ import type { EditOp, OverlayBase } from '@assay/domain'
 import { foldOverlay } from '@assay/domain'
 import { EngineTypeError, validateEngineTypeExpression } from './type-expr'
 import { assertValidOverlayTypes } from './overlay-wire'
+import { parseValidationPlan } from './validate-plan-wire'
+import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
 import { parseEngineResponse } from './protocol'
 import type {
   EngineColumnSchema,
@@ -698,6 +700,51 @@ export class DuckDbEngineClient {
       rowCount: response.rowCount,
       bytes: response.bytes,
     }
+  }
+
+  /**
+   * Validation execution (m5-2, query lane): execute a compiled m5-1
+   * `ValidationPlan` (`@assay/validation`'s output — the parameter is the
+   * engine's structural wire mirror, which the compiler's plan assigns to
+   * directly) against the table's **effective view**: base + the given
+   * overlay, or the plain base view when `overlay` is absent. Because the
+   * plan executes over the composed relation, an M4 edit that fixes or
+   * violates a rule flips that rule's verdict — re-validate after editing
+   * for a fresh verdict.
+   *
+   * The plan is shape-validated on this side too (fast, observable failure
+   * for a malformed plan — the worker re-validates at the boundary); the
+   * result carries per-rule `{ruleId, failCount, failPercent, sampleFailures}`
+   * in plan order, the effective row count, and the total verdict. Sample
+   * values are report content: bounded, engine-clamped, never logged or
+   * telemetried (ADR 0025).
+   */
+  async validate(
+    handle: EngineTableHandle,
+    plan: EngineValidationPlan,
+    overlay?: EngineOverlay,
+  ): Promise<EngineValidationResult> {
+    await this.ensureReady()
+    const wirePlan = parseValidationPlan(plan)
+    if (wirePlan === null) {
+      throw new EngineOperationError('malformed validation plan')
+    }
+    if (overlay !== undefined) this.requireValidOverlayTypes(overlay)
+    const response = await this.send({
+      type: 'engine/validate',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      plan: wirePlan,
+      ...(overlay === undefined
+        ? {}
+        : {
+            overlay: { base: overlay.base, ops: overlay.ops === undefined ? [] : [...overlay.ops] },
+          }),
+    })
+    if (response.type !== 'engine/validate-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/validate`)
+    }
+    return response.result
   }
 
   /**

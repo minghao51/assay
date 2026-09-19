@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "apache-arrow": "17.0.0"
+    "apache-arrow": "17.0.0",
+    "@assay/contracts": "workspace:*",
+    "@assay/validation": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

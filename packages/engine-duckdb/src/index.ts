@@ -103,6 +103,8 @@ export type {
   EngineSchemaResultResponse,
   EngineSortSpec,
   EngineSuccessResponse,
+  EngineValidateRequest,
+  EngineValidateResultResponse,
 } from './protocol'
 export { MAX_RANGE_ROWS, validateRowWindow } from './range-window'
 export type { RowWindow, RowWindowValidation } from './range-window'
@@ -156,6 +158,35 @@ export {
 export type { OverlayComposition, OverlayWindowQuery } from './overlay-query'
 export { parseOverlayPayload, assertValidOverlayTypes } from './overlay-wire'
 export type { EngineOverlayPayload } from './overlay-wire'
+// m5-2 fold: validation execution — the strict plan wire validator, the
+// result contract, and the composed-view/row-key helpers, public so hosts
+// (m5-3 web, m5-4 CLI agreement work) and the conformance suite consume the
+// same executed semantics instead of re-deriving them.
+export {
+  parseValidationPlan,
+  assertValidationPlanRelationBinding,
+  quotedRelationToken,
+} from './validate-plan-wire'
+export type {
+  EngineValidationPlan,
+  EngineValidationResult,
+  EngineValidationRule,
+  EngineValidationRuleResult,
+  EngineValidationSample,
+} from './validate-plan-wire'
+export {
+  composeValidationCountSql,
+  composeValidationRowKeySql,
+  composeValidationViewDropSql,
+  composeValidationViewSql,
+  failPercentFromCounts,
+  normalizeSampleValue,
+  readValidationRowCount,
+  readValidationRuleRows,
+  readValidationRowKeys,
+  readValidationSummaryRows,
+  VALIDATION_SAMPLE_HARD_MAX,
+} from './validate-query'
 // m4-2 fix-round fold: the strict engine type-expression validator and the
 // canonical string-family classifier the CSV formula-injection guard keys
 // off. Public so hosts can validate declared cast types before submitting an

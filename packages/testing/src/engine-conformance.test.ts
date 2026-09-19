@@ -24,6 +24,7 @@ import {
   runEngineConformanceScenario,
   runEngineConformanceScenarios,
 } from './engine-conformance'
+import { CONTRACT_TYPE_VOCABULARY } from '@assay/contracts'
 import type {
   ConformanceBatchResult,
   ConformanceCellValue,
@@ -36,6 +37,7 @@ import type {
   ConformanceFileSource,
   ConformanceFilterSpec,
   ConformanceHostileTypeProbe,
+  ConformanceHostileValidationPlan,
   ConformanceInsertPosition,
   ConformanceNumericStats,
   ConformanceOverlay,
@@ -46,6 +48,12 @@ import type {
   ConformanceScenarioName,
   ConformanceSortSpec,
   ConformanceTableHandle,
+  ConformanceValidationDataset,
+  ConformanceValidationPlan,
+  ConformanceValidationResult,
+  ConformanceValidationRuleExpectation,
+  ConformanceValidationRuleResult,
+  ConformanceValidationSample,
   ConformanceWindow,
   EngineConformanceSubject,
 } from './engine-conformance'
@@ -125,6 +133,14 @@ interface FakeMutations {
   castCheckAlwaysTrue?: boolean
   /** m4-4b round 3: the committed-cast ground truth lies (never fails). */
   committedCastAlwaysSucceeds?: boolean
+  /** m5-2: per-rule failCounts are inflated by one. */
+  liesAboutValidationCounts?: boolean
+  /** m5-2: sample failures are silently dropped (row-key channel broken). */
+  dropsValidationSamples?: boolean
+  /** m5-2: the engine's documented sample clamp is skipped. */
+  skipsValidationClamp?: boolean
+  /** m5-2: hostile validation plans are accepted instead of rejected. */
+  acceptsHostilePlans?: boolean
 }
 
 const GOOD_DATASET = {
@@ -819,6 +835,608 @@ const FAKE_HOSTILE_TYPE_PROBES: readonly ConformanceHostileTypeProbe[] = [
 ]
 
 /**
+ * m5-2 validation dataset the fake subject declares, in miniature: a 6-row
+ * typed table whose contract covers ALL eleven v1 rule kinds, plus the
+ * overlay-interaction battery (fix/violate/insert/tombstone/row-count facts),
+ * the K-clamp truncation, and hostile plans. The fake's `validate`
+ * implementation evaluates the REAL compiled plan's ruleIds against these
+ * typed rows (the fake has no SQL engine; the per-rule VALUES live in
+ * {@link FAKE_VALIDATION_RULE_SEMANTICS}, keyed by the plan's ruleId
+ * spellings, consistent with the declared contract below). All expectations
+ * are hand-written literals independent of the evaluator, so mutation knobs
+ * make the two disagree.
+ */
+const FAKE_VALIDATION_ROWS: readonly { id: number; label: string | null; flag: boolean }[] = [
+  { id: 1, label: 'x', flag: true },
+  { id: 2, label: 'x', flag: true },
+  { id: 3, label: null, flag: true },
+  { id: 4, label: 'x', flag: false },
+  { id: -5, label: 'E', flag: true },
+  { id: 2, label: 'x', flag: true },
+]
+
+const FAKE_VALIDATION_BASE: ConformanceOverlayBase = {
+  baseAnchor: 'fake-val-v1',
+  overlayAnchor: 'fake-val-ov-1',
+  columns: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'label', type: 'VARCHAR' },
+    { name: 'flag', type: 'BOOLEAN' },
+  ],
+  baseRowCount: 6,
+}
+
+/** The fake schema the contract binds against (schema() reports this). */
+const FAKE_VALIDATION_SCHEMA = FAKE_VALIDATION_BASE.columns
+
+/** The fake's documented sample clamp (mirrors the engine's hard max). */
+const FAKE_VALIDATION_SAMPLE_MAX = 3
+
+/** The binding name the fake plans use. */
+const FAKE_VALIDATION_RELATION = 'fake_validation_src'
+
+/** The view name the fake guard refuses to shadow (the assay_t1 analog). */
+const FAKE_OWNED_VIEW = 'fake-owned-view'
+
+/** The contract every fake plan is compiled from (canonical YAML). */
+const FAKE_VALIDATION_CONTRACT_YAML = `format: v1
+name: fake-validation
+version: 1
+columns:
+  - name: id
+    type: BIGINT
+    required: true
+    unique: true
+    min: 0
+  - name: label
+    required: true
+    allowed-values: [a, b]
+    regex: '^[a-z]+$'
+    max-null-share: 0.5
+  - name: flag
+    required: true
+    allowed-values: [true]
+dataset:
+  min-rows: 5
+  max-rows: 10
+`
+
+/** The fake's canonical row-id for a base ordinal. */
+function fakeValKey(ordinal: number): string {
+  return `base:${FAKE_VALIDATION_BASE.baseAnchor}#${String(ordinal)}`
+}
+
+/**
+ * Per-rule semantics keyed by the plan's ruleId (the contract's meaning —
+ * the fake evaluator cannot read SQL). These are the values the contract
+ * above declares, in the plan's ruleId spelling.
+ */
+const FAKE_VALIDATION_RULE_SEMANTICS: Record<
+  string,
+  {
+    readonly kind: string
+    readonly column?: string
+    readonly expectedType?: string
+    readonly bound?: number
+    readonly values?: readonly (string | number | boolean)[]
+    readonly share?: number
+  }
+> = {
+  'columns[0].type': { kind: 'declared-type', column: 'id', expectedType: 'BIGINT' },
+  'columns[0].required': { kind: 'required', column: 'id' },
+  'columns[0].unique': { kind: 'unique', column: 'id' },
+  'columns[0].min': { kind: 'min', column: 'id', bound: 0 },
+  'columns[1].required': { kind: 'required', column: 'label' },
+  'columns[1].allowed-values': { kind: 'allowed-values', column: 'label', values: ['a', 'b'] },
+  'columns[1].regex': { kind: 'regex', column: 'label' },
+  'columns[1].max-null-share': { kind: 'max-null-share', column: 'label', share: 0.5 },
+  'columns[2].required': { kind: 'required', column: 'flag' },
+  'columns[2].allowed-values': { kind: 'allowed-values', column: 'flag', values: [true] },
+  'dataset.min-rows': { kind: 'min-rows', bound: 5 },
+  'dataset.max-rows': { kind: 'max-rows', bound: 10 },
+}
+
+/** A typed value row of the fake's effective validation view. */
+interface FakeValRow {
+  readonly key: string
+  readonly cells: ReadonlyMap<string, string | number | boolean | null>
+}
+
+/**
+ * The fake's effective validation rows under an overlay: base order minus
+ * tombstones with edits overlaid, then live inserts in seq order with their
+ * edits merged — the miniature of the composed effective relation. Values
+ * stay TYPED (numbers compare numerically; booleans stay boolean).
+ */
+function fakeValidationRows(ops: readonly ConformanceEditOp[]): FakeValRow[] {
+  const state = foldFakeOverlay(FAKE_VALIDATION_BASE, ops, {})
+  const typed = (value: ConformanceCellValue | undefined): string | number | boolean | null => {
+    if (value === undefined || value.kind === 'null') return null
+    if (value.kind === 'boolean') return value.value
+    if (value.kind === 'number') return value.value
+    return value.kind === 'text' ? value.text : value.value
+  }
+  const rows: FakeValRow[] = []
+  for (let ordinal = 0; ordinal < FAKE_VALIDATION_BASE.baseRowCount; ordinal++) {
+    if (state.deletedBase.has(ordinal)) continue
+    const key = fakeValKey(ordinal)
+    const base = FAKE_VALIDATION_ROWS[ordinal]!
+    const cells = new Map<string, string | number | boolean | null>([
+      ['id', base.id],
+      ['label', base.label],
+      ['flag', base.flag],
+    ])
+    for (const [column, value] of state.edits.get(key) ?? []) {
+      cells.set(column, typed(value))
+    }
+    rows.push({ key, cells })
+  }
+  const inserts = [...state.inserts.values()]
+    .filter((record) => record.live)
+    .sort((a, b) => a.seq - b.seq)
+  for (const record of inserts) {
+    const cells = new Map<string, string | number | boolean | null>()
+    for (const column of FAKE_VALIDATION_BASE.columns) {
+      const edit = state.edits.get(record.id)?.get(column.name)
+      cells.set(
+        column.name,
+        edit !== undefined ? typed(edit) : typed(record.values.get(column.name)),
+      )
+    }
+    rows.push({ key: record.id, cells })
+  }
+  return rows
+}
+
+/** The full-match regex the fake's label contract declares (`^[a-z]+$`). */
+const FAKE_LABEL_REGEX = /^[a-z]+$/
+
+/**
+ * The fake's honest rule evaluator: the plan's ruleId selects the declared
+ * semantics; the effective rows produce {failCount, samples} per the
+ * documented m5-1 semantics (NULL-passing value rules, full-match regex,
+ * occurrence-counted unique, share facts, row-count bounds).
+ */
+function fakeEvaluateRule(
+  ruleId: string,
+  rows: readonly FakeValRow[],
+): { readonly failCount: number; readonly samples: ConformanceValidationSample[] } {
+  const semantics = FAKE_VALIDATION_RULE_SEMANTICS[ruleId]
+  if (semantics === undefined) throw new FakeQueryError('fake validate: unknown rule semantics')
+  if (semantics.kind === 'declared-type') {
+    const schemaType = FAKE_VALIDATION_SCHEMA.find(
+      (column) => column.name === semantics.column,
+    )?.type
+    return { failCount: schemaType === semantics.expectedType ? 0 : 1, samples: [] }
+  }
+  if (semantics.kind === 'min-rows' || semantics.kind === 'max-rows') {
+    const count = rows.length
+    const violated =
+      semantics.kind === 'min-rows'
+        ? count < (semantics.bound ?? 0)
+        : count > (semantics.bound ?? 0)
+    return { failCount: violated ? 1 : 0, samples: [] }
+  }
+  const column = semantics.column ?? ''
+  if (semantics.kind === 'max-null-share') {
+    const nulls = rows.filter((row) => row.cells.get(column) === null).length
+    const share = rows.length === 0 ? 0 : nulls / rows.length
+    return { failCount: share > (semantics.share ?? 0) ? 1 : 0, samples: [] }
+  }
+  if (semantics.kind === 'min-distinct-share') {
+    const nonNull = rows.filter((row) => row.cells.get(column) !== null)
+    const distinct = new Set(nonNull.map((row) => String(row.cells.get(column)))).size
+    const violated = nonNull.length > 0 && distinct / nonNull.length < (semantics.share ?? 0)
+    return { failCount: violated ? 1 : 0, samples: [] }
+  }
+  const samples: ConformanceValidationSample[] = []
+  let failCount = 0
+  if (semantics.kind === 'unique') {
+    const occurrences = new Map<string, number>()
+    for (const row of rows) {
+      const value = row.cells.get(column) ?? null
+      if (value === null) continue
+      occurrences.set(String(value), (occurrences.get(String(value)) ?? 0) + 1)
+    }
+    for (const row of rows) {
+      const value = row.cells.get(column) ?? null
+      if (value !== null && (occurrences.get(String(value)) ?? 0) > 1) {
+        failCount += 1
+        samples.push({ rowKey: row.key, value })
+      }
+    }
+    return { failCount, samples }
+  }
+  for (const row of rows) {
+    const value = row.cells.get(column) ?? null
+    let violated = false
+    if (semantics.kind === 'required') violated = value === null
+    else if (value !== null) {
+      if (semantics.kind === 'min')
+        violated = typeof value === 'number' && value < (semantics.bound ?? 0)
+      else if (semantics.kind === 'max')
+        violated = typeof value === 'number' && value > (semantics.bound ?? 0)
+      else if (semantics.kind === 'allowed-values')
+        violated = !(semantics.values ?? []).some((entry) => entry === value)
+      else if (semantics.kind === 'regex')
+        violated = typeof value === 'string' && !FAKE_LABEL_REGEX.test(value)
+    }
+    if (violated) {
+      failCount += 1
+      samples.push({ rowKey: row.key, value })
+    }
+  }
+  return { failCount, samples }
+}
+
+/** The fake's plan-shape guard (the mirror of the engine's boundary). */
+function fakeAssertPlanValid(plan: ConformanceValidationPlan): void {
+  if (plan.planKind !== 'assay-validation-plan' || plan.planVersion !== 1) {
+    throw new FakeOperationError('unknown validation plan kind/version')
+  }
+  if (
+    typeof plan.contractName !== 'string' ||
+    typeof plan.relation !== 'string' ||
+    plan.relation.length === 0 ||
+    typeof plan.sampleLimit !== 'number' ||
+    !Number.isSafeInteger(plan.sampleLimit) ||
+    plan.sampleLimit < 1 ||
+    !Array.isArray(plan.rules) ||
+    typeof plan.summarySql !== 'string'
+  ) {
+    throw new FakeOperationError('malformed validation plan')
+  }
+  if (plan.relation === FAKE_OWNED_VIEW) {
+    throw new FakeOperationError('validation plan relation collides with a registered view')
+  }
+  const quoted = `"${plan.relation}"`
+  for (const rule of [...plan.rules]) {
+    if (typeof rule.ruleId !== 'string' || typeof rule.sql !== 'string') {
+      throw new FakeOperationError('malformed validation rule')
+    }
+    if (rule.sql.includes(quoted) && !rule.sql.includes(`FROM ${quoted}`)) {
+      throw new FakeOperationError('rule SQL does not bind the relation in the compiler FROM shape')
+    }
+  }
+}
+
+/** A hand-built hostile plan probe (structural mirror of the wire plan). */
+function fakeHostilePlan(
+  label: string,
+  overrides: Partial<ConformanceValidationPlan>,
+): ConformanceHostileValidationPlan {
+  return {
+    label,
+    plan: {
+      planKind: 'assay-validation-plan',
+      planVersion: 1,
+      contractName: 'conf',
+      contractVersion: 1,
+      relation: FAKE_VALIDATION_RELATION,
+      sampleLimit: 20,
+      rules: [
+        {
+          ruleId: 'columns[0].required',
+          path: 'columns[0].required',
+          kind: 'required',
+          column: 'id',
+          outcome: 'row-samples',
+          sql: `SELECT 1 FROM "${FAKE_VALIDATION_RELATION}" AS "src"`,
+        },
+      ],
+      summarySql: `SELECT 'columns[0].required' AS "rule_id" FROM "${FAKE_VALIDATION_RELATION}" AS "src"`,
+      ...overrides,
+    },
+  }
+}
+
+/** The fake's per-rule expectation literals (base run; rowCount 6). */
+const FAKE_VALIDATION_BASE_RULES: readonly ConformanceValidationRuleExpectation[] = [
+  { ruleId: 'columns[0].type', failCount: 0, failPercent: 0 },
+  { ruleId: 'columns[0].required', failCount: 0, failPercent: 0 },
+  {
+    ruleId: 'columns[0].unique',
+    failCount: 2,
+    failPercent: 33,
+    samples: [
+      { rowKey: fakeValKey(1), value: 2 },
+      { rowKey: fakeValKey(5), value: 2 },
+    ],
+  },
+  {
+    ruleId: 'columns[0].min',
+    failCount: 1,
+    failPercent: 17,
+    samples: [{ rowKey: fakeValKey(4), value: -5 }],
+  },
+  {
+    ruleId: 'columns[1].required',
+    failCount: 1,
+    failPercent: 17,
+    samples: [{ rowKey: fakeValKey(2), value: null }],
+  },
+  {
+    // Five violations exceed the fake's documented clamp (3), so the
+    // reported list is clamped — the first sample is what gets pinned here
+    // (the full-list pin lives on the rules at or under the clamp).
+    ruleId: 'columns[1].allowed-values',
+    failCount: 5,
+    failPercent: 83,
+    firstSample: { rowKey: fakeValKey(0), value: 'x' },
+  },
+  {
+    ruleId: 'columns[1].regex',
+    failCount: 1,
+    failPercent: 17,
+    samples: [{ rowKey: fakeValKey(4), value: 'E' }],
+  },
+  { ruleId: 'columns[1].max-null-share', failCount: 0, failPercent: 0 },
+  { ruleId: 'columns[2].required', failCount: 0, failPercent: 0 },
+  {
+    ruleId: 'columns[2].allowed-values',
+    failCount: 1,
+    failPercent: 17,
+    samples: [{ rowKey: fakeValKey(3), value: false }],
+  },
+  { ruleId: 'dataset.min-rows', failCount: 0, failPercent: 0 },
+  { ruleId: 'dataset.max-rows', failCount: 0, failPercent: 0 },
+]
+
+/**
+ * The empty-overlay run's rules. The fake always keys rows by its declared
+ * baseAnchor (it has no empty-anchor base mode — that distinction is pinned
+ * by the real engine-duckdb subject), so its expectations are the same
+ * literals as the base run.
+ */
+const FAKE_VALIDATION_EMPTY_OVERLAY_RULES: readonly ConformanceValidationRuleExpectation[] =
+  FAKE_VALIDATION_BASE_RULES
+
+const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
+  contractYaml: FAKE_VALIDATION_CONTRACT_YAML,
+  planRelation: FAKE_VALIDATION_RELATION,
+  sampleLimit: 20,
+  base: FAKE_VALIDATION_BASE,
+  baseExpectations: {
+    valid: false,
+    rowCount: 6,
+    rules: FAKE_VALIDATION_BASE_RULES,
+  },
+  emptyOverlayExpectations: {
+    valid: false,
+    rowCount: 6,
+    rules: FAKE_VALIDATION_EMPTY_OVERLAY_RULES,
+  },
+  interactions: [
+    {
+      label: 'fix-one: the negative id is edited into range (min flips to clean)',
+      ops: [
+        {
+          kind: 'cell-set',
+          rowId: fakeValKey(4),
+          column: 'id',
+          value: { kind: 'number', value: 9 },
+        },
+      ],
+      expectations: {
+        valid: false,
+        rowCount: 6,
+        rules: FAKE_VALIDATION_BASE_RULES.map((rule) =>
+          rule.ruleId === 'columns[0].min'
+            ? { ...rule, failCount: 0, failPercent: 0, samples: [] }
+            : rule,
+        ),
+      },
+    },
+    {
+      label: 'violate-one: a passing flag is flipped (allowed-values 1 -> 2)',
+      ops: [
+        {
+          kind: 'cell-set',
+          rowId: fakeValKey(0),
+          column: 'flag',
+          value: { kind: 'boolean', value: false },
+        },
+      ],
+      expectations: {
+        valid: false,
+        rowCount: 6,
+        rules: FAKE_VALIDATION_BASE_RULES.map((rule) =>
+          rule.ruleId === 'columns[2].allowed-values'
+            ? {
+                ...rule,
+                failCount: 2,
+                failPercent: 33,
+                samples: [
+                  { rowKey: fakeValKey(0), value: false },
+                  { rowKey: fakeValKey(3), value: false },
+                ],
+              }
+            : rule,
+        ),
+      },
+    },
+    {
+      label: 'insert-violating: a duplicated id arrives (unique 2 -> 3, under its ins: key)',
+      ops: [
+        {
+          kind: 'row-insert',
+          rowId: 'ins:fake-val-ov-1#0',
+          position: { kind: 'end' },
+          values: new Map([
+            ['id', { kind: 'number' as const, value: 2 }],
+            ['label', { kind: 'string' as const, value: 'b' }],
+            ['flag', { kind: 'boolean' as const, value: true }],
+          ]),
+        },
+      ],
+      expectations: {
+        valid: false,
+        rowCount: 7,
+        rules: FAKE_VALIDATION_BASE_RULES.map((rule) => {
+          // Percents are pinned against the NEW row count (the formula runs
+          // over failCount/rowCount of THIS run).
+          if (rule.ruleId === 'columns[0].unique') {
+            return {
+              ...rule,
+              failCount: 3,
+              failPercent: 43,
+              samples: [
+                { rowKey: fakeValKey(1), value: 2 },
+                { rowKey: fakeValKey(5), value: 2 },
+                { rowKey: 'ins:fake-val-ov-1#0', value: 2 },
+              ],
+            }
+          }
+          const at7: Record<string, number> = {
+            'columns[0].min': 14,
+            'columns[1].required': 14,
+            'columns[1].allowed-values': 71,
+            'columns[1].regex': 14,
+            'columns[2].allowed-values': 14,
+          }
+          if (rule.ruleId in at7) {
+            return { ...rule, failPercent: at7[rule.ruleId] ?? rule.failPercent }
+          }
+          return rule
+        }),
+      },
+    },
+    {
+      label: 'tombstone: the violating row is deleted (min and regex flip to clean)',
+      ops: [{ kind: 'row-delete', rowId: fakeValKey(4) }],
+      expectations: {
+        valid: false,
+        rowCount: 5,
+        rules: FAKE_VALIDATION_BASE_RULES.map((rule) => {
+          const at5: Record<string, number> = {
+            'columns[0].unique': 40,
+            'columns[1].required': 20,
+            'columns[2].allowed-values': 20,
+          }
+          if (rule.ruleId in at5) {
+            return { ...rule, failPercent: at5[rule.ruleId] ?? rule.failPercent }
+          }
+          if (rule.ruleId === 'columns[0].min')
+            return { ...rule, failCount: 0, failPercent: 0, samples: [] }
+          if (rule.ruleId === 'columns[1].regex')
+            return { ...rule, failCount: 0, failPercent: 0, samples: [] }
+          if (rule.ruleId === 'columns[1].allowed-values') {
+            return {
+              ...rule,
+              failCount: 4,
+              failPercent: 80,
+              samples: undefined,
+              firstSample: { rowKey: fakeValKey(0), value: 'x' },
+            }
+          }
+          return rule
+        }),
+      },
+    },
+    {
+      label: 'insert-until-max: five clean inserts push past max-rows (fact flips to failing)',
+      ops: [0, 1, 2, 3, 4].map((seq): ConformanceEditOp => ({
+        kind: 'row-insert',
+        rowId: `ins:fake-val-ov-1#${String(seq)}`,
+        position: { kind: 'end' },
+        values: new Map([
+          ['id', { kind: 'number' as const, value: 100 + seq }],
+          ['label', { kind: 'string' as const, value: 'a' }],
+          ['flag', { kind: 'boolean' as const, value: true }],
+        ]),
+      })),
+      expectations: {
+        valid: false,
+        rowCount: 11,
+        rules: FAKE_VALIDATION_BASE_RULES.map((rule) => {
+          if (rule.ruleId === 'dataset.max-rows') return { ...rule, failCount: 1, failPercent: 9 }
+          const at11: Record<string, number> = {
+            'columns[0].unique': 18,
+            'columns[0].min': 9,
+            'columns[1].required': 9,
+            'columns[1].allowed-values': 45,
+            'columns[1].regex': 9,
+            'columns[2].allowed-values': 9,
+          }
+          if (rule.ruleId in at11) {
+            return { ...rule, failPercent: at11[rule.ruleId] ?? rule.failPercent }
+          }
+          return rule
+        }),
+      },
+    },
+    {
+      label: 'delete-until-min: three deletes drop below min-rows (fact flips; unique clears)',
+      ops: [
+        { kind: 'row-delete', rowId: fakeValKey(0) },
+        { kind: 'row-delete', rowId: fakeValKey(1) },
+        { kind: 'row-delete', rowId: fakeValKey(2) },
+      ],
+      expectations: {
+        valid: false,
+        rowCount: 3,
+        rules: FAKE_VALIDATION_BASE_RULES.map((rule) => {
+          const at3: Record<string, number> = {
+            'columns[0].min': 33,
+            'columns[1].regex': 33,
+            'columns[2].allowed-values': 33,
+          }
+          if (rule.ruleId in at3) {
+            return { ...rule, failPercent: at3[rule.ruleId] ?? rule.failPercent }
+          }
+          if (rule.ruleId === 'dataset.min-rows') return { ...rule, failCount: 1, failPercent: 33 }
+          if (rule.ruleId === 'columns[0].unique')
+            return { ...rule, failCount: 0, failPercent: 0, samples: [] }
+          if (rule.ruleId === 'columns[1].required')
+            return { ...rule, failCount: 0, failPercent: 0, samples: [] }
+          if (rule.ruleId === 'columns[1].allowed-values') {
+            return {
+              ...rule,
+              failCount: 3,
+              failPercent: 100,
+              samples: [
+                { rowKey: fakeValKey(3), value: 'x' },
+                { rowKey: fakeValKey(4), value: 'E' },
+                { rowKey: fakeValKey(5), value: 'x' },
+              ],
+            }
+          }
+          return rule
+        }),
+      },
+    },
+  ],
+  truncation: {
+    ruleId: 'columns[1].allowed-values',
+    sampleLimit: 10,
+    expectFailCount: 5,
+    expectSamples: FAKE_VALIDATION_SAMPLE_MAX,
+    expectFirstRowKey: fakeValKey(0),
+    expectFirstValue: 'x',
+  },
+  hostilePlans: [
+    fakeHostilePlan('wrong planKind', { planKind: 'assay-validation-plan-v2' }),
+    fakeHostilePlan('sampleLimit below 1', { sampleLimit: 0 }),
+    fakeHostilePlan('relation shadows a registered view', { relation: FAKE_OWNED_VIEW }),
+    fakeHostilePlan('relation token smuggled outside the FROM shape', {
+      rules: [
+        {
+          ruleId: 'hostile',
+          path: 'hostile',
+          kind: 'required',
+          column: 'id',
+          outcome: 'row-samples',
+          sql: `SELECT 1 AS "c" WHERE "${FAKE_VALIDATION_RELATION}" IS NULL; CREATE TABLE fake_validation_injected AS SELECT 1`,
+        },
+      ],
+    }),
+  ],
+  injectedTable: 'fake_validation_injected',
+  vocabularyPrefix: 'v_',
+  decimalReportedType: 'DECIMAL(18,3)',
+}
+
+/**
  * The fake's minimal mirror of `type-expr.ts`: rejects statement separators,
  * comments, and unbalanced/inverted brackets. Enough to reject the hostile
  * probes; the real validator's full grammar is pinned by the engine package's
@@ -1331,6 +1949,9 @@ class FakeEngineClient implements ConformanceEngineClient {
         type: kind === 'numeric' ? 'BIGINT' : 'VARCHAR',
       }))
     }
+    if (this.isValidation(handle)) {
+      return FAKE_VALIDATION_SCHEMA.map((column) => ({ ...column }))
+    }
     if (this.isNested(handle)) {
       return NESTED_DATASET.schema.map((column) => ({
         name: column.name,
@@ -1358,7 +1979,9 @@ class FakeEngineClient implements ConformanceEngineClient {
       ? WIDE_ROW_COUNT
       : this.isNested(handle)
         ? NESTED_DATASET.rowCount
-        : GOOD_DATASET.rowCount
+        : this.isValidation(handle)
+          ? FAKE_VALIDATION_BASE.baseRowCount
+          : GOOD_DATASET.rowCount
     if (options?.filters === undefined || options.filters.length === 0) {
       return base + (this.mutations.rowCountDelta ?? 0)
     }
@@ -1654,6 +2277,48 @@ class FakeEngineClient implements ConformanceEngineClient {
     return false
   }
 
+  /**
+   * m5-2: validation execution over the fake's typed rows. The REAL compiled
+   * plan is what arrives; its ruleIds select the declared semantics in
+   * {@link FAKE_VALIDATION_RULE_SEMANTICS} (the fake has no SQL engine).
+   * Mutation knobs lie in exactly one way each: inflated counts, dropped
+   * samples, a skipped clamp, or a missing plan guard.
+   */
+  async validate(
+    handle: ConformanceTableHandle,
+    plan: ConformanceValidationPlan,
+    overlay?: ConformanceOverlay,
+  ): Promise<ConformanceValidationResult> {
+    if (this.status === 'disposed') {
+      if (this.mutations.genericDisposeErrors) throw new Error('client already closed')
+      throw new FakeDisposedError('engine client was disposed')
+    }
+    this.requireRegistered(handle)
+    if (this.mutations.acceptsHostilePlans !== true) {
+      fakeAssertPlanValid(plan)
+    }
+    const rows = fakeValidationRows(overlay?.ops ?? [])
+    const rules: ConformanceValidationRuleResult[] = plan.rules.map((rule) => {
+      const evaluated = fakeEvaluateRule(rule.ruleId, rows)
+      const failCount = evaluated.failCount + (this.mutations.liesAboutValidationCounts ? 1 : 0)
+      const clamped =
+        this.mutations.skipsValidationClamp || this.mutations.dropsValidationSamples
+          ? evaluated.samples
+          : evaluated.samples.slice(0, Math.min(plan.sampleLimit, FAKE_VALIDATION_SAMPLE_MAX))
+      return {
+        ruleId: rule.ruleId,
+        failCount,
+        failPercent: specPercentFormula(failCount, rows.length),
+        sampleFailures: this.mutations.dropsValidationSamples ? [] : clamped,
+      }
+    })
+    return {
+      valid: rules.every((rule) => rule.failCount === 0),
+      rowCount: rows.length,
+      rules,
+    }
+  }
+
   async exportView(
     handle: ConformanceTableHandle,
     request: {
@@ -1749,6 +2414,10 @@ class FakeEngineClient implements ConformanceEngineClient {
     return this.registered.get(handle.id) === 'overlay-cast-check.csv'
   }
 
+  private isValidation(handle: ConformanceTableHandle): boolean {
+    return this.registered.get(handle.id) === 'validation.jsonl'
+  }
+
   /** Typed column read: `undefined` means the column does not exist. */
   private columnValue(row: FakeRow, column: string): number | string | null | undefined {
     switch (column) {
@@ -1814,6 +2483,14 @@ class FakeEngineClient implements ConformanceEngineClient {
 
 function isRowIndex(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/**
+ * The documented m5-2 failPercent formula (integer half-up) — the fake
+ * computes percents with the same written definition the scenario pins.
+ */
+function specPercentFormula(failCount: number, rowCount: number): number {
+  return rowCount === 0 ? 0 : Math.floor((failCount * 200 + rowCount) / (2 * rowCount))
 }
 
 /** quantile_cont semantics on a pre-sorted list (linear interpolation). */
@@ -2039,6 +2716,21 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
       return fileSource(name)
     },
+    validationDataset: FAKE_VALIDATION_DATASET,
+    stageValidationFile: async () => {
+      const name = 'validation.jsonl'
+      const lines = FAKE_VALIDATION_ROWS.map((row) => JSON.stringify(row))
+      subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
+      return fileSource(name)
+    },
+    // The fake models a compliant engine's vocabulary probe: one column per
+    // spelling, reported exactly as spelled — except bare DECIMAL, which the
+    // engine reports parameterized (the documented m5-0 caveat).
+    vocabularySchema: async () =>
+      CONTRACT_TYPE_VOCABULARY.map((spelling) => ({
+        name: `v_${spelling}`,
+        type: spelling === 'DECIMAL' ? 'DECIMAL(18,3)' : spelling,
+      })),
     committedCastFails: async (client, handle, overlay, request) => {
       if (mutations.committedCastAlwaysSucceeds === true) return false
       if (!(client instanceof FakeEngineClient)) {
@@ -2186,6 +2878,59 @@ describe('engine conformance suite (compliant fake engine)', () => {
     expect(result.facts['invalidRejected']).toBe(FAKE_CAST_CHECK_DATASET.invalidTargetTypes.length)
     expect(result.facts['unknownRejected']).toBe(FAKE_CAST_CHECK_DATASET.unknownColumns.length)
     expect(result.facts['engineReusable']).toBe(true)
+  })
+})
+
+describe('engine conformance suite (m5-2 validation execution)', () => {
+  it('exposes validation evidence (rules, flips, clamp, hostile probes, vocabulary)', async () => {
+    const subject = makeSubject()
+    const result = await runEngineConformanceScenario(subject, 'validation-plan-execution')
+    expect(result.passed, result.detail).toBe(true)
+    expect(result.facts['rules']).toBe(Object.keys(FAKE_VALIDATION_RULE_SEMANTICS).length)
+    expect(result.facts['failingRules']).toBe(6)
+    expect(result.facts['interactions']).toBe(FAKE_VALIDATION_DATASET.interactions.length)
+    expect(result.facts['fixFlips']).toBeGreaterThanOrEqual(1)
+    expect(result.facts['violateFlips']).toBeGreaterThanOrEqual(1)
+    expect(result.facts['truncationClampedTo']).toBe(FAKE_VALIDATION_SAMPLE_MAX)
+    expect(result.facts['hostileRejected']).toBe(FAKE_VALIDATION_DATASET.hostilePlans.length)
+    expect(result.facts['vocabularyAgreed']).toBe(CONTRACT_TYPE_VOCABULARY.length)
+    expect(result.facts['engineReusable']).toBe(true)
+  })
+
+  it('validation-plan-execution: detects inflated failCounts', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutValidationCounts: true },
+      'validation-plan-execution',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('failCount')
+  })
+
+  it('validation-plan-execution: detects dropped sample failures', async () => {
+    const { passed, detail } = await runOne(
+      { dropsValidationSamples: true },
+      'validation-plan-execution',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('sample')
+  })
+
+  it('validation-plan-execution: detects a skipped sample clamp', async () => {
+    const { passed, detail } = await runOne(
+      { skipsValidationClamp: true },
+      'validation-plan-execution',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('clamped sample count')
+  })
+
+  it('validation-plan-execution: detects a missing hostile-plan guard', async () => {
+    const { passed, detail } = await runOne(
+      { acceptsHostilePlans: true },
+      'validation-plan-execution',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('hostile plan must be rejected')
   })
 })
 

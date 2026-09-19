@@ -41,6 +41,8 @@ import type {
 import { baseRowId, insertRowId } from '@assay/domain'
 import type { CellValue, EditOp, OverlayBase } from '@assay/domain'
 import { tableFromIPC } from 'apache-arrow'
+import { CONTRACT_TYPE_VOCABULARY } from '@assay/contracts'
+import { VALIDATION_DATASET, buildValidationJsonl } from './validation-dataset'
 
 /** The customers.parquet golden fixture, as the DuckDB DESCRIBE reports it. */
 const GOOD_DATASET = {
@@ -1642,6 +1644,37 @@ export function createDuckDbConformanceSubject(
     stageOverlayCastCheckFile: async () => {
       const jsonl = buildCastCheckJsonl()
       return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-cast-check.jsonl'))
+    },
+    validationDataset: VALIDATION_DATASET,
+    stageValidationFile: async () => {
+      const jsonl = buildValidationJsonl()
+      return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-validation.jsonl'))
+    },
+    vocabularySchema: async (client) => {
+      // One column per m5-0 vocabulary spelling, created in the engine, then
+      // read back through the DESCRIBE surface `schema()` reports from. The
+      // probe table is dropped before and after (best-effort), so the probe
+      // leaves nothing behind.
+      const ddl = CONTRACT_TYPE_VOCABULARY.map((spelling) => `"v_${spelling}" ${spelling}`).join(
+        ', ',
+      )
+      await client.query('DROP TABLE IF EXISTS assay_conf_vocab')
+      await client.query(`CREATE TABLE assay_conf_vocab (${ddl})`)
+      try {
+        const result: ConformanceBatchResult = await client.query('DESCRIBE assay_conf_vocab')
+        const names = result.batch.getChild('column_name')
+        const types = result.batch.getChild('column_type')
+        if (names === null || types === null || names.length !== types.length) {
+          throw new Error('vocabulary probe DESCRIBE returned an unexpected shape')
+        }
+        const columns: { name: string; type: string }[] = []
+        for (let row = 0; row < names.length; row++) {
+          columns.push({ name: String(names.get(row)), type: String(types.get(row)) })
+        }
+        return columns
+      } finally {
+        await client.query('DROP TABLE IF EXISTS assay_conf_vocab').catch(() => undefined)
+      }
     },
     committedCastFails: async (client, handle, overlay, request) => {
       // Ground truth for the agreement pin: append the pending cast and

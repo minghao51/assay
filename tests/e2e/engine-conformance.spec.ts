@@ -52,6 +52,7 @@ const SCENARIOS = [
   'export-round-trip',
   'source-immutability',
   'overlay-hostile-types-rejected',
+  'validation-plan-execution',
 ] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
@@ -75,6 +76,7 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'export-round-trip': 'Conformance: export round-trip',
   'source-immutability': 'Conformance: source immutability',
   'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
+  'validation-plan-execution': 'Conformance: validation plan execution',
 }
 
 /** Click a scenario button and wait for its JSON result to render. */
@@ -208,6 +210,26 @@ for (const name of SCENARIOS) {
         expect(result.facts['injectedAbsent']).toBe(true)
         expect(result.facts['engineReusable']).toBe(true)
         break
+      case 'validation-plan-execution':
+        // m5-2: the real compiler's plan executed over the effective view —
+        // exact counts (19 planned rules, 8 failing on the base run), the
+        // overlay-interaction flips in both directions (9 fix flips: the
+        // tombstone run clears unique, the fix-all run clears all 8 failing
+        // rules; 3 violate flips: tombstoning drops below min-rows, the
+        // insert-until-max run trips max-rows and min-distinct-share), the
+        // sample clamp, the hostile-plan rejections, and the 21-spelling
+        // vocabulary agreement (including the bare-DECIMAL caveat).
+        expect(result.facts['rules']).toBe(19)
+        expect(result.facts['rowCount']).toBe(120)
+        expect(result.facts['failingRules']).toBe(8)
+        expect(result.facts['interactions']).toBe(6)
+        expect(result.facts['fixFlips']).toBe(9)
+        expect(result.facts['violateFlips']).toBe(3)
+        expect(result.facts['truncationClampedTo']).toBe(100)
+        expect(result.facts['hostileRejected']).toBe(6)
+        expect(result.facts['vocabularyAgreed']).toBe(21)
+        expect(result.facts['engineReusable']).toBe(true)
+        break
       default:
         break
     }
@@ -217,7 +239,7 @@ for (const name of SCENARIOS) {
 test('conformance run-all: the whole suite passes in one page against engine-duckdb', async ({
   page,
 }) => {
-  test.setTimeout(300_000) // nineteen scenarios, each with a fresh engine boot
+  test.setTimeout(300_000) // twenty scenarios, each with a fresh engine boot
   await page.goto(HARNESS_URL)
   await page.getByRole('button', { name: 'Conformance: run all scenarios' }).click()
   const element = page.getByTestId('conformance-run-all')

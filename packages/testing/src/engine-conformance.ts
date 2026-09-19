@@ -131,6 +131,16 @@
  *     effective columns reject with the typed operation category and the
  *     engine stays usable. Expected classifications are host-engine-derived
  *     (engine-duckdb: DuckDB CLI 1.5.5 over the identical composed SQL).
+ * 20. `validation-plan-execution` (m5-2) — the REAL m5-1 compiler turns the
+ *     subject's contract into a plan against the engine's own schema(); the
+ *     engine executes it over the **effective view**: exact per-rule
+ *     counts/percent/samples (CLI-derived), overlay-interaction pins in all
+ *     four directions (fix flips, violate flips, inserted violations appear
+ *     under `ins:` keys, tombstoned violations disappear, row-count facts
+ *     flip), the K clamp (failCount unaffected, samples engine-clamped),
+ *     hostile plans rejected with one typed error and no side effects, and
+ *     the m5-0 type-vocabulary agreement (all 21 spellings against engine
+ *     DESCRIBE output; the bare-DECIMAL caveat pinned).
  *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
@@ -140,6 +150,8 @@
  * running the same scenarios in their harness (engine-duckdb: Playwright e2e).
  */
 import { Vector, type Table } from 'apache-arrow'
+import { CONTRACT_TYPE_VOCABULARY, parseContract } from '@assay/contracts'
+import { compileContract } from '@assay/validation'
 
 // ---- Structural surface the suite exercises (implementations adapt to it) ----
 
@@ -348,6 +360,17 @@ export interface ConformanceEngineClient {
     request: { readonly column: string; readonly targetType: string },
   ): Promise<ConformanceCastCheckResult>
   /**
+   * Validation execution (m5-2): execute a compiled m5-1 plan against the
+   * effective view (absent `overlay`: the plain base view). The plan is the
+   * real compiler's output; the result carries per-rule counts/percent/samples
+   * keyed by ruleId, the effective row count, and the total verdict.
+   */
+  validate(
+    handle: ConformanceTableHandle,
+    plan: ConformanceValidationPlan,
+    overlay?: ConformanceOverlay,
+  ): Promise<ConformanceValidationResult>
+  /**
    * Export/rewrite (m4-2): materialize the effective view (absent `overlay`:
    * the plain base view) into a NEW generated file — never the source path
    * (ADR 0012/0017).
@@ -498,6 +521,23 @@ export interface EngineConformanceSubject {
   readonly overlayCastCheckDataset: ConformanceOverlayCastCheckDataset
   /** Stage the cast-check base dataset (`overlayCastCheckDataset`). */
   stageOverlayCastCheckFile(): Promise<ConformanceFileSource>
+  /**
+   * The m5-2 validation dataset behind `stageValidationFile()`: an on-demand
+   * runtime-built dirty dataset (temp/OPFS, never committed), its contract
+   * YAML, and CLI-derived expectations covering the base run, the empty-
+   * overlay run, the overlay-interaction battery, the K-clamp truncation,
+   * hostile plans, and the type-vocabulary agreement pins.
+   */
+  readonly validationDataset: ConformanceValidationDataset
+  /** Stage the dirty validation dataset (`validationDataset`). */
+  stageValidationFile(): Promise<ConformanceFileSource>
+  /**
+   * Create (and clean up) a table with one column per m5-0 vocabulary
+   * spelling and return its reported name/type pairs — the engine-side half
+   * of the m5-0 type-vocabulary agreement pin. Implementations derive the
+   * pairs from the same DESCRIBE surface `schema()` reports from.
+   */
+  vocabularySchema(client: ConformanceEngineClient): Promise<readonly ConformanceColumn[]>
   /**
    * Ground-truth probe for the cast-check agreement pin (m4-4b round 3):
    * apply `column-cast column -> targetType` to the pre-cast `overlay` and
@@ -850,6 +890,150 @@ export interface ConformanceCastCheckResult {
   readonly hasNonConvertibleValues: boolean
 }
 
+// ---- Validation-execution types (m5-2) ----
+//
+// Structural mirrors of the m5-1 `ValidationPlan` (`@assay/validation`) and
+// the engine's `EngineValidationResult` (the same precedent as the overlay
+// and profile mirrors): the suite never imports an engine, and REAL compiled
+// plans flow through these shapes because the scenario compiles the subject's
+// contract with the real m5-1 compiler against the engine's own schema().
+
+/** One compiled rule (mirror of the plan's `PlannedRule`). */
+export interface ConformanceValidationRule {
+  readonly ruleId: string
+  readonly path: string
+  readonly kind: string
+  readonly column: string | null
+  readonly outcome: string
+  readonly sql: string
+  readonly expectedType?: string
+  readonly actualType?: string
+}
+
+/** A compiled validation plan (mirror of m5-1's `ValidationPlan`). */
+export interface ConformanceValidationPlan {
+  readonly planKind: string
+  readonly planVersion: number
+  readonly contractName: string
+  readonly contractVersion: number
+  readonly relation: string
+  readonly sampleLimit: number
+  readonly rules: readonly ConformanceValidationRule[]
+  readonly summarySql: string
+}
+
+/** One sample failure: a logical row key + the offending value (wire-safe). */
+export interface ConformanceValidationSample {
+  readonly rowKey: string | null
+  readonly value: string | number | boolean | null
+}
+
+/** Per-rule result (mirror of the engine's `EngineValidationRuleResult`). */
+export interface ConformanceValidationRuleResult {
+  readonly ruleId: string
+  readonly failCount: number
+  readonly failPercent: number
+  readonly sampleFailures: readonly ConformanceValidationSample[]
+}
+
+/** Full validate result (mirror of the engine's `EngineValidationResult`). */
+export interface ConformanceValidationResult {
+  readonly valid: boolean
+  readonly rowCount: number
+  readonly rules: readonly ConformanceValidationRuleResult[]
+}
+
+/**
+ * One rule's pinned expectations for one run: exact failCount/failPercent,
+ * and either the FULL sample list (`samples`) or its first entry
+ * (`firstSample`) for large violation sets. The scenario cross-checks every
+ * declared `failPercent` literal against the documented integer half-up
+ * formula over (failCount, rowCount), so the pins stay independent of the
+ * engine's arithmetic.
+ */
+export interface ConformanceValidationRuleExpectation {
+  readonly ruleId: string
+  readonly failCount: number
+  readonly failPercent: number
+  readonly samples?: readonly ConformanceValidationSample[]
+  readonly firstSample?: ConformanceValidationSample
+}
+
+/** One run's pinned expectations: verdict, effective row count, all rules. */
+export interface ConformanceValidationExpectations {
+  readonly valid: boolean
+  readonly rowCount: number
+  /** Exactly the plan's ruleIds, in plan order (full coverage — no gaps). */
+  readonly rules: readonly ConformanceValidationRuleExpectation[]
+}
+
+/**
+ * One overlay-interaction pin: the same plan re-validated over a scripted op
+ * list. A battery must cover an edit that FIXES a violation (verdict flips
+ * to clean), an edit that VIOLATES (flips to failing), an inserted violating
+ * row APPEARING under its `ins:` row key, and a tombstoned row's violation
+ * DISAPPEARING — the four pinned directions of the m5-2 done-when.
+ */
+export interface ConformanceValidationInteraction {
+  readonly label: string
+  readonly ops: readonly ConformanceEditOp[]
+  readonly expectations: ConformanceValidationExpectations
+}
+
+/**
+ * The engine-clamp pin: recompile with an over-large K; the rule's
+ * failCount is unchanged (the count is not the sample bound) while the
+ * reported samples are clamped to the engine's documented hard max.
+ */
+export interface ConformanceValidationTruncation {
+  readonly ruleId: string
+  /** The recompiled plan's sampleLimit (> the engine's hard max). */
+  readonly sampleLimit: number
+  readonly expectFailCount: number
+  /** The engine's hard max (fewer than the violations — non-vacuous). */
+  readonly expectSamples: number
+  readonly expectFirstRowKey: string
+  readonly expectFirstValue: string | number | boolean | null
+}
+
+/** One hostile plan probe (shape/semantics violation → one typed rejection). */
+export interface ConformanceHostileValidationPlan {
+  readonly label: string
+  readonly plan: ConformanceValidationPlan
+}
+
+/**
+ * The m5-2 validation dataset a subject stages and pins: a runtime-built
+ * on-demand dirty file (never committed), its contract as canonical YAML,
+ * and every expectation host-engine-derived (engine-duckdb: DuckDB CLI 1.5.5
+ * over the identical composed view + plan SQL, cross-checked against the
+ * duckdb-wasm build through the real client).
+ */
+export interface ConformanceValidationDataset {
+  readonly contractYaml: string
+  /** The binding name the plans are compiled against. */
+  readonly planRelation: string
+  /** The main plan's K. */
+  readonly sampleLimit: number
+  /** The overlay base metadata the interaction runs compose over. */
+  readonly base: ConformanceOverlayBase
+  /** The absent-overlay run (base view; row keys carry the empty anchor). */
+  readonly baseExpectations: ConformanceValidationExpectations
+  /** The empty-ops overlay run (same counts; session-anchored row keys). */
+  readonly emptyOverlayExpectations: ConformanceValidationExpectations
+  /** The overlay-interaction battery (see {@link ConformanceValidationInteraction}). */
+  readonly interactions: readonly ConformanceValidationInteraction[]
+  readonly truncation: ConformanceValidationTruncation
+  /** Hostile plans that must each reject with one typed operation error. */
+  readonly hostilePlans: readonly ConformanceHostileValidationPlan[]
+  /** Side-effect table a smuggled payload would create; asserted absent. */
+  readonly injectedTable: string
+  /** The vocabulary-probe column-name prefix (e.g. `v_`). */
+  readonly vocabularyPrefix: string
+  /** The documented bare-DECIMAL caveat: what DESCRIBE reports for it. */
+  readonly decimalReportedType: string
+}
+
 /**
  * A hostile engine type-expression probe (m4-2 fix round). Type strings are
  * untrusted input the composer interpolates into SQL type positions; the
@@ -890,6 +1074,7 @@ export const engineConformanceScenarioNames = [
   'export-round-trip',
   'source-immutability',
   'overlay-hostile-types-rejected',
+  'validation-plan-execution',
 ] as const
 
 export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[number]
@@ -2637,6 +2822,282 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       probes: subject.hostileTypeProbes.length,
       rejected,
       injectedAbsent: true,
+      engineReusable: true,
+    }
+  },
+
+  /**
+   * m5-2 validation execution: the REAL m5-1 compiler turns the subject's
+   * contract (canonical YAML) into a plan against the engine's own schema();
+   * the engine executes it against the effective view. Pins, all host-engine-
+   * derived: per-rule counts/percent/samples on the base run and the empty-
+   * overlay run; an overlay-interaction battery (an edit that FIXES a rule
+   * flips its verdict, an edit that VIOLATES flips it, an inserted violating
+   * row APPEARS under its `ins:` row key, a tombstoned row's violation
+   * DISAPPEARS, and the dataset-level row-count facts flip too); the K clamp
+   * (failCount unaffected, reported samples clamped to the engine hard max);
+   * hostile plans rejected with exactly one typed operation error and no
+   * side-effect objects; the m5-0 type-vocabulary agreement (all 21 spellings
+   * reported by the engine for columns created with those types; the bare
+   * DECIMAL caveat pinned); and the engine reusable after all of it.
+   */
+  'validation-plan-execution': async (subject) => {
+    const dataset = subject.validationDataset
+    // Subject preconditions (fail loudly on misconfiguration, never vacuously).
+    expectCondition(dataset.contractYaml.length > 0, 'subject misconfiguration: declare a contract')
+    expectCondition(
+      dataset.baseExpectations.rules.length > 0,
+      'subject misconfiguration: declare base expectations for at least one rule',
+    )
+    expectCondition(
+      dataset.baseExpectations.rules.some((rule) => rule.failCount > 0) &&
+        dataset.baseExpectations.rules.some((rule) => rule.failCount === 0),
+      'subject misconfiguration: the base expectations must include both failing and passing rules',
+    )
+    expectCondition(
+      dataset.baseExpectations.rules.some(
+        (rule) => rule.samples !== undefined || rule.firstSample !== undefined,
+      ),
+      'subject misconfiguration: pin samples for at least one base rule',
+    )
+    expectCondition(
+      dataset.interactions.length >= 2,
+      'subject misconfiguration: declare the overlay-interaction battery',
+    )
+    expectCondition(
+      dataset.truncation.expectSamples < dataset.truncation.expectFailCount &&
+        dataset.truncation.expectSamples < dataset.truncation.sampleLimit,
+      'subject misconfiguration: the truncation pin must be non-vacuous',
+    )
+    expectCondition(
+      dataset.hostilePlans.length > 0,
+      'subject misconfiguration: declare at least one hostile plan probe',
+    )
+    // Every declared failPercent must equal the documented integer half-up
+    // formula over (failCount, rowCount) — the written definition m5-4/m5-6
+    // pin against. This keeps the pinned percents independent of the engine.
+    const specPercent = (failCount: number, rowCount: number): number =>
+      rowCount === 0 ? 0 : Math.floor((failCount * 200 + rowCount) / (2 * rowCount))
+    const expectationsAreCoherent = (
+      entry: ConformanceValidationExpectations,
+      label: string,
+    ): void => {
+      for (const rule of entry.rules) {
+        expectEqual(
+          rule.failPercent,
+          specPercent(rule.failCount, entry.rowCount),
+          `[${label}] ${rule.ruleId} declared failPercent vs the documented half-up formula`,
+        )
+      }
+    }
+    expectationsAreCoherent(dataset.baseExpectations, 'base')
+    expectationsAreCoherent(dataset.emptyOverlayExpectations, 'empty overlay')
+    for (const interaction of dataset.interactions) {
+      expectationsAreCoherent(interaction.expectations, interaction.label)
+    }
+
+    // Compile the contract against the engine's OWN schema (the real m5-1
+    // compiler — the wire shapes the engine sees are compiler output).
+    const parsed = parseContract(dataset.contractYaml)
+    expectCondition(
+      parsed.ok,
+      `subject misconfiguration: the contract YAML must parse (${parsed.ok ? '' : (parsed.errors[0]?.message ?? 'unknown error')})`,
+    )
+    if (!parsed.ok) fail('unreachable')
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageValidationFile())
+    const schema = await client.schema(handle)
+    const compiled = compileContract(parsed.contract, schema, {
+      relation: dataset.planRelation,
+      sampleLimit: dataset.sampleLimit,
+    })
+    expectCondition(
+      compiled.ok,
+      'subject misconfiguration: the contract must bind against the engine schema (compile errors above)',
+    )
+    if (!compiled.ok) fail('unreachable')
+    const plan = compiled.plan
+
+    /** Assert one run's result against its declared expectations. */
+    const expectRun = (
+      entry: ConformanceValidationExpectations,
+      result: ConformanceValidationResult,
+      label: string,
+    ): void => {
+      expectEqual(result.valid, entry.valid, `[${label}] total verdict`)
+      expectEqual(result.rowCount, entry.rowCount, `[${label}] effective row count`)
+      expectEqual(
+        result.rules.length,
+        entry.rules.length,
+        `[${label}] one result per planned rule (plan order)`,
+      )
+      entry.rules.forEach((expected, index) => {
+        const actual = result.rules[index]
+        if (actual === undefined) fail(`[${label}] result ${String(index)} missing`)
+        expectEqual(actual!.ruleId, expected.ruleId, `[${label}] rule ${String(index)} id`)
+        expectEqual(
+          actual!.failCount,
+          expected.failCount,
+          `[${label}] ${expected.ruleId} failCount`,
+        )
+        expectEqual(
+          actual!.failPercent,
+          expected.failPercent,
+          `[${label}] ${expected.ruleId} failPercent`,
+        )
+        if (expected.samples !== undefined) {
+          expectEqual(
+            JSON.stringify(actual!.sampleFailures),
+            JSON.stringify(expected.samples),
+            `[${label}] ${expected.ruleId} samples (full list)`,
+          )
+        } else if (expected.firstSample !== undefined) {
+          const first = actual!.sampleFailures[0]
+          expectCondition(
+            first !== undefined,
+            `[${label}] ${expected.ruleId} must carry a first sample`,
+          )
+          expectEqual(
+            JSON.stringify(first),
+            JSON.stringify(expected.firstSample),
+            `[${label}] ${expected.ruleId} first sample`,
+          )
+        }
+      })
+    }
+
+    // 1. The base run (absent overlay): the plain base view.
+    const baseResult = await client.validate(handle, plan)
+    expectRun(dataset.baseExpectations, baseResult, 'base')
+
+    // 2. The empty-ops overlay run: same plan, same counts, session-anchored
+    // row keys (the m4-3 grammar over the live editing session).
+    const emptyResult = await client.validate(handle, plan, { base: dataset.base, ops: [] })
+    expectRun(dataset.emptyOverlayExpectations, emptyResult, 'empty overlay')
+
+    // 3. The overlay-interaction battery: same plan, different effective data.
+    let fixFlips = 0
+    let violateFlips = 0
+    const baseFails = new Map(
+      dataset.baseExpectations.rules.map((rule) => [rule.ruleId, rule.failCount]),
+    )
+    for (const interaction of dataset.interactions) {
+      const result = await client.validate(handle, plan, {
+        base: dataset.base,
+        ops: interaction.ops,
+      })
+      expectRun(interaction.expectations, result, interaction.label)
+      for (const rule of interaction.expectations.rules) {
+        const before = baseFails.get(rule.ruleId) ?? 0
+        if (before > 0 && rule.failCount === 0) fixFlips += 1
+        if (before === 0 && rule.failCount > 0) violateFlips += 1
+      }
+    }
+    expectCondition(
+      fixFlips >= 1 && violateFlips >= 1,
+      `the interaction battery must pin a fix flip and a violate flip (got ${String(fixFlips)}/${String(violateFlips)})`,
+    )
+
+    // 4. The K clamp: recompile with an over-large K; counts unchanged,
+    // samples clamped to the engine's hard max.
+    const truncatedCompile = compileContract(parsed.contract, schema, {
+      relation: dataset.planRelation,
+      sampleLimit: dataset.truncation.sampleLimit,
+    })
+    expectCondition(truncatedCompile.ok, 'the truncated plan must compile')
+    if (!truncatedCompile.ok) fail('unreachable')
+    const truncResult = await client.validate(handle, truncatedCompile.plan)
+    const truncExpected = dataset.baseExpectations.rules.find(
+      (rule) => rule.ruleId === dataset.truncation.ruleId,
+    )
+    expectCondition(
+      truncExpected !== undefined,
+      'truncation rule must exist in the base expectations',
+    )
+    const truncActual = truncResult.rules.find((rule) => rule.ruleId === dataset.truncation.ruleId)
+    expectCondition(truncActual !== undefined, 'truncation rule missing from the result')
+    expectEqual(
+      truncActual!.failCount,
+      dataset.truncation.expectFailCount,
+      '[truncation] failCount is not the sample bound',
+    )
+    expectEqual(
+      truncActual!.failCount,
+      truncExpected!.failCount,
+      '[truncation] failCount matches the base run',
+    )
+    expectEqual(
+      truncActual!.sampleFailures.length,
+      dataset.truncation.expectSamples,
+      '[truncation] clamped sample count',
+    )
+    const truncFirst = truncActual!.sampleFailures[0]
+    expectCondition(truncFirst !== undefined, '[truncation] a clamped list still has samples')
+    expectEqual(
+      JSON.stringify(truncFirst),
+      JSON.stringify({
+        rowKey: dataset.truncation.expectFirstRowKey,
+        value: dataset.truncation.expectFirstValue,
+      }),
+      '[truncation] first clamped sample',
+    )
+
+    // 5. Hostile plans: each rejects with ONE typed operation error, leaves
+    // no side-effect objects, and the engine stays reusable.
+    let hostileRejected = 0
+    for (const probe of dataset.hostilePlans) {
+      const error = await rejectionOf(
+        client.validate(handle, probe.plan, { base: dataset.base, ops: [] }),
+      )
+      expectCondition(error !== null, `[${probe.label}] a hostile plan must be rejected`)
+      expectCondition(
+        subject.errors.operation(error),
+        `[${probe.label}] the rejection must be the typed operation category (got: ${errorMessage(error)})`,
+      )
+      expectCondition(
+        subject.isReady(client),
+        `[${probe.label}] the engine must stay ready after the rejection`,
+      )
+      hostileRejected += 1
+    }
+    const injected = await subject.tableExists(client, dataset.injectedTable)
+    expectCondition(!injected, 'the hostile plan side-effect object must not exist')
+
+    // 6. The m5-0 type-vocabulary agreement: one engine column per spelling;
+    // the reported type is the spelling itself — except bare DECIMAL, which
+    // DuckDB reports parameterized (the documented m5-0 caveat).
+    const vocabulary = await subject.vocabularySchema(client)
+    expectEqual(
+      vocabulary.length,
+      CONTRACT_TYPE_VOCABULARY.length,
+      'the vocabulary probe must create exactly one column per spelling',
+    )
+    const byName = new Map(vocabulary.map((column) => [column.name, column.type]))
+    let agreed = 0
+    for (const spelling of CONTRACT_TYPE_VOCABULARY) {
+      const name = `${dataset.vocabularyPrefix}${spelling}`
+      const reported = byName.get(name)
+      expectCondition(reported !== undefined, `the vocabulary probe is missing column ${name}`)
+      const expectedType = spelling === 'DECIMAL' ? dataset.decimalReportedType : spelling
+      expectEqual(reported, expectedType, `vocabulary agreement for ${spelling}`)
+      agreed += 1
+    }
+
+    // 7. The engine is reusable after everything (benign re-validate).
+    const after = await client.validate(handle, plan)
+    expectRun(dataset.baseExpectations, after, 'reuse')
+
+    return {
+      rules: plan.rules.length,
+      rowCount: baseResult.rowCount,
+      failingRules: dataset.baseExpectations.rules.filter((rule) => rule.failCount > 0).length,
+      interactions: dataset.interactions.length,
+      fixFlips,
+      violateFlips,
+      truncationClampedTo: truncActual!.sampleFailures.length,
+      hostileRejected,
+      vocabularyAgreed: agreed,
       engineReusable: true,
     }
   },

@@ -1080,3 +1080,132 @@ describe('DuckDbEngineClient overlay + export (m4-2)', () => {
     expect(client.status).toBe('ready')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// m5-2: client.validate()
+// ─────────────────────────────────────────────────────────────────────────────
+
+import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
+
+describe('DuckDbEngineClient validate (m5-2)', () => {
+  const source = {
+    name: 'flat.parquet',
+    getFile: () => Promise.resolve(new File([new Uint8Array([1, 2, 3])], 'flat.parquet')),
+  }
+  const overlay = {
+    base: {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [{ name: 'id', type: 'BIGINT' }],
+      baseRowCount: 2,
+    },
+    ops: [],
+  }
+
+  function planFixture(): EngineValidationPlan {
+    return {
+      planKind: 'assay-validation-plan',
+      planVersion: 1,
+      contractName: 'conf',
+      contractVersion: 1,
+      relation: 'assay_conf_validate_src',
+      sampleLimit: 20,
+      rules: [
+        {
+          ruleId: 'columns[0].required',
+          path: 'columns[0].required',
+          kind: 'required',
+          column: 'id',
+          outcome: 'row-samples',
+          sql: 'SELECT (SELECT count(*) FROM "assay_conf_validate_src") AS "total_rows" FROM "assay_conf_validate_src" AS "src" LIMIT 20',
+        },
+      ],
+      summarySql:
+        'SELECT \'columns[0].required\' AS "rule_id" FROM "assay_conf_validate_src" AS "src"',
+    }
+  }
+
+  async function openHandle(): Promise<{
+    client: DuckDbEngineClient
+    worker: FakeWorker
+    handle: Awaited<ReturnType<DuckDbEngineClient['open']>>
+  }> {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond({
+      type: 'engine/open-result',
+      requestId: worker.requestAt(1).requestId,
+      tableId: 't1',
+      format: 'parquet',
+    })
+    const handle = await pendingOpen
+    return { client, worker, handle }
+  }
+
+  it('validate() posts the plan + overlay and resolves the result', async () => {
+    const { client, worker, handle } = await openHandle()
+    const result: EngineValidationResult = {
+      valid: true,
+      rowCount: 6,
+      rules: [{ ruleId: 'columns[0].required', failCount: 0, failPercent: 0, sampleFailures: [] }],
+    }
+    const pending = client.validate(handle, planFixture(), overlay)
+    await flush()
+    const request = worker.requestAt(2)
+    expect(request.type).toBe('engine/validate')
+    if (request.type !== 'engine/validate') return
+    expect(request.tableId).toBe('t1')
+    expect(request.plan).toEqual(planFixture())
+    expect(request.overlay).toEqual({ base: overlay.base, ops: [] })
+    worker.respond({
+      type: 'engine/validate-result',
+      requestId: request.requestId,
+      result,
+    })
+    await expect(pending).resolves.toEqual(result)
+  })
+
+  it('validate() omits the overlay field when none is given (plain base view)', async () => {
+    const { client, worker, handle } = await openHandle()
+    const pending = client.validate(handle, planFixture())
+    await flush()
+    const request = worker.requestAt(2)
+    expect(request.type).toBe('engine/validate')
+    if (request.type !== 'engine/validate') return
+    expect('overlay' in request).toBe(false)
+    worker.respond({
+      type: 'engine/validate-result',
+      requestId: request.requestId,
+      result: { valid: true, rowCount: 0, rules: [] },
+    })
+    await pending
+  })
+
+  it('validate() rejects a malformed plan client-side with a typed error before posting', async () => {
+    const { client, worker, handle } = await openHandle()
+    const malformed = { ...planFixture(), sampleLimit: 0 } as unknown as EngineValidationPlan
+    await expect(client.validate(handle, malformed)).rejects.toBeInstanceOf(EngineOperationError)
+    expect(worker.postedRequests).toHaveLength(2) // init + open only
+  })
+
+  it('validate() maps engine-reported failures to EngineOperationError and stays usable', async () => {
+    const { client, worker, handle } = await openHandle()
+    const pending = client.validate(handle, planFixture())
+    await flush()
+    const request = worker.requestAt(2)
+    worker.respond({ type: 'engine/error', requestId: request.requestId, message: 'boom' })
+    await expect(pending).rejects.toBeInstanceOf(EngineOperationError)
+    // The engine stays usable.
+    const followUp = client.rowCount(handle)
+    await flush()
+    worker.respond({
+      type: 'engine/row-count-result',
+      requestId: worker.requestAt(3).requestId,
+      rowCount: 5,
+    })
+    await expect(followUp).resolves.toBe(5)
+  })
+})

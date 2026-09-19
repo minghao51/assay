@@ -274,6 +274,9 @@
           <button id="conformance-overlay-hostile-types-rejected" type="button">
             Conformance: overlay hostile types rejected
           </button>
+          <button id="conformance-validation-plan-execution" type="button">
+            Conformance: validation plan execution
+          </button>
         </p>
         <dl>
           <dt>run-all report</dt>
@@ -318,6 +321,27 @@
           <dd>
             <pre data-testid="conformance-result-overlay-hostile-types-rejected">not run</pre>
           </dd>
+          <dt>validation plan execution result</dt>
+          <dd>
+            <pre data-testid="conformance-result-validation-plan-execution">not run</pre>
+          </dd>
+        </dl>
+      </section>
+
+      <!--
+        m5-2 validation journey: open the on-demand dirty dataset, validate
+        (base), re-validate over a one-edit overlay, then over a fix-everything
+        overlay — the verdict flips are the edit→re-validate journey m5-3
+        builds its panel on. Results render as JSON (rule ids, counts, row
+        counts). Privacy (ADR 0001/0025): no file names anywhere; sample
+        values are report content rendered by the host, never logged.
+      -->
+      <section>
+        <h2>Validation journey (m5-2): edit, re-validate, verdict flip</h2>
+        <button id="validate-journey" type="button">Validate: run the dirty-dataset journey</button>
+        <dl>
+          <dt>validate journey evidence (JSON)</dt>
+          <dd><pre data-testid="validate-journey-result">not run</pre></dd>
         </dl>
       </section>
 

@@ -1033,3 +1033,130 @@ describe('m4-2: overlay + export protocol', () => {
     })
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// m5-2: engine/validate protocol
+// ─────────────────────────────────────────────────────────────────────────────
+
+import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
+
+function wirePlan(): EngineValidationPlan {
+  return {
+    planKind: 'assay-validation-plan',
+    planVersion: 1,
+    contractName: 'conf',
+    contractVersion: 1,
+    relation: 'assay_conf_validate_src',
+    sampleLimit: 20,
+    rules: [
+      {
+        ruleId: 'columns[0].required',
+        path: 'columns[0].required',
+        kind: 'required',
+        column: 'id',
+        outcome: 'row-samples',
+        sql: 'SELECT (SELECT count(*) FROM "assay_conf_validate_src") AS "total_rows" FROM "assay_conf_validate_src" AS "src" LIMIT 20',
+      },
+    ],
+    summarySql:
+      'SELECT \'columns[0].required\' AS "rule_id" FROM "assay_conf_validate_src" AS "src"',
+  }
+}
+
+function wireResult(): EngineValidationResult {
+  return {
+    valid: false,
+    rowCount: 120,
+    rules: [
+      {
+        ruleId: 'columns[1].allowed-values',
+        failCount: 24,
+        failPercent: 20,
+        sampleFailures: [
+          { rowKey: 'base:v#4', value: 'XX' },
+          { rowKey: 'base:v#24', value: 'x1' },
+        ],
+      },
+    ],
+  }
+}
+
+describe('m5-2: engine/validate protocol', () => {
+  it('parses a well-formed engine/validate request with plan + optional overlay', () => {
+    const base = { type: 'engine/validate', requestId: 9, tableId: 't1', plan: wirePlan() }
+    expect(parseEngineRequest(base)).toEqual(base)
+    const withOverlay = { ...base, overlay: { base: OVERLAY_BASE_MINIMAL(), ops: [] } }
+    expect(parseEngineRequest(withOverlay)).not.toBeNull()
+  })
+
+  it('rejects engine/validate with a malformed plan (the boundary is untrusted)', () => {
+    const base = { type: 'engine/validate', requestId: 9, tableId: 't1' }
+    expect(parseEngineRequest(base)).toBeNull()
+    expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), planVersion: 2 } })).toBeNull()
+    expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 0 } })).toBeNull()
+    expect(
+      parseEngineRequest({ ...base, plan: { ...wirePlan(), relation: 'a\u0000b' } }),
+    ).toBeNull()
+    const duplicate = { ...wirePlan(), rules: [wirePlan().rules[0], wirePlan().rules[0]] }
+    expect(parseEngineRequest({ ...base, plan: duplicate })).toBeNull()
+  })
+
+  it('rejects engine/validate with a present-but-malformed overlay', () => {
+    const base = { type: 'engine/validate', requestId: 9, tableId: 't1', plan: wirePlan() }
+    expect(parseEngineRequest({ ...base, overlay: { base: 'nope' } })).toBeNull()
+  })
+
+  it('answers malformed but recognised engine/validate requests with the typed envelope', () => {
+    expect(OVERLAY_REQUEST_TYPES).toContain('engine/validate')
+    const envelope = parseEngineRequestEnvelope({
+      type: 'engine/validate',
+      requestId: 9,
+      tableId: 't1',
+      plan: { planKind: 'wrong' },
+    })
+    expect(envelope).toEqual({
+      status: 'malformed',
+      malformed: { requestId: 9, requestType: 'engine/validate' },
+    })
+  })
+
+  it('parses engine/validate-result with the full result payload', () => {
+    const response = { type: 'engine/validate-result', requestId: 9, result: wireResult() }
+    expect(parseEngineResponse(response)).toEqual(response)
+  })
+
+  it('rejects malformed engine/validate-result payloads', () => {
+    const base = { type: 'engine/validate-result', requestId: 9 }
+    expect(parseEngineResponse(base)).toBeNull()
+    expect(parseEngineResponse({ ...base, result: { ...wireResult(), valid: 'yes' } })).toBeNull()
+    expect(parseEngineResponse({ ...base, result: { ...wireResult(), rowCount: -1 } })).toBeNull()
+    expect(
+      parseEngineResponse({ ...base, result: { ...wireResult(), rules: [{ ruleId: 'r' }] } }),
+    ).toBeNull()
+    expect(
+      parseEngineResponse({
+        ...base,
+        result: { ...wireResult(), rules: [{ ...wireResult().rules[0]!, failPercent: 101 }] },
+      }),
+    ).toBeNull()
+    expect(
+      parseEngineResponse({
+        ...base,
+        result: {
+          ...wireResult(),
+          rules: [{ ...wireResult().rules[0]!, sampleFailures: [{ rowKey: 'k', value: {} }] }],
+        },
+      }),
+    ).toBeNull()
+  })
+})
+
+/** Minimal valid overlay base for request parsing (unique names, safe count). */
+function OVERLAY_BASE_MINIMAL(): Record<string, unknown> {
+  return {
+    baseAnchor: 'a',
+    overlayAnchor: 'o',
+    baseRowCount: 1,
+    columns: [{ name: 'id', type: 'BIGINT' }],
+  }
+}

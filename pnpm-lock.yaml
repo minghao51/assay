@@ -206,9 +206,15 @@ importers:
         specifier: 17.0.0
         version: 17.0.0
     devDependencies:
+      '@assay/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@assay/testing':
         specifier: workspace:*
         version: link:../testing
+      '@assay/validation':
+        specifier: workspace:*
+        version: link:../validation
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -242,6 +248,12 @@ importers:
 
   packages/testing:
     dependencies:
+      '@assay/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@assay/validation':
+        specifier: workspace:*
+        version: link:../validation
       apache-arrow:
         specifier: 17.0.0
         version: 17.0.0
