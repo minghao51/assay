@@ -31,6 +31,27 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/validation/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'react', message: 'The validation package must stay UI-free (docs 05 §3).' },
+            { name: 'react-dom', message: 'The validation package must stay UI-free (docs 05 §3).' },
+          ],
+          patterns: [
+            {
+              group: ['@assay/ui', '@assay/grid', '@assay/engine-*', '@assay/web', '@assay/cli'],
+              message:
+                'The validation package is pure: no UI/engine/app dependencies (docs/engineering/05-repository-structure.md §3, ADR 0026).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['packages/contracts/**/*.ts'],
     rules: {
       'no-restricted-imports': [
