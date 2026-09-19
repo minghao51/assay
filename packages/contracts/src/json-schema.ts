@@ -27,7 +27,7 @@
  * | property `type: 'number'`                    | `type: DOUBLE`                                |
  * | property `type: 'boolean'`                   | `type: BOOLEAN`                               |
  * | property `type` as a single-element array    | same as the string form (`['string']` ≡ `'string'`) |
- * | `required` (root-level array)                | `required: true` on the named property's column; names without a `properties` entry are typed errors (m5-0's unknown-column strictness); duplicates are errors; `[]` is fine |
+ * | `required` (root-level array)                | `required: true` on the named property's column; names without a `properties` entry are typed errors (m5-0's unknown-column strictness) — walked even when `properties` is absent or unreadable (see the call-out below); duplicates are errors; `[]` is fine |
  * | property `enum`                              | `allowed-values` — entries must be strings, finite numbers, or booleans (m5-0's entry-kind rule); `null`/objects/arrays are errors (nullness is `required`/`max-null-share` territory); **`[]` maps to `allowed-values: []`** (a real constraint: every non-NULL value fails) |
  * | `minimum` / `maximum`                        | `min` / `max` (inclusive); derived `min > max` is an error, mirroring m5-0 |
  * | `pattern` (RE2-subset-safe per `checkRe2SubsetPattern`) | `regex`, carried **verbatim** |
@@ -56,6 +56,16 @@
  *   instead). Only root-level `$schema` is accept-and-ignore, and only when
  *   it is a string (a non-string is a `wrong-type` error — nothing is
  *   silently dropped, ever).
+ * - **`required` is walked even when `properties` is absent or unreadable**:
+ *   the declared-name set is then empty, so every entry of a non-empty
+ *   `required` becomes a typed `unknown-key` error at its exact
+ *   `/required/N` pointer (a duplicated name reports once per occurrence)
+ *   — `{type: 'object', required: ['ghost']}` fails loudly instead of
+ *   converting to a validates-nothing `columns: []` contract. An *empty*
+ *   `required` without `properties` converts with `columns: []`: an empty
+ *   array carries no constraint, so there is nothing to drop. Either way
+ *   the outcome is identical to the same schema *with* `properties: {}` —
+ *   constraint handling never depends on an unrelated key's presence.
  * - **Duplicate `properties` keys cannot be seen**: JSON object keys are
  *   resolved by the caller's JSON.parse before the adapter runs (last one
  *   wins, silently). Same for number literals (below). Both are properties
@@ -501,6 +511,15 @@ export function jsonSchemaToContract(input: unknown): JsonSchemaAdapterResult {
   // --- properties → columns ----------------------------------------------
   const properties = readKey(input, 'properties')
   const columns: ColumnRuleSet[] = []
+  // The readable `properties` mapping and its declared keys — both null
+  // when `properties` is absent, unreadable, or not an object (each of
+  // those states pushes its own error below, and the declared names are
+  // then unknowable). The `required` walk below always runs — against the
+  // empty name set in that case, so every required name becomes a typed
+  // unknown-key error and a non-empty `required` is never silently
+  // dropped, whatever shape `properties` takes.
+  let propertySchemas: Record<string, unknown> | null = null
+  let propertyKeys: readonly string[] | null = null
   if (properties === THREW) {
     state.errors.push({
       code: 'wrong-type',
@@ -517,7 +536,7 @@ export function jsonSchemaToContract(input: unknown): JsonSchemaAdapterResult {
         path: '/properties',
       })
     } else {
-      const propertyKeys = ownKeys(properties)
+      propertyKeys = ownKeys(properties)
       if (propertyKeys === null) {
         state.errors.push({
           code: 'wrong-type',
@@ -525,16 +544,20 @@ export function jsonSchemaToContract(input: unknown): JsonSchemaAdapterResult {
           path: '/properties',
         })
       } else {
-        const propertyNames = new Set<string>(propertyKeys)
-        // `required` first: a required name alone turns its property into a
-        // rule-bearing column, so the rule-less normalization in
-        // walkProperty must already see it.
-        walkRequired(state, input, propertyNames)
-        for (const name of propertyKeys) {
-          const column = walkProperty(state, properties, name)
-          if (column !== null) columns.push(column)
-        }
+        propertySchemas = properties
       }
+    }
+  }
+  // `required` first — and always, readable `properties` or not: a required
+  // name alone turns its property into a rule-bearing column, so the
+  // rule-less normalization in walkProperty must already see it; and with
+  // no declared names (no readable `properties`), every required name is a
+  // typed unknown-key error — nothing silently dropped.
+  walkRequired(state, input, new Set<string>(propertyKeys ?? []))
+  if (propertySchemas !== null && propertyKeys !== null) {
+    for (const name of propertyKeys) {
+      const column = walkProperty(state, propertySchemas, name)
+      if (column !== null) columns.push(column)
     }
   }
 
@@ -895,7 +918,12 @@ function entryPointer(index: number): string {
   return `/required/${index}`
 }
 
-/** Walk the root `required` array: marks, unknowns, duplicates, wrong shapes. */
+/**
+ * Walk the root `required` array: marks, unknowns, duplicates, wrong shapes.
+ * Runs whatever `properties` did — against an empty name set when no
+ * readable `properties` declared any names, which types every entry
+ * `unknown-key` at its own pointer (nothing silently dropped).
+ */
 function walkRequired(
   state: WalkState,
   input: Record<string, unknown>,

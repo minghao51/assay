@@ -534,6 +534,61 @@ describe('required mapping', () => {
     const notArray = convertFailing(objectSchema({ a: {} }, { required: 'a' }))
     expect(notArray.errors[0]).toMatchObject({ code: 'wrong-type', path: '/required' })
   })
+
+  it('non-empty required without properties errors for every name — never silently dropped', () => {
+    // Round-2 review pin: `required` used to be walked only when a readable
+    // `properties` existed, so this shape converted (wrongly) to a
+    // validates-nothing `columns: []` contract.
+    const { errors } = convertFailing({ title: 't', type: 'object', required: ['ghost'] })
+    expect(errors).toEqual([
+      expect.objectContaining({
+        code: 'unknown-key',
+        path: '/required/0',
+        message: expect.stringContaining('"ghost"'),
+      }),
+    ])
+  })
+
+  it('required without properties behaves exactly like properties: {} (no unrelated-key dependence)', () => {
+    // Every entry is typed at its own pointer — unknown names once per
+    // occurrence (duplicates included), non-string entries as wrong-type —
+    // and the error list is byte-identical to the same array against
+    // `properties: {}`.
+    const without = { title: 't', type: 'object', required: ['a', 'ghost', 'a', 5] }
+    const withEmpty = { ...without, properties: {} }
+    expect(convertFailing(without).errors).toEqual(convertFailing(withEmpty).errors)
+    expect(convertFailing(without).errors.map((error) => [error.code, error.path])).toEqual([
+      ['unknown-key', '/required/0'],
+      ['unknown-key', '/required/1'],
+      ['unknown-key', '/required/2'],
+      ['wrong-type', '/required/3'],
+    ])
+  })
+
+  it('empty required without properties converts with columns: [] (nothing to lose)', () => {
+    // An empty `required` carries no constraint, so there is nothing to
+    // drop: it converts, exactly like the no-required empty schema.
+    const { contract } = convertOk({ title: 't', type: 'object', required: [] })
+    expect(contract).toEqual({
+      format: 'v1',
+      metadata: { name: 't', version: 1 },
+      columns: [],
+    })
+    expect(serializeContract(contract)).toBe('format: v1\nname: t\nversion: 1\n')
+  })
+
+  it('required is walked even when properties is malformed (all independent errors collected)', () => {
+    const { errors } = convertFailing({
+      title: 't',
+      type: 'object',
+      properties: 5,
+      required: ['ghost'],
+    })
+    expect(errors.map((error) => [error.code, error.path])).toEqual([
+      ['wrong-type', '/properties'],
+      ['unknown-key', '/required/0'],
+    ])
+  })
 })
 
 describe('metadata mapping', () => {
@@ -915,6 +970,69 @@ describe('property: conversions always round-trip through the m5-0 parser', () =
     }
     // Non-vacuity: the corpus is not empty of real conversions.
     expect(columnsObserved).toBeGreaterThan(ROUND_TRIP_CASES)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Seeded property suite — the round-2 escape vector: `required` without a
+// `properties` key. The in-subset generator above must stay convertible, so
+// it can never emit these shapes; this dedicated suite generates them (new
+// seed, existing suites' seeds untouched) and pins the failure shape: every
+// entry typed at its own pointer, duplicates per occurrence, and the empty
+// array converting with columns: [] and an exact round trip.
+// ---------------------------------------------------------------------------
+
+describe('property: required without properties is typed per entry, never dropped', () => {
+  const SEED_REQUIRED_WITHOUT_PROPERTIES = 20260920
+  const REQUIRED_WITHOUT_PROPERTIES_CASES = 400
+
+  it(`keeps every entry typed across ${REQUIRED_WITHOUT_PROPERTIES_CASES} generated required-without-properties schemas (seed ${SEED_REQUIRED_WITHOUT_PROPERTIES})`, () => {
+    const rng = makeTestRng(SEED_REQUIRED_WITHOUT_PROPERTIES)
+    let unknownKeyErrors = 0
+    let emptyRequiredConversions = 0
+    for (let i = 0; i < REQUIRED_WITHOUT_PROPERTIES_CASES; i++) {
+      // No `properties` key — the exact shape the review called out. The
+      // doubled pool makes duplicate names occur; each occurrence must get
+      // its own typed error.
+      const required = rng
+        .shuffle([...SCHEMA_COLUMN_POOL, ...SCHEMA_COLUMN_POOL])
+        .slice(0, rng.int(0, SCHEMA_COLUMN_POOL.length))
+      const schema: Record<string, unknown> = {
+        title: `req-only-${rng.int(0, 99)}`,
+        type: rng.bool(0.8) ? 'object' : ['object'],
+        required,
+      }
+      const result = jsonSchemaToContract(schema)
+      if (required.length === 0) {
+        // An empty `required` carries no constraint — it converts, with
+        // `columns: []`, and (as always) the result round-trips exactly.
+        expect(result, JSON.stringify(schema)).toEqual({
+          ok: true,
+          contract: {
+            format: 'v1',
+            metadata: { name: schema.title, version: 1 },
+            columns: [],
+          },
+        })
+        if (!result.ok) return // narrowed for TS; toEqual above already failed otherwise
+        emptyRequiredConversions++
+        const text = serializeContract(result.contract)
+        expect(parseContract(text)).toEqual({ ok: true, contract: result.contract })
+      } else {
+        expect(result.ok, JSON.stringify(schema)).toBe(false)
+        if (result.ok) return // narrowed for TS
+        expect(result.errors, JSON.stringify(schema)).toHaveLength(required.length)
+        result.errors.forEach((error, index) => {
+          expect(error.code, JSON.stringify(schema)).toBe('unknown-key')
+          expect(error.path, JSON.stringify(schema)).toBe(`/required/${index}`)
+          expect(error.message, JSON.stringify(schema)).toContain(JSON.stringify(required[index]))
+          unknownKeyErrors++
+        })
+      }
+    }
+    // Non-vacuity: both arms of the generator are exercised.
+    expect(unknownKeyErrors).toBeGreaterThan(0)
+    expect(emptyRequiredConversions).toBeGreaterThan(0)
   })
 })
 
