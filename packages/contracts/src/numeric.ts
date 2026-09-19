@@ -67,8 +67,17 @@ export function canonicalDecimal(text: string): CanonicalDecimal | null {
  * `false` when the literal denotes a *different* decimal than the number's
  * canonical rendering (`'9007199254740993'` vs the double 9007199254740992)
  * — the silent-corruption case — and also when the literal is not a plain
- * decimal spelling at all (`'0x1F'`, a tagged scalar): exact intent cannot
- * be verified there, and unverifiable is rejected.
+ * decimal spelling whose exact value can be verified (`'0x1F'`):
+ * unverifiable is rejected, fail closed.
+ *
+ * An explicit standard tag (`!!int`, `!!float`) is deliberately *accepted*:
+ * the tag sits outside the scalar's source range, so the text checked here is
+ * the content literal and the gate is exactly as strict as for the plain
+ * spelling — `!!int 5` is the same verified value as `5`, while `!!int 0x1F`
+ * is unverifiable and rejected. Tags that cannot resolve are library parse
+ * warnings (already `yaml-syntax` errors) and non-numeric tags fail
+ * `wrong-type` before this check, so no tag path bypasses the gate. Pinned
+ * in `parse.test.ts`.
  */
 export function isExactDecimalLiteral(raw: string, value: number): boolean {
   const written = canonicalDecimal(raw)

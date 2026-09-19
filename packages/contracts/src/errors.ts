@@ -28,7 +28,7 @@ export type ContractErrorCode =
   | 'wrong-type'
   /** A number violates its domain: non-finite, a share outside [0,1], a non-integer version, `min > max`, … */
   | 'out-of-range'
-  /** A written number is not exactly representable — the parse would silently alter it (`9007199254740993` → `9007199254740992`), or its literal is a spelling whose exact value cannot be verified (hexadecimal, tagged). v1 carries no arbitrary-precision numbers. */
+  /** A written number is not exactly representable — the parse would silently alter it (`9007199254740993` → `9007199254740992`) — or its content literal is not a plain decimal spelling whose exact value can be verified (`0x1F`). The message names the written literal only, never the rounded double. v1 carries no arbitrary-precision numbers; standard tags (`!!int`/`!!float`) are accepted, but their content passes the same gate. */
   | 'imprecise-number'
   /** The same rule key twice in one mapping, or the same column name twice. */
   | 'duplicate-key'

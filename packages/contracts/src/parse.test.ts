@@ -302,7 +302,7 @@ describe('parseContract — rule numbers are exact or rejected (imprecise-number
     ])
   }
 
-  it('a 17th-significant-digit integer bound is rejected, naming written and read-back values', () => {
+  it('a 17th-significant-digit integer bound is rejected, naming the written literal', () => {
     expectImprecise(
       `format: v1
 name: x
@@ -312,8 +312,21 @@ columns:
     min: 9007199254740993
 `,
       { path: 'columns[0].min', line: 6, column: 10 },
-      '9007199254740993 would be silently read back as 9007199254740992',
+      'the written number 9007199254740993 would be silently altered',
     )
+  })
+
+  it('the imprecise-number message names the written literal, never the rounded double', () => {
+    // 9007199254740993 parses to the double 9007199254740992. The error
+    // reports what the author wrote; echoing the read-back value would name
+    // a number that appears nowhere in the document — the very corruption
+    // the exactness gate refuses.
+    const result = parseFailing(
+      'format: v1\nname: x\nversion: 1\ncolumns:\n  - name: a\n    min: 9007199254740993\n',
+    )
+    const message = result.errors.map((error) => error.message).join('\n')
+    expect(message).toContain('9007199254740993')
+    expect(message).not.toContain('9007199254740992')
   })
 
   it('the same corruption inside allowed-values is rejected at the entry', () => {
@@ -326,7 +339,7 @@ columns:
     allowed-values: [9007199254740993]
 `,
       { path: 'columns[0].allowed-values[0]', line: 6, column: 22 },
-      'would be silently read back as 9007199254740992',
+      'the written number 9007199254740993',
     )
   })
 
@@ -334,7 +347,7 @@ columns:
     expectImprecise(
       'format: v1\nname: x\nversion: 9007199254740993\n',
       { path: 'version', line: 3, column: 10 },
-      'would be silently read back as 9007199254740992',
+      'the written number 9007199254740993',
     )
     expectImprecise(
       `format: v1
@@ -344,7 +357,7 @@ dataset:
   min-rows: 9007199254740993
 `,
       { path: 'dataset.min-rows', line: 5, column: 13 },
-      'would be silently read back as 9007199254740992',
+      'the written number 9007199254740993',
     )
   })
 
@@ -358,7 +371,7 @@ columns:
     max: 9.007199254740993e15
 `,
       { path: 'columns[0].max', line: 6, column: 10 },
-      '9.007199254740993e15 would be silently read back as 9007199254740992',
+      'the written number 9.007199254740993e15 would be silently altered',
     )
     // The exact exponential spelling of 2^53 is accepted and canonicalizes
     // to the plain form (same value ⇒ same AST ⇒ same bytes).
@@ -393,7 +406,7 @@ columns:
     min: 0.1000000000000000000000001
 `,
       { path: 'columns[0].min', line: 6, column: 10 },
-      'would be silently read back as 0.1',
+      'the written number 0.1000000000000000000000001',
     )
     const plain = parseContract(
       'format: v1\nname: x\nversion: 1\ncolumns:\n  - name: a\n    min: 0.1\n',
@@ -411,7 +424,7 @@ columns:
     max-null-share: 0.3333333333333333333333
 `,
       { path: 'columns[0].max-null-share', line: 6, column: 21 },
-      'would be silently read back as 0.3333333333333333',
+      'the written number 0.3333333333333333333333',
     )
   })
 
@@ -437,7 +450,7 @@ columns:
     expect(parseContract(text)).toEqual(result) // fixpoint: serialization re-parses identically
   })
 
-  it('hexadecimal literals fail closed; tagged scalars are judged by their content literal', () => {
+  it('hexadecimal literals fail closed; standard tags are accepted by their content literal', () => {
     // 0x1F parses to the number 31, but the written spelling is not a plain
     // decimal literal whose exact value the format can verify — rejected.
     expectImprecise(
@@ -451,25 +464,61 @@ columns:
       { path: 'columns[0].min', line: 6, column: 10 },
       'cannot verify the exact value of "0x1F"',
     )
-    // A standard tag sits *outside* the scalar's range, so the exactness
-    // gate checks the content literal: !!int 5 is exactly faithful and is
-    // accepted under the same rule as the plain spelling (tags that cannot
-    // resolve are library warnings — already yaml-syntax errors).
-    const tagged = parseContract(`format: v1
+    // Deliberate policy (documented in numeric.ts / errors.ts, pinned here):
+    // a standard tag is accepted — it sits *outside* the scalar's source
+    // range, so the exactness gate judges the *content* literal under
+    // exactly the same rule as the plain spelling. The accepted spellings
+    // are `!!int`/`!!float` whose content resolves to a number; any tag the
+    // library cannot resolve is a parse warning — already a `yaml-syntax`
+    // error — and a non-numeric tag fails `wrong-type`, so no tag path
+    // bypasses the gate.
+    for (const [literal, expected] of [
+      ['!!int 5', 5],
+      ['!!int +5', 5],
+      ['!!float 1.5', 1.5],
+    ] as const) {
+      const result = parseContract(`format: v1
 name: x
 version: 1
 columns:
   - name: a
-    min: !!int 5
+    min: ${literal}
 `)
-    expect(tagged).toEqual({
-      ok: true,
-      contract: {
-        format: 'v1',
-        metadata: { name: 'x', version: 1 },
-        columns: [{ name: 'a', min: 5 }],
-      },
-    })
+      expect(result).toEqual({
+        ok: true,
+        contract: {
+          format: 'v1',
+          metadata: { name: 'x', version: 1 },
+          columns: [{ name: 'a', min: expected }],
+        },
+      })
+    }
+    // The gate still guards the content: the same corruption under a tag is
+    // caught, with the message naming the written literal (never the rounded
+    // read-back double).
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: !!int 9007199254740993
+`,
+      { path: 'columns[0].min', line: 6, column: 16 },
+      'the written number 9007199254740993',
+    )
+    // Non-plain-decimal content under a tag is unverifiable — rejected.
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: !!int 0x1F
+`,
+      { path: 'columns[0].min', line: 6, column: 16 },
+      'cannot verify the exact value of "0x1F"',
+    )
   })
 })
 

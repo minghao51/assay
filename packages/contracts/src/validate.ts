@@ -157,6 +157,13 @@ function nodeOffset(node: YamlNode): number {
  * parser's node ranges). `null` when the node carries no range — the same
  * degenerate default {@link nodeOffset} falls back to; no numeric rule value
  * reaches the exactness check through such a node in practice.
+ *
+ * Because the tag sits outside the sliced text, an explicit standard tag
+ * (`!!int 5`, `!!float 1.5`) is verified by its *content* literal under the
+ * same gate as the plain spelling (deliberate, pinned in `parse.test.ts`):
+ * content that is not a plain decimal (`!!int 0x1F`) is unverifiable and
+ * rejected, and unresolvable tags never reach here (library warnings are
+ * `yaml-syntax` errors).
  */
 function rawScalarText(ctx: WalkContext, node: YamlNode): string | null {
   const range = node?.range
@@ -268,7 +275,12 @@ function describeYamlValue(node: YamlNode): string {
  * byte-honestly, or is a spelling whose exact value cannot be verified.
  * `node` is the (already alias-resolved) scalar the number was read from.
  * Runs *before* domain checks so a corrupted literal is reported as such,
- * not masked by an error naming the already-rounded value.
+ * not masked by an error naming the already-rounded value. The message
+ * quotes the **raw source literal only** — never the rounded double the
+ * parse produced: telling an author that their written `9007199254740993`
+ * "is" `9007199254740992` would report a value that appears nowhere in the
+ * document, which is the very corruption this gate refuses (pinned in
+ * `parse.test.ts`).
  */
 function rejectImpreciseNumber(
   ctx: WalkContext,
@@ -285,7 +297,7 @@ function rejectImpreciseNumber(
     'imprecise-number',
     unverifiable
       ? `${path}: cannot verify the exact value of ${JSON.stringify(raw)} — write rule numbers as plain decimal literals (e.g. 1.5)`
-      : `${path}: ${raw} would be silently read back as ${String(value)} — rule numbers must be exactly representable (v1 has no arbitrary-precision numbers); write a value that survives the round-trip, e.g. integers within ±2^53`,
+      : `${path}: the written number ${raw} would be silently altered by the YAML→number parse — rule numbers must be exactly representable (v1 has no arbitrary-precision numbers); write a plain decimal that survives the round-trip, e.g. integers within ±2^53`,
     path,
     node,
   )
