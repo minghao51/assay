@@ -65,6 +65,25 @@ describe('serializeContract — canonical byte pins', () => {
     )
   })
 
+  it('rule-less column entries are dropped (the parser normalizes them away; a caller-built AST cannot smuggle them back)', () => {
+    const contract = {
+      format: 'v1',
+      metadata: { name: 'c', version: 1 },
+      columns: [{ name: 'ghost' }, { name: 'real', required: true }],
+    } as unknown as ContractV1
+    expect(serializeContract(contract)).toBe(
+      'format: v1\nname: c\nversion: 1\ncolumns:\n  - name: real\n    required: true\n',
+    )
+    // All entries rule-less ⇒ the columns key disappears entirely, matching
+    // what the parser produces for the same input.
+    const allGhost = {
+      format: 'v1',
+      metadata: { name: 'c', version: 1 },
+      columns: [{ name: 'ghost' }],
+    } as unknown as ContractV1
+    expect(serializeContract(allGhost)).toBe('format: v1\nname: c\nversion: 1\n')
+  })
+
   it('strings that would parse as bool/number/null are quoted; multi-line strings use literal blocks', () => {
     const contract: ContractV1 = {
       format: 'v1',

@@ -19,6 +19,14 @@
  * - Anchors/aliases resolve to their values; canonical output is
  *   anchor-free. Alias *cycles* are rejected with a typed error rather than
  *   recursing forever.
+ * - Error positions are visible-column aligned: a leading BOM is not
+ *   counted as a character of line 1 (editors render it invisibly).
+ * - **No input-size or nesting limit is enforced here, deliberately**: the
+ *   parser stays total for any input, and input bounds belong to the
+ *   callers that own file policy (contracts are small, locally authored
+ *   files; an arbitrary byte cap at this layer would be an unqueued product
+ *   decision). Surfaces feeding `parseContract` (editor, CLI, adapters)
+ *   should apply their own size limits.
  */
 import { parseDocument } from 'yaml'
 import type { ContractError, ContractParseResult } from './errors'

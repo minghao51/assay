@@ -146,6 +146,12 @@ function genColumn(rng: TestRng, name: string): ColumnRuleSet {
   if (rng.bool(0.4)) column.regex = rng.pick(REGEX_POOL)
   if (rng.bool(0.4)) column.maxNullShare = rng.pick(SHARE_VALUES)
   if (rng.bool(0.4)) column.minDistinctShare = rng.pick(SHARE_VALUES)
+  // Since m5-0 round 2, a rule-less entry (name only) is not a normalized
+  // AST — parseContract normalizes it away. The generator's contract (see
+  // the module doc) is to emit exactly the shape parseContract returns, so
+  // guarantee a rule. No rng draw: the streams of the pinned seeds are
+  // unaffected apart from this deterministic fix-up.
+  if (Object.keys(column).length === 1) column.required = true
   return column as ColumnRuleSet
 }
 

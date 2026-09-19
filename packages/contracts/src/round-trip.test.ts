@@ -92,7 +92,11 @@ describe('property: parseContract is total under fuzzing', () => {
       expect(serializeContract(reparsed.ok ? reparsed.contract : (undefined as never))).toBe(once)
     }
     // Sanity: the mutations are not all fatal — the corpus actually covers
-    // both outcomes, so the fixpoint assertions above are not vacuous.
-    expect(parsedCount).toBeGreaterThan(FUZZ_CASES / 10)
+    // both outcomes, so the fixpoint assertions above are not vacuous. The
+    // share of survivors dropped when rule numbers became exact-or-rejected
+    // (round-1 review): many digit-level mutations now correctly produce an
+    // imprecise-number error instead of parsing with a silently altered
+    // value, so the floor is a survivor rate of ≥ 4%, not the historical 10%.
+    expect(parsedCount).toBeGreaterThan(FUZZ_CASES / 25)
   })
 })

@@ -58,9 +58,15 @@
  *
  * - `columns` is **always** an array (possibly empty) — an absent or empty
  *   YAML `columns` key both yield `[]`.
- * - `required: false` / `unique: true`-absence are the same thing, so a
- *   present-but-false boolean is normalized away: `required`/`unique` are
- *   only ever `true` when present.
+ * - `required: false` / `unique: false` are the same thing as their absence,
+ *   so a present-but-false boolean is normalized away: `required`/`unique`
+ *   are only ever `true` when present.
+ * - a rule-less `columns[]` entry (one carrying only `name` — e.g. `name: id`
+ *   alone, or rules that all normalize away like `required: false`) also
+ *   normalizes to absent: it constrains nothing, so dropping it keeps one
+ *   shape per meaning and leaves the m5-1 compiler nothing to second-guess.
+ *   It still participates in duplicate-name rejection — declaring a column
+ *   twice is an authoring error even when one of the entries is empty.
  * - an empty `description: ''` and a rule-less `dataset: {}` normalize to
  *   absent (`undefined`).
  * - `allowed-values: []` is NOT normalized away: an empty allowed-values
@@ -75,7 +81,11 @@
  * - `required` — the column must not contain NULLs.
  * - `unique` — the column's non-NULL values must be distinct.
  * - `min`/`max` — numeric bounds on the value (both bound the same
- *   comparison space; `min ≤ max` is enforced at validation time).
+ *   comparison space; `min ≤ max` is enforced at validation time). Rule
+ *   numbers are carried as exact JavaScript numbers: a literal the parse
+ *   would silently alter (e.g. a 17th-significant-digit integer) is a typed
+ *   parse error (`imprecise-number`), never a quietly rounded bound — the
+ *   vocabulary includes `BIGINT`/`HUGEINT`, so precision honesty matters.
  * - `allowed-values` — the value must be one of the listed scalars.
  * - `regex` — the value must match the pattern. The pattern string is
  *   carried **verbatim**; v1 targets DuckDB's RE2 dialect, and dialect
@@ -91,6 +101,8 @@
  * or `@assay/*` imports (docs/engineering/05-repository-structure.md §3,
  * lint-enforced).
  */
+
+import type { ContractTypeSpelling } from './vocabulary'
 
 /** The only supported contract format version (recorded M5 non-goal: no versioning beyond this). */
 export const CONTRACT_FORMAT = 'v1'
@@ -128,8 +140,13 @@ export type ContractScalar = string | number | boolean
 export interface ColumnRuleSet {
   /** The dataset column this rule set addresses. Non-empty; any text. */
   readonly name: string
-  /** Declared-type expectation; a spelling from {@link CONTRACT_TYPE_VOCABULARY}. */
-  readonly type?: string
+  /**
+   * Declared-type expectation. The closed v1 vocabulary is enforced twice:
+   * at the type level ({@link ContractTypeSpelling}, so programmatically
+   * constructed ASTs cannot drift) and at parse time (`unknown-type` errors
+   * against {@link CONTRACT_TYPE_VOCABULARY}).
+   */
+  readonly type?: ContractTypeSpelling
   /** The column must not contain NULLs. Only ever `true` when present. */
   readonly required?: true
   /** Non-NULL values must be distinct. Only ever `true` when present. */

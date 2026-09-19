@@ -11,9 +11,10 @@
  *   `max-rows`. Only present rules are emitted.
  * - Absent-but-empty rules stay absent (mirroring the parser's canonical
  *   normalization: `description: ''` → omitted, false booleans → omitted,
- *   rule-less `dataset` → omitted; an empty `columns` array → omitted). An
- *   **empty `allowed-values: []` is emitted** — it is a real constraint
- *   ("every non-NULL value fails"), not an absence.
+ *   rule-less column entries → omitted, rule-less `dataset` → omitted; an
+ *   empty `columns` array → omitted). An **empty `allowed-values: []` is
+ *   emitted** — it is a real constraint ("every non-NULL value fails"), not
+ *   an absence.
  * - `allowed-values` renders as a flow sequence (`[ US, GB ]`); everything
  *   else is block style, 2-space indent, no line folding (`lineWidth: 0`),
  *   single trailing newline.
@@ -47,7 +48,11 @@ export function serializeContract(contract: ContractV1): string {
 
   const columns = contract?.columns
   if (Array.isArray(columns) && columns.length > 0) {
-    root.columns = columns.map((column) => serializeColumn(doc, column))
+    // Rule-less entries (name only) are normalized away by the parser and
+    // dropped here too, so a caller bug behind a cast cannot smuggle a shape
+    // the format does not express back through serialization.
+    const ruled = columns.filter(hasDeclaredRule)
+    if (ruled.length > 0) root.columns = ruled.map((column) => serializeColumn(doc, column))
   }
 
   const dataset = serializeDataset(contract?.dataset)
@@ -91,6 +96,21 @@ function serializeDataset(
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+/** Does this rule set carry at least one rule (anything beyond `name`)? Same predicate as the parser's. */
+function hasDeclaredRule(column: ColumnRuleSet): boolean {
+  return (
+    column?.type !== undefined ||
+    column?.required !== undefined ||
+    column?.unique !== undefined ||
+    column?.min !== undefined ||
+    column?.max !== undefined ||
+    column?.allowedValues !== undefined ||
+    column?.regex !== undefined ||
+    column?.maxNullShare !== undefined ||
+    column?.minDistinctShare !== undefined
+  )
 }
 
 function isUnitInterval(value: unknown): value is number {

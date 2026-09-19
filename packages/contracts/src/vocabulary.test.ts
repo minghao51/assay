@@ -79,4 +79,24 @@ describe('CONTRACT_TYPE_ALIASES', () => {
     expect(contractTypeHint('varchar')).toBeNull()
     expect(contractTypeHint('')).toBeNull()
   })
+
+  it('adversarial spellings find no inherited members (own-property lookup only)', () => {
+    // A plain-record index would inherit Object.prototype members and make
+    // the parser suggest absurd "canonical" types for these (the round-1
+    // review's item: `type: __proto__` produced "did you mean
+    // \"[object Object]\"?"). Every own-property check must return null.
+    for (const adversarial of [
+      '__proto__',
+      'constructor',
+      'toString',
+      'valueOf',
+      'hasOwnProperty',
+      'propertyIsEnumerable',
+      'toLocaleString',
+      'isPrototypeOf',
+    ]) {
+      expect(contractTypeHint(adversarial)).toBeNull()
+      expect(isKnownContractType(adversarial)).toBe(false)
+    }
+  })
 })

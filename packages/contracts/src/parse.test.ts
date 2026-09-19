@@ -122,7 +122,7 @@ describe('parseContract — golden YAML↔AST pins', () => {
     })
   })
 
-  it('normalizes semantically-empty rules (false booleans, empty description/dataset) away', () => {
+  it('normalizes semantically-empty rules away, including a rule-less column entry', () => {
     const result = parseContract(`version: 3
 description: ''
 dataset: {}
@@ -133,17 +133,19 @@ columns:
     required: false
     unique: false
 `)
+    // The rule-less entry (only a name, its other rules all false) normalizes
+    // away with the rest: the AST is byte-for-byte the metadata-only shape.
     expect(result).toEqual({
       ok: true,
       contract: {
         format: 'v1',
         metadata: { name: 'normalizes-to-minimal', version: 3 },
-        columns: [{ name: 'id' }],
+        columns: [],
       },
     })
     if (!result.ok) return
     expect(serializeContract(result.contract)).toBe(
-      'format: v1\nname: normalizes-to-minimal\nversion: 3\ncolumns:\n  - name: id\n',
+      'format: v1\nname: normalizes-to-minimal\nversion: 3\n',
     )
   })
 
@@ -214,6 +216,367 @@ columns:
     allowed-values: [ quoted value, 123, -0.25 ]
     max-null-share: 1
 `)
+  })
+})
+
+describe('parseContract — rule-less column entries normalize away (one shape per meaning)', () => {
+  it('a columns[] entry carrying only a name is dropped, like any semantically-empty rule', () => {
+    const result = parseContract('format: v1\nname: x\nversion: 1\ncolumns:\n  - name: id\n')
+    expect(result).toEqual({
+      ok: true,
+      contract: { format: 'v1', metadata: { name: 'x', version: 1 }, columns: [] },
+    })
+    if (!result.ok) return
+    // Canonical serialization is then indistinguishable from never listing
+    // the column — the fixpoint holds.
+    expect(serializeContract(result.contract)).toBe('format: v1\nname: x\nversion: 1\n')
+  })
+
+  it('rule-less entries drop; ruled entries keep their relative order', () => {
+    const result = parseContract(`format: v1
+name: x
+version: 1
+columns:
+  - name: ghost
+  - name: real
+    required: true
+  - name: also-ghost
+    unique: false
+  - name: real-2
+    type: VARCHAR
+`)
+    expect(result).toEqual({
+      ok: true,
+      contract: {
+        format: 'v1',
+        metadata: { name: 'x', version: 1 },
+        columns: [
+          { name: 'real', required: true },
+          { name: 'real-2', type: 'VARCHAR' },
+        ],
+      },
+    })
+  })
+
+  it('a rule-less entry still participates in duplicate-name rejection', () => {
+    // Chosen semantics (documented in ast.ts): declaring a column twice is an
+    // authoring error even when one entry carries no rules — the duplicate
+    // check runs on declared entries, before the rule-less drop.
+    const result = parseFailing(`format: v1
+name: x
+version: 1
+columns:
+  - name: a
+  - name: a
+    required: true
+`)
+    expect(result.errors).toEqual([
+      {
+        code: 'duplicate-key',
+        message: expect.stringContaining(
+          'duplicate column name "a" — columns[0] already declares it',
+        ),
+        path: 'columns[1]',
+        line: 6,
+        column: 5,
+      },
+    ])
+  })
+})
+
+describe('parseContract — rule numbers are exact or rejected (imprecise-number)', () => {
+  const expectImprecise = (
+    text: string,
+    at: { path: string; line: number; column: number },
+    messageSubstance: string,
+  ) => {
+    const result = parseFailing(text)
+    expect(result.errors).toEqual([
+      {
+        code: 'imprecise-number',
+        message: expect.stringContaining(messageSubstance),
+        path: at.path,
+        line: at.line,
+        column: at.column,
+      },
+    ])
+  }
+
+  it('a 17th-significant-digit integer bound is rejected, naming written and read-back values', () => {
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: 9007199254740993
+`,
+      { path: 'columns[0].min', line: 6, column: 10 },
+      '9007199254740993 would be silently read back as 9007199254740992',
+    )
+  })
+
+  it('the same corruption inside allowed-values is rejected at the entry', () => {
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    allowed-values: [9007199254740993]
+`,
+      { path: 'columns[0].allowed-values[0]', line: 6, column: 22 },
+      'would be silently read back as 9007199254740992',
+    )
+  })
+
+  it('a corrupted literal on an integer slot reports imprecise-number, not the rounded value', () => {
+    expectImprecise(
+      'format: v1\nname: x\nversion: 9007199254740993\n',
+      { path: 'version', line: 3, column: 10 },
+      'would be silently read back as 9007199254740992',
+    )
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+dataset:
+  min-rows: 9007199254740993
+`,
+      { path: 'dataset.min-rows', line: 5, column: 13 },
+      'would be silently read back as 9007199254740992',
+    )
+  })
+
+  it('exponential spellings are judged by value, not shape', () => {
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    max: 9.007199254740993e15
+`,
+      { path: 'columns[0].max', line: 6, column: 10 },
+      '9.007199254740993e15 would be silently read back as 9007199254740992',
+    )
+    // The exact exponential spelling of 2^53 is accepted and canonicalizes
+    // to the plain form (same value ⇒ same AST ⇒ same bytes).
+    const exact = parseContract(`format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: 9.007199254740992e15
+`)
+    expect(exact).toEqual({
+      ok: true,
+      contract: {
+        format: 'v1',
+        metadata: { name: 'x', version: 1 },
+        columns: [{ name: 'a', min: 9007199254740992 }],
+      },
+    })
+    if (!exact.ok) return
+    const text = serializeContract(exact.contract)
+    expect(text).toContain('min: 9007199254740992')
+    expect(parseContract(text)).toEqual(exact)
+  })
+
+  it('an over-precise decimal is rejected; the plain spelling of the same value is fine', () => {
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: 0.1000000000000000000000001
+`,
+      { path: 'columns[0].min', line: 6, column: 10 },
+      'would be silently read back as 0.1',
+    )
+    const plain = parseContract(
+      'format: v1\nname: x\nversion: 1\ncolumns:\n  - name: a\n    min: 0.1\n',
+    )
+    expect(plain.ok).toBe(true)
+  })
+
+  it('over-precise shares are rejected too', () => {
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    max-null-share: 0.3333333333333333333333
+`,
+      { path: 'columns[0].max-null-share', line: 6, column: 21 },
+      'would be silently read back as 0.3333333333333333',
+    )
+  })
+
+  it('exactly representable large bounds are accepted (the boundary is exactness, not size)', () => {
+    const result = parseContract(`format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: 9007199254740992
+`)
+    expect(result).toEqual({
+      ok: true,
+      contract: {
+        format: 'v1',
+        metadata: { name: 'x', version: 1 },
+        columns: [{ name: 'a', min: 9007199254740992 }],
+      },
+    })
+    if (!result.ok) return
+    const text = serializeContract(result.contract)
+    expect(text).toContain('min: 9007199254740992')
+    expect(parseContract(text)).toEqual(result) // fixpoint: serialization re-parses identically
+  })
+
+  it('hexadecimal literals fail closed; tagged scalars are judged by their content literal', () => {
+    // 0x1F parses to the number 31, but the written spelling is not a plain
+    // decimal literal whose exact value the format can verify — rejected.
+    expectImprecise(
+      `format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: 0x1F
+`,
+      { path: 'columns[0].min', line: 6, column: 10 },
+      'cannot verify the exact value of "0x1F"',
+    )
+    // A standard tag sits *outside* the scalar's range, so the exactness
+    // gate checks the content literal: !!int 5 is exactly faithful and is
+    // accepted under the same rule as the plain spelling (tags that cannot
+    // resolve are library warnings — already yaml-syntax errors).
+    const tagged = parseContract(`format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    min: !!int 5
+`)
+    expect(tagged).toEqual({
+      ok: true,
+      contract: {
+        format: 'v1',
+        metadata: { name: 'x', version: 1 },
+        columns: [{ name: 'a', min: 5 }],
+      },
+    })
+  })
+})
+
+describe('parseContract — adversarial spellings hit own-property lookups only', () => {
+  it('prototype-named type values are unknown types with no bogus suggestion', () => {
+    for (const spelling of ['__proto__', 'constructor', 'toString']) {
+      const result = parseFailing(
+        `format: v1\nname: x\nversion: 1\ncolumns:\n  - name: a\n    type: ${spelling}\n`,
+      )
+      expect(result.errors[0]).toMatchObject({
+        code: 'unknown-type',
+        path: 'columns[0].type',
+        line: 6,
+        column: 11,
+      })
+      expect(result.errors[0]?.message).toContain(`unknown declared type "${spelling}"`)
+      expect(result.errors[0]?.message).not.toContain('did you mean') // no inherited-member "suggestion"
+    }
+  })
+
+  it('prototype-named mapping keys are typed unknown-key errors, never a crash', () => {
+    const atRoot = parseFailing('format: v1\nname: x\nversion: 1\nconstructor: x\n')
+    expect(atRoot.errors).toEqual([
+      {
+        code: 'unknown-key',
+        message: expect.stringContaining('unknown key "constructor" at the document root'),
+        path: 'document',
+        line: 4,
+        column: 1,
+      },
+    ])
+    const inColumn = parseFailing(`format: v1
+name: x
+version: 1
+columns:
+  - name: a
+    toString: x
+`)
+    expect(inColumn.errors).toEqual([
+      {
+        code: 'unknown-key',
+        message: expect.stringContaining('unknown key "toString" in the rule set at "columns[0]"'),
+        path: 'columns[0]',
+        line: 6,
+        column: 5,
+      },
+    ])
+    const inDataset = parseFailing(`format: v1
+name: x
+version: 1
+dataset:
+  valueOf: 1
+`)
+    expect(inDataset.errors).toEqual([
+      {
+        code: 'unknown-key',
+        message: expect.stringContaining('unknown key "valueOf" in the "dataset" mapping'),
+        path: 'dataset',
+        line: 5,
+        column: 3,
+      },
+    ])
+    const dunderRoot = parseFailing(
+      'format: v1\nname: x\nversion: 1\ncolumns:\n  - name: a\n    __proto__: x\n',
+    )
+    expect(dunderRoot.errors[0]).toMatchObject({ code: 'unknown-key', path: 'columns[0]' })
+  })
+})
+
+describe('parseContract — BOM-prefixed documents report visible columns', () => {
+  it('an error on the first line points at the visible column (BOM not counted)', () => {
+    const result = parseFailing('\uFEFFformat: v2\nname: x\n')
+    expect(result.errors).toEqual([
+      {
+        code: 'unsupported-format',
+        message: expect.stringContaining('implements "v1" only'),
+        path: 'format',
+        line: 1,
+        column: 9, // visible column of the "v2" value — not 10 (pre-fix: off by one)
+      },
+    ])
+    const unknownFirst = parseFailing('\uFEFFbogus: 1\nformat: v1\nname: x\nversion: 1\n')
+    expect(unknownFirst.errors[0]).toMatchObject({
+      code: 'unknown-key',
+      line: 1,
+      column: 1, // visible column of the "bogus" key — not 2
+    })
+  })
+
+  it('lines after the BOM are unaffected', () => {
+    const result = parseFailing('\uFEFFformat: v1\nname: x\nversion: 0\n')
+    expect(result.errors[0]).toMatchObject({
+      code: 'out-of-range',
+      path: 'version',
+      line: 3,
+      column: 10,
+    })
+  })
+
+  it('a valid BOM-prefixed contract parses; canonical output carries no BOM', () => {
+    const result = parseContract('\uFEFFformat: v1\nname: bom\nversion: 1\n')
+    expect(result).toEqual({
+      ok: true,
+      contract: { format: 'v1', metadata: { name: 'bom', version: 1 }, columns: [] },
+    })
+    if (!result.ok) return
+    expect(serializeContract(result.contract)).toBe('format: v1\nname: bom\nversion: 1\n')
   })
 })
 

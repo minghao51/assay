@@ -33,7 +33,9 @@ import type { Alias, Document, Scalar, YAMLMap, YAMLSeq } from 'yaml'
 import { CONTRACT_FORMAT } from './ast'
 import type { ColumnRuleSet, ContractV1, DatasetRuleSet } from './ast'
 import type { ContractError, ContractErrorCode } from './errors'
+import { canonicalDecimal, isExactDecimalLiteral } from './numeric'
 import { contractTypeHint, isKnownContractType } from './vocabulary'
+import type { ContractTypeSpelling } from './vocabulary'
 
 /**
  * Any parsed YAML node (or absence). Deliberately the loose class union —
@@ -82,16 +84,23 @@ const KEY_LOCATIONS: Readonly<Record<string, readonly string[]>> = {
   'max-rows': ['the dataset mapping'],
 }
 
-/** 1-based line start offsets of a source (index 0 = start of line 1). */
+/**
+ * 1-based line start offsets of a source (index 0 = start of line 1).
+ *
+ * A leading BOM is counted as *before* line 1, not as its first character:
+ * editors render it invisibly, so columns must match the visible text —
+ * without this, an error on the first line of a BOM-prefixed document would
+ * point one column too far right (pinned in `parse.test.ts`).
+ */
 export function makeLineIndex(source: string): readonly number[] {
-  const starts = [0]
+  const starts = [source.charCodeAt(0) === 0xfeff ? 1 : 0]
   for (let i = 0; i < source.length; i++) {
     if (source.charCodeAt(i) === 10 /* \n */) starts.push(i + 1)
   }
   return starts
 }
 
-/** 1-based line/column of a character offset (clamped into the source). */
+/** 1-based line/column of a character offset (clamped into the source; column ≥ 1). */
 export function offsetToLineCol(
   lineIndex: readonly number[],
   offset: number,
@@ -105,11 +114,15 @@ export function offsetToLineCol(
     if ((lineIndex[mid] as number) <= o) lo = mid
     else hi = mid - 1
   }
-  return { line: lo + 1, column: o - (lineIndex[lo] as number) + 1 }
+  // The clamp keeps degenerate offsets (e.g. a node without a range, mapped
+  // to 0) on line 1 even when a BOM shifted line 1's start past them.
+  return { line: lo + 1, column: Math.max(1, o - (lineIndex[lo] as number) + 1) }
 }
 
 interface WalkContext {
   readonly doc: Document
+  /** The original source text — literals are sliced from it for exactness checks. */
+  readonly source: string
   readonly lineIndex: readonly number[]
   readonly errors: ContractError[]
 }
@@ -137,6 +150,24 @@ function pushError(
 function nodeOffset(node: YamlNode): number {
   const range = node?.range
   return typeof range?.[0] === 'number' ? range[0] : 0
+}
+
+/**
+ * The source text a scalar was written as (the literal, tags excluded by the
+ * parser's node ranges). `null` when the node carries no range — the same
+ * degenerate default {@link nodeOffset} falls back to; no numeric rule value
+ * reaches the exactness check through such a node in practice.
+ */
+function rawScalarText(ctx: WalkContext, node: YamlNode): string | null {
+  const range = node?.range
+  return typeof range?.[0] === 'number' && typeof range?.[1] === 'number'
+    ? ctx.source.slice(range[0], range[1])
+    : null
+}
+
+/** Position node for value errors: the value, falling back to the key. */
+function valuePosition(entry: Entry, resolved: YamlNode): YamlNode {
+  return resolved ?? entry.keyNode
 }
 
 /** Resolve aliases to their target node (positions then come from the anchor). */
@@ -230,9 +261,35 @@ function describeYamlValue(node: YamlNode): string {
   }
 }
 
-/** Position node for value errors: the value, falling back to the key. */
-function valuePosition(entry: Entry, resolved: YamlNode): YamlNode {
-  return resolved ?? entry.keyNode
+/**
+ * The exactness gate for every numeric rule value (see `numeric.ts` for the
+ * policy: exact or rejected). Pushes an `imprecise-number` error and returns
+ * `false` when the written literal would not survive the YAML→number parse
+ * byte-honestly, or is a spelling whose exact value cannot be verified.
+ * `node` is the (already alias-resolved) scalar the number was read from.
+ * Runs *before* domain checks so a corrupted literal is reported as such,
+ * not masked by an error naming the already-rounded value.
+ */
+function rejectImpreciseNumber(
+  ctx: WalkContext,
+  node: YamlNode,
+  value: number,
+  path: string,
+): boolean {
+  const raw = rawScalarText(ctx, node)
+  if (raw === null) return true // no literal to verify; nodeOffset's degenerate default
+  if (isExactDecimalLiteral(raw, value)) return true
+  const unverifiable = canonicalDecimal(raw) === null
+  pushError(
+    ctx,
+    'imprecise-number',
+    unverifiable
+      ? `${path}: cannot verify the exact value of ${JSON.stringify(raw)} — write rule numbers as plain decimal literals (e.g. 1.5)`
+      : `${path}: ${raw} would be silently read back as ${String(value)} — rule numbers must be exactly representable (v1 has no arbitrary-precision numbers); write a value that survives the round-trip, e.g. integers within ±2^53`,
+    path,
+    node,
+  )
+  return false
 }
 
 function wantString(ctx: WalkContext, entry: Entry, path: string): string | null {
@@ -292,6 +349,7 @@ function wantFiniteNumber(ctx: WalkContext, entry: Entry, path: string): number 
     )
     return null
   }
+  if (!rejectImpreciseNumber(ctx, resolved, n, path)) return null
   return n
 }
 
@@ -340,6 +398,10 @@ function wantInteger(
     return null
   }
   const n = value as number
+  // Exactness first: a 17th-digit literal arrives already rounded, and the
+  // generic message below would name the rounded value as if the author
+  // wrote it — the imprecise-number error is the honest report.
+  if (!rejectImpreciseNumber(ctx, resolved, n, path)) return null
   if (!Number.isSafeInteger(n) || n < minimum) {
     pushError(
       ctx,
@@ -355,7 +417,11 @@ function wantInteger(
 
 /** Unknown-key message with a misplaced-key hint when the key is legal somewhere else. */
 function unknownKeyMessage(key: string, where: string, knownKeys: readonly string[]): string {
-  const locations = KEY_LOCATIONS[key]
+  // Own-property only: `key` is user-written YAML, and a plain-record index
+  // would inherit `Object.prototype` members — `toString:`/`__proto__:` keys
+  // would otherwise find inherited values and crash the message builder
+  // (`.join` on a function), breaking the never-throws promise. Pinned.
+  const locations = Object.hasOwn(KEY_LOCATIONS, key) ? KEY_LOCATIONS[key] : undefined
   if (locations !== undefined) {
     return `unknown key "${key}" ${where}; "${key}" is valid only in ${locations.join(' and ')}`
   }
@@ -378,7 +444,7 @@ export function validateContractDocument(
   doc: Document,
   source: string,
 ): { contract?: ContractV1; errors: readonly ContractError[] } {
-  const ctx: WalkContext = { doc, lineIndex: makeLineIndex(source), errors: [] }
+  const ctx: WalkContext = { doc, source, lineIndex: makeLineIndex(source), errors: [] }
   const build = walkRoot(ctx, doc.contents as YamlNode)
   if (ctx.errors.length > 0 || build === null) return { errors: ctx.errors }
   // Unreachable with undefined name/version: a missing or invalid one always
@@ -582,9 +648,29 @@ function walkColumns(ctx: WalkContext, entry: Entry, parentSeen: Set<object>): C
       continue
     }
     namedAt.set(column.name, index)
+    // A rule-less entry (only a name) constrains nothing, so canonical
+    // normalization drops it — one shape per meaning (see the ast.ts module
+    // doc). Duplicate-name rejection above still saw it: declaring a column
+    // twice is an authoring error even when one entry is empty.
+    if (!hasDeclaredRule(column)) continue
     columns.push(column)
   }
   return columns
+}
+
+/** Does this rule set carry at least one rule (anything beyond `name`)? */
+function hasDeclaredRule(column: ColumnRuleSet): boolean {
+  return (
+    column.type !== undefined ||
+    column.required !== undefined ||
+    column.unique !== undefined ||
+    column.min !== undefined ||
+    column.max !== undefined ||
+    column.allowedValues !== undefined ||
+    column.regex !== undefined ||
+    column.maxNullShare !== undefined ||
+    column.minDistinctShare !== undefined
+  )
 }
 
 function walkColumn(
@@ -611,7 +697,7 @@ function walkColumn(
   // the offending bound (reported at the `max` value).
   const build: {
     name: string
-    type?: string
+    type?: ContractTypeSpelling
     required?: true
     unique?: true
     min?: number
@@ -790,6 +876,7 @@ function walkAllowedValues(
     if (kind === 'string' || kind === 'boolean') {
       values.push(value as string | boolean)
     } else if (kind === 'number' && Number.isFinite(value as number)) {
+      if (!rejectImpreciseNumber(ctx, itemResolved, value as number, itemPath)) continue
       values.push(value as number)
     } else {
       pushError(

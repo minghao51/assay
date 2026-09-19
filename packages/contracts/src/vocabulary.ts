@@ -91,7 +91,14 @@ export const CONTRACT_TYPE_ALIASES: Readonly<Record<string, ContractTypeSpelling
  * If `spelling` is a known alias, the canonical spelling to suggest;
  * otherwise `null`. Unknown non-alias spellings get no suggestion (the
  * error points at {@link CONTRACT_TYPE_VOCABULARY} instead).
+ *
+ * The lookup is **own-property only** (`Object.hasOwn`): `spelling` is
+ * user-written YAML, and a plain-record index would happily inherit
+ * `Object.prototype` members — `type: __proto__` / `constructor` /
+ * `toString` would otherwise produce absurd suggestions ("did you mean
+ * \"[object Object]\"?"). Pinned by adversarial spellings in
+ * `vocabulary.test.ts`.
  */
 export function contractTypeHint(spelling: string): ContractTypeSpelling | null {
-  return CONTRACT_TYPE_ALIASES[spelling] ?? null
+  return Object.hasOwn(CONTRACT_TYPE_ALIASES, spelling) ? CONTRACT_TYPE_ALIASES[spelling] : null
 }

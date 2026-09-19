@@ -28,6 +28,8 @@ export type ContractErrorCode =
   | 'wrong-type'
   /** A number violates its domain: non-finite, a share outside [0,1], a non-integer version, `min > max`, … */
   | 'out-of-range'
+  /** A written number is not exactly representable — the parse would silently alter it (`9007199254740993` → `9007199254740992`), or its literal is a spelling whose exact value cannot be verified (hexadecimal, tagged). v1 carries no arbitrary-precision numbers. */
+  | 'imprecise-number'
   /** The same rule key twice in one mapping, or the same column name twice. */
   | 'duplicate-key'
   /** A declared-type spelling not in CONTRACT_TYPE_VOCABULARY (alias hints are attached to the message). */

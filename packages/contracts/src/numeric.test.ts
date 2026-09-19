@@ -1,0 +1,87 @@
+import { describe, expect, it } from 'vitest'
+import { canonicalDecimal, isExactDecimalLiteral } from './numeric'
+
+/**
+ * Unit pins for the exact-numeric-intent gate (m5-0 round 2 review item 1).
+ * The end-to-end behavior (which keys reject which literals, at which
+ * position) is pinned in `parse.test.ts`; these pins fix the decimal
+ * canonicalization itself, including the equivalence classes the
+ * round-trip comparison relies on.
+ */
+describe('canonicalDecimal', () => {
+  it('canonicalizes spellings of the same decimal to one unique form', () => {
+    const expected = { negative: false, digits: '9007199254740993', exponent: 0 }
+    expect(canonicalDecimal('9007199254740993')).toEqual(expected)
+    expect(canonicalDecimal('9.007199254740993e15')).toEqual(expected) // same value, exponential spelling
+    expect(canonicalDecimal('+9007199254740993')).toEqual(expected)
+  })
+
+  it('strips leading and trailing zeros into the exponent', () => {
+    expect(canonicalDecimal('0.10')).toEqual({ negative: false, digits: '1', exponent: -1 })
+    expect(canonicalDecimal('0.1')).toEqual({ negative: false, digits: '1', exponent: -1 })
+    expect(canonicalDecimal('.10')).toEqual({ negative: false, digits: '1', exponent: -1 })
+    expect(canonicalDecimal('100')).toEqual({ negative: false, digits: '1', exponent: 2 })
+    expect(canonicalDecimal('001.2300')).toEqual({ negative: false, digits: '123', exponent: -2 })
+  })
+
+  it('canonicalizes negative values and collapses ±0 to one form', () => {
+    expect(canonicalDecimal('-2.5')).toEqual({ negative: true, digits: '25', exponent: -1 })
+    expect(canonicalDecimal('-0')).toEqual({ negative: false, digits: '0', exponent: 0 })
+    expect(canonicalDecimal('0.0')).toEqual({ negative: false, digits: '0', exponent: 0 })
+    expect(canonicalDecimal('-0.0e5')).toEqual({ negative: false, digits: '0', exponent: 0 })
+  })
+
+  it('handles the exponent spellings JS itself renders (String(1e21) === "1e+21")', () => {
+    expect(canonicalDecimal('1e+21')).toEqual({ negative: false, digits: '1', exponent: 21 })
+    expect(canonicalDecimal('1e21')).toEqual({ negative: false, digits: '1', exponent: 21 })
+    expect(canonicalDecimal('1000000000000000000000')).toEqual({
+      negative: false,
+      digits: '1',
+      exponent: 21,
+    })
+    expect(canonicalDecimal('1e-7')).toEqual({ negative: false, digits: '1', exponent: -7 })
+  })
+
+  it('returns null for anything that is not a plain decimal literal', () => {
+    for (const text of [
+      '',
+      '  ',
+      '0x1F',
+      '1_000',
+      'abc',
+      '1,5',
+      '!!int 5',
+      '1e',
+      '.',
+      '- .5',
+      '1..2',
+    ]) {
+      expect(canonicalDecimal(text)).toBeNull()
+    }
+  })
+})
+
+describe('isExactDecimalLiteral — exact or rejected', () => {
+  it('accepts literals the double carries exactly', () => {
+    expect(isExactDecimalLiteral('9007199254740992', 9007199254740992)).toBe(true) // 2^53 exactly
+    expect(isExactDecimalLiteral('9.007199254740992e15', 9007199254740992)).toBe(true)
+    expect(isExactDecimalLiteral('0.1', 0.1)).toBe(true)
+    expect(isExactDecimalLiteral('0.10', 0.1)).toBe(true) // trailing zero: same decimal
+    expect(isExactDecimalLiteral('1e2', 100)).toBe(true) // value equality, not spelling equality
+    expect(isExactDecimalLiteral('5.0', 5)).toBe(true)
+    expect(isExactDecimalLiteral('-0.5', -0.5)).toBe(true)
+  })
+
+  it('rejects the silent-corruption case: a literal the parse would alter', () => {
+    expect(isExactDecimalLiteral('9007199254740993', 9007199254740992)).toBe(false) // the review's example
+    expect(isExactDecimalLiteral('9.007199254740993e15', 9007199254740992)).toBe(false)
+    expect(isExactDecimalLiteral('0.1000000000000000000000001', 0.1)).toBe(false)
+    expect(isExactDecimalLiteral('9999999999999999', 10000000000000000)).toBe(false)
+  })
+
+  it('fails closed on spellings whose exact value cannot be verified', () => {
+    expect(isExactDecimalLiteral('0x1F', 31)).toBe(false) // parses as a number, not a verifiable decimal literal
+    expect(isExactDecimalLiteral('!!int 5', 5)).toBe(false)
+    expect(isExactDecimalLiteral('', 0)).toBe(false)
+  })
+})
