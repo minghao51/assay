@@ -45,7 +45,7 @@ describe('readContractFile', () => {
     expect(result).toEqual({ kind: 'read-failed', message: 'the handle was revoked' })
   })
 
-  it('does not read when the file is exactly at the bound', async () => {
+  it('reads a file exactly at the bound (the bound is exclusive >)', async () => {
     const file = { size: MAX_CONTRACT_BYTES, text: async () => 'x' }
     const result = await readContractFile(file)
     expect(result.kind).toBe('parsed')

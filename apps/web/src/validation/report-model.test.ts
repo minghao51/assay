@@ -255,6 +255,31 @@ describe('filter-to-failures honesty (bounded sets + expressibility)', () => {
     )
   })
 
+  it('pins the completeness bound exclusively: failCount = returned + 1 is already partial', () => {
+    // The minimal realistic partial case (the engine clamps samples at 100,
+    // so 101 failures is the first count a clamp would truncate). An
+    // off-by-one like `failCount <= samples.length + 1` must fail here, not
+    // only at distance-10 shapes.
+    const result = resultA()
+    const boundary = result.rules.map((rule) =>
+      rule.ruleId === 'columns[1].allowed-values'
+        ? {
+            ...rule,
+            failCount: 101,
+            failPercent: 92,
+            sampleFailures: Array.from({ length: 100 }, (_, index) => ({
+              rowKey: `base:anchor#${String(index)}`,
+              value: 'XX',
+            })),
+          }
+        : rule,
+    )
+    const report = buildValidationReport(planA(), { ...result, rules: boundary }, CONTRACT_A)
+    const row = report.rows.find((candidate) => candidate.ruleId === 'columns[1].allowed-values')
+    expect(row?.samplesComplete).toBe(false)
+    expect(row?.filter).toEqual({ kind: 'partial', samplesReturned: 100, failCount: 101 })
+  })
+
   it('mirrors the compiler violation predicates through the same literal helpers', () => {
     const ref = contractRuleFor('columns[1].allowed-values', CONTRACT_A)
     expect(ref?.key).toBe('allowed-values')
