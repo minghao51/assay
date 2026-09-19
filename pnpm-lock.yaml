@@ -269,10 +269,17 @@ importers:
         version: 5.9.3
 
   packages/validation:
+    dependencies:
+      '@assay/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.7(@types/node@24.13.4)(happy-dom@20.14.5)(supports-color@7.2.0)(tsx@4.23.13)(yaml@2.9.1)
 
 packages:
 
