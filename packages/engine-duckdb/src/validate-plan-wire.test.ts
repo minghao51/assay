@@ -124,18 +124,20 @@ describe('parseValidationPlan (m5-2 wire boundary)', () => {
     expect(parseValidationPlan(validPlan({ sampleLimit: '20' as unknown as number }))).toBeNull()
   })
 
-  it('rejects sampleLimit above the engine hard max at the wire (m5-2 fix round)', () => {
-    // The materialization bound: the compiled rule queries compute the full
-    // violation count regardless of K, so an oversized K cannot be clamped
-    // after execution — over-max plans are rejected here, before any SQL.
+  it('accepts ANY safe integer K ≥ 1 — over-max K is clamped by the executor, not refused (m5-2 round-3 fix)', () => {
+    // The round-3 adjudication (CLAMP, don't reject): the executor wraps
+    // every rule query as `SELECT * FROM (<exact SQL>) LIMIT min(K, 100)`,
+    // so `sampleFailures ≤ min(K, hard max)` holds literally for every safe
+    // K while the inner window still reports the FULL violation count.
     expect(
       parseValidationPlan(validPlan({ sampleLimit: VALIDATION_SAMPLE_HARD_MAX })),
     ).not.toBeNull()
     expect(
       parseValidationPlan(validPlan({ sampleLimit: VALIDATION_SAMPLE_HARD_MAX + 1 })),
-    ).toBeNull()
-    expect(parseValidationPlan(validPlan({ sampleLimit: 10_000 }))).toBeNull()
-    expect(parseValidationPlan(validPlan({ sampleLimit: 2 ** 53 - 1 }))).toBeNull()
+    ).not.toBeNull()
+    expect(parseValidationPlan(validPlan({ sampleLimit: 500 }))).not.toBeNull()
+    expect(parseValidationPlan(validPlan({ sampleLimit: 10_000 }))).not.toBeNull()
+    expect(parseValidationPlan(validPlan({ sampleLimit: 2 ** 53 - 1 }))).not.toBeNull()
   })
 
   it('rejects malformed rules and duplicate ruleIds (results key by ruleId)', () => {
@@ -168,6 +170,46 @@ describe('parseValidationPlan (m5-2 wire boundary)', () => {
         validPlan({ rules: [validRule(), validRule({ ruleId: 'columns[0].unique' })] }),
       ),
     ).not.toBeNull()
+  })
+
+  it('rejects ruleIds outside the m5-0 rule-id grammar (W1, m5-2 round-3 fix)', () => {
+    // Engine failure classes interpolate the ruleId, so only compiler-
+    // shaped ids (the m5-0 error-path spelling) may parse — arbitrary plan
+    // content can never be reflected through a class message.
+    const grammarValid = [
+      'columns[0].required',
+      'columns[12].max-null-share',
+      'columns[3].type',
+      'dataset.min-rows',
+      'dataset.max-rows',
+    ]
+    for (const ruleId of grammarValid) {
+      expect(parseValidationPlan(validPlan({ rules: [validRule({ ruleId })] }))).not.toBeNull()
+    }
+    const grammarInvalid = [
+      'hostile',
+      'columns[-1].min',
+      'columns[01].min',
+      'columns[0].',
+      'columns[0].cross-field',
+      'dataset.unique',
+      'dataset',
+      'COLUMNs[0].min',
+      'columns[0].min; DROP TABLE x',
+      "columns[0].min' --",
+      '',
+    ]
+    for (const ruleId of grammarInvalid) {
+      expect(parseValidationPlan(validPlan({ rules: [validRule({ ruleId })] })), ruleId).toBeNull()
+    }
+    // A pathological over-long digit run is grammar-shaped but not bounded;
+    // the id bound rejects it like any other over-long name.
+    const longIndex = '9'.repeat(300)
+    expect(
+      parseValidationPlan(
+        validPlan({ rules: [validRule({ ruleId: 'columns[' + longIndex + '].min' })] }),
+      ),
+    ).toBeNull()
   })
 
   it('rejects malformed or overlong summary SQL', () => {
@@ -330,6 +372,129 @@ describe('assertValidationPlanRelationBinding (executor-side semantic gate)', ()
       ],
     })
     expect(() => assertValidationPlanRelationBinding(literal, [])).not.toThrow()
+  })
+
+  // ---- m5-2 round-3 fix: the scanner is fully SQL-aware ---------------------
+
+  it("refuses the reviewer's commented pseudo-reference outright (zero SQL)", () => {
+    // The round-2 probe: a block comment carrying the exact compiler FROM
+    // shape fooled the old lexical counter into seeing a relation binding
+    // while the rule never read the dataset. Comments are now lexed and any
+    // comment-bearing SQL is a malformed plan — refused before anything run.
+    const commented = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[0].required',
+          sql: 'SELECT 1 AS "total_rows", 0 AS "fail_count" /* FROM "assay_conf_validate_src" AS "src" */',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(commented, [])).toThrow(
+      /'columns\[0\]\.required' contains SQL comments; the compiler emits none/,
+    )
+    // The same refusal in the summary, and for line comments.
+    const commentedSummary = validPlan({
+      summarySql: 'SELECT 1 AS "x" FROM "assay_conf_validate_src" AS "src" -- tail comment',
+    })
+    expect(() => assertValidationPlanRelationBinding(commentedSummary, [])).toThrow(
+      /summary contains SQL comments; the compiler emits none/,
+    )
+    const lineComment = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[0].required',
+          sql: 'SELECT 1 AS "x" -- FROM "assay_conf_validate_src" AS "src"\nFROM "assay_conf_validate_src" AS "src"',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(lineComment, [])).toThrow(
+      /contains SQL comments/,
+    )
+    // An unterminated block comment is also refused (never a silent scan).
+    const unterminated = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[0].required',
+          sql: 'SELECT 1 AS "x" FROM "assay_conf_validate_src" AS "src" /* never closed',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(unterminated, [])).toThrow(
+      /contains SQL comments/,
+    )
+  })
+
+  it('never counts a relation occurrence hidden inside a string literal', () => {
+    // The pseudo-reference wearing a string costume: the only "occurrence"
+    // sits inside a single-quoted literal, so the rule reads no rows.
+    const inString = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[0].required',
+          sql:
+            'SELECT \'FROM "assay_conf_validate_src" AS "src"\' AS ' +
+            '"total_rows", 0 AS "fail_count" WHERE FALSE',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(inString, [])).toThrow(
+      /does not bind its relation/,
+    )
+    // A doubled quote inside the literal must not re-open code either.
+    const doubled = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[0].required',
+          sql:
+            'SELECT \'it\'\'s FROM "assay_conf_validate_src" AS "src"\' AS ' +
+            '"total_rows", 0 AS "fail_count" WHERE FALSE',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(doubled, [])).toThrow(
+      /does not bind its relation/,
+    )
+    // But a real occurrence elsewhere keeps the plan legal — string contents
+    // are masked, code is not.
+    const maskedAndBound = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[1].allowed-values',
+          sql:
+            'SELECT \'FROM "assay_conf_validate_src" AS "src"\' AS ' +
+            '"total_rows", count(*) OVER () AS "fail_count", row_number() OVER () - 1 AS ' +
+            '"sample_index", "assay_row_ordinal", "assay_value" ' +
+            'FROM (SELECT row_number() OVER () - 1 AS "assay_row_ordinal", "src"."id" AS ' +
+            '"assay_value" FROM "assay_conf_validate_src" AS "src") AS "assay_rule_source" ' +
+            'WHERE "assay_value" IS NULL LIMIT 20',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(maskedAndBound, [])).not.toThrow()
+  })
+
+  it('fails closed on dialect string forms and unterminated literals', () => {
+    const cases: ReadonlyArray<readonly [string, RegExp]> = [
+      [
+        'SELECT 1 AS "x" FROM "assay_conf_validate_src" AS "src" WHERE \'a; b\' = E\'; DROP\', x" -- nope',
+        /escape-string/,
+      ],
+      [
+        'SELECT 1 AS "x" FROM "assay_conf_validate_src" AS "src" WHERE "a;b" = $$; DROP TABLE x$$',
+        /dollar-quoted/,
+      ],
+      [
+        'SELECT 1 AS "x" FROM "assay_conf_validate_src" AS "src" WHERE name = \'unterminated',
+        /not lexically well-formed/,
+      ],
+      ['SELECT 1 AS "x" FROM "assay_conf_validate_src AS "src"', /not lexically well-formed/],
+    ]
+    for (const [sql, message] of cases) {
+      const plan = validPlan({
+        rules: [validRule({ ruleId: 'columns[0].required', sql })],
+      })
+      expect(() => assertValidationPlanRelationBinding(plan, [])).toThrow(message)
+    }
   })
 })
 

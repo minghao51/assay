@@ -86,6 +86,7 @@ import {
   buildSampleFailures,
   composeValidationCountSql,
   composeValidationRowKeySql,
+  composeValidationRuleQuery,
   composeValidationViewDropSql,
   composeValidationViewSql,
   failPercentFromCounts,
@@ -93,13 +94,13 @@ import {
   readValidationRuleRows,
   readValidationRowKeys,
   readValidationSummaryRows,
+  validationEffectiveSampleLimit,
   VALIDATION_BEGIN_SQL,
   VALIDATION_ROLLBACK_SQL,
-  VALIDATION_SAMPLE_HARD_MAX,
 } from './validate-query'
 import type { ValidationSampleRow } from './validate-query'
 import { assertValidationPlanRelationBinding } from './validate-plan-wire'
-import type { EngineValidationRuleResult } from './validate-plan-wire'
+import type { EngineValidationResult, EngineValidationRuleResult } from './validate-plan-wire'
 import { composeRowCountSql, composeWindowSql } from './window-query'
 
 /**
@@ -658,28 +659,45 @@ export class EngineOpExecutor {
    * THIS operation created it (review round 2, item 2: the unconditional
    * `DROP VIEW IF EXISTS` previously deleted a pre-existing user view after
    * a failed create). Per-rule fail counts must agree with the summary (the
-   * plan contract's no-divergence invariant), samples are bounded by the
-   * plan's own K (the wire rejects K > the documented hard max before any
-   * SQL runs), and row keys resolve through the composed view (samples carry
-   * logical row keys, never bare positions).
+   * plan contract's no-divergence invariant) and must not exceed the
+   * effective row count (m5-2 round-3 fix, item 3: a count larger than the
+   * dataset cannot be compiler output — it is ONE typed error, never an
+   * out-of-contract response the client would have to discard), samples are
+   * bounded by `min(plan K, the engine hard max)` (m5-2 round-3 fix: the
+   * wire accepts any safe K ≥ 1 and the executed rule query is CLAMPED —
+   * see `composeValidationRuleQuery` — never refused), and row keys resolve
+   * through the composed view (samples carry logical row keys, never bare
+   * positions).
+   *
+   * Cleanup ordering (m5-2 round-3 fix, W2): the DROP-when-owned + ROLLBACK
+   * containment cleanup ALWAYS completes BEFORE the success response is
+   * posted, so a client can never observe success before containment
+   * finished; a cleanup failure becomes a typed engine error (never
+   * silently swallowed). On the failure path the op's own typed error
+   * surfaces (the cleanup still runs; its failure cannot be double-reported
+   * without masking the primary error or attaching raw causes, both worse —
+   * the op still fails loudly and the connection's next op fails cleanly).
    *
    * Engine errors surface as privacy-safe failure classes only (review
    * round 2, item 6): DuckDB's own messages can embed offending values or
    * plan text, so every engine-touching step is mapped through
    * {@link validationStep} to a fixed, value-free message; errors thrown by
-   * this module's own shape checks are already privacy-safe and pass
-   * through.
+   * this module's own shape checks are already privacy-safe (fixed strings
+   * plus a ruleId, which the wire pins to the m5-0 rule-id grammar) and
+   * pass through.
    */
   private async runValidate(request: EngineValidateRequest, lane: OpLane): Promise<void> {
     const entry = this.requireTable(request.tableId)
     const conn = lane.connection(await this.deps.ensureSession())
     const plan = request.plan
-    // Defense-in-depth re-check of the wire's materialization bound (the
-    // envelope already rejects such plans): an oversized K never reaches a
-    // connection, even when this method is driven directly.
-    if (plan.sampleLimit > VALIDATION_SAMPLE_HARD_MAX) {
-      throw new Error('validation plan sampleLimit exceeds the engine hard max')
+    // Executor-side K sanity (m5-2 round-3 fix: the wire accepts any safe
+    // K ≥ 1 and this method CLAMPS it to the engine hard max — an over-max
+    // K plan EXECUTES; only a K outside the safe ≥ 1 domain is a typed
+    // error, and the wire envelope already rejects it before this runs).
+    if (!Number.isSafeInteger(plan.sampleLimit) || plan.sampleLimit < 1) {
+      throw new Error('validation plan sampleLimit must be a safe integer of at least 1')
     }
+    const sampleLimit = validationEffectiveSampleLimit(plan.sampleLimit)
     assertValidationPlanRelationBinding(
       plan,
       this.registry.list().map((registered) => registered.viewName),
@@ -703,6 +721,8 @@ export class EngineOpExecutor {
       conn.query(VALIDATION_BEGIN_SQL),
     )
     let viewCreated = false
+    let cleanupError: Error | null = null
+    let runResult: EngineValidationResult | null = null
     try {
       await this.validationStep('the validation binding view could not be materialized', () =>
         conn.query(composeValidationViewSql(composition, plan.relation)),
@@ -714,8 +734,13 @@ export class EngineOpExecutor {
           readValidationRowCount(await conn.query(composeValidationCountSql(plan.relation))),
       )
 
-      // Per-rule queries in plan order: failCount + plan-bounded samples (the
-      // plan's own LIMIT bounds the scan; the wire bound caps K).
+      // Per-rule queries in plan order: failCount + clamped samples. The
+      // executed query is the plan's EXACT SQL wrapped once as
+      // `SELECT * FROM (<rule sql>) LIMIT min(K, hard max)` (m5-2 round-3
+      // fix): the inner SQL stays byte-identical, the outer LIMIT bounds the
+      // returned rows, and the inner window still reports the rule's FULL
+      // violation count on every returned row (the window scan is inherent
+      // to failCount and is not bounded by the clamp).
       const perRule: {
         readonly ruleId: string
         readonly failCount: number
@@ -725,10 +750,24 @@ export class EngineOpExecutor {
       for (const rule of plan.rules) {
         const rows = await this.validationStep(
           `validation rule '${rule.ruleId}' failed to execute`,
-          async () => readValidationRuleRows(await conn.query(rule.sql), rule.outcome),
+          async () =>
+            readValidationRuleRows(
+              await conn.query(composeValidationRuleQuery(rule.sql, sampleLimit)),
+              rule.outcome,
+            ),
         )
-        if (rows.samples.length > plan.sampleLimit) {
-          throw new Error(`rule '${rule.ruleId}' returned more samples than the plan's bound`)
+        // Result sanity (m5-2 round-3 fix, item 3): a violation count larger
+        // than the effective row count cannot come from compiler output —
+        // it is a foreign/non-compiler plan. One typed error here, never an
+        // out-of-contract result (failPercent > 100) that the protocol would
+        // have to discard and a client would hang on.
+        if (rows.failCount > rowCount) {
+          throw new Error(
+            `validation rule '${rule.ruleId}' reported more failures than rows in the effective view`,
+          )
+        }
+        if (rows.samples.length > sampleLimit) {
+          throw new Error(`rule '${rule.ruleId}' returned more samples than the engine's bound`)
         }
         for (const sample of rows.samples) {
           if (sample.ordinal >= rowCount) {
@@ -784,23 +823,71 @@ export class EngineOpExecutor {
         }
       })
 
-      this.post({
-        type: 'engine/validate-result',
-        requestId: request.requestId,
-        result: { valid: rules.every((rule) => rule.failCount === 0), rowCount, rules },
-      })
-    } finally {
-      // Cleanup (inside the transaction): drop the binding view ONLY when
-      // this operation created it — a failed create must never drop a
-      // pre-existing user view (review round 2, item 2). The ROLLBACK then
-      // undoes the whole transaction regardless (belt 2); if the rollback
-      // itself fails the connection is unusable anyway and the next op fails
-      // cleanly, so the error is swallowed to never mask the op's result.
-      if (viewCreated) {
-        await conn.query(composeValidationViewDropSql(plan.relation)).catch(() => undefined)
+      const result: EngineValidationResult = {
+        valid: rules.every((rule) => rule.failCount === 0),
+        rowCount,
+        rules,
       }
-      await conn.query(VALIDATION_ROLLBACK_SQL).catch(() => undefined)
+      // Stashed, not posted: the response goes out only after the cleanup
+      // in the finally block completed (W2).
+      runResult = result
+    } finally {
+      // Containment cleanup — ALWAYS both steps, in order, before any
+      // success is posted (m5-2 round-3 fix, W2): drop the binding view ONLY
+      // when this operation created it (a failed create must never drop a
+      // pre-existing user view — review round 2, item 2), then ROLLBACK the
+      // transaction (belt 2). A failed step does not skip the other: the
+      // rollback undoes the whole transaction regardless.
+      cleanupError = await this.cleanupValidateConnection(conn, viewCreated, plan.relation)
     }
+
+    // Reached only when execution AND cleanup both succeeded: the success
+    // response is posted AFTER containment completed, so a client can never
+    // observe success before the view is dropped and the transaction rolled
+    // back (W2) — and a cleanup failure surfaces as its own typed error
+    // instead of a success (never silently swallowed).
+    if (cleanupError !== null) throw cleanupError
+    if (runResult === null) {
+      throw new Error('the validation op completed without a result')
+    }
+    this.post({
+      type: 'engine/validate-result',
+      requestId: request.requestId,
+      result: runResult,
+    })
+  }
+
+  /**
+   * The validate op's containment cleanup (m5-2 round-3 fix, W2): DROP the
+   * binding view when this operation created it, then ROLLBACK — both steps
+   * always attempted in order, the first failure returned as a typed,
+   * privacy-safe error (raw engine text dropped; a failed drop must not
+   * skip the rollback). `null` means containment fully completed. On the
+   * failure path of {@link runValidate} the op's own typed error surfaces
+   * (see the runValidate doc); this method still runs to completion so the
+   * connection is left as clean as the engine allows.
+   */
+  private async cleanupValidateConnection(
+    conn: EngineConnectionLike,
+    viewCreated: boolean,
+    bindingName: string,
+  ): Promise<Error | null> {
+    let dropError: Error | null = null
+    if (viewCreated) {
+      try {
+        await conn.query(composeValidationViewDropSql(bindingName))
+      } catch {
+        // Recorded, never silently swallowed — but the rollback still runs:
+        // it undoes the whole transaction regardless of the drop's fate.
+        dropError = new Error('the validation binding view could not be dropped')
+      }
+    }
+    try {
+      await conn.query(VALIDATION_ROLLBACK_SQL)
+    } catch {
+      return new Error('the validation containment transaction could not be rolled back')
+    }
+    return dropError
   }
 
   /**

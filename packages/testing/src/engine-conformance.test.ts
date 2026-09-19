@@ -1071,7 +1071,10 @@ function fakeEvaluateRule(
 
 /**
  * The fake's plan-shape guard (the mirror of the engine's boundary, m5-2
- * fix round): statement shape, relation binding, and the K hard max.
+ * fix round + round 3): the m5-0 rule-id grammar, statement shape (comments
+ * refused outright — the mirror of the engine's SQL-aware scan), relation
+ * binding, and the safe-K domain (over-max K is clamped by the fake's
+ * evaluator, never refused).
  */
 function fakeAssertPlanValid(plan: ConformanceValidationPlan): void {
   if (plan.planKind !== 'assay-validation-plan' || plan.planVersion !== 1) {
@@ -1089,10 +1092,6 @@ function fakeAssertPlanValid(plan: ConformanceValidationPlan): void {
   ) {
     throw new FakeOperationError('malformed validation plan')
   }
-  // The materialization bound: over-max K is rejected, never executed.
-  if (plan.sampleLimit > FAKE_VALIDATION_SAMPLE_MAX) {
-    throw new FakeOperationError('validation plan sampleLimit exceeds the engine hard max')
-  }
   if (plan.relation === FAKE_OWNED_VIEW) {
     throw new FakeOperationError('validation plan relation collides with a registered view')
   }
@@ -1102,6 +1101,8 @@ function fakeAssertPlanValid(plan: ConformanceValidationPlan): void {
     throw new FakeOperationError('validation binding name already exists in the catalog')
   }
   const quoted = `"${plan.relation}"`
+  // The mirror of the engine's SQL-aware scan: track quoted regions; any
+  // comment outside them is refused outright (the compiler emits none).
   const singleSelect = (sql: string): boolean => {
     if (!/^\s*select\b/i.test(sql)) return false
     let inSingle = false
@@ -1116,6 +1117,11 @@ function fakeAssertPlanValid(plan: ConformanceValidationPlan): void {
         inSingle = true
       } else if (character === '"') {
         inDouble = true
+      } else if (
+        (character === '-' && sql[index + 1] === '-') ||
+        (character === '/' && sql[index + 1] === '*')
+      ) {
+        return false
       } else if (character === ';' && sql.slice(index + 1).trim() !== '') {
         return false
       }
@@ -1125,6 +1131,15 @@ function fakeAssertPlanValid(plan: ConformanceValidationPlan): void {
   for (const rule of [...plan.rules]) {
     if (typeof rule.ruleId !== 'string' || typeof rule.sql !== 'string') {
       throw new FakeOperationError('malformed validation rule')
+    }
+    // The m5-0 rule-id grammar (W1 mirror): failure-class interpolation can
+    // only ever carry compiler-shaped ids.
+    if (
+      !/^(?:columns\[(?:0|[1-9][0-9]*)\]\.(?:type|required|unique|min|max|allowed-values|regex|max-null-share|min-distinct-share)|dataset\.(?:min-rows|max-rows))$/.test(
+        rule.ruleId,
+      )
+    ) {
+      throw new FakeOperationError('malformed validation rule id')
     }
     if (!singleSelect(rule.sql)) {
       throw new FakeOperationError(
@@ -1243,8 +1258,9 @@ const FAKE_VALIDATION_EMPTY_OVERLAY_RULES: readonly ConformanceValidationRuleExp
 const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
   contractYaml: FAKE_VALIDATION_CONTRACT_YAML,
   planRelation: FAKE_VALIDATION_RELATION,
-  // The fake's own hard max (3): compiled plans must stay within it, or the
-  // mirrored wire guard would reject every run (m5-2 fix round semantics).
+  // The fake's own hard max (3): plans at or past it EXECUTE (m5-2 round-3
+  // semantics — any safe K ≥ 1 is accepted and clamped to the hard max by
+  // the fake's evaluator).
   sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
   base: FAKE_VALIDATION_BASE,
   baseExpectations: {
@@ -1460,7 +1476,7 @@ const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
   truncation: {
     ruleId: 'columns[1].allowed-values',
     hardMax: FAKE_VALIDATION_SAMPLE_MAX,
-    overMaxSampleLimit: FAKE_VALIDATION_SAMPLE_MAX + 1,
+    clampedSampleLimit: FAKE_VALIDATION_SAMPLE_MAX + 1,
     expectFailCount: 5,
     expectSamples: FAKE_VALIDATION_SAMPLE_MAX,
     expectFirstRowKey: fakeValKey(0),
@@ -1473,8 +1489,8 @@ const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
     fakeHostilePlan('relation token smuggled outside the FROM shape', {
       rules: [
         {
-          ruleId: 'hostile',
-          path: 'hostile',
+          ruleId: 'columns[0].required',
+          path: 'columns[0].required',
           kind: 'required',
           column: 'id',
           outcome: 'row-samples',
@@ -1493,8 +1509,8 @@ const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
         sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
         rules: [
           {
-            ruleId: 'hostile',
-            path: 'hostile',
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
             kind: 'required',
             column: 'id',
             outcome: 'row-samples',
@@ -1515,12 +1531,59 @@ const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
         sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
         rules: [
           {
-            ruleId: 'hostile',
-            path: 'hostile',
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
             kind: 'required',
             column: 'id',
             outcome: 'row-samples',
             sql: `CREATE TABLE fake_review_injected AS SELECT * FROM "${FAKE_VALIDATION_RELATION}" AS "src" WHERE FALSE`,
+          },
+        ],
+        summarySql: `SELECT 'columns[0].required' AS "rule_id" FROM "${FAKE_VALIDATION_RELATION}" AS "src"`,
+      },
+    },
+    // m5-2 round 3, item 1: comment-bearing SQL is refused outright — the
+    // reviewer's block-comment pseudo-reference and a `--` tail comment
+    // each reject with one typed operation error, never executed.
+    {
+      label: 'block-comment pseudo-reference (review round-3 probe)',
+      plan: {
+        planKind: 'assay-validation-plan',
+        planVersion: 1,
+        contractName: 'conf',
+        contractVersion: 1,
+        relation: FAKE_VALIDATION_RELATION,
+        sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
+        rules: [
+          {
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
+            kind: 'required',
+            column: 'id',
+            outcome: 'row-samples',
+            sql: `SELECT 1 AS "c" /* FROM "${FAKE_VALIDATION_RELATION}" AS "src" */`,
+          },
+        ],
+        summarySql: `SELECT 'columns[0].required' AS "rule_id" FROM "${FAKE_VALIDATION_RELATION}" AS "src"`,
+      },
+    },
+    {
+      label: 'line-comment tail',
+      plan: {
+        planKind: 'assay-validation-plan',
+        planVersion: 1,
+        contractName: 'conf',
+        contractVersion: 1,
+        relation: FAKE_VALIDATION_RELATION,
+        sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
+        rules: [
+          {
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
+            kind: 'required',
+            column: 'id',
+            outcome: 'row-samples',
+            sql: `SELECT 1 AS "c" FROM "${FAKE_VALIDATION_RELATION}" AS "src" -- tail`,
           },
         ],
         summarySql: `SELECT 'columns[0].required' AS "rule_id" FROM "${FAKE_VALIDATION_RELATION}" AS "src"`,

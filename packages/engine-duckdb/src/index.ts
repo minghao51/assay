@@ -177,8 +177,10 @@ export type {
 export {
   composeValidationCountSql,
   composeValidationRowKeySql,
+  composeValidationRuleQuery,
   composeValidationViewDropSql,
   composeValidationViewSql,
+  validationEffectiveSampleLimit,
   failPercentFromCounts,
   normalizeSampleValue,
   readValidationRowCount,

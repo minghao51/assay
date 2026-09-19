@@ -211,17 +211,19 @@ for (const name of SCENARIOS) {
         expect(result.facts['engineReusable']).toBe(true)
         break
       case 'validation-plan-execution':
-        // m5-2 + fix round: the real compiler's plan executed over the
+        // m5-2 + fix rounds: the real compiler's plan executed over the
         // effective view — exact counts (19 planned rules, 8 failing on the
         // base run), the overlay-interaction flips in both directions (9 fix
         // flips: the tombstone run clears unique, the fix-all run clears all
         // 8 failing rules; 3 violate flips: tombstoning drops below
         // min-rows, the insert-until-max run trips max-rows and
-        // min-distinct-share), the sample hard max (a K=100 plan reports 100
-        // samples; a K=101 plan is rejected at the wire — rejected, not
-        // clamped), the hostile-plan rejections including the review's
-        // canary probes (both absent via catalog listing) and the
-        // pre-existing-view survival pin, and the 21-spelling vocabulary
+        // min-distinct-share), the sample clamp (a K=100 plan reports 100
+        // samples; m5-2 round 3: a K=500 plan ALSO executes — 100 samples,
+        // FULL failCount), the hostile-plan rejections including the review's
+        // canary probes (both absent via catalog listing), the round-3
+        // comment-bearing pseudo-reference probes, the shape-valid plan
+        // whose counts exceed the dataset (round-3 result-sanity guard),
+        // the pre-existing-view survival pin, and the 21-spelling vocabulary
         // agreement (including the bare-DECIMAL caveat).
         expect(result.facts['rules']).toBe(19)
         expect(result.facts['rowCount']).toBe(120)
@@ -230,8 +232,9 @@ for (const name of SCENARIOS) {
         expect(result.facts['fixFlips']).toBe(9)
         expect(result.facts['violateFlips']).toBe(3)
         expect(result.facts['hardMaxSamples']).toBe(100)
-        expect(result.facts['oversizeKRejected']).toBe(true)
-        expect(result.facts['hostileRejected']).toBe(8)
+        expect(result.facts['clampedKSamples']).toBe(100)
+        expect(result.facts['oversizeKClamped']).toBe(true)
+        expect(result.facts['hostileRejected']).toBe(11)
         expect(result.facts['canariesAbsent']).toBe(true)
         expect(result.facts['preExistingViewSurvived']).toBe(true)
         expect(result.facts['vocabularyAgreed']).toBe(21)

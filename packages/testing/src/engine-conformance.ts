@@ -137,8 +137,12 @@
  *     counts/percent/samples (CLI-derived), overlay-interaction pins in all
  *     four directions (fix flips, violate flips, inserted violations appear
  *     under `ins:` keys, tombstoned violations disappear, row-count facts
- *     flip), the K clamp (failCount unaffected, samples engine-clamped),
- *     hostile plans rejected with one typed error and no side effects, and
+ *     flip), the K clamp (failCount unaffected, samples engine-clamped;
+ *     m5-2 round 3: any safe K ≥ 1 executes — a K past the hard max runs
+ *     with samples clamped and the FULL failCount), hostile plans rejected
+ *     with one typed error and no side effects (including the round-3
+ *     comment-bearing pseudo-reference probes and a shape-valid plan whose
+ *     counts exceed the dataset — the round-3 result-sanity guard), and
  *     the m5-0 type-vocabulary agreement (all 21 spellings against engine
  *     DESCRIBE output; the bare-DECIMAL caveat pinned).
  *
@@ -981,22 +985,22 @@ export interface ConformanceValidationInteraction {
 }
 
 /**
- * The engine hard-max pin (m5-2 fix round semantics: over-max K is
- * REJECTED at the wire, not clamped). A plan compiled with exactly the
- * hard max still executes — its failCount is the rule's own count (not the
- * sample bound) and its reported samples stop at the hard max — while a
- * plan compiled past the hard max must be rejected with one typed
- * operation error before any SQL runs.
+ * The engine clamp pin (m5-2 round-3 semantics: ANY safe K ≥ 1 executes —
+ * over-max K is CLAMPED to the hard max, never rejected). A plan compiled
+ * with exactly the hard max executes with samples stopping there, and a
+ * plan compiled PAST the hard max also executes: its failCount is still the
+ * rule's own FULL count (never corrupted by the clamp) and its reported
+ * samples stop at min(expectFailCount, hardMax).
  */
 export interface ConformanceValidationTruncation {
   readonly ruleId: string
   /** The engine's documented hard max; a plan with exactly this K executes. */
   readonly hardMax: number
-  /** A K strictly past the hard max: the compiled plan must be rejected. */
-  readonly overMaxSampleLimit: number
+  /** A K strictly past the hard max: the plan must EXECUTE, clamped. */
+  readonly clampedSampleLimit: number
   /** The rule's fail count under the hard-max plan (≠ its sample bound). */
   readonly expectFailCount: number
-  /** Reported samples under the hard-max plan: min(expectFailCount, hardMax). */
+  /** Reported samples under the clamped plan: min(expectFailCount, hardMax). */
   readonly expectSamples: number
   readonly expectFirstRowKey: string
   readonly expectFirstValue: string | number | boolean | null
@@ -2857,13 +2861,16 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
    * row APPEARS under its `ins:` row key, a tombstoned row's violation
    * DISAPPEARS, and the dataset-level row-count facts flip too); the sample
    * hard max (a plan AT the hard max executes with failCount ≠ the sample
-   * bound; a plan PAST it is rejected at the wire — m5-2 fix round);
-   * hostile plans — including the fix round's canary probes (the review's
+   * bound; m5-2 round 3: a plan PAST it also EXECUTES — samples clamped to
+   * the hard max, failCount still the rule's FULL count); hostile plans —
+   * including the fix round's canary probes (the review's
    * exact `CREATE TABLE <canary> AS SELECT 1`, with and without a relation
-   * occurrence) — each rejected with one typed operation error, every
-   * canary table asserted absent via a catalog listing, and a plan bound to
-   * an already-existing user view failing WITHOUT destroying that view; the
-   * m5-0 type-vocabulary agreement (all 21 spellings
+   * occurrence) and the round-3 comment-bearing pseudo-reference probes
+   * plus a shape-valid plan whose counts exceed the dataset (the round-3
+   * result-sanity guard) — each rejected with one typed operation error,
+   * every canary table asserted absent via a catalog listing, and a plan
+   * bound to an already-existing user view failing WITHOUT destroying that
+   * view; the m5-0 type-vocabulary agreement (all 21 spellings
    * reported by the engine for columns created with those types; the bare
    * DECIMAL caveat pinned); and the engine reusable after all of it.
    */
@@ -2891,8 +2898,8 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       'subject misconfiguration: declare the overlay-interaction battery',
     )
     expectCondition(
-      dataset.truncation.overMaxSampleLimit > dataset.truncation.hardMax,
-      'subject misconfiguration: the over-max K must be past the hard max',
+      dataset.truncation.clampedSampleLimit > dataset.truncation.hardMax,
+      'subject misconfiguration: the clamped K must be past the hard max',
     )
     expectCondition(
       dataset.truncation.expectFailCount > dataset.truncation.hardMax &&
@@ -2907,16 +2914,6 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
     expectCondition(
       dataset.injectedTables.length > 0,
       'subject misconfiguration: declare the canary tables the hostile plans must not create',
-    )
-    expectCondition(
-      dataset.truncation.overMaxSampleLimit > dataset.truncation.hardMax,
-      'subject misconfiguration: the over-max K must be past the hard max',
-    )
-    expectCondition(
-      dataset.truncation.expectFailCount > dataset.truncation.hardMax &&
-        dataset.truncation.expectSamples ===
-          Math.min(dataset.truncation.expectFailCount, dataset.truncation.hardMax),
-      'subject misconfiguration: the hard-max run must be non-vacuous (violations exceed the bound)',
     )
     // Every declared failPercent must equal the documented integer half-up
     // formula over (failCount, rowCount) — the written definition m5-4/m5-6
@@ -3048,12 +3045,14 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       `the interaction battery must pin a fix flip and a violate flip (got ${String(fixFlips)}/${String(violateFlips)})`,
     )
 
-    // 4. The sample hard max (m5-2 fix-round semantics: over-max K is
-    // rejected at the wire, NOT clamped): a plan compiled with exactly the
-    // hard max still executes — failCount is the rule's own count (not the
-    // sample bound) and reported samples stop at the hard max — while a
-    // plan compiled one past the hard max is rejected with one typed
-    // operation error before any SQL runs, and the engine stays usable.
+    // 4. The sample clamp (m5-2 round-3 semantics: ANY safe K ≥ 1 executes
+    // — over-max K is CLAMPED, never refused): a plan compiled with exactly
+    // the hard max executes — failCount is the rule's own count (not the
+    // sample bound) and reported samples stop at the hard max — and a plan
+    // compiled PAST the hard max ALSO executes: its samples stop at exactly
+    // the hard max while its failCount is still the rule's FULL count (the
+    // outer LIMIT bounds only the returned rows — never the count), and the
+    // engine stays usable.
     const atMaxCompile = compileContract(parsed.contract, schema, {
       relation: dataset.planRelation,
       sampleLimit: dataset.truncation.hardMax,
@@ -3097,17 +3096,24 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
     )
     const overCompile = compileContract(parsed.contract, schema, {
       relation: dataset.planRelation,
-      sampleLimit: dataset.truncation.overMaxSampleLimit,
+      sampleLimit: dataset.truncation.clampedSampleLimit,
     })
-    expectCondition(overCompile.ok, 'the over-max plan must compile')
+    expectCondition(overCompile.ok, 'the clamped-K plan must compile')
     if (!overCompile.ok) fail('unreachable')
-    const overError = await rejectionOf(client.validate(handle, overCompile.plan))
-    expectCondition(overError !== null, 'a K past the hard max must be rejected')
-    expectCondition(
-      subject.errors.operation(overError),
-      `[over-max K] the rejection must be the typed operation category (got: ${errorMessage(overError)})`,
+    const overResult = await client.validate(handle, overCompile.plan)
+    const overActual = overResult.rules.find((rule) => rule.ruleId === dataset.truncation.ruleId)
+    expectCondition(overActual !== undefined, 'clamped-K rule missing from the result')
+    expectEqual(
+      overActual!.failCount,
+      dataset.truncation.expectFailCount,
+      "[clamped K] failCount is the rule's FULL count — never corrupted by the outer limit",
     )
-    expectCondition(subject.isReady(client), '[over-max K] the engine must stay ready')
+    expectEqual(
+      overActual!.sampleFailures.length,
+      dataset.truncation.expectSamples,
+      '[clamped K] samples stop exactly at the hard max',
+    )
+    expectCondition(subject.isReady(client), '[clamped K] the engine must stay ready')
 
     // 5. Hostile plans: each rejects with ONE typed operation error, leaves
     // no side-effect objects, and the engine stays reusable. The battery
@@ -3202,7 +3208,8 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       fixFlips,
       violateFlips,
       hardMaxSamples: truncActual!.sampleFailures.length,
-      oversizeKRejected: true,
+      clampedKSamples: overActual!.sampleFailures.length,
+      oversizeKClamped: true,
       hostileRejected,
       canariesAbsent,
       preExistingViewSurvived: true,

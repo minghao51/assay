@@ -1094,12 +1094,21 @@ describe('m5-2: engine/validate protocol', () => {
     expect(parseEngineRequest(base)).toBeNull()
     expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), planVersion: 2 } })).toBeNull()
     expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 0 } })).toBeNull()
-    // The materialization bound: a K past the engine hard max is rejected at
-    // the envelope — the plan never reaches the executor (m5-2 fix round).
-    expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 101 } })).toBeNull()
+    // Any safe K ≥ 1 parses (m5-2 round-3 fix: over-max K is CLAMPED by the
+    // executor, not refused) — but a non-safe-integer K is still malformed.
+    expect(
+      parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 101 } }),
+    ).not.toBeNull()
     expect(
       parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 2 ** 53 - 1 } }),
-    ).toBeNull()
+    ).not.toBeNull()
+    expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 1.5 } })).toBeNull()
+    // The ruleId grammar (W1): only m5-0 error-path spellings parse.
+    const hostile = {
+      ...wirePlan(),
+      rules: [{ ...wirePlan().rules[0]!, ruleId: 'hostile' }],
+    }
+    expect(parseEngineRequest({ ...base, plan: hostile })).toBeNull()
     expect(
       parseEngineRequest({ ...base, plan: { ...wirePlan(), relation: 'a\u0000b' } }),
     ).toBeNull()
@@ -1143,6 +1152,19 @@ describe('m5-2: engine/validate protocol', () => {
       parseEngineResponse({
         ...base,
         result: { ...wireResult(), rules: [{ ...wireResult().rules[0]!, failPercent: 101 }] },
+      }),
+    ).toBeNull()
+    // The reviewer's two-row probe shape (m5-2 round-3, item 3): a per-rule
+    // count larger than the result's own rowCount is out of contract and
+    // rejected at parse — the client rejects, it never hangs on it.
+    expect(
+      parseEngineResponse({
+        ...base,
+        result: {
+          ...wireResult(),
+          rowCount: 2,
+          rules: [{ ...wireResult().rules[0]!, failCount: 3 }],
+        },
       }),
     ).toBeNull()
     expect(

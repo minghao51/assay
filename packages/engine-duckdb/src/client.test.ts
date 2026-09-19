@@ -1191,18 +1191,82 @@ describe('DuckDbEngineClient validate (m5-2)', () => {
     expect(worker.postedRequests).toHaveLength(2) // init + open only
   })
 
-  it('validate() rejects an over-hard-max K client-side before posting (m5-2 fix round)', async () => {
+  it('posts ANY safe-integer K ≥ 1 — over-max K is engine-clamped, not refused (m5-2 round-3 fix)', async () => {
     const { client, worker, handle } = await openHandle()
-    // A K=2^53-style hostile plan never leaves the main thread: the same
-    // wire validator rejects it here (fast, observable) and at the envelope.
-    for (const oversized of [101, 2 ** 53 - 1]) {
-      const hostile = {
+    // The round-3 adjudication (CLAMP, don't reject): the wire no longer
+    // refuses K > 100 — the executor clamps the executed rule queries. The
+    // plan leaves the main thread for every safe K; only K < 1 is refused
+    // client-side (pinned above).
+    for (const k of [101, 500, 2 ** 53 - 1]) {
+      const clamped = {
         ...planFixture(),
-        sampleLimit: oversized,
+        sampleLimit: k,
       } as unknown as EngineValidationPlan
-      await expect(client.validate(handle, hostile)).rejects.toBeInstanceOf(EngineOperationError)
+      const pending = client.validate(handle, clamped)
+      await flush()
+      const request = worker.requestAt(worker.postedRequests.length - 1)
+      expect(request.type).toBe('engine/validate')
+      worker.respond({
+        type: 'engine/validate-result',
+        requestId: request.requestId,
+        result: { valid: true, rowCount: 0, rules: [] },
+      })
+      await expect(pending).resolves.toEqual({ valid: true, rowCount: 0, rules: [] })
     }
-    expect(worker.postedRequests).toHaveLength(2) // init + open only
+    expect(worker.postedRequests).toHaveLength(5) // init + open + 3 validates
+  })
+
+  it('REJECTS (never hangs) when a validate response fails shape validation (m5-2 round-3, item 3)', async () => {
+    const { client, worker, handle } = await openHandle()
+    // The reviewer's exact two-row probe injected directly: a response
+    // carrying failCount 3 over rowCount 2 (failPercent 150) is out of
+    // contract. The old behavior discarded it silently and left
+    // validate() pending forever; now the pending promise rejects with a
+    // typed protocol error and the client stays usable.
+    const pending = client.validate(handle, planFixture())
+    await flush()
+    const request = worker.requestAt(2)
+    worker.respond({
+      type: 'engine/validate-result',
+      requestId: request.requestId,
+      result: {
+        valid: false,
+        rowCount: 2,
+        rules: [
+          {
+            ruleId: 'columns[0].required',
+            failCount: 3,
+            failPercent: 150,
+            sampleFailures: [],
+          },
+        ],
+      },
+    })
+    await expect(pending).rejects.toBeInstanceOf(EngineProtocolError)
+    // A follow-up query still works.
+    const followUp = client.query('SELECT 42 AS answer')
+    await flush()
+    worker.respond(queryResultResponse(worker.requestAt(3).requestId, [42]))
+    await expect(followUp).resolves.toMatchObject({ hasMore: false })
+  })
+
+  it('still ignores raw non-protocol messages (foreign scripts) without rejecting anything', async () => {
+    const { client, worker, handle } = await openHandle()
+    const pending = client.validate(handle, planFixture())
+    await flush()
+    // A foreign message with an engine-shaped type but an unknown requestId:
+    // not ours — the ignore contract is unchanged.
+    worker.respondRaw({ type: 'engine/validate-result', requestId: 9999, result: null })
+    worker.respondRaw('garbage')
+    worker.respondRaw(null)
+    await flush()
+    const request = worker.requestAt(2)
+    worker.respond({
+      type: 'engine/validate-result',
+      requestId: request.requestId,
+      result: { valid: true, rowCount: 0, rules: [] },
+    })
+    await expect(pending).resolves.toEqual({ valid: true, rowCount: 0, rules: [] })
   })
 
   it('validate() maps engine-reported failures to EngineOperationError and stays usable', async () => {

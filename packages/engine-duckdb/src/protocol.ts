@@ -836,7 +836,11 @@ function parseOptionalSorts(value: unknown): EngineSortSpec[] | undefined | null
 
 /**
  * Parse a worker response. Returns `null` for anything that is not a
- * well-formed `EngineResponse` (the client then ignores the message).
+ * well-formed `EngineResponse`. The client NEVER ignores such a message
+ * when it claims to answer a pending request: it rejects that pending
+ * promise with a typed protocol error instead (m5-2 round-3 fix, item 3 —
+ * no response-shape failure, however caused, can leave an op hanging
+ * forever; a misbehaving worker is a typed rejection, not a hang).
  */
 export function parseEngineResponse(data: unknown): EngineResponse | null {
   if (!isRecord(data)) return null
@@ -972,15 +976,31 @@ function isSampleValue(value: unknown): value is string | number | boolean | nul
   )
 }
 
-/** A well-formed validation result (shape only — the worker guarantees the rest). */
+/**
+ * A well-formed validation result (shape only — the worker guarantees the
+ * rest). A per-rule `failCount` larger than the result's own `rowCount` is
+ * out of the contract (m5-2 round-3 fix, item 3: a shape-valid plan whose
+ * counts exceed the dataset is a foreign/non-compiler plan; the executor
+ * fails it with one typed error — and a payload carrying such counts is
+ * malformed here, so the client REJECTS the pending promise instead of
+ * resolving an impossible `failPercent > 100` or hanging on a discarded
+ * response).
+ */
 function isValidationResult(value: unknown): value is EngineValidationResult {
   if (!isRecord(value)) return false
   if (typeof value['valid'] !== 'boolean' || !isRowCount(value['rowCount'])) return false
   const rules = value['rules']
   if (!Array.isArray(rules)) return false
+  const rowCount: number = value['rowCount']
   return rules.every((rule) => {
     if (!isRecord(rule)) return false
-    if (typeof rule['ruleId'] !== 'string' || !isRowCount(rule['failCount'])) return false
+    if (
+      typeof rule['ruleId'] !== 'string' ||
+      !isRowCount(rule['failCount']) ||
+      rule['failCount'] > rowCount
+    ) {
+      return false
+    }
     if (!isPercent(rule['failPercent'])) return false
     const samples = rule['sampleFailures']
     if (!Array.isArray(samples)) return false

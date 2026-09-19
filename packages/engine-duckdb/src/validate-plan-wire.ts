@@ -13,18 +13,22 @@
  *   protocol's payload and is rejected, never guessed at;
  * - every rule carries the closed v1 kind/outcome vocabularies, string SQL,
  *   and a unique `ruleId` (results are keyed by it — duplicates would make
- *   the result map ambiguous, so a duplicate is a malformed plan);
- * - `sampleLimit` is a safe integer in `[1, VALIDATION_SAMPLE_HARD_MAX]`.
- *   The lower bound is the plan contract (`LIMIT 0` could not distinguish a
- *   violated rule from a clean one). The upper bound is the review-round-2
- *   materialization bound: a plan's own `LIMIT K` cuts its OUTPUT, but the
- *   compiled row-samples shape computes `count(*) OVER ()` over **every**
- *   violating row first, so an oversized K lets the engine materialize the
- *   whole violating set just to slice it afterward. The engine therefore
- *   **rejects K > VALIDATION_SAMPLE_HARD_MAX at the wire** (typed error,
- *   zero SQL executed) — documented semantics: legitimate K > 100 plans are
- *   rejected, not clamped; `sampleFailures ≤ min(K, hard max)` still holds
- *   because K ≤ hard max;
+ *   the result map ambiguous, so a duplicate is a malformed plan). The
+ *   `ruleId` must match the **m5-0 rule-id grammar** — the compiler's
+ *   error-path spelling `columns[<index>].<rule>` / `dataset.<rule>` (m5-2
+ *   round-3 fix, W1): engine failure classes interpolate the id, so the
+ *   interpolation can only ever carry compiler-shaped text, never arbitrary
+ *   plan content;
+ * - `sampleLimit` is a safe integer ≥ 1 (the plan contract: `LIMIT 0` could
+ *   not distinguish a violated rule from a clean one). ANY such K is
+ *   accepted — m5-2 round-3 fix (orchestrator adjudication: CLAMP, don't
+ *   reject): the executor executes every rule query as
+ *   `SELECT * FROM (<exact rule SQL>) LIMIT min(K, VALIDATION_SAMPLE_HARD_MAX)`,
+ *   so the rows RETURNED are bounded by the hard max while the inner query
+ *   still computes the rule's FULL violation count (the window scan is
+ *   inherent to `failCount` semantics — documented materialization
+ *   semantics: the returned rows are clamped, the count never is);
+ *   `sampleFailures ≤ min(K, hard max)` holds literally for every safe K;
  * - `relation` is a non-empty NUL-free bounded string: it becomes the name of
  *   the engine-created view the plan executes against (see
  *   `validate-query.ts`), so the bound keeps a hostile name from being a
@@ -39,14 +43,20 @@
  * carrying `CREATE TABLE <canary> AS SELECT 1` slipped an occurrence-shaped
  * gate and persisted the canary):
  *
- * 1. **Tightened static gate** — every rule query and the summary must be a
- *    SINGLE `SELECT` statement (statement-boundary scan that respects
- *    quoted literals, so a legitimate rule value containing `;` still
- *    parses), and the quoted relation must occur at least once in one of
- *    the compiler's FROM positions (`FROM "<rel>" AS "src"` /
+ * 1. **Tightened static gate** — every rule query and the summary must be
+ *    lexically well-formed compiler SQL and a SINGLE `SELECT` statement,
+ *    and the quoted relation must occur at least once in one of the
+ *    compiler's FROM positions (`FROM "<rel>" AS "src"` /
  *    `(SELECT count(*) FROM "<rel>")`) in every rule — and in the summary
  *    of any plan that HAS rules (a rule-less plan's compiler-emitted empty
- *    summary is the one documented zero-occurrence shape). CREATE/CTAS
+ *    summary is the one documented zero-occurrence shape). The scan is
+ *    FULLY SQL-AWARE (m5-2 round-3 fix): line/block comments, single-quoted
+ *    strings (with `''` doubling), double-quoted identifiers, and
+ *    dollar-quoted/escape-string dialect forms are all lexed, and
+ *    **comment-bearing SQL is refused outright** — the compiler emits no
+ *    comments, so a commented pseudo-reference (the review-round-2 probe
+ *    `SELECT … /* FROM "relation" AS "src" *\/`) is a malformed plan, and
+ *    occurrences inside strings or comments never count. CREATE/CTAS
  *    statements, multi-statement strings, and relation-free SQL are typed
  *    rejections BEFORE any SQL runs.
  * 2. **Executor containment** — the executor runs the whole operation
@@ -97,15 +107,31 @@ const MAX_SQL_LENGTH = 100_000
 const MAX_COLUMN_LENGTH = 512
 
 /**
- * The engine-side hard max on a plan's `sampleLimit`. The compiled rule
- * queries compute each rule's full violation count (the plan contract:
- * `failCount` counts ALL violating rows, independent of K), so the engine
- * cannot clamp K after the fact without unbounded materialization — instead
- * a plan whose K exceeds this bound is **rejected at the wire** (documented
- * m5-2 fix-round semantics: over-max K is rejected, not clamped). Declared
- * here, at the boundary that enforces it; `validate-query.ts` re-exports it.
+ * The engine-side hard max on the rows a rule query may RETURN. A plan's K
+ * is accepted at any safe integer ≥ 1 and the executor clamps the executed
+ * per-rule query to `min(K, this)` — the inner SQL stays byte-identical and
+ * the inner window still computes the rule's FULL violation count, so
+ * `sampleFailures ≤ min(K, VALIDATION_SAMPLE_HARD_MAX)` holds literally for
+ * every safe K (m5-2 round-3 semantics: over-max K is CLAMPED, never
+ * rejected). The window scan itself is inherent to `failCount` and stays.
+ * Declared here, at the boundary that carries it; `validate-query.ts`
+ * re-exports it.
  */
 export const VALIDATION_SAMPLE_HARD_MAX = 100
+
+/**
+ * The m5-0 rule-id grammar, as a anchored pattern (m5-2 round-3 fix, W1).
+ * The m5-0/m5-1 compiler derives every `ruleId` from the contract's own
+ * structure as the error-path spelling: `columns[<index>].<rule>` for
+ * column rules (index a non-negative decimal integer without leading
+ * zeros; `<rule>` one of the column rule keys — note a `declared-type`
+ * rule's id ends in `.type`, not the kind spelling) and `dataset.<rule>`
+ * for the row-count facts. The wire accepts exactly this grammar so the
+ * engine's failure-class messages, which interpolate the id, can never
+ * reflect arbitrary plan content.
+ */
+const RULE_ID_PATTERN =
+  /^(?:columns\[(?:0|[1-9][0-9]*)\]\.(?:type|required|unique|min|max|allowed-values|regex|max-null-share|min-distinct-share)|dataset\.(?:min-rows|max-rows))$/
 
 /**
  * One compiled rule as the wire carries it (structural mirror of m5-1's
@@ -177,10 +203,10 @@ export interface EngineValidationRuleResult {
   readonly failPercent: number
   /**
    * Bounded sample failures: at most `min(plan.sampleLimit, the engine's
-   * documented hard max)` entries — and since the wire rejects
-   * `sampleLimit > VALIDATION_SAMPLE_HARD_MAX`, at most the plan's own K —
-   * each carrying the offending row's key and value. Empty for
-   * `dataset-fact` rules (no row samples exist).
+   * documented hard max)` entries (the executor clamps the executed rule
+   * query to exactly this bound — m5-2 round-3 semantics), each carrying
+   * the offending row's key and value. Empty for `dataset-fact` rules (no
+   * row samples exist).
    */
   readonly sampleFailures: readonly EngineValidationSample[]
 }
@@ -210,11 +236,20 @@ function isRelationName(value: unknown): value is string {
   return isBoundedString(value, MAX_RELATION_LENGTH) && !value.includes('\u0000')
 }
 
+/** A ruleId in the m5-0 error-path grammar (see {@link RULE_ID_PATTERN}). */
+function isRuleId(value: unknown): value is string {
+  return isBoundedString(value, MAX_NAME_LENGTH) && RULE_ID_PATTERN.test(value)
+}
+
 /** Parse one planned rule; `null` when malformed (never a throw). */
 function parseValidationRule(value: unknown): EngineValidationRule | null {
   if (typeof value !== 'object' || value === null) return null
   const record = value as Record<string, unknown>
-  if (!isBoundedString(record['ruleId'], MAX_NAME_LENGTH)) return null
+  // The id is the m5-0 error-path grammar (W1, m5-2 round 3): failure
+  // classes interpolate it, so only compiler-shaped ids parse. `path` is
+  // report attribution (never interpolated into SQL or messages) and stays
+  // a bounded string.
+  if (!isRuleId(record['ruleId'])) return null
   if (!isBoundedString(record['path'], MAX_NAME_LENGTH)) return null
   const kind = record['kind']
   if (typeof kind !== 'string' || !RULE_KINDS.has(kind)) return null
@@ -257,12 +292,10 @@ export function parseValidationPlan(value: unknown): EngineValidationPlan | null
   if (contractVersion < 1) return null
   if (!isRelationName(record['relation'])) return null
   const sampleLimit = record['sampleLimit']
+  // Any safe integer ≥ 1 parses (module doc): the executor clamps the
+  // executed rule queries to `min(K, VALIDATION_SAMPLE_HARD_MAX)` — over-max
+  // K plans execute, they are not refused (m5-2 round-3 adjudication).
   if (typeof sampleLimit !== 'number' || !Number.isSafeInteger(sampleLimit) || sampleLimit < 1) {
-    return null
-  }
-  // The materialization bound (module doc): an oversized K is rejected at
-  // the wire — zero SQL runs for such a plan — never executed and sliced.
-  if (sampleLimit > VALIDATION_SAMPLE_HARD_MAX) {
     return null
   }
   const rawRules = record['rules']
@@ -290,6 +323,127 @@ export function parseValidationPlan(value: unknown): EngineValidationPlan | null
 }
 
 /**
+ * The result of the SQL-aware lexical scan ({@link scanPlanSql}): either a
+ * code view of the SQL with every comment and string-literal contents
+ * blanked out (same length, positions preserved — double-quoted identifier
+ * regions are code and stay verbatim), or the reason the SQL is not
+ * compiler-shaped. String/identifier terminators use SQL's doubled-quote
+ * escaping (`''` / `""`).
+ */
+type PlanSqlScan =
+  | { readonly ok: true; readonly code: string }
+  | {
+      readonly ok: false
+      readonly reason: 'comment' | 'unterminated' | 'dollar-quote' | 'escape-string'
+    }
+
+/**
+ * Fully SQL-aware lexical scan of one plan SQL string (m5-2 round-3 fix):
+ * tracks line comments (`--` to end of line), block comments (`/* … *\/`),
+ * single-quoted strings and double-quoted identifiers (both with `''` /
+ * `""` doubling), and the DuckDB dialect forms the compiler never emits
+ * (dollar-quoted `$$…$$` / `$tag$…$tag$` strings and `E'…'` escape
+ * strings). The scan fails CLOSED:
+ *
+ * - any comment ⇒ `comment` (the compiler emits none; a commented
+ *   pseudo-reference such as the review's `/* FROM "relation" AS "src" *\/`
+ *   must never reach an occurrence counter — comment-bearing SQL is a
+ *   malformed plan, refused outright before anything runs);
+ * - an unterminated string/identifier/comment ⇒ `unterminated`;
+ * - any dollar-quoted string ⇒ `dollar-quote` (a bare `$` outside strings
+ *   and identifiers — the compiler emits no `$` at all);
+ * - an `E'`-style escape-string opening ⇒ `escape-string` (its backslash
+ *   escapes would defeat the doubling model).
+ *
+ * On success, `code` is a same-length view of the SQL in which single-quoted
+ * string CONTENTS are blanked to spaces (the quotes themselves remain), so
+ * downstream checks — statement shape and compiler-shaped occurrence
+ * counting — see only real code: a `;` or a pseudo `FROM "<rel>" AS "src"`
+ * inside a literal can never read as code. (Comments never reach the code
+ * view: they are refused outright.)
+ */
+function scanPlanSql(sql: string): PlanSqlScan {
+  let out = ''
+  let index = 0
+  const length = sql.length
+  while (index < length) {
+    const character = sql[index]
+    if (character === '-') {
+      if (sql[index + 1] === '-') {
+        // Line comment: refused outright (the compiler emits none).
+        return { ok: false, reason: 'comment' }
+      }
+      out += character
+      index += 1
+      continue
+    }
+    if (character === '/' && sql[index + 1] === '*') {
+      return { ok: false, reason: 'comment' }
+    }
+    if (character === '$') {
+      return { ok: false, reason: 'dollar-quote' }
+    }
+    if (character === "'") {
+      // An E'…' escape string: backslash escapes would defeat the doubling
+      // model, and the compiler never emits one — fail closed. The `E` must
+      // be a standalone token (not the tail of a longer identifier), which
+      // is exactly the escape-string spelling.
+      if (index >= 1 && (sql[index - 1] === 'E' || sql[index - 1] === 'e')) {
+        const before = index >= 2 ? sql[index - 2] : ''
+        if (!/[A-Za-z0-9_"]/.test(before)) {
+          return { ok: false, reason: 'escape-string' }
+        }
+      }
+      out += "'"
+      index += 1
+      let closed = false
+      while (index < length) {
+        if (sql[index] === "'") {
+          if (sql[index + 1] === "'") {
+            out += '  '
+            index += 2
+            continue
+          }
+          out += "'"
+          index += 1
+          closed = true
+          break
+        }
+        out += ' '
+        index += 1
+      }
+      if (!closed) return { ok: false, reason: 'unterminated' }
+      continue
+    }
+    if (character === '"') {
+      // Quoted identifier: CODE (identifier contents are code — the
+      // relation token itself is one). Consume it wholly, honoring `""`
+      // doubling, so a doubled quote inside can never re-open code.
+      let cursor = index + 1
+      let closed = false
+      while (cursor < length) {
+        if (sql[cursor] === '"') {
+          if (sql[cursor + 1] === '"') {
+            cursor += 2
+            continue
+          }
+          closed = true
+          break
+        }
+        cursor += 1
+      }
+      if (!closed) return { ok: false, reason: 'unterminated' }
+      out += sql.slice(index, cursor + 1)
+      index = cursor + 1
+      continue
+    }
+    out += character
+    index += 1
+  }
+  return { ok: true, code: out }
+}
+
+/**
  * The compiler's exact FROM renderings of the relation binding: the quoted
  * name is always preceded by `FROM ` and always followed by either the range
  * alias (` AS "src"`) or the closing parenthesis of the scalar count
@@ -300,7 +454,10 @@ export function parseValidationPlan(value: unknown): EngineValidationPlan | null
  * rule-less plan's empty summary is the one documented zero-occurrence
  * shape — review round 2: a relation-free statement can carry arbitrary SQL
  * past an occurrence gate, so zero occurrences are only acceptable where
- * the compiler provably emits them).
+ * the compiler provably emits them). The input is the {@link scanPlanSql}
+ * CODE VIEW: occurrences inside string literals or comments are blanked and
+ * can never count (m5-2 round-3 fix — a pseudo-reference in a literal is
+ * not a relation binding).
  */
 function countCompilerShapedOccurrences(sql: string, quotedRelation: string): number {
   let count = 0
@@ -319,35 +476,19 @@ function countCompilerShapedOccurrences(sql: string, quotedRelation: string): nu
 }
 
 /**
- * True when `sql` is a single SELECT statement: it starts with `SELECT`
- * (the compiler emits no CTE/wrapper forms) and contains no statement
- * separator outside quoted contexts with anything after it. The separator
- * scan tracks single- and double-quoted regions with SQL's doubled-quote
- * escaping (`''` / `""`), so a legitimate rule VALUE containing `;` (a
- * regex or allowed-values literal) never reads as a second statement.
- * Comment grammar is deliberately not emulated: the compiler emits no
- * comments, so comment-looking SQL is hostile-shaped and fails closed.
+ * True when the (already scanned) code view is a single SELECT statement:
+ * it starts with `SELECT` (the compiler emits no CTE/wrapper forms) and
+ * contains no statement separator with anything after it. String literals
+ * were blanked by {@link scanPlanSql}, so a legitimate rule VALUE containing
+ * `;` (a regex or allowed-values literal) never reads as a second
+ * statement; comments were refused outright, so they cannot hide one
+ * either. A trailing lone separator with nothing after it is tolerated (the
+ * compiler never emits one, but it cannot carry a second statement).
  */
-function isSingleSelectStatement(sql: string): boolean {
-  if (!/^\s*select\b/i.test(sql)) return false
-  let inSingle = false
-  let inDouble = false
-  for (let index = 0; index < sql.length; index++) {
-    const character = sql[index]
-    if (inSingle) {
-      if (character === "'") inSingle = false
-    } else if (inDouble) {
-      if (character === '"') inDouble = false
-    } else if (character === "'") {
-      inSingle = true
-    } else if (character === '"') {
-      inDouble = true
-    } else if (character === ';' && sql.slice(index + 1).trim() !== '') {
-      return false
-    }
-  }
-  // An unterminated quote is not compiler output either.
-  return !inSingle && !inDouble
+function isSingleSelectStatement(code: string): boolean {
+  if (!/^\s*select\b/i.test(code)) return false
+  const separator = code.indexOf(';')
+  return separator < 0 || code.slice(separator + 1).trim() === ''
 }
 
 /**
@@ -361,8 +502,11 @@ function isSingleSelectStatement(sql: string): boolean {
  *    before a `CREATE VIEW` could shadow the base view; the executor also
  *    uses bare `CREATE VIEW`, so any other catalog collision fails the
  *    create without touching the existing object).
- * 2. **Single SELECT statements** — every rule query and the summary must be
- *    one `SELECT` statement (see {@link isSingleSelectStatement}).
+ * 2. **Single SELECT statements over well-formed compiler SQL** — every
+ *    rule query and the summary must be lexically clean (no comments —
+ *    refused outright —, no unterminated literals, no dialect string forms
+ *    the compiler never emits) and exactly one `SELECT` statement (see
+ *    {@link scanPlanSql} / {@link isSingleSelectStatement}).
  *    `CREATE TABLE <canary> AS SELECT …` payloads — the review's exact
  *    probe — are rejected here, before any SQL reaches the engine.
  * 3. **Compiler-shaped relation references, at least once** — every rule
@@ -370,7 +514,8 @@ function isSingleSelectStatement(sql: string): boolean {
  *    positions at least once, and so must the summary of any plan that has
  *    rules (see {@link countCompilerShapedOccurrences}). SQL smuggled
  *    through the relation-name position — or SQL with no relation binding
- *    at all — cannot reach execution.
+ *    at all (including pseudo-references hidden inside string literals) —
+ *    cannot reach execution.
  *
  * The error messages name the failure class only — never plan content, rule
  * values, or dataset contents (ADR 0025).
@@ -386,23 +531,47 @@ export function assertValidationPlanRelationBinding(
   }
   const quoted = quotedRelationToken(plan.relation)
   for (const rule of plan.rules) {
-    if (!isSingleSelectStatement(rule.sql)) {
+    const scanned = scanPlanSql(rule.sql)
+    if (!scanned.ok) {
+      throw new Error(
+        scanned.reason === 'comment'
+          ? `validation plan rule '${rule.ruleId}' contains SQL comments; the compiler emits none`
+          : scanned.reason === 'dollar-quote'
+            ? `validation plan rule '${rule.ruleId}' contains dollar-quoted SQL; the compiler emits none`
+            : scanned.reason === 'escape-string'
+              ? `validation plan rule '${rule.ruleId}' contains an escape-string literal; the compiler emits none`
+              : `validation plan rule '${rule.ruleId}' is not lexically well-formed compiler SQL`,
+      )
+    }
+    if (!isSingleSelectStatement(scanned.code)) {
       throw new Error(
         `validation plan rule '${rule.ruleId}' is not a single compiler-shaped SELECT query`,
       )
     }
-    if (countCompilerShapedOccurrences(rule.sql, quoted) === 0) {
+    if (countCompilerShapedOccurrences(scanned.code, quoted) === 0) {
       throw new Error(
         `validation plan rule '${rule.ruleId}' does not bind its relation in the compiler's FROM shape`,
       )
     }
   }
-  if (!isSingleSelectStatement(plan.summarySql)) {
+  const scannedSummary = scanPlanSql(plan.summarySql)
+  if (!scannedSummary.ok) {
+    throw new Error(
+      scannedSummary.reason === 'comment'
+        ? 'validation plan summary contains SQL comments; the compiler emits none'
+        : scannedSummary.reason === 'dollar-quote'
+          ? 'validation plan summary contains dollar-quoted SQL; the compiler emits none'
+          : scannedSummary.reason === 'escape-string'
+            ? 'validation plan summary contains an escape-string literal; the compiler emits none'
+            : 'validation plan summary is not lexically well-formed compiler SQL',
+    )
+  }
+  if (!isSingleSelectStatement(scannedSummary.code)) {
     throw new Error('validation plan summary is not a single compiler-shaped SELECT query')
   }
   // A rule-less plan's compiler-emitted empty summary is the one documented
   // zero-occurrence shape (it reads no relation); anything else must bind.
-  if (plan.rules.length > 0 && countCompilerShapedOccurrences(plan.summarySql, quoted) === 0) {
+  if (plan.rules.length > 0 && countCompilerShapedOccurrences(scannedSummary.code, quoted) === 0) {
     throw new Error('validation plan summary does not bind its relation in the compiler FROM shape')
   }
 }

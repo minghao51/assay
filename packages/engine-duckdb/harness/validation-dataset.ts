@@ -78,8 +78,8 @@ export const VALIDATION_RELATION = 'assay_conf_validate_src'
 export const VALIDATION_SAMPLE_LIMIT = 20
 /** The engine's documented hard max (a plan with exactly this K executes). */
 export const VALIDATION_HARD_MAX_SAMPLE_LIMIT = 100
-/** A K past the hard max: the compiled plan is rejected at the wire. */
-export const VALIDATION_OVER_MAX_SAMPLE_LIMIT = 101
+/** A K past the hard max: the plan EXECUTES with samples clamped to 100 (m5-2 round-3: clamped, not rejected). */
+export const VALIDATION_OVER_MAX_SAMPLE_LIMIT = 500
 /** Reported samples under the hard-max plan: min(110 violations, 100). */
 export const VALIDATION_EXPECTED_SAMPLES_AT_MAX = 100
 /** A user-created (non-registered) view the survival probe binds against. */
@@ -541,7 +541,7 @@ export const VALIDATION_DATASET: ConformanceValidationDataset = {
   truncation: {
     ruleId: 'columns[5].allowed-values',
     hardMax: VALIDATION_HARD_MAX_SAMPLE_LIMIT,
-    overMaxSampleLimit: VALIDATION_OVER_MAX_SAMPLE_LIMIT,
+    clampedSampleLimit: VALIDATION_OVER_MAX_SAMPLE_LIMIT,
     expectFailCount: 110,
     expectSamples: VALIDATION_EXPECTED_SAMPLES_AT_MAX,
     expectFirstRowKey: key('', 0),
@@ -561,8 +561,8 @@ export const VALIDATION_DATASET: ConformanceValidationDataset = {
       plan: hostilePlan({
         rules: [
           {
-            ruleId: 'hostile',
-            path: 'hostile',
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
             kind: 'required',
             column: 'id',
             outcome: 'row-samples',
@@ -579,8 +579,8 @@ export const VALIDATION_DATASET: ConformanceValidationDataset = {
       plan: hostilePlan({
         rules: [
           {
-            ruleId: 'hostile',
-            path: 'hostile',
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
             kind: 'required',
             column: 'id',
             outcome: 'row-samples',
@@ -597,14 +597,74 @@ export const VALIDATION_DATASET: ConformanceValidationDataset = {
       plan: hostilePlan({
         rules: [
           {
-            ruleId: 'hostile',
-            path: 'hostile',
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
             kind: 'required',
             column: 'id',
             outcome: 'row-samples',
             sql: `CREATE TABLE review_injected AS SELECT * FROM "${VALIDATION_RELATION}" AS "src" WHERE FALSE`,
           },
         ],
+      }),
+    },
+    // m5-2 round 3, item 1: comment-bearing SQL is refused outright. The
+    // reviewer's exact probe — a block comment carrying the compiler's FROM
+    // shape — must NOT read as a relation binding, and no comment-bearing
+    // SQL may run; each probe rejects with one typed operation error.
+    {
+      label: 'block-comment pseudo-reference (review round-3 probe)',
+      plan: hostilePlan({
+        rules: [
+          {
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
+            kind: 'required',
+            column: 'id',
+            outcome: 'row-samples',
+            sql: `SELECT 1 AS "total_rows" /* FROM "${VALIDATION_RELATION}" AS "src" */`,
+          },
+        ],
+      }),
+    },
+    {
+      label: 'line-comment tail',
+      plan: hostilePlan({
+        rules: [
+          {
+            ruleId: 'columns[0].required',
+            path: 'columns[0].required',
+            kind: 'required',
+            column: 'id',
+            outcome: 'row-samples',
+            sql: `SELECT 1 AS "total_rows" FROM "${VALIDATION_RELATION}" AS "src" -- tail`,
+          },
+        ],
+      }),
+    },
+    {
+      // m5-2 round 3, item 3: a shape-valid (but foreign, non-compiler)
+      // plan whose reported count exceeds the dataset (121 "failures" over
+      // 120 rows) cannot produce an out-of-contract result — the
+      // result-sanity guard fails the op with one typed error (never a
+      // failPercent > 100 response a client would hang on). The rule SQL is
+      // deliberately compiler-shaped (single SELECT, FROM-bound, a
+      // compiler-shaped summary) so the static gate passes and the plan
+      // EXECUTES — the guard is what stops it.
+      label: 'shape-valid plan reporting more failures than rows',
+      plan: hostilePlan({
+        rules: [
+          {
+            ruleId: 'dataset.max-rows',
+            path: 'dataset.max-rows',
+            kind: 'max-rows',
+            column: null,
+            outcome: 'dataset-fact',
+            sql: `SELECT 120 AS "total_rows", 121 AS "fail_count" FROM "${VALIDATION_RELATION}" AS "src" LIMIT 1`,
+          },
+        ],
+        summarySql:
+          `SELECT 'dataset.max-rows' AS "rule_id", "assay_n" AS "total_rows", "assay_n" AS "fail_count"\n` +
+          `FROM (SELECT count(*) AS "assay_n" FROM "${VALIDATION_RELATION}" AS "src") AS "assay_rule_stats"`,
       }),
     },
   ],

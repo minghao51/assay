@@ -834,7 +834,13 @@ export class DuckDbEngineClient {
   private readonly handleMessage = (event: MessageEvent<unknown>): void => {
     const response = parseEngineResponse(event.data)
     if (response === null) {
-      // Not our protocol (e.g. a foreign script sharing the worker) — ignore.
+      // m5-2 round-3 fix, item 3: a message that is recognisably a response
+      // to a pending request but failed shape validation REJECTS that
+      // pending promise with a typed protocol error — a misbehaving worker
+      // can never leave an op (validate or any other) hanging forever. A
+      // message that does not claim a pending requestId stays ignorable
+      // (a foreign script sharing the worker, a late/duplicate reply).
+      this.rejectPendingOnMalformedResponse(event.data)
       return
     }
     const pending = this.pending.get(response.requestId)
@@ -848,6 +854,32 @@ export class DuckDbEngineClient {
     } else {
       pending.resolve(response)
     }
+  }
+
+  /**
+   * Reject the pending request a malformed response claims to answer, if
+   * any (m5-2 round-3 fix, item 3): the envelope identity (`requestId` + a
+   * known-protocol `engine/…` type string) is matched against the pending
+   * map; a match is rejected with one typed {@link EngineProtocolError} and
+   * removed, so the awaited op fails honestly instead of hanging. Anything
+   * without a pending match is not ours — the pre-existing ignore contract
+   * (foreign scripts, late replies) is unchanged.
+   */
+  private rejectPendingOnMalformedResponse(data: unknown): void {
+    if (typeof data !== 'object' || data === null) return
+    const record = data as Record<string, unknown>
+    const type = record['type']
+    if (typeof type !== 'string' || !type.startsWith('engine/')) return
+    const requestId = record['requestId']
+    if (typeof requestId !== 'number' || !Number.isSafeInteger(requestId)) return
+    const pending = this.pending.get(requestId)
+    if (pending === undefined) return
+    this.pending.delete(requestId)
+    pending.reject(
+      new EngineProtocolError(
+        `the engine worker sent a malformed response for ${pending.requestType}`,
+      ),
+    )
   }
 
   private readonly handleError = (event: ErrorEvent): void => {

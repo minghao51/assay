@@ -43,10 +43,11 @@
  * doc) read from the per-rule query; the summary query is executed too and
  * its counts must agree exactly (integrity pin — the plan contract says the
  * two cannot diverge). `failPercent` is the documented integer half-up
- * rounding ({@link failPercentFromCounts}). Samples are bounded by the
- * plan's own K — the wire rejects K > {@link VALIDATION_SAMPLE_HARD_MAX}
- * before any SQL runs — and values are normalized to wire-safe JSON
- * ({@link normalizeSampleValue}).
+ * rounding ({@link failPercentFromCounts}). Samples are bounded by
+ * `min(plan K, {@link VALIDATION_SAMPLE_HARD_MAX})` — the executed rule
+ * query carries that clamp in its own `LIMIT` (m5-2 round-3 fix, see
+ * {@link composeValidationRuleQuery}) — and values are normalized to
+ * wire-safe JSON ({@link normalizeSampleValue}).
  *
  * Privacy (ADR 0025): offending values are report *content* carried to the
  * host — they are never logged, never telemetried, and never embedded in
@@ -77,14 +78,11 @@ if (!RESERVED_OVERLAY_COLUMN_NAMES.has(BAKED_ORDINAL_COLUMN)) {
 }
 
 /**
- * Engine-side hard max on a plan's `sampleLimit`, enforced at the wire
- * (`validate-plan-wire.ts`): a plan compiled with K > 100 is REJECTED with a
- * typed error before any SQL runs (m5-2 fix round — over-max K is rejected,
- * not clamped, because the compiled rule queries must compute each rule's
- * full violation count regardless of K, so no post-hoc clamp can bound the
- * engine's materialization). This module's payload-side clamp remains as
- * defense-in-depth for the reported list. Re-exported for the executor and
- * pinned consumers.
+ * Engine-side hard max on the rows a rule query may RETURN (the wire
+ * accepts any safe-integer K ≥ 1; the executor clamps the executed query to
+ * `min(K, this)` — m5-2 round-3 semantics: over-max K is CLAMPED, never
+ * rejected). This module's payload-side slice remains as defense-in-depth
+ * for the reported list. Re-exported for the executor and pinned consumers.
  */
 export { VALIDATION_SAMPLE_HARD_MAX }
 
@@ -143,9 +141,39 @@ export function composeValidationViewDropSql(viewName: string): string {
   return `DROP VIEW IF EXISTS ${quotedIdentifier(viewName)}`
 }
 
-/** Effective row count of the binding view (`count(*)`). */
+/**
+ * Effective row count of the binding view (`count(*)`).
+ */
 export function composeValidationCountSql(viewName: string): string {
   return `SELECT count(*)::BIGINT AS ${quotedIdentifier('row_count')} FROM ${quotedIdentifier(viewName)}`
+}
+
+/**
+ * The effective per-rule row bound: `min(plan K, engine hard max)` (m5-2
+ * round-3 fix — over-max K plans execute with their returned rows clamped
+ * to this bound; the inner query's own violation count is never affected).
+ */
+export function validationEffectiveSampleLimit(planSampleLimit: number): number {
+  return Math.min(planSampleLimit, VALIDATION_SAMPLE_HARD_MAX)
+}
+
+/**
+ * The engine-clamped execution of one rule query (m5-2 round-3 fix, per the
+ * orchestrator adjudication): the plan's EXACT SQL is wrapped ONCE as
+ *
+ *     SELECT * FROM ( <the exact rule SQL> ) LIMIT <min(K, hard max)>
+ *
+ * The inner SQL stays byte-identical — the engine never rewrites plan SQL —
+ * and the outer `LIMIT` trims only the rows RETURNED to the client. The
+ * inner `count(*) OVER ()` still computes the rule's FULL violation count
+ * over every violating row, and every returned row carries that full count,
+ * so the reported `failCount` is never corrupted by the outer limit.
+ * Documented materialization semantics (honest): the window scan itself is
+ * inherent to `failCount` and is NOT bounded by the clamp — the clamp
+ * bounds the returned rows, the count semantics stay exactly as compiled.
+ */
+export function composeValidationRuleQuery(ruleSql: string, effectiveLimit: number): string {
+  return `SELECT * FROM (${ruleSql}) LIMIT ${effectiveLimit}`
 }
 
 /**
@@ -398,13 +426,13 @@ export function readValidationRowKeys(table: Table): ReadonlyMap<number, string>
 
 /**
  * Clamp one rule's samples to the engine hard max and build the result
- * entries. The wire now rejects plans whose K exceeds the hard max, so a
- * sample list longer than the clamp should be impossible — the slice stays
- * as cheap defense-in-depth for the reported payload. Reserved-name hygiene
- * is asserted here too: the row-key channel would be meaningless if a
- * dataset column could shadow `assay_row_id`/`assay_overlay_ord` (the
- * composer already rejects such datasets; this is the cheap
- * defence-in-depth re-check).
+ * entries. The executed rule query is already LIMIT-clamped to
+ * `min(K, hard max)` (m5-2 round-3 fix), so a sample list longer than the
+ * clamp should be impossible — the slice stays as cheap defense-in-depth
+ * for the reported payload. Reserved-name hygiene is asserted here too: the
+ * row-key channel would be meaningless if a dataset column could shadow
+ * `assay_row_id`/`assay_overlay_ord` (the composer already rejects such
+ * datasets; this is the cheap defence-in-depth re-check).
  */
 export function buildSampleFailures(
   samples: readonly ValidationSampleRow[],

@@ -1959,8 +1959,10 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     )
     deps.queryConn.resolveSend(3, countTable(4n))
     await awaitSends(deps.queryConn, 5)
-    // Rule SQL executes byte-identically (never rewritten).
-    expect(deps.queryConn.sentSqls[4]).toBe(plan.rules[0]!.sql)
+    // The rule SQL executes inside the engine clamp wrapper (m5-2 round-3:
+    // `SELECT * FROM (<exact plan SQL>) LIMIT min(K, hard max)` = LIMIT 20
+    // here) — the inner SQL stays byte-identical, never rewritten.
+    expect(deps.queryConn.sentSqls[4]).toBe(`SELECT * FROM (${plan.rules[0]!.sql}) LIMIT 20`)
     deps.queryConn.resolveSend(4, samplesTable())
     await awaitSends(deps.queryConn, 6)
     expect(deps.queryConn.sentSqls[5]).toBe(
@@ -1979,6 +1981,10 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     await awaitSends(deps.queryConn, 8)
     deps.queryConn.resolveSend(7, tableFromArrays({}))
     await awaitSends(deps.queryConn, 9)
+    // The success response is posted ONLY after containment completed: no
+    // post may be observable after the DROP but before the ROLLBACK settles
+    // (m5-2 round-3 fix, W2 — one posted response so far: the open result).
+    expect(deps.postedResponses).toHaveLength(1)
     deps.queryConn.resolveSend(8, tableFromArrays({}))
 
     const posted = await awaitPosted(deps, 2)
@@ -2038,23 +2044,111 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     expectNoCollisions(deps)
   })
 
-  it('rejects a K past the hard max before any SQL runs (m5-2 fix round)', async () => {
+  it('executes an over-max K with samples clamped and the FULL failCount (m5-2 round-3: clamped, not refused)', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
-    // A hostile K=2^53-style plan: rejected at the executor boundary with one
-    // typed error — the engine never materializes for it (the wire envelope
-    // rejects it too; this pins the executor's own defense-in-depth).
-    for (const oversized of [VALIDATION_SAMPLE_HARD_MAX + 1, 2 ** 53 - 1]) {
+    // K=500 parses and executes (the wire no longer refuses K > 100): the
+    // executed rule query is the exact plan SQL wrapped ONCE, LIMITed to
+    // min(500, 100) = 100 returned rows, while the inner window still
+    // reports the rule's full violation count (110 here) on every row.
+    const overMaxPlan = parseValidationPlan({
+      ...validPlanFixture(),
+      sampleLimit: 500,
+    }) as EngineValidationPlan
+    await acceptValidateToCount(executor, deps, overMaxPlan, 120n)
+    await awaitSends(deps.queryConn, 5)
+    expect(deps.queryConn.sentSqls[4]).toBe(
+      `SELECT * FROM (${overMaxPlan.rules[0]!.sql}) LIMIT 100`,
+    )
+    // What a real engine returns under the wrapper: 100 rows, each carrying
+    // the FULL fail_count (110 violations over 120 rows).
+    const clampedRows = 100
+    const ordinals = Array.from({ length: clampedRows }, (_, i) => i)
+    deps.queryConn.resolveSend(
+      4,
+      tableFromArrays({
+        total_rows: BigInt64Array.from(Array.from({ length: clampedRows }, () => 120n)),
+        fail_count: BigInt64Array.from(Array.from({ length: clampedRows }, () => 110n)),
+        sample_index: BigInt64Array.from(ordinals.map((n) => BigInt(n))),
+        assay_row_ordinal: BigInt64Array.from(ordinals.map((n) => BigInt(n))),
+        assay_value: BigInt64Array.from(Array.from({ length: clampedRows }, () => 1n)),
+      }),
+    )
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(
+      5,
+      tableFromArrays({
+        assay_overlay_ord: ordinals,
+        assay_row_id: ordinals.map((i) => `base:b#${String(i)}`),
+      }),
+    )
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(
+      6,
+      tableFromArrays({ rule_id: ['columns[0].required'], total_rows: [120], fail_count: [110] }),
+    )
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, tableFromArrays({})) // DROP
+    await awaitSends(deps.queryConn, 9)
+    deps.queryConn.resolveSend(8, tableFromArrays({})) // ROLLBACK
+    const posted = await awaitPosted(deps, 2)
+    if (posted.type !== 'engine/validate-result') return
+    // The count is the rule's own FULL count — never corrupted by the outer
+    // limit — and the reported samples stop exactly at the hard max.
+    expect(posted.result.rules[0]?.failCount).toBe(110)
+    expect(posted.result.rules[0]?.failPercent).toBe(92)
+    expect(posted.result.rules[0]?.sampleFailures).toHaveLength(100)
+    expect(deps.queryConn.sentSqls.at(-1)).toBe('ROLLBACK')
+    expectNoCollisions(deps)
+  })
+
+  it('wraps a huge-K (2^53-1) plan to the hard max without unbounded row return', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // The clamp is IN the executed SQL (`LIMIT min(K, 100)`): a hostile
+    // huge-K plan cannot ask the engine to return unbounded rows — the
+    // wrapper bounds the result set structurally. The rule result here is
+    // empty (clean rule) so the flow completes quickly.
+    const hugePlan = parseValidationPlan({
+      ...validPlanFixture(),
+      sampleLimit: 2 ** 53 - 1,
+    }) as EngineValidationPlan
+    await acceptValidateToCount(executor, deps, hugePlan)
+    await awaitSends(deps.queryConn, 5)
+    expect(deps.queryConn.sentSqls[4]).toBe(`SELECT * FROM (${hugePlan.rules[0]!.sql}) LIMIT 100`)
+    deps.queryConn.resolveSend(4, tableFromArrays({})) // empty result ⇒ clean rule
+    // No samples → no row-key query; summary next, then cleanup, then post.
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(
+      5,
+      tableFromArrays({ rule_id: ['columns[0].required'], total_rows: [4], fail_count: [0] }),
+    )
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/validate-result' })
+    expect(deps.queryConn.sentSqls.at(-1)).toBe('ROLLBACK')
+    expectNoCollisions(deps)
+  })
+
+  it('still refuses K < 1 with one typed error and zero SQL (the plan contract)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // The clamp replaced the old K > 100 refusal, but the LOWER bound is the
+    // plan contract (LIMIT 0 could not distinguish a violated rule from a
+    // clean one): K = 0 still fails at the envelope before any SQL runs.
+    for (const badK of [0, -5, 2.5]) {
       const plan = parseValidationPlan({
         ...validPlanFixture(),
-        sampleLimit: oversized,
-      }) as EngineValidationPlan
-      executor.accept(validateRequest(2, plan))
+        sampleLimit: badK,
+      }) as EngineValidationPlan | null
+      expect(plan).toBeNull()
+      executor.accept(validateRequest(2, plan as unknown as EngineValidationPlan))
       const posted = await awaitPosted(deps, 2)
       expect(posted).toMatchObject({ type: 'engine/error' })
       if (posted.type === 'engine/error') {
-        // The request envelope is the boundary: the over-max plan is a
-        // malformed recognized request, answered with one typed error.
         expect(posted.message).toBe('malformed engine/validate request')
       }
       // Not a single statement ran for the hostile plan (and the engine is
@@ -2121,8 +2215,8 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
       ...validPlanFixture(),
       rules: [
         {
-          ruleId: 'hostile',
-          path: 'hostile',
+          ruleId: 'columns[0].required',
+          path: 'columns[0].required',
           kind: 'required',
           column: 'id',
           outcome: 'row-samples',
@@ -2134,10 +2228,51 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     const posted = await awaitPosted(deps, 2)
     expect(posted).toMatchObject({ type: 'engine/error' })
     if (posted.type === 'engine/error') {
-      expect(posted.message).toContain("rule 'hostile' is not a single compiler-shaped SELECT")
+      expect(posted.message).toContain(
+        "rule 'columns[0].required' is not a single compiler-shaped SELECT",
+      )
     }
     expect(deps.queryConn.sentSqls).toEqual([])
     // No BEGIN was even issued: the gate precedes the containment transaction.
+    executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it("refuses the reviewer's commented pseudo-reference before any SQL runs (m5-2 round-3, item 1)", async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // The round-3 probe: a block comment carrying the exact compiler FROM
+    // shape (`SELECT … /* FROM "relation" AS "src" *\/`) — the commented
+    // pseudo-reference must NOT count as a relation binding, and any
+    // comment-bearing SQL is refused outright: one typed error, zero SQL.
+    const commented = parseValidationPlan({
+      ...validPlanFixture(),
+      rules: [
+        {
+          ruleId: 'columns[0].required',
+          path: 'columns[0].required',
+          kind: 'required',
+          column: 'id',
+          outcome: 'row-samples',
+          sql:
+            'SELECT 1 AS "total_rows", 0 AS "fail_count" ' +
+            '/* FROM "assay_conf_validate_src" AS "src" */',
+        },
+      ],
+    }) as EngineValidationPlan
+    executor.accept(validateRequest(2, commented))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toContain(
+        "rule 'columns[0].required' contains SQL comments; the compiler emits none",
+      )
+    }
+    // Zero SQL: the probe never reached the engine, and it is reusable.
+    expect(deps.queryConn.sentSqls).toEqual([])
     executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
     await awaitSends(deps.queryConn, 1)
     deps.queryConn.resolveSend(0, intTable([42]))
@@ -2162,6 +2297,50 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
     await awaitSends(deps.queryConn, 1)
     deps.queryConn.resolveSend(0, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it("fails the reviewer's two-row probe with one typed error, never an out-of-contract result (m5-2 round-3, item 3)", async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // The review's exact scenario: a shape-valid (but foreign, non-compiler)
+    // plan whose rule reports failCount 3 over a 2-row dataset. The old
+    // behavior produced failPercent 150, an out-of-contract response the
+    // protocol discarded — and the client's promise hung forever. The
+    // result-sanity guard turns it into ONE typed error, after cleanup.
+    await acceptValidateToCount(executor, deps, validPlanFixture(), 2n)
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(
+      4,
+      tableFromArrays({
+        total_rows: BigInt64Array.from([2n, 2n]),
+        fail_count: BigInt64Array.from([3n, 3n]),
+        sample_index: BigInt64Array.from([0n, 1n]),
+        assay_row_ordinal: BigInt64Array.from([0n, 1n]),
+        assay_value: BigInt64Array.from([1n, 1n]),
+      }),
+    )
+    // Cleanup settles BEFORE the error is posted: DROP of the op-created
+    // view, then ROLLBACK (the requested rollback-order pin, here on the
+    // count-guard failure path).
+    await awaitSends(deps.queryConn, 6)
+    expect(deps.queryConn.sentSqls[5]).toContain(`DROP VIEW IF EXISTS "${BINDING}"`)
+    deps.queryConn.resolveSend(5, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 7)
+    expect(deps.queryConn.sentSqls[6]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toBe(
+        "validation rule 'columns[0].required' reported more failures than rows in the effective view",
+      )
+    }
+    // The engine is reusable (a follow-up query still works).
+    executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, intTable([42]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
     expectNoCollisions(deps)
   })
@@ -2263,6 +2442,89 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     await awaitSends(deps.queryConn, 8)
     deps.queryConn.resolveSend(7, intTable([42]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it('runs the row-key query INSIDE the containment: its failure still rolls back, in order (W2 pin)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // The specifically requested rollback-order pin: the row-key query (the
+    // step between the per-rule queries and the summary) fails — the op
+    // posts its typed error only AFTER the DROP (op-created view) and the
+    // ROLLBACK have run, in that order.
+    await acceptValidateToCount(executor, deps, validPlanFixture())
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, samplesTable())
+    await awaitSends(deps.queryConn, 6)
+    // A raw engine-looking error on the row-key scan: none of it may leave.
+    deps.queryConn.rejectSend(5, new Error('Internal Error: row-key scan blew up'))
+    await awaitSends(deps.queryConn, 7)
+    expect(deps.queryConn.sentSqls[6]).toContain(`DROP VIEW IF EXISTS "${BINDING}"`)
+    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 8)
+    expect(deps.queryConn.sentSqls[7]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toBe('the validation row-key query failed to execute')
+      expect(posted.message).not.toContain('row-key scan blew up')
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('surfaces a failed cleanup DROP as a typed error instead of success (m5-2 round-3, W2)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // Cleanup runs BEFORE any success is posted: a failing DROP (of the
+    // op-created view) must fail the op with its own typed error — never a
+    // success observed before containment completed, never a swallowed
+    // error. The ROLLBACK still runs after the failed DROP.
+    await acceptValidateToCount(executor, deps, factPlanFixture())
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, factTable())
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(
+      5,
+      tableFromArrays({ rule_id: ['dataset.min-rows'], total_rows: [4], fail_count: [0] }),
+    )
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.rejectSend(6, new Error('Catalog Error: cannot drop'))
+    await awaitSends(deps.queryConn, 8)
+    expect(deps.queryConn.sentSqls[7]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toBe('the validation binding view could not be dropped')
+      expect(posted.message).not.toContain('Catalog Error')
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('surfaces a failed ROLLBACK as a typed error instead of success (m5-2 round-3, W2)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // Same contract for the rollback itself: a failing ROLLBACK (the
+    // connection is broken afterwards) fails the op with one typed error —
+    // the client never sees a success that outran containment.
+    await acceptValidateToCount(executor, deps, factPlanFixture())
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, factTable())
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(
+      5,
+      tableFromArrays({ rule_id: ['dataset.min-rows'], total_rows: [4], fail_count: [0] }),
+    )
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(6, tableFromArrays({})) // DROP ok
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.rejectSend(7, new Error('TransactionContext Error: rollback failed'))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toBe('the validation containment transaction could not be rolled back')
+    }
     expectNoCollisions(deps)
   })
 
