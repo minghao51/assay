@@ -38,7 +38,10 @@ export default tseslint.config(
         {
           paths: [
             { name: 'react', message: 'The validation package must stay UI-free (docs 05 §3).' },
-            { name: 'react-dom', message: 'The validation package must stay UI-free (docs 05 §3).' },
+            {
+              name: 'react-dom',
+              message: 'The validation package must stay UI-free (docs 05 §3).',
+            },
           ],
           patterns: [
             {
