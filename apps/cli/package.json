@@ -3,12 +3,25 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "assay": "./src/index.ts"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@assay/contracts": "workspace:*",
+    "@assay/domain": "workspace:*",
+    "@assay/engine-duckdb": "workspace:*",
+    "@assay/validation": "workspace:*",
+    "@duckdb/node-api": "1.5.5-r.5",
+    "apache-arrow": "17.0.0"
+  },
   "devDependencies": {
+    "@types/node": "catalog:",
     "tsx": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
