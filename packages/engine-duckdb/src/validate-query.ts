@@ -43,10 +43,10 @@
  * doc) read from the per-rule query; the summary query is executed too and
  * its counts must agree exactly (integrity pin — the plan contract says the
  * two cannot diverge). `failPercent` is the documented integer half-up
- * rounding ({@link failPercentFromCounts}). Samples are clamped to
- * {@link VALIDATION_SAMPLE_HARD_MAX} (the plan's own `LIMIT` bounds the
- * engine scan; the hard max bounds what the executor reports) and values are
- * normalized to wire-safe JSON ({@link normalizeSampleValue}).
+ * rounding ({@link failPercentFromCounts}). Samples are bounded by the
+ * plan's own K — the wire rejects K > {@link VALIDATION_SAMPLE_HARD_MAX}
+ * before any SQL runs — and values are normalized to wire-safe JSON
+ * ({@link normalizeSampleValue}).
  *
  * Privacy (ADR 0025): offending values are report *content* carried to the
  * host — they are never logged, never telemetried, and never embedded in
@@ -61,8 +61,8 @@ import {
   composeSourceSql,
 } from './overlay-query'
 import type { OverlayComposition } from './overlay-query'
+import { VALIDATION_SAMPLE_HARD_MAX } from './validate-plan-wire'
 import type { EngineValidationSample } from './validate-plan-wire'
-
 /**
  * The composer-reserved column this module bakes the effective row index
  * into (in `RESERVED_OVERLAY_COLUMN_NAMES`, so a dataset can never carry it).
@@ -77,12 +77,30 @@ if (!RESERVED_OVERLAY_COLUMN_NAMES.has(BAKED_ORDINAL_COLUMN)) {
 }
 
 /**
- * Engine-side hard max on reported sample failures per rule. The plan's own
- * `sampleLimit` bounds its SQL; this bounds the reported payload. Plans
- * compiled with a larger K still execute — they simply report at most this
- * many samples (documented, pinned by the conformance truncation case).
+ * Engine-side hard max on a plan's `sampleLimit`, enforced at the wire
+ * (`validate-plan-wire.ts`): a plan compiled with K > 100 is REJECTED with a
+ * typed error before any SQL runs (m5-2 fix round — over-max K is rejected,
+ * not clamped, because the compiled rule queries must compute each rule's
+ * full violation count regardless of K, so no post-hoc clamp can bound the
+ * engine's materialization). This module's payload-side clamp remains as
+ * defense-in-depth for the reported list. Re-exported for the executor and
+ * pinned consumers.
  */
-export const VALIDATION_SAMPLE_HARD_MAX = 100
+export { VALIDATION_SAMPLE_HARD_MAX }
+
+/**
+ * The validate op's containment transaction (m5-2 fix round, belt 2): the
+ * whole operation — binding view materialization, rule queries, row-key
+ * resolution, summary — runs between these two statements, and the executor
+ * ALWAYS issues the rollback in its cleanup path (DuckDB DDL is
+ * transactional, so even a hypothetical static-gate evasion cannot persist
+ * a side-effect object). The binding view is additionally dropped inside the
+ * transaction (only when this operation created it), so cleanup holds even
+ * if the rollback itself were to fail.
+ */
+export const VALIDATION_BEGIN_SQL = 'BEGIN TRANSACTION'
+/** Always paired with {@link VALIDATION_BEGIN_SQL} in the executor's cleanup. */
+export const VALIDATION_ROLLBACK_SQL = 'ROLLBACK'
 
 /**
  * `CREATE VIEW` statement materializing the composed effective view under
@@ -149,7 +167,11 @@ export function composeValidationRowKeySql(viewName: string, ordinals: readonly 
  * through exact integer arithmetic (`floor((failCount * 200 + rowCount) /
  * (2 * rowCount))`), `0` for an empty dataset. Integer-only on purpose: the
  * formula is byte-portable to the m5-4 CLI executor (no floating-point
- * rounding-mode ambiguity across surfaces).
+ * rounding-mode ambiguity across surfaces). The intermediates are computed
+ * in **BigInt** (m5-2 fix round): both inputs may be safe integers while
+ * `failCount * 200 + rowCount` is not (for `failCount = 945755921747804`,
+ * `rowCount = 9007199254740991` the float formula returned 11 where the
+ * exact value is 10 — the float sum rounded across a floor boundary).
  */
 export function failPercentFromCounts(failCount: number, rowCount: number): number {
   if (!Number.isSafeInteger(failCount) || failCount < 0) {
@@ -159,7 +181,10 @@ export function failPercentFromCounts(failCount: number, rowCount: number): numb
     throw new Error('failPercent: rowCount must be a non-negative safe integer')
   }
   if (rowCount === 0) return 0
-  return Math.floor((failCount * 200 + rowCount) / (2 * rowCount))
+  // Exact intermediates: BigInt division truncates toward zero, and both
+  // operands are non-negative, so this is exactly the documented floor.
+  const scaled = BigInt(failCount) * 200n + BigInt(rowCount)
+  return Number(scaled / (2n * BigInt(rowCount)))
 }
 
 /**
@@ -373,10 +398,13 @@ export function readValidationRowKeys(table: Table): ReadonlyMap<number, string>
 
 /**
  * Clamp one rule's samples to the engine hard max and build the result
- * entries. Reserved-name hygiene is asserted here too: the row-key channel
- * would be meaningless if a dataset column could shadow
- * `assay_row_id`/`assay_overlay_ord` (the composer already rejects such
- * datasets; this is the cheap defence-in-depth re-check).
+ * entries. The wire now rejects plans whose K exceeds the hard max, so a
+ * sample list longer than the clamp should be impossible — the slice stays
+ * as cheap defense-in-depth for the reported payload. Reserved-name hygiene
+ * is asserted here too: the row-key channel would be meaningless if a
+ * dataset column could shadow `assay_row_id`/`assay_overlay_ord` (the
+ * composer already rejects such datasets; this is the cheap
+ * defence-in-depth re-check).
  */
 export function buildSampleFailures(
   samples: readonly ValidationSampleRow[],

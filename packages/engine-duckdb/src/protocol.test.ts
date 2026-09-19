@@ -1094,6 +1094,12 @@ describe('m5-2: engine/validate protocol', () => {
     expect(parseEngineRequest(base)).toBeNull()
     expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), planVersion: 2 } })).toBeNull()
     expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 0 } })).toBeNull()
+    // The materialization bound: a K past the engine hard max is rejected at
+    // the envelope — the plan never reaches the executor (m5-2 fix round).
+    expect(parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 101 } })).toBeNull()
+    expect(
+      parseEngineRequest({ ...base, plan: { ...wirePlan(), sampleLimit: 2 ** 53 - 1 } }),
+    ).toBeNull()
     expect(
       parseEngineRequest({ ...base, plan: { ...wirePlan(), relation: 'a\u0000b' } }),
     ).toBeNull()
@@ -1145,6 +1151,36 @@ describe('m5-2: engine/validate protocol', () => {
         result: {
           ...wireResult(),
           rules: [{ ...wireResult().rules[0]!, sampleFailures: [{ rowKey: 'k', value: {} }] }],
+        },
+      }),
+    ).toBeNull()
+    // A resolvable non-empty row key is part of the result contract: null
+    // (the legacy spelling) and empty strings are rejected (m5-2 fix round).
+    expect(
+      parseEngineResponse({
+        ...base,
+        result: {
+          ...wireResult(),
+          rules: [
+            {
+              ...wireResult().rules[0]!,
+              sampleFailures: [{ rowKey: null, value: 'XX' }],
+            },
+          ],
+        },
+      }),
+    ).toBeNull()
+    expect(
+      parseEngineResponse({
+        ...base,
+        result: {
+          ...wireResult(),
+          rules: [
+            {
+              ...wireResult().rules[0]!,
+              sampleFailures: [{ rowKey: '', value: 'XX' }],
+            },
+          ],
         },
       }),
     ).toBeNull()

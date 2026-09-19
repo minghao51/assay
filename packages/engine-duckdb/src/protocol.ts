@@ -986,8 +986,12 @@ function isValidationResult(value: unknown): value is EngineValidationResult {
     if (!Array.isArray(samples)) return false
     return samples.every((sample) => {
       if (!isRecord(sample)) return false
+      // A resolvable non-empty row key is part of the result contract (the
+      // executor fails the op loudly rather than produce null/empty); a
+      // payload carrying one is malformed and rejected (m5-2 fix round —
+      // the type is the contract, not the hope).
       const rowKey = sample['rowKey']
-      if (rowKey !== null && typeof rowKey !== 'string') return false
+      if (typeof rowKey !== 'string' || rowKey === '') return false
       return isSampleValue(sample['value'])
     })
   })

@@ -1898,7 +1898,7 @@ function validateRequest(id: number, plan: EngineValidationPlan): EngineRequest 
   return { type: 'engine/validate', requestId: id, tableId: 't1', plan }
 }
 
-/** Script DESCRIBE + CREATE VIEW + count for a validate against the fake. */
+/** Script DESCRIBE + BEGIN + CREATE VIEW + count for a validate against the fake. */
 async function acceptValidateToCount(
   executor: EngineOpExecutor,
   deps: FakeDeps,
@@ -1909,9 +1909,11 @@ async function acceptValidateToCount(
   await awaitSends(deps.queryConn, 1)
   deps.queryConn.resolveSend(0, describeTable())
   await awaitSends(deps.queryConn, 2)
-  deps.queryConn.resolveSend(1, tableFromArrays({}))
+  deps.queryConn.resolveSend(1, tableFromArrays({})) // BEGIN TRANSACTION
   await awaitSends(deps.queryConn, 3)
-  deps.queryConn.resolveSend(2, countTable(rowCount))
+  deps.queryConn.resolveSend(2, tableFromArrays({})) // CREATE VIEW (binding)
+  await awaitSends(deps.queryConn, 4)
+  deps.queryConn.resolveSend(3, countTable(rowCount))
 }
 
 /** Result tables the fake query connection serves for the scripted validate. */
@@ -1933,45 +1935,51 @@ function factTable(): Table {
 }
 
 describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
-  it('runs the plan against the composed view and posts the keyed result', async () => {
+  it('runs the plan inside a rolled-back transaction and posts the keyed result', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
     const plan = validPlanFixture()
     executor.accept(validateRequest(2, plan))
-    // Base composition DESCRIBE → CREATE VIEW (binding) → count → per-rule →
-    // row keys → summary → DROP.
+    // Base composition DESCRIBE → BEGIN → CREATE VIEW (binding) → count →
+    // per-rule → row keys → summary → DROP (inside the tx) → ROLLBACK.
     await awaitSends(deps.queryConn, 1)
     expect(deps.queryConn.sentSqls[0]).toBe('DESCRIBE "assay_t1"')
     deps.queryConn.resolveSend(0, describeTable())
     await awaitSends(deps.queryConn, 2)
-    expect(deps.queryConn.sentSqls[1]).toContain(`CREATE VIEW "${BINDING}"`)
+    // Belt 2 (m5-2 fix round): the whole execution is containment-wrapped.
+    expect(deps.queryConn.sentSqls[1]).toBe('BEGIN TRANSACTION')
     deps.queryConn.resolveSend(1, tableFromArrays({}))
     await awaitSends(deps.queryConn, 3)
-    expect(deps.queryConn.sentSqls[2]).toBe(
+    expect(deps.queryConn.sentSqls[2]).toContain(`CREATE VIEW "${BINDING}"`)
+    deps.queryConn.resolveSend(2, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 4)
+    expect(deps.queryConn.sentSqls[3]).toBe(
       `SELECT count(*)::BIGINT AS "row_count" FROM "${BINDING}"`,
     )
-    deps.queryConn.resolveSend(2, countTable(4n))
-    await awaitSends(deps.queryConn, 4)
-    // Rule SQL executes byte-identically (never rewritten).
-    expect(deps.queryConn.sentSqls[3]).toBe(plan.rules[0]!.sql)
-    deps.queryConn.resolveSend(3, samplesTable())
+    deps.queryConn.resolveSend(3, countTable(4n))
     await awaitSends(deps.queryConn, 5)
-    expect(deps.queryConn.sentSqls[4]).toBe(
+    // Rule SQL executes byte-identically (never rewritten).
+    expect(deps.queryConn.sentSqls[4]).toBe(plan.rules[0]!.sql)
+    deps.queryConn.resolveSend(4, samplesTable())
+    await awaitSends(deps.queryConn, 6)
+    expect(deps.queryConn.sentSqls[5]).toBe(
       `SELECT "assay_overlay_ord", "assay_row_id" FROM "${BINDING}" WHERE "assay_overlay_ord" IN (0, 3)`,
     )
     deps.queryConn.resolveSend(
-      4,
+      5,
       tableFromArrays({ assay_overlay_ord: [0, 3], assay_row_id: ['base:b#0', 'base:b#3'] }),
     )
-    await awaitSends(deps.queryConn, 6)
-    expect(deps.queryConn.sentSqls[5]).toBe(plan.summarySql)
+    await awaitSends(deps.queryConn, 7)
+    expect(deps.queryConn.sentSqls[6]).toBe(plan.summarySql)
     deps.queryConn.resolveSend(
-      5,
+      6,
       tableFromArrays({ rule_id: ['columns[0].required'], total_rows: [4], fail_count: [2] }),
     )
-    await awaitSends(deps.queryConn, 7)
-    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 9)
+    deps.queryConn.resolveSend(8, tableFromArrays({}))
 
     const posted = await awaitPosted(deps, 2)
     expect(posted).toMatchObject({ type: 'engine/validate-result', requestId: 2 })
@@ -1991,8 +1999,13 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
         },
       ],
     })
-    // The binding view is dropped best-effort after the op.
-    expect(deps.queryConn.sentSqls[6]).toContain(`DROP VIEW IF EXISTS "${BINDING}"`)
+    // The op-created binding view is dropped inside the transaction...
+    expect(deps.queryConn.sentSqls[7]).toContain(`DROP VIEW IF EXISTS "${BINDING}"`)
+    await awaitSends(deps.queryConn, 9)
+    // ...and the containment transaction is ALWAYS rolled back, even on the
+    // success path: no side effect the op caused can survive it.
+    expect(deps.queryConn.sentSqls[8]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(8, tableFromArrays({}))
     expectNoCollisions(deps)
   })
 
@@ -2000,16 +2013,18 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
     await acceptValidateToCount(executor, deps, factPlanFixture())
-    await awaitSends(deps.queryConn, 4)
-    deps.queryConn.resolveSend(3, factTable())
-    // No samples → no row-key query; summary next.
     await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, factTable())
+    // No samples → no row-key query; summary next.
+    await awaitSends(deps.queryConn, 6)
     deps.queryConn.resolveSend(
-      4,
+      5,
       tableFromArrays({ rule_id: ['dataset.min-rows'], total_rows: [4], fail_count: [0] }),
     )
-    await awaitSends(deps.queryConn, 6)
-    deps.queryConn.resolveSend(5, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
     const posted = await awaitPosted(deps, 2)
     expect(posted).toMatchObject({
       type: 'engine/validate-result',
@@ -2019,48 +2034,114 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
         rules: [{ failCount: 0, failPercent: 0, sampleFailures: [] }],
       },
     })
+    expect(deps.queryConn.sentSqls.at(-1)).toBe('ROLLBACK')
     expectNoCollisions(deps)
   })
 
-  it('clamps reported samples to the documented hard max without touching the plan', async () => {
-    const rows = Math.min(VALIDATION_SAMPLE_HARD_MAX + 30, 120)
+  it('rejects a K past the hard max before any SQL runs (m5-2 fix round)', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
-    // A plan compiled with a large K (150): the plan's own bound allows the
-    // 120 sampled rows; the executor's hard max clamps the REPORTED payload.
-    const bigKPlan = parseValidationPlan({
+    // A hostile K=2^53-style plan: rejected at the executor boundary with one
+    // typed error — the engine never materializes for it (the wire envelope
+    // rejects it too; this pins the executor's own defense-in-depth).
+    for (const oversized of [VALIDATION_SAMPLE_HARD_MAX + 1, 2 ** 53 - 1]) {
+      const plan = parseValidationPlan({
+        ...validPlanFixture(),
+        sampleLimit: oversized,
+      }) as EngineValidationPlan
+      executor.accept(validateRequest(2, plan))
+      const posted = await awaitPosted(deps, 2)
+      expect(posted).toMatchObject({ type: 'engine/error' })
+      if (posted.type === 'engine/error') {
+        // The request envelope is the boundary: the over-max plan is a
+        // malformed recognized request, answered with one typed error.
+        expect(posted.message).toBe('malformed engine/validate request')
+      }
+      // Not a single statement ran for the hostile plan (and the engine is
+      // immediately reusable).
+      expect(deps.queryConn.sentSqls).toEqual([])
+    }
+    executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it('accepts K at the hard max boundary and bounds samples to K', async () => {
+    const rows = VALIDATION_SAMPLE_HARD_MAX
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // K exactly at the hard max is legal: failCount stays the rule's own
+    // count (not the sample bound); the reported list stops at K.
+    const atMaxPlan = parseValidationPlan({
       ...validPlanFixture(),
-      sampleLimit: VALIDATION_SAMPLE_HARD_MAX + 50,
+      sampleLimit: VALIDATION_SAMPLE_HARD_MAX,
     }) as EngineValidationPlan
-    await acceptValidateToCount(executor, deps, bigKPlan, BigInt(rows))
-    await awaitSends(deps.queryConn, 4)
-    const overLimit = tableFromArrays({
-      total_rows: BigInt64Array.from(Array.from({ length: rows }, () => BigInt(rows))),
-      fail_count: BigInt64Array.from(Array.from({ length: rows }, () => BigInt(rows))),
+    await acceptValidateToCount(executor, deps, atMaxPlan, 120n)
+    await awaitSends(deps.queryConn, 5)
+    const samples = tableFromArrays({
+      total_rows: BigInt64Array.from(Array.from({ length: rows }, () => 120n)),
+      fail_count: BigInt64Array.from(Array.from({ length: rows }, () => 120n)),
       sample_index: BigInt64Array.from(Array.from({ length: rows }, (_, i) => BigInt(i))),
       assay_row_ordinal: BigInt64Array.from(Array.from({ length: rows }, (_, i) => BigInt(i))),
       assay_value: BigInt64Array.from(Array.from({ length: rows }, () => 1n)),
     })
-    deps.queryConn.resolveSend(3, overLimit)
-    await awaitSends(deps.queryConn, 5)
-    // One row-key query covers every sampled ordinal (120 here).
-    expect(deps.queryConn.sentSqls[4]).toContain(`WHERE "assay_overlay_ord" IN (0, 1, 2`)
+    deps.queryConn.resolveSend(4, samples)
+    await awaitSends(deps.queryConn, 6)
     const keyTable = tableFromArrays({
       assay_overlay_ord: Array.from({ length: rows }, (_, i) => i),
       assay_row_id: Array.from({ length: rows }, (_, i) => `base:b#${String(i)}`),
     })
-    deps.queryConn.resolveSend(4, keyTable)
-    await awaitSends(deps.queryConn, 6)
-    deps.queryConn.resolveSend(
-      5,
-      tableFromArrays({ rule_id: ['columns[0].required'], total_rows: [rows], fail_count: [rows] }),
-    )
+    deps.queryConn.resolveSend(5, keyTable)
     await awaitSends(deps.queryConn, 7)
-    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    deps.queryConn.resolveSend(
+      6,
+      tableFromArrays({ rule_id: ['columns[0].required'], total_rows: [120], fail_count: [120] }),
+    )
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 9)
+    deps.queryConn.resolveSend(8, tableFromArrays({}))
     const posted = await awaitPosted(deps, 2)
     if (posted.type !== 'engine/validate-result') return
-    expect(posted.result.rules[0]?.failCount).toBe(rows)
+    expect(posted.result.rules[0]?.failCount).toBe(120)
     expect(posted.result.rules[0]?.sampleFailures).toHaveLength(VALIDATION_SAMPLE_HARD_MAX)
+    expectNoCollisions(deps)
+  })
+
+  it('rejects the reviewer canary plan before any SQL runs (m5-2 fix round)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // The review's exact probe, belt 1: a plan carrying
+    // `CREATE TABLE review_injected AS SELECT 1` is a typed rejection at the
+    // gate — zero statements reach the engine, so the canary can never be
+    // attempted, let alone persist.
+    const canary = parseValidationPlan({
+      ...validPlanFixture(),
+      rules: [
+        {
+          ruleId: 'hostile',
+          path: 'hostile',
+          kind: 'required',
+          column: 'id',
+          outcome: 'row-samples',
+          sql: 'CREATE TABLE review_injected AS SELECT 1',
+        },
+      ],
+    }) as EngineValidationPlan
+    executor.accept(validateRequest(2, canary))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toContain("rule 'hostile' is not a single compiler-shaped SELECT")
+    }
+    expect(deps.queryConn.sentSqls).toEqual([])
+    // No BEGIN was even issued: the gate precedes the containment transaction.
+    executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
     expectNoCollisions(deps)
   })
 
@@ -2089,47 +2170,99 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
     await acceptValidateToCount(executor, deps, validPlanFixture())
-    await awaitSends(deps.queryConn, 4)
-    deps.queryConn.resolveSend(3, samplesTable())
     await awaitSends(deps.queryConn, 5)
-    deps.queryConn.resolveSend(
-      4,
-      tableFromArrays({ assay_overlay_ord: [0, 3], assay_row_id: ['base:b#0', 'base:b#3'] }),
-    )
+    deps.queryConn.resolveSend(4, samplesTable())
     await awaitSends(deps.queryConn, 6)
-    // Lying summary: reports 1 where the per-rule query saw 2.
     deps.queryConn.resolveSend(
       5,
+      tableFromArrays({ assay_overlay_ord: [0, 3], assay_row_id: ['base:b#0', 'base:b#3'] }),
+    )
+    await awaitSends(deps.queryConn, 7)
+    // Lying summary: reports 1 where the per-rule query saw 2.
+    deps.queryConn.resolveSend(
+      6,
       tableFromArrays({ rule_id: ['columns[0].required'], total_rows: [4], fail_count: [1] }),
     )
-    // The finally drop must settle before the op's typed error is posted.
-    await awaitSends(deps.queryConn, 7)
-    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    // The cleanup (DROP of the op-created view + ROLLBACK) must settle before
+    // the op's typed error is posted.
+    await awaitSends(deps.queryConn, 8)
+    expect(deps.queryConn.sentSqls[7]).toContain(`DROP VIEW IF EXISTS "${BINDING}"`)
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 9)
+    expect(deps.queryConn.sentSqls[8]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(8, tableFromArrays({}))
     const posted = await awaitPosted(deps, 2)
     expect(posted).toMatchObject({ type: 'engine/error' })
     if (posted.type === 'engine/error') {
       expect(posted.message).toContain('disagrees with the per-rule count')
     }
-    // Cleanup still ran.
-    expect(deps.queryConn.sentSqls.some((sql) => sql.includes('DROP VIEW IF EXISTS'))).toBe(true)
     expectNoCollisions(deps)
   })
 
-  it('drops the binding view even when the create fails (no object left behind)', async () => {
+  it('never drops a pre-existing view when the create fails; rolls back instead (review item 2)', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
     executor.accept(validateRequest(2, validPlanFixture()))
     await awaitSends(deps.queryConn, 1)
     deps.queryConn.resolveSend(0, describeTable())
     await awaitSends(deps.queryConn, 2)
-    deps.queryConn.rejectSend(1, new Error('Catalog Error: name already exists'))
-    // The finally clause still runs DROP VIEW IF EXISTS; resolve it so the
-    // op settles and its typed error is posted.
+    deps.queryConn.resolveSend(1, tableFromArrays({})) // BEGIN
     await awaitSends(deps.queryConn, 3)
-    expect(deps.queryConn.sentSqls[2]).toContain(`DROP VIEW IF EXISTS "${BINDING}"`)
-    deps.queryConn.resolveSend(2, tableFromArrays({}))
+    // The binding name already exists (a user-created view): the CREATE
+    // fails, so THIS operation never created a view...
+    deps.queryConn.rejectSend(2, new Error('Catalog Error: name already exists'))
+    // Belt 2 still settles: the (empty) transaction is rolled back.
+    await awaitSends(deps.queryConn, 4)
+    expect(deps.queryConn.sentSqls[3]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(3, tableFromArrays({}))
     const posted = await awaitPosted(deps, 2)
     expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      // Item 6: the raw catalog error is mapped to a privacy-safe class.
+      expect(posted.message).toBe('the validation binding view could not be materialized')
+    }
+    // ...so no DROP may run: the pre-existing user view must survive.
+    expect(deps.queryConn.sentSqls.some((sql) => sql.includes('DROP VIEW'))).toBe(false)
+    expectNoCollisions(deps)
+  })
+
+  it('maps raw engine errors to privacy-safe classes and still cleans up (review item 6)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    executor.accept(validateRequest(2, validPlanFixture()))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, describeTable())
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, tableFromArrays({})) // BEGIN
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, tableFromArrays({})) // CREATE VIEW
+    await awaitSends(deps.queryConn, 4)
+    deps.queryConn.resolveSend(3, countTable(4n))
+    await awaitSends(deps.queryConn, 5)
+    // A DuckDB conversion error carrying an offending VALUE: none of it may
+    // leave the worker.
+    deps.queryConn.rejectSend(
+      4,
+      new Error("Conversion Error: Could not convert string 'hunter2secret' to BIGINT"),
+    )
+    // The op-created view is still dropped, and the transaction rolled back.
+    await awaitSends(deps.queryConn, 6)
+    expect(deps.queryConn.sentSqls[5]).toContain(`DROP VIEW IF EXISTS "${BINDING}"`)
+    deps.queryConn.resolveSend(5, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 7)
+    expect(deps.queryConn.sentSqls[6]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toBe("validation rule 'columns[0].required' failed to execute")
+      expect(posted.message).not.toContain('hunter2secret')
+    }
+    // The engine is reusable.
+    executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
     expectNoCollisions(deps)
   })
 
@@ -2153,21 +2286,27 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     expect(deps.queryConn.sentSqls[1]).toBe('DESCRIBE "assay_t1"')
     deps.queryConn.resolveSend(1, describeTable())
     await awaitSends(deps.queryConn, 3)
-    expect(deps.queryConn.sentSqls[2]).toContain(`CREATE VIEW "${BINDING}"`)
+    expect(deps.queryConn.sentSqls[2]).toBe('BEGIN TRANSACTION')
     deps.queryConn.resolveSend(2, tableFromArrays({}))
     // Drain the scripted validate to completion (failure paths covered above).
     await awaitSends(deps.queryConn, 4)
-    deps.queryConn.resolveSend(3, countTable(4n))
+    expect(deps.queryConn.sentSqls[3]).toContain(`CREATE VIEW "${BINDING}"`)
+    deps.queryConn.resolveSend(3, tableFromArrays({}))
     await awaitSends(deps.queryConn, 5)
-    deps.queryConn.resolveSend(4, factTable())
+    deps.queryConn.resolveSend(4, countTable(4n))
     await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(5, factTable())
+    await awaitSends(deps.queryConn, 7)
     deps.queryConn.resolveSend(
-      5,
+      6,
       tableFromArrays({ rule_id: ['dataset.min-rows'], total_rows: [4], fail_count: [0] }),
     )
-    await awaitSends(deps.queryConn, 7)
-    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 9)
+    deps.queryConn.resolveSend(8, tableFromArrays({}))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/validate-result' })
+    expect(deps.queryConn.sentSqls.at(-1)).toBe('ROLLBACK')
     expectNoCollisions(deps)
   })
 

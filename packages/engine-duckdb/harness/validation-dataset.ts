@@ -76,9 +76,14 @@ export const VALIDATION_BASE_ANCHOR = 'val-anchor-v1'
 export const VALIDATION_OVERLAY_ANCHOR = 'val-ov-1'
 export const VALIDATION_RELATION = 'assay_conf_validate_src'
 export const VALIDATION_SAMPLE_LIMIT = 20
-export const VALIDATION_TRUNCATION_SAMPLE_LIMIT = 150
-/** The engine's documented sample clamp (VALIDATION_SAMPLE_HARD_MAX). */
-export const VALIDATION_EXPECTED_SAMPLES_CLAMPED = 100
+/** The engine's documented hard max (a plan with exactly this K executes). */
+export const VALIDATION_HARD_MAX_SAMPLE_LIMIT = 100
+/** A K past the hard max: the compiled plan is rejected at the wire. */
+export const VALIDATION_OVER_MAX_SAMPLE_LIMIT = 101
+/** Reported samples under the hard-max plan: min(110 violations, 100). */
+export const VALIDATION_EXPECTED_SAMPLES_AT_MAX = 100
+/** A user-created (non-registered) view the survival probe binds against. */
+export const VALIDATION_PRE_EXISTING_VIEW = 'review_existing'
 
 /** The DROP-bait row value: hostile-looking DATA that must simply fail the contract. */
 export const VALIDATION_BAIT_VALUE = "'; DROP TABLE assay_conf_injected; --"
@@ -535,9 +540,10 @@ export const VALIDATION_DATASET: ConformanceValidationDataset = {
   ],
   truncation: {
     ruleId: 'columns[5].allowed-values',
-    sampleLimit: VALIDATION_TRUNCATION_SAMPLE_LIMIT,
+    hardMax: VALIDATION_HARD_MAX_SAMPLE_LIMIT,
+    overMaxSampleLimit: VALIDATION_OVER_MAX_SAMPLE_LIMIT,
     expectFailCount: 110,
-    expectSamples: VALIDATION_EXPECTED_SAMPLES_CLAMPED,
+    expectSamples: VALIDATION_EXPECTED_SAMPLES_AT_MAX,
     expectFirstRowKey: key('', 0),
     expectFirstValue: 'bad',
   },
@@ -565,8 +571,45 @@ export const VALIDATION_DATASET: ConformanceValidationDataset = {
         ],
       }),
     },
+    {
+      // The m5-2 fix round's canary probes — the review's exact payload,
+      // with no relation occurrence: rejected at the static gate before any
+      // SQL runs; the canary is asserted absent via catalog listing below.
+      label: 'canary CREATE TABLE without a relation occurrence',
+      plan: hostilePlan({
+        rules: [
+          {
+            ruleId: 'hostile',
+            path: 'hostile',
+            kind: 'required',
+            column: 'id',
+            outcome: 'row-samples',
+            sql: 'CREATE TABLE review_injected AS SELECT 1',
+          },
+        ],
+      }),
+    },
+    {
+      // The same canary wearing a compiler-shaped relation occurrence (a
+      // CTAS whose FROM sits exactly in the compiler's rendering) — the
+      // shape the original occurrence gate alone could not distinguish.
+      label: 'canary CREATE TABLE with a compiler-shaped relation occurrence',
+      plan: hostilePlan({
+        rules: [
+          {
+            ruleId: 'hostile',
+            path: 'hostile',
+            kind: 'required',
+            column: 'id',
+            outcome: 'row-samples',
+            sql: `CREATE TABLE review_injected AS SELECT * FROM "${VALIDATION_RELATION}" AS "src" WHERE FALSE`,
+          },
+        ],
+      }),
+    },
   ],
-  injectedTable: 'assay_conf_injected',
+  injectedTables: ['assay_conf_injected', 'review_injected'],
+  preExistingViewName: VALIDATION_PRE_EXISTING_VIEW,
   vocabularyPrefix: 'v_',
   decimalReportedType: 'DECIMAL(18,3)',
 }

@@ -93,6 +93,9 @@ import {
   readValidationRuleRows,
   readValidationRowKeys,
   readValidationSummaryRows,
+  VALIDATION_BEGIN_SQL,
+  VALIDATION_ROLLBACK_SQL,
+  VALIDATION_SAMPLE_HARD_MAX,
 } from './validate-query'
 import type { ValidationSampleRow } from './validate-query'
 import { assertValidationPlanRelationBinding } from './validate-plan-wire'
@@ -637,18 +640,46 @@ export class EngineOpExecutor {
    * `finally`, and a failed create/drop sequence leaves no object behind.
    *
    * Boundary posture (the m4-2 strictness, applied to plans): the wire shape
-   * was validated at the envelope; here the plan's binding name is checked
-   * against the registry (no shadowing) and its SQL against the compiler's
-   * relation-rendering shape — rejections are exactly one typed
-   * `engine/error`, before any SQL runs. Per-rule fail counts must agree
-   * with the summary (the plan contract's no-divergence invariant), samples
-   * are clamped to the documented hard max, and row keys resolve through the
-   * composed view (samples carry logical row keys, never bare positions).
+   * was validated at the envelope; here the plan must pass the two
+   * containment belts of the m5-2 fix round BEFORE any SQL runs —
+   *
+   * - **Belt 1, the static gate** (`assertValidationPlanRelationBinding`):
+   *   no shadowing of registered views; every rule query and the summary a
+   *   single `SELECT` statement; the relation bound in a compiler FROM
+   *   position at least once (CREATE/CTAS payloads, multi-statement strings,
+   *   and relation-free SQL are typed rejections here).
+   * - **Belt 2, the containment transaction**: the whole execution below
+   *   runs inside a transaction that is ALWAYS rolled back in the cleanup
+   *   path (DuckDB DDL is transactional — the reviewer's
+   *   `CREATE TABLE review_injected AS SELECT 1` canary cannot persist even
+   *   if a future gate evasion slipped belt 1).
+   *
+   * The binding view is dropped inside the transaction too — and ONLY when
+   * THIS operation created it (review round 2, item 2: the unconditional
+   * `DROP VIEW IF EXISTS` previously deleted a pre-existing user view after
+   * a failed create). Per-rule fail counts must agree with the summary (the
+   * plan contract's no-divergence invariant), samples are bounded by the
+   * plan's own K (the wire rejects K > the documented hard max before any
+   * SQL runs), and row keys resolve through the composed view (samples carry
+   * logical row keys, never bare positions).
+   *
+   * Engine errors surface as privacy-safe failure classes only (review
+   * round 2, item 6): DuckDB's own messages can embed offending values or
+   * plan text, so every engine-touching step is mapped through
+   * {@link validationStep} to a fixed, value-free message; errors thrown by
+   * this module's own shape checks are already privacy-safe and pass
+   * through.
    */
   private async runValidate(request: EngineValidateRequest, lane: OpLane): Promise<void> {
     const entry = this.requireTable(request.tableId)
     const conn = lane.connection(await this.deps.ensureSession())
     const plan = request.plan
+    // Defense-in-depth re-check of the wire's materialization bound (the
+    // envelope already rejects such plans): an oversized K never reaches a
+    // connection, even when this method is driven directly.
+    if (plan.sampleLimit > VALIDATION_SAMPLE_HARD_MAX) {
+      throw new Error('validation plan sampleLimit exceeds the engine hard max')
+    }
     assertValidationPlanRelationBinding(
       plan,
       this.registry.list().map((registered) => registered.viewName),
@@ -656,21 +687,35 @@ export class EngineOpExecutor {
 
     const composition: OverlayComposition =
       request.overlay === undefined
-        ? await this.baseViewComposition(conn, entry.viewName)
+        ? await this.validationStep('the validation target could not be described', () =>
+            this.baseViewComposition(conn, entry.viewName),
+          )
         : {
             viewName: entry.viewName,
             base: request.overlay.base,
             state: this.compositionOf(request.overlay).state,
           }
 
+    // Belt 2 — containment. If the BEGIN itself fails, nothing was started
+    // and the typed error propagates directly; every path out of the try
+    // below issues the ROLLBACK.
+    await this.validationStep('the validation containment transaction could not be started', () =>
+      conn.query(VALIDATION_BEGIN_SQL),
+    )
+    let viewCreated = false
     try {
-      await conn.query(composeValidationViewSql(composition, plan.relation))
-      const rowCount = readValidationRowCount(
-        await conn.query(composeValidationCountSql(plan.relation)),
+      await this.validationStep('the validation binding view could not be materialized', () =>
+        conn.query(composeValidationViewSql(composition, plan.relation)),
+      )
+      viewCreated = true
+      const rowCount = await this.validationStep(
+        'the validation row-count query failed to execute',
+        async () =>
+          readValidationRowCount(await conn.query(composeValidationCountSql(plan.relation))),
       )
 
       // Per-rule queries in plan order: failCount + plan-bounded samples (the
-      // plan's own LIMIT bounds the scan; the hard max bounds the payload).
+      // plan's own LIMIT bounds the scan; the wire bound caps K).
       const perRule: {
         readonly ruleId: string
         readonly failCount: number
@@ -678,7 +723,10 @@ export class EngineOpExecutor {
       }[] = []
       const ordinals = new Set<number>()
       for (const rule of plan.rules) {
-        const rows = readValidationRuleRows(await conn.query(rule.sql), rule.outcome)
+        const rows = await this.validationStep(
+          `validation rule '${rule.ruleId}' failed to execute`,
+          async () => readValidationRuleRows(await conn.query(rule.sql), rule.outcome),
+        )
         if (rows.samples.length > plan.sampleLimit) {
           throw new Error(`rule '${rule.ruleId}' returned more samples than the plan's bound`)
         }
@@ -695,11 +743,13 @@ export class EngineOpExecutor {
       // samples carry logical row keys (m4-3 grammar), never bare positions.
       const keys =
         ordinals.size > 0
-          ? readValidationRowKeys(
-              await conn.query(
-                composeValidationRowKeySql(
-                  plan.relation,
-                  [...ordinals].sort((a, b) => a - b),
+          ? await this.validationStep('the validation row-key query failed to execute', async () =>
+              readValidationRowKeys(
+                await conn.query(
+                  composeValidationRowKeySql(
+                    plan.relation,
+                    [...ordinals].sort((a, b) => a - b),
+                  ),
                 ),
               ),
             )
@@ -708,7 +758,10 @@ export class EngineOpExecutor {
       // Summary agreement (the plan contract: per-rule ≡ summary is
       // structural; the engine still asserts it so a diverging plan fails
       // loudly instead of reporting counts that disagree with themselves).
-      const summary = readValidationSummaryRows(await conn.query(plan.summarySql))
+      const summary = await this.validationStep(
+        'the validation summary query failed to execute',
+        async () => readValidationSummaryRows(await conn.query(plan.summarySql)),
+      )
       if (summary.size !== plan.rules.length) {
         throw new Error('validation summary did not report exactly one row per planned rule')
       }
@@ -737,7 +790,34 @@ export class EngineOpExecutor {
         result: { valid: rules.every((rule) => rule.failCount === 0), rowCount, rules },
       })
     } finally {
-      await conn.query(composeValidationViewDropSql(plan.relation)).catch(() => undefined)
+      // Cleanup (inside the transaction): drop the binding view ONLY when
+      // this operation created it — a failed create must never drop a
+      // pre-existing user view (review round 2, item 2). The ROLLBACK then
+      // undoes the whole transaction regardless (belt 2); if the rollback
+      // itself fails the connection is unusable anyway and the next op fails
+      // cleanly, so the error is swallowed to never mask the op's result.
+      if (viewCreated) {
+        await conn.query(composeValidationViewDropSql(plan.relation)).catch(() => undefined)
+      }
+      await conn.query(VALIDATION_ROLLBACK_SQL).catch(() => undefined)
+    }
+  }
+
+  /**
+   * Map one engine-touching step of the validate op to a privacy-safe
+   * failure class (review round 2, item 6): DuckDB conversion/binder errors
+   * can embed offending VALUES or plan text, and validation messages leave
+   * the worker, so the raw engine error is dropped (never attached as a
+   * cause) and replaced by the fixed, value-free class message. Errors
+   * thrown by this module's own shape checks are privacy-safe by
+   * construction (fixed strings plus rule ids) and pass through unchanged —
+   * they never originate inside a `conn.query` promise.
+   */
+  private async validationStep<T>(failureClass: string, run: () => Promise<T>): Promise<T> {
+    try {
+      return await run()
+    } catch {
+      throw new Error(failureClass)
     }
   }
 

@@ -1069,7 +1069,10 @@ function fakeEvaluateRule(
   return { failCount, samples }
 }
 
-/** The fake's plan-shape guard (the mirror of the engine's boundary). */
+/**
+ * The fake's plan-shape guard (the mirror of the engine's boundary, m5-2
+ * fix round): statement shape, relation binding, and the K hard max.
+ */
 function fakeAssertPlanValid(plan: ConformanceValidationPlan): void {
   if (plan.planKind !== 'assay-validation-plan' || plan.planVersion !== 1) {
     throw new FakeOperationError('unknown validation plan kind/version')
@@ -1086,17 +1089,63 @@ function fakeAssertPlanValid(plan: ConformanceValidationPlan): void {
   ) {
     throw new FakeOperationError('malformed validation plan')
   }
+  // The materialization bound: over-max K is rejected, never executed.
+  if (plan.sampleLimit > FAKE_VALIDATION_SAMPLE_MAX) {
+    throw new FakeOperationError('validation plan sampleLimit exceeds the engine hard max')
+  }
   if (plan.relation === FAKE_OWNED_VIEW) {
     throw new FakeOperationError('validation plan relation collides with a registered view')
   }
+  // A plan bound to a name that already exists as a user-created view fails
+  // its materialization (the fake's catalog mirror; the survival probe).
+  if (subjectState.createdViews.has(plan.relation)) {
+    throw new FakeOperationError('validation binding name already exists in the catalog')
+  }
   const quoted = `"${plan.relation}"`
+  const singleSelect = (sql: string): boolean => {
+    if (!/^\s*select\b/i.test(sql)) return false
+    let inSingle = false
+    let inDouble = false
+    for (let index = 0; index < sql.length; index++) {
+      const character = sql[index]
+      if (inSingle) {
+        if (character === "'") inSingle = false
+      } else if (inDouble) {
+        if (character === '"') inDouble = false
+      } else if (character === "'") {
+        inSingle = true
+      } else if (character === '"') {
+        inDouble = true
+      } else if (character === ';' && sql.slice(index + 1).trim() !== '') {
+        return false
+      }
+    }
+    return !inSingle && !inDouble
+  }
   for (const rule of [...plan.rules]) {
     if (typeof rule.ruleId !== 'string' || typeof rule.sql !== 'string') {
       throw new FakeOperationError('malformed validation rule')
     }
-    if (rule.sql.includes(quoted) && !rule.sql.includes(`FROM ${quoted}`)) {
-      throw new FakeOperationError('rule SQL does not bind the relation in the compiler FROM shape')
+    if (!singleSelect(rule.sql)) {
+      throw new FakeOperationError(
+        `rule '${rule.ruleId}' is not a single compiler-shaped SELECT query`,
+      )
     }
+    if (!rule.sql.includes(`FROM ${quoted}`)) {
+      throw new FakeOperationError(
+        `rule '${rule.ruleId}' does not bind its relation in the compiler FROM shape`,
+      )
+    }
+  }
+  if (!singleSelect(plan.summarySql)) {
+    throw new FakeOperationError(
+      'validation plan summary is not a single compiler-shaped SELECT query',
+    )
+  }
+  if (plan.rules.length > 0 && !plan.summarySql.includes(`FROM ${quoted}`)) {
+    throw new FakeOperationError(
+      'validation plan summary does not bind its relation in the compiler FROM shape',
+    )
   }
 }
 
@@ -1113,7 +1162,7 @@ function fakeHostilePlan(
       contractName: 'conf',
       contractVersion: 1,
       relation: FAKE_VALIDATION_RELATION,
-      sampleLimit: 20,
+      sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
       rules: [
         {
           ruleId: 'columns[0].required',
@@ -1194,7 +1243,9 @@ const FAKE_VALIDATION_EMPTY_OVERLAY_RULES: readonly ConformanceValidationRuleExp
 const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
   contractYaml: FAKE_VALIDATION_CONTRACT_YAML,
   planRelation: FAKE_VALIDATION_RELATION,
-  sampleLimit: 20,
+  // The fake's own hard max (3): compiled plans must stay within it, or the
+  // mirrored wire guard would reject every run (m5-2 fix round semantics).
+  sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
   base: FAKE_VALIDATION_BASE,
   baseExpectations: {
     valid: false,
@@ -1408,7 +1459,8 @@ const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
   ],
   truncation: {
     ruleId: 'columns[1].allowed-values',
-    sampleLimit: 10,
+    hardMax: FAKE_VALIDATION_SAMPLE_MAX,
+    overMaxSampleLimit: FAKE_VALIDATION_SAMPLE_MAX + 1,
     expectFailCount: 5,
     expectSamples: FAKE_VALIDATION_SAMPLE_MAX,
     expectFirstRowKey: fakeValKey(0),
@@ -1430,8 +1482,53 @@ const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
         },
       ],
     }),
+    {
+      label: 'canary CREATE TABLE without a relation occurrence',
+      plan: {
+        planKind: 'assay-validation-plan',
+        planVersion: 1,
+        contractName: 'conf',
+        contractVersion: 1,
+        relation: FAKE_VALIDATION_RELATION,
+        sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
+        rules: [
+          {
+            ruleId: 'hostile',
+            path: 'hostile',
+            kind: 'required',
+            column: 'id',
+            outcome: 'row-samples',
+            sql: 'CREATE TABLE fake_review_injected AS SELECT 1',
+          },
+        ],
+        summarySql: `SELECT 'columns[0].required' AS "rule_id" FROM "${FAKE_VALIDATION_RELATION}" AS "src"`,
+      },
+    },
+    {
+      label: 'canary CREATE TABLE with a compiler-shaped relation occurrence',
+      plan: {
+        planKind: 'assay-validation-plan',
+        planVersion: 1,
+        contractName: 'conf',
+        contractVersion: 1,
+        relation: FAKE_VALIDATION_RELATION,
+        sampleLimit: FAKE_VALIDATION_SAMPLE_MAX,
+        rules: [
+          {
+            ruleId: 'hostile',
+            path: 'hostile',
+            kind: 'required',
+            column: 'id',
+            outcome: 'row-samples',
+            sql: `CREATE TABLE fake_review_injected AS SELECT * FROM "${FAKE_VALIDATION_RELATION}" AS "src" WHERE FALSE`,
+          },
+        ],
+        summarySql: `SELECT 'columns[0].required' AS "rule_id" FROM "${FAKE_VALIDATION_RELATION}" AS "src"`,
+      },
+    },
   ],
-  injectedTable: 'fake_validation_injected',
+  injectedTables: ['fake_validation_injected', 'fake_review_injected'],
+  preExistingViewName: 'fake_review_existing',
   vocabularyPrefix: 'v_',
   decimalReportedType: 'DECIMAL(18,3)',
 }
@@ -1886,6 +1983,11 @@ const subjectState = {
   staged: new Map<string, Uint8Array>(),
   /** Completed exports, re-openable through `open()` (m4-2). */
   exports: new Map<string, FakeExportFile>(),
+  /**
+   * Views the fake's `query()` has created via DDL (the m5-2 fix round's
+   * pre-existing-view survival probe); the subject's `tableExists` reads it.
+   */
+  createdViews: new Set<string>(),
   goodBytes: new Uint8Array([80, 65, 82, 49, 1, 2, 3, 4]), // "PAR1" + payload
 }
 
@@ -2056,6 +2158,18 @@ class FakeEngineClient implements ConformanceEngineClient {
     if (sql === FAILING_SQL) {
       if (this.mutations.resolveFailingSql) return { batch: wideTable([1]), hasMore: false }
       throw new FakeQueryError('Parser Error')
+    }
+    // DDL for the m5-2 fix round's survival probe: track created views so
+    // the subject's `tableExists` can answer; DROP un-creates.
+    const createView = /^CREATE VIEW "([^"]+)" AS/.exec(sql)
+    if (createView !== null) {
+      subjectState.createdViews.add(createView[1]!)
+      return { batch: tableFromArrays({}), hasMore: false }
+    }
+    const dropView = /^DROP VIEW "([^"]+)"$/.exec(sql)
+    if (dropView !== null) {
+      subjectState.createdViews.delete(dropView[1]!)
+      return { batch: tableFromArrays({}), hasMore: false }
     }
     if (sql === MID_STREAM_SQL) {
       // Contract stand-in: the first batch succeeded (invisible at this API
@@ -2639,6 +2753,7 @@ function wideTable(ids: readonly number[]): Table {
 function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
   subjectState.staged.clear()
   subjectState.exports.clear()
+  subjectState.createdViews.clear()
   return {
     name: 'fake-engine',
     createClient: () => {
@@ -2739,7 +2854,7 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       return client.committedCastCheck(handle, overlay, request)
     },
     hostileTypeProbes: FAKE_HOSTILE_TYPE_PROBES,
-    tableExists: async () => false, // the fake never executes DDL side-effects
+    tableExists: async (_client, name) => subjectState.createdViews.has(name),
     sourceDigest: async (source) => {
       const bytes = subjectState.staged.get(source.name)
       if (bytes === undefined) throw new Error('fake digest: unstaged file')
@@ -2891,7 +3006,7 @@ describe('engine conformance suite (m5-2 validation execution)', () => {
     expect(result.facts['interactions']).toBe(FAKE_VALIDATION_DATASET.interactions.length)
     expect(result.facts['fixFlips']).toBeGreaterThanOrEqual(1)
     expect(result.facts['violateFlips']).toBeGreaterThanOrEqual(1)
-    expect(result.facts['truncationClampedTo']).toBe(FAKE_VALIDATION_SAMPLE_MAX)
+    expect(result.facts['hardMaxSamples']).toBe(FAKE_VALIDATION_SAMPLE_MAX)
     expect(result.facts['hostileRejected']).toBe(FAKE_VALIDATION_DATASET.hostilePlans.length)
     expect(result.facts['vocabularyAgreed']).toBe(CONTRACT_TYPE_VOCABULARY.length)
     expect(result.facts['engineReusable']).toBe(true)
@@ -2921,7 +3036,7 @@ describe('engine conformance suite (m5-2 validation execution)', () => {
       'validation-plan-execution',
     )
     expect(passed).toBe(false)
-    expect(detail).toContain('clamped sample count')
+    expect(detail).toContain('samples stop at the hard max')
   })
 
   it('validation-plan-execution: detects a missing hostile-plan guard', async () => {
@@ -2930,7 +3045,9 @@ describe('engine conformance suite (m5-2 validation execution)', () => {
       'validation-plan-execution',
     )
     expect(passed).toBe(false)
-    expect(detail).toContain('hostile plan must be rejected')
+    // The skipped guard trips first at the over-max K probe (step 4) or at
+    // the hostile-plan battery (step 5) — either is the guard's absence.
+    expect(detail).toMatch(/must be rejected/)
   })
 })
 

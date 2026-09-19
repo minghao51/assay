@@ -14,11 +14,17 @@
  * - every rule carries the closed v1 kind/outcome vocabularies, string SQL,
  *   and a unique `ruleId` (results are keyed by it — duplicates would make
  *   the result map ambiguous, so a duplicate is a malformed plan);
- * - `sampleLimit` is a safe integer ≥ 1 (the plan contract: `LIMIT 0` could
- *   not distinguish a violated rule from a clean one). There is deliberately
- *   **no upper bound here** — the compiler accepts any safe K — but the
- *   executor clamps the *returned samples* to its documented hard max
- *   (`VALIDATION_SAMPLE_HARD_MAX` in `validate-query.ts`);
+ * - `sampleLimit` is a safe integer in `[1, VALIDATION_SAMPLE_HARD_MAX]`.
+ *   The lower bound is the plan contract (`LIMIT 0` could not distinguish a
+ *   violated rule from a clean one). The upper bound is the review-round-2
+ *   materialization bound: a plan's own `LIMIT K` cuts its OUTPUT, but the
+ *   compiled row-samples shape computes `count(*) OVER ()` over **every**
+ *   violating row first, so an oversized K lets the engine materialize the
+ *   whole violating set just to slice it afterward. The engine therefore
+ *   **rejects K > VALIDATION_SAMPLE_HARD_MAX at the wire** (typed error,
+ *   zero SQL executed) — documented semantics: legitimate K > 100 plans are
+ *   rejected, not clamped; `sampleFailures ≤ min(K, hard max)` still holds
+ *   because K ≤ hard max;
  * - `relation` is a non-empty NUL-free bounded string: it becomes the name of
  *   the engine-created view the plan executes against (see
  *   `validate-query.ts`), so the bound keeps a hostile name from being a
@@ -27,14 +33,26 @@
  *   orders of magnitude smaller) so a hostile host cannot post megabytes of
  *   SQL as a shape-valid request.
  *
- * Beyond shape, {@link assertValidationPlanRelationBinding} enforces the one
- * structural invariant of the compiler's *rendering* the executor relies on:
- * the quoted relation name may appear in plan SQL **only** in the FROM
- * positions the compiler emits (`FROM "<rel>" AS "src"` /
- * `(SELECT count(*) FROM "<rel>")`). Any other occurrence — the signature of
- * SQL smuggled through the relation-name position — is a typed rejection
- * before execution. A rule *value* that legitimately embeds that exact text
- * is therefore also rejected (fail-closed; documented in the m5-2 report).
+ * Beyond shape, {@link assertValidationPlanRelationBinding} enforces the
+ * compiler-*rendering* invariants the executor relies on. This is the first
+ * of TWO containment belts against smuggled SQL (review round 2: a plan
+ * carrying `CREATE TABLE <canary> AS SELECT 1` slipped an occurrence-shaped
+ * gate and persisted the canary):
+ *
+ * 1. **Tightened static gate** — every rule query and the summary must be a
+ *    SINGLE `SELECT` statement (statement-boundary scan that respects
+ *    quoted literals, so a legitimate rule value containing `;` still
+ *    parses), and the quoted relation must occur at least once in one of
+ *    the compiler's FROM positions (`FROM "<rel>" AS "src"` /
+ *    `(SELECT count(*) FROM "<rel>")`) in every rule — and in the summary
+ *    of any plan that HAS rules (a rule-less plan's compiler-emitted empty
+ *    summary is the one documented zero-occurrence shape). CREATE/CTAS
+ *    statements, multi-statement strings, and relation-free SQL are typed
+ *    rejections BEFORE any SQL runs.
+ * 2. **Executor containment** — the executor runs the whole operation
+ *    inside a transaction that is ALWAYS rolled back (DuckDB DDL is
+ *    transactional), so even a hypothetical gate evasion cannot persist
+ *    side effects (engine-executor.ts `runValidate`).
  *
  * The mirror discipline is the same as the m2-2 filter/sort and m2-5 profile
  * mirrors: shapes are re-declared here (no engine → validation dependency),
@@ -79,6 +97,17 @@ const MAX_SQL_LENGTH = 100_000
 const MAX_COLUMN_LENGTH = 512
 
 /**
+ * The engine-side hard max on a plan's `sampleLimit`. The compiled rule
+ * queries compute each rule's full violation count (the plan contract:
+ * `failCount` counts ALL violating rows, independent of K), so the engine
+ * cannot clamp K after the fact without unbounded materialization — instead
+ * a plan whose K exceeds this bound is **rejected at the wire** (documented
+ * m5-2 fix-round semantics: over-max K is rejected, not clamped). Declared
+ * here, at the boundary that enforces it; `validate-query.ts` re-exports it.
+ */
+export const VALIDATION_SAMPLE_HARD_MAX = 100
+
+/**
  * One compiled rule as the wire carries it (structural mirror of m5-1's
  * `PlannedRule`; the compiler's output assigns to this shape directly).
  */
@@ -116,11 +145,12 @@ export interface EngineValidationSample {
    * The logical row id of the offending row in the composed effective view
    * (`base:<anchor>#<ordinal>` / `ins:<anchor>#<seq>` — the m4-3 row-key
    * grammar), NOT a bare position: hosts target rows with it directly.
-   * `null` is never produced by the executor (a resolvable key is part of
-   * the result contract); the `null` spelling exists so older payloads stay
-   * parseable.
+   * A resolvable non-empty key is part of the result contract: the executor
+   * never produces `null`/empty (an unresolvable key fails the op loudly),
+   * and the protocol parser rejects any payload that carries one (m5-2 fix
+   * round — the type is the contract, not the hope).
    */
-  readonly rowKey: string | null
+  readonly rowKey: string
   /**
    * The offending value, normalized to wire-safe JSON data (see
    * `normalizeSampleValue` in `validate-query.ts`): string, finite number,
@@ -147,8 +177,10 @@ export interface EngineValidationRuleResult {
   readonly failPercent: number
   /**
    * Bounded sample failures: at most `min(plan.sampleLimit, the engine's
-   * documented hard max)` entries, each carrying the offending row's key and
-   * value. Empty for `dataset-fact` rules (no row samples exist).
+   * documented hard max)` entries — and since the wire rejects
+   * `sampleLimit > VALIDATION_SAMPLE_HARD_MAX`, at most the plan's own K —
+   * each carrying the offending row's key and value. Empty for
+   * `dataset-fact` rules (no row samples exist).
    */
   readonly sampleFailures: readonly EngineValidationSample[]
 }
@@ -228,6 +260,11 @@ export function parseValidationPlan(value: unknown): EngineValidationPlan | null
   if (typeof sampleLimit !== 'number' || !Number.isSafeInteger(sampleLimit) || sampleLimit < 1) {
     return null
   }
+  // The materialization bound (module doc): an oversized K is rejected at
+  // the wire — zero SQL runs for such a plan — never executed and sliced.
+  if (sampleLimit > VALIDATION_SAMPLE_HARD_MAX) {
+    return null
+  }
   const rawRules = record['rules']
   if (!Array.isArray(rawRules)) return null
   const rules: EngineValidationRule[] = []
@@ -257,38 +294,83 @@ export function parseValidationPlan(value: unknown): EngineValidationPlan | null
  * name is always preceded by `FROM ` and always followed by either the range
  * alias (` AS "src"`) or the closing parenthesis of the scalar count
  * subquery (`(SELECT count(*) FROM "<rel>")`). Anything else — an occurrence
- * in any other position — is not compiler output.
+ * in any other position — is not compiler output. Returns the number of
+ * compiler-shaped occurrences: the caller enforces the minimum (≥ 1 for
+ * every rule query and for the summary of any plan that has rules; the
+ * rule-less plan's empty summary is the one documented zero-occurrence
+ * shape — review round 2: a relation-free statement can carry arbitrary SQL
+ * past an occurrence gate, so zero occurrences are only acceptable where
+ * the compiler provably emits them).
  */
-function relationOccurrencesMatchCompilerShape(sql: string, quotedRelation: string): boolean {
+function countCompilerShapedOccurrences(sql: string, quotedRelation: string): number {
+  let count = 0
   let cursor = 0
   for (;;) {
     const index = sql.indexOf(quotedRelation, cursor)
     if (index < 0) break
     const from = index - 'FROM '.length
-    if (from < 0 || sql.slice(from, index) !== 'FROM ') return false
+    if (from < 0 || sql.slice(from, index) !== 'FROM ') return 0
     const after = sql.slice(index + quotedRelation.length)
-    if (!after.startsWith(` AS "src"`) && !after.startsWith(')')) return false
+    if (!after.startsWith(` AS "src"`) && !after.startsWith(')')) return 0
+    count += 1
     cursor = index + quotedRelation.length
   }
-  // Zero occurrences is fine (e.g. the empty summary of a rule-less plan).
-  return true
+  return count
+}
+
+/**
+ * True when `sql` is a single SELECT statement: it starts with `SELECT`
+ * (the compiler emits no CTE/wrapper forms) and contains no statement
+ * separator outside quoted contexts with anything after it. The separator
+ * scan tracks single- and double-quoted regions with SQL's doubled-quote
+ * escaping (`''` / `""`), so a legitimate rule VALUE containing `;` (a
+ * regex or allowed-values literal) never reads as a second statement.
+ * Comment grammar is deliberately not emulated: the compiler emits no
+ * comments, so comment-looking SQL is hostile-shaped and fails closed.
+ */
+function isSingleSelectStatement(sql: string): boolean {
+  if (!/^\s*select\b/i.test(sql)) return false
+  let inSingle = false
+  let inDouble = false
+  for (let index = 0; index < sql.length; index++) {
+    const character = sql[index]
+    if (inSingle) {
+      if (character === "'") inSingle = false
+    } else if (inDouble) {
+      if (character === '"') inDouble = false
+    } else if (character === "'") {
+      inSingle = true
+    } else if (character === '"') {
+      inDouble = true
+    } else if (character === ';' && sql.slice(index + 1).trim() !== '') {
+      return false
+    }
+  }
+  // An unterminated quote is not compiler output either.
+  return !inSingle && !inDouble
 }
 
 /**
  * The executor-side semantic checks beyond wire shape (typed `Error`s — the
  * request is recognised, so these surface as exactly one typed
- * `engine/error`, never a silent drop):
+ * `engine/error`, never a silent drop). Belt 1 of the m5-2 fix round's two
+ * containment belts (belt 2 is the executor's rollback transaction):
  *
  * 1. **No clobbering** — the binding name must not equal the registered view
  *    of ANY open table (a hostile plan naming `assay_t1` must be rejected
  *    before a `CREATE VIEW` could shadow the base view; the executor also
  *    uses bare `CREATE VIEW`, so any other catalog collision fails the
  *    create without touching the existing object).
- * 2. **Compiler-shaped relation references** — every occurrence of the
- *    quoted relation in the plan's SQL must sit in one of the compiler's
- *    FROM positions (see {@link relationOccurrencesMatchCompilerShape}).
- *    This is the second-gate invariant: SQL smuggled through the
- *    relation-name position cannot reach execution.
+ * 2. **Single SELECT statements** — every rule query and the summary must be
+ *    one `SELECT` statement (see {@link isSingleSelectStatement}).
+ *    `CREATE TABLE <canary> AS SELECT …` payloads — the review's exact
+ *    probe — are rejected here, before any SQL reaches the engine.
+ * 3. **Compiler-shaped relation references, at least once** — every rule
+ *    query must reference the quoted relation in one of the compiler's FROM
+ *    positions at least once, and so must the summary of any plan that has
+ *    rules (see {@link countCompilerShapedOccurrences}). SQL smuggled
+ *    through the relation-name position — or SQL with no relation binding
+ *    at all — cannot reach execution.
  *
  * The error messages name the failure class only — never plan content, rule
  * values, or dataset contents (ADR 0025).
@@ -304,13 +386,23 @@ export function assertValidationPlanRelationBinding(
   }
   const quoted = quotedRelationToken(plan.relation)
   for (const rule of plan.rules) {
-    if (!relationOccurrencesMatchCompilerShape(rule.sql, quoted)) {
+    if (!isSingleSelectStatement(rule.sql)) {
+      throw new Error(
+        `validation plan rule '${rule.ruleId}' is not a single compiler-shaped SELECT query`,
+      )
+    }
+    if (countCompilerShapedOccurrences(rule.sql, quoted) === 0) {
       throw new Error(
         `validation plan rule '${rule.ruleId}' does not bind its relation in the compiler's FROM shape`,
       )
     }
   }
-  if (!relationOccurrencesMatchCompilerShape(plan.summarySql, quoted)) {
+  if (!isSingleSelectStatement(plan.summarySql)) {
+    throw new Error('validation plan summary is not a single compiler-shaped SELECT query')
+  }
+  // A rule-less plan's compiler-emitted empty summary is the one documented
+  // zero-occurrence shape (it reads no relation); anything else must bind.
+  if (plan.rules.length > 0 && countCompilerShapedOccurrences(plan.summarySql, quoted) === 0) {
     throw new Error('validation plan summary does not bind its relation in the compiler FROM shape')
   }
 }

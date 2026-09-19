@@ -3,14 +3,46 @@ import {
   assertValidationPlanRelationBinding,
   parseValidationPlan,
   quotedRelationToken,
+  VALIDATION_SAMPLE_HARD_MAX,
 } from './validate-plan-wire'
 import type { EngineValidationPlan, EngineValidationRule } from './validate-plan-wire'
 
 /**
  * A shape-valid v1 plan shaped exactly like the m5-1 compiler's output (the
  * conformance scenario also runs real compiler output through this parser —
- * these literals pin the boundary matrix in isolation).
+ * these literals pin the boundary matrix in isolation). The rule SQL and
+ * summary template the plan's binding relation, mirroring the compiler (the
+ * m5-2 fix round requires every rule to bind it — the old fixture's
+ * relation-free rule SQL passed the original gate only through the
+ * zero-occurrence loophole the review flagged).
  */
+function compilerShapedRuleSql(relation: string): string {
+  const quoted = quotedRelationToken(relation)
+  return (
+    'SELECT\n' +
+    `  (SELECT count(*) FROM ${quoted}) AS "total_rows",\n` +
+    '  count(*) OVER () AS "fail_count",\n' +
+    '  row_number() OVER () - 1 AS "sample_index",\n' +
+    '  "assay_row_ordinal",\n' +
+    '  "assay_value"\n' +
+    'FROM (\n' +
+    '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal", "src"."id" AS "assay_value"\n' +
+    `  FROM ${quoted} AS "src"\n` +
+    ') AS "assay_rule_source"\n' +
+    'WHERE "assay_value" IS NULL\n' +
+    'LIMIT 20'
+  )
+}
+
+function compilerShapedSummarySql(relation: string): string {
+  const quoted = quotedRelationToken(relation)
+  return (
+    `SELECT 'columns[0].required' AS "rule_id", (SELECT count(*) FROM ${quoted}) AS "total_rows", count(*) AS "fail_count"\n` +
+    `FROM ${quoted} AS "src"\n` +
+    'WHERE "src"."id" IS NULL'
+  )
+}
+
 function validRule(overrides: Partial<EngineValidationRule> = {}): EngineValidationRule {
   return {
     ruleId: 'columns[0].required',
@@ -18,37 +50,28 @@ function validRule(overrides: Partial<EngineValidationRule> = {}): EngineValidat
     kind: 'required',
     column: 'id',
     outcome: 'row-samples',
-    sql:
-      'SELECT\n' +
-      '  (SELECT count(*) FROM "v") AS "total_rows",\n' +
-      '  count(*) OVER () AS "fail_count",\n' +
-      '  row_number() OVER () - 1 AS "sample_index",\n' +
-      '  "assay_row_ordinal",\n' +
-      '  "assay_value"\n' +
-      'FROM (\n' +
-      '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal", "src"."id" AS "assay_value"\n' +
-      '  FROM "v" AS "src"\n' +
-      ') AS "assay_rule_source"\n' +
-      'WHERE "assay_value" IS NULL\n' +
-      'LIMIT 20',
+    sql: compilerShapedRuleSql('assay_conf_validate_src'),
     ...overrides,
   }
 }
 
 function validPlan(overrides: Partial<EngineValidationPlan> = {}): EngineValidationPlan {
+  const relation =
+    typeof overrides.relation === 'string' ? overrides.relation : 'assay_conf_validate_src'
   return {
     planKind: 'assay-validation-plan',
     planVersion: 1,
     contractName: 'conf',
     contractVersion: 1,
-    relation: 'assay_conf_validate_src',
+    relation,
     sampleLimit: 20,
-    rules: [validRule()],
-    summarySql:
-      'SELECT \'columns[0].required\' AS "rule_id", (SELECT count(*) FROM "assay_conf_validate_src") AS "total_rows", count(*) AS "fail_count"\n' +
-      'FROM "assay_conf_validate_src" AS "src"\n' +
-      'WHERE "src"."id" IS NULL',
+    rules: [validRule({ sql: compilerShapedRuleSql(relation) })],
+    summarySql: compilerShapedSummarySql(relation),
     ...overrides,
+    // When the test overrides rules/summary it owns them wholesale; when it
+    // overrides only the relation the templates above follow it.
+    ...(overrides.rules === undefined ? {} : { rules: overrides.rules }),
+    ...(overrides.summarySql === undefined ? {} : { summarySql: overrides.summarySql }),
   }
 }
 
@@ -99,8 +122,20 @@ describe('parseValidationPlan (m5-2 wire boundary)', () => {
     expect(parseValidationPlan(validPlan({ sampleLimit: -5 }))).toBeNull()
     expect(parseValidationPlan(validPlan({ sampleLimit: 2.5 }))).toBeNull()
     expect(parseValidationPlan(validPlan({ sampleLimit: '20' as unknown as number }))).toBeNull()
-    // No upper bound: large K is legal upstream and clamped executor-side.
-    expect(parseValidationPlan(validPlan({ sampleLimit: 10_000 }))).not.toBeNull()
+  })
+
+  it('rejects sampleLimit above the engine hard max at the wire (m5-2 fix round)', () => {
+    // The materialization bound: the compiled rule queries compute the full
+    // violation count regardless of K, so an oversized K cannot be clamped
+    // after execution — over-max plans are rejected here, before any SQL.
+    expect(
+      parseValidationPlan(validPlan({ sampleLimit: VALIDATION_SAMPLE_HARD_MAX })),
+    ).not.toBeNull()
+    expect(
+      parseValidationPlan(validPlan({ sampleLimit: VALIDATION_SAMPLE_HARD_MAX + 1 })),
+    ).toBeNull()
+    expect(parseValidationPlan(validPlan({ sampleLimit: 10_000 }))).toBeNull()
+    expect(parseValidationPlan(validPlan({ sampleLimit: 2 ** 53 - 1 }))).toBeNull()
   })
 
   it('rejects malformed rules and duplicate ruleIds (results key by ruleId)', () => {
@@ -172,8 +207,9 @@ describe('assertValidationPlanRelationBinding (executor-side semantic gate)', ()
         }),
       ],
     })
+    // Multi-statement SQL is rejected by the statement-shape belt first.
     expect(() => assertValidationPlanRelationBinding(smuggled, [])).toThrow(
-      /does not bind its relation in the compiler's FROM shape/,
+      /'hostile' is not a single compiler-shaped SELECT/,
     )
     // A quoted-relation occurrence in a predicate position is also rejected.
     const predicate = validPlan({
@@ -199,6 +235,101 @@ describe('assertValidationPlanRelationBinding (executor-side semantic gate)', ()
       ],
     })
     expect(() => assertValidationPlanRelationBinding(prefix, [])).toThrow(/FROM shape/)
+  })
+
+  // ---- m5-2 fix round: belt 1, the tightened static gate --------------------
+
+  it("rejects the reviewer's canary probe without a relation occurrence (pre-execution)", () => {
+    const canary = validPlan({
+      rules: [validRule({ ruleId: 'hostile', sql: 'CREATE TABLE review_injected AS SELECT 1' })],
+    })
+    expect(() => assertValidationPlanRelationBinding(canary, [])).toThrow(
+      /'hostile' is not a single compiler-shaped SELECT query/,
+    )
+  })
+
+  it('rejects the canary probe wearing a compiler-shaped relation occurrence', () => {
+    // A CTAS whose one relation occurrence sits in the compiler's exact FROM
+    // position — the shape the original gate alone could not distinguish.
+    const canary = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'hostile',
+          sql: 'CREATE TABLE review_injected AS SELECT * FROM "assay_conf_validate_src" AS "src"',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(canary, [])).toThrow(
+      /'hostile' is not a single compiler-shaped SELECT query/,
+    )
+  })
+
+  it('rejects multi-statement SQL in a rule and in the summary', () => {
+    const multi = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'hostile',
+          sql: 'SELECT 1 AS "x" FROM "assay_conf_validate_src" AS "src"; DROP VIEW "assay_conf_validate_src"',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(multi, [])).toThrow(
+      /single compiler-shaped SELECT/,
+    )
+    const summaryMulti = validPlan({
+      summarySql:
+        'SELECT 1 AS "x" FROM "assay_conf_validate_src" AS "src"; CREATE TABLE review_injected AS SELECT 1',
+    })
+    expect(() => assertValidationPlanRelationBinding(summaryMulti, [])).toThrow(
+      /summary is not a single compiler-shaped SELECT/,
+    )
+    // A trailing lone separator with nothing after it is tolerated (the
+    // compiler never emits one, but it cannot carry a second statement).
+    const trailing = validPlan({
+      summarySql: 'SELECT 1 AS "x" FROM "assay_conf_validate_src" AS "src"; ',
+    })
+    expect(() => assertValidationPlanRelationBinding(trailing, [])).not.toThrow()
+  })
+
+  it('rejects relation-free SELECT rules (zero occurrences no longer pass)', () => {
+    const relationFree = validPlan({
+      rules: [validRule({ ruleId: 'hostile', sql: 'SELECT 1 AS "x"' })],
+    })
+    expect(() => assertValidationPlanRelationBinding(relationFree, [])).toThrow(
+      /'hostile' does not bind its relation/,
+    )
+    // A plan WITH rules also requires its summary to bind the relation.
+    const summaryFree = validPlan({
+      summarySql: 'SELECT CAST(NULL AS VARCHAR) AS "rule_id" WHERE FALSE',
+    })
+    expect(() => assertValidationPlanRelationBinding(summaryFree, [])).toThrow(
+      /summary does not bind its relation/,
+    )
+    // The rule-LESS plan's compiler-emitted empty summary stays legal (the
+    // one documented zero-occurrence shape) — and it is a single SELECT.
+    const ruleLess = validPlan({
+      rules: [],
+      summarySql: 'SELECT CAST(NULL AS VARCHAR) AS "rule_id" WHERE FALSE',
+    })
+    expect(() => assertValidationPlanRelationBinding(ruleLess, [])).not.toThrow()
+  })
+
+  it('accepts a legit rule value whose literal contains a semicolon (quoted scan)', () => {
+    // The compiler escapes rule values as single-quoted SQL literals; a `;`
+    // inside one must never read as a statement separator.
+    const literal = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[1].allowed-values',
+          sql:
+            'SELECT (SELECT count(*) FROM "assay_conf_validate_src") AS "total_rows"\n' +
+            'FROM "assay_conf_validate_src" AS "src"\n' +
+            'WHERE NOT "src"."region" IN (\'a;b\', \'it\'\'s; tricky "quoted"; text\')\n' +
+            'LIMIT 20',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(literal, [])).not.toThrow()
   })
 })
 

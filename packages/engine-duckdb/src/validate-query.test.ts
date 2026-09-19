@@ -100,6 +100,27 @@ describe('failPercentFromCounts (the written m5-2 definition)', () => {
     expect(failPercentFromCounts(1, 126)).toBe(1)
   })
 
+  it('is exact where the float intermediates overflow (the reviewer pair)', () => {
+    // Both inputs are safe integers, but failCount*200 + rowCount is not:
+    // the float sum rounds across the floor boundary (11) where the exact
+    // BigInt value is 10 — the m5-2 fix-round regression pin.
+    expect(failPercentFromCounts(945755921747804, 9007199254740991)).toBe(10)
+  })
+
+  it('pins the half-up direction at a large exact-half boundary', () => {
+    // failCount/rowCount = 199/200 → exactly 99.5% → half-up 100, with
+    // failCount*200 + rowCount far beyond 2^53 (BigInt intermediates keep
+    // the boundary exact; neighboring inputs stay strictly below/above).
+    const t = 2 ** 45
+    const rowCount = 200 * t
+    const failCount = 199 * t
+    expect(failPercentFromCounts(failCount, rowCount)).toBe(100) // 99.5 → 100 (half-up)
+    expect(failPercentFromCounts(failCount - 1, rowCount)).toBe(99)
+    expect(failPercentFromCounts(105553116266496, 7036874417766400)).toBe(2) // exact 1.5
+    expect(failPercentFromCounts(105553116266495, 7036874417766400)).toBe(1)
+    expect(failPercentFromCounts(105553116266497, 7036874417766400)).toBe(2)
+  })
+
   it('defines 0 for an empty dataset and rejects non-counts', () => {
     expect(failPercentFromCounts(1, 0)).toBe(0)
     expect(failPercentFromCounts(0, 0)).toBe(0)

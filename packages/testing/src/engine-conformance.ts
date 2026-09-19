@@ -981,16 +981,22 @@ export interface ConformanceValidationInteraction {
 }
 
 /**
- * The engine-clamp pin: recompile with an over-large K; the rule's
- * failCount is unchanged (the count is not the sample bound) while the
- * reported samples are clamped to the engine's documented hard max.
+ * The engine hard-max pin (m5-2 fix round semantics: over-max K is
+ * REJECTED at the wire, not clamped). A plan compiled with exactly the
+ * hard max still executes — its failCount is the rule's own count (not the
+ * sample bound) and its reported samples stop at the hard max — while a
+ * plan compiled past the hard max must be rejected with one typed
+ * operation error before any SQL runs.
  */
 export interface ConformanceValidationTruncation {
   readonly ruleId: string
-  /** The recompiled plan's sampleLimit (> the engine's hard max). */
-  readonly sampleLimit: number
+  /** The engine's documented hard max; a plan with exactly this K executes. */
+  readonly hardMax: number
+  /** A K strictly past the hard max: the compiled plan must be rejected. */
+  readonly overMaxSampleLimit: number
+  /** The rule's fail count under the hard-max plan (≠ its sample bound). */
   readonly expectFailCount: number
-  /** The engine's hard max (fewer than the violations — non-vacuous). */
+  /** Reported samples under the hard-max plan: min(expectFailCount, hardMax). */
   readonly expectSamples: number
   readonly expectFirstRowKey: string
   readonly expectFirstValue: string | number | boolean | null
@@ -1026,8 +1032,18 @@ export interface ConformanceValidationDataset {
   readonly truncation: ConformanceValidationTruncation
   /** Hostile plans that must each reject with one typed operation error. */
   readonly hostilePlans: readonly ConformanceHostileValidationPlan[]
-  /** Side-effect table a smuggled payload would create; asserted absent. */
-  readonly injectedTable: string
+  /**
+   * Side-effect tables the hostile plans attempt to create (the review's
+   * canary `CREATE TABLE` payloads among them); each is asserted absent
+   * after the battery via a catalog listing query.
+   */
+  readonly injectedTables: readonly string[]
+  /**
+   * A binding name that already exists as a user-created (non-registered)
+   * view: the m5-2 fix-round survival pin binds a plan to it, expects the
+   * materialization failure, and asserts the user's view SURVIVES.
+   */
+  readonly preExistingViewName: string
   /** The vocabulary-probe column-name prefix (e.g. `v_`). */
   readonly vocabularyPrefix: string
   /** The documented bare-DECIMAL caveat: what DESCRIBE reports for it. */
@@ -1207,6 +1223,11 @@ function expectColumnValues(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** The compiler's identifier quoting for a binding name (double-quote doubling). */
+function quotedRelationTokenFor(relation: string): string {
+  return `"${relation.replaceAll('"', '""')}"`
 }
 
 /** Null-aware comparison of one numeric stat under the absolute tolerance. */
@@ -2834,10 +2855,15 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
    * overlay run; an overlay-interaction battery (an edit that FIXES a rule
    * flips its verdict, an edit that VIOLATES flips it, an inserted violating
    * row APPEARS under its `ins:` row key, a tombstoned row's violation
-   * DISAPPEARS, and the dataset-level row-count facts flip too); the K clamp
-   * (failCount unaffected, reported samples clamped to the engine hard max);
-   * hostile plans rejected with exactly one typed operation error and no
-   * side-effect objects; the m5-0 type-vocabulary agreement (all 21 spellings
+   * DISAPPEARS, and the dataset-level row-count facts flip too); the sample
+   * hard max (a plan AT the hard max executes with failCount ≠ the sample
+   * bound; a plan PAST it is rejected at the wire — m5-2 fix round);
+   * hostile plans — including the fix round's canary probes (the review's
+   * exact `CREATE TABLE <canary> AS SELECT 1`, with and without a relation
+   * occurrence) — each rejected with one typed operation error, every
+   * canary table asserted absent via a catalog listing, and a plan bound to
+   * an already-existing user view failing WITHOUT destroying that view; the
+   * m5-0 type-vocabulary agreement (all 21 spellings
    * reported by the engine for columns created with those types; the bare
    * DECIMAL caveat pinned); and the engine reusable after all of it.
    */
@@ -2865,19 +2891,42 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       'subject misconfiguration: declare the overlay-interaction battery',
     )
     expectCondition(
-      dataset.truncation.expectSamples < dataset.truncation.expectFailCount &&
-        dataset.truncation.expectSamples < dataset.truncation.sampleLimit,
-      'subject misconfiguration: the truncation pin must be non-vacuous',
+      dataset.truncation.overMaxSampleLimit > dataset.truncation.hardMax,
+      'subject misconfiguration: the over-max K must be past the hard max',
+    )
+    expectCondition(
+      dataset.truncation.expectFailCount > dataset.truncation.hardMax &&
+        dataset.truncation.expectSamples ===
+          Math.min(dataset.truncation.expectFailCount, dataset.truncation.hardMax),
+      'subject misconfiguration: the hard-max run must be non-vacuous (violations exceed the bound)',
     )
     expectCondition(
       dataset.hostilePlans.length > 0,
       'subject misconfiguration: declare at least one hostile plan probe',
     )
+    expectCondition(
+      dataset.injectedTables.length > 0,
+      'subject misconfiguration: declare the canary tables the hostile plans must not create',
+    )
+    expectCondition(
+      dataset.truncation.overMaxSampleLimit > dataset.truncation.hardMax,
+      'subject misconfiguration: the over-max K must be past the hard max',
+    )
+    expectCondition(
+      dataset.truncation.expectFailCount > dataset.truncation.hardMax &&
+        dataset.truncation.expectSamples ===
+          Math.min(dataset.truncation.expectFailCount, dataset.truncation.hardMax),
+      'subject misconfiguration: the hard-max run must be non-vacuous (violations exceed the bound)',
+    )
     // Every declared failPercent must equal the documented integer half-up
     // formula over (failCount, rowCount) — the written definition m5-4/m5-6
     // pin against. This keeps the pinned percents independent of the engine.
+    // Exact BigInt intermediates (m5-2 fix round): the float form diverges
+    // for large counts (failCount*200 + rowCount can leave the safe range).
     const specPercent = (failCount: number, rowCount: number): number =>
-      rowCount === 0 ? 0 : Math.floor((failCount * 200 + rowCount) / (2 * rowCount))
+      rowCount === 0
+        ? 0
+        : Number((BigInt(failCount) * 200n + BigInt(rowCount)) / (2n * BigInt(rowCount)))
     const expectationsAreCoherent = (
       entry: ConformanceValidationExpectations,
       label: string,
@@ -2999,52 +3048,73 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       `the interaction battery must pin a fix flip and a violate flip (got ${String(fixFlips)}/${String(violateFlips)})`,
     )
 
-    // 4. The K clamp: recompile with an over-large K; counts unchanged,
-    // samples clamped to the engine's hard max.
-    const truncatedCompile = compileContract(parsed.contract, schema, {
+    // 4. The sample hard max (m5-2 fix-round semantics: over-max K is
+    // rejected at the wire, NOT clamped): a plan compiled with exactly the
+    // hard max still executes — failCount is the rule's own count (not the
+    // sample bound) and reported samples stop at the hard max — while a
+    // plan compiled one past the hard max is rejected with one typed
+    // operation error before any SQL runs, and the engine stays usable.
+    const atMaxCompile = compileContract(parsed.contract, schema, {
       relation: dataset.planRelation,
-      sampleLimit: dataset.truncation.sampleLimit,
+      sampleLimit: dataset.truncation.hardMax,
     })
-    expectCondition(truncatedCompile.ok, 'the truncated plan must compile')
-    if (!truncatedCompile.ok) fail('unreachable')
-    const truncResult = await client.validate(handle, truncatedCompile.plan)
+    expectCondition(atMaxCompile.ok, 'the hard-max plan must compile')
+    if (!atMaxCompile.ok) fail('unreachable')
+    const atMaxResult = await client.validate(handle, atMaxCompile.plan)
     const truncExpected = dataset.baseExpectations.rules.find(
       (rule) => rule.ruleId === dataset.truncation.ruleId,
     )
     expectCondition(
       truncExpected !== undefined,
-      'truncation rule must exist in the base expectations',
+      'hard-max rule must exist in the base expectations',
     )
-    const truncActual = truncResult.rules.find((rule) => rule.ruleId === dataset.truncation.ruleId)
-    expectCondition(truncActual !== undefined, 'truncation rule missing from the result')
+    const truncActual = atMaxResult.rules.find((rule) => rule.ruleId === dataset.truncation.ruleId)
+    expectCondition(truncActual !== undefined, 'hard-max rule missing from the result')
     expectEqual(
       truncActual!.failCount,
       dataset.truncation.expectFailCount,
-      '[truncation] failCount is not the sample bound',
+      '[hard-max] failCount is not the sample bound',
     )
     expectEqual(
       truncActual!.failCount,
       truncExpected!.failCount,
-      '[truncation] failCount matches the base run',
+      '[hard-max] failCount matches the base run',
     )
     expectEqual(
       truncActual!.sampleFailures.length,
       dataset.truncation.expectSamples,
-      '[truncation] clamped sample count',
+      '[hard-max] samples stop at the hard max',
     )
     const truncFirst = truncActual!.sampleFailures[0]
-    expectCondition(truncFirst !== undefined, '[truncation] a clamped list still has samples')
+    expectCondition(truncFirst !== undefined, '[hard-max] the sample list is non-empty')
     expectEqual(
       JSON.stringify(truncFirst),
       JSON.stringify({
         rowKey: dataset.truncation.expectFirstRowKey,
         value: dataset.truncation.expectFirstValue,
       }),
-      '[truncation] first clamped sample',
+      '[hard-max] first sample',
     )
+    const overCompile = compileContract(parsed.contract, schema, {
+      relation: dataset.planRelation,
+      sampleLimit: dataset.truncation.overMaxSampleLimit,
+    })
+    expectCondition(overCompile.ok, 'the over-max plan must compile')
+    if (!overCompile.ok) fail('unreachable')
+    const overError = await rejectionOf(client.validate(handle, overCompile.plan))
+    expectCondition(overError !== null, 'a K past the hard max must be rejected')
+    expectCondition(
+      subject.errors.operation(overError),
+      `[over-max K] the rejection must be the typed operation category (got: ${errorMessage(overError)})`,
+    )
+    expectCondition(subject.isReady(client), '[over-max K] the engine must stay ready')
 
     // 5. Hostile plans: each rejects with ONE typed operation error, leaves
-    // no side-effect objects, and the engine stays reusable.
+    // no side-effect objects, and the engine stays reusable. The battery
+    // includes the m5-2 fix round's canary probes (the review's exact
+    // `CREATE TABLE <canary> AS SELECT 1`, with and without a relation
+    // occurrence): each must be rejected BEFORE execution, and every canary
+    // table is asserted absent via a catalog listing query afterwards.
     let hostileRejected = 0
     for (const probe of dataset.hostilePlans) {
       const error = await rejectionOf(
@@ -3061,8 +3131,44 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       )
       hostileRejected += 1
     }
-    const injected = await subject.tableExists(client, dataset.injectedTable)
-    expectCondition(!injected, 'the hostile plan side-effect object must not exist')
+    let canariesAbsent = true
+    for (const canary of dataset.injectedTables) {
+      if (await subject.tableExists(client, canary)) canariesAbsent = false
+    }
+    expectCondition(canariesAbsent, 'the hostile plan side-effect objects must not exist')
+
+    // 6. Pre-existing-view survival (m5-2 fix round): a plan bound to a name
+    // that already exists as a user-created view (created through user SQL,
+    // not the registry — the shape the original unconditional `DROP VIEW
+    // IF EXISTS` cleanup destroyed) fails its materialization with one
+    // typed error, and the user's view MUST survive it.
+    const probeRelation = dataset.preExistingViewName
+    const probeQuoted = `"${probeRelation.replaceAll('"', '""')}"`
+    const rebind = (sql: string): string =>
+      sql.split(quotedRelationTokenFor(dataset.planRelation)).join(probeQuoted)
+    const preExistingPlan: ConformanceValidationPlan = {
+      ...plan,
+      relation: probeRelation,
+      rules: plan.rules.map((rule) => ({ ...rule, sql: rebind(rule.sql) })),
+      summarySql: rebind(plan.summarySql),
+    }
+    await client.query(`CREATE VIEW ${probeQuoted} AS SELECT 42 AS v`)
+    const surviveError = await rejectionOf(
+      client.validate(handle, preExistingPlan, { base: dataset.base, ops: [] }),
+    )
+    expectCondition(
+      surviveError !== null,
+      'a plan bound to an existing view name must fail its materialization',
+    )
+    expectCondition(
+      subject.errors.operation(surviveError),
+      `[pre-existing view] the rejection must be the typed operation category (got: ${errorMessage(surviveError)})`,
+    )
+    expectCondition(
+      await subject.tableExists(client, probeRelation),
+      'the pre-existing user view must survive the failed validation',
+    )
+    await client.query(`DROP VIEW ${probeQuoted}`)
 
     // 6. The m5-0 type-vocabulary agreement: one engine column per spelling;
     // the reported type is the spelling itself — except bare DECIMAL, which
@@ -3095,8 +3201,11 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       interactions: dataset.interactions.length,
       fixFlips,
       violateFlips,
-      truncationClampedTo: truncActual!.sampleFailures.length,
+      hardMaxSamples: truncActual!.sampleFailures.length,
+      oversizeKRejected: true,
       hostileRejected,
+      canariesAbsent,
+      preExistingViewSurvived: true,
       vocabularyAgreed: agreed,
       engineReusable: true,
     }

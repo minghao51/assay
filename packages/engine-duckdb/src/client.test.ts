@@ -1191,6 +1191,20 @@ describe('DuckDbEngineClient validate (m5-2)', () => {
     expect(worker.postedRequests).toHaveLength(2) // init + open only
   })
 
+  it('validate() rejects an over-hard-max K client-side before posting (m5-2 fix round)', async () => {
+    const { client, worker, handle } = await openHandle()
+    // A K=2^53-style hostile plan never leaves the main thread: the same
+    // wire validator rejects it here (fast, observable) and at the envelope.
+    for (const oversized of [101, 2 ** 53 - 1]) {
+      const hostile = {
+        ...planFixture(),
+        sampleLimit: oversized,
+      } as unknown as EngineValidationPlan
+      await expect(client.validate(handle, hostile)).rejects.toBeInstanceOf(EngineOperationError)
+    }
+    expect(worker.postedRequests).toHaveLength(2) // init + open only
+  })
+
   it('validate() maps engine-reported failures to EngineOperationError and stays usable', async () => {
     const { client, worker, handle } = await openHandle()
     const pending = client.validate(handle, planFixture())
