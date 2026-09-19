@@ -85,6 +85,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@assay/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@assay/data-sources':
         specifier: workspace:*
         version: link:../../packages/data-sources
@@ -97,6 +100,9 @@ importers:
       '@assay/grid':
         specifier: workspace:*
         version: link:../../packages/grid
+      '@assay/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@tanstack/react-virtual':
         specifier: ^3.14.12
         version: 3.14.12(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

@@ -45,6 +45,15 @@ interface DataGridProps {
   onCommitCell?: (rowId: RowId, column: string, value: CellValue) => void
   /** m4-3 row-delete affordance; emits the row's logical id. */
   onDeleteRow?: (rowId: RowId) => void
+  /**
+   * m5-3 jump-to-row request: scroll this effective row index into view
+   * (align `start`, so the target position is deterministic). `seq` makes
+   * repeated requests for the SAME row re-fire; `null` is idle. The request
+   * is an immediate gesture — it is not tracked or re-applied across data
+   * epochs (a later overlay change can move the row; re-validating
+   * refreshes the report's targets).
+   */
+  scrollRequest?: { readonly rowIndex: number; readonly seq: number } | null
 }
 
 /** One in-progress edit: which cell, the raw editor draft, and its initial state. */
@@ -109,6 +118,7 @@ export function DataGrid({
   overlayState = null,
   onCommitCell,
   onDeleteRow,
+  scrollRequest = null,
 }: DataGridProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
 
@@ -226,6 +236,29 @@ export function DataGrid({
     overscan: VIRTUALIZER_OVERSCAN_ROWS,
   })
   const virtualItems = virtualizer.getVirtualItems()
+
+  // m5-3 jump-to-row: a new scroll request scrolls the target row to the top
+  // of the grid viewport AND brings it into the browser viewport (the grid
+  // sits below stacked panels, and a jump the user cannot see is not a
+  // jump). Out-of-range requests are ignored (the caller resolves row keys
+  // against the same model, so this is a race guard, not a feature).
+  useEffect(() => {
+    if (scrollRequest === null) return
+    if (scrollRequest.rowIndex < 0 || scrollRequest.rowIndex >= totalRows) return
+    virtualizer.scrollToIndex(scrollRequest.rowIndex, { align: 'start' })
+    // One rAF later the virtualizer has re-rendered the target window, so
+    // the row element exists; scrolling it to the viewport center moves only
+    // the ancestor scrollables (the page, if the grid is below the fold).
+    const raf = requestAnimationFrame(() => {
+      const element = scrollRef.current?.querySelector(
+        `[data-row-index="${String(scrollRequest.rowIndex)}"]`,
+      )
+      element?.scrollIntoView({ block: 'center' })
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+    }
+  }, [scrollRequest, virtualizer, totalRows])
 
   const rangeKey =
     virtualItems.length > 0

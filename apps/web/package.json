@@ -10,8 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@assay/contracts": "workspace:*",
     "@assay/data-sources": "workspace:*",
     "@assay/domain": "workspace:*",
+    "@assay/validation": "workspace:*",
     "@assay/engine-duckdb": "workspace:*",
     "@assay/grid": "workspace:*",
     "@tanstack/react-virtual": "^3.14.12",

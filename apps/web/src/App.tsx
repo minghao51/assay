@@ -17,6 +17,8 @@ import {
 } from '@assay/domain'
 import { GridViewportModel } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
+import { parseContract } from '@assay/contracts'
+import { compileContract } from '@assay/validation'
 import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
 import { FilterBar } from './grid/FilterBar'
@@ -51,6 +53,13 @@ import { composeNestedAction } from './sql/nested-actions'
 import type { NestedAction } from './sql/nested-actions'
 import { SqlPanel } from './sql/SqlPanel'
 import type { SqlRunRequest } from './sql/SqlPanel'
+import { ValidationPanel } from './validation/ValidationPanel'
+import type { ContractState, ValidationRunState } from './validation/ValidationPanel'
+import { readContractFile } from './validation/contract-import'
+import { buildValidationReport, resolveRowKeyIndex } from './validation/report-model'
+import type { ValidationReportRow } from './validation/report-model'
+import { requestReportDestination, writeReportCopy } from './validation/report-export'
+import type { ReportExportFormat } from './validation/report-export'
 
 /**
  * App phases. `ready` holds the composed grid: adapter (engine client) →
@@ -119,6 +128,17 @@ const NO_VERSION = (): number => 0
  * changing the intent is refused honestly rather than appended unchecked.
  */
 const MAX_CAST_CHECK_ATTEMPTS = 3
+
+/**
+ * m5-3 validation binding name and sample bound. The plan's `relation` is
+ * the binding name the engine materializes the effective view under — not a
+ * registered table view (which are `assay_tN`, and which the engine's plan
+ * gate would refuse to shadow). K aligns with the engine's hard sample max
+ * (100) so the panel's sample list is as complete as the engine allows; the
+ * engine clamps anyway (`min(K, 100)`), so this is a floor, not a promise.
+ */
+const VALIDATION_RELATION = 'assay_validation_target'
+const VALIDATION_SAMPLE_LIMIT = 100
 
 export function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
@@ -209,6 +229,41 @@ export function App() {
    * and a double-click cannot queue a second intent.
    */
   const [castPendingColumn, setCastPendingColumn] = useState<string | null>(null)
+
+  /**
+   * m5-3 validation session. `contractState` is the imported contract (none
+   * / parse errors / over-bound / loaded); `validationRun` is the run state
+   * machine (idle / running / cancelled / failed / binding errors / verdict).
+   * A verdict stores the `overlayRevision` it ran against; `validationStale`
+   * is the honest freshness signal — ANY history activation (edit, undo,
+   * redo, cursor move) marks an existing verdict stale, and re-validation is
+   * an explicit click (no auto-revalidate: an editing session triggers many
+   * revisions per fix, and a debounced auto-run would spend query-lane work
+   * on verdicts that are already stale again). The verdict stays viewable
+   * under the stale banner (m4-3 dirty-state discipline).
+   */
+  const [contractState, setContractState] = useState<ContractState>({ kind: 'none' })
+  const [validationRun, setValidationRun] = useState<ValidationRunState>({ kind: 'idle' })
+  /**
+   * Monotonic run token: the validate path captures it at request time and
+   * drops a result that is no longer current (the m2-4 UI-level-cancellation
+   * discipline — the engine op itself completes; cancellation abandons the
+   * result, and the status line says so).
+   */
+  const validationSeq = useRef(0)
+  /** Jump/filter feedback for the panel (readable, value-free). */
+  const [jumpError, setJumpError] = useState<string | null>(null)
+  const [filterToFailuresError, setFilterToFailuresError] = useState<string | null>(null)
+  /**
+   * m5-3 jump-to-row: the grid scrolls to this effective row index. `seq`
+   * makes every gesture distinct (the same row can be re-targeted); reset
+   * when a new file opens. Immediate gesture — not tracked across epochs.
+   */
+  const [scrollRequest, setScrollRequest] = useState<{
+    readonly rowIndex: number
+    readonly seq: number
+  } | null>(null)
+  const scrollSeq = useRef(0)
 
   /**
    * Subscribe to the model so schema re-keys after a rename/cast re-render the
@@ -449,6 +504,169 @@ export function App() {
   )
 
   /**
+   * m5-3 validation session handlers.
+   *
+   * Freshness: a verdict (or binding-error report) stores the overlay
+   * revision it was produced against; any history activation marks it stale
+   * and re-validation is an explicit click. The verdict stays viewable under
+   * the stale banner (m4-3 dirty-state discipline).
+   *
+   * Busy policy: `validate` runs on the engine's query lane (ADR 0040), so
+   * the grid stays interactive. Cancellation is UI-level abandonment (the
+   * m2-4 pattern — the engine op itself completes; an abandoned result is
+   * dropped by seq and the panel says "cancelled"). A second run cannot
+   * start while one is in flight.
+   */
+  const validationStale =
+    (validationRun.kind === 'verdict' || validationRun.kind === 'binding-errors') &&
+    validationRun.revision !== overlayRevision
+
+  const handleContractFile = useCallback((file: File) => {
+    void (async () => {
+      const imported = await readContractFile(file)
+      if (imported.kind === 'too-large') {
+        setContractState({ kind: 'too-large' })
+      } else if (imported.kind === 'read-failed') {
+        setContractState({ kind: 'read-failed', message: imported.message })
+      } else {
+        const parsed = parseContract(imported.text)
+        setContractState(
+          parsed.ok
+            ? { kind: 'loaded', contract: parsed.contract }
+            : { kind: 'parse-error', errors: parsed.errors },
+        )
+      }
+      // A newly imported contract invalidates any previous verdict: the old
+      // report described rules this contract may no longer contain.
+      setValidationRun({ kind: 'idle' })
+      setJumpError(null)
+      setFilterToFailuresError(null)
+    })()
+  }, [])
+
+  const handleValidate = useCallback(() => {
+    if (phase.kind !== 'ready' || contractState.kind !== 'loaded') return
+    const session = sessionToken.current
+    const seq = ++validationSeq.current
+    const revision = overlayRevision
+    const { base, handle } = phase
+    const contract = contractState.contract
+    setValidationRun({ kind: 'running' })
+    void (async () => {
+      try {
+        // Compile against the CURRENT effective schema (post-rename/cast at
+        // the history cursor) — the same effective view the plan then
+        // executes over, so binding errors and verdicts always describe the
+        // dataset as it is now.
+        const effective = stateAtCursor(base, historyRef.current)
+        const compiled = compileContract(contract, effective.columns, {
+          relation: VALIDATION_RELATION,
+          sampleLimit: VALIDATION_SAMPLE_LIMIT,
+        })
+        if (sessionToken.current !== session) return
+        if (!compiled.ok) {
+          if (seq === validationSeq.current) {
+            setValidationRun({ kind: 'binding-errors', errors: compiled.errors, revision })
+          }
+          return
+        }
+        const overlay = overlayRef.current ?? overlaySnapshot(base, historyRef.current)
+        const result = await engineClient.validate(handle, compiled.plan, overlay)
+        if (sessionToken.current !== session) return
+        // Superseded or abandoned (cancel/new run): drop the stale result.
+        if (seq !== validationSeq.current) return
+        setValidationRun({
+          kind: 'verdict',
+          report: buildValidationReport(compiled.plan, result, contract),
+          revision,
+        })
+      } catch (error) {
+        if (sessionToken.current !== session || seq !== validationSeq.current) return
+        setValidationRun({ kind: 'failed', message: engineRejectionMessage(error) })
+      }
+    })()
+  }, [phase, contractState, overlayRevision])
+
+  const handleCancelValidate = useCallback(() => {
+    validationSeq.current += 1
+    setValidationRun({ kind: 'cancelled' })
+  }, [])
+
+  /**
+   * Jump-to-row: resolve the sample's logical row key in the CURRENT
+   * effective view (m4-3 row-key channel), scroll the grid there, and open
+   * the record inspector. A key the current view no longer contains (the
+   * row was deleted after the verdict) is an honest, readable error.
+   */
+  const handleJumpToSample = useCallback(
+    (rowKey: string) => {
+      if (phase.kind !== 'ready') return
+      const state = stateAtCursor(phase.base, historyRef.current)
+      const resolution = resolveRowKeyIndex(phase.base, state, rowKey)
+      if (resolution.kind === 'missing') {
+        setJumpError(
+          'That row is no longer in the current view — it may have been deleted after the verdict was computed. Re-validate for a fresh report.',
+        )
+        return
+      }
+      setJumpError(null)
+      scrollSeq.current += 1
+      setScrollRequest({ rowIndex: resolution.rowIndex, seq: scrollSeq.current })
+      setRecordRequest((previous) => ({
+        rowIndex: resolution.rowIndex,
+        seq: (previous?.seq ?? 0) + 1,
+      }))
+    },
+    [phase],
+  )
+
+  /**
+   * Filter-to-failures: apply the rule's single-column predicate through the
+   * m2-2 filter channel, REPLACING the active filter list (the control is a
+   * view toggle, not an accumulation — the resulting view is "only the rows
+   * failing this rule"). An engine rejection restores the previous filters
+   * (the grid contract's rejection-leaves-state rule) and surfaces readable
+   * text; the m4-3 rollback convention, applied to filters.
+   */
+  const handleFilterToFailures = useCallback(
+    (row: ValidationReportRow) => {
+      if (phase.kind !== 'ready') return
+      if (row.filter.kind !== 'ready' || row.column === null) return
+      const column = row.column
+      const predicate = row.filter.predicate
+      void (async () => {
+        const previous = phase.model.filters
+        try {
+          await phase.model.setFilters([{ column, predicate }])
+          setFilterToFailuresError(null)
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : String(cause)
+          try {
+            await phase.model.setFilters(previous)
+            setFilterToFailuresError(
+              `The grid rejected the failure filter (${message}). The previous filters are back in effect.`,
+            )
+          } catch {
+            setFilterToFailuresError(
+              'The grid rejected the failure filter, and restoring the previous filters also failed. Clear filters manually.',
+            )
+          }
+        }
+      })()
+    },
+    [phase],
+  )
+
+  /** m4-5 pattern for the report: destination with the same-source guard. */
+  const requestReportDestinationForPanel = useCallback(
+    (format: ReportExportFormat) =>
+      requestReportDestination(format, {
+        sourceIdentity: sourceIdentityRef.current ?? undefined,
+      }),
+    [],
+  )
+
+  /**
    * m4-5 export effects. `runExport` materializes the **active** overlay
    * snapshot (base + ops at the history cursor) through the engine's merged
    * export op — never the source path, never the base view alone (ADR 0012).
@@ -527,6 +745,14 @@ export function App() {
     setActionError(null)
     setEditError(null)
     setViewError(false)
+    // m5-3: a new table resets the validation session — the previous
+    // contract's verdict described a different dataset and must not leak.
+    setContractState({ kind: 'none' })
+    setValidationRun({ kind: 'idle' })
+    setJumpError(null)
+    setFilterToFailuresError(null)
+    setScrollRequest(null)
+    validationSeq.current += 1
     sourceIdentityRef.current = null
     sessionToken.current += 1
     historyRevision.current += 1
@@ -717,10 +943,30 @@ export function App() {
             onUndo={handleUndo}
             onRedo={handleRedo}
           />
+          {/**
+           * Placement (m5-3): the validation panel sits between the editing
+           * surface and the grid — its sample lists and filter control drive
+           * the grid below, and its verdicts track the editing above.
+           */}
+          <ValidationPanel
+            contractState={contractState}
+            runState={validationRun}
+            stale={validationStale}
+            jumpError={jumpError}
+            filterError={filterToFailuresError}
+            onContractFile={handleContractFile}
+            onValidate={handleValidate}
+            onCancelValidate={handleCancelValidate}
+            onJumpToSample={handleJumpToSample}
+            onFilterToFailures={handleFilterToFailures}
+            requestReportDestination={requestReportDestinationForPanel}
+            deliverReportCopy={writeReportCopy}
+          />
           <FilterBar model={phase.model} />
           <DataGrid
             model={phase.model}
             overlayState={overlayState}
+            scrollRequest={scrollRequest}
             onCommitCell={handleCommitCell}
             onDeleteRow={handleDeleteRow}
             onOpenRecord={(rowIndex) => {
