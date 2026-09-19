@@ -20,7 +20,7 @@ export type BindingErrorCode =
   | 'missing-column'
   /** The column's engine type spelling cannot be classified (array, nested, unknown) and the rule needs a family. Family-free rules (`required`, `max-null-share`) bind regardless. */
   | 'unknown-column-type'
-  /** The column's type is classified but the rule does not apply to that family (min on VARCHAR, regex on INTEGER, allowed-values of the wrong scalar kind, unique on JSON, …), or the column/reserved name makes unambiguous binding impossible. */
+  /** The column's type is classified but the rule does not apply to that family (min on VARCHAR, regex on INTEGER, allowed-values of the wrong scalar kind, unique on JSON, …). */
   | 'rule-not-applicable'
   /** The `regex` pattern is outside the documented RE2 subset (DuckDB's dialect) or unrepresentable in SQL text. */
   | 'invalid-regex'

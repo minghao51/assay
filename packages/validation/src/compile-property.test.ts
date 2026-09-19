@@ -124,6 +124,30 @@ describe('property — totality over validated inputs (seeded)', () => {
     const pb = compileContract(contract, b, options)
     expect(JSON.stringify(pa)).toBe(JSON.stringify(pb))
   })
+
+  it('an accepted plan references schema columns only range-qualified (collision-freedom, seeded)', () => {
+    // DuckDB identifiers are case-insensitive even when quoted, so the SQL
+    // must never reference a source column by its bare name — only as
+    // "src"."col" (a bare occurrence could bind to a same-spelled plan
+    // alias; the m5-1 review's alias-collision defect). Checked over the
+    // whole generated pool.
+    for (const seed of TOTALITY_SEEDS) {
+      for (let i = 0; i < CASES_PER_SEED; i++) {
+        const { contract, schema, options } = draw(seed, i)
+        const result = compileContract(contract, schema, options)
+        if (!result.ok) continue
+        const names = new Set(schema.map((c) => c.name))
+        const texts = [...result.plan.rules.map((r) => r.sql), result.plan.summarySql]
+        for (const text of texts) {
+          for (const name of names) {
+            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const bare = new RegExp(`(?<!\\.)"${escaped}"`)
+            expect(bare.test(text), `bare "${name}" in:\n${text}`).toBe(false)
+          }
+        }
+      }
+    }
+  })
 })
 
 describe('property — totality over malformed inputs (caller-bug surface)', () => {

@@ -13,10 +13,15 @@ import type { ContractV1 } from '@assay/contracts'
  * options) must keep producing them byte-for-byte, and the m5-2 executor
  * binds against exactly these shapes.
  *
- * The goldens were executed against the pinned DuckDB CLI 1.5.5
- * (`/tmp/duckdb`) on a dirty dataset before being frozen: every query
- * parses, the per-rule samples carry correct row ordinals, and the summary
- * counts equal the per-rule executions rule-for-rule.
+ * The goldens are executed against the pinned DuckDB CLI 1.5.5
+ * (`/tmp/duckdb`) by the env-gated agreement suite in
+ * `duckdb-agreement.test.ts` — on a dirty dataset every query parses, the
+ * per-rule samples carry correct row ordinals, and the summary counts
+ * equal the per-rule executions rule-for-rule. Note the shape's
+ * collision-freedom invariants (see plan.ts): source columns appear only
+ * range-qualified (`"src"."col"`), derived tables expose only the
+ * reserved `assay_*` aliases, so any dataset column name — including ones
+ * spelled like plan aliases — binds and executes correctly.
  */
 
 /** Join literal SQL lines (data, not compiler logic). */
@@ -61,7 +66,7 @@ const TYPE_MATCH_SQL = lines(
   'SELECT "assay_n" AS "total_rows", 1 AS "fail_count"',
   'FROM (',
   '  SELECT count(*) AS "assay_n"',
-  '  FROM "t1"',
+  '  FROM "t1" AS "src"',
   ') AS "assay_rule_stats"',
   'WHERE FALSE',
 )
@@ -69,19 +74,26 @@ const TYPE_MATCH_SQL = lines(
 /** The dataset-fact query for a declared-type rule (mismatch: always violated). */
 const TYPE_MISMATCH_SQL = TYPE_MATCH_SQL.replace('WHERE FALSE', 'WHERE TRUE')
 
-/** Row-samples query for a plain per-row rule (predicate varies). */
-function rowSamplesSql(column: string, predicate: string, extraProjection = ''): string {
-  const projection = extraProjection === '' ? `"${column}"` : `"${column}", ${extraProjection}`
+/**
+ * Row-samples query for a plain per-row rule (predicate varies). The inner
+ * projection renames the source column to the reserved `assay_value`
+ * alias; for `unique` the occurrence count joins it. The outer predicate
+ * references derived aliases only.
+ */
+function rowSamplesSql(column: string, predicate: string, unique = false): string {
+  const projection = unique
+    ? `"src"."${column}" AS "assay_value", count(*) OVER (PARTITION BY "src"."${column}") AS "assay_occurrences"`
+    : `"src"."${column}" AS "assay_value"`
   return lines(
     'SELECT',
     `  (SELECT count(*) FROM "t1") AS "total_rows",`,
     `  count(*) OVER () AS "fail_count",`,
     `  row_number() OVER () - 1 AS "sample_index",`,
     `  "assay_row_ordinal",`,
-    `  "${column}" AS "assay_value"`,
+    `  "assay_value"`,
     'FROM (',
     `  SELECT row_number() OVER () - 1 AS "assay_row_ordinal", ${projection}`,
-    `  FROM "t1"`,
+    `  FROM "t1" AS "src"`,
     ') AS "assay_rule_source"',
     `WHERE ${predicate}`,
     'LIMIT 20',
@@ -94,7 +106,7 @@ function rowCountFactSql(violated: string): string {
     'SELECT "assay_n" AS "total_rows", 1 AS "fail_count"',
     'FROM (',
     '  SELECT count(*) AS "assay_n"',
-    '  FROM "t1"',
+    '  FROM "t1" AS "src"',
     ') AS "assay_rule_stats"',
     `WHERE ${violated}`,
   )
@@ -105,8 +117,8 @@ function nullShareFactSql(column: string, share: string): string {
   return lines(
     'SELECT "assay_n" AS "total_rows", 1 AS "fail_count"',
     'FROM (',
-    `  SELECT count(*) AS "assay_n", coalesce(avg(CASE WHEN "${column}" IS NULL THEN 1.0 ELSE 0.0 END), 0.0) AS "assay_null_share"`,
-    '  FROM "t1"',
+    `  SELECT count(*) AS "assay_n", coalesce(avg(CASE WHEN "src"."${column}" IS NULL THEN 1.0 ELSE 0.0 END), 0.0) AS "assay_null_share"`,
+    '  FROM "t1" AS "src"',
     ') AS "assay_rule_stats"',
     `WHERE "assay_null_share" > ${share}`,
   )
@@ -117,8 +129,8 @@ function distinctShareFactSql(column: string, share: string): string {
   return lines(
     'SELECT "assay_n" AS "total_rows", 1 AS "fail_count"',
     'FROM (',
-    `  SELECT count(*) AS "assay_n", count("${column}") AS "assay_non_null", count(DISTINCT "${column}") AS "assay_distinct"`,
-    '  FROM "t1"',
+    `  SELECT count(*) AS "assay_n", count("src"."${column}") AS "assay_non_null", count(DISTINCT "src"."${column}") AS "assay_distinct"`,
+    '  FROM "t1" AS "src"',
     ') AS "assay_rule_stats"',
     `WHERE "assay_non_null" > 0 AND CAST("assay_distinct" AS DOUBLE) / "assay_non_null" < ${share}`,
   )
@@ -130,7 +142,7 @@ function datasetFactArm(ruleId: string, stats: string, violated: string): string
     `SELECT '${ruleId}' AS "rule_id", "assay_n" AS "total_rows", CASE WHEN ${violated} THEN 1 ELSE 0 END AS "fail_count"`,
     'FROM (',
     `  ${stats}`,
-    '  FROM "t1"',
+    '  FROM "t1" AS "src"',
     ') AS "assay_rule_stats"',
   )
 }
@@ -142,11 +154,22 @@ function rowArm(ruleId: string, from: string, predicate: string): string {
   )
 }
 
+const REL_AS_SRC = '"t1" AS "src"'
 const COUNT_STATS = 'SELECT count(*) AS "assay_n"'
 const NULL_SHARE_STATS = (column: string) =>
-  `SELECT count(*) AS "assay_n", coalesce(avg(CASE WHEN "${column}" IS NULL THEN 1.0 ELSE 0.0 END), 0.0) AS "assay_null_share"`
+  `SELECT count(*) AS "assay_n", coalesce(avg(CASE WHEN "src"."${column}" IS NULL THEN 1.0 ELSE 0.0 END), 0.0) AS "assay_null_share"`
 const DISTINCT_SHARE_STATS = (column: string) =>
-  `SELECT count(*) AS "assay_n", count("${column}") AS "assay_non_null", count(DISTINCT "${column}") AS "assay_distinct"`
+  `SELECT count(*) AS "assay_n", count("src"."${column}") AS "assay_non_null", count(DISTINCT "src"."${column}") AS "assay_distinct"`
+
+/** Summary FROM for a `unique` arm (the occurrence subquery). */
+function uniqueSummaryFrom(column: string): string {
+  return lines(
+    '(',
+    `  SELECT "src"."${column}" AS "assay_value", count(*) OVER (PARTITION BY "src"."${column}") AS "assay_occurrences"`,
+    '  FROM "t1" AS "src"',
+    ') AS "assay_rule_summary"',
+  )
+}
 
 function rule(rule: Omit<PlannedRule, 'path'> & { path?: string }): PlannedRule {
   return { path: rule.ruleId, ...rule } as PlannedRule
@@ -168,7 +191,7 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     kind: 'required',
     column: 'customer_id',
     outcome: 'row-samples',
-    sql: rowSamplesSql('customer_id', '"customer_id" IS NULL'),
+    sql: rowSamplesSql('customer_id', '"assay_value" IS NULL'),
   }),
   rule({
     ruleId: 'columns[0].unique',
@@ -177,8 +200,8 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     outcome: 'row-samples',
     sql: rowSamplesSql(
       'customer_id',
-      '"customer_id" IS NOT NULL AND "assay_occurrences" > 1',
-      'count(*) OVER (PARTITION BY "customer_id") AS "assay_occurrences"',
+      '"assay_value" IS NOT NULL AND "assay_occurrences" > 1',
+      true,
     ),
   }),
   rule({
@@ -186,7 +209,7 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     kind: 'required',
     column: 'email',
     outcome: 'row-samples',
-    sql: rowSamplesSql('email', '"email" IS NULL'),
+    sql: rowSamplesSql('email', '"assay_value" IS NULL'),
   }),
   rule({
     ruleId: 'columns[1].regex',
@@ -195,7 +218,7 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     outcome: 'row-samples',
     sql: rowSamplesSql(
       'email',
-      '("email" IS NOT NULL AND NOT regexp_full_match("email", \'^[^@]+@[^@]+\\.[^@]+$\'))',
+      '("assay_value" IS NOT NULL AND NOT regexp_full_match("assay_value", \'^[^@]+@[^@]+\\.[^@]+$\'))',
     ),
   }),
   rule({
@@ -221,7 +244,7 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     outcome: 'row-samples',
     sql: rowSamplesSql(
       'country',
-      "(\"country\" IS NOT NULL AND \"country\" NOT IN ('US', 'GB', 'DE'))",
+      "(\"assay_value\" IS NOT NULL AND \"assay_value\" NOT IN ('US', 'GB', 'DE'))",
     ),
   }),
   rule({
@@ -245,14 +268,14 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     kind: 'min',
     column: 'age',
     outcome: 'row-samples',
-    sql: rowSamplesSql('age', '"age" < 0'),
+    sql: rowSamplesSql('age', '"assay_value" < 0'),
   }),
   rule({
     ruleId: 'columns[3].max',
     kind: 'max',
     column: 'age',
     outcome: 'row-samples',
-    sql: rowSamplesSql('age', '"age" > 120'),
+    sql: rowSamplesSql('age', '"assay_value" > 120'),
   }),
   rule({
     ruleId: 'columns[4].type',
@@ -268,11 +291,7 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     kind: 'unique',
     column: 'joined_at',
     outcome: 'row-samples',
-    sql: rowSamplesSql(
-      'joined_at',
-      '"joined_at" IS NOT NULL AND "assay_occurrences" > 1',
-      'count(*) OVER (PARTITION BY "joined_at") AS "assay_occurrences"',
-    ),
+    sql: rowSamplesSql('joined_at', '"assay_value" IS NOT NULL AND "assay_occurrences" > 1', true),
   }),
   rule({
     ruleId: 'columns[5].type',
@@ -288,14 +307,14 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     kind: 'min',
     column: 'amount',
     outcome: 'row-samples',
-    sql: rowSamplesSql('amount', '"amount" < 0.25'),
+    sql: rowSamplesSql('amount', '"assay_value" < 0.25'),
   }),
   rule({
     ruleId: 'columns[5].max',
     kind: 'max',
     column: 'amount',
     outcome: 'row-samples',
-    sql: rowSamplesSql('amount', '"amount" > 99.5'),
+    sql: rowSamplesSql('amount', '"assay_value" > 99.5'),
   }),
   rule({
     ruleId: 'columns[6].type',
@@ -311,7 +330,10 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     kind: 'allowed-values',
     column: 'flag',
     outcome: 'row-samples',
-    sql: rowSamplesSql('flag', '("flag" IS NOT NULL AND "flag" NOT IN (TRUE, FALSE))'),
+    sql: rowSamplesSql(
+      'flag',
+      '("assay_value" IS NOT NULL AND "assay_value" NOT IN (TRUE, FALSE))',
+    ),
   }),
   rule({
     ruleId: 'columns[7].type',
@@ -327,7 +349,7 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
     kind: 'min',
     column: 'score',
     outcome: 'row-samples',
-    sql: rowSamplesSql('score', '"score" < -1.5'),
+    sql: rowSamplesSql('score', '"assay_value" < -1.5'),
   }),
   rule({
     ruleId: 'columns[8].type',
@@ -373,29 +395,24 @@ const GOLDEN_RULES: readonly PlannedRule[] = [
 /** The expected summary: one arm per rule, in plan order, joined by UNION ALL. */
 const GOLDEN_SUMMARY_SQL = [
   datasetFactArm('columns[0].type', COUNT_STATS, 'FALSE'),
-  rowArm('columns[0].required', '"t1"', '"customer_id" IS NULL'),
+  rowArm('columns[0].required', REL_AS_SRC, '"src"."customer_id" IS NULL'),
   rowArm(
     'columns[0].unique',
-    lines(
-      '(',
-      '  SELECT "customer_id", count(*) OVER (PARTITION BY "customer_id") AS "assay_occurrences"',
-      '  FROM "t1"',
-      ') AS "assay_rule_summary"',
-    ),
-    '"customer_id" IS NOT NULL AND "assay_occurrences" > 1',
+    uniqueSummaryFrom('customer_id'),
+    '"assay_value" IS NOT NULL AND "assay_occurrences" > 1',
   ),
-  rowArm('columns[1].required', '"t1"', '"email" IS NULL'),
+  rowArm('columns[1].required', REL_AS_SRC, '"src"."email" IS NULL'),
   rowArm(
     'columns[1].regex',
-    '"t1"',
-    '("email" IS NOT NULL AND NOT regexp_full_match("email", \'^[^@]+@[^@]+\\.[^@]+$\'))',
+    REL_AS_SRC,
+    '("src"."email" IS NOT NULL AND NOT regexp_full_match("src"."email", \'^[^@]+@[^@]+\\.[^@]+$\'))',
   ),
   datasetFactArm('columns[1].max-null-share', NULL_SHARE_STATS('email'), '"assay_null_share" > 0'),
   datasetFactArm('columns[2].type', COUNT_STATS, 'FALSE'),
   rowArm(
     'columns[2].allowed-values',
-    '"t1"',
-    "(\"country\" IS NOT NULL AND \"country\" NOT IN ('US', 'GB', 'DE'))",
+    REL_AS_SRC,
+    '("src"."country" IS NOT NULL AND "src"."country" NOT IN (\'US\', \'GB\', \'DE\'))',
   ),
   datasetFactArm(
     'columns[2].min-distinct-share',
@@ -403,30 +420,25 @@ const GOLDEN_SUMMARY_SQL = [
     '"assay_non_null" > 0 AND CAST("assay_distinct" AS DOUBLE) / "assay_non_null" < 0.5',
   ),
   datasetFactArm('columns[3].type', COUNT_STATS, 'FALSE'),
-  rowArm('columns[3].min', '"t1"', '"age" < 0'),
-  rowArm('columns[3].max', '"t1"', '"age" > 120'),
+  rowArm('columns[3].min', REL_AS_SRC, '"src"."age" < 0'),
+  rowArm('columns[3].max', REL_AS_SRC, '"src"."age" > 120'),
   datasetFactArm('columns[4].type', COUNT_STATS, 'FALSE'),
   rowArm(
     'columns[4].unique',
-    lines(
-      '(',
-      '  SELECT "joined_at", count(*) OVER (PARTITION BY "joined_at") AS "assay_occurrences"',
-      '  FROM "t1"',
-      ') AS "assay_rule_summary"',
-    ),
-    '"joined_at" IS NOT NULL AND "assay_occurrences" > 1',
+    uniqueSummaryFrom('joined_at'),
+    '"assay_value" IS NOT NULL AND "assay_occurrences" > 1',
   ),
   datasetFactArm('columns[5].type', COUNT_STATS, 'TRUE'),
-  rowArm('columns[5].min', '"t1"', '"amount" < 0.25'),
-  rowArm('columns[5].max', '"t1"', '"amount" > 99.5'),
+  rowArm('columns[5].min', REL_AS_SRC, '"src"."amount" < 0.25'),
+  rowArm('columns[5].max', REL_AS_SRC, '"src"."amount" > 99.5'),
   datasetFactArm('columns[6].type', COUNT_STATS, 'FALSE'),
   rowArm(
     'columns[6].allowed-values',
-    '"t1"',
-    '("flag" IS NOT NULL AND "flag" NOT IN (TRUE, FALSE))',
+    REL_AS_SRC,
+    '("src"."flag" IS NOT NULL AND "src"."flag" NOT IN (TRUE, FALSE))',
   ),
   datasetFactArm('columns[7].type', COUNT_STATS, 'FALSE'),
-  rowArm('columns[7].min', '"t1"', '"score" < -1.5'),
+  rowArm('columns[7].min', REL_AS_SRC, '"src"."score" < -1.5'),
   datasetFactArm('columns[8].type', COUNT_STATS, 'TRUE'),
   datasetFactArm('columns[9].type', COUNT_STATS, 'FALSE'),
   datasetFactArm(
@@ -503,8 +515,35 @@ describe('golden plan — every rule kind, byte-pinned', () => {
     const result = compileContract(GOLDEN_CONTRACT, GOLDEN_SCHEMA, { relation: 'assay_v7' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.plan.summarySql).toContain('FROM "assay_v7"')
+    expect(result.plan.summarySql).toContain('FROM "assay_v7" AS "src"')
     expect(result.plan.summarySql).not.toContain('"t1"')
+  })
+
+  it('references source columns only range-qualified (collision-freedom invariant)', () => {
+    const result = compileContract(GOLDEN_CONTRACT, GOLDEN_SCHEMA, { relation: 't1' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const texts = [...result.plan.rules.map((r) => r.sql), result.plan.summarySql]
+    for (const name of [
+      'customer_id',
+      'email',
+      'country',
+      'age',
+      'joined_at',
+      'amount',
+      'flag',
+      'score',
+      'legacy_id',
+      'payload',
+    ]) {
+      // A source column may appear only as "src"."name" — never bare, so a
+      // dataset column spelled like a plan alias can never be confused with
+      // one (DuckDB identifiers are case-insensitive even when quoted).
+      const bare = new RegExp(`(?<!\\.)"${name}"`)
+      for (const text of texts) {
+        expect(bare.test(text), `bare "${name}" in:\n${text}`).toBe(false)
+      }
+    }
   })
 })
 

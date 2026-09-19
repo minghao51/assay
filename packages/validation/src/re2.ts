@@ -19,7 +19,12 @@
  * - literals (any codepoint except NUL); `.`, `^`, `$`, `|`; the empty
  *   pattern (RE2-valid: matches everything)
  * - groups: `(...)`, `(?:...)`, flags `(?flags)` / `(?flags:...)` with
- *   flags from `imsU` (negation via `-`), named `(?P<name>...)`
+ *   flags from `imsU` (repeats allowed), named `(?P<name>...)`. The flag
+ *   grammar is RE2's exact one — an optional single negation `-` that
+ *   must introduce at least one further flag letter (`(?i)`, `(?-i)`,
+ *   `(?i-s)`, `(?ii)` accept; `(?i-)`, `(?--i)`, `(?i--s)` are DuckDB's
+ *   "invalid perl operator" and are refused — pinned against DuckDB
+ *   1.5.5, see the regression pins in `re2.test.ts`)
  * - quantifiers `* + ? {n} {n,} {n,m}` with optional lazy `?`; RE2's
  *   documented limits hold (`n,m ≤ 1000`, `n ≤ m`); only repeatable atoms
  *   quantify (no `a**`, no `^*`, no `(?i)*`)
@@ -28,12 +33,22 @@
  *   shorthand escapes below as items
  * - escapes: shorthands `\d \D \s \S \w \W`; anchors `\b \B \A \z`
  *   (outside classes); controls `\n \t \r \f \a`; hex `\xHH`/`\x{h…}`
- *   (≤ U+10FFFF); any escaped punctuation as a literal
+ *   (≤ U+10FFFF); any escaped **ASCII non-alphanumeric** character as a
+ *   literal. An escaped non-ASCII codepoint (`\é`, `\😀`) is RE2's
+ *   "invalid escape sequence" (DuckDB 1.5.5 rejects it; pinned) and is
+ *   refused here — only ASCII punctuation/spaces can be escaped
  *
  * ## Rejected (each with a stable reason string)
  *
  * - decimal escapes `\0`–`\9`: RE2 has no backreferences and would
- *   silently read `\1` as the byte U+0001 — refused outright
+ *   silently read `\1` as the byte U+0001 — refused outright (DuckDB 1.5.5
+ *   rejects them too, as "invalid escape sequence")
+ * - escaped non-ASCII codepoints (`\é`, `\😀`): RE2's "invalid escape
+ *   sequence" (pinned against DuckDB 1.5.5) — only ASCII
+ *   non-alphanumerics can be escaped
+ * - flag-grammar violations: a trailing or doubled `-` (`(?i-)`,
+ *   `(?--i)`, `(?i--s)`) — DuckDB's "invalid perl operator" — plus
+ *   unknown flag letters and empty flag groups
  * - lookarounds `(?= (?! (?<= (?<!` and the lookbehind-shaped `(?<`
  *   (including `(?<name>` — some RE2 builds accept named groups that way;
  *   refused here for lookbehind-ambiguity, `(?P<name>` is the spelling)
@@ -44,6 +59,21 @@
  *   always terminates — `[]a]` is refused, RE2's own error is near), a
  *   `]`-must-be-escaped strictness, reversed class ranges, malformed POSIX
  *   names, malformed hex escapes, NUL characters
+ *
+ * ## Bounds and totality (the checker never throws)
+ *
+ * The parser is recursive descent over the JS stack, so group nesting is
+ * bounded: at most {@link MAX_NESTING_DEPTH} (100) levels of `(...)` are
+ * walked. This is a **checker-safety bound, not an RE2 rule** — DuckDB
+ * 1.5.5 accepts patterns far deeper (5,000 nested groups were verified to
+ * run), so a pattern past the bound is refused as typed `invalid-regex`
+ * *data* (with the bound named in the reason) even though DuckDB would
+ * run it: the documented strictness asymmetry — a valid pattern wrongly
+ * refused is a visible, actionable binding error; a checker crash is a
+ * totality violation. Contract patterns are human/YAML-authored, where
+ * depth beyond 100 is not meaningful. Everything except group nesting is
+ * parsed iteratively, so no input-size bound is needed; `checkRe2Pattern`
+ * is total over every input and never throws.
  *
  * Not part of the injection boundary (a pattern reaches SQL only through
  * `sqlStringLiteral`); this module decides *validity*, never escaping.
@@ -57,6 +87,13 @@ export type Re2PatternCheck =
 
 /** RE2's documented repeat-count limit (RE2 and Go's regexp both enforce 1000). */
 const MAX_REPEAT = 1000
+
+/**
+ * The deepest group nesting the checker walks (see the module doc's
+ * "Bounds and totality" section): past this, a pattern is refused as
+ * typed data — the recursive descent must never overflow the JS stack.
+ */
+const MAX_NESTING_DEPTH = 100
 
 const POSIX_CLASS_NAMES: ReadonlySet<string> = new Set([
   'alnum',
@@ -92,6 +129,8 @@ function reject(reason: string): never {
 interface Cursor {
   readonly src: string
   at: number
+  /** Current `(...)` nesting depth (bounded by {@link MAX_NESTING_DEPTH}). */
+  depth: number
 }
 
 function peek(cursor: Cursor, offset = 0): string {
@@ -129,6 +168,12 @@ function parseEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
     reject(
       'decimal escapes \\0–\\9 are refused: RE2 has no backreferences and would silently read them as byte escapes',
     )
+  }
+  if (ch.charCodeAt(0) > 0x7f) {
+    // Checked before the letter tests: a non-ASCII codepoint can never be
+    // an RE2 escape, and DuckDB 1.5.5 rejects `\é`/`\😀` outright
+    // ("invalid escape sequence") — pinned in re2.test.ts.
+    reject(`invalid escape sequence (\\${ch} — only ASCII punctuation and spaces can be escaped)`)
   }
   switch (ch) {
     case 'd':
@@ -179,7 +224,9 @@ function parseEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
       return reject('\\E without \\Q is not accepted by this checker')
     default:
       if (/[A-Za-z]/.test(ch)) return reject(`unsupported escape \\${ch}`)
-      // Escaped punctuation (any non-letter) is a literal — RE2's own rule.
+      // Escaped ASCII non-alphanumeric (punctuation, space, …) is a
+      // literal — RE2's own rule, pinned against DuckDB 1.5.5. Non-ASCII
+      // was already refused above.
       return { kind: 'char', value: ch }
   }
 }
@@ -283,8 +330,27 @@ function parseAtom(cursor: Cursor): { readonly quantifiable: boolean } {
   }
 }
 
-/** Parse a `(...)`-group; returns whether it is quantifiable. */
+/**
+ * Parse a `(...)`-group; returns whether it is quantifiable. The nesting
+ * depth guard makes the recursive descent total: past the documented
+ * bound the pattern is refused as data (never a stack-overflow throw).
+ */
 function parseGroup(cursor: Cursor): { readonly quantifiable: boolean } {
+  cursor.depth += 1
+  if (cursor.depth > MAX_NESTING_DEPTH) {
+    reject(
+      `pattern nests groups more than ${MAX_NESTING_DEPTH} deep (this checker's documented nesting bound — deep patterns are refused as data, not walked)`,
+    )
+  }
+  try {
+    return parseGroupBody(cursor)
+  } finally {
+    cursor.depth -= 1
+  }
+}
+
+/** The `(...)`-group body (depth-guarded by {@link parseGroup}). */
+function parseGroupBody(cursor: Cursor): { readonly quantifiable: boolean } {
   if (peek(cursor) !== '?') {
     parseAlternation(cursor)
     expectGroupClose(cursor)
@@ -318,15 +384,29 @@ function parseGroup(cursor: Cursor): { readonly quantifiable: boolean } {
       '(?<… is not accepted: lookbehind ((?<=, (?<!) is not RE2, and the (?<name> spelling is refused by this strict checker — use (?P<name>',
     )
   }
-  // Flags: (?flags) or (?flags:...) — letters from the accepted set, with
-  // '-' negation.
-  let letters = 0
-  while (FLAG_LETTERS.has(peek(cursor)) || peek(cursor) === '-') {
-    if (peek(cursor) !== '-') letters += 1
-    consume(cursor)
+  // Flags: (?flags) or (?flags:...) — RE2's exact flag grammar: flag
+  // letters from the accepted set, with at most ONE '-' that must
+  // introduce at least one further letter before ')' or ':'. DuckDB's
+  // RE2 build rejects a trailing or doubled '-' ("invalid perl operator:
+  // (?i-)" / "(?--") — pinned in re2.test.ts — so the checker refuses
+  // them here.
+  let on = 0
+  let off: number | null = null
+  for (;;) {
+    const flag = peek(cursor)
+    if (FLAG_LETTERS.has(flag)) {
+      if (off !== null) off += 1
+      else on += 1
+      consume(cursor)
+    } else if (flag === '-') {
+      if (off !== null) reject("malformed flag group (only one '-' is allowed)")
+      off = 0
+      consume(cursor)
+    } else break
     if (atEnd(cursor)) reject('unbalanced parenthesis')
   }
-  if (letters === 0) reject(`unsupported group syntax (?${ch}…`)
+  if (off === 0) reject(`malformed flag group (expected a flag letter after '-')`)
+  if (on === 0 && off === null) reject(`unsupported group syntax (?${ch}…`)
   if (peek(cursor) === ')') {
     consume(cursor)
     return { quantifiable: false } // a flags directive matches nothing
@@ -502,7 +582,7 @@ export function checkRe2Pattern(pattern: string): Re2PatternCheck {
   if (pattern.includes('\u0000')) {
     return { valid: false, reason: 'pattern contains a NUL character' }
   }
-  const cursor: Cursor = { src: pattern, at: 0 }
+  const cursor: Cursor = { src: pattern, at: 0, depth: 0 }
   try {
     parseAlternation(cursor)
     if (!atEnd(cursor)) {

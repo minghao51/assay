@@ -15,7 +15,10 @@
  *   m5-0-style, and every rule either compiles or is rejected — no silent
  *   skips. (`required`/`unique` normalize to true-or-absent exactly as the
  *   m5-0 parser normalizes them, so a `false` behind a broken cast is an
- *   absent rule, not a skipped one.)
+ *   absent rule, not a skipped one — but any *other* value behind a broken
+ *   cast is a typed `invalid-contract-input` error, as are unknown rule
+ *   keys and an unrecognizable `dataset` shape: the defensive validation
+ *   is as complete as the no-silent-skips claim.)
  * - **Binding errors before execution** — missing columns, rules
  *   inapplicable to the column's type family, unclassifiable type
  *   spellings, and non-RE2 regex patterns are all rejected here, typed and
@@ -30,6 +33,21 @@
  *   `literals.ts` helpers; contract/schema text never enters a SQL string
  *   or identifier position unquoted (see that module for the composition
  *   contract).
+ * - **Collision-free for every legal column name** — DuckDB identifiers
+ *   are case-insensitive even when quoted, and a quoted identifier may
+ *   contain anything, so no alias name is unreachable by a dataset
+ *   column. The SQL is therefore *structured* so names can never meet at
+ *   one scope: every source-column reference is range-qualified
+ *   (`"src"."col"` — a qualified reference resolves only against the FROM
+ *   range, never against a select-list alias or a same-named column
+ *   elsewhere), the relation is always aliased to the reserved range
+ *   `"src"`, and every derived table exposes **only** reserved `assay_*`
+ *   aliases (a source column never crosses a scope boundary under its
+ *   own name). No dataset column is unbindable — including
+ *   `assay_row_ordinal` in any casing — and this is regression-pinned
+ *   against real DuckDB (the m5-1 review's probes: `unique` over a column
+ *   named `assay_occurrences` counts every violation; `required` over
+ *   `ASSAY_ROW_ORDINAL` sees the NULL) in `duckdb-agreement.test.ts`.
  *
  * ## Binding semantics (documented decisions m5-2 pins)
  *
@@ -79,7 +97,7 @@ import {
   sqlStringLiteral,
 } from './literals'
 import type { PlannedRule, ValidationPlan, ValidationRuleKind } from './plan'
-import { PLAN_KIND, PLAN_VERSION, RESERVED_COLUMN_NAMES } from './plan'
+import { PLAN_KIND, PLAN_VERSION } from './plan'
 import { checkRe2Pattern } from './re2'
 import type { ColumnTypeFamily, EngineSchema, EngineSchemaColumn } from './schema'
 import { classifyColumnType, describeUnbindableType } from './schema'
@@ -163,6 +181,42 @@ function q(name: string): string {
   return quoteIdentifier(name)
 }
 
+/**
+ * The reserved range name of the target relation inside every plan query
+ * (`FROM "rel" AS "src"`). Source columns are referenced *only* through
+ * this range (`"src"."col"`): a qualified reference resolves exclusively
+ * against the FROM range — never against a select-list alias or a same-named
+ * column elsewhere — so a dataset column can never be confused with a plan
+ * alias, whatever it is named (DuckDB identifiers are case-insensitive even
+ * when quoted, which is exactly why references are qualified instead of
+ * aliases being "reserved": a case-folding reserved-name check could never
+ * be exhaustive, and it would wrongly make legal columns unbindable).
+ */
+const SOURCE_RANGE = 'src'
+
+/**
+ * A column reference inside plan SQL. `source` is the constrained dataset
+ * column at a scope that reads the relation (always rendered
+ * range-qualified, see {@link SOURCE_RANGE}); `derived` is one of the
+ * plan's own `assay_*` aliases exposed by a derived table (always bare —
+ * derived tables expose only reserved names, so a bare `assay_*` alias and
+ * a source column name never meet at one scope).
+ */
+type ColRef =
+  | { readonly scope: 'source'; readonly column: string }
+  | { readonly scope: 'derived'; readonly alias: string }
+
+/** Render a reference for SQL (source → range-qualified; derived → bare). */
+function colSql(ref: ColRef): string {
+  return ref.scope === 'source' ? `${q(SOURCE_RANGE)}.${q(ref.column)}` : q(ref.alias)
+}
+
+/** The constrained column as the per-rule query's outer scope sees it. */
+const DERIVED_VALUE: ColRef = { scope: 'derived', alias: 'assay_value' }
+
+/** The unique rule's occurrence count as an outer scope sees it. */
+const DERIVED_OCCURRENCES: ColRef = { scope: 'derived', alias: 'assay_occurrences' }
+
 /** Empty-plan summary: valid SQL, zero rows, pinned shape (see plan.ts). */
 const EMPTY_SUMMARY_SQL =
   'SELECT CAST(NULL AS VARCHAR) AS "rule_id", ' +
@@ -189,6 +243,30 @@ function pushError(
   ctx.errors.push({ code, message, path, ruleId: extra?.ruleId, column: extra?.column })
 }
 
+/**
+ * Render an invalid option value for an error message — **total over every
+ * value**: objects are never stringified (`String(Object.create(null))` is
+ * a TypeError — "Cannot convert object to primitive value" — so the error
+ * path must not route through it). The error renderer being total is part
+ * of the compiler's totality guarantee.
+ */
+function describeOptionValue(value: unknown): string {
+  switch (typeof value) {
+    case 'string':
+      return `'${value}'`
+    case 'number':
+    case 'bigint':
+    case 'boolean':
+      return String(value)
+    case 'undefined':
+      return 'undefined'
+    case 'object':
+      return value === null ? 'null' : 'an object (no safe string form)'
+    default:
+      return `a ${typeof value} value` // function or symbol
+  }
+}
+
 // ---------------------------------------------------------------------------
 // SQL fragment builders — pure, deterministic, shared between the per-rule
 // queries and the summary arms so the two cannot diverge (plan.ts doc).
@@ -201,8 +279,15 @@ function renderScalarLiteral(value: string | number | boolean): string {
   return sqlNumberLiteral(value)
 }
 
-/** The violation predicate of a row-level rule (NULL-passing by design). */
-function violationPredicate(key: ColumnRuleKey, col: string, value: unknown): string {
+/**
+ * The violation predicate of a row-level rule (NULL-passing by design).
+ * One builder renders the predicate at *both* scopes that need it — the
+ * per-rule query's outer scope (over the derived aliases) and the summary
+ * arm's scope (over the range-qualified source column) — so the two
+ * cannot diverge; only the reference rendering differs.
+ */
+function violationPredicate(key: ColumnRuleKey, ref: ColRef, value: unknown): string {
+  const col = colSql(ref)
   switch (key) {
     case 'required':
       return `${col} IS NULL`
@@ -224,23 +309,47 @@ function violationPredicate(key: ColumnRuleKey, col: string, value: unknown): st
 }
 
 /**
- * The per-rule query for a row-level rule: bounded samples + row identity.
- * `projection` is what the derived table carries beside the identity
- * column (the plain column, or the column plus the `unique` occurrence
- * count); `predicate` is evaluated over the derived table and is textually
- * identical to the summary arm's predicate.
+ * The unique rule's violation predicate over the derived aliases: any row
+ * whose non-NULL value recurs. The summary arm renders the identical text
+ * over an identically-shaped derived table (see {@link uniqueSummaryFrom}),
+ * so plan-vs-summary counts cannot diverge.
  */
-function rowSamplesSql(ctx: Ctx, col: string, predicate: string, projection: string): string {
+function uniqueViolationPredicate(): string {
+  return `${colSql(DERIVED_VALUE)} IS NOT NULL AND ${colSql(DERIVED_OCCURRENCES)} > 1`
+}
+
+/** Inner projection: the source column, renamed to the reserved alias. */
+function sourceValueProjection(column: string): string {
+  return `${colSql({ scope: 'source', column })} AS ${q('assay_value')}`
+}
+
+/** Inner projection for `unique`: the value plus its occurrence count. */
+function sourceUniqueProjection(column: string): string {
+  return (
+    `${sourceValueProjection(column)}, ` +
+    `count(*) OVER (PARTITION BY ${colSql({ scope: 'source', column })}) AS ${q('assay_occurrences')}`
+  )
+}
+
+/**
+ * The per-rule query for a row-level rule: bounded samples + row identity.
+ * `innerProjection` renames the source column to the reserved `assay_value`
+ * alias (plus the occurrence count for `unique`) at the innermost scope, so
+ * the derived table exposes *only* reserved aliases; `predicate` is
+ * evaluated over that derived table (bare reserved names — a source column
+ * cannot collide here, it never left the inner scope).
+ */
+function rowSamplesSql(ctx: Ctx, predicate: string, innerProjection: string): string {
   return [
     'SELECT',
     `  (SELECT count(*) FROM ${ctx.rel}) AS ${q('total_rows')},`,
     `  count(*) OVER () AS ${q('fail_count')},`,
     `  row_number() OVER () - 1 AS ${q('sample_index')},`,
     `  ${q('assay_row_ordinal')},`,
-    `  ${col} AS ${q('assay_value')}`,
+    `  ${q('assay_value')}`,
     'FROM (',
-    `  SELECT row_number() OVER () - 1 AS ${q('assay_row_ordinal')}, ${projection}`,
-    `  FROM ${ctx.rel}`,
+    `  SELECT row_number() OVER () - 1 AS ${q('assay_row_ordinal')}, ${innerProjection}`,
+    `  FROM ${ctx.rel} AS ${q(SOURCE_RANGE)}`,
     `) AS ${q('assay_rule_source')}`,
     `WHERE ${predicate}`,
     `LIMIT ${sqlIntegerLiteral(ctx.sampleLimit)}`,
@@ -248,9 +357,10 @@ function rowSamplesSql(ctx: Ctx, col: string, predicate: string, projection: str
 }
 
 /**
- * The summary arm for a row-level rule: same predicate text, count-only.
- * `from` is `rel` for predicate-only rules or the occurrence subquery for
- * `unique` — always row-aligned with the per-rule query's derived table.
+ * The summary arm for a row-level rule: same predicate text (over the
+ * range-qualified source column), count-only. `from` is `rel` for
+ * predicate-only rules or the occurrence subquery for `unique` — always
+ * row-aligned with the per-rule query's derived table.
  */
 function rowSummaryArm(ctx: Ctx, ruleId: string, predicate: string, from: string): string {
   return [
@@ -260,16 +370,34 @@ function rowSummaryArm(ctx: Ctx, ruleId: string, predicate: string, from: string
   ].join('\n')
 }
 
+/** The summary arm's FROM for predicate-only rules (relation + range). */
+function sourceFrom(ctx: Ctx): string {
+  return `${ctx.rel} AS ${q(SOURCE_RANGE)}`
+}
+
+/** The summary arm's FROM for `unique` — the occurrence subquery, shaped
+ * exactly like the per-rule query's derived table (reserved aliases only). */
+function uniqueSummaryFrom(ctx: Ctx, column: string): string {
+  return [
+    '(',
+    `  SELECT ${sourceUniqueProjection(column)}`,
+    `  FROM ${ctx.rel} AS ${q(SOURCE_RANGE)}`,
+    `) AS ${q('assay_rule_summary')}`,
+  ].join('\n')
+}
+
 /**
  * The per-rule query for a dataset-fact rule: one row when violated, zero
  * rows when the fact holds (empty ⇒ failCount 0, the uniform convention).
+ * The stats projection reads source columns range-qualified and exposes
+ * only reserved `assay_*` aliases.
  */
 function datasetFactSql(ctx: Ctx, statsProjection: string, violated: string): string {
   return [
     `SELECT ${q('assay_n')} AS ${q('total_rows')}, 1 AS ${q('fail_count')}`,
     'FROM (',
     `  SELECT ${statsProjection}`,
-    `  FROM ${ctx.rel}`,
+    `  FROM ${ctx.rel} AS ${q(SOURCE_RANGE)}`,
     `) AS ${q('assay_rule_stats')}`,
     `WHERE ${violated}`,
   ].join('\n')
@@ -286,7 +414,7 @@ function datasetFactSummaryArm(
     `SELECT ${sqlStringLiteral(ruleId)} AS ${q('rule_id')}, ${q('assay_n')} AS ${q('total_rows')}, CASE WHEN ${violated} THEN 1 ELSE 0 END AS ${q('fail_count')}`,
     'FROM (',
     `  SELECT ${statsProjection}`,
-    `  FROM ${ctx.rel}`,
+    `  FROM ${ctx.rel} AS ${q(SOURCE_RANGE)}`,
     `) AS ${q('assay_rule_stats')}`,
   ].join('\n')
 }
@@ -307,8 +435,12 @@ interface BoundColumn {
 
 /**
  * Resolve and validate one rule's column binding: existence (exact,
- * case-sensitive — with an actionable hint on near-misses), reserved-name
- * collisions, and — for family-needing rules — classification.
+ * case-sensitive — with an actionable hint on near-misses) and — for
+ * family-needing rules — classification. There is deliberately no
+ * reserved-name rejection: plan SQL is collision-free for *every* legal
+ * column name (see the module doc's collision-freedom invariant), so a
+ * dataset column named like a plan alias — in any casing — binds and
+ * executes correctly (pinned against real DuckDB).
  */
 function bindColumn(
   ctx: Ctx,
@@ -328,16 +460,6 @@ function bindColumn(
       hint === null
         ? `rule addresses column '${columnName}', which does not exist in the target schema (binding is exact and case-sensitive; the schema has ${schema.size} columns)`
         : `rule addresses column '${columnName}', which does not exist in the target schema — did you mean '${hint}'? (binding is exact and case-sensitive)`,
-      { ruleId, column: columnName },
-    )
-    return null
-  }
-  if (RESERVED_COLUMN_NAMES.has(entry.name)) {
-    pushError(
-      ctx,
-      'rule-not-applicable',
-      path,
-      `column name '${entry.name}' is reserved by the validation plan's result shape and cannot be bound unambiguously`,
       { ruleId, column: columnName },
     )
     return null
@@ -464,7 +586,21 @@ function ruleValueIsBindable(
   switch (key) {
     case 'required':
     case 'unique':
-      return true // true-or-absent, the m5-0 normalization
+      // True-or-absent is the m5-0 normalization: `false` is an absent rule
+      // (handled by the caller's skip), but any other non-true value behind
+      // a broken cast is a caller bug — reject it, never compile it as a
+      // rule and never skip it silently.
+      if (value !== true) {
+        pushError(
+          ctx,
+          'invalid-contract-input',
+          path,
+          `${key} must be exactly true when present (the m5-0 parser normalizes the spelling to true-or-absent)`,
+          { ruleId, column },
+        )
+        return false
+      }
+      return true
     case 'type':
     case 'regex':
       if (typeof value !== 'string') {
@@ -594,7 +730,7 @@ function compileColumnRule(
     const bound = bindColumn(ctx, schema, path, ruleId, columnName, requirement.needsFamily)
     if (bound === null) continue
     const { entry, family } = bound
-    const col = q(entry.name)
+    const srcCol = colSql({ scope: 'source', column: entry.name })
 
     if (requirement.families !== undefined && !requirement.families.includes(family)) {
       pushError(ctx, 'rule-not-applicable', path, notApplicableMessage(key, entry, family), {
@@ -644,40 +780,52 @@ function compileColumnRule(
       case 'max':
       case 'allowed-values':
       case 'regex': {
-        const predicate = violationPredicate(key, col, value)
+        const predicate = violationPredicate(key, DERIVED_VALUE, value)
         ctx.rules.push({
           ruleId,
           path,
           kind: ruleKind(key),
           column: entry.name,
           outcome: 'row-samples',
-          sql: rowSamplesSql(ctx, col, predicate, col),
+          sql: rowSamplesSql(ctx, predicate, sourceValueProjection(entry.name)),
         })
-        ctx.summaryArms.push(rowSummaryArm(ctx, ruleId, predicate, ctx.rel))
+        // The summary arm renders the identical predicate over the
+        // range-qualified source column (one shared builder — the two
+        // queries cannot diverge).
+        ctx.summaryArms.push(
+          rowSummaryArm(
+            ctx,
+            ruleId,
+            violationPredicate(key, { scope: 'source', column: entry.name }, value),
+            sourceFrom(ctx),
+          ),
+        )
         break
       }
       case 'unique': {
         // Violations are per-row (any row whose non-NULL value recurs),
-        // counted with the same window expression in both queries.
-        const occurrences = q('assay_occurrences')
-        const projection = `${col}, count(*) OVER (PARTITION BY ${col}) AS ${occurrences}`
-        const predicate = `${col} IS NOT NULL AND ${occurrences} > 1`
-        const nestedFrom = `(\n  SELECT ${projection}\n  FROM ${ctx.rel}\n) AS ${q('assay_rule_summary')}`
+        // counted with the same window expression in both queries. The
+        // source column is renamed to the reserved aliases at the innermost
+        // scope, so its own name (whatever it is) never reaches an outer
+        // scope where a plan alias lives.
+        const predicate = uniqueViolationPredicate()
         ctx.rules.push({
           ruleId,
           path,
           kind: 'unique',
           column: entry.name,
           outcome: 'row-samples',
-          sql: rowSamplesSql(ctx, col, predicate, projection),
+          sql: rowSamplesSql(ctx, predicate, sourceUniqueProjection(entry.name)),
         })
-        ctx.summaryArms.push(rowSummaryArm(ctx, ruleId, predicate, nestedFrom))
+        ctx.summaryArms.push(
+          rowSummaryArm(ctx, ruleId, predicate, uniqueSummaryFrom(ctx, entry.name)),
+        )
         break
       }
       case 'max-null-share': {
         const share = sqlNumberLiteral(value as number)
         const nullShare = q('assay_null_share')
-        const stats = `count(*) AS ${q('assay_n')}, coalesce(avg(CASE WHEN ${col} IS NULL THEN 1.0 ELSE 0.0 END), 0.0) AS ${nullShare}`
+        const stats = `count(*) AS ${q('assay_n')}, coalesce(avg(CASE WHEN ${srcCol} IS NULL THEN 1.0 ELSE 0.0 END), 0.0) AS ${nullShare}`
         const violated = `${nullShare} > ${share}`
         ctx.rules.push({
           ruleId,
@@ -694,7 +842,7 @@ function compileColumnRule(
         const share = sqlNumberLiteral(value as number)
         const nonNull = q('assay_non_null')
         const distinct = q('assay_distinct')
-        const stats = `count(*) AS ${q('assay_n')}, count(${col}) AS ${nonNull}, count(DISTINCT ${col}) AS ${distinct}`
+        const stats = `count(*) AS ${q('assay_n')}, count(${srcCol}) AS ${nonNull}, count(DISTINCT ${srcCol}) AS ${distinct}`
         // Zero non-NULL values pass vacuously (module doc).
         const violated = `${nonNull} > 0 AND CAST(${distinct} AS DOUBLE) / ${nonNull} < ${share}`
         ctx.rules.push({
@@ -782,7 +930,7 @@ function validateOptions(
       ctx,
       'invalid-options',
       'options',
-      `sampleLimit must be a safe integer ≥ 1 (a smaller limit could not distinguish a violated rule from a clean one); got ${String(sampleLimit)}`,
+      `sampleLimit must be a safe integer ≥ 1 (a smaller limit could not distinguish a violated rule from a clean one); got ${describeOptionValue(sampleLimit)}`,
     )
     return null
   }
@@ -854,13 +1002,46 @@ function validateSchema(
 /**
  * Validate the parts of the contract AST the compiler depends on that
  * `parseContract` output always satisfies — kept total against caller bugs
- * behind casts (the canonical serializer's defensive-read precedent).
+ * behind casts (the canonical serializer's defensive-read precedent). The
+ * key vocabulary is enforced too: `parseContract` rejects unknown keys, so
+ * a key outside the v1 vocabulary is a caller bug and is a typed error —
+ * never a silently-ignored rule.
  */
+
+/** The full v1 column rule-set vocabulary (m5-0's AST field spellings). */
+const COLUMN_RULE_KEY_SPELLINGS: ReadonlySet<string> = new Set([
+  'name',
+  'type',
+  'required',
+  'unique',
+  'min',
+  'max',
+  'allowedValues',
+  'regex',
+  'maxNullShare',
+  'minDistinctShare',
+])
+
+/** The v1 contract's top-level keys. */
+const TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(['format', 'metadata', 'columns', 'dataset'])
 function validateContractShape(ctx: Ctx, contract: ContractV1): boolean {
   let ok = true
   if (contract?.format !== 'v1') {
     pushError(ctx, 'invalid-contract-input', 'format', "contract format must be 'v1'")
     ok = false
+  }
+  if (contract !== null && typeof contract === 'object') {
+    for (const key of Object.keys(contract).sort()) {
+      if (!TOP_LEVEL_KEYS.has(key)) {
+        pushError(
+          ctx,
+          'invalid-contract-input',
+          key,
+          `'${key}' is not a v1 contract key (format, metadata, columns, dataset)`,
+        )
+        ok = false
+      }
+    }
   }
   if (typeof contract?.metadata?.name !== 'string') {
     pushError(
@@ -906,6 +1087,17 @@ function validateContractShape(ctx: Ctx, contract: ContractV1): boolean {
       return
     }
     seen.add(name)
+    for (const key of Object.keys(record).sort()) {
+      if (!COLUMN_RULE_KEY_SPELLINGS.has(key)) {
+        pushError(
+          ctx,
+          'invalid-contract-input',
+          `${path}.${key}`,
+          `'${key}' is not a rule key in the m5-0 column vocabulary`,
+        )
+        ok = false
+      }
+    }
     if (name.includes('\u0000')) {
       pushError(
         ctx,
@@ -966,10 +1158,37 @@ export function compileContract(
   for (let index = 0; index < columns.length; index++) {
     compileColumnRule(ctx, byName, index, columns[index])
   }
-  const dataset = contract?.dataset as Record<string, unknown> | undefined
-  if (dataset !== undefined && dataset !== null && typeof dataset === 'object') {
-    compileDatasetRule(ctx, dataset, 'min-rows')
-    compileDatasetRule(ctx, dataset, 'max-rows')
+  // The dataset rule set is defensively validated (no silent skips): a
+  // non-object `dataset` behind a broken cast cannot carry rules, so it is
+  // a typed error rather than an absent rule set; unknown keys are caller
+  // bugs just like unknown column rule keys.
+  const dataset: unknown =
+    contract === null || typeof contract !== 'object'
+      ? undefined
+      : (contract as unknown as Record<string, unknown>)['dataset']
+  if (dataset !== undefined) {
+    if (dataset === null || typeof dataset !== 'object' || Array.isArray(dataset)) {
+      pushError(
+        ctx,
+        'invalid-contract-input',
+        'dataset',
+        'contract dataset must be an object with minRows/maxRows when present — a non-object dataset can carry no rules, so it is rejected rather than silently ignored',
+      )
+    } else {
+      const record = dataset as Record<string, unknown>
+      for (const key of Object.keys(record).sort()) {
+        if (key !== 'minRows' && key !== 'maxRows') {
+          pushError(
+            ctx,
+            'invalid-contract-input',
+            `dataset.${key}`,
+            `'${key}' is not a dataset rule key (only minRows/maxRows exist in v1)`,
+          )
+        }
+      }
+      compileDatasetRule(ctx, record, 'min-rows')
+      compileDatasetRule(ctx, record, 'max-rows')
+    }
   }
 
   if (ctx.errors.length > 0) return { ok: false, errors: ctx.errors }

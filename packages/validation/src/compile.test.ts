@@ -142,11 +142,33 @@ describe('rule-not-applicable — the documented applicability matrix', () => {
     const schema = [...BASE_SCHEMA, { name: 'doc', type: 'JSON' }]
     expectNotApplicable({ name: 'doc', unique: true }, 'JSON equality is textual', schema)
   })
-  it('rejects a rule on a reserved plan-machinery column name', () => {
-    const schema = [{ name: 'assay_row_ordinal', type: 'BIGINT' }]
-    const error = firstError(compileOne({ name: 'assay_row_ordinal', required: true }, schema))
-    expect(error.code).toBe('rule-not-applicable')
-    expect(error.message).toContain('reserved')
+  it('binds a rule on a column spelled like a plan alias (no reserved names)', () => {
+    // DuckDB identifiers are case-insensitive even when quoted, so no name
+    // is unreachable by a dataset column; the compiled SQL is collision-
+    // free by construction (range-qualified source references; derived
+    // tables expose only reserved aliases — see plan.ts). Exact-case and
+    // case-variant spellings all bind; the DuckDB agreement suite proves
+    // they *execute* correctly.
+    for (const name of ['assay_row_ordinal', 'ASSAY_ROW_ORDINAL', 'assay_occurrences']) {
+      const schema = [{ name, type: 'BIGINT' }]
+      const result = compileContract(
+        contractOf([{ name, required: true, unique: true, type: 'BIGINT' }]),
+        schema,
+        { relation: 't1' },
+      )
+      expect(result.ok, name).toBe(true)
+      if (result.ok) {
+        for (const rule of result.plan.rules) {
+          if (rule.kind === 'declared-type') continue // a row-count fact never references the column
+          // The source column is read range-qualified. (A negative bare-name
+          // regex is meaningless when the dataset column is *spelled* like a
+          // plan alias — the bare occurrences are then the plan's own derived
+          // aliases; correctness is pinned by execution in the DuckDB
+          // agreement suite.)
+          expect(rule.sql).toContain(`"src"."${name}"`)
+        }
+      }
+    }
   })
 
   it('rejects cross-kind allowed-values entries (would fail or coerce at execution)', () => {
@@ -267,6 +289,33 @@ describe('invalid-regex — RE2 dialect honesty at binding time', () => {
     expect(error.code).toBe('invalid-regex')
     expect(error.message).toContain('lookbehind')
   })
+  it('rejects malformed flag groups (DuckDB: "invalid perl operator")', () => {
+    for (const pattern of ['(?i-)abc', '(?--i)abc', '(?i--s)abc']) {
+      const error = firstError(compileOne({ name: 'name', regex: pattern }))
+      expect(error.code, pattern).toBe('invalid-regex')
+      expect(error.message, pattern).toContain('flag group')
+    }
+  })
+  it('rejects escaped non-ASCII codepoints (DuckDB: "invalid escape sequence")', () => {
+    for (const pattern of ['\\é', '\\😀', '[\\é]', 'a\\ü']) {
+      const error = firstError(compileOne({ name: 'name', regex: pattern }))
+      expect(error.code, pattern).toBe('invalid-regex')
+      expect(error.message, pattern).toContain('invalid escape sequence')
+    }
+  })
+  it('never throws on deep nesting — a past-the-bound pattern is typed data (m5-1 review item 3)', () => {
+    // DuckDB 1.5.5 accepts 5,000 nested groups; the checker's documented
+    // bound (100) is a checker-safety bound, so this DuckDB-valid pattern
+    // must come back as invalid-regex DATA — never a RangeError.
+    const pattern = '('.repeat(5000) + 'a' + ')'.repeat(5000)
+    let result: ReturnType<typeof compileContract> | undefined
+    expect(() => {
+      result = compileOne({ name: 'name', regex: pattern })
+    }).not.toThrow()
+    const error = firstError(result as ReturnType<typeof compileContract>)
+    expect(error.code).toBe('invalid-regex')
+    expect(error.message).toContain('nest')
+  })
   it('rejects the pattern regardless of the column type (dialect before applicability)', () => {
     const error = firstError(compileOne({ name: 'id', regex: 'a*+' }))
     expect(error.code).toBe('invalid-regex')
@@ -331,6 +380,80 @@ describe('invalid-contract-input — caller-bug surface (parseContract output ca
     expect(error.path).toBe('format')
     expect(error.message).toContain("'v1'")
   })
+
+  it('rejects non-true required/unique behind a broken cast (never compiled as a rule)', () => {
+    for (const column of [
+      broken({ name: 'id', required: { bad: true } }),
+      broken({ name: 'id', required: 'yes' }),
+      broken({ name: 'id', required: 1 }),
+      broken({ name: 'id', unique: { bad: true } }),
+      broken({ name: 'id', unique: 'yes' }),
+    ]) {
+      const error = firstError(compileOne(column))
+      expect(error.code).toBe('invalid-contract-input')
+      expect(error.message).toContain('must be exactly true when present')
+    }
+  })
+
+  it('rejects an unrecognizable dataset shape (never silently ignored)', () => {
+    for (const dataset of ['silent', 42, true, [1, 2], null]) {
+      const result = compileContract(
+        {
+          format: 'v1',
+          metadata: { name: 'pin', version: 1 },
+          columns: [{ name: 'id', required: true }],
+          dataset,
+        } as unknown as ContractV1,
+        BASE_SCHEMA,
+        { relation: 't1' },
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) continue
+      const error = result.errors.find((e) => e.path === 'dataset')
+      expect(error?.code, String(dataset)).toBe('invalid-contract-input')
+      expect(error?.message).toContain('must be an object with minRows/maxRows')
+    }
+  })
+
+  it('rejects unknown rule keys (column-level, dataset-level, top-level) — no silent skips', () => {
+    const unknownColumnKey = firstError(compileOne(broken({ name: 'id', median: 5 })))
+    expect(unknownColumnKey.code).toBe('invalid-contract-input')
+    expect(unknownColumnKey.path).toBe('columns[0].median')
+    expect(unknownColumnKey.message).toContain("'median' is not a rule key")
+
+    const badDataset = compileContract(
+      {
+        format: 'v1',
+        metadata: { name: 'pin', version: 1 },
+        columns: [{ name: 'id', required: true }],
+        dataset: { minRows: 1, medianRows: 5 },
+      } as ContractV1,
+      BASE_SCHEMA,
+      { relation: 't1' },
+    )
+    expect(badDataset.ok).toBe(false)
+    if (!badDataset.ok) {
+      const error = badDataset.errors.find((e) => e.path === 'dataset.medianRows')
+      expect(error?.code).toBe('invalid-contract-input')
+      expect(error?.message).toContain("'medianRows' is not a dataset rule key")
+    }
+
+    const badTopLevel = compileContract(
+      { ...contractOf([]), owner: 'someone' } as unknown as ContractV1,
+      BASE_SCHEMA,
+      { relation: 't1' },
+    )
+    const topError = firstError(badTopLevel)
+    expect(topError.code).toBe('invalid-contract-input')
+    expect(topError.path).toBe('owner')
+    expect(topError.message).toContain("'owner' is not a v1 contract key")
+  })
+
+  it('a known key with a false value stays an absent rule (the m5-0 normalization)', () => {
+    const result = compileOne(broken({ name: 'id', required: false, unique: false }))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.plan.rules).toHaveLength(0)
+  })
 })
 
 describe('invalid-options — compile options are validated before any SQL exists', () => {
@@ -354,6 +477,54 @@ describe('invalid-options — compile options are validated before any SQL exist
     const error = firstError(compileContract(contractOf([]), BASE_SCHEMA, { relation: 't\u00001' }))
     expect(error.code).toBe('invalid-options')
     expect(error.message).toContain('NUL')
+  })
+  it('renders hostile option values totally — the error path never throws (m5-1 review item 4)', () => {
+    // String(Object.create(null)) is a TypeError ("Cannot convert object to
+    // primitive value"); the invalid-options rendering must be total over
+    // every value a caller bug behind a cast can produce.
+    const hostile: readonly unknown[] = [
+      Object.create(null),
+      { toString: null },
+      { ugly: true },
+      Symbol('x'),
+      () => 42,
+    ]
+    for (const sampleLimit of hostile) {
+      let result: ReturnType<typeof compileContract> | undefined
+      expect(() => {
+        result = compileContract(contractOf([{ name: 'id', required: true }]), BASE_SCHEMA, {
+          relation: 't1',
+          sampleLimit: sampleLimit as number,
+        })
+      }).not.toThrow()
+      const error = firstError(result as ReturnType<typeof compileContract>)
+      expect(error.code).toBe('invalid-options')
+      expect(error.message).toContain('safe integer ≥ 1')
+      expect(error.message.length).toBeGreaterThan(0)
+    }
+    // and the same totality for a hostile relation value
+    let relationResult: ReturnType<typeof compileContract> | undefined
+    expect(() => {
+      relationResult = compileContract(contractOf([]), BASE_SCHEMA, {
+        relation: Object.create(null) as string,
+      })
+    }).not.toThrow()
+    expect(firstError(relationResult as ReturnType<typeof compileContract>).code).toBe(
+      'invalid-options',
+    )
+  })
+  it('degrades non-object options to typed errors (totality behind a cast)', () => {
+    for (const options of [null, undefined, 42, 't1']) {
+      let result: ReturnType<typeof compileContract> | undefined
+      expect(() => {
+        result = compileContract(
+          contractOf([{ name: 'id', required: true }]),
+          BASE_SCHEMA,
+          options as unknown as { relation: string },
+        )
+      }).not.toThrow()
+      expect(firstError(result as ReturnType<typeof compileContract>).code).toBe('invalid-options')
+    }
   })
   it('defaults the sample limit to the pinned K', () => {
     const result = compileContract(contractOf([{ name: 'id', required: true }]), BASE_SCHEMA, {

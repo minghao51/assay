@@ -29,7 +29,7 @@ export {
   sqlNumberLiteral,
   sqlStringLiteral,
 } from './literals'
-export { PLAN_KIND, PLAN_VERSION, RESERVED_COLUMN_NAMES } from './plan'
+export { PLAN_KIND, PLAN_VERSION } from './plan'
 export type { PlannedRule, RuleOutcomeShape, ValidationPlan, ValidationRuleKind } from './plan'
 export { checkRe2Pattern } from './re2'
 export type { Re2PatternCheck } from './re2'

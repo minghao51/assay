@@ -50,17 +50,22 @@
  * fragments as the corresponding per-rule query (shared builders in
  * `compile.ts`), so plan-vs-summary divergence is structurally impossible —
  * m5-6 asserts web/CLI agreement over these counts.
+ *
+ * ## Identifier invariants (why any dataset column name binds)
+ *
+ * The plan's SQL reserves two namespaces for itself: the `assay_*` aliases
+ * (`assay_row_ordinal`, `assay_value`, `assay_occurrences`, `assay_n`,
+ * `assay_null_share`, `assay_non_null`, `assay_distinct` plus the result
+ * columns `rule_id`/`total_rows`/`fail_count`/`sample_index`) and the range
+ * name `"src"` for the target relation. Because DuckDB identifiers are
+ * case-insensitive even when quoted and may contain anything, no *name* is
+ * reserved against a dataset — instead the SQL is shaped so names never
+ * meet at one scope: source columns are referenced only range-qualified
+ * (`"src"."col"`), and derived tables expose only `assay_*` aliases. A
+ * dataset column may therefore be named anything — including
+ * `assay_row_ordinal` in any casing — and stay bindable and correctly
+ * executable (real-DuckDB regression pins in `duckdb-agreement.test.ts`).
  */
-
-/**
- * Dataset column names the plan's own result machinery reserves. A rule
- * targeting a column with one of these names could not be projected
- * unambiguously (the identity column is both referenced inside the plan's
- * derived tables and aliased in its output), so such a rule is a typed
- * binding error — the engine's m4-2 reserved-name precedent, narrowed to
- * the one name that actually collides.
- */
-export const RESERVED_COLUMN_NAMES: ReadonlySet<string> = new Set(['assay_row_ordinal'])
 
 /** Discriminator carried by every plan (defensive versioning at the wire). */
 export const PLAN_KIND = 'assay-validation-plan' as const

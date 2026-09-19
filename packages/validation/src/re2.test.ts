@@ -1,4 +1,7 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { sqlStringLiteral } from './literals'
 import { checkRe2Pattern } from './re2'
 
 /**
@@ -188,5 +191,78 @@ describe('checkRe2Pattern — rejected with stable reasons', () => {
     expect(checkRe2Pattern('a{,5}')).toEqual({ valid: true }) // not a quantifier shape → literal
     expect(checkRe2Pattern('{}')).toEqual({ valid: true })
     expect(checkRe2Pattern('a}{')).toEqual({ valid: true })
+  })
+})
+
+describe('checkRe2Pattern — the nesting bound is typed data, never a throw (m5-1 review item 3)', () => {
+  const nest = (n: number): string => '('.repeat(n) + 'a' + ')'.repeat(n)
+
+  it('accepts nesting at the documented bound (100)', () => {
+    expect(checkRe2Pattern(nest(100))).toEqual({ valid: true })
+  })
+
+  it('refuses past the bound as invalid-regex data — never a RangeError', () => {
+    for (const depth of [101, 1000, 5000]) {
+      let check: ReturnType<typeof checkRe2Pattern> | undefined
+      expect(() => {
+        check = checkRe2Pattern(nest(depth))
+      }, `depth ${depth}`).not.toThrow()
+      expect(check?.valid, `depth ${depth}`).toBe(false)
+      if (check !== undefined && !check.valid) {
+        expect(check.reason, `depth ${depth}`).toContain('nest')
+        expect(check.reason).toContain('100')
+      }
+    }
+  })
+})
+
+/**
+ * Real-DuckDB agreement pins (env-gated). The checker's promise is that
+ * everything it ACCEPTS is valid DuckDB RE2 — the m5-2 engine work
+ * re-compiles accepted patterns there — so the accepted pool is executed
+ * against the pinned CLI, and the review-reported over-acceptances are
+ * pinned as DuckDB-rejected (defect evidence). Skipped only when the
+ * pinned binary is absent (e.g. a CI image without it — the documented
+ * skip reason); where it exists these pins must run.
+ */
+const DUCKDB_CLI = process.env['DUCKDB'] ?? '/tmp/duckdb'
+const hasDuckDbCli = existsSync(DUCKDB_CLI)
+
+/** Whether DuckDB accepts the pattern (process exit code is the oracle). */
+function duckdbAcceptsRegex(pattern: string): boolean {
+  const sql = `SELECT regexp_full_match('abc', ${sqlStringLiteral(pattern)});`
+  try {
+    execFileSync(DUCKDB_CLI, ['-json', '-noheader', '-c', sql], { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function nestFor(n: number): string {
+  return '('.repeat(n) + 'a' + ')'.repeat(n)
+}
+
+describe.skipIf(!hasDuckDbCli)('checkRe2Pattern — real DuckDB agreement (pinned CLI 1.5.5)', () => {
+  it('pins the dialect: the CLI is the 1.5.x series', () => {
+    const version = execFileSync(DUCKDB_CLI, ['--version'], { encoding: 'utf8' })
+    expect(version).toMatch(/v1\.5\./)
+  })
+
+  it('every accepted pattern is accepted by real DuckDB (the accepted pool is the contract)', () => {
+    for (const pattern of ACCEPTED) {
+      expect(duckdbAcceptsRegex(pattern), `pattern ${JSON.stringify(pattern)}`).toBe(true)
+    }
+  })
+
+  it('the review-reported over-acceptances are DuckDB-rejected (defect evidence)', () => {
+    for (const pattern of ['(?i-)abc', '(?i--s)abc', '\\é', '\\😀']) {
+      expect(duckdbAcceptsRegex(pattern), `pattern ${JSON.stringify(pattern)}`).toBe(false)
+    }
+  })
+
+  it('the nesting bound is a checker bound, not a DuckDB one (DuckDB accepts 5,000 deep)', () => {
+    expect(duckdbAcceptsRegex(nestFor(100))).toBe(true) // inside our bound: both accept
+    expect(duckdbAcceptsRegex(nestFor(5000))).toBe(true) // past our bound: DuckDB still accepts — we refuse as documented strictness
   })
 })
