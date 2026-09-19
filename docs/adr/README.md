@@ -40,6 +40,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0038 | Golden Parquet Fixtures Are Generated with the DuckDB CLI                       |
 | 0039 | The Product Name Is Assay                                                       |
 | 0040 | Two Op Lanes in the Engine Worker (Query Lane + Registry Lane)                  |
+| 0041 | CLI Validation Runs on @duckdb/node-api Behind the Engine's `./node` Seam       |
 
 ## Proposed
 
