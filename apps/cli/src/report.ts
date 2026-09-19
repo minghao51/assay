@@ -52,7 +52,13 @@ export interface ValidationReportRow {
   readonly failing: boolean
   readonly outcome: 'row-samples' | 'dataset-fact' | 'unknown'
   readonly samples: readonly EngineValidationSample[]
-  /** True when every violating row is in `samples` (the bounded-set gate). */
+  /**
+   * True when every violating row is in `samples` (the bounded-set gate).
+   * A `dataset-fact` rule is ALWAYS sample-complete: facts carry no row
+   * samples by contract (m5-4 — a fact is a boolean about the whole
+   * dataset), so an empty sample list under a failing fact is the complete
+   * set, never a partial one.
+   */
   readonly samplesComplete: boolean
   /** declared-type rules only: the contract's expected type spelling. */
   readonly expectedType?: string
@@ -95,7 +101,11 @@ export function buildValidationReport(
       failing: ruleResult.failCount > 0,
       outcome,
       samples: ruleResult.sampleFailures,
-      samplesComplete: ruleResult.failCount <= ruleResult.sampleFailures.length,
+      // The bounded-set gate: a row list shorter than the count is partial
+      // — unless the rule is a dataset-fact, whose (empty) sample list is
+      // complete by contract (facts never carry row samples).
+      samplesComplete:
+        outcome === 'dataset-fact' || ruleResult.failCount <= ruleResult.sampleFailures.length,
       ...(planRule?.expectedType === undefined ? {} : { expectedType: planRule.expectedType }),
       ...(planRule?.actualType === undefined ? {} : { actualType: planRule.actualType }),
     }

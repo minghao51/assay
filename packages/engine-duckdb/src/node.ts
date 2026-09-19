@@ -31,11 +31,17 @@ export {
   readValidationRowKeys,
   readValidationSummaryRows,
   validationEffectiveSampleLimit,
+  validationFailCountExcess,
   VALIDATION_BEGIN_SQL,
   VALIDATION_ROLLBACK_SQL,
   VALIDATION_SAMPLE_HARD_MAX,
 } from './validate-query'
-export type { ValidationRuleRows, ValidationSampleRow, WireSampleValue } from './validate-query'
+export type {
+  ValidationFailCountExcess,
+  ValidationRuleRows,
+  ValidationSampleRow,
+  WireSampleValue,
+} from './validate-query'
 export {
   assertValidationPlanRelationBinding,
   parseValidationPlan,

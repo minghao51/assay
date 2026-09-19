@@ -59,6 +59,7 @@ import type { EngineOverlayPayload } from './overlay-wire'
 import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire'
 import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
 import { parseValidationPlan } from './validate-plan-wire'
+import { validationFailCountExcess } from './validate-query'
 export type { EngineOverlayPayload, EngineValidationPlan, EngineValidationResult }
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
@@ -978,13 +979,16 @@ function isSampleValue(value: unknown): value is string | number | boolean | nul
 
 /**
  * A well-formed validation result (shape only — the worker guarantees the
- * rest). A per-rule `failCount` larger than the result's own `rowCount` is
- * out of the contract (m5-2 round-3 fix, item 3: a shape-valid plan whose
- * counts exceed the dataset is a foreign/non-compiler plan; the executor
- * fails it with one typed error — and a payload carrying such counts is
- * malformed here, so the client REJECTS the pending promise instead of
- * resolving an impossible `failPercent > 100` or hanging on a discarded
- * response).
+ * rest). Each rule's `failCount` must fit its own outcome's bound (m5-4
+ * refinement of the m5-2 round-3 uniform guard, item 3): `row-samples`
+ * counts are bounded by the result's `rowCount`; `dataset-fact` counts are
+ * bounded by ONE (a boolean fact holds or fails — a compiler-shaped fact
+ * reporting 2 is a foreign/non-compiler plan). A payload carrying an
+ * out-of-bound count is malformed here, so the client REJECTS the pending
+ * promise instead of resolving an impossible `failPercent > 100` (or a
+ * count no compiler could produce) and never hangs on a discarded
+ * response. The per-rule `outcome` (the closed v1 vocabulary) is part of
+ * the shape since m5-4 — it is what names the bound.
  */
 function isValidationResult(value: unknown): value is EngineValidationResult {
   if (!isRecord(value)) return false
@@ -994,13 +998,11 @@ function isValidationResult(value: unknown): value is EngineValidationResult {
   const rowCount: number = value['rowCount']
   return rules.every((rule) => {
     if (!isRecord(rule)) return false
-    if (
-      typeof rule['ruleId'] !== 'string' ||
-      !isRowCount(rule['failCount']) ||
-      rule['failCount'] > rowCount
-    ) {
-      return false
-    }
+    const outcome = rule['outcome']
+    if (typeof rule['ruleId'] !== 'string') return false
+    if (outcome !== 'row-samples' && outcome !== 'dataset-fact') return false
+    if (!isRowCount(rule['failCount'])) return false
+    if (validationFailCountExcess(rule['failCount'], rowCount, outcome) !== null) return false
     if (!isPercent(rule['failPercent'])) return false
     const samples = rule['sampleFailures']
     if (!Array.isArray(samples)) return false

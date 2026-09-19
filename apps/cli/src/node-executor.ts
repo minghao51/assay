@@ -24,8 +24,12 @@
  * m5-2 fix round — DDL is transactional, so nothing persists), the binding
  * view is dropped inside the transaction before the rollback, the plan passes
  * the static relation-binding gate before any SQL runs, and the per-rule
- * sanity guards (failCount ≤ rowCount, samples ≤ clamp, summary agreement)
- * all fail loudly instead of reporting an out-of-contract result.
+ * sanity guards (the per-outcome failCount bound — row counts for row-samples
+ * rules, ONE for dataset-fact facts, m5-4; samples ≤ clamp; summary
+ * agreement) all fail loudly instead of reporting an out-of-contract result.
+ * The failCount bound and its message come from the shared seam
+ * (`validationFailCountExcess`) — the CLI mirrors the engine's check by
+ * construction, not by re-derivation.
  *
  * ## The value-transport seam (why this module owns an Arrow conversion)
  *
@@ -89,6 +93,7 @@ import {
   readValidationRowKeys,
   readValidationSummaryRows,
   validationEffectiveSampleLimit,
+  validationFailCountExcess,
 } from '@assay/engine-duckdb/node'
 import type {
   EngineValidationPlan,
@@ -172,6 +177,7 @@ export async function runValidationPlan(
     const ordinals = new Set<number>()
     const perRule: {
       ruleId: string
+      outcome: string
       failCount: number
       samples: ReturnType<typeof readValidationRuleRows>['samples']
     }[] = []
@@ -184,13 +190,17 @@ export async function runValidationPlan(
         ),
         rule.outcome,
       )
-      // Result sanity, mirroring the engine executor: a violation count
-      // larger than the row count cannot be compiler output, and samples
-      // never exceed the engine clamp or reference past-the-end ordinals.
-      if (rows.failCount > rowCount) {
-        throw usageError(
-          `validation rule '${rule.ruleId}' reported more failures than rows in the dataset`,
-        )
+      // Result sanity, mirroring the engine executor through the shared
+      // seam: the reported count must fit the rule's OUTCOME bound —
+      // row-samples counts are bounded by the dataset's row count;
+      // dataset-fact counts by ONE (a boolean fact holds or fails, never
+      // "fails twice": `dataset.min-rows ≥ 1` over an empty dataset is an
+      // honest VIOLATION on this surface — exit 1 with the fact in the
+      // report — never an execution error). Samples never exceed the
+      // engine clamp or reference past-the-end ordinals.
+      const excess = validationFailCountExcess(rows.failCount, rowCount, rule.outcome)
+      if (excess !== null) {
+        throw usageError(`validation rule '${rule.ruleId}' ${excess}`)
       }
       if (rows.samples.length > effectiveLimit) {
         throw usageError(`validation rule '${rule.ruleId}' returned more samples than its bound`)
@@ -201,7 +211,12 @@ export async function runValidationPlan(
         }
         ordinals.add(sample.ordinal)
       }
-      perRule.push({ ruleId: rule.ruleId, failCount: rows.failCount, samples: rows.samples })
+      perRule.push({
+        ruleId: rule.ruleId,
+        outcome: rule.outcome,
+        failCount: rows.failCount,
+        samples: rows.samples,
+      })
     }
 
     const keys =
@@ -243,6 +258,7 @@ export async function runValidationPlan(
       }
       return {
         ruleId: rule.ruleId,
+        outcome: rule.outcome,
         failCount: rule.failCount,
         failPercent: failPercentFromCounts(rule.failCount, rowCount),
         sampleFailures: buildSampleFailures(rule.samples, keys),

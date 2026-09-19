@@ -38,16 +38,19 @@
  *
  * ## Result contract
  *
- * Per planned rule: `{ ruleId, failCount, failPercent, sampleFailures }`.
- * `failCount` follows the plan's empty-result⇔clean convention (m5-1 plan
- * doc) read from the per-rule query; the summary query is executed too and
- * its counts must agree exactly (integrity pin — the plan contract says the
- * two cannot diverge). `failPercent` is the documented integer half-up
- * rounding ({@link failPercentFromCounts}). Samples are bounded by
- * `min(plan K, {@link VALIDATION_SAMPLE_HARD_MAX})` — the executed rule
- * query carries that clamp in its own `LIMIT` (m5-2 round-3 fix, see
- * {@link composeValidationRuleQuery}) — and values are normalized to
- * wire-safe JSON ({@link normalizeSampleValue}).
+ * Per planned rule: `{ ruleId, outcome, failCount, failPercent,
+ * sampleFailures }` (m5-4 added `outcome` so the result names its own
+ * sanity bound). `failCount` follows the plan's empty-result⇔clean
+ * convention (m5-1 plan doc) read from the per-rule query; the summary
+ * query is executed too and its counts must agree exactly (integrity pin —
+ * the plan contract says the two cannot diverge). `failCount` is bounded by
+ * the rule's outcome ({@link validationFailCountExcess} — the m5-4
+ * refinement of the m5-2 uniform guard). `failPercent` is the documented
+ * integer half-up rounding ({@link failPercentFromCounts}). Samples are
+ * bounded by `min(plan K, {@link VALIDATION_SAMPLE_HARD_MAX})` — the
+ * executed rule query carries that clamp in its own `LIMIT` (m5-2 round-3
+ * fix, see {@link composeValidationRuleQuery}) — and values are normalized
+ * to wire-safe JSON ({@link normalizeSampleValue}).
  *
  * Privacy (ADR 0025): offending values are report *content* carried to the
  * host — they are never logged, never telemetried, and never embedded in
@@ -213,6 +216,44 @@ export function failPercentFromCounts(failCount: number, rowCount: number): numb
   // operands are non-negative, so this is exactly the documented floor.
   const scaled = BigInt(failCount) * 200n + BigInt(rowCount)
   return Number(scaled / (2n * BigInt(rowCount)))
+}
+
+/**
+ * Why a rule's reported `failCount` sits outside its outcome's
+ * result-sanity bound (m5-4 refinement of the m5-2 round-3 uniform
+ * `failCount ≤ rowCount` guard). The message text is part of the shared
+ * seam: both surfaces throw `validation rule '<id>' <excess>` so the typed
+ * failure class is byte-identical everywhere.
+ */
+export type ValidationFailCountExcess =
+  | 'reported more failures than rows in the effective view'
+  | 'reported more than one failure for a dataset-fact rule'
+
+/**
+ * The result-sanity bound for one planned rule's reported `failCount`
+ * (m5-4 addendum, refining the m5-2 round-3 uniform `failCount ≤ rowCount`
+ * guard): a `row-samples` rule counts violating ROWS, so its count is
+ * bounded by the effective row count; a `dataset-fact` rule is a BOOLEAN
+ * fact about the whole dataset (row-count bounds, declared-type match,
+ * share comparisons — the compiler emits `fail_count` 0 or 1 for these),
+ * so it can fail AT MOST ONCE. `dataset.min-rows ≥ 1` over an empty
+ * dataset legitimately reports `failCount 1 > rowCount 0` — an honest
+ * violation, never a foreign plan. A count past the outcome's bound
+ * remains the foreign/non-compiler signal the m5-2 guard exists for: one
+ * typed error (this message), never an out-of-contract result. The
+ * outcome is the plan's wire string (the boundary parser pinned it to the
+ * v1 vocabulary); any other spelling is bounded as `row-samples` (the
+ * conservative reading). Returns `null` when the count is in bounds.
+ */
+export function validationFailCountExcess(
+  failCount: number,
+  rowCount: number,
+  outcome: string,
+): ValidationFailCountExcess | null {
+  if (outcome === 'dataset-fact') {
+    return failCount > 1 ? 'reported more than one failure for a dataset-fact rule' : null
+  }
+  return failCount > rowCount ? 'reported more failures than rows in the effective view' : null
 }
 
 /**

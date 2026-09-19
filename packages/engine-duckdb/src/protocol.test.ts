@@ -1070,6 +1070,7 @@ function wireResult(): EngineValidationResult {
     rules: [
       {
         ruleId: 'columns[1].allowed-values',
+        outcome: 'row-samples',
         failCount: 24,
         failPercent: 20,
         sampleFailures: [
@@ -1156,7 +1157,9 @@ describe('m5-2: engine/validate protocol', () => {
     ).toBeNull()
     // The reviewer's two-row probe shape (m5-2 round-3, item 3): a per-rule
     // count larger than the result's own rowCount is out of contract and
-    // rejected at parse — the client rejects, it never hangs on it.
+    // rejected at parse — the client rejects, it never hangs on it. The
+    // rule is a row-samples rule, so the m5-4 refined bound is exactly the
+    // old uniform one here.
     expect(
       parseEngineResponse({
         ...base,
@@ -1164,6 +1167,77 @@ describe('m5-2: engine/validate protocol', () => {
           ...wireResult(),
           rowCount: 2,
           rules: [{ ...wireResult().rules[0]!, failCount: 3 }],
+        },
+      }),
+    ).toBeNull()
+    // m5-4 refinement: each rule's count is bounded by its OWN outcome.
+    // A dataset-fact rule is a boolean fact (it holds or fails, never
+    // "fails twice"), so a compiler-shaped fact reporting failCount 2 is
+    // malformed even where the old uniform bound saw nothing wrong
+    // (2 ≤ 120).
+    expect(
+      parseEngineResponse({
+        ...base,
+        result: {
+          ...wireResult(),
+          rules: [
+            {
+              ...wireResult().rules[0]!,
+              ruleId: 'dataset.min-rows',
+              outcome: 'dataset-fact',
+              failCount: 2,
+              sampleFailures: [],
+            },
+          ],
+        },
+      }),
+    ).toBeNull()
+    // …and the motivating defect is fixed at parse too: a dataset-fact
+    // failCount 1 over an EMPTY dataset (1 > 0, refused by the m5-2 bound)
+    // is the honest `min-rows ≥ 1` violation shape — ACCEPTED, verdict
+    // invalid, no error. The outcome field is what names the bound.
+    const factOverEmpty = {
+      type: 'engine/validate-result',
+      requestId: 9,
+      result: {
+        valid: false,
+        rowCount: 0,
+        rules: [
+          {
+            ruleId: 'dataset.min-rows',
+            outcome: 'dataset-fact',
+            failCount: 1,
+            failPercent: 0,
+            sampleFailures: [],
+          },
+        ],
+      },
+    }
+    expect(parseEngineResponse(factOverEmpty)).toEqual(factOverEmpty)
+    // The outcome is part of the shape: a missing or foreign vocabulary
+    // spelling rejects (it is what selects the sanity bound).
+    expect(
+      parseEngineResponse({
+        ...base,
+        result: {
+          ...wireResult(),
+          rules: [{ ...wireResult().rules[0]!, outcome: 'rows' }],
+        },
+      }),
+    ).toBeNull()
+    expect(
+      parseEngineResponse({
+        ...base,
+        result: {
+          ...wireResult(),
+          rules: [
+            {
+              ruleId: 'columns[1].allowed-values',
+              failCount: 0,
+              failPercent: 0,
+              sampleFailures: [],
+            },
+          ],
         },
       }),
     ).toBeNull()

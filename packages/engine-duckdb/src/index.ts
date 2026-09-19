@@ -181,6 +181,7 @@ export {
   composeValidationViewDropSql,
   composeValidationViewSql,
   validationEffectiveSampleLimit,
+  validationFailCountExcess,
   failPercentFromCounts,
   normalizeSampleValue,
   readValidationRowCount,

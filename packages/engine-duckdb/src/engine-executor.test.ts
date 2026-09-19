@@ -1866,8 +1866,17 @@ function validPlanFixture(): EngineValidationPlan {
 }
 
 function factPlanFixture(): EngineValidationPlan {
+  return factPlanWithCount(1)
+}
+
+/**
+ * A compiler-shaped dataset-fact plan reporting an arbitrary `fail_count`
+ * (the m5-4 refined-bound probes: 2 is a foreign plan, 1 over an empty
+ * dataset is an honest violation).
+ */
+function factPlanWithCount(failCount: number): EngineValidationPlan {
   const ruleSql =
-    `SELECT "assay_n" AS "total_rows", 1 AS "fail_count"\n` +
+    `SELECT "assay_n" AS "total_rows", ${String(failCount)} AS "fail_count"\n` +
     'FROM (\n' +
     `  SELECT count(*) AS "assay_n" FROM "${BINDING}" AS "src"\n` +
     ') AS "assay_rule_stats"\n' +
@@ -1887,7 +1896,7 @@ function factPlanFixture(): EngineValidationPlan {
       }),
     ],
     summarySql:
-      `SELECT 'dataset.min-rows' AS "rule_id", "assay_n" AS "total_rows", CASE WHEN "assay_n" < 100 THEN 1 ELSE 0 END AS "fail_count"\n` +
+      `SELECT 'dataset.min-rows' AS "rule_id", "assay_n" AS "total_rows", CASE WHEN "assay_n" < 100 THEN ${String(failCount)} ELSE 0 END AS "fail_count"\n` +
       'FROM (\n' +
       `  SELECT count(*) AS "assay_n" FROM "${BINDING}" AS "src"\n` +
       ') AS "assay_rule_stats"',
@@ -1996,6 +2005,7 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
       rules: [
         {
           ruleId: 'columns[0].required',
+          outcome: 'row-samples',
           failCount: 2,
           failPercent: 50,
           sampleFailures: [
@@ -2342,6 +2352,96 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     await awaitSends(deps.queryConn, 8)
     deps.queryConn.resolveSend(7, intTable([42]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it('bounds a dataset-fact rule by ONE: a fact reporting failCount 2 is a foreign plan (m5-4 refinement)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // The m5-2 uniform bound (failCount ≤ rowCount) cannot see this probe:
+    // 2 ≤ 120 would parse as shape-valid. The m5-4 refined per-outcome
+    // bound can: a dataset-fact rule is a boolean fact — it holds or
+    // fails, never "fails twice" — so a compiler-shaped fact reporting 2
+    // over 120 rows is a foreign, non-compiler plan and fails with ONE
+    // typed error (the same class as the row-count bound; the message
+    // distinguishes the bound).
+    await acceptValidateToCount(executor, deps, factPlanWithCount(2), 120n)
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(
+      4,
+      tableFromArrays({
+        total_rows: BigInt64Array.from([120n]),
+        fail_count: BigInt64Array.from([2n]),
+      }),
+    )
+    // Cleanup settles BEFORE the error is posted (the W2 order pin).
+    await awaitSends(deps.queryConn, 6)
+    expect(deps.queryConn.sentSqls[5]).toContain(`DROP VIEW IF EXISTS "${BINDING}"`)
+    deps.queryConn.resolveSend(5, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 7)
+    expect(deps.queryConn.sentSqls[6]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toBe(
+        "validation rule 'dataset.min-rows' reported more than one failure for a dataset-fact rule",
+      )
+    }
+    // The engine is reusable (a follow-up query still works).
+    executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it('ACCEPTS a dataset-fact failCount 1 over an EMPTY dataset as the honest violation (m5-4 refinement)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    // The defect that motivated the refinement: `dataset.min-rows ≥ 1`
+    // over 0 rows legitimately reports failCount 1 > rowCount 0 — under
+    // the m5-2 uniform bound that was refused as a foreign plan (an
+    // execution error for a perfectly valid contract + honestly violating
+    // dataset). The refined bound accepts it: the op RESOLVES with
+    // valid: false (the violation), failPercent 0 (the documented
+    // empty-dataset convention), and no error.
+    await acceptValidateToCount(executor, deps, factPlanFixture(), 0n)
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(
+      4,
+      tableFromArrays({
+        total_rows: BigInt64Array.from([0n]),
+        fail_count: BigInt64Array.from([1n]),
+      }),
+    )
+    // A fact carries no samples → no row-key query; summary next.
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(
+      5,
+      tableFromArrays({ rule_id: ['dataset.min-rows'], total_rows: [0], fail_count: [1] }),
+    )
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(6, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, tableFromArrays({}))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/validate-result', requestId: 2 })
+    if (posted.type !== 'engine/validate-result') return
+    expect(posted.result).toEqual({
+      valid: false,
+      rowCount: 0,
+      rules: [
+        {
+          ruleId: 'dataset.min-rows',
+          outcome: 'dataset-fact',
+          failCount: 1,
+          failPercent: 0,
+          sampleFailures: [],
+        },
+      ],
+    })
+    expect(deps.queryConn.sentSqls.at(-1)).toBe('ROLLBACK')
     expectNoCollisions(deps)
   })
 

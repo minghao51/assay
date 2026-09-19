@@ -649,7 +649,10 @@ export const VALIDATION_DATASET: ConformanceValidationDataset = {
       // failPercent > 100 response a client would hang on). The rule SQL is
       // deliberately compiler-shaped (single SELECT, FROM-bound, a
       // compiler-shaped summary) so the static gate passes and the plan
-      // EXECUTES — the guard is what stops it.
+      // EXECUTES — the guard is what stops it. This probe is a DATASET-FACT
+      // rule, so the m5-4 refined per-outcome bound (a fact fails at most
+      // once) rejects it a fortiori; the row-count bound still covers
+      // row-samples rules.
       label: 'shape-valid plan reporting more failures than rows',
       plan: hostilePlan({
         rules: [

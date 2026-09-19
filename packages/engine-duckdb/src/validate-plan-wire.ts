@@ -186,11 +186,25 @@ export interface EngineValidationSample {
   readonly value: string | number | boolean | null
 }
 
-/** Per-rule result (the m5-2 result contract). */
+/** Per-rule result (the m5-2 result contract, m5-4-refined). */
 export interface EngineValidationRuleResult {
   /** The plan's `ruleId` (m5-0 error-path spelling). */
   readonly ruleId: string
-  /** Violating rows; the executed plan's own count (see the plan contract). */
+  /**
+   * The plan's own outcome for this rule (the closed v1 vocabulary,
+   * `'row-samples' | 'dataset-fact'` — runtime-checked at the protocol
+   * boundary). It selects the rule's result-sanity bound (m5-4): a
+   * `row-samples` count is bounded by the effective row count; a
+   * `dataset-fact` count is a boolean fact and is bounded by ONE.
+   */
+  readonly outcome: string
+  /**
+   * Violating rows; the executed plan's own count (see the plan contract).
+   * Bounded by the outcome's result-sanity bound (m5-4): `≤ rowCount` for
+   * `row-samples` rules, `≤ 1` for `dataset-fact` rules — a fact holds or
+   * fails, never "fails twice" (`dataset.min-rows ≥ 1` over an empty
+   * dataset legitimately reports 1 over 0 rows).
+   */
   readonly failCount: number
   /**
    * `failCount` as an integer percentage of the effective row count,

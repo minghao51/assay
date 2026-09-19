@@ -1150,7 +1150,15 @@ describe('DuckDbEngineClient validate (m5-2)', () => {
     const result: EngineValidationResult = {
       valid: true,
       rowCount: 6,
-      rules: [{ ruleId: 'columns[0].required', failCount: 0, failPercent: 0, sampleFailures: [] }],
+      rules: [
+        {
+          ruleId: 'columns[0].required',
+          outcome: 'row-samples',
+          failCount: 0,
+          failPercent: 0,
+          sampleFailures: [],
+        },
+      ],
     }
     const pending = client.validate(handle, planFixture(), overlay)
     await flush()
@@ -1220,9 +1228,9 @@ describe('DuckDbEngineClient validate (m5-2)', () => {
     const { client, worker, handle } = await openHandle()
     // The reviewer's exact two-row probe injected directly: a response
     // carrying failCount 3 over rowCount 2 (failPercent 150) is out of
-    // contract. The old behavior discarded it silently and left
-    // validate() pending forever; now the pending promise rejects with a
-    // typed protocol error and the client stays usable.
+    // contract for its row-samples outcome. The old behavior discarded it
+    // silently and left validate() pending forever; now the pending promise
+    // rejects with a typed protocol error and the client stays usable.
     const pending = client.validate(handle, planFixture())
     await flush()
     const request = worker.requestAt(2)
@@ -1235,6 +1243,7 @@ describe('DuckDbEngineClient validate (m5-2)', () => {
         rules: [
           {
             ruleId: 'columns[0].required',
+            outcome: 'row-samples',
             failCount: 3,
             failPercent: 150,
             sampleFailures: [],

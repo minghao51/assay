@@ -293,6 +293,69 @@ verdict: VALID — 0 violations across 5 rules (6 rows)
     }
   })
 
+  it('min-rows ≥ 1 violated on an EMPTY dataset is a VIOLATION on stdout (exit 1), not an error (m5-4 guard refinement)', () => {
+    // The m5-4 addendum: a dataset-fact rule is a boolean fact — it can
+    // fail at most once — so `min-rows ≥ 1` over 0 rows honestly reports
+    // failCount 1 over rowCount 0. The m5-2 uniform guard (failCount ≤
+    // rowCount) refused that shape as a foreign plan (exit 2, no report);
+    // the refined per-outcome bound (facts bounded by ONE) accepts it and
+    // the run reports the violation like any other: exit 1, the fact in
+    // the report, zero samples (facts carry no rows), no stderr.
+    const contract = `format: v1
+name: empty-edge
+version: 1
+columns: []
+dataset:
+  min-rows: 1
+`
+    const path = join(dir, 'empty-edge.yaml')
+    writeFileSync(path, contract)
+    const run = runCli(['validate', files.empty, '--contract', path])
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `dataset: empty.csv (csv) — base view only (the raw file; no edits)
+contract: empty-edge v1
+rows: 0
+rules: 1
+FAIL dataset.min-rows — Minimum row count — 1 of 0 rows (0%)
+verdict: INVALID — 1 of 1 rules failing (0 rows)
+`,
+    )
+    // The JSON report agrees: the fact failed, the empty-dataset share
+    // convention holds (0%), and the sample list is complete (empty BY
+    // CONTRACT — never "partial") so no truncation line can exist.
+    const json = runCli(['validate', files.empty, '--contract', path, '--format', 'json'])
+    expect(json.exitCode).toBe(1)
+    const payload = JSON.parse(json.stdout) as {
+      valid: boolean
+      datasetRows: number
+      rules: {
+        ruleId: string
+        failCount: number
+        failPercent: number
+        samplesReturned: number
+        samplesComplete: boolean
+      }[]
+    }
+    expect(payload.valid).toBe(false)
+    expect(payload.datasetRows).toBe(0)
+    expect(payload.rules).toEqual([
+      {
+        ruleId: 'dataset.min-rows',
+        column: null,
+        rule: 'min-rows',
+        label: 'Minimum row count',
+        failCount: 1,
+        failPercent: 0,
+        samplesReturned: 0,
+        samplesComplete: true,
+        sampleRowKeys: [],
+        sampleValues: [],
+      },
+    ])
+  })
+
   it('quote-laden and DROP-bait values print verbatim as sample rows (stdout only)', () => {
     const run = runCli(['validate', files.validation, '--contract', files.validationContract])
     expect(run.exitCode).toBe(1)
@@ -396,29 +459,6 @@ error: columns[1].min (column 'region'): [rule-not-applicable] min/max bounds re
     expect(run.exitCode).toBe(2)
     expect(run.stdout).toBe('')
     expect(run.stderr).toBe('the dataset could not be opened (parquet reader refused the file)\n')
-  })
-
-  it('violated min-rows on an EMPTY dataset is refused by the result-sanity guard (documented edge)', () => {
-    // A min-rows fact over 0 rows reports failCount 1 > rowCount 0 — the
-    // engine's m5-2 result-sanity guard refuses that shape, and the CLI
-    // replicates the guard exactly (cross-surface discipline). This is a
-    // genuine shared upstream edge (legitimate compiler output the guard
-    // rejects); reported to the orchestrator, pinned here as executed.
-    const contract = `format: v1
-name: empty-edge
-version: 1
-columns: []
-dataset:
-  min-rows: 1
-`
-    const path = join(dir, 'empty-edge.yaml')
-    writeFileSync(path, contract)
-    const run = runCli(['validate', files.empty, '--contract', path])
-    expect(run.exitCode).toBe(2)
-    expect(run.stdout).toBe('')
-    expect(run.stderr).toBe(
-      "validation rule 'dataset.min-rows' reported more failures than rows in the dataset\n",
-    )
   })
 
   it('--sample-limit must be a positive integer', () => {

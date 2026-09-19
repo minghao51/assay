@@ -159,8 +159,20 @@ describe('buildValidationReport', () => {
       rowCount: 10,
       rules: [
         // Plan order: min first (failing), max-rows second (passing).
-        { ruleId: 'columns[0].min', failCount: 2, failPercent: 20, sampleFailures: [] },
-        { ruleId: 'dataset.max-rows', failCount: 0, failPercent: 0, sampleFailures: [] },
+        {
+          ruleId: 'columns[0].min',
+          outcome: 'row-samples',
+          failCount: 2,
+          failPercent: 20,
+          sampleFailures: [],
+        },
+        {
+          ruleId: 'dataset.max-rows',
+          outcome: 'dataset-fact',
+          failCount: 0,
+          failPercent: 0,
+          sampleFailures: [],
+        },
       ],
     }
     const report = buildValidationReport(plan, result)
@@ -187,6 +199,7 @@ describe('buildValidationReport', () => {
       rules: [
         {
           ruleId: 'columns[0].min',
+          outcome: 'row-samples',
           failCount: 110,
           failPercent: 92,
           sampleFailures: [
@@ -200,11 +213,50 @@ describe('buildValidationReport', () => {
     expect(report.rows[0]?.samplesComplete).toBe(false)
   })
 
+  it('a FAILING dataset-fact is sample-complete with zero samples (facts never carry rows, m5-4)', () => {
+    // `dataset.min-rows ≥ 1` over an empty dataset fails as an honest fact
+    // violation (the m5-4 guard refinement made the shape reachable). Its
+    // sample list is empty BY CONTRACT — the bounded-set gate must read
+    // that as complete, never render a "… N more failures not shown" line
+    // for samples that cannot exist.
+    const result: EngineValidationResult = {
+      valid: false,
+      rowCount: 0,
+      rules: [
+        {
+          ruleId: 'dataset.max-rows',
+          outcome: 'dataset-fact',
+          failCount: 1,
+          failPercent: 0,
+          sampleFailures: [],
+        },
+      ],
+    }
+    const report = buildValidationReport(plan, result)
+    expect(report.rows[0]).toMatchObject({
+      ruleId: 'dataset.max-rows',
+      outcome: 'dataset-fact',
+      failing: true,
+      samplesComplete: true,
+    })
+    const rendered = renderHumanReport(report, META)
+    expect(rendered).toContain('FAIL dataset.max-rows — Maximum row count — 1 of 0 rows (0%)')
+    expect(rendered).not.toContain('more failures not shown')
+  })
+
   it('degrades a result rule with no plan rule to an unknown row', () => {
     const result: EngineValidationResult = {
       valid: false,
       rowCount: 1,
-      rules: [{ ruleId: 'columns[9].mystery', failCount: 1, failPercent: 100, sampleFailures: [] }],
+      rules: [
+        {
+          ruleId: 'columns[9].mystery',
+          outcome: 'row-samples',
+          failCount: 1,
+          failPercent: 100,
+          sampleFailures: [],
+        },
+      ],
     }
     const report = buildValidationReport(plan, result)
     expect(report.rows[0]).toMatchObject({ kind: 'unknown', outcome: 'unknown', label: 'Rule' })
@@ -216,7 +268,15 @@ describe('renderer determinism', () => {
     const report = buildValidationReport(plan, {
       valid: false,
       rowCount: 10,
-      rules: [{ ruleId: 'columns[0].min', failCount: 2, failPercent: 20, sampleFailures: [] }],
+      rules: [
+        {
+          ruleId: 'columns[0].min',
+          outcome: 'row-samples',
+          failCount: 2,
+          failPercent: 20,
+          sampleFailures: [],
+        },
+      ],
     })
     expect(renderJsonReport(report, META)).toBe(renderJsonReport(report, META))
     expect(renderHumanReport(report, META)).toBe(renderHumanReport(report, META))

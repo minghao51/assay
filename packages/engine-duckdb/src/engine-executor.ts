@@ -95,6 +95,7 @@ import {
   readValidationRowKeys,
   readValidationSummaryRows,
   validationEffectiveSampleLimit,
+  validationFailCountExcess,
   VALIDATION_BEGIN_SQL,
   VALIDATION_ROLLBACK_SQL,
 } from './validate-query'
@@ -743,6 +744,7 @@ export class EngineOpExecutor {
       // to failCount and is not bounded by the clamp).
       const perRule: {
         readonly ruleId: string
+        readonly outcome: string
         readonly failCount: number
         readonly samples: ValidationSampleRow[]
       }[] = []
@@ -756,15 +758,21 @@ export class EngineOpExecutor {
               rule.outcome,
             ),
         )
-        // Result sanity (m5-2 round-3 fix, item 3): a violation count larger
-        // than the effective row count cannot come from compiler output —
-        // it is a foreign/non-compiler plan. One typed error here, never an
-        // out-of-contract result (failPercent > 100) that the protocol would
-        // have to discard and a client would hang on.
-        if (rows.failCount > rowCount) {
-          throw new Error(
-            `validation rule '${rule.ruleId}' reported more failures than rows in the effective view`,
-          )
+        // Result sanity (m5-2 round-3 fix, item 3; m5-4 refinement): the
+        // reported count must fit the rule's OUTCOME bound — row-samples
+        // counts are bounded by the effective row count; dataset-fact
+        // counts by ONE (a boolean fact holds or fails, never "fails
+        // twice" — `dataset.min-rows ≥ 1` over an empty dataset honestly
+        // reports 1 over 0 rows and is a violation, not an error). A count
+        // past the outcome's bound cannot come from compiler output — it
+        // is a foreign/non-compiler plan. One typed error here, never an
+        // out-of-contract result (failPercent > 100) that the protocol
+        // would have to discard and a client would hang on. Bound and
+        // message come from the shared seam, so the CLI mirrors this check
+        // by construction instead of re-deriving it.
+        const excess = validationFailCountExcess(rows.failCount, rowCount, rule.outcome)
+        if (excess !== null) {
+          throw new Error(`validation rule '${rule.ruleId}' ${excess}`)
         }
         if (rows.samples.length > sampleLimit) {
           throw new Error(`rule '${rule.ruleId}' returned more samples than the engine's bound`)
@@ -775,7 +783,12 @@ export class EngineOpExecutor {
           }
           ordinals.add(sample.ordinal)
         }
-        perRule.push({ ruleId: rule.ruleId, failCount: rows.failCount, samples: [...rows.samples] })
+        perRule.push({
+          ruleId: rule.ruleId,
+          outcome: rule.outcome,
+          failCount: rows.failCount,
+          samples: [...rows.samples],
+        })
       }
 
       // Row keys for every sampled ordinal, one scan of the composed view —
@@ -817,6 +830,7 @@ export class EngineOpExecutor {
         }
         return {
           ruleId: rule.ruleId,
+          outcome: rule.outcome,
           failCount: rule.failCount,
           failPercent: failPercentFromCounts(rule.failCount, rowCount),
           sampleFailures: buildSampleFailures(rule.samples, keys),
