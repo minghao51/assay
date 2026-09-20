@@ -966,7 +966,9 @@ export class EngineOpExecutor {
    * comparison is dropped — view then file — before the new registration, so
    * re-staging a reference cannot accumulate views or file registrations.
    * A failed registration/view creation rolls the reservation back
-   * best-effort, exactly like `runOpen`.
+   * best-effort, exactly like `runOpen`. Because the previous entry is
+   * cleared before the new reservation, a failed re-stage leaves NO staged
+   * comparison — it does not roll back to the prior slot.
    *
    * Query lane: staging a large file and creating a view over it is the
    * heavy, user-initiated class (ADR 0040) — it queues behind running
@@ -1047,12 +1049,14 @@ export class EngineOpExecutor {
    *
    * Result sanity (the m5-4 analog, made explicit in `diff-query.ts`): each
    * aspect's reported count must fit its bound (`added ≤ rowCount(B)`,
-   * `removed ≤ rowCount(A)`, `changed ≤ min(rowCount(A), rowCount(B))` under
-   * the compiler's unique-key semantics); the per-aspect counts must agree
-   * with the totals query (the m6-1 no-divergence invariant, asserted not
-   * assumed); samples are bounded by `min(plan K, hard max)`. A count past
-   * its bound cannot be compiler output — one typed error, never an
-   * out-of-contract result.
+   * `removed ≤ rowCount(A)`, `changed ≤ rowCount(A) × rowCount(B)` — keys may
+   * be non-unique and NULL keys group, so an A row can pair with several B
+   * rows); the per-aspect counts must agree with the totals query (the m6-1
+   * no-divergence invariant, asserted not assumed); samples are bounded by
+   * `min(plan K, hard max)`. The bounds are a corruption/foreign-signal net
+   * (every legal plan is inside them) and the totals agreement is the second
+   * net for an inflated count that stays inside a bound — a violation is one
+   * typed error, never an out-of-contract result.
    *
    * An engine error is mapped through the fixed, value-free failure classes
    * (the m5-2 `validationStep` discipline): DuckDB errors can embed values

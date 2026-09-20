@@ -1,4 +1,12 @@
-import { Table, tableFromArrays, tableFromIPC } from 'apache-arrow'
+import {
+  Field,
+  List,
+  Table,
+  Utf8,
+  tableFromArrays,
+  tableFromIPC,
+  vectorFromArray,
+} from 'apache-arrow'
 import type { RecordBatch } from 'apache-arrow'
 import { baseRowId, insertRowId } from '@assay/domain'
 import type { EditOp } from '@assay/domain'
@@ -2694,8 +2702,8 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
 
 const COMPARISON_FILE = new File([new Uint8Array([9, 9, 9])], 'comparison.parquet')
 
-/** A real compiler-shaped plan (relations `assay_diff_a` / `assay_diff_b`, K=2). */
-function rowDiffPlanFixture(): EngineRowDiffPlan {
+/** A real compiler-shaped plan (relations `assay_diff_a` / `assay_diff_b`, K default 2). */
+function rowDiffPlanFixture(sampleLimit = 2): EngineRowDiffPlan {
   const result = compileRowDiffPlan(
     [
       { name: 'id', type: 'BIGINT' },
@@ -2706,7 +2714,7 @@ function rowDiffPlanFixture(): EngineRowDiffPlan {
       { name: 'val', type: 'VARCHAR' },
     ],
     ['id'],
-    { relationA: 'assay_diff_a', relationB: 'assay_diff_b', sampleLimit: 2 },
+    { relationA: 'assay_diff_a', relationB: 'assay_diff_b', sampleLimit },
   )
   if (!result.ok) throw new Error(`fixture compile failed: ${JSON.stringify(result.errors)}`)
   return result.plan
@@ -2724,6 +2732,28 @@ function zeroTotalsTable(): Table {
   return tableFromArrays({
     assay_aspect: ['added', 'removed', 'changed'],
     assay_count: BigInt64Array.from([0n, 0n, 0n]),
+  })
+}
+
+/** A changed-aspect result table: one `['val']` change per A-side ordinal. */
+function changedAspectTable(count: number, ordinals: readonly number[]): Table {
+  return new Table({
+    assay_side: vectorFromArray(ordinals.map(() => 'A')),
+    assay_row_ordinal: vectorFromArray(ordinals.map((ordinal) => BigInt(ordinal))),
+    assay_changed: vectorFromArray(
+      ordinals.map(() => ['val']),
+      new List(new Field('item', new Utf8())),
+    ),
+    sample_index: vectorFromArray(ordinals.map((_, index) => BigInt(index))),
+    assay_count: vectorFromArray(ordinals.map(() => BigInt(count))),
+  })
+}
+
+/** An A-side ordinal → logical row-key table (the m5-2 resolution channel). */
+function aKeyTable(entries: readonly (readonly [number, string])[]): Table {
+  return tableFromArrays({
+    assay_overlay_ord: BigInt64Array.from(entries.map(([ordinal]) => BigInt(ordinal))),
+    assay_row_id: entries.map(([, key]) => key),
   })
 }
 
@@ -2888,6 +2918,120 @@ describe('EngineOpExecutor row-diff execution (m6-2; query lane)', () => {
     const posted = await awaitPosted(deps, 3)
     expect(posted).toMatchObject({ type: 'engine/diff-stage-result', comparisonId: 'd2' })
     expect(deps.droppedFiles).toContain('diff_d1')
+  })
+
+  it('accepts a legal non-unique key join the old min-side bound rejected (changed 9)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    await stageComparison(executor, deps)
+    executor.accept(diffRequest(3, rowDiffPlanFixture(20)))
+    await awaitSends(deps.queryConn, 3) // DESCRIBE the base view
+    deps.queryConn.resolveSend(2, describeTable())
+    await awaitSends(deps.queryConn, 4)
+    deps.queryConn.resolveSend(3, tableFromArrays({})) // BEGIN
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, tableFromArrays({})) // CREATE A
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(5, tableFromArrays({})) // CREATE B
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(6, countTable(3n)) // count A
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, countTable(3n)) // count B
+    await awaitSends(deps.queryConn, 9)
+    deps.queryConn.resolveSend(8, emptyAspectTable()) // added
+    await awaitSends(deps.queryConn, 10)
+    deps.queryConn.resolveSend(9, emptyAspectTable()) // removed
+    await awaitSends(deps.queryConn, 11)
+    // A 3×3 key group: changed 9 > min(rowCountA, rowCountB) — legal output.
+    deps.queryConn.resolveSend(10, changedAspectTable(9, [0, 0, 0, 1, 1, 1, 2, 2, 2]))
+    await awaitSends(deps.queryConn, 12)
+    deps.queryConn.resolveSend(
+      11,
+      aKeyTable([
+        [0, 'base:a#0'],
+        [1, 'base:a#1'],
+        [2, 'base:a#2'],
+      ]),
+    ) // A-side row keys
+    await awaitSends(deps.queryConn, 13)
+    deps.queryConn.resolveSend(
+      12,
+      tableFromArrays({
+        assay_aspect: ['added', 'removed', 'changed'],
+        assay_count: BigInt64Array.from([0n, 0n, 9n]),
+      }),
+    ) // totals
+    await awaitSends(deps.queryConn, 14)
+    deps.queryConn.resolveSend(13, tableFromArrays({})) // DROP A
+    await awaitSends(deps.queryConn, 15)
+    deps.queryConn.resolveSend(14, tableFromArrays({})) // DROP B
+    await awaitSends(deps.queryConn, 16)
+    deps.queryConn.resolveSend(15, tableFromArrays({})) // ROLLBACK
+
+    const posted = await awaitPosted(deps, 3)
+    expect(posted.type).toBe('engine/diff-result')
+    if (posted.type === 'engine/diff-result') {
+      const changed = posted.result.aspects.find((aspect) => aspect.aspect === 'changed')
+      expect(changed?.count).toBe(9)
+      expect(changed?.samples).toHaveLength(9)
+      expect(changed?.samples[0]).toEqual({
+        side: 'A',
+        rowKey: 'base:a#0',
+        changedColumns: ['val'],
+      })
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('catches a changed-count inflation inside the pair bound via the totals agreement', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    await stageComparison(executor, deps)
+    executor.accept(diffRequest(3, rowDiffPlanFixture(20)))
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, describeTable())
+    await awaitSends(deps.queryConn, 4)
+    deps.queryConn.resolveSend(3, tableFromArrays({})) // BEGIN
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, tableFromArrays({})) // CREATE A
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(5, tableFromArrays({})) // CREATE B
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(6, countTable(100n)) // count A
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, countTable(100n)) // count B
+    await awaitSends(deps.queryConn, 9)
+    deps.queryConn.resolveSend(8, emptyAspectTable()) // added
+    await awaitSends(deps.queryConn, 10)
+    deps.queryConn.resolveSend(9, emptyAspectTable()) // removed
+    await awaitSends(deps.queryConn, 11)
+    // changed 1005 is inside 100 × 100 = 10 000, so the refined bound passes;
+    // the totals arm (5) is the independent net that catches the inflation.
+    deps.queryConn.resolveSend(10, changedAspectTable(1005, [0]))
+    await awaitSends(deps.queryConn, 12)
+    deps.queryConn.resolveSend(11, aKeyTable([[0, 'base:a#0']])) // A-side row keys
+    await awaitSends(deps.queryConn, 13)
+    deps.queryConn.resolveSend(
+      12,
+      tableFromArrays({
+        assay_aspect: ['added', 'removed', 'changed'],
+        assay_count: BigInt64Array.from([0n, 0n, 5n]),
+      }),
+    ) // totals — disagrees
+    await awaitSends(deps.queryConn, 14)
+    deps.queryConn.resolveSend(13, tableFromArrays({})) // DROP A
+    await awaitSends(deps.queryConn, 15)
+    deps.queryConn.resolveSend(14, tableFromArrays({})) // DROP B
+    await awaitSends(deps.queryConn, 16)
+    deps.queryConn.resolveSend(15, tableFromArrays({})) // ROLLBACK
+
+    const posted = await awaitPosted(deps, 3)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toContain('totals query disagrees with the changed count')
+    }
+    expect(deps.queryConn.sentSqls).toContain('ROLLBACK')
+    expectNoCollisions(deps)
   })
 
   it('rejects an aspect count past its result-sanity bound with a typed error', async () => {

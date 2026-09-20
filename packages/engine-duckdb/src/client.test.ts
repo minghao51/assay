@@ -1,16 +1,19 @@
 import { tableFromArrays, tableToIPC } from 'apache-arrow'
 import { describe, expect, it } from 'vitest'
 import { baseRowId } from '@assay/domain'
+import { compileRowDiffPlan } from '@assay/diff'
 import {
   DuckDbEngineClient,
   EngineDisposedError,
   EngineOperationError,
   EngineProtocolError,
   EngineQueryError,
+  type EngineComparisonHandle,
   type EngineQueryResult,
   type EngineWorkerFactory,
   type EngineWorkerLike,
 } from './client'
+import type { EngineRowDiffPlan } from './diff-plan-wire'
 import type { DuckDbEngineClientOptions } from './client'
 import type {
   EngineColumnSchema,
@@ -1286,6 +1289,126 @@ describe('DuckDbEngineClient validate (m5-2)', () => {
     worker.respond({ type: 'engine/error', requestId: request.requestId, message: 'boom' })
     await expect(pending).rejects.toBeInstanceOf(EngineOperationError)
     // The engine stays usable.
+    const followUp = client.rowCount(handle)
+    await flush()
+    worker.respond({
+      type: 'engine/row-count-result',
+      requestId: worker.requestAt(3).requestId,
+      rowCount: 5,
+    })
+    await expect(followUp).resolves.toBe(5)
+  })
+})
+
+// m6-2: client.stageComparison() + client.diff()
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('DuckDbEngineClient stageComparison/diff (m6-2)', () => {
+  const source = {
+    name: 'comparison.parquet',
+    getFile: () => Promise.resolve(new File([new Uint8Array([1, 2, 3])], 'comparison.parquet')),
+  }
+
+  function rowDiffPlanFixture(): EngineRowDiffPlan {
+    const result = compileRowDiffPlan(
+      [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'val', type: 'VARCHAR' },
+      ],
+      [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'val', type: 'VARCHAR' },
+      ],
+      ['id'],
+      { relationA: 'assay_conf_a', relationB: 'assay_conf_b', sampleLimit: 5 },
+    )
+    if (!result.ok) throw new Error(`fixture compile failed: ${JSON.stringify(result.errors)}`)
+    return result.plan
+  }
+
+  async function openHandle(): Promise<{
+    client: DuckDbEngineClient
+    worker: FakeWorker
+    handle: Awaited<ReturnType<DuckDbEngineClient['open']>>
+  }> {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond({
+      type: 'engine/open-result',
+      requestId: worker.requestAt(1).requestId,
+      tableId: 't1',
+      format: 'parquet',
+    })
+    const handle = await pendingOpen
+    return { client, worker, handle }
+  }
+
+  it('stageComparison() posts the file and resolves the comparison handle', async () => {
+    const { client, worker } = await openHandle()
+    const pending = client.stageComparison(source)
+    await flush()
+    const request = worker.requestAt(2)
+    expect(request.type).toBe('engine/diff-stage')
+    if (request.type !== 'engine/diff-stage') return
+    worker.respond({
+      type: 'engine/diff-stage-result',
+      requestId: request.requestId,
+      comparisonId: 'd1',
+      columns: [{ name: 'id', type: 'BIGINT' }],
+    })
+    await expect(pending).resolves.toEqual({
+      kind: 'comparison',
+      id: 'd1',
+      schema: [{ name: 'id', type: 'BIGINT' }],
+    })
+  })
+
+  it('stageComparison() REJECTS (never hangs) on a shape-invalid stage response', async () => {
+    const { client, worker, handle } = await openHandle()
+    const pending = client.stageComparison(source)
+    await flush()
+    const request = worker.requestAt(2)
+    // `columns` is not a column-schema list — the protocol shape rejects it.
+    worker.respond({
+      type: 'engine/diff-stage-result',
+      requestId: request.requestId,
+      comparisonId: 'd1',
+      columns: 'not-a-column-list',
+    } as unknown as EngineResponse)
+    await expect(pending).rejects.toBeInstanceOf(EngineProtocolError)
+    // The client stays usable.
+    const followUp = client.rowCount(handle)
+    await flush()
+    worker.respond({
+      type: 'engine/row-count-result',
+      requestId: worker.requestAt(3).requestId,
+      rowCount: 5,
+    })
+    await expect(followUp).resolves.toBe(5)
+  })
+
+  it('diff() REJECTS (never hangs) on a shape-invalid diff response', async () => {
+    const { client, worker, handle } = await openHandle()
+    const comparison: EngineComparisonHandle = {
+      kind: 'comparison',
+      id: 'd1',
+      schema: [{ name: 'id', type: 'BIGINT' }],
+    }
+    const pending = client.diff(handle, comparison, rowDiffPlanFixture())
+    await flush()
+    const request = worker.requestAt(2)
+    expect(request.type).toBe('engine/diff')
+    // Two aspects instead of three — the result shape is malformed.
+    worker.respond({
+      type: 'engine/diff-result',
+      requestId: request.requestId,
+      result: { rowCountA: 0, rowCountB: 0, aspects: [] },
+    } as unknown as EngineResponse)
+    await expect(pending).rejects.toBeInstanceOf(EngineProtocolError)
+    // The client stays usable.
     const followUp = client.rowCount(handle)
     await flush()
     worker.respond({

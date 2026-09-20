@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { compileRowDiffPlan } from '@assay/diff'
 import type { RowDiffPlan } from '@assay/diff'
-import { composeDiffAspectQuery } from './diff-query'
+import { composeDiffAspectQuery, rowDiffCountExcess } from './diff-query'
 import { ROW_DIFF_SAMPLE_HARD_MAX } from './diff-plan-wire'
 
 /**
@@ -131,6 +131,65 @@ describe.skipIf(!hasDuckDbCli)('row-diff execution vs DuckDB 1.5.5 (pinned CLI)'
     expect(changed).toHaveLength(1)
     expect(Number(changed[0]?.['assay_row_ordinal'])).toBe(0) // the NULL-key A row
     expect(changed[0]?.['assay_changed']).toEqual(['val'])
+  })
+
+  it('accepts non-unique user keys: a 3×3 key group yields changed 9 (refined bound)', () => {
+    exec('CREATE OR REPLACE TABLE ds_a (id BIGINT, val VARCHAR, score BIGINT);')
+    exec('CREATE OR REPLACE TABLE ds_b (id BIGINT, val VARCHAR, score BIGINT);')
+    exec("INSERT INTO ds_a VALUES (1,'a1',1),(1,'a2',2),(1,'a3',3);")
+    exec("INSERT INTO ds_b VALUES (1,'b1',1),(1,'b2',2),(1,'b3',3);")
+    const plan = compile(
+      [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'val', type: 'VARCHAR' },
+        { name: 'score', type: 'BIGINT' },
+      ],
+      ['id'],
+      20,
+    )
+    // Non-unique keys multiply: every A row pairs with every B row in the
+    // group. The m6-1 compiler accepts explicit non-unique keys (joint
+    // uniqueness is not derivable), so this is legal compiler output.
+    expect(counts(plan)).toEqual({ added: 0, removed: 0, changed: 9 })
+    const changed = query(plan.changedSql)
+    expect(changed).toHaveLength(9)
+    expect(
+      changed.every(
+        (row) =>
+          Array.isArray(row['assay_changed']) && (row['assay_changed'] as unknown[]).length > 0,
+      ),
+    ).toBe(true)
+    // The refined bound accepts it; the old `min(rowCountA, rowCountB)` bound
+    // would have rejected this legal output (9 > 3).
+    expect(rowDiffCountExcess('changed', 9, 3, 3)).toBeNull()
+    expect(9).toBeGreaterThan(Math.min(3, 3))
+  })
+
+  it('accepts m6-1 NULL-key grouping (2×2 group → changed 4, duplicate A ordinals)', () => {
+    exec('CREATE OR REPLACE TABLE ds_a (id BIGINT, val VARCHAR, score BIGINT);')
+    exec('CREATE OR REPLACE TABLE ds_b (id BIGINT, val VARCHAR, score BIGINT);')
+    exec("INSERT INTO ds_a VALUES (NULL,'x',1),(NULL,'x',2);")
+    exec("INSERT INTO ds_b VALUES (NULL,'y',1),(NULL,'y',2);")
+    const plan = compile(
+      [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'val', type: 'VARCHAR' },
+        { name: 'score', type: 'BIGINT' },
+      ],
+      ['id'],
+      20,
+    )
+    // NULL keys group under IS NOT DISTINCT FROM: two NULL-key rows per side
+    // form a 2×2 matched pair set, all four changed (val always differs).
+    expect(counts(plan)).toEqual({ added: 0, removed: 0, changed: 4 })
+    const changed = query(plan.changedSql)
+    expect(changed).toHaveLength(4)
+    // One pair per (A row, B row): duplicate A-side ordinals are inherent to
+    // the m6-1 changed-sample contract, not a defect.
+    const ordinals = changed.map((row) => Number(row['assay_row_ordinal'])).sort((a, b) => a - b)
+    expect(ordinals).toEqual([0, 0, 1, 1])
+    expect(rowDiffCountExcess('changed', 4, 2, 2)).toBeNull()
+    expect(4).toBeGreaterThan(Math.min(2, 2))
   })
 
   it('hostile dataset column names bind and execute (range/alias/reserved names)', () => {

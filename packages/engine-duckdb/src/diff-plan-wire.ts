@@ -296,10 +296,27 @@ export function assertRowDiffPlanBinding(
   const quotedA = quotedRelationToken(plan.relationA)
   const quotedB = quotedRelationToken(plan.relationB)
 
-  const aspectQueries: readonly { readonly label: string; readonly sql: string }[] = [
-    { label: 'added', sql: plan.addedSql },
-    { label: 'removed', sql: plan.removedSql },
-    { label: 'changed', sql: plan.changedSql },
+  const aspectQueries: readonly {
+    readonly label: string
+    readonly sql: string
+    /** Reserved result columns the reader of this aspect requires. */
+    readonly requiredColumns: readonly string[]
+  }[] = [
+    {
+      label: 'added',
+      sql: plan.addedSql,
+      requiredColumns: ['"assay_side"', '"assay_row_ordinal"', '"assay_count"'],
+    },
+    {
+      label: 'removed',
+      sql: plan.removedSql,
+      requiredColumns: ['"assay_side"', '"assay_row_ordinal"', '"assay_count"'],
+    },
+    {
+      label: 'changed',
+      sql: plan.changedSql,
+      requiredColumns: ['"assay_side"', '"assay_row_ordinal"', '"assay_changed"', '"assay_count"'],
+    },
   ]
   for (const aspect of aspectQueries) {
     const scanned = scanPlanSql(aspect.sql)
@@ -324,22 +341,17 @@ export function assertRowDiffPlanBinding(
       )
     }
   }
-  // Reserved-namespace spot checks: the readers require these result columns.
-  if (!plan.addedSql.includes('"assay_side"') || !plan.addedSql.includes('"assay_count"')) {
-    throw new Error('row-diff added query is missing its reserved result columns')
-  }
-  if (!plan.removedSql.includes('"assay_side"') || !plan.removedSql.includes('"assay_count"')) {
-    throw new Error('row-diff removed query is missing its reserved result columns')
-  }
-  if (
-    !plan.changedSql.includes('"assay_side"') ||
-    !plan.changedSql.includes('"assay_changed"') ||
-    !plan.changedSql.includes('"assay_count"')
-  ) {
-    throw new Error('row-diff changed query is missing its reserved result columns')
-  }
-  if (!plan.addedSql.includes('"assay_row_ordinal"')) {
-    throw new Error('row-diff added query is missing its reserved result columns')
+  // Reserved-namespace spot checks: the readers require these result columns
+  // in EVERY aspect, and `changed` additionally requires its changed-column
+  // list. The check is symmetric across the three aspect SQLs so a gutted
+  // `removed`/`changed` query fails THIS gate instead of surfacing a shape
+  // error mid-op (m6-2 review round 1).
+  for (const aspect of aspectQueries) {
+    for (const column of aspect.requiredColumns) {
+      if (!aspect.sql.includes(column)) {
+        throw new Error(`row-diff ${aspect.label} query is missing its reserved result columns`)
+      }
+    }
   }
 
   const totalsScan = scanPlanSql(plan.totalsSql)

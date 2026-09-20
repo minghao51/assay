@@ -152,6 +152,23 @@ describe('assertRowDiffPlanBinding (m6-2 belt 1)', () => {
     )
   })
 
+  it('applies the reserved-column spot check symmetrically (removed/changed fail belt 1)', () => {
+    const plan = compiledPlan()
+    // The reader needs `assay_row_ordinal` in EVERY aspect, not just `added`.
+    const removedGutted = plan.removedSql.split('"assay_row_ordinal"').join('"not_the_ord"')
+    expect(() =>
+      assertRowDiffPlanBinding({ ...plan, removedSql: removedGutted }, REGISTERED),
+    ).toThrow(/removed query is missing its reserved result columns/)
+    const changedGutted = plan.changedSql.split('"assay_changed"').join('"not_the_changed"')
+    expect(() =>
+      assertRowDiffPlanBinding({ ...plan, changedSql: changedGutted }, REGISTERED),
+    ).toThrow(/changed query is missing its reserved result columns/)
+    const changedOrdGutted = plan.changedSql.split('"assay_row_ordinal"').join('"not_the_ord"')
+    expect(() =>
+      assertRowDiffPlanBinding({ ...plan, changedSql: changedOrdGutted }, REGISTERED),
+    ).toThrow(/changed query is missing its reserved result columns/)
+  })
+
   it('refuses an escape-string and a dollar-quoted aspect query', () => {
     const plan = compiledPlan()
     expect(() =>

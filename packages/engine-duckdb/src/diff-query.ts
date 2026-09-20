@@ -31,19 +31,37 @@
  *
  * ## Result-sanity bounds (the m5-4 analog, made explicit)
  *
- * The compiler's documented semantics (unique, non-null keys — the C2
- * evidence a surface confirms before compiling) mean an A row pairs with at
- * most one B row under the NULL-safe key join, so:
+ * The plan's keys are user-chosen and may be **non-unique**, and NULL keys
+ * group under `IS NOT DISTINCT FROM` (the m6-1 contract: joint uniqueness is
+ * explicitly NOT derivable from profiles, and NULL-key rows pair rather than
+ * splitting into added + removed). Under that join an A row can pair with
+ * several B rows, so the per-aspect counts are bounded by the relations, not
+ * by the smaller side:
  *
  * - `added ≤ rowCount(B)` — every added row is a distinct B row;
  * - `removed ≤ rowCount(A)` — every removed row is a distinct A row;
- * - `changed ≤ min(rowCount(A), rowCount(B))` — every changed row is a
- *   matched pair, and each pair consumes one A row and one B row.
+ * - `changed ≤ rowCount(A) × rowCount(B)` — the full outer join emits at
+ *   most one row per (A row, B row) pair, however the keys group.
  *
- * A count past its aspect's bound cannot come from compiler output over
- * unique keys — it is the foreign/non-compiler signal the guard exists for:
- * one typed error, never an out-of-contract result
- * ({@link rowDiffCountExcess}, the shared seam message).
+ * These are a **corruption/foreign-signal net, not a semantics claim**: every
+ * count a legal m6-1 plan can produce is inside them, and a count outside
+ * them cannot be compiler output over any legal key set. The product is
+ * compared without ever multiplying past `Number.MAX_SAFE_INTEGER`, so the
+ * guard is as total as the counts themselves. One typed error, never an
+ * out-of-contract result ({@link rowDiffCountExcess}, the shared seam
+ * message). The separate requirement that each per-aspect count equal its
+ * totals arm is the independent net for an inflated count that still falls
+ * inside a bound.
+ *
+ * ## Duplicate A-side ordinals are legal
+ *
+ * With non-unique keys or grouped NULL keys a changed-pair set can carry the
+ * same A-side ordinal more than once: a 2×2 NULL-key group surfaces the
+ * ordinals `0,0,1,1`, one per pair. Every pair legitimately names its A row
+ * and each resolves to the same logical row key, so the changed samples are
+ * a set of **pairs**, not a set of distinct A rows — surfaces must present
+ * them as such (the ordinals `0,0,1,1` are inherent to the m6-1
+ * changed-sample contract, not a defect).
  *
  * Privacy (ADR 0025): sampled row keys and changed-column names are report
  * *content* carried to the host — they are never logged, never telemetried,
@@ -115,11 +133,32 @@ export function composeDiffAspectQuery(aspectSql: string, effectiveLimit: number
 export type RowDiffCountExcess =
   | 'reported more added rows than rows in side B'
   | 'reported more removed rows than rows in side A'
-  | 'reported more changed rows than pairs the unique-key join can form'
+  | 'reported more changed rows than (A rows × B rows) pairs can exist'
+
+/**
+ * `changed ≤ rowCountA × rowCountB`, evaluated without multiplying past
+ * `Number.MAX_SAFE_INTEGER`. When the true product exceeds the safe-integer
+ * range every safe `count` is inside it, so the check passes; the zero-row
+ * cases are explicit so a nonzero count can never slip through. Both counts
+ * are read as safe non-negative integers (`readCountCell`), so the only
+ * arithmetic that can overflow is the product — never the comparison.
+ */
+function changedCountExceedsPairBound(
+  count: number,
+  rowCountA: number,
+  rowCountB: number,
+): boolean {
+  if (rowCountA === 0 || rowCountB === 0) return count > 0
+  if (rowCountA > Math.floor(Number.MAX_SAFE_INTEGER / rowCountB)) return false
+  return count > rowCountA * rowCountB
+}
 
 /**
  * The result-sanity bound for one aspect's reported count (see the module
- * doc). Returns `null` when the count is in bounds.
+ * doc). Returns `null` when the count is in bounds. The bounds are a
+ * corruption/foreign-signal net (every legal m6-1 plan is inside them, with
+ * non-unique and NULL-grouped keys included), not a claim that the plan
+ * semantics force uniqueness.
  */
 export function rowDiffCountExcess(
   aspect: EngineRowDiffAspect,
@@ -133,8 +172,8 @@ export function rowDiffCountExcess(
   if (aspect === 'removed') {
     return count > rowCountA ? 'reported more removed rows than rows in side A' : null
   }
-  return count > Math.min(rowCountA, rowCountB)
-    ? 'reported more changed rows than pairs the unique-key join can form'
+  return changedCountExceedsPairBound(count, rowCountA, rowCountB)
+    ? 'reported more changed rows than (A rows × B rows) pairs can exist'
     : null
 }
 
@@ -236,7 +275,9 @@ export function readDiffAspectRows(table: Table, aspect: EngineRowDiffAspect): R
   // reorder), and the engine presents that set in ascending ordinal order so
   // the reported samples are engine-version-independent and cross-surface
   // (m6-5) byte-stable. The plan SQL is untouched; only the returned order is
-  // normalized.
+  // normalized. The sort is stable (ES2019+), so equal ordinals — legal for
+  // non-unique keys and grouped NULL keys (see the module doc) — keep the
+  // plan's emitted relative order.
   rows.sort((a, b) => a.ordinal - b.ordinal)
   return { count, rows }
 }

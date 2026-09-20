@@ -39,13 +39,37 @@ describe('diff-query composition (m6-2)', () => {
 })
 
 describe('rowDiffCountExcess (m6-2 result-sanity bounds)', () => {
-  it('bounds added by side B, removed by side A, changed by the smaller side', () => {
+  it('bounds added by side B and removed by side A (unconditional)', () => {
     expect(rowDiffCountExcess('added', 3, 5, 3)).toBeNull()
     expect(rowDiffCountExcess('added', 4, 5, 3)).toMatch(/added/)
     expect(rowDiffCountExcess('removed', 5, 5, 9)).toBeNull()
     expect(rowDiffCountExcess('removed', 6, 5, 9)).toMatch(/removed/)
-    expect(rowDiffCountExcess('changed', 3, 5, 3)).toBeNull()
-    expect(rowDiffCountExcess('changed', 4, 5, 3)).toMatch(/changed/)
+  })
+
+  it('bounds changed by rowCountA × rowCountB (keys need not be unique)', () => {
+    expect(rowDiffCountExcess('changed', 9, 5, 3)).toBeNull() // 9 > min(5,3) — the old bound was wrong
+    expect(rowDiffCountExcess('changed', 15, 5, 3)).toBeNull()
+    expect(rowDiffCountExcess('changed', 16, 5, 3)).toMatch(/changed/)
+    // A zero-row side can produce no pair at all.
+    expect(rowDiffCountExcess('changed', 0, 0, 5)).toBeNull()
+    expect(rowDiffCountExcess('changed', 1, 0, 5)).toMatch(/changed/)
+    expect(rowDiffCountExcess('changed', 1, 5, 0)).toMatch(/changed/)
+  })
+
+  it('compares the changed bound without overflowing the safe-integer range', () => {
+    // 2^27 × 2^27 = 2^54 > MAX_SAFE_INTEGER: every safe count is inside it.
+    const side = 2 ** 27
+    expect(rowDiffCountExcess('changed', Number.MAX_SAFE_INTEGER, side, side)).toBeNull()
+    // A product that lands exactly on the safe boundary still bounds a count one past it.
+    const big = 2 ** 26
+    const product = big * big // 2^52, safely representable
+    expect(rowDiffCountExcess('changed', product, big, big)).toBeNull()
+    expect(rowDiffCountExcess('changed', product + 1, big, big)).toMatch(/changed/)
+  })
+
+  it('accepts the m6-1 legal NULL-key grouping count (2×2 group → changed 4)', () => {
+    // Two NULL-key rows per side group into a 2×2 pair set: changed 4 > min(2,2).
+    expect(rowDiffCountExcess('changed', 4, 2, 2)).toBeNull()
   })
 })
 
@@ -71,6 +95,32 @@ describe('readDiffAspectRows / readDiffTotalsRows (m6-2 readers)', () => {
       rows: [
         { side: 'A', ordinal: 1, changedColumns: ['val'] },
         { side: 'A', ordinal: 4, changedColumns: ['val', 'score'] },
+      ],
+    })
+  })
+
+  it('normalizes unsorted ordinals to ascending order and is stable on ties', () => {
+    // The plan emits its sample set in engine-join order; the reader presents
+    // it ascending by ordinal. Equal ordinals are legal (non-unique keys and
+    // grouped NULL keys) and keep the plan's own relative order.
+    const changed = vectorFromArray(
+      [['a'], ['b'], ['c'], ['d']],
+      new List(new Field('item', new Utf8())),
+    )
+    const table = new Table({
+      assay_side: vectorFromArray(['A', 'A', 'A', 'A']),
+      assay_row_ordinal: vectorFromArray([1n, 0n, 1n, 0n]),
+      assay_changed: changed,
+      sample_index: vectorFromArray([0n, 1n, 2n, 3n]),
+      assay_count: vectorFromArray([4n, 4n, 4n, 4n]),
+    })
+    expect(readDiffAspectRows(table, 'changed')).toEqual({
+      count: 4,
+      rows: [
+        { side: 'A', ordinal: 0, changedColumns: ['b'] },
+        { side: 'A', ordinal: 0, changedColumns: ['d'] },
+        { side: 'A', ordinal: 1, changedColumns: ['a'] },
+        { side: 'A', ordinal: 1, changedColumns: ['c'] },
       ],
     })
   })
@@ -137,6 +187,33 @@ describe('buildDiffAspectSamples (m6-2 side-qualified keys)', () => {
     expect(
       buildDiffAspectSamples([{ side: 'B', ordinal: 7, changedColumns: null }], 'added', aKeys),
     ).toEqual([{ side: 'B', rowKey: 'b:7' }])
+  })
+
+  it('surfaces duplicate A-side ordinals honestly (non-unique / grouped NULL keys)', () => {
+    // A 2×2 NULL-key group yields the ordinals 0,0,1,1: each pair names its
+    // A row, so two samples share a logical row key but carry their own
+    // changed-column lists — a pair set, not a set of distinct A rows.
+    const aKeys = new Map([
+      [0, 'base:anchor#0'],
+      [1, 'base:anchor#1'],
+    ])
+    expect(
+      buildDiffAspectSamples(
+        [
+          { side: 'A', ordinal: 0, changedColumns: ['val'] },
+          { side: 'A', ordinal: 0, changedColumns: ['score'] },
+          { side: 'A', ordinal: 1, changedColumns: ['val'] },
+          { side: 'A', ordinal: 1, changedColumns: ['score'] },
+        ],
+        'changed',
+        aKeys,
+      ),
+    ).toEqual([
+      { side: 'A', rowKey: 'base:anchor#0', changedColumns: ['val'] },
+      { side: 'A', rowKey: 'base:anchor#0', changedColumns: ['score'] },
+      { side: 'A', rowKey: 'base:anchor#1', changedColumns: ['val'] },
+      { side: 'A', rowKey: 'base:anchor#1', changedColumns: ['score'] },
+    ])
   })
 
   it('fails loudly when an A-side ordinal does not resolve (never a positional fake)', () => {
