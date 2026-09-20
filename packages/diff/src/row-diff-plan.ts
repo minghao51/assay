@@ -56,10 +56,20 @@
  *     assay_row_ordinal — 0-based position of the row in **its side's
  *                         natural scan order**, computed *before* any
  *                         filtering (the m5-1 `assay_row_ordinal`
- *                         convention, applied per side). For `changed`
- *                         this is the **A-side** row of the pair (A-side
- *                         rows must stay grid-resolvable; the B
- *                         counterpart is report content, C3).
+ *                         convention, applied per side). Structurally this
+ *                         is the m5-1 inner-projection pattern: the
+ *                         `row_number() OVER ()` shares its SELECT scope
+ *                         with a bare `FROM`, and the anti-join /
+ *                         full-outer-join filter is applied *outside* that
+ *                         derived table (`assay_antijoin_source` / `ai`) —
+ *                         SQL evaluates windows after `WHERE`, so a
+ *                         same-SELECT filter would number only the
+ *                         survivors `0..K-1` (the m6-1 round-1 defect).
+ *                         For `changed` this is the **A-side** row of the
+ *                         pair (A-side rows must stay grid-resolvable;
+ *                         the B counterpart is report content, C3) and is
+ *                         carried out by the outer projection as
+ *                         `"ai"."assay_row_ordinal"`.
  *     assay_changed     — `changed` only: the LIST(VARCHAR) of shared
  *                         non-key columns that differ on this pair, in
  *                         shared-column order (schema-A order).
@@ -121,9 +131,10 @@
  *
  * - the side-A relation is always `FROM "RA" AS "a"`, side B
  *   `FROM "RB" AS "b"` (documented range names; the only two top-level
- *   ranges in the dialect of this plan), and the changed aspect's two
- *   inner derived tables are `"ai"`/`"bi"` (per-side projections inside
- *   the full outer join);
+ *   ranges in the dialect of this plan), the anti-join sources are the
+ *   reserved `"assay_antijoin_source"` derived tables, and the changed
+ *   aspect's two inner derived tables are `"ai"`/`"bi"` (per-side
+ *   projections inside the full outer join);
  * - every source-column reference is **range-qualified**
  *   (`"a"."col"` / `"b"."col"` — a qualified reference resolves only
  *   against the FROM range, never against an alias elsewhere);

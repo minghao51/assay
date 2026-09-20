@@ -868,6 +868,56 @@ export function scanPlanSql(sql: string): {
   return { literals, identifiers, unquoted }
 }
 
+/**
+ * Structural anti-regression scan (m6-1 round-1 fix): every
+ * `row_number() OVER () - 1 AS "assay_row_ordinal"` window must be computed
+ * over an **unfiltered** relation — its SELECT scope may not contain a
+ * sibling WHERE. SQL evaluates window functions *after* WHERE, so an
+ * ordinal that shares a SELECT with the anti-join / changed filter numbers
+ * only the surviving rows `0..K-1` instead of the true pre-filter scan
+ * positions (the round-1 defect that broke the m6-2
+ * `base:<anchor>#<ordinal>` binding contract).
+ *
+ * The generated SQL is line-indented deterministically, so a same-indent
+ * `WHERE` (or other filtering clause) before the derived table closes is
+ * enough to detect the defect — this is a text scan, deliberately, so it
+ * works in the pure package without an engine. The scan returns the number
+ * of ordinal windows seen (non-vacuity: the suite must actually scan
+ * ordinals) plus every violating SQL fragment, so a caller can pin both.
+ */
+export function scanOrdinalScopes(sql: string): {
+  ordinalWindows: number
+  violations: string[]
+} {
+  const lines = sql.split('\n')
+  const violations: string[] = []
+  let ordinalWindows = 0
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] as string
+    if (!/row_number\(\) OVER \(\) - 1 AS "assay_row_ordinal"/.test(line)) continue
+    ordinalWindows += 1
+    const indent = line.length - line.trimStart().length
+    let sawFrom = false
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j] as string
+      const trimmed = next.trim()
+      if (trimmed === '') continue
+      const nextIndent = next.length - next.trimStart().length
+      if (nextIndent < indent) break // left this SELECT's scope
+      if (nextIndent !== indent) continue
+      if (/^FROM\b/.test(trimmed)) {
+        sawFrom = true
+        continue
+      }
+      if (sawFrom && /^WHERE\b/.test(trimmed)) {
+        violations.push(lines.slice(i, j + 1).join('\n'))
+        break
+      }
+    }
+  }
+  return { ordinalWindows, violations }
+}
+
 /** The complete unquoted keyword/function vocabulary a v1 row-diff plan may use. */
 export const ROW_DIFF_PLAN_KEYWORDS: ReadonlySet<string> = new Set([
   'SELECT',

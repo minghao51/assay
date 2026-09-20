@@ -7,6 +7,7 @@ import {
 import type { RowDiffPlan } from './row-diff-plan'
 import { DIFF_PLAN_KIND, DIFF_PLAN_VERSION, ROW_DIFF_ASPECTS } from './row-diff-plan'
 import { describeRowDiffBindingError } from './row-diff-errors'
+import { scanOrdinalScopes } from './diff-property-testing'
 
 /**
  * Golden-SQL byte pins and binding-error pins (m6-1). The SQL strings are
@@ -60,12 +61,16 @@ const G1_ADDED_SQL = lines(
   '  row_number() OVER () - 1 AS "sample_index",',
   '  count(*) OVER () AS "assay_count"',
   'FROM (',
-  '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal"',
-  '  FROM "scratch_ds_b" AS "b"',
+  '  SELECT "assay_row_ordinal"',
+  '  FROM (',
+  '    SELECT row_number() OVER () - 1 AS "assay_row_ordinal",',
+  '           "b"."id" AS "assay_key_0"',
+  '    FROM "scratch_ds_b" AS "b"',
+  '  ) AS "assay_antijoin_source"',
   '  WHERE NOT EXISTS (',
   '    SELECT 1',
   '    FROM "ds_a" AS "a"',
-  '    WHERE "a"."id" IS NOT DISTINCT FROM "b"."id"',
+  '    WHERE "a"."id" IS NOT DISTINCT FROM "assay_antijoin_source"."assay_key_0"',
   '  )',
   ') AS "assay_added_rows"',
   'LIMIT 3',
@@ -78,12 +83,16 @@ const G1_REMOVED_SQL = lines(
   '  row_number() OVER () - 1 AS "sample_index",',
   '  count(*) OVER () AS "assay_count"',
   'FROM (',
-  '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal"',
-  '  FROM "ds_a" AS "a"',
+  '  SELECT "assay_row_ordinal"',
+  '  FROM (',
+  '    SELECT row_number() OVER () - 1 AS "assay_row_ordinal",',
+  '           "a"."id" AS "assay_key_0"',
+  '    FROM "ds_a" AS "a"',
+  '  ) AS "assay_antijoin_source"',
   '  WHERE NOT EXISTS (',
   '    SELECT 1',
   '    FROM "scratch_ds_b" AS "b"',
-  '    WHERE "b"."id" IS NOT DISTINCT FROM "a"."id"',
+  '    WHERE "b"."id" IS NOT DISTINCT FROM "assay_antijoin_source"."assay_key_0"',
   '  )',
   ') AS "assay_removed_rows"',
   'LIMIT 3',
@@ -97,7 +106,7 @@ const G1_CHANGED_SQL = lines(
   '  row_number() OVER () - 1 AS "sample_index",',
   '  count(*) OVER () AS "assay_count"',
   'FROM (',
-  '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal",',
+  '  SELECT "ai"."assay_row_ordinal",',
   '         list_concat(',
   `           CASE WHEN "ai"."assay_col_0" IS DISTINCT FROM "bi"."assay_col_0" THEN ['email'] ELSE [] END`,
   `         ) AS "assay_changed"`,
@@ -125,29 +134,37 @@ const G1_CHANGED_SQL = lines(
 const G1_TOTALS_SQL = lines(
   `SELECT 'added' AS "assay_aspect", count(*) AS "assay_count"`,
   'FROM (',
-  '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal"',
-  '  FROM "scratch_ds_b" AS "b"',
+  '  SELECT "assay_row_ordinal"',
+  '  FROM (',
+  '    SELECT row_number() OVER () - 1 AS "assay_row_ordinal",',
+  '           "b"."id" AS "assay_key_0"',
+  '    FROM "scratch_ds_b" AS "b"',
+  '  ) AS "assay_antijoin_source"',
   '  WHERE NOT EXISTS (',
   '    SELECT 1',
   '    FROM "ds_a" AS "a"',
-  '    WHERE "a"."id" IS NOT DISTINCT FROM "b"."id"',
+  '    WHERE "a"."id" IS NOT DISTINCT FROM "assay_antijoin_source"."assay_key_0"',
   '  )',
   ') AS "assay_added_total"',
   'UNION ALL',
   `SELECT 'removed' AS "assay_aspect", count(*) AS "assay_count"`,
   'FROM (',
-  '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal"',
-  '  FROM "ds_a" AS "a"',
+  '  SELECT "assay_row_ordinal"',
+  '  FROM (',
+  '    SELECT row_number() OVER () - 1 AS "assay_row_ordinal",',
+  '           "a"."id" AS "assay_key_0"',
+  '    FROM "ds_a" AS "a"',
+  '  ) AS "assay_antijoin_source"',
   '  WHERE NOT EXISTS (',
   '    SELECT 1',
   '    FROM "scratch_ds_b" AS "b"',
-  '    WHERE "b"."id" IS NOT DISTINCT FROM "a"."id"',
+  '    WHERE "b"."id" IS NOT DISTINCT FROM "assay_antijoin_source"."assay_key_0"',
   '  )',
   ') AS "assay_removed_total"',
   'UNION ALL',
   `SELECT 'changed' AS "assay_aspect", count(*) AS "assay_count"`,
   'FROM (',
-  '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal",',
+  '  SELECT "ai"."assay_row_ordinal",',
   '         list_concat(',
   `           CASE WHEN "ai"."assay_col_0" IS DISTINCT FROM "bi"."assay_col_0" THEN ['email'] ELSE [] END`,
   `         ) AS "assay_changed"`,
@@ -269,13 +286,18 @@ describe('row-diff plan — golden SQL pins (multi-key, hostile names, NULL-key 
         '  row_number() OVER () - 1 AS "sample_index",',
         '  count(*) OVER () AS "assay_count"',
         'FROM (',
-        '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal"',
-        '  FROM "rb" AS "b"',
+        '  SELECT "assay_row_ordinal"',
+        '  FROM (',
+        '    SELECT row_number() OVER () - 1 AS "assay_row_ordinal",',
+        '           "b"."i d" AS "assay_key_0",',
+        '           "b"."k#2" AS "assay_key_1"',
+        '    FROM "rb" AS "b"',
+        '  ) AS "assay_antijoin_source"',
         '  WHERE NOT EXISTS (',
         '    SELECT 1',
         '    FROM "ra" AS "a"',
-        '    WHERE "a"."i d" IS NOT DISTINCT FROM "b"."i d"',
-        '      AND "a"."k#2" IS NOT DISTINCT FROM "b"."k#2"',
+        '    WHERE "a"."i d" IS NOT DISTINCT FROM "assay_antijoin_source"."assay_key_0"',
+        '      AND "a"."k#2" IS NOT DISTINCT FROM "assay_antijoin_source"."assay_key_1"',
         '  )',
         ') AS "assay_added_rows"',
         'LIMIT 20',
@@ -293,7 +315,7 @@ describe('row-diff plan — golden SQL pins (multi-key, hostile names, NULL-key 
         '  row_number() OVER () - 1 AS "sample_index",',
         '  count(*) OVER () AS "assay_count"',
         'FROM (',
-        '  SELECT row_number() OVER () - 1 AS "assay_row_ordinal",',
+        '  SELECT "ai"."assay_row_ordinal",',
         '         list_concat(',
         `           CASE WHEN "ai"."assay_col_0" IS DISTINCT FROM "bi"."assay_col_0" THEN ['a"q'] ELSE [] END,`,
         `           CASE WHEN "ai"."assay_col_1" IS DISTINCT FROM "bi"."assay_col_1" THEN ['b'] ELSE [] END`,
@@ -364,8 +386,12 @@ describe('row-diff plan — golden SQL pins (keys-only: no comparable columns)',
   })
 
   it('added/removed still work (keys are all the anti-joins need)', () => {
-    expect(plan.addedSql).toContain('"a"."id" IS NOT DISTINCT FROM "b"."id"')
-    expect(plan.removedSql).toContain('"b"."id" IS NOT DISTINCT FROM "a"."id"')
+    expect(plan.addedSql).toContain(
+      '"a"."id" IS NOT DISTINCT FROM "assay_antijoin_source"."assay_key_0"',
+    )
+    expect(plan.removedSql).toContain(
+      '"b"."id" IS NOT DISTINCT FROM "assay_antijoin_source"."assay_key_0"',
+    )
   })
 })
 
@@ -510,6 +536,7 @@ describe('row-diff plan — structural injection pins (scan every generated quer
       'b',
       'ai',
       'bi', // the documented range names (inner + outer)
+      'assay_antijoin_source', // the anti-join's ordinal-preserving derived table
       'assay_side',
       'assay_row_ordinal',
       'assay_changed',
@@ -550,6 +577,10 @@ describe('row-diff plan — structural injection pins (scan every generated quer
       for (const word of words) {
         expect(SQL_KEYWORDS.has(word) || SQL_FUNCTIONS.has(word)).toBe(true)
       }
+      // 4. every `assay_row_ordinal` window is computed over an unfiltered
+      //    relation — its SELECT scope carries no sibling WHERE (see
+      //    `scanOrdinalScopes`; the round-1 post-filter defect class).
+      expect(scanOrdinalScopes(sql).violations).toEqual([])
     }
   }
 
@@ -584,6 +615,32 @@ describe('row-diff plan — structural injection pins (scan every generated quer
       relationB: "b'd",
       keys: ['i d', 'k#2'],
     })
+  })
+
+  it('structural ordinal pin: every aspect computes assay_row_ordinal pre-filter, and the scanner catches the defect shape', () => {
+    const plan = compilePlan(G1_SCHEMA_A, G1_SCHEMA_B, ['id', 'email'], G1_OPTIONS)
+    let ordinalWindows = 0
+    for (const sql of [plan.addedSql, plan.removedSql, plan.changedSql, plan.totalsSql]) {
+      const scan = scanOrdinalScopes(sql)
+      ordinalWindows += scan.ordinalWindows
+      expect(scan.violations).toEqual([])
+    }
+    // non-vacuity: added + removed + changed + three totals arms each carry
+    // exactly one top-level ordinal window (the m5-1 inner projection).
+    expect(ordinalWindows).toBe(6)
+
+    // negative control: the round-1 defect shape (ordinal window sharing its
+    // SELECT with the anti-join WHERE) is caught, so this pin cannot go
+    // green if post-filter numbering reappears.
+    const regressed = [
+      'SELECT row_number() OVER () - 1 AS "assay_row_ordinal"',
+      'FROM "b" AS "b"',
+      'WHERE NOT EXISTS (SELECT 1 FROM "a" AS "a" WHERE "a"."id" IS NOT DISTINCT FROM "b"."id")',
+    ].join('\n')
+    const bad = scanOrdinalScopes(regressed)
+    expect(bad.ordinalWindows).toBe(1)
+    expect(bad.violations).toHaveLength(1)
+    expect(bad.violations[0]).toContain('WHERE NOT EXISTS')
   })
 })
 

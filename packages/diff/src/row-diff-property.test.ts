@@ -18,6 +18,7 @@ import {
   makeTestRng,
   ROW_DIFF_PLAN_FUNCTIONS,
   ROW_DIFF_PLAN_KEYWORDS,
+  scanOrdinalScopes,
   scanPlanSql,
 } from './diff-property-testing'
 import type { HostileShapeCounts, RowDiffFeatureCounts } from './diff-property-testing'
@@ -96,6 +97,7 @@ describe('property — row-diff plans over generated inputs (seeded, structural 
     const features = makeRowDiffFeatureSpy()
     let accepted = 0
     let rejected = 0
+    let ordinalWindows = 0
     for (const seed of STRUCTURE_SEEDS) {
       for (let i = 0; i < STRUCTURE_CASES; i++) {
         const rng = makeTestRng(seed + i)
@@ -149,6 +151,11 @@ describe('property — row-diff plans over generated inputs (seeded, structural 
             relationB: draw.options.relationB,
             keys: draw.keys,
           })
+          // …and every query's ordinal window is pre-filter (non-vacuity is
+          // pinned below as an exact total: 6 windows per accepted plan).
+          for (const sql of [plan.addedSql, plan.removedSql, plan.changedSql, plan.totalsSql]) {
+            ordinalWindows += scanOrdinalScopes(sql).ordinalWindows
+          }
         } else {
           rejected += 1
           for (const error of result.errors) {
@@ -170,6 +177,12 @@ describe('property — row-diff plans over generated inputs (seeded, structural 
     expect(features.limitedDraws).toBe(EXPECTED_FEATURE_TOTALS.limitedDraws)
     expect(accepted).toBe(EXPECTED_FEATURE_TOTALS.accepted)
     expect(rejected).toBe(EXPECTED_FEATURE_TOTALS.rejected)
+    // every accepted plan carries exactly six ordinal windows (added +
+    // removed + changed + three totals arms) and the scan above proved none
+    // shares a SELECT scope with a WHERE — a post-filter regression fails
+    // inside `assertStructurallySafe`, and this exact total fails if the
+    // scan silently stops seeing windows (the m6-0 non-vacuity lesson).
+    expect(ordinalWindows).toBe(EXPECTED_FEATURE_TOTALS.accepted * 6)
   })
 })
 
@@ -193,6 +206,7 @@ function assertStructurallySafe(
     'b',
     'ai',
     'bi', // documented range names
+    'assay_antijoin_source', // the anti-join's ordinal-preserving derived table
     'assay_side',
     'assay_row_ordinal',
     'assay_changed',
@@ -229,6 +243,9 @@ function assertStructurallySafe(
         `unquoted token '${word}' outside the keyword vocabulary in: ${sql}`,
       ).toBe(true)
     }
+    // every ordinal window is computed pre-filter (m6-1 round-1 fix): its
+    // SELECT scope carries no sibling WHERE over all generated aspects.
+    expect(scanOrdinalScopes(sql).violations).toEqual([])
   }
 }
 

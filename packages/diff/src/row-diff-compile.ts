@@ -393,18 +393,41 @@ function indent(text: string, pad: string): string {
  * scan ordinal. Every reference is range-qualified; every join condition
  * is `IS NOT DISTINCT FROM` (NULL keys group together — the documented v1
  * semantic, pinned in goldens).
+ *
+ * **The ordinal is computed over the UNFILTERED relation** (the m5-1
+ * `rowSamplesSql` inner-projection pattern): `row_number() OVER ()` shares
+ * its SELECT scope with a bare `FROM`, and the anti-join `WHERE NOT EXISTS`
+ * is applied *outside* that derived table — SQL evaluates window functions
+ * after `WHERE`, so computing the ordinal in the same SELECT as the filter
+ * would number the surviving rows `0..K-1` instead of their true scan
+ * positions (the m6-1 round-1 defect; see `row-diff-plan.ts`).
+ *
+ * The scanned side's keys cross the derived-table boundary renamed to the
+ * reserved `assay_key_<i>` aliases, so the correlated anti-join can probe
+ * them range-qualified (`"a"."key" IS NOT DISTINCT FROM
+ * "assay_antijoin_source"."assay_key_i"`) without the source column ever
+ * escaping its own scope — the collision-freedom invariant for every legal
+ * column name.
  */
 function antiJoinSource(ctx: Ctx, keys: readonly string[], scanned: Range): string {
   const probed: Range = scanned === 'a' ? 'b' : 'a'
   const probedRel = probed === 'a' ? ctx.relA : ctx.relB
   const scannedRel = scanned === 'a' ? ctx.relA : ctx.relB
+  const keyLines = keys.map((key, i) => `${q(scanned)}.${q(key)} AS ${q(`assay_key_${i}`)}`)
+  const inner = [
+    `SELECT row_number() OVER () - 1 AS ${q('assay_row_ordinal')},`,
+    ...keyLines.map((line, i) => `       ${line}${i < keyLines.length - 1 ? ',' : ''}`),
+    `FROM ${scannedRel} AS ${q(scanned)}`,
+  ].join('\n')
   const conditions = keys.map(
     (key, i) =>
-      `${i === 0 ? '  WHERE ' : '    AND '}${q(probed)}.${q(key)} IS NOT DISTINCT FROM ${q(scanned)}.${q(key)}`,
+      `${i === 0 ? '  WHERE ' : '    AND '}${q(probed)}.${q(key)} IS NOT DISTINCT FROM ${q('assay_antijoin_source')}.${q(`assay_key_${i}`)}`,
   )
   return [
-    `SELECT row_number() OVER () - 1 AS ${q('assay_row_ordinal')}`,
-    `FROM ${scannedRel} AS ${q(scanned)}`,
+    `SELECT ${q('assay_row_ordinal')}`,
+    'FROM (',
+    indent(inner, '  '),
+    `) AS ${q('assay_antijoin_source')}`,
     'WHERE NOT EXISTS (',
     '  SELECT 1',
     `  FROM ${probedRel} AS ${q(probed)}`,
@@ -453,6 +476,18 @@ function projectionSelect(lines: readonly string[], leading: string, pad: string
  * WHERE keeps exactly the matched pairs with at least one distinct shared
  * non-key column; with nothing comparable it degrades to the never-true
  * guard (`changed` is structurally empty — pinned in goldens).
+ *
+ * The A-side ordinal is computed over side A's **unfiltered** scan inside
+ * the `"ai"` derived table (the m5-1 inner-projection pattern) and is
+ * carried out by the outer projection as `"ai"."assay_row_ordinal"` — it is
+ * the true pre-filter A-side position the m4-3 `base:<anchor>#<ordinal>`
+ * grammar resolves (the m6-1 round-1 defect was re-numbering post-WHERE
+ * rows `0..K-1` here). The `"bi"` projection deliberately carries **no**
+ * ordinal (`withOrdinal = false`): B-side rows are report content only
+ * (C3), the matched B counterpart is identified by the join itself, and
+ * `changed` samples are A-side rows, so no B-side ordinal is needed (for
+ * `added`, the B-scan ordinal travels from the anti-join source instead).
+ * The inner A-side ordinal is therefore no longer dead weight.
  */
 function changedSource(ctx: Ctx, keys: readonly string[], shared: readonly string[]): string {
   // The changed-column list: one CASE arm per shared non-key column, in
@@ -473,10 +508,7 @@ function changedSource(ctx: Ctx, keys: readonly string[], shared: readonly strin
           ),
           `       ) AS ${q('assay_changed')}`,
         ]
-  const projection = [
-    `SELECT row_number() OVER () - 1 AS ${q('assay_row_ordinal')},`,
-    ...listLines,
-  ].join('\n')
+  const projection = [`SELECT ${q('ai')}.${q('assay_row_ordinal')},`, ...listLines].join('\n')
 
   const ai = [
     projectionSelect(projectionLines('a', keys, shared, true, 'assay_present_a'), '  ', '       '),

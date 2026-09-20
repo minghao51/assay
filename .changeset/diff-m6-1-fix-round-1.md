@@ -1,0 +1,5 @@
+---
+'@assay/diff': patch
+---
+
+fix(m6-1): compute `assay_row_ordinal` over the **unfiltered** relation in every row-diff aspect (round-1 review). The anti-join and changed sources projected `row_number() OVER ()` in the same SELECT as their `WHERE`, and SQL evaluates windows after `WHERE` — so the reported ordinals were the post-filter sample indices `0..K-1` instead of the side's true scan positions, breaking the m6-2 `base:<anchor>#<ordinal>` grid binding whenever any row was filtered (essentially always). `antiJoinSource` now uses the m5-1 inner-projection pattern (ordinal + key aliases in a reserved `assay_antijoin_source` derived table, anti-join filter outside it), and `changedSource` projects the `"ai"` inner full-scan A-side ordinal instead of re-numbering. Adds a structural scan pin (`scanOrdinalScopes`: no ordinal window may share its SELECT scope with a `WHERE`, enforced over every generated query in the property suite with an exact 6-windows-per-plan non-vacuity total) plus per-aspect hand-derivation fixtures with expected pre-filter ordinals for m6-2's env-gated agreement suite.
