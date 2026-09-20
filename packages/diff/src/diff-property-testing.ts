@@ -28,7 +28,19 @@
  * `Symbol.toPrimitive`/`toString`/`valueOf` all throw. Weaving is optional
  * (pass a `HostileShapeCounts` spy) and counted per draw, so the property
  * suites can pin non-vacuity **per hostile family** — the suite fails if a
- * run stops producing any of them.
+ * run stops producing any of them. The family totals over the pinned seeds
+ * are deterministic (mulberry32: pure integer arithmetic, platform-exact),
+ * so the pins are EXACT counts, not lower bounds — disabling any single
+ * weave (or otherwise drifting the generators) changes at least one total
+ * and fails the suite (the fix-round-2 drill, run for every weave).
+ *
+ * Two further fixtures cover the reflective-throw class itself (used by the
+ * dedicated pins, not the woven draws): {@link makeRevokedProxy} — a Proxy
+ * whose `revoke()` has fired, on which even `Array.isArray` throws (`IsArray`
+ * on a revoked Proxy is a TypeError) — and {@link makeAllTrapsProxy} — a
+ * Proxy where EVERY handler trap throws (`get`, `ownKeys`,
+ * `getOwnPropertyDescriptor`, …), so spreads, `Object.keys/values/entries`,
+ * `JSON.stringify` and iteration all detonate, not just property reads.
  */
 
 import type { ColumnTypeFamily } from '@assay/validation'
@@ -326,6 +338,53 @@ export function makeProxyObject(): unknown {
       boom()
     },
   })
+}
+
+/**
+ * A Proxy whose `revoke()` has already fired (array target, so it is the
+ * exact shape the reviewer's probe used). Every internal-method access on a
+ * revoked Proxy throws — including `Array.isArray`, because the spec's
+ * `IsArray` reaches for the (now-unavailable) target state. This is the
+ * one hostile shape a throwing-`get` Proxy cannot model: the trap table
+ * itself is gone, so *any* reflection, guarded or not, detonates.
+ */
+export function makeRevokedProxy(): unknown {
+  const { proxy, revoke } = Proxy.revocable([] as unknown[], {})
+  revoke()
+  return proxy
+}
+
+/**
+ * A Proxy over an array target where EVERY handler trap throws: `get`,
+ * `set`, `has`, `deleteProperty`, `ownKeys`, `apply`, `construct`,
+ * `getPrototypeOf`, `setPrototypeOf`, `isExtensible`, `preventExtensions`,
+ * `getOwnPropertyDescriptor`, `defineProperty`. It still answers `true` to
+ * `Array.isArray` (IsArray inspects the target, not the traps), so an
+ * `isArray`-then-reflect code path gets past the check and then detonates
+ * on whatever it touches next: a spread, `Object.keys/values/entries`,
+ * `JSON.stringify`, `for…of`, `Array.from`, a `length` or indexed read.
+ * The trap-throwing-at-every-step pin for the revoked-proxy class.
+ */
+export function makeAllTrapsProxy(): unknown {
+  const boom = (): never => {
+    throw new Error('trap exploded')
+  }
+  const handler = {
+    getPrototypeOf: boom,
+    setPrototypeOf: boom,
+    isExtensible: boom,
+    preventExtensions: boom,
+    getOwnPropertyDescriptor: boom,
+    defineProperty: boom,
+    has: boom,
+    get: boom,
+    set: boom,
+    deleteProperty: boom,
+    ownKeys: boom,
+    apply: boom,
+    construct: boom,
+  }
+  return new Proxy([] as unknown[], handler)
 }
 
 /**

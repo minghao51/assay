@@ -10,9 +10,11 @@ import {
   genTopKPair,
   genValidProfile,
   genValidSchema,
+  makeAllTrapsProxy,
   makeHostileShapeSpy,
   makeProxyArray,
   makeProxyObject,
+  makeRevokedProxy,
   makeThrowingGetter,
   makeUnstringifiable,
   makeTestRng,
@@ -34,6 +36,21 @@ import { nullabilityDrift, schemaDrift } from './schema-drift'
 
 const TOTALITY_SEEDS = [20261001, 20261002, 20261003]
 const CASES_PER_SEED = 250
+
+/**
+ * Exact per-family hostile-shape totals over HOSTILE_SHAPE_SEEDS ×
+ * SHAPE_CASES draws (the spy counts at the bottom of the hostile-shape
+ * suite). Deterministic constants — see the exact-pin rationale there.
+ * Recomputed after the round-2 generator (unchanged since round 1):
+ * 345 proxyArrays / 120 explodingObjects / 855 throwingGetters /
+ * 921 unstringifiable.
+ */
+const EXPECTED_SHAPE_TOTALS: Readonly<HostileShapeCounts> = {
+  proxyArrays: 345,
+  explodingObjects: 120,
+  throwingGetters: 855,
+  unstringifiable: 921,
+}
 
 /** Codes the model may emit — anything else is a bug (mirrors m5-1's sweep). */
 const KNOWN_CODES: ReadonlySet<string> = new Set([
@@ -307,12 +324,22 @@ describe('property — totality over hostile shapes (proxies, throwing getters, 
         totals.unstringifiable += spy.unstringifiable
       }
     }
-    // non-vacuity per hostile family (the m5-5 lesson, applied to shapes):
-    // a run that stops producing any family proves nothing about totality.
-    expect(totals.proxyArrays).toBeGreaterThan(HOSTILE_SHAPE_SEEDS.length)
-    expect(totals.explodingObjects).toBeGreaterThan(0)
-    expect(totals.throwingGetters).toBeGreaterThan(HOSTILE_SHAPE_SEEDS.length)
-    expect(totals.unstringifiable).toBeGreaterThan(HOSTILE_SHAPE_SEEDS.length)
+    // Non-vacuity per hostile family (the m5-5 lesson, applied to shapes),
+    // pinned EXACTLY: the generators are seeded and deterministic to the bit
+    // (mulberry32 is pure 32-bit integer arithmetic — platform-exact), so
+    // the run totals are constants, recomputed and pinned. A lower bound
+    // (toBeGreaterThan) was not enough: with only lower bounds, disabling a
+    // single weave (e.g. the top-k proxy weave) left other weaves feeding
+    // the same family and the suite green (the fix-round-2 drill). With
+    // exact pins, disabling ANY weave, changing any probability, or
+    // otherwise drifting a generator changes at least one total and fails
+    // right here. (If a deliberate generator change shifts a total, re-derive
+    // the constant and update it WITH the change, never by relaxing to a
+    // bound.)
+    expect(totals.proxyArrays).toBe(EXPECTED_SHAPE_TOTALS.proxyArrays)
+    expect(totals.explodingObjects).toBe(EXPECTED_SHAPE_TOTALS.explodingObjects)
+    expect(totals.throwingGetters).toBe(EXPECTED_SHAPE_TOTALS.throwingGetters)
+    expect(totals.unstringifiable).toBe(EXPECTED_SHAPE_TOTALS.unstringifiable)
   })
 })
 
@@ -395,10 +422,116 @@ describe('totality — the seven reviewer probes, verbatim shapes', () => {
   })
 })
 
+describe('totality — the reflective-throw class: revoked Proxies and all-traps Proxies', () => {
+  // The fix-round-2 reviewer probe, verbatim shape: a revoked ARRAY Proxy
+  // passed as schemaA used to escape diffDatasets as
+  // `TypeError: Cannot perform 'IsArray' on a proxy that has been revoked`
+  // (echoValue called Array.isArray outside a guard while building the
+  // invalid-schema-input message). It must come back as the typed issue.
+  it('revoked array Proxy as schemaA → invalid-schema-input issue, never a throw', () => {
+    let report: ReturnType<typeof diffDatasets> | undefined
+    expect(() => {
+      report = diffDatasets({
+        schemaA: makeRevokedProxy(),
+        schemaB: [],
+        profileA: { rowCount: 1, columns: [] },
+        profileB: { rowCount: 1, columns: [] },
+      } as unknown as DiffInput)
+    }).not.toThrow() // was: TypeError: Cannot perform 'IsArray' on a proxy that has been revoked
+    expect(report?.issues).toHaveLength(1)
+    const issue = report?.issues[0]
+    expect(issue?.code).toBe('invalid-schema-input')
+    expect(issue?.side).toBe('A')
+    expect(issue?.message).toContain('no safe string form') // hostile value never echoed
+    expect(report?.schemaDrift).toEqual([]) // the aspect skipped with the issue, no fabrication
+    expect(report?.columnDeltas).toEqual([])
+  })
+
+  it('revoked Proxy / all-traps Proxy in every position of every public entry point', () => {
+    const hostileSchemas: readonly unknown[] = [makeRevokedProxy(), makeAllTrapsProxy()]
+    const validSchema = [{ name: 'x', type: 'DOUBLE' }]
+    const validProfile = { rowCount: 4, columns: [] }
+    for (const hostile of hostileSchemas) {
+      // both schema sides
+      expect(() => schemaDrift(hostile as never, validSchema as never)).not.toThrow()
+      expect(schemaDrift(hostile as never, validSchema as never).findings).toEqual([])
+      expect(() => schemaDrift(validSchema as never, hostile as never)).not.toThrow()
+      // both profile sides (a revoked Proxy is typeof 'object', so it takes
+      // the object path into validateProfile — reads guarded, degrade issue)
+      expect(() => nullabilityDrift(hostile as never, validProfile as never)).not.toThrow()
+      expect(() => distributionDeltas(hostile as never, validProfile as never)).not.toThrow()
+      expect(distributionDeltas(hostile as never, validProfile as never).deltas).toEqual([])
+      // divergence/bins arguments
+      expect(psi(hostile as never, [50, 50], [50, 50])).toBeNull()
+      expect(psi([10], hostile as never, [50, 50])).toBeNull()
+      expect(jensenShannon(hostile as never, [50, 50], [50, 50])).toBeNull()
+      expect(binIndex(hostile as never, 5)).toBe(0)
+      expect(deriveBins(hostile as never).edges).toEqual([])
+      expect(totalVariation(hostile as never, 10, [], 10)).toBeNull()
+      expect(newCategories(hostile as never, hostile as never)).toEqual([])
+      // the input object itself hostile — every field read degrades
+      let report: ReturnType<typeof diffDatasets> | undefined
+      expect(() => {
+        report = diffDatasets(hostile as never)
+      }).not.toThrow()
+      expect(report?.issues.every((issue) => issue.code === 'invalid-input')).toBe(true)
+      expect(report?.issues).toHaveLength(4) // one per input key, all attributed
+      // echo paths (a revoked Proxy cannot even be asked isArray safely)
+      expect(() => roundForReport(hostile as never)).not.toThrow()
+      expect(() => describeDiffIssue(hostile as never)).not.toThrow()
+      expect(describeDiffIssue(hostile as never)).toContain('(unreadable)')
+      expect(hasSchemaOrProfileDifferences(hostile as never)).toBe(false)
+      // as a whole DiffInput, each key revoked separately
+      const healthy = {
+        schemaA: validSchema,
+        schemaB: validSchema,
+        profileA: validProfile,
+        profileB: validProfile,
+      }
+      for (const key of ['schemaA', 'schemaB', 'profileA', 'profileB'] as const) {
+        let perKey: ReturnType<typeof diffDatasets> | undefined
+        expect(() => {
+          perKey = diffDatasets({ ...healthy, [key]: hostile } as unknown as DiffInput)
+        }).not.toThrow()
+        expect(perKey?.issues.length).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('the all-traps fixture is lethal to every reflective operation named in the audit', () => {
+    // Evidence that the fixture exercises the class the audit names: each
+    // reflective operation detonates on the fixture itself. (Which is also
+    // why the model must never run them on caller input — the entry-point
+    // sweep above proves it never does.) `Array.isArray` stays TRUE: the
+    // check itself does not detonate, exactly the shape that once let an
+    // unguarded `Array.isArray`-then-reflect path look safe.
+    const allTraps = makeAllTrapsProxy()
+    expect(Array.isArray(allTraps)).toBe(true)
+    expect(() => Array.from(allTraps as never)).toThrow()
+    expect(() => [...(allTraps as unknown as Iterable<unknown>)]).toThrow()
+    expect(() => Object.keys(allTraps as object)).toThrow()
+    expect(() => Object.values(allTraps as object)).toThrow()
+    expect(() => Object.entries(allTraps as object)).toThrow()
+    expect(() => JSON.stringify(allTraps)).toThrow()
+    expect(() => String(allTraps)).toThrow()
+    expect(() => `${allTraps as never}`).toThrow()
+    expect(() => (allTraps as { length: number }).length).toThrow()
+    expect(() => (allTraps as unknown[])[0]).toThrow()
+    expect(() => new Set(allTraps as never)).toThrow()
+    // and the revoked fixture is even stricter: the isArray check itself throws
+    const revoked = makeRevokedProxy()
+    expect(() => Array.isArray(revoked)).toThrow()
+    expect(() => JSON.stringify(revoked)).toThrow()
+    expect(() => Object.keys(revoked as object)).toThrow()
+  })
+})
+
 describe('totality — every public entry point survives every hostile-shape fixture', () => {
   const FIXTURES: readonly { readonly name: string; readonly make: () => unknown }[] = [
     { name: 'array Proxy', make: makeProxyArray },
     { name: 'object Proxy', make: makeProxyObject },
+    { name: 'revoked Proxy', make: makeRevokedProxy },
+    { name: 'all-traps Proxy', make: makeAllTrapsProxy },
     { name: 'throwing getter', make: () => makeThrowingGetter('value', { name: 'n', count: 3 }) },
     { name: 'unstringifiable', make: makeUnstringifiable },
     { name: 'null-prototype object', make: () => Object.create(null) },
