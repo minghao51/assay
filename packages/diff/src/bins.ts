@@ -30,7 +30,7 @@
  */
 
 import type { NumericColumnStats } from './profile'
-import { isFiniteNumber, normZero, readFieldPath } from './guards'
+import { isFiniteNumber, normZero, readArray, readFieldPath } from './guards'
 
 /** The quantile cutpoints bins derive from (documented; the m2 position set). */
 const QUANTILE_KEYS = ['p50', 'p90', 'p95', 'p99'] as const
@@ -66,13 +66,27 @@ export function deriveBins(stats: NumericColumnStats): BinSet {
 /**
  * The bin a value falls into: `0` is `(-∞, e0)`, …, `edges.length` is
  * `[e_last, +∞)`. Edges are exclusive upper bounds — a value equal to an
- * edge lands in the upper bin. Total: `NaN` and ±Infinity classify into the
- * last bin (a documented degenerate; engine-rendered values are finite).
+ * edge lands in the upper bin. Total, over hostile `edges` and `value`:
+ *
+ * - `edges` is read through a snapshot ({@link readArray}); an unreadable
+ *   or non-array value degrades to the zero-edge shape — a single bin, so
+ *   `0` (the same degrade path `deriveBins` takes over a hostile stats
+ *   object).
+ * - an edge that is not a number cannot order anything and is skipped —
+ *   exactly the semantics the raw comparison already gave NaN edges
+ *   (`v < NaN` is false). NaN/±Infinity *values* keep their documented
+ *   classification (NaN and +Infinity → last bin; −Infinity → first edge).
+ * - a non-number `value` (hostile, behind a cast) is treated as NaN — its
+ *   `valueOf`/`Symbol.toPrimitive` could throw, and the comparison must
+ *   never run on it.
  */
 export function binIndex(edges: readonly number[], value: number): number {
-  for (let i = 0; i < edges.length; i++) {
-    const edge = edges[i]
-    if (edge !== undefined && value < edge) return i
+  const edgeList = readArray(edges)
+  if (edgeList === null) return 0 // documented: unreadable edges degrade to the one-bin shape
+  const v = typeof value === 'number' ? value : NaN // never coerce a hostile value
+  for (let i = 0; i < edgeList.length; i++) {
+    const edge = edgeList[i]
+    if (typeof edge === 'number' && v < edge) return i
   }
-  return edges.length
+  return edgeList.length
 }

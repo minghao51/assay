@@ -6,7 +6,10 @@
  * ## The metric set (exactly checkpoint C1 — no p-values, no significance)
  *
  * - Numeric: standardized mean shift `(meanB − meanA) / stddevA` and
- *   standardized variance shift `(σB² − σA²) / σA²` — both standardized
+ *   standardized variance shift `σB²/σA² − 1`, computed in the numerically
+ *   stable ratio form `(σB/σA)² − 1` (algebraically identical to
+ *   `(σB² − σA²)/σA²`; exact at identity, and it never squares a subnormal
+ *   spread into 0 — see `numericDelta`) — both standardized
  *   **against side A** (documented, pinned); raw `p50`/`p90` quantile
  *   shifts `qB − qA` in the column's own units (defined even for a
  *   zero-spread reference, where standardization is not — a constant
@@ -52,7 +55,11 @@ import { newCategories, totalVariation, vanishedCategories } from './divergence'
 export interface NumericDistributionDelta {
   /** `(meanB − meanA) / stddevA` — standardized against side A. */
   readonly meanShiftStandardized: number | null
-  /** `(σB² − σA²) / σA²` — relative variance change, referenced to side A. */
+  /**
+   * `σB²/σA² − 1` — relative variance change, referenced to side A,
+   * computed in the ratio form `(σB/σA)² − 1` (documented in
+   * `numericDelta`; exact at identity and stable at subnormal spread).
+   */
   readonly varianceShiftStandardized: number | null
   /** `p50B − p50A` in the column's own units (raw, not standardized). */
   readonly p50Shift: number | null
@@ -175,9 +182,18 @@ function numericDelta(
     spreadA && a.mean !== null && b.mean !== null
       ? finiteOrNull(normZero((b.mean - a.mean) / a.stddev))
       : null
+  // Ratio form, documented: σB²/σA² − 1 = (σB/σA)² − 1 — algebraically the
+  // same relative-to-A variance shift as (σB² − σA²)/σA², but it never
+  // squares a side into a subnormal-sized double. The quotient form squares
+  // σA = 1e-200 into 1e-400 → underflow to 0 → 0/0 = NaN, which turned the
+  // *identity* comparison (σB = σA) into a spurious `null` at subnormal
+  // spread. The ratio form is exactly 0 there (σB/σA = 1), keeps the
+  // documented goldens exact at ordinary scales (they are algebraically
+  // identical, and the ratio of two doubles rounds once), and still maps an
+  // overflowing ratio (|σB/σA| ≥ ~1e154) to `null` via `finiteOrNull`.
   const varianceShiftStandardized =
     spreadA && b.stddev !== null
-      ? finiteOrNull((b.stddev * b.stddev - a.stddev * a.stddev) / (a.stddev * a.stddev))
+      ? finiteOrNull(normZero((b.stddev / a.stddev) * (b.stddev / a.stddev) - 1))
       : null
   return {
     meanShiftStandardized,

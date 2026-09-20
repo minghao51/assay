@@ -23,7 +23,14 @@
  */
 
 import type { EngineSchemaColumn } from '@assay/validation'
-import { echoNumber, isFiniteNumber, isNonNegativeSafeInteger, readField } from './guards'
+import {
+  echoNumber,
+  echoValue,
+  isFiniteNumber,
+  isNonNegativeSafeInteger,
+  readArray,
+  readField,
+} from './guards'
 import type { DiffIssue, DiffSide } from './issues'
 import { makeIssue } from './issues'
 import type { CategoricalTopKEntry, NumericQuantiles, ProfileColumnKind } from './profile'
@@ -49,11 +56,15 @@ export function validateSchema(
   side: DiffSide,
   issues: DiffIssue[],
 ): ValidatedSchema | null {
-  if (!Array.isArray(schema)) {
+  // Snapshot, never direct iteration: `Array.isArray` passes array Proxies
+  // whose traps throw, and a mid-iteration throw would breach totality. An
+  // unreadable array is handled exactly like a non-array (issue + skip).
+  const entries = readArray(schema)
+  if (entries === null) {
     issues.push(
       makeIssue(
         'invalid-schema-input',
-        `schema must be an array of { name, type } columns; got ${String(schema)}`,
+        `schema must be a readable array of { name, type } columns; got ${echoValue(schema)}`,
         { side },
       ),
     )
@@ -61,7 +72,7 @@ export function validateSchema(
   }
   const columns: EngineSchemaColumn[] = []
   const byName = new Map<string, EngineSchemaColumn>()
-  schema.forEach((entry, index) => {
+  entries.forEach((entry, index) => {
     const nameRead = readField(entry, 'name')
     const typeRead = readField(entry, 'type')
     const name = nameRead.ok ? nameRead.value : undefined
@@ -160,7 +171,7 @@ export function validateProfile(
 ): ValidatedProfile | null {
   if (profile === null || typeof profile !== 'object') {
     issues.push(
-      makeIssue('invalid-profile-input', `profile must be an object; got ${String(profile)}`, {
+      makeIssue('invalid-profile-input', `profile must be an object; got ${echoValue(profile)}`, {
         side,
       }),
     )
@@ -179,17 +190,22 @@ export function validateProfile(
     )
   }
   const columnsRead = readField(profile, 'columns')
-  if (!columnsRead.ok || !Array.isArray(columnsRead.value)) {
+  // Snapshot (see `validateSchema`): a hostile array Proxy for `columns` is
+  // handled exactly like a non-array — issue + the side degrades to empty.
+  const columnEntries = columnsRead.ok ? readArray(columnsRead.value) : null
+  if (columnEntries === null) {
     issues.push(
-      makeIssue('invalid-profile-input', 'columns must be an array; the side is treated as empty', {
-        side,
-      }),
+      makeIssue(
+        'invalid-profile-input',
+        'columns must be a readable array; the side is treated as empty',
+        { side },
+      ),
     )
     return { rowCount, columns: [], byName: new Map() }
   }
   const columns: ValidatedColumnProfile[] = []
   const byName = new Map<string, ValidatedColumnProfile>()
-  columnsRead.value.forEach((entry, index) => {
+  columnEntries.forEach((entry, index) => {
     const column = validateColumnProfile(entry, index, rowCount, side, issues)
     if (column === null) return
     if (byName.has(column.name)) {
@@ -264,7 +280,7 @@ function validateColumnProfile(
     issues.push(
       makeIssue(
         'invalid-column-profile',
-        `kind must be one of 'numeric' | 'categorical' | 'other'; got ${String(
+        `kind must be one of 'numeric' | 'categorical' | 'other'; got ${echoValue(
           kindRaw,
         )}; treated as 'other' (fail-closed)`,
         { side, column: name },
@@ -328,7 +344,7 @@ function validateCount(
   issues.push(
     makeIssue(
       'invalid-column-profile',
-      `${label}Count must be a non-negative safe integer; got ${String(
+      `${label}Count must be a non-negative safe integer; got ${echoValue(
         read.ok ? read.value : undefined,
       )}; treated as unknown`,
       { side, column },
@@ -466,11 +482,14 @@ function validateCategoricalPayload(
   }
   const payload = payloadRead.ok ? payloadRead.value : undefined
   const topKRead = readField(payload, 'topK')
-  if (!topKRead.ok || !Array.isArray(topKRead.value)) {
+  // Snapshot (see `validateSchema`): a hostile array Proxy for `topK` is
+  // handled exactly like a non-array — the payload is unusable.
+  const topKEntries = topKRead.ok ? readArray(topKRead.value) : null
+  if (topKEntries === null) {
     issues.push(
       makeIssue(
         'invalid-column-profile',
-        'categorical stats topK must be an array; the column has no categorical delta',
+        'categorical stats topK must be a readable array; the column has no categorical delta',
         { side, column },
       ),
     )
@@ -480,7 +499,7 @@ function validateCategoricalPayload(
   const seen = new Set<string>()
   let sum = 0
   let usable = true
-  topKRead.value.forEach((raw, i) => {
+  topKEntries.forEach((raw, i) => {
     const valueRead = readField(raw, 'value')
     const countRead = readField(raw, 'count')
     const value = valueRead.ok ? valueRead.value : undefined
@@ -489,7 +508,7 @@ function validateCategoricalPayload(
       issues.push(
         makeIssue(
           'invalid-column-profile',
-          `top-k entry ${i} must have a string value; got ${String(value)}; the payload is treated as unusable`,
+          `top-k entry ${i} must have a string value; got ${echoValue(value)}; the payload is treated as unusable`,
           { side, column },
         ),
       )
@@ -500,7 +519,7 @@ function validateCategoricalPayload(
       issues.push(
         makeIssue(
           'invalid-column-profile',
-          `top-k entry ${i} must have a positive safe-integer count; got ${String(
+          `top-k entry ${i} must have a positive safe-integer count; got ${echoValue(
             count,
           )}; the payload is treated as unusable`,
           { side, column },
@@ -555,7 +574,7 @@ function finiteOrNullField(
   issues.push(
     makeIssue(
       'invalid-column-profile',
-      `numeric stats field '${key}' must be a finite number or null; got ${String(
+      `numeric stats field '${key}' must be a finite number or null; got ${echoValue(
         read.ok ? read.value : undefined,
       )}; treated as null`,
       { side, column },

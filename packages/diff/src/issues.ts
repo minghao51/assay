@@ -9,6 +9,8 @@
  * (the m5-0 never-echo lesson: never a rounded or re-formatted value).
  */
 
+import { readField } from './guards'
+
 /** Which input side an issue belongs to. A = reference, B = current. */
 export type DiffSide = 'A' | 'B'
 
@@ -40,11 +42,28 @@ export interface DiffIssue {
   readonly column?: string
 }
 
-/** Canonical one-line rendering, compiler-style and greppable. */
+/**
+ * Canonical one-line rendering, compiler-style and greppable. Total: the
+ * issue is read through the guarded accessors, so a hostile object
+ * (throwing getters, behind a cast) renders with `(unreadable)` in place of
+ * what cannot be read — building the rendering must never throw. For
+ * well-formed issues the output is byte-identical to naive interpolation
+ * (pinned).
+ */
 export function describeDiffIssue(issue: DiffIssue): string {
-  const where = issue.side === undefined ? '' : ` [side ${issue.side}]`
-  const column = issue.column === undefined ? '' : ` (column '${issue.column}')`
-  return `${issue.code}${where}${column}: ${issue.message}`
+  const codeRead = readField(issue, 'code')
+  const messageRead = readField(issue, 'message')
+  const sideRead = readField(issue, 'side')
+  const columnRead = readField(issue, 'column')
+  const code = codeRead.ok && typeof codeRead.value === 'string' ? codeRead.value : '(unreadable)'
+  const message =
+    messageRead.ok && typeof messageRead.value === 'string' ? messageRead.value : '(unreadable)'
+  const side = sideRead.ok && typeof sideRead.value === 'string' ? sideRead.value : undefined
+  const column =
+    columnRead.ok && typeof columnRead.value === 'string' ? columnRead.value : undefined
+  const where = side === undefined ? '' : ` [side ${side}]`
+  const at = column === undefined ? '' : ` (column '${column}')`
+  return `${code}${where}${at}: ${message}`
 }
 
 /**

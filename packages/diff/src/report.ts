@@ -40,13 +40,9 @@
 import type { DiffIssue } from './issues'
 import { makeIssue } from './issues'
 import type { DatasetProfile } from './profile'
-import { readField } from './guards'
+import { isFiniteNumber, readArray, readField } from './guards'
 import type { EngineSchema } from '@assay/validation'
-import type {
-  CategoricalDistributionDelta,
-  ColumnDistributionDelta,
-  NumericDistributionDelta,
-} from './deltas'
+import type { ColumnDistributionDelta } from './deltas'
 import { distributionDeltasFor } from './deltas'
 import type { SchemaDriftFinding } from './schema-drift'
 import { nullabilityFindings, sortFindings, typeDriftFindings } from './schema-drift'
@@ -139,34 +135,61 @@ export function diffDatasets(input: DiffInput): DiffReport {
  * any schema-drift finding, or any column delta with a defined non-zero
  * metric or non-empty new/vanished list. Honest scope: identical files
  * always yield `false` (pinned), but `false` alone does not prove row-level
- * identity — row-level comparison is m6-1+.
+ * identity — row-level comparison is m6-1+. The predicate is total and
+ * reads its argument only through the guarded accessors: a hostile report
+ * (throwing getters, unreadable array Proxies) never throws, and every
+ * unreadable/missing aspect simply contributes no difference — this
+ * predicate is a render convenience over `diffDatasets` output, and a
+ * hostile object is not evidence of a difference (nor of its absence;
+ * callers with untrusted reports should re-run `diffDatasets`).
  */
 export function hasSchemaOrProfileDifferences(report: DiffReport): boolean {
-  if (report.schemaDrift.length > 0) return true
-  return report.columnDeltas.some(deltaNonZero)
+  const driftRead = readField(report, 'schemaDrift')
+  if (driftRead.ok) {
+    const drift = readArray(driftRead.value)
+    if (drift !== null && drift.length > 0) return true
+  }
+  const deltasRead = readField(report, 'columnDeltas')
+  if (!deltasRead.ok) return false
+  const deltas = readArray(deltasRead.value)
+  if (deltas === null) return false
+  return deltas.some(deltaNonZero)
 }
 
-function deltaNonZero(delta: ColumnDistributionDelta): boolean {
-  const numeric: NumericDistributionDelta | undefined = delta.numeric
-  if (
-    numeric !== undefined &&
-    (nonZeroMetric(numeric.meanShiftStandardized) ||
-      nonZeroMetric(numeric.varianceShiftStandardized) ||
-      nonZeroMetric(numeric.p50Shift) ||
-      nonZeroMetric(numeric.p90Shift))
-  ) {
-    return true
-  }
-  const categorical: CategoricalDistributionDelta | undefined = delta.categorical
-  if (categorical !== undefined) {
-    if (nonZeroMetric(categorical.totalVariation)) return true
-    if (categorical.newCategories.length > 0 || categorical.vanishedCategories.length > 0) {
+function deltaNonZero(delta: unknown): boolean {
+  const numericRead = readField(delta, 'numeric')
+  if (numericRead.ok && numericRead.value !== null && typeof numericRead.value === 'object') {
+    const numeric: unknown = numericRead.value
+    if (
+      nonZeroMetric(readField(numeric, 'meanShiftStandardized')) ||
+      nonZeroMetric(readField(numeric, 'varianceShiftStandardized')) ||
+      nonZeroMetric(readField(numeric, 'p50Shift')) ||
+      nonZeroMetric(readField(numeric, 'p90Shift'))
+    ) {
       return true
     }
+  }
+  const categoricalRead = readField(delta, 'categorical')
+  if (
+    categoricalRead.ok &&
+    categoricalRead.value !== null &&
+    typeof categoricalRead.value === 'object'
+  ) {
+    const categorical: unknown = categoricalRead.value
+    if (nonZeroMetric(readField(categorical, 'totalVariation'))) return true
+    if (nonEmptyList(readField(categorical, 'newCategories'))) return true
+    if (nonEmptyList(readField(categorical, 'vanishedCategories'))) return true
   }
   return false
 }
 
-function nonZeroMetric(value: number | null): boolean {
-  return value !== null && value !== 0
+/** A metric counts as non-zero only when it reads as a finite, non-zero number. */
+function nonZeroMetric(read: { readonly ok: boolean; readonly value?: unknown }): boolean {
+  return read.ok && isFiniteNumber(read.value) && read.value !== 0
+}
+
+/** A category list counts as non-empty only when it reads as a non-empty array. */
+function nonEmptyList(read: { readonly ok: boolean; readonly value?: unknown }): boolean {
+  const list = read.ok ? readArray(read.value) : null
+  return list !== null && list.length > 0
 }

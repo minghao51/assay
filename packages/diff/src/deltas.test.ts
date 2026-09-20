@@ -158,6 +158,54 @@ describe('distributionDeltas — numeric goldens (standardized against side A)',
     expect(numeric?.p50Shift).toBe(0)
     expect(numeric?.p90Shift).toBe(0)
   })
+
+  it('identity stays exactly zero for a valid positive subnormal-scale spread', () => {
+    // σA = σB = 1e-200: σ² = 1e-400 underflows to 0 in a double, so the old
+    // quotient form (σB² − σA²)/σA² produced 0/0 = NaN → a spurious `null`
+    // for a mathematically-defined identity. The ratio form is exact.
+    const subnormal = {
+      min: -1e-200,
+      max: 1e-200,
+      mean: 3e-200,
+      stddev: 1e-200,
+      quantiles: { p50: 0, p90: 1e-200, p95: 1e-200, p99: 1e-200 },
+    }
+    const a = numericProfile(subnormal)
+    const b = numericProfile(JSON.parse(JSON.stringify(subnormal)))
+    const { deltas, issues } = distributionDeltas(a, b)
+    expect(issues).toEqual([])
+    const numeric = deltas[0]?.numeric
+    expect(numeric?.varianceShiftStandardized).toBe(0)
+    expect(numeric?.meanShiftStandardized).toBe(0)
+    expect(numeric?.p50Shift).toBe(0)
+    expect(numeric?.p90Shift).toBe(0)
+  })
+
+  it('the ratio form keeps the defined relative shift at subnormal spread (golden)', () => {
+    // σA = 1e-200, σB = 2e-200 → (σB/σA)² − 1 = 2² − 1 = 3 exactly (the old
+    // quotient form underflowed to (0 − 0)/0 = NaN → null).
+    const a = numericProfile({
+      min: -1e-200,
+      max: 2e-200,
+      mean: 0,
+      stddev: 1e-200,
+      quantiles: { p50: 0, p90: 1e-200, p95: 1e-200, p99: 2e-200 },
+    })
+    const b = numericProfile({
+      min: -2e-200,
+      max: 4e-200,
+      mean: 1e-200,
+      stddev: 2e-200,
+      quantiles: { p50: 1e-200, p90: 2e-200, p95: 2e-200, p99: 3e-200 },
+    })
+    const { deltas, issues } = distributionDeltas(a, b)
+    expect(issues).toEqual([])
+    const numeric = deltas[0]?.numeric
+    expect(numeric?.varianceShiftStandardized).toBe(3)
+    // (1e-200 − 0) / 1e-200 = 1 — the mean standardization is exact too
+    expect(numeric?.meanShiftStandardized).toBe(1)
+    expect(numeric?.p50Shift).toBe(1e-200)
+  })
 })
 
 describe('distributionDeltas — categorical goldens', () => {

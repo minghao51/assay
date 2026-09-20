@@ -18,6 +18,17 @@
  *   counts, unknown kinds, swapped/missing payloads, duplicated names and
  *   top-k values, NUL names, `__proto__` spellings, non-object entries) —
  *   the domain the *totality* sweep must survive without throwing.
+ *
+ * The `genHostile*` generators additionally weave in the hostile *shapes*
+ * that JSON-ish value corruption cannot reach (a totality sweep over plain
+ * corrupted values never detonates a getter, so it cannot detect a totality
+ * regression — the m6-0 fix-round lesson): array Proxies whose traps throw,
+ * object Proxies that explode on every read, throwing getters on structural
+ * fields (array indices, length-like counts, payloads), and values whose
+ * `Symbol.toPrimitive`/`toString`/`valueOf` all throw. Weaving is optional
+ * (pass a `HostileShapeCounts` spy) and counted per draw, so the property
+ * suites can pin non-vacuity **per hostile family** — the suite fails if a
+ * run stops producing any of them.
  */
 
 import type { ColumnTypeFamily } from '@assay/validation'
@@ -205,93 +216,281 @@ export function genSchemaPair(rng: TestRng): {
 const HOSTILE_NUMBERS = [NaN, Infinity, -Infinity, 1.5, -1, 2 ** 60]
 
 /**
+ * Counters for the hostile-shape families the generators weave into a draw
+ * (see the factories below). The totality suites pass a fresh spy per draw
+ * and pin the run totals: a run that stops producing *any* family fails the
+ * suite — the m5-5 non-vacuity lesson applied to the hostile domain itself.
+ * JSON-ish value corruption (the original generator) cannot detect a
+ * totality regression, because it never detonates a getter, a Proxy trap,
+ * or a stringification path.
+ */
+export interface HostileShapeCounts {
+  /** Array Proxies whose traps throw (they pass `Array.isArray`). */
+  proxyArrays: number
+  /** Object Proxies whose `get` trap throws on every read. */
+  explodingObjects: number
+  /** Plain objects carrying one or more throwing getters. */
+  throwingGetters: number
+  /** Values whose `Symbol.toPrimitive`/`toString`/`valueOf` all throw. */
+  unstringifiable: number
+}
+
+/** A fresh zeroed spy for one generated draw. */
+export function makeHostileShapeSpy(): HostileShapeCounts {
+  return { proxyArrays: 0, explodingObjects: 0, throwingGetters: 0, unstringifiable: 0 }
+}
+
+function weave<T>(
+  rng: TestRng,
+  spy: HostileShapeCounts | undefined,
+  family: keyof HostileShapeCounts,
+  p: number,
+  make: () => T,
+): T | undefined {
+  if (!rng.bool(p)) return undefined
+  if (spy !== undefined) spy[family] += 1
+  return make()
+}
+
+/**
+ * Guarded field write for building hostile column entries: the thrown-getter
+ * weaves install getter-only properties, and a later corruption writing the
+ * same field would throw a TypeError *in the generator* — the corruption is
+ * already there, so the write is skipped.
+ */
+function setField(target: Record<string, unknown>, key: string, value: unknown): void {
+  try {
+    target[key] = value
+  } catch {
+    // getter-only hostile property — the corruption stands
+  }
+}
+
+/**
+ * A value that detonates on every stringification path: `String(value)` —
+ * via `Symbol.toPrimitive`, `toString`, or `valueOf` — throws. Hostile
+ * coercion shapes like this are why issue *construction* must never route
+ * through the offending value (the never-echo discipline's totality half).
+ */
+export function makeUnstringifiable(): unknown {
+  const boom = (): never => {
+    throw new Error('stringification exploded')
+  }
+  return { [Symbol.toPrimitive]: boom, toString: boom, valueOf: boom }
+}
+
+/**
+ * A plain object with a throwing getter on `field` (the remaining fields
+ * stay readable): unguarded property access throws, a guarded read
+ * (`readField`) degrades. Used for structural fields — array indices,
+ * `length`-like counts, entry payloads — so the model's field guards are
+ * what stands between the caller and the throw.
+ */
+export function makeThrowingGetter(field: string, rest: Record<string, unknown> = {}): unknown {
+  const hostile: Record<string, unknown> = { ...rest }
+  Object.defineProperty(hostile, field, {
+    get() {
+      throw new Error(`getter '${field}' exploded`)
+    },
+    enumerable: true,
+    configurable: true,
+  })
+  return hostile
+}
+
+/**
+ * An array Proxy that passes `Array.isArray` but detonates on every element
+ * access: `length`, numeric indices, the iterator, and array methods all
+ * throw. This is the shape `Array.isArray`-then-iterate code cannot survive.
+ */
+export function makeProxyArray(): unknown {
+  const boom = (): never => {
+    throw new Error('array getter exploded')
+  }
+  return new Proxy([] as unknown[], {
+    get(_target, prop) {
+      if (prop === 'then') return undefined // never thenable: keeps inspection paths plain
+      boom()
+    },
+  })
+}
+
+/** An object Proxy whose `get` trap throws on every read. */
+export function makeProxyObject(): unknown {
+  const boom = (): never => {
+    throw new Error('object getter exploded')
+  }
+  return new Proxy({} as Record<string, unknown>, {
+    get(_target, prop) {
+      if (prop === 'then') return undefined
+      boom()
+    },
+  })
+}
+
+/**
  * Return a corrupted copy of a valid profile: each corruption point fires
  * with the documented probability, seeded — hostile input for the totality
- * sweep, never thrown at, always attributed.
+ * sweep, never thrown at, always attributed. Beyond the JSON-ish value
+ * corruption, hostile *shapes* are woven in (pass a spy to count them):
+ * array Proxies over `columns`/`topK`, an object Proxy as the whole
+ * profile, throwing getters on structural fields, and unstringifiable
+ * values on fields whose messages echo them.
  */
-export function genHostileProfile(rng: TestRng): unknown {
+export function genHostileProfile(rng: TestRng, spy?: HostileShapeCounts): unknown {
   const base = genValidProfile(rng)
   const profile: Record<string, unknown> = {
-    rowCount: rng.bool(0.15) ? rng.pick([-1, NaN, 1.5, 'many', Infinity]) : base.rowCount,
+    rowCount:
+      weave(rng, spy, 'unstringifiable', 0.05, makeUnstringifiable) ??
+      (rng.bool(0.15) ? rng.pick([-1, NaN, 1.5, 'many', Infinity]) : base.rowCount),
     columns: base.columns.map((column) => {
-      const c: Record<string, unknown> = { ...column }
-      if (rng.bool(0.1)) c.kind = rng.pick(['weird', 'NUMERIC', '', 42, null])
-      if (rng.bool(0.1)) c.nullCount = rng.pick([-1, base.rowCount + 5, NaN, 0.5, null])
-      if (rng.bool(0.08)) c.distinctCount = rng.pick([-2, base.rowCount + 1, NaN])
-      if (rng.bool(0.1)) delete c.kind // missing kind
+      // A throwing getter on a structural field (issue + degrade, never a throw).
+      const boomField = weave(rng, spy, 'throwingGetters', 0.1, () =>
+        rng.pick(['name', 'type', 'kind', 'nullCount', 'numeric', 'categorical']),
+      )
+      const c: Record<string, unknown> =
+        boomField !== undefined
+          ? (makeThrowingGetter(boomField, { ...column }) as Record<string, unknown>)
+          : { ...column }
+      if (rng.bool(0.1)) setField(c, 'kind', rng.pick(['weird', 'NUMERIC', '', 42, null]))
+      const weirdNullCount = weave(rng, spy, 'unstringifiable', 0.05, makeUnstringifiable)
+      if (weirdNullCount !== undefined) setField(c, 'nullCount', weirdNullCount)
+      else if (rng.bool(0.1))
+        setField(c, 'nullCount', rng.pick([-1, base.rowCount + 5, NaN, 0.5, null]))
+      if (rng.bool(0.08)) setField(c, 'distinctCount', rng.pick([-2, base.rowCount + 1, NaN]))
+      if (rng.bool(0.1)) {
+        try {
+          delete c.kind // missing kind
+        } catch {
+          // hostile getter-only property — the corruption stands
+        }
+      }
       if (column.numeric !== undefined) {
         if (rng.bool(0.2))
           delete c.numeric // missing payload
         else {
           const stats: Record<string, unknown> = { ...column.numeric }
-          if (rng.bool(0.15)) stats.mean = rng.pick(HOSTILE_NUMBERS)
-          if (rng.bool(0.15)) stats.stddev = rng.pick([...HOSTILE_NUMBERS, -0.5])
-          if (rng.bool(0.15))
-            stats.quantiles = rng.pick([
-              { p50: NaN, p90: 5, p95: 6, p99: 7 },
-              { p50: 5, p90: 'nine', p95: 6, p99: 7 },
-              { p50: 1, p90: 2, p95: 3 },
-              'nope',
-              null,
-            ])
-          c.numeric = stats
+          const weirdMean = weave(rng, spy, 'unstringifiable', 0.06, makeUnstringifiable)
+          if (weirdMean !== undefined) stats.mean = weirdMean
+          else if (rng.bool(0.15)) stats.mean = rng.pick(HOSTILE_NUMBERS)
+          const weirdStddev = weave(rng, spy, 'unstringifiable', 0.06, makeUnstringifiable)
+          if (weirdStddev !== undefined) stats.stddev = weirdStddev
+          else if (rng.bool(0.15)) stats.stddev = rng.pick([...HOSTILE_NUMBERS, -0.5])
+          const explodingQuantiles = weave(rng, spy, 'explodingObjects', 0.05, makeProxyObject)
+          if (explodingQuantiles !== undefined) setField(stats, 'quantiles', explodingQuantiles)
+          else if (rng.bool(0.15))
+            setField(
+              stats,
+              'quantiles',
+              rng.pick([
+                { p50: NaN, p90: 5, p95: 6, p99: 7 },
+                { p50: 5, p90: 'nine', p95: 6, p99: 7 },
+                { p50: 1, p90: 2, p95: 3 },
+                'nope',
+                null,
+              ]),
+            )
+          setField(c, 'numeric', stats)
         }
       } else if (rng.bool(0.1)) {
-        c.numeric = {
+        setField(c, 'numeric', {
           min: 0,
           max: 1,
           mean: 0.5,
           stddev: 0.1,
           quantiles: { p50: 0, p90: 1, p95: 1, p99: 1 },
-        } // payload on the wrong kind
+        }) // payload on the wrong kind
       }
       if (column.categorical !== undefined) {
         if (rng.bool(0.2)) delete c.categorical
         else {
           const stats: Record<string, unknown> = { ...column.categorical }
           const topK = (column.categorical as CategoricalColumnStats).topK
-          if (rng.bool(0.3) && topK.length > 0) {
-            stats.topK = rng.pick([
-              topK.map((e) => ({ value: e.value, count: 0 })),
-              topK.map((e) => ({ value: e.value, count: -1 })),
-              topK.map((e) => ({ value: e.value, count: NaN })),
-              topK.map((e) => ({ value: e.value, count: 1.5 })),
-              [...topK, { value: topK[0]?.value ?? 'x', count: 2 }], // duplicate value
-              [...topK, { value: '__proto__', count: 2 }],
-              'nope',
-            ])
+          const proxyTopK = weave(rng, spy, 'proxyArrays', 0.12, makeProxyArray)
+          if (proxyTopK !== undefined) {
+            setField(stats, 'topK', proxyTopK)
+          } else if (rng.bool(0.3) && topK.length > 0) {
+            setField(
+              stats,
+              'topK',
+              rng.pick([
+                topK.map((e) => ({ value: e.value, count: 0 })),
+                topK.map((e) => ({ value: e.value, count: -1 })),
+                topK.map((e) => ({ value: e.value, count: NaN })),
+                topK.map((e) => ({ value: e.value, count: 1.5 })),
+                [...topK, { value: topK[0]?.value ?? 'x', count: 2 }], // duplicate value
+                [...topK, { value: '__proto__', count: 2 }],
+                'nope',
+              ]),
+            )
+          } else if (topK.length > 0) {
+            // an entry whose value detonates on stringification (total-echo path)
+            const weirdValue = weave(rng, spy, 'unstringifiable', 0.25, makeUnstringifiable)
+            if (weirdValue !== undefined) {
+              setField(
+                stats,
+                'topK',
+                topK.map((e, i) => ({
+                  value: i === 0 ? (weirdValue as string) : e.value,
+                  count: e.count,
+                })),
+              )
+            }
           }
-          c.categorical = stats
+          setField(c, 'categorical', stats)
         }
       }
       return c
     }),
   }
   if (rng.bool(0.1)) {
-    // duplicate a column (first-wins + issue)
+    // duplicate a column (first-wins + issue); a hostile entry may detonate
+    // on read (getter-only property) — skip the duplicate, the corruption stands
     const columns = profile.columns as Record<string, unknown>[]
-    if (columns.length > 0) columns.push({ ...(columns[0] as Record<string, unknown>) })
+    if (columns.length > 0) {
+      try {
+        columns.push({ ...(columns[0] as Record<string, unknown>) })
+      } catch {
+        // hostile getter fired during the spread — keep the entry as-is
+      }
+    }
   }
+  const proxyColumns = weave(rng, spy, 'proxyArrays', 0.06, makeProxyArray)
+  if (proxyColumns !== undefined) profile.columns = proxyColumns
   if (rng.bool(0.05)) profile.columns = rng.pick([null, 'nope', 42])
+  const explodingProfile = weave(rng, spy, 'explodingObjects', 0.04, makeProxyObject)
+  if (explodingProfile !== undefined) return explodingProfile
   if (rng.bool(0.05)) return rng.pick([null, 42, 'profile', []])
   return profile
 }
 
 /**
  * A hostile schema: valid entries corrupted (malformed entries, missing or
- * NUL-bearing names/types, duplicates, non-object entries).
+ * NUL-bearing names/types, duplicates, non-object entries) — plus the
+ * hostile *shapes* (pass a spy to count them): throwing getters on entry
+ * name/type, unstringifiable names, an array Proxy as the whole schema, and
+ * an unstringifiable top-level schema (exercising the total echo in the
+ * not-an-array message).
  */
-export function genHostileSchema(rng: TestRng): unknown {
+export function genHostileSchema(rng: TestRng, spy?: HostileShapeCounts): unknown {
   const base = genValidSchema(rng)
   const schema: unknown[] = base.map((column) => {
     if (rng.bool(0.1)) return rng.pick([null, 42, 'column', [], {}])
     const c = { ...column }
     if (rng.bool(0.08)) c.name = rng.pick(['', 'na\u0000me', '__proto__'])
     if (rng.bool(0.08)) c.type = rng.pick(['', 'ty\u0000pe'])
+    const boomField = weave(rng, spy, 'throwingGetters', 0.08, () => rng.pick(['name', 'type']))
+    if (boomField !== undefined) return makeThrowingGetter(boomField, c)
+    const weirdName = weave(rng, spy, 'unstringifiable', 0.05, makeUnstringifiable)
+    if (weirdName !== undefined) c.name = weirdName as string
     return c
   })
   if (base.length > 0 && rng.bool(0.15)) schema.push({ ...base[0], type: 'DOUBLE' }) // duplicate name
+  const proxySchema = weave(rng, spy, 'proxyArrays', 0.08, makeProxyArray)
+  if (proxySchema !== undefined) return proxySchema
   if (rng.bool(0.05)) return rng.pick([null, 42, 'schema', {}])
+  const unstringifiable = weave(rng, spy, 'unstringifiable', 0.04, makeUnstringifiable)
+  if (unstringifiable !== undefined) return unstringifiable
   return schema
 }
 

@@ -24,9 +24,15 @@ export const REPORT_DECIMALS = 6
 
 const SCALE = 10 ** REPORT_DECIMALS
 
-/** Apply the documented report-rounding convention (see module doc). */
+/**
+ * Apply the documented report-rounding convention (see module doc). Total:
+ * a non-number argument (hostile, behind a cast) is passed through
+ * untouched — `Math.abs`/`<` would coerce it through `valueOf`, and a
+ * hostile `valueOf`/`Symbol.toPrimitive` can throw. Numbers (including
+ * NaN/±Infinity, which pass through per the documented rule) are unchanged.
+ */
 export function roundForReport(value: number): number {
-  if (!Number.isFinite(value)) return value
+  if (typeof value !== 'number' || !Number.isFinite(value)) return value
   const scaled = Math.abs(value) * SCALE
   // Overflow guard: |value| ≳ 9e307 would scale to Infinity and stay there.
   if (!Number.isFinite(scaled)) return value

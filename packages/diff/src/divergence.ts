@@ -39,7 +39,7 @@
  */
 
 import type { CategoricalTopKEntry } from './profile'
-import { isFiniteNumber, isNonNegativeFinite, normZero } from './guards'
+import { isFiniteNumber, isNonNegativeFinite, normZero, readArray, readField } from './guards'
 
 /** Substituted for a zero share when only one side has mass in a bin (documented). */
 export const DIVERGENCE_EPSILON = 1e-6
@@ -100,34 +100,40 @@ export function jensenShannon(
 /**
  * Validated share vectors for `psi`/`jensenShannon`, or `null` when the
  * input cannot determine a divergence (documented conditions in the module
- * doc). Shares are `count / total` per side.
+ * doc). Shares are `count / total` per side. All three array arguments are
+ * read through {@link readArray} snapshots — an array Proxy whose traps
+ * throw is handled exactly like a non-array (documented `null`), never a
+ * mid-iteration throw.
  */
 function shareVectors(
   edges: readonly number[],
   countsA: readonly number[],
   countsB: readonly number[],
 ): { a: number[]; b: number[] } | null {
-  if (!Array.isArray(edges) || !Array.isArray(countsA) || !Array.isArray(countsB)) return null
-  const binCount = edges.length + 1
-  if (countsA.length !== binCount || countsB.length !== binCount) return null
-  for (const edge of edges) {
+  const edgeList = readArray(edges)
+  const listA = readArray(countsA)
+  const listB = readArray(countsB)
+  if (edgeList === null || listA === null || listB === null) return null
+  const binCount = edgeList.length + 1
+  if (listA.length !== binCount || listB.length !== binCount) return null
+  for (const edge of edgeList) {
     if (!isFiniteNumber(edge)) return null
   }
   let totalA = 0
   let totalB = 0
-  for (const count of countsA) {
+  for (const count of listA) {
     if (!isNonNegativeFinite(count)) return null
     totalA += count
   }
-  for (const count of countsB) {
+  for (const count of listB) {
     if (!isNonNegativeFinite(count)) return null
     totalB += count
   }
   if (!Number.isFinite(totalA) || !Number.isFinite(totalB)) return null
   if (totalA <= 0 || totalB <= 0) return null // no mass on a side → nothing to compare
   return {
-    a: countsA.map((c) => c / totalA),
-    b: countsB.map((c) => c / totalB),
+    a: listA.map((c) => (c as number) / totalA),
+    b: listB.map((c) => (c as number) / totalB),
   }
 }
 
@@ -175,20 +181,26 @@ export function totalVariation(
  * (A = reference), carried in B's own top-k order (the documented engine
  * order: count descending, ties by value ascending — never re-sorted).
  * Entries are carried verbatim; entries with a non-string value are skipped
- * (standalone-callers' hostile input; the model validates upstream).
+ * (standalone-callers' hostile input; the model validates upstream). Both
+ * lists are read through snapshots ({@link readArray}) with guarded entry
+ * reads: a throwing getter or an unreadable Proxy degrades that side to an
+ * empty list (the documented degrade — nothing provable from it), never a
+ * throw.
  */
 export function newCategories(
   topKA: readonly CategoricalTopKEntry[],
   topKB: readonly CategoricalTopKEntry[],
 ): CategoricalTopKEntry[] {
   const known = new Set<string>()
-  for (const entry of topKA) {
-    if (typeof entry.value === 'string') known.add(entry.value)
+  for (const entry of readArray(topKA) ?? []) {
+    const value = readField(entry, 'value')
+    if (value.ok && typeof value.value === 'string') known.add(value.value)
   }
   const fresh: CategoricalTopKEntry[] = []
-  for (const entry of topKB) {
-    if (typeof entry.value !== 'string') continue
-    if (!known.has(entry.value)) fresh.push(entry)
+  for (const entry of readArray(topKB) ?? []) {
+    const value = readField(entry, 'value')
+    if (!value.ok || typeof value.value !== 'string') continue
+    if (!known.has(value.value)) fresh.push(entry as CategoricalTopKEntry)
   }
   return fresh
 }
@@ -207,23 +219,28 @@ export function vanishedCategories(
 
 /**
  * Shares for one side's top-k summary: a map value → share plus the pooled
- * `other` mass. `null` under the documented invalid conditions.
+ * `other` mass. `null` under the documented invalid conditions. All entry
+ * reads go through {@link readArray}/{@link readField} — a hostile Proxy
+ * or a throwing getter is an invalid payload (`null`), never a throw.
  */
 function topKShares(
   topK: readonly CategoricalTopKEntry[],
   nonNull: number,
 ): { byValue: Map<string, number>; other: number } | null {
-  if (!Array.isArray(topK)) return null
+  const entries = readArray(topK)
+  if (entries === null) return null
   if (!isFiniteNumber(nonNull) || !Number.isSafeInteger(nonNull) || nonNull <= 0) return null
   const byValue = new Map<string, number>()
   let sum = 0
-  for (const entry of topK) {
+  for (const entry of entries) {
     if (entry === null || typeof entry !== 'object') return null
-    if (typeof entry.value !== 'string') return null
-    if (!isNonNegativeFinite(entry.count)) return null
-    if (byValue.has(entry.value)) return null // duplicate value: undefined semantics
-    byValue.set(entry.value, entry.count / nonNull)
-    sum += entry.count
+    const value = readField(entry, 'value')
+    const count = readField(entry, 'count')
+    if (!value.ok || typeof value.value !== 'string') return null
+    if (!count.ok || !isNonNegativeFinite(count.value)) return null
+    if (byValue.has(value.value)) return null // duplicate value: undefined semantics
+    byValue.set(value.value, (count.value as number) / nonNull)
+    sum += count.value as number
   }
   if (sum > nonNull) return null // counts cannot exceed the non-null mass
   return { byValue, other: 1 - sum / nonNull }

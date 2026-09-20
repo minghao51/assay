@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { binIndex } from './bins'
-import type { CategoricalTopKEntry } from './profile'
+import { binIndex, deriveBins } from './bins'
+import { distributionDeltas } from './deltas'
 import { jensenShannon, newCategories, psi, totalVariation, vanishedCategories } from './divergence'
-import { diffDatasets, hasSchemaOrProfileDifferences } from './report'
-import type { DiffInput } from './report'
 import {
   genCountVectors,
   genHostileProfile,
@@ -12,8 +10,20 @@ import {
   genTopKPair,
   genValidProfile,
   genValidSchema,
+  makeHostileShapeSpy,
+  makeProxyArray,
+  makeProxyObject,
+  makeThrowingGetter,
+  makeUnstringifiable,
   makeTestRng,
 } from './diff-property-testing'
+import type { HostileShapeCounts } from './diff-property-testing'
+import { describeDiffIssue } from './issues'
+import type { CategoricalTopKEntry } from './profile'
+import { roundForReport } from './rounding'
+import { diffDatasets, hasSchemaOrProfileDifferences } from './report'
+import type { DiffInput } from './report'
+import { nullabilityDrift, schemaDrift } from './schema-drift'
 
 /**
  * Seeded property suites (m6-0). Repo convention: mulberry32, fixed seeds
@@ -93,11 +103,20 @@ describe('property — totality over hostile inputs (seeded)', () => {
 
   it('hostile draws genuinely corrupt (the generator itself is non-vacuous)', () => {
     const rng = makeTestRng(20261099)
+    // Total stringify: a shape that explodes on JSON.stringify is corrupted
+    // *by definition* — that failure mode is the point of the shape weaves.
+    const safeStringify = (value: unknown): string => {
+      try {
+        return JSON.stringify(value) ?? 'undefined'
+      } catch {
+        return '<unstringifiable or unreadable>'
+      }
+    }
     let corrupted = 0
     for (let i = 0; i < 100; i++) {
       const before = genValidProfile(rng)
       const after = genHostileProfile(rng)
-      if (JSON.stringify(before) !== JSON.stringify(after)) corrupted += 1
+      if (safeStringify(before) !== safeStringify(after)) corrupted += 1
     }
     expect(corrupted).toBeGreaterThan(60)
   })
@@ -247,6 +266,260 @@ describe('property — documented symmetry and bounds (seeded)', () => {
           JSON.stringify(report),
         )
       }
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hostile SHAPES (the m6-0 fix round): JSON-ish value corruption cannot
+// detect a totality regression because it never detonates a getter, a Proxy
+// trap, or a stringification path. These suites generate exactly those
+// shapes, count them, and pin the counts (non-vacuity per family).
+// ---------------------------------------------------------------------------
+
+describe('property — totality over hostile shapes (proxies, throwing getters, coercion)', () => {
+  const HOSTILE_SHAPE_SEEDS = [20261101, 20261102, 20261103]
+  const SHAPE_CASES = 250
+
+  it('3×250 draws with woven Proxy/getter/unstringifiable shapes: never throws, JSON-stable, every family counted', () => {
+    const totals: HostileShapeCounts = makeHostileShapeSpy()
+    for (const seed of HOSTILE_SHAPE_SEEDS) {
+      for (let i = 0; i < SHAPE_CASES; i++) {
+        const rng = makeTestRng(seed + i)
+        const spy = makeHostileShapeSpy()
+        const input = {
+          schemaA: genHostileSchema(rng, spy),
+          schemaB: genHostileSchema(rng, spy),
+          profileA: genHostileProfile(rng, spy),
+          profileB: genHostileProfile(rng, spy),
+        } as unknown as DiffInput
+        let report: ReturnType<typeof diffDatasets> | undefined
+        expect(() => {
+          report = diffDatasets(input)
+        }).not.toThrow()
+        if (report === undefined) throw new Error('unreachable: diffDatasets returned nothing')
+        // reports stay plain, JSON-stable data even when the inputs were not
+        assertJsonStable(report)
+        expect(JSON.parse(JSON.stringify(report))).toEqual(report)
+        totals.proxyArrays += spy.proxyArrays
+        totals.explodingObjects += spy.explodingObjects
+        totals.throwingGetters += spy.throwingGetters
+        totals.unstringifiable += spy.unstringifiable
+      }
+    }
+    // non-vacuity per hostile family (the m5-5 lesson, applied to shapes):
+    // a run that stops producing any family proves nothing about totality.
+    expect(totals.proxyArrays).toBeGreaterThan(HOSTILE_SHAPE_SEEDS.length)
+    expect(totals.explodingObjects).toBeGreaterThan(0)
+    expect(totals.throwingGetters).toBeGreaterThan(HOSTILE_SHAPE_SEEDS.length)
+    expect(totals.unstringifiable).toBeGreaterThan(HOSTILE_SHAPE_SEEDS.length)
+  })
+})
+
+describe('totality — the seven reviewer probes, verbatim shapes', () => {
+  it('probes 1–2 — diffDatasets: array-Proxy schema and unstringifiable schema value', () => {
+    const proxySchema = makeProxyArray()
+    let report: ReturnType<typeof diffDatasets> | undefined
+    expect(() => {
+      report = diffDatasets({
+        schemaA: proxySchema,
+        schemaB: [],
+        profileA: { rowCount: 1, columns: [] },
+        profileB: { rowCount: 1, columns: [] },
+      } as unknown as DiffInput)
+    }).not.toThrow() // was: Error: array getter exploded
+    expect(report?.issues.some((issue) => issue.code === 'invalid-schema-input')).toBe(true)
+
+    const unstringifiable = makeUnstringifiable()
+    expect(() => {
+      report = diffDatasets({
+        schemaA: unstringifiable,
+        schemaB: [],
+        profileA: { rowCount: 1, columns: [] },
+        profileB: { rowCount: 1, columns: [] },
+      } as unknown as DiffInput)
+    }).not.toThrow() // was: Error: stringification exploded
+    const issue = report?.issues.find((issue) => issue.code === 'invalid-schema-input')
+    expect(issue?.message.length).toBeGreaterThan(0) // the message was built, safely
+    expect(issue?.message).toContain('no safe string form') // hostile value never echoed
+  })
+
+  it('probe 3 — psi (and jensenShannon): Proxy count vectors and Proxy edges', () => {
+    const proxyCounts = makeProxyArray()
+    expect(() => psi([10], proxyCounts as never, [50, 50])).not.toThrow() // was: array getter exploded
+    expect(psi([10], proxyCounts as never, [50, 50])).toBeNull()
+    expect(psi([10], [50, 50], proxyCounts as never)).toBeNull()
+    expect(psi(proxyCounts as never, [50, 50], [50, 50])).toBeNull()
+    expect(jensenShannon([10], proxyCounts as never, [50, 50])).toBeNull()
+    expect(jensenShannon(proxyCounts as never, [50, 50], [50, 50])).toBeNull()
+  })
+
+  it('probe 4 — binIndex: Proxy edges and hostile values/edges', () => {
+    const proxyEdges = makeProxyArray()
+    expect(() => binIndex(proxyEdges as never, 5)).not.toThrow() // was: array getter exploded
+    expect(binIndex(proxyEdges as never, 5)).toBe(0) // unreadable edges → the one-bin shape
+    expect(binIndex([10, 20], makeUnstringifiable() as never)).toBe(2) // hostile value → NaN → last bin
+    expect(binIndex([makeUnstringifiable(), 10] as never, 5)).toBe(1) // non-number edge skipped
+  })
+
+  it('probe 5 — totalVariation: throwing entry getters and Proxy top-k', () => {
+    const evilEntry = makeThrowingGetter('value', { count: 5 })
+    expect(() => totalVariation([evilEntry as never], 10, [], 10)).not.toThrow() // was: value exploded
+    expect(totalVariation([evilEntry as never], 10, [], 10)).toBeNull()
+    expect(totalVariation([], 10, [evilEntry as never], 10)).toBeNull()
+    expect(totalVariation(makeProxyArray() as never, 10, [], 10)).toBeNull()
+    expect(
+      totalVariation([{ value: 'x', count: 1 }], makeUnstringifiable() as never, [], 10),
+    ).toBeNull()
+  })
+
+  it('probe 6 — newCategories/vanishedCategories: throwing entry getters', () => {
+    const evilEntry = makeThrowingGetter('value', { count: 5 })
+    expect(() => newCategories([evilEntry as never], [{ value: 'x', count: 1 }])).not.toThrow() // was: value exploded
+    // unreadable side degrades to empty (documented): B's entries become "new"
+    expect(newCategories([evilEntry as never], [{ value: 'x', count: 1 }])).toEqual([
+      { value: 'x', count: 1 },
+    ])
+    expect(newCategories([{ value: 'x', count: 1 }], [evilEntry as never])).toEqual([])
+    expect(() => vanishedCategories([{ value: 'x', count: 1 }], [evilEntry as never])).not.toThrow()
+    expect(newCategories(makeProxyArray() as never, [{ value: 'x', count: 1 }])).toEqual([
+      { value: 'x', count: 1 },
+    ])
+  })
+
+  it('probe 7 — report predicate: throwing schemaDrift getter', () => {
+    const hostileReport = makeThrowingGetter('schemaDrift', { columnDeltas: [] })
+    expect(() => hasSchemaOrProfileDifferences(hostileReport as never)).not.toThrow() // was: report getter exploded
+    expect(hasSchemaOrProfileDifferences(hostileReport as never)).toBe(false)
+    expect(hasSchemaOrProfileDifferences(makeProxyObject() as never)).toBe(false)
+  })
+})
+
+describe('totality — every public entry point survives every hostile-shape fixture', () => {
+  const FIXTURES: readonly { readonly name: string; readonly make: () => unknown }[] = [
+    { name: 'array Proxy', make: makeProxyArray },
+    { name: 'object Proxy', make: makeProxyObject },
+    { name: 'throwing getter', make: () => makeThrowingGetter('value', { name: 'n', count: 3 }) },
+    { name: 'unstringifiable', make: makeUnstringifiable },
+    { name: 'null-prototype object', make: () => Object.create(null) },
+  ]
+
+  const validSchema = [{ name: 'x', type: 'DOUBLE' }]
+  const validProfile = {
+    rowCount: 10,
+    columns: [
+      {
+        name: 'x',
+        type: 'DOUBLE',
+        kind: 'numeric',
+        nullCount: 0,
+        distinctCount: 5,
+        numeric: {
+          min: 0,
+          max: 9,
+          mean: 4.5,
+          stddev: 2.5,
+          quantiles: { p50: 4, p90: 8, p95: 8.5, p99: 9 },
+        },
+      },
+    ],
+  }
+
+  it('binIndex / deriveBins', () => {
+    for (const { make } of FIXTURES) {
+      const hostile = make()
+      expect(() => binIndex(hostile as never, hostile as never)).not.toThrow()
+      expect(() => binIndex(hostile as never, 3)).not.toThrow()
+      expect(() => binIndex([1, 2, 3], hostile as never)).not.toThrow()
+      expect(() => deriveBins(hostile as never)).not.toThrow()
+    }
+  })
+
+  it('psi / jensenShannon', () => {
+    for (const { make } of FIXTURES) {
+      const hostile = make()
+      for (const position of ['edges', 'A', 'B'] as const) {
+        const args = {
+          edges: position === 'edges' ? hostile : [10],
+          a: position === 'A' ? hostile : [50, 50],
+          b: position === 'B' ? hostile : [50, 50],
+        }
+        expect(() => psi(args.edges as never, args.a as never, args.b as never)).not.toThrow()
+        expect(() =>
+          jensenShannon(args.edges as never, args.a as never, args.b as never),
+        ).not.toThrow()
+        expect(psi(args.edges as never, args.a as never, args.b as never)).toBeNull()
+      }
+    }
+  })
+
+  it('totalVariation / newCategories / vanishedCategories', () => {
+    for (const { make } of FIXTURES) {
+      const hostile = make()
+      expect(() => totalVariation(hostile as never, 10, [], 10)).not.toThrow()
+      expect(() => totalVariation([], 10, hostile as never, 10)).not.toThrow()
+      expect(() => totalVariation([], 10, [], hostile as never)).not.toThrow()
+      expect(() => newCategories(hostile as never, hostile as never)).not.toThrow()
+      expect(() => newCategories(hostile as never, [])).not.toThrow()
+      expect(() => newCategories([], hostile as never)).not.toThrow()
+      expect(() => vanishedCategories(hostile as never, hostile as never)).not.toThrow()
+    }
+  })
+
+  it('distributionDeltas / schemaDrift / nullabilityDrift', () => {
+    for (const { make } of FIXTURES) {
+      const hostile = make()
+      let result: unknown
+      expect(() => {
+        result = distributionDeltas(hostile as never, validProfile as never)
+      }).not.toThrow()
+      expect(() => {
+        result = distributionDeltas(validProfile as never, hostile as never)
+      }).not.toThrow()
+      expect((result as { deltas: unknown }).deltas).toEqual([]) // hostile side degrades, never fabricates
+      expect(() => schemaDrift(hostile as never, validSchema as never)).not.toThrow()
+      expect(() => schemaDrift(validSchema as never, hostile as never)).not.toThrow()
+      expect(() => nullabilityDrift(hostile as never, validProfile as never)).not.toThrow()
+      expect(() => nullabilityDrift(validProfile as never, hostile as never)).not.toThrow()
+    }
+  })
+
+  it('diffDatasets (each input key hostile, separately)', () => {
+    const healthy = {
+      schemaA: validSchema,
+      schemaB: validSchema,
+      profileA: validProfile,
+      profileB: validProfile,
+    }
+    for (const { make } of FIXTURES) {
+      for (const key of ['schemaA', 'schemaB', 'profileA', 'profileB'] as const) {
+        const input = { ...healthy, [key]: make() } as unknown as DiffInput
+        let report: ReturnType<typeof diffDatasets> | undefined
+        expect(() => {
+          report = diffDatasets(input)
+        }).not.toThrow()
+        expect(report?.issues.length).toBeGreaterThan(0) // attributed, never silent
+        for (const issue of report?.issues ?? []) {
+          expect(issue.message.length).toBeGreaterThan(0)
+        }
+        expect(Array.isArray(report?.schemaDrift)).toBe(true)
+        expect(Array.isArray(report?.columnDeltas)).toBe(true)
+      }
+    }
+  })
+
+  it('roundForReport / describeDiffIssue / hasSchemaOrProfileDifferences', () => {
+    for (const { make } of FIXTURES) {
+      const hostile = make()
+      expect(() => roundForReport(hostile as never)).not.toThrow()
+      expect(roundForReport(hostile as never)).toBe(hostile) // passthrough: no coercion
+      let rendered: string | undefined
+      expect(() => {
+        rendered = describeDiffIssue(hostile as never)
+      }).not.toThrow()
+      expect(rendered).toContain('(unreadable)')
+      expect(() => hasSchemaOrProfileDifferences(hostile as never)).not.toThrow()
+      expect(hasSchemaOrProfileDifferences(hostile as never)).toBe(false)
     }
   })
 })
