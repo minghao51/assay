@@ -76,6 +76,41 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/diff/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'react', message: 'The diff package must stay UI-free (docs 05 §3).' },
+            { name: 'react-dom', message: 'The diff package must stay UI-free (docs 05 §3).' },
+          ],
+          patterns: [
+            {
+              group: [
+                '@assay/ui',
+                '@assay/grid',
+                '@assay/core',
+                '@assay/data-sources',
+                '@assay/security',
+                '@assay/transforms',
+                '@assay/ai',
+                '@assay/pipeline',
+                '@assay/engine',
+                '@assay/engine-*',
+                '@assay/testing',
+                '@assay/web',
+                '@assay/cli',
+              ],
+              message:
+                'The diff package is pure: no UI/engine/app dependencies (docs/engineering/05-repository-structure.md §3). Allowed @assay deps: contracts, domain, validation (M6 queue, handoff §6 m6-0).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['packages/domain/**/*.ts'],
     rules: {
       'no-restricted-imports': [
