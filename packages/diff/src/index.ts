@@ -17,6 +17,12 @@
  *   profiles carry no histograms, so bins are derived deterministically
  *   from side A's stats and PSI/J-S are pure functions over
  *   (bins, countsA, countsB) — downstream tasks (m6-2+) produce the counts.
+ * - **Row-diff plan** (`compileRowDiffPlan`, m6-1): the key-based row-diff
+ *   DiffPlan — added/removed anti-joins, changed via a full outer join on
+ *   key with `IS DISTINCT FROM` per shared column, exact counts +
+ *   K-bounded samples carrying side-qualified row keys — plus the C2 key
+ *   inference proposer (`inferRowDiffKeys`). See `row-diff-plan.ts` for
+ *   the executor contract.
  * - **Totality**: every entry point is total over hostile input — typed,
  *   attributed issues collected together, never a throw, never a silent
  *   skip (the m5-0/m5-1 discipline).
@@ -29,9 +35,8 @@
  *
  * The engine profile shape is mirrored structurally (`profile.ts`), never
  * imported: engines are forbidden dependencies for this package (the
- * lint-enforced purity boundary). Downstream: m6-1 plan compiler, m6-2
- * engine execution, m6-3 CLI, m6-4 web panel; cross-surface byte-agreement
- * is asserted in m6-5.
+ * lint-enforced purity boundary). Downstream: m6-2 engine execution, m6-3
+ * CLI, m6-4 web panel; cross-surface byte-agreement is asserted in m6-5.
  */
 export { binIndex, deriveBins } from './bins'
 export type { BinSet } from './bins'
@@ -53,6 +58,8 @@ export {
 } from './divergence'
 export { describeDiffIssue } from './issues'
 export type { DiffIssue, DiffIssueCode, DiffSide } from './issues'
+export { inferRowDiffKeys } from './key-inference'
+export type { KeyCandidate, KeyCandidateEvidence, KeyInferenceResult } from './key-inference'
 export type {
   CategoricalColumnStats,
   CategoricalTopKEntry,
@@ -67,3 +74,13 @@ export { diffDatasets, hasSchemaOrProfileDifferences } from './report'
 export type { DiffInput, DiffReport } from './report'
 export { nullabilityDrift, schemaDrift } from './schema-drift'
 export type { SchemaDriftFinding, SchemaDriftKind, SchemaDriftResult } from './schema-drift'
+export {
+  compileRowDiffPlan,
+  DEFAULT_ROW_DIFF_SAMPLE_LIMIT,
+  keyTypesCompatible,
+} from './row-diff-compile'
+export type { RowDiffCompileOptions, RowDiffCompileResult } from './row-diff-compile'
+export { describeRowDiffBindingError } from './row-diff-errors'
+export type { RowDiffBindingError, RowDiffBindingErrorCode } from './row-diff-errors'
+export { DIFF_PLAN_KIND, DIFF_PLAN_VERSION, ROW_DIFF_ASPECTS } from './row-diff-plan'
+export type { RowDiffAspect, RowDiffPlan } from './row-diff-plan'

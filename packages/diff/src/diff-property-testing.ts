@@ -596,3 +596,312 @@ export function genTopKPair(rng: TestRng): {
     topKB: gen(nonNullB),
   }
 }
+
+// ---------------------------------------------------------------------------
+// m6-1 generators (additive — the m6-0 generators and their exact pinned
+// totals above are untouched). Same discipline: seeded, deterministic to
+// the bit, hostile shapes woven and counted through the same spy so the
+// m6-1 suites can pin exact non-vacuity per family and drill every weave.
+// ---------------------------------------------------------------------------
+
+/** Column-name pool for row-diff schemas: hostile spellings included. */
+const ROW_DIFF_NAME_POOL = [
+  'id',
+  'region',
+  'amount',
+  "a'b",
+  'ke y',
+  'k#2',
+  'a"q',
+  'assay_key_0',
+  'ASSAY_SIDE',
+  'assay_row_ordinal',
+  'A',
+  'b',
+  '__proto__',
+  'toString',
+]
+
+/** The subset of the pool that stresses identifier/literal handling. */
+const HOSTILE_ROW_DIFF_NAMES: ReadonlySet<string> = new Set([
+  "a'b",
+  'ke y',
+  'k#2',
+  'a"q',
+  'assay_key_0',
+  'ASSAY_SIDE',
+  'assay_row_ordinal',
+  'A',
+  'b',
+  '__proto__',
+  'toString',
+])
+
+/** Relation-name pool (engine-generated names are tame; these stress quoting). */
+const RELATION_POOL = ['t1', 'ds_2', 'a', 'b', 'select', 'we"rd', 'scratch view']
+
+/** Exact feature counters for the valid-input property suite (pinned). */
+export interface RowDiffFeatureCounts {
+  /** Draws compiled with a two-column key set. */
+  multiKeyDraws: number
+  /** Draws whose schemas contain at least one identifier-hostile column name. */
+  hostileNameDraws: number
+  /** Draws where side B carries a column side A lacks (unshared extra). */
+  unsharedExtraDraws: number
+  /** Draws containing a JSON-typed column on both sides (the refused key family). */
+  jsonColumnDraws: number
+  /** Draws with an explicit (non-default) sampleLimit. */
+  limitedDraws: number
+}
+
+export function makeRowDiffFeatureSpy(): RowDiffFeatureCounts {
+  return {
+    multiKeyDraws: 0,
+    hostileNameDraws: 0,
+    unsharedExtraDraws: 0,
+    jsonColumnDraws: 0,
+    limitedDraws: 0,
+  }
+}
+
+/**
+ * A generated row-diff compile input set (schemas sharing a column core,
+ * a key set drawn from shared columns, tame-or-hostile names, options).
+ * Each documented feature branch fires with a fixed seeded probability so
+ * the feature counters above are exact constants over pinned seeds —
+ * disabling any branch changes at least one counter (the drill).
+ */
+export function genRowDiffInputs(
+  rng: TestRng,
+  spy?: RowDiffFeatureCounts,
+): {
+  schemaA: { name: string; type: string }[]
+  schemaB: { name: string; type: string }[]
+  keys: string[]
+  options: { relationA: string; relationB: string; sampleLimit?: number }
+} {
+  const count = rng.int(1, 5)
+  const names = rng.shuffle(ROW_DIFF_NAME_POOL).slice(0, count)
+  const schemaA = names.map((name) => ({ name, type: rng.pick(Object.keys(TYPE_POOL)) }))
+  // Shared core: A minus some dropped columns; B may gain an unshared extra.
+  const shared = schemaA.filter(() => rng.bool(0.85))
+  const schemaB = shared.map((column) => ({
+    name: column.name,
+    type: rng.bool(0.7) ? column.type : rng.pick(Object.keys(TYPE_POOL)),
+  }))
+  if (rng.bool(0.6)) {
+    if (spy !== undefined) spy.unsharedExtraDraws += 1
+    schemaB.push({ name: 'arrived_late', type: rng.pick(Object.keys(TYPE_POOL)) })
+  }
+  if (rng.bool(0.2)) {
+    if (spy !== undefined) spy.jsonColumnDraws += 1
+    schemaA.push({ name: 'payload', type: 'JSON' })
+    schemaB.push({ name: 'payload', type: 'JSON' })
+  }
+  // Key set: 1-2 columns drawn from the shared core (fall back to the
+  // first column of A even when unshared — missing-key errors are part
+  // of the generated outcome space).
+  const keyCount = rng.bool(0.4) ? 2 : 1
+  const keyPool = shared.length > 0 ? shared : schemaA
+  const keys = rng
+    .shuffle(keyPool)
+    .slice(0, Math.min(keyCount, keyPool.length))
+    .map((c) => c.name)
+  if (keys.length === 2 && spy !== undefined) spy.multiKeyDraws += 1
+  if (names.some((name) => HOSTILE_ROW_DIFF_NAMES.has(name))) {
+    if (spy !== undefined) spy.hostileNameDraws += 1
+  }
+  const explicitLimit = rng.bool(0.7)
+  if (explicitLimit && spy !== undefined) spy.limitedDraws += 1
+  return {
+    schemaA,
+    schemaB,
+    keys,
+    options: {
+      relationA: rng.pick(RELATION_POOL),
+      relationB: rng.pick(RELATION_POOL),
+      ...(explicitLimit ? { sampleLimit: rng.int(1, 50) } : {}),
+    },
+  }
+}
+
+/**
+ * A hostile key set: valid key lists corrupted (non-string and NUL
+ * entries, exact and case-insensitive duplicates) plus the hostile
+ * *shapes* (pass a spy): an array Proxy as the whole key set, throwing
+ * getters on entries, unstringifiable entries.
+ */
+export function genHostileKeys(rng: TestRng, spy?: HostileShapeCounts): unknown {
+  const base = ['id', 'region', 'amount', 'ke y']
+  const keys: unknown[] = base.slice(0, rng.int(1, 3))
+  if (rng.bool(0.2)) keys.push(rng.pick([42, null, '', 'k\u0000ey', {}]))
+  if (rng.bool(0.15)) keys.push(keys[0]) // exact duplicate
+  if (rng.bool(0.1) && typeof keys[0] === 'string') {
+    keys.push((keys[0] as string).toUpperCase()) // case-insensitive collision
+  }
+  const withGetter = weave(rng, spy, 'throwingGetters', 0.12, () =>
+    makeThrowingGetter('0', { ...keys } as Record<string, unknown>),
+  )
+  if (withGetter !== undefined) return withGetter
+  const weirdEntry = weave(rng, spy, 'unstringifiable', 0.085, makeUnstringifiable)
+  if (weirdEntry !== undefined) return [...keys, weirdEntry]
+  const proxyKeys = weave(rng, spy, 'proxyArrays', 0.1, makeProxyArray)
+  if (proxyKeys !== undefined) return proxyKeys
+  if (rng.bool(0.05)) return rng.pick([null, 'id', 42])
+  return keys
+}
+
+/**
+ * Hostile compile options: tame relation names corrupted (empty, NUL,
+ * non-strings, unstringifiables) plus the hostile *shapes* (pass a spy):
+ * an object Proxy as the whole options object, throwing getters on
+ * relation/sampleLimit reads.
+ */
+export function genHostileRowDiffOptions(rng: TestRng, spy?: HostileShapeCounts): unknown {
+  const options: Record<string, unknown> = {
+    relationA: rng.pick(RELATION_POOL),
+    relationB: rng.pick(RELATION_POOL),
+  }
+  if (rng.bool(0.15)) options.sampleLimit = rng.pick([0, -1, 1.5, 'many', NaN, 2 ** 60])
+  if (rng.bool(0.08)) options.relationA = rng.pick(['', 're\u0000l', 42, null])
+  const explodingOptions = weave(rng, spy, 'explodingObjects', 0.07, makeProxyObject)
+  if (explodingOptions !== undefined) return explodingOptions
+  const boomField = weave(rng, spy, 'throwingGetters', 0.11, () =>
+    rng.pick(['relationA', 'relationB', 'sampleLimit']),
+  )
+  if (boomField !== undefined) return makeThrowingGetter(boomField, options)
+  const weirdRelation = weave(rng, spy, 'unstringifiable', 0.08, makeUnstringifiable)
+  if (weirdRelation !== undefined) options.relationB = weirdRelation
+  if (rng.bool(0.05)) return rng.pick([null, 'opts', 42])
+  return options
+}
+
+/**
+ * A hostile profile pair side for key inference: a valid profile with
+ * woven hostile shapes (pass a spy) — an array Proxy as `columns`, an
+ * exploding object Proxy as the whole profile, a throwing getter on a
+ * structural field, an unstringifiable count — plus tame corruption
+ * (negative/overflowing counts, unknown kinds, duplicate columns).
+ */
+export function genHostileInferenceProfile(rng: TestRng, spy?: HostileShapeCounts): unknown {
+  const base = genValidProfile(rng)
+  const profile: Record<string, unknown> = { rowCount: base.rowCount, columns: base.columns }
+  if (rng.bool(0.15)) {
+    profile.rowCount = rng.pick([-1, 0, NaN, 1.5, 'many', 2 ** 60])
+  }
+  const boomField = weave(rng, spy, 'throwingGetters', 0.13, () =>
+    rng.pick(['rowCount', 'columns', 'name', 'nullCount', 'distinctCount', 'type']),
+  )
+  if (boomField !== undefined) return makeThrowingGetter(boomField, profile)
+  const weirdCount = weave(rng, spy, 'unstringifiable', 0.07, makeUnstringifiable)
+  if (weirdCount !== undefined) {
+    const columns = profile.columns as Record<string, unknown>[]
+    if (columns.length > 0) (columns[0] as Record<string, unknown>).nullCount = weirdCount
+  }
+  const proxyColumns = weave(rng, spy, 'proxyArrays', 0.09, makeProxyArray)
+  if (proxyColumns !== undefined) profile.columns = proxyColumns
+  const explodingProfile = weave(rng, spy, 'explodingObjects', 0.055, makeProxyObject)
+  if (explodingProfile !== undefined) return explodingProfile
+  if (rng.bool(0.08)) profile.columns = rng.pick([null, 'nope', 42])
+  if (rng.bool(0.05)) return rng.pick([null, 42, 'profile'])
+  return profile
+}
+
+/**
+ * Char-exact scanner for generated plan SQL (m6-1 test support): splits the
+ * text into double-quoted identifiers, single-quoted literals, and the
+ * unquoted remainder — quotes may nest (a column name can contain the
+ * other quote character, doubled per SQL escaping), so a regex split is
+ * not enough. The row-diff structural-injection property pins run over
+ * every generated query with this.
+ */
+export function scanPlanSql(sql: string): {
+  literals: string[]
+  identifiers: string[]
+  unquoted: string
+} {
+  const literals: string[] = []
+  const identifiers: string[] = []
+  let unquoted = ''
+  let i = 0
+  while (i < sql.length) {
+    const ch: string = sql[i] as string
+    if (ch === "'") {
+      let j = i + 1
+      let lit = ''
+      while (j < sql.length) {
+        if (sql[j] === "'" && sql[j + 1] === "'") {
+          lit += "'"
+          j += 2
+          continue
+        }
+        if (sql[j] === "'") break
+        lit += sql[j] as string
+        j += 1
+      }
+      literals.push(lit)
+      unquoted += "''"
+      i = j + 1
+      continue
+    }
+    if (ch === '"') {
+      let j = i + 1
+      let id = ''
+      while (j < sql.length) {
+        if (sql[j] === '"' && sql[j + 1] === '"') {
+          id += '"'
+          j += 2
+          continue
+        }
+        if (sql[j] === '"') break
+        id += sql[j] as string
+        j += 1
+      }
+      identifiers.push(id)
+      unquoted += '""'
+      i = j + 1
+      continue
+    }
+    unquoted += ch
+    i += 1
+  }
+  return { literals, identifiers, unquoted }
+}
+
+/** The complete unquoted keyword/function vocabulary a v1 row-diff plan may use. */
+export const ROW_DIFF_PLAN_KEYWORDS: ReadonlySet<string> = new Set([
+  'SELECT',
+  'FROM',
+  'AS',
+  'WHERE',
+  'AND',
+  'OR',
+  'NOT',
+  'EXISTS',
+  'IS',
+  'DISTINCT',
+  'NULL',
+  'TRUE',
+  'FALSE',
+  'CASE',
+  'WHEN',
+  'THEN',
+  'ELSE',
+  'END',
+  'LIMIT',
+  'UNION',
+  'ALL',
+  'FULL',
+  'OUTER',
+  'JOIN',
+  'ON',
+  'OVER',
+  'CAST',
+  'VARCHAR',
+])
+
+export const ROW_DIFF_PLAN_FUNCTIONS: ReadonlySet<string> = new Set([
+  'count',
+  'row_number',
+  'list_concat',
+])
