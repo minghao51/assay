@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@assay/contracts": "workspace:*",
+    "@assay/diff": "workspace:*",
     "@assay/domain": "workspace:*",
     "@assay/engine-duckdb": "workspace:*",
     "@assay/validation": "workspace:*",

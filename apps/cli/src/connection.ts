@@ -51,9 +51,10 @@ export async function openConnection(): Promise<DuckDBConnection> {
 }
 
 /**
- * Register the dataset file as a view, exactly like the engine's `open` does
- * (same extension-based format policy, same lazy reader functions, same
- * `CREATE VIEW` shape) and DESCRIBE it into the compiler's schema shape.
+ * Register the dataset file as the validate view, exactly like the engine's
+ * `open` does (same extension-based format policy, same lazy reader
+ * functions, same `CREATE VIEW` shape) and DESCRIBE it into the compiler's
+ * schema shape.
  *
  * Path/format failures are typed usage errors with readable, value-free
  * messages; a DuckDB reader refusal becomes a fixed failure class (DuckDB's
@@ -62,6 +63,20 @@ export async function openConnection(): Promise<DuckDBConnection> {
 export async function registerDataset(
   conn: DuckDBConnection,
   datasetPath: string,
+): Promise<{ readonly format: EngineFileFormat; readonly schema: EngineSchema }> {
+  return registerDatasetAs(conn, datasetPath, DATASET_VIEW)
+}
+
+/**
+ * Register one dataset file under a caller-chosen engine-generated view name
+ * (m6-3): `assay diff` registers side A and side B under two distinct views.
+ * The format/path/describe policy is identical to {@link registerDataset} —
+ * only the view name differs, so validation stays untouched.
+ */
+export async function registerDatasetAs(
+  conn: DuckDBConnection,
+  datasetPath: string,
+  viewName: string,
 ): Promise<{ readonly format: EngineFileFormat; readonly schema: EngineSchema }> {
   if (!existsSync(datasetPath)) {
     throw usageError(`dataset file not found: ${datasetPath}`)
@@ -76,11 +91,11 @@ export async function registerDataset(
     )
   }
   try {
-    await conn.run(createViewSql(DATASET_VIEW, datasetPath, format))
+    await conn.run(createViewSql(viewName, datasetPath, format))
   } catch {
     throw usageError(`the dataset could not be opened (${format} reader refused the file)`)
   }
-  return { format, schema: await describeView(conn, DATASET_VIEW) }
+  return { format, schema: await describeView(conn, viewName) }
 }
 
 /**

@@ -65,43 +65,72 @@ import {
   BinaryBuilder,
   Bool,
   BoolBuilder,
+  Field,
   Float64,
   Float64Builder,
   Int64,
   Int64Builder,
+  List,
   Utf8,
   Utf8Builder,
   tableFromArrays,
+  vectorFromArray,
 } from 'apache-arrow'
 import type { Table, Vector } from 'apache-arrow'
-import { DuckDBDecimalValue } from '@duckdb/node-api'
+import { DuckDBArrayValue, DuckDBDecimalValue, DuckDBListValue } from '@duckdb/node-api'
 import type { DuckDBConnection, DuckDBResultReader } from '@duckdb/node-api'
 import {
+  ROW_DIFF_BEGIN_SQL,
+  ROW_DIFF_ROLLBACK_SQL,
   VALIDATION_BEGIN_SQL,
   VALIDATION_ROLLBACK_SQL,
+  assertRowDiffPlanBinding,
   assertValidationPlanRelationBinding,
+  buildDiffAspectSamples,
   buildSampleFailures,
+  classifyProfileColumnType,
+  composeDiffARowKeySql,
+  composeDiffAspectQuery,
+  composeDiffAViewSql,
+  composeDiffComparisonViewSql,
+  composeDiffCountSql,
+  composeDiffViewDropSql,
+  composeProfileBaseSql,
+  composeProfileTopKSql,
   composeValidationCountSql,
   composeValidationRowKeySql,
   composeValidationRuleQuery,
   composeValidationViewDropSql,
   composeValidationViewSql,
+  diffEffectiveSampleLimit,
   failPercentFromCounts,
+  parseRowDiffPlan,
   parseValidationPlan,
+  PROFILE_BASE_SLOT,
+  readDiffARowKeys,
+  readDiffAspectRows,
+  readDiffRowCount,
+  readDiffTotalsRows,
   readValidationRowCount,
   readValidationRuleRows,
   readValidationRowKeys,
   readValidationSummaryRows,
+  rowDiffCountExcess,
   validationEffectiveSampleLimit,
   validationFailCountExcess,
 } from '@assay/engine-duckdb/node'
 import type {
+  EngineRowDiffAspect,
+  EngineRowDiffPlan,
+  EngineRowDiffResult,
   EngineValidationPlan,
   EngineValidationResult,
   EngineValidationRuleResult,
+  RowDiffSampleRow,
 } from '@assay/engine-duckdb/node'
 import { initialState } from '@assay/domain'
 import type { OverlayBase } from '@assay/domain'
+import type { CategoricalTopKEntry, DatasetProfile, NumericQuantiles } from '@assay/diff'
 import type { EngineSchema } from '@assay/validation'
 import { DATASET_VIEW, PLAN_RELATION } from './connection'
 import { usageError } from './errors'
@@ -305,6 +334,301 @@ async function step<T>(failureClass: string, run: () => Promise<T>): Promise<T> 
   }
 }
 
+/**
+ * Build the m2-shaped `DatasetProfile` for a registered view (m6-3): the m2-5
+ * combined aggregate (REUSED `composeProfileBaseSql` from the `./node` seam)
+ * plus one top-k query per categorical column (REUSED
+ * `composeProfileTopKSql`). The schema is the `DESCRIBE` shape the caller
+ * already read; only the value reading is host-side, exactly like the m5-4
+ * Arrow bridge. The SQL composition is engine-owned and never forked, so a
+ * CLI profile is byte-identical to the one the web engine builds.
+ *
+ * Classify through the REUSED `classifyProfileColumnType` — a column this
+ * binary cannot classify grades to `other` (name/type/nullCount/
+ * distinctCount only), matching the engine's graceful degradation.
+ */
+export async function profileView(
+  conn: DuckDBConnection,
+  viewName: string,
+  schema: EngineSchema,
+): Promise<DatasetProfile> {
+  const specs = schema.map((column) => ({
+    name: column.name,
+    kind: classifyProfileColumnType(column.type),
+  }))
+  const base = composeProfileBaseSql({ viewName, columns: specs })
+  const baseReader = await step('the profile aggregate failed to execute', () =>
+    conn.runAndReadAll(base.sql),
+  )
+  const baseRow = baseReader.getRowObjects()[0]
+  if (baseRow === undefined) {
+    throw usageError('the profile aggregate returned an unexpected shape')
+  }
+  const slot = (index: number): unknown => baseRow[`c${String(index)}`]
+  const rowCount = readProfileCount(slot(0))
+  const columns: DatasetProfile['columns'] = schema.map((column, index) => {
+    const kind = specs[index]!.kind
+    const offset = base.offsets[index]!
+    const nonNull = readProfileCount(slot(offset + PROFILE_BASE_SLOT.nonNull))
+    const profileColumn: DatasetProfile['columns'][number] = {
+      name: column.name,
+      type: column.type,
+      kind,
+      nullCount: rowCount - nonNull,
+      distinctCount: readProfileCount(slot(offset + PROFILE_BASE_SLOT.distinct)),
+    }
+    if (kind === 'numeric') {
+      profileColumn.numeric = {
+        min: readProfileStat(slot(offset + PROFILE_BASE_SLOT.min)),
+        max: readProfileStat(slot(offset + PROFILE_BASE_SLOT.max)),
+        mean: readProfileStat(slot(offset + PROFILE_BASE_SLOT.mean)),
+        stddev: readProfileStat(slot(offset + PROFILE_BASE_SLOT.stddev)),
+        quantiles: readProfileQuantiles(slot(offset + PROFILE_BASE_SLOT.quantiles)),
+      }
+    }
+    return profileColumn
+  })
+  for (let index = 0; index < columns.length; index++) {
+    if (specs[index]!.kind !== 'categorical') continue
+    columns[index]!.categorical = { topK: await readTopK(conn, viewName, specs[index]!.name) }
+  }
+  return { rowCount, columns }
+}
+
+/** Read one categorical column's top-k (≤ k rows; NULLs excluded by the SQL). */
+async function readTopK(
+  conn: DuckDBConnection,
+  viewName: string,
+  column: string,
+): Promise<CategoricalTopKEntry[]> {
+  const reader = await step('the profile top-k query failed to execute', () =>
+    conn.runAndReadAll(composeProfileTopKSql({ viewName, column })),
+  )
+  const topK: CategoricalTopKEntry[] = []
+  for (const row of reader.getRowObjects()) {
+    const value = row['v']
+    if (typeof value !== 'string') {
+      throw usageError('the profile top-k value was not rendered text')
+    }
+    topK.push({ value, count: readProfileCount(row['n']) })
+  }
+  return topK
+}
+
+/** A profile count slot (BIGINT from node-api) as a safe non-negative integer. */
+function readProfileCount(value: unknown): number {
+  const n = typeof value === 'bigint' ? Number(value) : value
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
+    throw usageError('the profile aggregate returned an unexpected shape')
+  }
+  return n
+}
+
+/** A profile numeric stat slot: finite JS number or null (the engine contract). */
+function readProfileStat(value: unknown): number | null {
+  const n = typeof value === 'bigint' ? Number(value) : value
+  return typeof n === 'number' && Number.isFinite(n) ? n : null
+}
+
+/** A DuckDB LIST/ARRAY cell's items (empty for a NULL cell; the engine contract). */
+function readProfileListItems(value: unknown): readonly unknown[] {
+  if (value === null || value === undefined) return []
+  if (value instanceof DuckDBListValue || value instanceof DuckDBArrayValue) return value.items
+  if (Array.isArray(value)) return value
+  throw usageError('the profile aggregate returned an unexpected shape')
+}
+
+/** The DOUBLE[4] quantile slot (p50, p90, p95, p99 — the composer's fixed order). */
+function readProfileQuantiles(value: unknown): NumericQuantiles {
+  if (value === null || value === undefined) {
+    return { p50: null, p90: null, p95: null, p99: null }
+  }
+  const items = readProfileListItems(value)
+  if (items.length !== 4) {
+    throw usageError('the profile quantile aggregate returned an unexpected shape')
+  }
+  return {
+    p50: readProfileStat(items[0]),
+    p90: readProfileStat(items[1]),
+    p95: readProfileStat(items[2]),
+    p99: readProfileStat(items[3]),
+  }
+}
+
+/**
+ * Wire-harden a freshly compiled m6-1 row-diff plan (the m6-2 two-belt gate:
+ * the CLI must not bypass or re-implement it — the plan passes the same
+ * structural parser and binding assertions the engine's worker applies, so
+ * every surface executes the same plans). A compiler-produced plan that
+ * fails the wire is an internal inconsistency, never a user-facing state.
+ */
+export function prepareDiffPlan(
+  compiledPlan: unknown,
+  registeredViewNames: readonly string[],
+): EngineRowDiffPlan {
+  const plan = parseRowDiffPlan(compiledPlan)
+  if (plan === null) {
+    throw usageError('internal error: the compiled row-diff plan was rejected by the wire gate')
+  }
+  assertRowDiffPlanBinding(plan, registeredViewNames)
+  return plan
+}
+
+/**
+ * Execute an already-prepared row-diff plan (m6-3) against side A's BASE view
+ * (the CLI has no editing session, like m5-4) and side B's registered view,
+ * mirroring the engine's m6-2 `runDiff` op minus the worker transport: the
+ * plan's SQL is executed byte-identically behind only the clamp wrapper, both
+ * binding views are materialized under the plan's own relation names, every
+ * sampled A-side ordinal resolves to its logical `base:#<ordinal>` key, and
+ * the whole op is contained in a `BEGIN … ROLLBACK` transaction whose views
+ * are always dropped. Result-sanity bounds and the per-aspect ≡ totals net
+ * come from the shared `./node` seam (`rowDiffCountExcess`, `readDiffTotalsRows`),
+ * so a corrupt result fails loudly instead of being reported.
+ *
+ * Privacy (ADR 0025): raw engine errors are dropped here (DuckDB text can
+ * embed values) and replaced by fixed, value-free failure classes.
+ */
+export async function runDiffPlan(
+  conn: DuckDBConnection,
+  plan: EngineRowDiffPlan,
+  schemaA: EngineSchema,
+  stagedViewB: string,
+): Promise<EngineRowDiffResult> {
+  const effectiveLimit = diffEffectiveSampleLimit(plan.sampleLimit)
+  // The base-view composition (the engine's base path): DESCRIBE supplies the
+  // columns; the empty state adds no overlay machinery.
+  const base: OverlayBase = {
+    baseAnchor: '',
+    overlayAnchor: '',
+    columns: schemaA.map((column) => ({ name: column.name, type: column.type })),
+    baseRowCount: 0,
+  }
+  const composition = { viewName: DATASET_VIEW, base, state: initialState(base) }
+
+  // Defense-in-depth re-check of the static gate adjacent to execution.
+  assertRowDiffPlanBinding(plan, [DATASET_VIEW, stagedViewB])
+
+  await step('the row-diff containment transaction could not be started', () =>
+    conn.run(ROW_DIFF_BEGIN_SQL),
+  )
+  let aViewCreated = false
+  let bViewCreated = false
+  try {
+    await step('the row-diff side A binding view could not be materialized', () =>
+      conn.run(composeDiffAViewSql(composition, plan.relationA)),
+    )
+    aViewCreated = true
+    await step('the row-diff side B binding view could not be materialized', () =>
+      conn.run(composeDiffComparisonViewSql(plan.relationB, stagedViewB)),
+    )
+    bViewCreated = true
+
+    const rowCountA = readDiffRowCount(
+      readerToArrowTable(
+        await step('the row-diff side A count query failed to execute', () =>
+          conn.runAndReadAll(composeDiffCountSql(plan.relationA)),
+        ),
+      ),
+    )
+    const rowCountB = readDiffRowCount(
+      readerToArrowTable(
+        await step('the row-diff side B count query failed to execute', () =>
+          conn.runAndReadAll(composeDiffCountSql(plan.relationB)),
+        ),
+      ),
+    )
+
+    const aspectOrder: readonly EngineRowDiffAspect[] = ['added', 'removed', 'changed']
+    const aspectSqls: Readonly<Record<EngineRowDiffAspect, string>> = {
+      added: plan.addedSql,
+      removed: plan.removedSql,
+      changed: plan.changedSql,
+    }
+    const rowsByAspect = new Map<EngineRowDiffAspect, readonly RowDiffSampleRow[]>()
+    const counts = new Map<EngineRowDiffAspect, number>()
+    const aOrdinals = new Set<number>()
+    for (const aspect of aspectOrder) {
+      const rows = await step(`row-diff ${aspect} query failed to execute`, async () =>
+        readDiffAspectRows(
+          readerToArrowTable(
+            await conn.runAndReadAll(composeDiffAspectQuery(aspectSqls[aspect], effectiveLimit)),
+          ),
+          aspect,
+        ),
+      )
+      const excess = rowDiffCountExcess(aspect, rows.count, rowCountA, rowCountB)
+      if (excess !== null) {
+        throw usageError(`row-diff ${aspect} ${excess}`)
+      }
+      if (rows.rows.length > effectiveLimit) {
+        throw usageError(`row-diff ${aspect} returned more samples than the engine's bound`)
+      }
+      for (const sample of rows.rows) {
+        if (sample.side === 'A') {
+          if (sample.ordinal >= rowCountA) {
+            throw usageError(
+              `row-diff ${aspect} sampled an A-side ordinal past the effective row count`,
+            )
+          }
+          aOrdinals.add(sample.ordinal)
+        } else if (sample.ordinal >= rowCountB) {
+          throw usageError(
+            `row-diff ${aspect} sampled a B-side ordinal past the comparison row count`,
+          )
+        }
+      }
+      counts.set(aspect, rows.count)
+      rowsByAspect.set(aspect, rows.rows)
+    }
+
+    const aKeys =
+      aOrdinals.size > 0
+        ? await step('the row-diff side A row-key query failed to execute', async () =>
+            readDiffARowKeys(
+              readerToArrowTable(
+                await conn.runAndReadAll(
+                  composeDiffARowKeySql(
+                    plan.relationA,
+                    [...aOrdinals].sort((a, b) => a - b),
+                  ),
+                ),
+              ),
+            ),
+          )
+        : new Map<number, string>()
+
+    const totals = await step('the row-diff totals query failed to execute', async () =>
+      readDiffTotalsRows(readerToArrowTable(await conn.runAndReadAll(plan.totalsSql))),
+    )
+
+    const aspects: EngineRowDiffResult['aspects'] = aspectOrder.map((aspect) => {
+      const rows = rowsByAspect.get(aspect) ?? []
+      const count = counts.get(aspect) ?? 0
+      const totalCount = totals.get(aspect)
+      if (totalCount === undefined) {
+        throw usageError(`row-diff totals query is missing the ${aspect} aspect`)
+      }
+      if (totalCount !== count) {
+        throw usageError(`row-diff totals query disagrees with the ${aspect} count`)
+      }
+      return { aspect, count, samples: buildDiffAspectSamples(rows, aspect, aKeys) }
+    })
+    return { rowCountA, rowCountB, aspects }
+  } finally {
+    // Containment cleanup, always both drops then the rollback (the m6-2 W2
+    // ordering). A failed drop cannot mask the run's result: the transaction
+    // is rolled back regardless.
+    if (aViewCreated) {
+      await conn.run(composeDiffViewDropSql(plan.relationA)).catch(() => undefined)
+    }
+    if (bViewCreated) {
+      await conn.run(composeDiffViewDropSql(plan.relationB)).catch(() => undefined)
+    }
+    await conn.run(ROW_DIFF_ROLLBACK_SQL).catch(() => undefined)
+  }
+}
+
 /** Builder options: treat null/undefined as the validity bitmap's null. */
 const BUILDER_NULLS = { nullValues: [null, undefined] } as const
 
@@ -315,8 +639,14 @@ const INT64_MIN = -9223372036854775808n
 /**
  * Convert one raw DuckDB value to the value an Arrow vector of the column's
  * chosen type carries (see the module doc for the full mapping contract).
+ *
+ * m6-3 adds one value family: DuckDB LIST/ARRAY cells (the row-diff
+ * `assay_changed` VARCHAR[] column, read by the engine's `readStringListCell`)
+ * become an array of rendered text entries. apache-arrow v17 cannot infer a
+ * list vector from JS arrays, so the caller builds an explicit `List<Utf8>`
+ * vector for a column whose values are arrays (see `readerToArrowTable`).
  */
-function toArrowValue(value: unknown): bigint | number | string | boolean | Uint8Array | null {
+function toArrowValue(value: unknown): ArrowScalarValue | readonly string[] | null {
   if (value === null || value === undefined) return null
   switch (typeof value) {
     case 'bigint':
@@ -334,6 +664,11 @@ function toArrowValue(value: unknown): bigint | number | string | boolean | Uint
       return value
     case 'object':
       if (value instanceof Uint8Array) return value
+      if (value instanceof DuckDBListValue || value instanceof DuckDBArrayValue) {
+        // Row-diff changed-column lists are VARCHAR[] — every entry renders
+        // as text (the engine's reader requires text entries).
+        return value.items.map((item) => (item === null || item === undefined ? '' : String(item)))
+      }
       if (value instanceof DuckDBDecimalValue) {
         // The exact scaled text ('1.500'), or a number when the value is a
         // safe integer — the same decision the wasm decimal path makes.
@@ -348,8 +683,11 @@ function toArrowValue(value: unknown): bigint | number | string | boolean | Uint
   throw new Error('a result value had an unsupported shape for the Node backend')
 }
 
-/** The non-null value kinds a converted column can carry. */
-type ArrowValue = Exclude<ReturnType<typeof toArrowValue>, null>
+/** The non-null scalar value kinds a converted column can carry. */
+type ArrowScalarValue = bigint | number | string | boolean | Uint8Array
+
+/** The non-null value kinds {@link buildColumnVector} builds a scalar vector for. */
+type ArrowValue = ArrowScalarValue
 
 /**
  * Build one named Arrow vector for a converted column. The Arrow type is
@@ -421,16 +759,27 @@ function buildColumnVector(values: readonly (ArrowValue | null)[]): Vector {
 /**
  * Convert a node-api result reader into the Arrow table shape the engine's
  * readers consume: named columns, one vector per column, values mapped
- * through {@link toArrowValue} and {@link buildColumnVector}. The cast at the
- * table boundary is structural: apache-arrow v17's `tableFromArrays` types
- * accept arrays/typed arrays but (unlike its runtime) not `Vector` inputs.
+ * through {@link toArrowValue} and {@link buildColumnVector}. Scalar columns
+ * build explicit vectors; a LIST/ARRAY column (m6-3 `assay_changed`) builds
+ * an explicit `List<Utf8>` vector, which the engine's `readStringListCell`
+ * reads via `toArray()`. The cast at the table boundary is structural:
+ * apache-arrow v17's `tableFromArrays` types accept arrays/typed arrays but
+ * (unlike its runtime) not `Vector` inputs.
  */
 export function readerToArrowTable(reader: DuckDBResultReader): Table {
   const names = reader.columnNames()
   const rows = reader.getRowObjects()
-  const columns: Record<string, Vector> = {}
+  const columns: Record<string, unknown> = {}
   for (const name of names) {
-    columns[name] = buildColumnVector(rows.map((row) => toArrowValue(row[name] ?? null)))
+    const values = rows.map((row) => toArrowValue(row[name] ?? null))
+    if (values.some((value) => Array.isArray(value))) {
+      columns[name] = vectorFromArray(
+        values as readonly (readonly string[])[],
+        new List(new Field('item', new Utf8(), true)),
+      )
+    } else {
+      columns[name] = buildColumnVector(values as readonly (ArrowValue | null)[])
+    }
   }
   return tableFromArrays(columns as unknown as Record<string, readonly unknown[]>)
 }

@@ -67,8 +67,17 @@ export function resolveValidateOptions(flags: {
   readonly contract?: string
   readonly format?: string
   readonly sampleLimit?: string
+  /** Diff-only flags, parsed globally but rejected here (m6-3). */
+  readonly keys?: readonly string[]
+  readonly infer?: boolean
   readonly positionals: readonly string[]
 }): ValidateOptions {
+  if ((flags.keys?.length ?? 0) > 0) {
+    throw usageError('validate does not take --key (did you mean `assay diff`? see --help)')
+  }
+  if (flags.infer === true) {
+    throw usageError('validate does not take --infer (did you mean `assay diff`? see --help)')
+  }
   const datasetPath = flags.positionals[0]
   if (datasetPath === undefined) {
     throw usageError('validate requires a dataset path (see --help)')

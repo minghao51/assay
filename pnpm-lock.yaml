@@ -77,6 +77,9 @@ importers:
       '@assay/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@assay/diff':
+        specifier: workspace:*
+        version: link:../../packages/diff
       '@assay/domain':
         specifier: workspace:*
         version: link:../../packages/domain

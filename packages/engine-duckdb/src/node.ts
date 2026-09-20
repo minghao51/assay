@@ -96,3 +96,19 @@ export {
   rowDiffCountExcess,
 } from './diff-query'
 export type { RowDiffAspectRows, RowDiffCountExcess, RowDiffSampleRow } from './diff-query'
+// m6-3: profile composition + classification (the pure, browser-free half of
+// the m2-5 profiling machinery). The m6-3 CLI needs two dataset profiles to
+// drive `@assay/diff`'s schema/profile aspects and C2 key inference, exactly
+// as the m5-4 CLI needed the validate helpers: the SQL composition and the
+// type classifier are REUSED here, never forked. These modules touch no
+// browser API (plain SQL text over quoted identifiers); the value reading
+// stays host-side, like every other reader on this seam.
+export { classifyProfileColumnType } from './profile-classify'
+export {
+  composeProfileBaseSql,
+  composeProfileTopKSql,
+  PROFILE_BASE_SLOT,
+  PROFILE_QUANTILE_POSITIONS,
+  PROFILE_TOP_K,
+} from './profile-query'
+export type { ProfileBaseQueryPlan, ProfileColumnSpec } from './profile-query'

@@ -4,8 +4,9 @@
  *
  * Commands (docs/product/07-mvp-scope-and-acceptance.md §2):
  *   assay validate <path> --contract <file>   (m5-4)
+ *   assay diff <a> <b> (--key <column>… | --infer)  (m6-3)
  *
- * Planned commands: `assay profile <path>`, `assay diff <base> <candidate>`.
+ * Planned commands: `assay profile <path>`.
  * The CLI shares the same core packages as web and VS Code (ADR 0008) and
  * executes the m5-1 validation plan against the raw dataset file through the
  * engine-neutral helpers in `@assay/engine-duckdb` on a `@duckdb/node-api`
@@ -18,6 +19,7 @@ import { CliError } from './errors'
 import type { CliExitCode } from './errors'
 import { parseArgs } from './args'
 import { runValidateCommand, resolveValidateOptions } from './validate'
+import { runDiffCommand, resolveDiffOptions } from './diff'
 
 const VERSION = '0.0.0'
 
@@ -28,9 +30,12 @@ export function helpText(): string {
     '',
     'usage:',
     '  assay validate <path> --contract <file> [options]',
+    '  assay diff <a> <b> (--key <column>… | --infer) [options]',
     '',
     'commands:',
     '  validate          validate a dataset against an assay contract',
+    '  diff              compare two dataset versions (schema drift, profile',
+    '                    deltas, then the key-based row diff)',
     '  help              show this help',
     '',
     'validate options:',
@@ -46,10 +51,25 @@ export function helpText(): string {
     'dataset file — the base view: a CLI run has no editing session, so the',
     'report says baseViewOnly: true and stale: false in --format json.',
     '',
+    'diff options:',
+    '  --key <column>      key column (repeatable; at least one is required',
+    '                      unless --infer is used)',
+    '  --infer             infer the key: pick the top candidate from the two',
+    '                      profiles and DISCLOSE it (chosen columns + evidence);',
+    '                      zero candidates is a binding error (exit 2)',
+    '  --format <fmt>      human (default) or json — the report format',
+    '  --sample-limit <n>  per-aspect sample bound K (default 20; the engine',
+    '                      clamps the returned samples to at most 100 — the',
+    '                      aspect counts are always the FULL counts)',
+    '',
+    'diff requires explicit keys (--key) or disclosed inference (--infer). It',
+    'reports schema drift, then per-column profile deltas, then the key-based',
+    'row diff (added / removed / changed rows) — in that aspect order.',
+    '',
     'exit codes:',
-    '  0   the dataset is valid (0 violations)',
-    '  1   violations were found (the report on stdout is the result)',
-    '  2   usage, contract, path, or execution error (readable stderr; no',
+    '  0   no differences found across the aspects that ran',
+    '  1   differences were found (the report on stdout is the result)',
+    '  2   usage, path, inference, or binding error (readable stderr; no',
     '      dataset values are ever printed to stderr)',
     '',
   ].join('\n')
@@ -71,9 +91,22 @@ export async function main(argv: readonly string[]): Promise<CliExitCode> {
       contract: invocation.flags.contract,
       format: invocation.flags.format,
       sampleLimit: invocation.flags.sampleLimit,
+      keys: invocation.flags.keys,
+      infer: invocation.flags.infer,
       positionals: invocation.positionals,
     })
     return runValidateCommand(options, (text) => process.stdout.write(text))
+  }
+  if (invocation.command === 'diff') {
+    const options = resolveDiffOptions({
+      keys: invocation.flags.keys,
+      infer: invocation.flags.infer,
+      contract: invocation.flags.contract,
+      format: invocation.flags.format,
+      sampleLimit: invocation.flags.sampleLimit,
+      positionals: invocation.positionals,
+    })
+    return runDiffCommand(options, (text) => process.stdout.write(text))
   }
   throw new CliError(2, `unknown command '${invocation.command}' (see --help)`)
 }
