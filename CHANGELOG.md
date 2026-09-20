@@ -12,6 +12,34 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — M6, dataset diff (m6-0…m6-5) — completes the MVP feature milestones
+
+- **Compare any two dataset versions, honestly.** The diff always discloses in the documented
+  order — **schema drift first, then distribution deltas, then key-based row diff** — so you get
+  useful schema/profile change information before any row-level comparison (the product's diff
+  honesty rule, made structural in both surfaces). Schema drift reuses the validation
+  type-family classifier (added/removed columns, same-family vs cross-family type changes,
+  nested textual drift, profile-derived nullability). Distribution deltas are deterministic
+  (checkpoint C1): PSI/Jensen–Shannon over documented side-A quantile bins, standardized
+  mean/variance shifts (ratio-form, exact at identity), p50/p90 shifts, categorical
+  total-variation over top-k∪other with new/vanished lists — no p-value machinery.
+- **Key-based row diff you can trust.** Added = B-keys anti-join, removed = A-keys anti-join,
+  changed = full outer join with `IS DISTINCT FROM` per shared column and per-row
+  changed-column lists; NULL keys group (`IS NOT DISTINCT FROM`); exact counts with K-bounded
+  samples carrying side-qualified keys — A-side rows jump straight into the grid via the
+  logical row-key channel; B-side rows are report content. Keys are never guessed: pick them,
+  or confirm the deterministic C2 inference proposal (unique + non-null per profiles,
+  minimal-first, evidence shown; the CLI `--infer` discloses its choice verbatim).
+- **Both surfaces agree exactly.** The pure `@assay/diff` model compiles a deterministic,
+  injection-safe DiffPlan (identifiers only through escaped helpers; hostile plans rejected
+  before any SQL); the engine executes it byte-identically over your effective view (edits
+  included) inside a rollback-contained op; the CLI gains `assay diff <a> <b>` (`--key`,
+  `--infer`, `--format json`, `--sample-limit`; exit codes 0 identical / 1 differences / 2
+  usage-or-binding). The M6 exit journey proves the web panel's exported report and the CLI
+  JSON agree field-for-field on every schema-drift finding, every column's drift metrics, and
+  every row-diff count and sample — asserted, not sampled — with an honest zero-state for
+  identical files and reports that never name your files.
+
 ### Added — M5, validation and contracts (m5-0…m5-6)
 
 - **Data quality contracts, end to end.** Author a contract in human-readable YAML
