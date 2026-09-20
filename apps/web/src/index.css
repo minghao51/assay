@@ -1183,3 +1183,99 @@ h1 {
   color: #a11;
   font-size: 0.85rem;
 }
+
+/* ---- Diff panel (m6-4): schema drift → deltas → row diff ---- */
+
+.diff-panel {
+  margin-top: 1rem;
+  border: 1px solid #ccd;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.diff-panel h2 {
+  margin: 0 0 0.35rem;
+}
+
+.diff-intro,
+.diff-deltas-note,
+.diff-key-intro,
+.diff-key-outcome,
+.diff-run-hint {
+  color: #555;
+  font-size: 0.875rem;
+}
+
+.diff-zero-state,
+.diff-aspect-none {
+  color: #555;
+}
+
+.diff-status {
+  color: #445;
+}
+
+.diff-stage-error,
+.diff-jump-error {
+  color: #a11;
+  font-size: 0.875rem;
+}
+
+.diff-issues,
+.diff-binding {
+  border-left: 3px solid #e6a;
+  padding-left: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.diff-key-candidate {
+  margin: 0.35rem 0;
+}
+
+.diff-key-evidence,
+.diff-key-disclosure {
+  margin: 0.15rem 0 0 1.4rem;
+  color: #555;
+  font-size: 0.8rem;
+}
+
+.diff-stale {
+  border-left: 3px solid #ca0;
+  padding-left: 0.75rem;
+  color: #630;
+}
+
+.diff-samples {
+  margin: 0.25rem 0 0.5rem 1.2rem;
+}
+
+.diff-sample-report-only {
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.diff-sample-clamp,
+.diff-clamp-note {
+  color: #860;
+  font-size: 0.8rem;
+}
+
+.diff-aspect {
+  margin-top: 0.5rem;
+}
+
+.diff-export {
+  margin-top: 0.75rem;
+  border: 1px solid #dde;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+}
+
+.diff-export-copy {
+  font-size: 0.85rem;
+}
+
+.diff-export-result {
+  margin: 0.5rem 0 0;
+  color: #153;
+}

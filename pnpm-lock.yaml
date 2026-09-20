@@ -119,6 +119,9 @@ importers:
       '@assay/data-sources':
         specifier: workspace:*
         version: link:../../packages/data-sources
+      '@assay/diff':
+        specifier: workspace:*
+        version: link:../../packages/diff
       '@assay/domain':
         specifier: workspace:*
         version: link:../../packages/domain
