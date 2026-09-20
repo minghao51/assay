@@ -65,6 +65,32 @@ export function writeDiffDatasetPair(): DiffDatasetPair {
   return { aPath, bPath }
 }
 
+/**
+ * A pair whose ONLY difference is that two rows' `amount` values are swapped
+ * (id 1 ↔ id 2). The schema is identical and the multiset of `amount`
+ * values — hence every profile aggregate (mean, variance, quantiles) — is
+ * byte-for-byte the same, so the schema/profile aspects are flat while the
+ * keyed row diff still finds two changed rows. This is the reachable state
+ * the m6-4 review warning named: `diff-schema-profile-none` renders after a
+ * row diff that found differences, so the pre-run "Choose keys…" instruction
+ * must not appear there.
+ */
+export function writeSwappedDiffPair(): DiffDatasetPair {
+  const dir = mkdtempSync(path.join(tmpdir(), 'assay-m6-4-swap-'))
+  const aPath = path.join(dir, 'orders-a.jsonl')
+  const bPath = path.join(dir, 'orders-b.jsonl')
+  const swappedB = [
+    '{"id":1,"name":"a1","amount":20}',
+    '{"id":2,"name":"a2","amount":10}',
+    '{"id":3,"name":"a3","amount":30}',
+    '{"id":4,"name":"a4","amount":40}',
+    '{"id":5,"name":"a5","amount":50}',
+  ]
+  writeFileSync(aPath, A_ROWS.join('\n') + '\n')
+  writeFileSync(bPath, swappedB.join('\n') + '\n')
+  return { aPath, bPath }
+}
+
 /** Stage an identical pair (two byte-identical files) into a temp dir. */
 export function writeIdenticalDiffPair(): DiffDatasetPair {
   const dir = mkdtempSync(path.join(tmpdir(), 'assay-m6-4-same-'))

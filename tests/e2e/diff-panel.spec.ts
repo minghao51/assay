@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Download, Page } from '@playwright/test'
-import { writeDiffDatasetPair, writeIdenticalDiffPair } from './support/diff-datasets'
+import {
+  writeDiffDatasetPair,
+  writeIdenticalDiffPair,
+  writeSwappedDiffPair,
+} from './support/diff-datasets'
 
 // m6-4 done-when journeys (handoff §6):
 //
@@ -72,6 +76,43 @@ async function exportReportJson(page: Page): Promise<string> {
   const target = path.join(dir, `${String(exportSeq)}-${download.suggestedFilename()}`)
   await download.saveAs(target)
   return target
+}
+
+/**
+ * Count the `engine/diff` requests the page posts to its worker(s). The m6-4
+ * no-auto-run pins (stale banner, empty-key Run) need a direct count of the
+ * typed op, not an inference from UI timing: patch `postMessage` before any
+ * app script runs and tally the request `type`.
+ */
+async function installDiffOpCounter(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const holder = window as unknown as { __assayDiffOps: number }
+    holder.__assayDiffOps = 0
+    const original = Worker.prototype.postMessage as unknown as (
+      this: Worker,
+      message: unknown,
+      options?: StructuredSerializeOptions,
+    ) => void
+    Worker.prototype.postMessage = function (
+      this: Worker,
+      message: unknown,
+      options?: StructuredSerializeOptions,
+    ): void {
+      if (
+        message !== null &&
+        typeof message === 'object' &&
+        (message as { type?: unknown }).type === 'engine/diff'
+      ) {
+        holder.__assayDiffOps += 1
+      }
+      original.call(this, message, options)
+    } as typeof Worker.prototype.postMessage
+  })
+}
+
+/** The `engine/diff` ops posted so far (0 without the counter installed). */
+async function diffOpsSent(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { __assayDiffOps?: number }).__assayDiffOps ?? 0)
 }
 
 test('m6-4 journey: stage → schema drift → confirm key → row diff → jump A-side → export', async ({
@@ -160,15 +201,27 @@ test('m6-4 journey: stage → schema drift → confirm key → row diff → jump
   await expect(changedSamples.nth(1).getByTestId('diff-sample-key')).toHaveText('base #2')
   await expect(changedSamples.nth(1).getByTestId('diff-sample-changed')).toHaveText('amount')
 
-  // --- Jump to an A-side removed row (base #4 → grid row index 4). ---
+  // --- EDIT BEFORE THE JUMP. Delete base #0 (id 1): every later base ordinal
+  // then maps to one less effective row index. base #3 (a4) is now effective
+  // index 2, while a positional (ordinal-as-index) resolver would land on
+  // index 3 (a5). The edit also marks the frozen result stale (m4-3 freshness),
+  // which stays viewable under the banner. ---
+  await page
+    .locator('[data-testid="grid-row"][data-row-index="0"] [data-testid="grid-row-delete"]')
+    .click()
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('4')
+  await expect(page.getByTestId('diff-stale')).toBeVisible()
+
+  // --- Jump to an A-side removed row by LOGICAL key: base #3 → effective row
+  // index 2 (the row a4), not position 3. ---
   const removedSamples = aspect('removed').getByTestId('diff-sample')
-  await expect(removedSamples.nth(1).getByTestId('diff-sample-key')).toHaveText('base #4')
-  await removedSamples.nth(1).getByTestId('diff-sample-jump').click()
-  const jumped = page.locator('[data-testid="grid-row"][data-row-index="4"]')
+  await expect(removedSamples.nth(0).getByTestId('diff-sample-key')).toHaveText('base #3')
+  await removedSamples.nth(0).getByTestId('diff-sample-jump').click()
+  const jumped = page.locator('[data-testid="grid-row"][data-row-index="2"]')
   await expect(jumped).toHaveAttribute('data-status', 'ready')
   await expect(jumped).toBeInViewport()
   await expect(page.getByTestId('record-inspector')).toBeVisible()
-  await expect(page.getByTestId('record-inspector')).toContainText('a5')
+  await expect(page.getByTestId('record-inspector')).toContainText('a4')
 
   // --- Export the report: the frozen on-screen counts + samples. ---
   const reportPath = await exportReportJson(page)
@@ -198,7 +251,10 @@ test('m6-4 journey: stage → schema drift → confirm key → row diff → jump
   }
   expect(payload.report).toBe('assay-diff-report')
   expect(payload.baseViewOnly).toBe(true)
-  expect(payload.stale).toBe(false)
+  // The journey deliberately edits (deletes base #0) before the jump so the
+  // jump pin is falsifiable; the frozen report is honestly marked stale and
+  // still carries the pre-edit exact counts.
+  expect(payload.stale).toBe(true)
   expect(payload.identical).toBe(false)
   expect(payload.keys).toEqual(['id'])
   expect(payload.keySource).toBe('inferred')
@@ -280,12 +336,108 @@ test('m6-4 zero-state: identical files → explicit "No differences" after the r
   const reportPath = await exportReportJson(page)
   const payload = JSON.parse(readFileSync(reportPath, 'utf8')) as {
     identical: boolean
+    stale: boolean
     schemaDrift: unknown[]
     rowDiff: { added: { count: number }; removed: { count: number }; changed: { count: number } }
   }
   expect(payload.identical).toBe(true)
+  expect(payload.stale).toBe(false)
   expect(payload.schemaDrift).toEqual([])
   expect(payload.rowDiff.added.count).toBe(0)
   expect(payload.rowDiff.removed.count).toBe(0)
   expect(payload.rowDiff.changed.count).toBe(0)
+})
+
+test('m6-4 zero-state: a flat schema/profile view names only the post-run caveat', async ({
+  page,
+}) => {
+  test.setTimeout(240_000)
+  const pair = writeSwappedDiffPair()
+  await openDatasetA(page, pair.aPath)
+  await stageComparison(page, pair.bPath)
+
+  // Schema drift is explicitly none and every distribution delta is flat:
+  // swapping two `amount` values preserves the multiset (and therefore the
+  // profile aggregates) while still changing two rows.
+  await expect(page.getByTestId('diff-schema-drift-none')).toBeVisible()
+  await expect(page.getByTestId('diff-column-delta')).toHaveCount(3)
+  for (const delta of await page.getByTestId('diff-column-delta').all()) {
+    await expect(delta).toHaveAttribute('data-differs', 'false')
+  }
+
+  // BEFORE the row diff the full zero-state renders, including the next action.
+  const preRun = page.getByTestId('diff-schema-profile-zero')
+  await expect(preRun).toBeVisible()
+  await expect(preRun).toContainText('Choose keys below to run the row diff.')
+
+  // Confirm the inferred key; the row diff finds the two swapped rows.
+  await expect(
+    page.locator(
+      '[data-testid="diff-key-candidate"][data-column="id"] [data-testid="diff-key-candidate-radio"]',
+    ),
+  ).toBeChecked()
+  await page.getByTestId('diff-run').click()
+  await expect(page.getByTestId('diff-verdict')).toContainText('0 added, 0 removed, 2 changed')
+
+  // AFTER a row diff that found differences while schema/profile stayed flat,
+  // the result note carries the caveat ALONE — the "Choose keys…" instruction
+  // would be false (the keys were chosen and the diff already ran).
+  const postRun = page.getByTestId('diff-schema-profile-none')
+  await expect(postRun).toBeVisible()
+  await expect(postRun).toContainText('row-only difference would not appear')
+  await expect(postRun).not.toContainText('Choose keys')
+  await expect(preRun).toHaveCount(0)
+  await expect(page.locator('main')).not.toContainText('Choose keys below to run the row diff.')
+})
+
+test('m6-4 stale: an edit after a result marks it stale with no auto re-run', async ({ page }) => {
+  test.setTimeout(240_000)
+  const pair = writeDiffDatasetPair()
+  await installDiffOpCounter(page)
+  await openDatasetA(page, pair.aPath)
+  await stageComparison(page, pair.bPath)
+
+  await page.getByTestId('diff-run').click()
+  await expect(page.getByTestId('diff-verdict')).toContainText('2 added, 2 removed, 2 changed')
+  expect(await diffOpsSent(page)).toBe(1)
+  await expect(page.getByTestId('diff-stale')).toHaveCount(0)
+
+  // Edit a cell after the result. Wait for the commit to land (the op lane
+  // drains: the grid cell shows the new value) BEFORE asserting the banner and
+  // the absence of a second run — otherwise the no-auto-run claim races the
+  // commit and could pass vacuously.
+  const cell = page
+    .locator('[data-testid="grid-row"][data-row-index="0"] [data-testid="grid-cell"]')
+    .nth(1)
+  await cell.dblclick()
+  await page.getByTestId('grid-editor-input').fill('a1-edited')
+  await page.getByTestId('grid-editor-input').press('Enter')
+  await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
+  await expect(cell).toHaveText('a1-edited')
+
+  // The frozen result is stale, stays viewable, and no second `engine/diff`
+  // op was sent (the canary: exactly one plan send).
+  await expect(page.getByTestId('diff-stale')).toBeVisible()
+  await expect(page.getByTestId('diff-stale')).toContainText('stale')
+  await expect(page.getByTestId('diff-verdict')).toContainText('2 added, 2 removed, 2 changed')
+  expect(await diffOpsSent(page)).toBe(1)
+})
+
+test('m6-4 C2: an empty key set disables Run and sends no row-diff op', async ({ page }) => {
+  test.setTimeout(240_000)
+  const pair = writeDiffDatasetPair()
+  await installDiffOpCounter(page)
+  await openDatasetA(page, pair.aPath)
+  await stageComparison(page, pair.bPath)
+
+  // Manual entry that parses to no keys (only whitespace and commas).
+  await page.getByTestId('diff-key-manual-radio').check()
+  await page.getByTestId('diff-key-manual-input').fill('  ,  ')
+  await expect(page.getByTestId('diff-run')).toBeDisabled()
+  expect(await diffOpsSent(page)).toBe(0)
+
+  // A real explicit key re-enables Run — the control is not simply dead.
+  await page.getByTestId('diff-key-manual-input').fill('id')
+  await expect(page.getByTestId('diff-run')).toBeEnabled()
+  expect(await diffOpsSent(page)).toBe(0)
 })

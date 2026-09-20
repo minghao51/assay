@@ -321,14 +321,25 @@ export function plural(count: number, singular: string): string {
 }
 
 /**
- * The documented zero-state copy for a schema/profile comparison before a row
- * diff has run — says precisely what the absence of differences does and does
- * not prove (the docs-07 honesty rule).
+ * The precise comparison caveat — says what the absence of schema/profile
+ * differences does and does not prove (the docs-07 honesty rule). It renders
+ * ALONE in the post-row-diff result state (`diff-schema-profile-none`): the
+ * row diff has already run there, so the "Choose keys…" instruction would be
+ * false.
  */
-export const SCHEMA_PROFILE_ZERO_STATE =
+export const SCHEMA_PROFILE_DIFFERENCE_CAVEAT =
   'No schema or profile differences. This compares column structure and the ' +
   'stored profile aggregates only — a row-only difference would not appear ' +
-  'here. Choose keys below to run the row diff.'
+  'here.'
+
+/**
+ * The documented zero-state copy for a schema/profile comparison BEFORE a row
+ * diff has run — the caveat plus the next action. It renders only while no
+ * row-diff result exists (`diff-schema-profile-zero`); once the row diff has
+ * run, the result section renders {@link SCHEMA_PROFILE_DIFFERENCE_CAVEAT}
+ * alone.
+ */
+export const SCHEMA_PROFILE_ZERO_STATE = `${SCHEMA_PROFILE_DIFFERENCE_CAVEAT} Choose keys below to run the row diff.`
 
 /** The documented zero-state once a row diff has returned 0/0/0 everywhere. */
 export function identicalZeroState(keys: readonly string[]): string {

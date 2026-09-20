@@ -55,6 +55,7 @@ import {
   identicalZeroState,
   plural,
   sampleClampText,
+  SCHEMA_PROFILE_DIFFERENCE_CAVEAT,
   SCHEMA_PROFILE_ZERO_STATE,
   schemaFindingLine,
 } from './diff-model'
@@ -457,6 +458,11 @@ export function DiffPanel({
             aria-label="Schema drift"
           >
             <h3>Schema drift</h3>
+            <p className="diff-schema-note" data-testid="diff-schema-note">
+              This compares side A&apos;s base file schema against the staged file; the row diff
+              binds side A to the effective view (base plus any edits you make), so edits after
+              staging are not reflected here.
+            </p>
             {comparison.diff.schemaDrift.length === 0 ? (
               <p className="diff-aspect-none" data-testid="diff-schema-drift-none">
                 No schema drift — {plural(comparison.baseColumnCount, 'column')} match by name and
@@ -496,6 +502,17 @@ export function DiffPanel({
               </ul>
             )}
           </section>
+
+          {/* Pre-run zero-state: schema/profile identity alone is not a row-level claim,
+              and the next action (choose keys) is still ahead. The closing
+              instruction must never render once a row diff has run. */}
+          {comparison.diff.schemaDrift.length === 0 &&
+            !comparison.diff.columnDeltas.some(columnDeltaDiffers) &&
+            report === null && (
+              <p className="diff-zero-note" data-testid="diff-schema-profile-zero">
+                {SCHEMA_PROFILE_ZERO_STATE}
+              </p>
+            )}
 
           {comparison.diff.issues.length > 0 && (
             <div className="diff-issues" data-testid="diff-issues">
@@ -657,7 +674,7 @@ export function DiffPanel({
                 report.drift.length === 0 &&
                 !report.deltas.some(columnDeltaDiffers) && (
                   <p className="diff-zero-note" data-testid="diff-schema-profile-none">
-                    {SCHEMA_PROFILE_ZERO_STATE}
+                    {SCHEMA_PROFILE_DIFFERENCE_CAVEAT}
                   </p>
                 )}
               {report.inference !== null && (

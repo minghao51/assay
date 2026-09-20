@@ -1199,6 +1199,7 @@ h1 {
 
 .diff-intro,
 .diff-deltas-note,
+.diff-schema-note,
 .diff-key-intro,
 .diff-key-outcome,
 .diff-run-hint {
@@ -1207,6 +1208,7 @@ h1 {
 }
 
 .diff-zero-state,
+.diff-zero-note,
 .diff-aspect-none {
   color: #555;
 }

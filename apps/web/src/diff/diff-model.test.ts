@@ -12,6 +12,7 @@ import {
   identicalZeroState,
   sampleClampText,
   schemaFindingLine,
+  SCHEMA_PROFILE_DIFFERENCE_CAVEAT,
   SCHEMA_PROFILE_ZERO_STATE,
 } from './diff-model'
 
@@ -258,6 +259,15 @@ describe('diff panel model', () => {
   it('words the zero-state precisely about what ran', () => {
     expect(SCHEMA_PROFILE_ZERO_STATE).toContain('stored profile aggregates only')
     expect(SCHEMA_PROFILE_ZERO_STATE).toContain('row-only difference would not appear')
+    // The instruction belongs only to the pre-run state; the post-row-diff
+    // result state renders the caveat alone (the m6-4 review warning).
+    expect(SCHEMA_PROFILE_ZERO_STATE).toContain('Choose keys below to run the row diff.')
+    expect(SCHEMA_PROFILE_DIFFERENCE_CAVEAT).toContain('stored profile aggregates only')
+    expect(SCHEMA_PROFILE_DIFFERENCE_CAVEAT).toContain('row-only difference would not appear')
+    expect(SCHEMA_PROFILE_DIFFERENCE_CAVEAT).not.toContain('Choose keys')
+    expect(SCHEMA_PROFILE_ZERO_STATE).toBe(
+      `${SCHEMA_PROFILE_DIFFERENCE_CAVEAT} Choose keys below to run the row diff.`,
+    )
     const zero = identicalZeroState(['id', 'region'])
     expect(zero).toContain('No differences')
     expect(zero).toContain('row-level comparison (keys: id, region)')
