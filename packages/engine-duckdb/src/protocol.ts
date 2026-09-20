@@ -60,7 +60,10 @@ import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire'
 import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
 import { parseValidationPlan } from './validate-plan-wire'
 import { validationFailCountExcess } from './validate-query'
+import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire'
+import { parseRowDiffPlan } from './diff-plan-wire'
 export type { EngineOverlayPayload, EngineValidationPlan, EngineValidationResult }
+export type { EngineRowDiffPlan, EngineRowDiffResult }
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
 export interface EngineColumnSchema {
@@ -287,6 +290,42 @@ export interface EngineValidateRequest {
   overlay?: EngineOverlayPayload
 }
 
+/**
+ * Stage a comparison dataset file for a row diff (m6-2, checkpoint C3): the
+ * picked file is registered with DuckDB under an engine-generated name and
+ * materialized as a comparison scratch view (never the source path — the
+ * m4-5 OPFS-scratch precedent). The returned comparison handle addresses
+ * that view for a later `engine/diff`. Query lane: staging registers and
+ * creates a view over a potentially large file, exactly the heavy class
+ * that must never head-of-line block the grid's windows (ADR 0040).
+ * Staging replaces any previously staged comparison (single slot), so
+ * re-staging the same reference cannot leak views or file registrations.
+ */
+export interface EngineDiffStageRequest {
+  type: 'engine/diff-stage'
+  requestId: number
+  name: string
+  file: File
+}
+
+/**
+ * Row-diff execution (m6-2): execute a compiled m6-1 `RowDiffPlan` with side
+ * A bound to the effective view (base + the optional overlay; absent
+ * `overlay` = the plain base view) and side B bound to the staged
+ * comparison view addressed by `comparisonId`. The plan is boundary-
+ * validated strictly (see `diff-plan-wire.ts`): a structurally malformed
+ * plan is answered with exactly one typed `engine/error` before any SQL
+ * runs. Query lane: the plan may scan both full datasets.
+ */
+export interface EngineDiffRequest {
+  type: 'engine/diff'
+  requestId: number
+  tableId: string
+  comparisonId: string
+  plan: EngineRowDiffPlan
+  overlay?: EngineOverlayPayload
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -306,6 +345,8 @@ export type EngineRequest =
   | EngineOverlayRangeRequest
   | EngineOverlayCastCheckRequest
   | EngineValidateRequest
+  | EngineDiffStageRequest
+  | EngineDiffRequest
   | EngineExportRequest
   | EngineDisposeRequest
 
@@ -431,6 +472,31 @@ export interface EngineValidateResultResponse {
   result: EngineValidationResult
 }
 
+/**
+ * Result of staging a comparison file: the engine-generated comparison
+ * handle the later `engine/diff` addresses (never a user file name, ADR
+ * 0025).
+ */
+export interface EngineDiffStageResultResponse {
+  type: 'engine/diff-stage-result'
+  requestId: number
+  comparisonId: string
+  /** Columns of the staged comparison view (DESCRIBE), for plan compilation. */
+  columns: EngineColumnSchema[]
+}
+
+/**
+ * Result of the row-diff op (m6-2): the two effective row counts plus one
+ * entry per aspect (`added`/`removed`/`changed`) carrying the exact count
+ * and bounded, side-qualified samples. Row keys and changed-column names
+ * are report content — never logged or telemetried (ADR 0025).
+ */
+export interface EngineDiffResultResponse {
+  type: 'engine/diff-result'
+  requestId: number
+  result: EngineRowDiffResult
+}
+
 // ---- Profile payload types (m2-5) ----
 //
 // Structural mirrors of `@assay/engine`'s `ProfileColumnKind` /
@@ -516,6 +582,8 @@ export type EngineResponse =
   | EngineOverlayRangeResultResponse
   | EngineOverlayCastCheckResultResponse
   | EngineValidateResultResponse
+  | EngineDiffStageResultResponse
+  | EngineDiffResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
@@ -534,6 +602,8 @@ export type EngineSuccessResponse =
   | EngineOverlayRangeResultResponse
   | EngineOverlayCastCheckResultResponse
   | EngineValidateResultResponse
+  | EngineDiffStageResultResponse
+  | EngineDiffResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
 
@@ -692,6 +762,28 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
       ...(overlay === null ? {} : { overlay }),
     }
   }
+  if (type === 'engine/diff-stage' && typeof data.name === 'string' && isFile(data.file)) {
+    return { type, requestId, name: data.name, file: data.file }
+  }
+  if (type === 'engine/diff' && typeof data.tableId === 'string') {
+    // The plan is the request's complex payload: strictly shape-checked at
+    // the boundary (diff-plan-wire.ts). `overlay` follows the validate
+    // convention — absent = the plain base view; a present-but-malformed
+    // payload rejects the request.
+    if (typeof data.comparisonId !== 'string') return null
+    const plan = parseRowDiffPlan(data.plan)
+    if (plan === null) return null
+    const overlay = parseOverlayPayload(data.overlay)
+    if (data.overlay !== undefined && overlay === null) return null
+    return {
+      type,
+      requestId,
+      tableId: data.tableId,
+      comparisonId: data.comparisonId,
+      plan,
+      ...(overlay === null ? {} : { overlay }),
+    }
+  }
   if (type === 'engine/dispose') return { type, requestId }
   return null
 }
@@ -711,6 +803,8 @@ export const OVERLAY_REQUEST_TYPES = [
   'engine/overlay-cast-check',
   'engine/export',
   'engine/validate',
+  'engine/diff-stage',
+  'engine/diff',
 ] as const
 
 export type OverlayRequestType = (typeof OVERLAY_REQUEST_TYPES)[number]
@@ -920,6 +1014,16 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
   if (type === 'engine/validate-result' && isValidationResult(data.result)) {
     return { type, requestId, result: data.result }
   }
+  if (
+    type === 'engine/diff-stage-result' &&
+    typeof data.comparisonId === 'string' &&
+    isColumnSchemaList(data.columns)
+  ) {
+    return { type, requestId, comparisonId: data.comparisonId, columns: data.columns }
+  }
+  if (type === 'engine/diff-result' && isRowDiffResult(data.result)) {
+    return { type, requestId, result: data.result }
+  }
   if (type === 'engine/disposed') return { type, requestId }
   if (type === 'engine/error' && typeof data.message === 'string') {
     return { type, requestId, message: data.message }
@@ -965,6 +1069,39 @@ function isRowCount(value: unknown): value is number {
 /** An integer percent in [0, 100] (the failPercent contract). */
 function isPercent(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 100
+}
+
+/**
+ * A well-formed row-diff result (shape only — the worker guarantees the
+ * rest): exactly the three aspects in the compiler's order, non-negative
+ * counts, and bounded samples whose side/row-key shapes are coherent. The
+ * result-sanity bounds are enforced worker-side; the client-side check keeps
+ * a malformed payload from resolving a promise with an impossible shape.
+ */
+function isRowDiffResult(value: unknown): value is EngineRowDiffResult {
+  if (!isRecord(value)) return false
+  if (!isRowCount(value['rowCountA']) || !isRowCount(value['rowCountB'])) return false
+  const aspects = value['aspects']
+  if (!Array.isArray(aspects) || aspects.length !== 3) return false
+  const order = ['added', 'removed', 'changed']
+  return aspects.every((aspect, index) => {
+    if (!isRecord(aspect)) return false
+    if (aspect['aspect'] !== order[index]) return false
+    if (!isRowCount(aspect['count'])) return false
+    const samples = aspect['samples']
+    if (!Array.isArray(samples)) return false
+    return samples.every((sample) => {
+      if (!isRecord(sample)) return false
+      if (sample['side'] !== 'A' && sample['side'] !== 'B') return false
+      const rowKey = sample['rowKey']
+      if (typeof rowKey !== 'string' || rowKey === '') return false
+      const changed = sample['changedColumns']
+      if (changed !== undefined) {
+        if (!Array.isArray(changed) || !changed.every((c) => typeof c === 'string')) return false
+      }
+      return true
+    })
+  })
 }
 
 /** A wire-safe sample value: string, finite number, boolean, or null. */

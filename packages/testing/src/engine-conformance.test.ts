@@ -25,6 +25,7 @@ import {
   runEngineConformanceScenarios,
 } from './engine-conformance'
 import { CONTRACT_TYPE_VOCABULARY } from '@assay/contracts'
+import { compileRowDiffPlan } from '@assay/diff'
 import type {
   ConformanceBatchResult,
   ConformanceCellValue,
@@ -36,6 +37,8 @@ import type {
   ConformanceExportResult,
   ConformanceFileSource,
   ConformanceFilterSpec,
+  ConformanceComparisonHandle,
+  ConformanceHostileRowDiffPlan,
   ConformanceHostileTypeProbe,
   ConformanceHostileValidationPlan,
   ConformanceInsertPosition,
@@ -45,6 +48,11 @@ import type {
   ConformanceOverlayCastCheckDataset,
   ConformanceOverlayInsertEditsDataset,
   ConformanceOverlayWindow,
+  ConformanceRowDiffDataset,
+  ConformanceRowDiffExpectations,
+  ConformanceRowDiffPlan,
+  ConformanceRowDiffResult,
+  ConformanceRowDiffSample,
   ConformanceScenarioName,
   ConformanceSortSpec,
   ConformanceTableHandle,
@@ -141,6 +149,10 @@ interface FakeMutations {
   skipsValidationClamp?: boolean
   /** m5-2: hostile validation plans are accepted instead of rejected. */
   acceptsHostilePlans?: boolean
+  /** m6-2: per-aspect row-diff counts are inflated by one. */
+  liesAboutRowDiffCounts?: boolean
+  /** m6-2: hostile row-diff plans are accepted instead of rejected. */
+  acceptsHostileRowDiffPlans?: boolean
 }
 
 const GOOD_DATASET = {
@@ -1596,6 +1608,384 @@ const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
   decimalReportedType: 'DECIMAL(18,3)',
 }
 
+// ── m6-2: row-diff fake fixture (the suite's miniature) ────────────────────
+//
+// The fake has no SQL engine: its `diff` computes added/removed/changed from
+// typed rows with the plan's own keys/shared columns, and the scenario's
+// expectations below are hand-written literals over the same fixture (the
+// m5-2 fake pattern). One mutation knob (inflated counts) makes the two
+// disagree so the suite's assertions bite under Node.
+
+const FAKE_ROW_DIFF_BASE: ConformanceOverlayBase = {
+  baseAnchor: 'fake-rd-v1',
+  overlayAnchor: 'fake-rd-ov-1',
+  columns: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'val', type: 'VARCHAR' },
+    { name: 'score', type: 'BIGINT' },
+  ],
+  baseRowCount: 132,
+}
+
+const FAKE_ROW_DIFF_SCHEMA = FAKE_ROW_DIFF_BASE.columns
+
+interface FakeRdRow {
+  /** The logical row id (grid-resolvable for A-side rows). */
+  readonly key: string
+  readonly cells: ReadonlyMap<string, string | number | null>
+}
+
+/** Side-A base rows: ids 1..130 plus two unmatched (removed) rows 201/202. */
+const FAKE_ROW_DIFF_A_BASE_ROWS: readonly {
+  readonly id: number
+  readonly val: string
+  readonly score: number
+}[] = [
+  ...Array.from({ length: 130 }, (_, index) => ({
+    id: index + 1,
+    val: `a${String(index + 1)}`,
+    score: index + 1,
+  })),
+  { id: 201, val: 'gone201', score: 201 },
+  { id: 202, val: 'gone202', score: 202 },
+]
+
+/**
+ * Side-B rows: 130 added ids (1001..1130) first, then the 130 matching ids
+ * whose shared columns alternate val/score differences.
+ */
+const FAKE_ROW_DIFF_B_ROWS: readonly {
+  readonly id: number
+  readonly val: string
+  readonly score: number
+}[] = [
+  ...Array.from({ length: 130 }, (_, index) => ({
+    id: 1001 + index,
+    val: `n${String(index + 1)}`,
+    score: index + 1,
+  })),
+  ...Array.from({ length: 130 }, (_, index) => ({
+    id: index + 1,
+    val: index % 2 === 0 ? `B${String(index + 1)}` : `a${String(index + 1)}`,
+    score: index % 2 === 0 ? index + 1 : index + 1001,
+  })),
+]
+
+/** The fake's effective A rows under an overlay (base order minus tombstones). */
+function fakeRowDiffARows(ops: readonly ConformanceEditOp[], anchor: string): FakeRdRow[] {
+  const state = foldFakeOverlay(FAKE_ROW_DIFF_BASE, ops, {})
+  const typed = (value: ConformanceCellValue | undefined): string | number | null => {
+    if (value === undefined || value.kind === 'null') return null
+    if (value.kind === 'boolean') return value.value ? 1 : 0
+    if (value.kind === 'number') return value.value
+    return value.kind === 'text' ? value.text : value.value
+  }
+  const rows: FakeRdRow[] = []
+  for (let ordinal = 0; ordinal < FAKE_ROW_DIFF_BASE.baseRowCount; ordinal++) {
+    if (state.deletedBase.has(ordinal)) continue
+    const base = FAKE_ROW_DIFF_A_BASE_ROWS[ordinal]!
+    const key = `base:${anchor}#${String(ordinal)}`
+    const cells = new Map<string, string | number | null>([
+      ['id', base.id],
+      ['val', base.val],
+      ['score', base.score],
+    ])
+    for (const [column, value] of state.edits.get(key) ?? []) cells.set(column, typed(value))
+    rows.push({ key, cells })
+  }
+  return rows
+}
+
+function fakeRowDiffBRows(): FakeRdRow[] {
+  return FAKE_ROW_DIFF_B_ROWS.map((row, ordinal) => ({
+    key: `b:${String(ordinal)}`,
+    cells: new Map<string, string | number | null>([
+      ['id', row.id],
+      ['val', row.val],
+      ['score', row.score],
+    ]),
+  }))
+}
+
+/** The fake's honest row-diff evaluator over typed rows (no SQL). */
+function fakeRowDiffResult(
+  plan: ConformanceRowDiffPlan,
+  aRows: readonly FakeRdRow[],
+  bRows: readonly FakeRdRow[],
+  liesAboutCounts: boolean,
+): ConformanceRowDiffResult {
+  const keyOf = (row: FakeRdRow): string =>
+    plan.keys.map((key) => `${key}=${String(row.cells.get(key) ?? '\u0000null')}`).join('\u0001')
+  const bByKey = new Map<string, number>()
+  bRows.forEach((row, index) => {
+    if (!bByKey.has(keyOf(row))) bByKey.set(keyOf(row), index)
+  })
+  const aKeys = new Set(aRows.map((row) => keyOf(row)))
+  const added: ConformanceRowDiffSample[] = []
+  bRows.forEach((row, index) => {
+    if (!aKeys.has(keyOf(row))) added.push({ side: 'B', rowKey: `b:${String(index)}` })
+  })
+  const removed: ConformanceRowDiffSample[] = []
+  const changed: ConformanceRowDiffSample[] = []
+  aRows.forEach((row) => {
+    const match = bByKey.get(keyOf(row))
+    if (match === undefined) {
+      removed.push({ side: 'A', rowKey: row.key })
+      return
+    }
+    const other = bRows[match]!
+    const changedColumns = plan.sharedColumns.filter(
+      (column) => row.cells.get(column) !== other.cells.get(column),
+    )
+    if (changedColumns.length > 0) {
+      changed.push({ side: 'A', rowKey: row.key, changedColumns })
+    }
+  })
+  const limit = Math.min(plan.sampleLimit, 100)
+  const clamp = (samples: ConformanceRowDiffSample[]): ConformanceRowDiffSample[] =>
+    samples.slice(0, limit)
+  const bump = liesAboutCounts ? 1 : 0
+  return {
+    rowCountA: aRows.length,
+    rowCountB: bRows.length,
+    aspects: [
+      { aspect: 'added', count: added.length + bump, samples: clamp(added) },
+      { aspect: 'removed', count: removed.length + bump, samples: clamp(removed) },
+      { aspect: 'changed', count: changed.length + bump, samples: clamp(changed) },
+    ],
+  }
+}
+
+/** Quote an identifier the way the compiler does (the fake's own renderer). */
+function fakeQuoteIdentifier(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`
+}
+
+/** Blank single-quoted string contents so pseudo-references cannot count. */
+function fakeBlankStrings(sql: string): string {
+  let out = ''
+  let index = 0
+  while (index < sql.length) {
+    if (sql[index] !== "'") {
+      out += sql[index]
+      index += 1
+      continue
+    }
+    out += "'"
+    index += 1
+    while (index < sql.length) {
+      if (sql[index] === "'") {
+        if (sql[index + 1] === "'") {
+          out += '  '
+          index += 2
+          continue
+        }
+        out += "'"
+        index += 1
+        break
+      }
+      out += ' '
+      index += 1
+    }
+  }
+  return out
+}
+
+/** The fake's structural mirror of the engine's belt-1 gate. */
+function fakeAssertRowDiffPlanValid(plan: ConformanceRowDiffPlan): void {
+  if (plan.planKind !== 'assay-row-diff-plan') {
+    throw new FakeOperationError('malformed row-diff plan')
+  }
+  if (plan.planVersion !== 1) throw new FakeOperationError('malformed row-diff plan')
+  if (plan.relationA === plan.relationB) {
+    throw new FakeOperationError('row-diff plan binds both sides to the same relation name')
+  }
+  if (plan.keys.length === 0) throw new FakeOperationError('row-diff plan has no key columns')
+  const quotedA = fakeQuoteIdentifier(plan.relationA)
+  const quotedB = fakeQuoteIdentifier(plan.relationB)
+  const assertAspect = (sql: string, label: string): void => {
+    const code = fakeBlankStrings(sql)
+    if (code.includes('--') || code.includes('/*')) {
+      throw new FakeOperationError(`row-diff ${label} query contains SQL comments`)
+    }
+    const separator = code.indexOf(';')
+    if (separator >= 0 && code.slice(separator + 1).trim() !== '') {
+      throw new FakeOperationError(`row-diff ${label} query is not a single SELECT`)
+    }
+    if (!/^\s*select\b/i.test(code)) {
+      throw new FakeOperationError(`row-diff ${label} query is not a single SELECT`)
+    }
+    if (!code.includes(`FROM ${quotedA} AS "a"`)) {
+      throw new FakeOperationError(`row-diff ${label} query does not bind side A`)
+    }
+    if (!code.includes(`FROM ${quotedB} AS "b"`)) {
+      throw new FakeOperationError(`row-diff ${label} query does not bind side B`)
+    }
+  }
+  assertAspect(plan.addedSql, 'added')
+  assertAspect(plan.removedSql, 'removed')
+  assertAspect(plan.changedSql, 'changed')
+  if (!plan.addedSql.includes('"assay_count"') || !plan.changedSql.includes('"assay_changed"')) {
+    throw new FakeOperationError('row-diff query is missing its reserved result columns')
+  }
+  const arms = fakeBlankStrings(plan.totalsSql).split('UNION ALL')
+  if (arms.length !== 3) throw new FakeOperationError('row-diff totals is not three arms')
+  arms.forEach((arm) => {
+    if (!/^\s*select\b/i.test(arm)) {
+      throw new FakeOperationError('row-diff totals arm is not a SELECT')
+    }
+  })
+}
+
+/** A valid compiler-shaped fake plan (mutated for the hostile probes). */
+function fakeRowDiffPlan(): ConformanceRowDiffPlan {
+  const result = compileRowDiffPlan(FAKE_ROW_DIFF_SCHEMA, FAKE_ROW_DIFF_SCHEMA, ['id'], {
+    relationA: 'fake_rd_a',
+    relationB: 'fake_rd_b',
+    sampleLimit: 20,
+  })
+  if (!result.ok) throw new Error('fake row-diff plan failed to compile')
+  return result.plan
+}
+
+const FAKE_ROW_DIFF_SAMPLE_LIMIT = 20
+
+/** The 20 changed samples at the base run: alternating val/score. */
+const FAKE_ROW_DIFF_BASE_CHANGED: readonly ConformanceRowDiffSample[] = Array.from(
+  { length: 20 },
+  (_, index) => ({
+    side: 'A' as const,
+    rowKey: `base:#${String(index)}`,
+    changedColumns: index % 2 === 0 ? ['val'] : ['score'],
+  }),
+)
+
+const FAKE_ROW_DIFF_BASE_EXPECTATIONS: ConformanceRowDiffExpectations = {
+  rowCountA: 132,
+  rowCountB: 260,
+  aspects: [
+    {
+      aspect: 'added',
+      count: 130,
+      samples: Array.from({ length: 20 }, (_, index) => ({
+        side: 'B' as const,
+        rowKey: `b:${String(index)}`,
+      })),
+    },
+    {
+      aspect: 'removed',
+      count: 2,
+      samples: [
+        { side: 'A', rowKey: 'base:#130' },
+        { side: 'A', rowKey: 'base:#131' },
+      ],
+    },
+    { aspect: 'changed', count: 130, samples: FAKE_ROW_DIFF_BASE_CHANGED },
+  ],
+}
+
+const FAKE_ROW_DIFF_DATASET: ConformanceRowDiffDataset = {
+  relationA: 'fake_rd_a',
+  relationB: 'fake_rd_b',
+  keys: ['id'],
+  base: FAKE_ROW_DIFF_BASE,
+  sampleLimit: FAKE_ROW_DIFF_SAMPLE_LIMIT,
+  baseExpectations: FAKE_ROW_DIFF_BASE_EXPECTATIONS,
+  interactions: [
+    {
+      label: 'tombstone A#0 (its B match becomes added)',
+      ops: [{ kind: 'row-delete', rowId: 'base:fake-rd-v1#0' }],
+      expectations: {
+        rowCountA: 131,
+        rowCountB: 260,
+        aspects: [
+          { aspect: 'added', count: 131 },
+          { aspect: 'removed', count: 2 },
+          { aspect: 'changed', count: 129 },
+        ],
+      },
+    },
+    {
+      label: 'fix A#1 score (a changed row becomes unchanged)',
+      ops: [
+        {
+          kind: 'cell-set',
+          rowId: 'base:fake-rd-v1#1',
+          column: 'score',
+          value: { kind: 'number', value: 1002 },
+        },
+      ],
+      expectations: {
+        rowCountA: 132,
+        rowCountB: 260,
+        aspects: [
+          { aspect: 'added', count: 130 },
+          { aspect: 'removed', count: 2 },
+          { aspect: 'changed', count: 129 },
+        ],
+      },
+    },
+  ],
+  truncation: {
+    aspect: 'added',
+    hardMax: 100,
+    clampedSampleLimit: 500,
+    expectCount: 130,
+    expectSamples: 100,
+    expectFirstRowKey: 'b:0',
+  },
+  hostilePlans: (() => {
+    const base = fakeRowDiffPlan()
+    const plans: ConformanceHostileRowDiffPlan[] = [
+      {
+        label: 'wrong plan kind',
+        plan: { ...base, planKind: 'not-a-row-diff-plan' },
+      },
+      {
+        label: 'same relation on both sides',
+        plan: { ...base, relationB: base.relationA },
+      },
+      {
+        label: 'comment-bearing aspect query',
+        plan: {
+          ...base,
+          addedSql: `SELECT 1 AS "assay_count" /* FROM "${base.relationA}" AS "a" */`,
+        },
+      },
+      {
+        label: 'string-masked pseudo-reference',
+        plan: {
+          ...base,
+          addedSql: `SELECT 'FROM "${base.relationA}" AS "a"' AS "assay_side", 0 AS "assay_count", 'FROM "${base.relationB}" AS "b"' AS "x"`,
+        },
+      },
+      {
+        label: 'CREATE TABLE canary',
+        plan: {
+          ...base,
+          removedSql: 'CREATE TABLE fake_rowdiff_injected AS SELECT 1',
+        },
+      },
+      {
+        label: 'multi-statement aspect query',
+        plan: { ...base, addedSql: `${base.addedSql}; DROP TABLE canary` },
+      },
+      {
+        label: 'aspect query drops its side-B binding',
+        plan: { ...base, changedSql: base.changedSql.split('"b"').join('"z"') },
+      },
+      {
+        label: 'totals is not three arms',
+        plan: { ...base, totalsSql: base.totalsSql.split('\nUNION ALL\n')[0] as string },
+      },
+    ]
+    return plans
+  })(),
+  injectedTables: ['fake_rowdiff_injected'],
+  preExistingViewName: 'fake_rowdiff_existing',
+  unsupportedComparisonName: 'comparison.xlsx',
+}
+
 /**
  * The fake's minimal mirror of `type-expr.ts`: rejects statement separators,
  * comments, and unbalanced/inverted brackets. Enough to reject the hostile
@@ -2117,6 +2507,9 @@ class FakeEngineClient implements ConformanceEngineClient {
     if (this.isValidation(handle)) {
       return FAKE_VALIDATION_SCHEMA.map((column) => ({ ...column }))
     }
+    if (this.isRowDiff(handle)) {
+      return FAKE_ROW_DIFF_SCHEMA.map((column) => ({ ...column }))
+    }
     if (this.isNested(handle)) {
       return NESTED_DATASET.schema.map((column) => ({
         name: column.name,
@@ -2496,6 +2889,50 @@ class FakeEngineClient implements ConformanceEngineClient {
     }
   }
 
+  /**
+   * m6-2: stage a comparison file. The fake models the engine's typed
+   * failure paths (unsupported extension, missing staged bytes) and returns
+   * the comparison schema for plan compilation.
+   */
+  async stageComparison(source: ConformanceFileSource): Promise<ConformanceComparisonHandle> {
+    await this.ensureReady()
+    if (!/\.(parquet|csv|jsonl|json)$/.test(source.name)) {
+      throw new FakeOperationError('unsupported comparison format')
+    }
+    const bytes = subjectState.staged.get(source.name)
+    if (bytes === undefined) throw new FakeOperationError('staged comparison file missing')
+    return { kind: 'comparison', id: 'fake-d1', schema: FAKE_ROW_DIFF_SCHEMA }
+  }
+
+  /**
+   * m6-2: row-diff execution over the fake's typed rows. The REAL compiled
+   * plan arrives; the fake validates its structure and evaluates the
+   * added/removed/changed semantics with the plan's own keys/shared columns
+   * (no SQL engine). One mutation knob inflates the counts.
+   */
+  async diff(
+    handle: ConformanceTableHandle,
+    comparison: ConformanceComparisonHandle,
+    plan: ConformanceRowDiffPlan,
+    overlay?: ConformanceOverlay,
+  ): Promise<ConformanceRowDiffResult> {
+    this.requireRegistered(handle)
+    if (comparison.id !== 'fake-d1') throw new FakeOperationError('unknown comparison handle')
+    if (this.mutations.acceptsHostileRowDiffPlans !== true) fakeAssertRowDiffPlanValid(plan)
+    // A plan bound to a user-created view name fails its materialization
+    // (the pre-existing-view survival pin).
+    if (
+      subjectState.createdViews.has(plan.relationA) ||
+      subjectState.createdViews.has(plan.relationB)
+    ) {
+      throw new FakeOperationError('row-diff plan relation collides with an existing view')
+    }
+    const anchor = overlay === undefined ? '' : FAKE_ROW_DIFF_BASE.baseAnchor
+    const aRows = fakeRowDiffARows(overlay?.ops ?? [], anchor)
+    const bRows = fakeRowDiffBRows()
+    return fakeRowDiffResult(plan, aRows, bRows, this.mutations.liesAboutRowDiffCounts === true)
+  }
+
   async exportView(
     handle: ConformanceTableHandle,
     request: {
@@ -2593,6 +3030,10 @@ class FakeEngineClient implements ConformanceEngineClient {
 
   private isValidation(handle: ConformanceTableHandle): boolean {
     return this.registered.get(handle.id) === 'validation.jsonl'
+  }
+
+  private isRowDiff(handle: ConformanceTableHandle): boolean {
+    return this.registered.get(handle.id) === 'rowdiff-a.jsonl'
   }
 
   /** Typed column read: `undefined` means the column does not exist. */
@@ -2901,6 +3342,23 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
       return fileSource(name)
     },
+    rowDiffDataset: FAKE_ROW_DIFF_DATASET,
+    stageRowDiffFile: async () => {
+      const name = 'rowdiff-a.jsonl'
+      subjectState.staged.set(name, subjectState.goodBytes)
+      return fileSource(name)
+    },
+    stageRowDiffComparisonFile: async () => {
+      const name = 'rowdiff-comparison.jsonl'
+      subjectState.staged.set(name, subjectState.goodBytes)
+      return fileSource(name)
+    },
+    missingComparisonSource: {
+      name: 'rowdiff-missing.jsonl',
+      getFile: async () => {
+        throw new FakeOperationError('staged comparison file missing')
+      },
+    },
     // The fake models a compliant engine's vocabulary probe: one column per
     // spelling, reported exactly as spelled — except bare DECIMAL, which the
     // engine reports parameterized (the documented m5-0 caveat).
@@ -3110,6 +3568,47 @@ describe('engine conformance suite (m5-2 validation execution)', () => {
     expect(passed).toBe(false)
     // The skipped guard trips first at the over-max K probe (step 4) or at
     // the hostile-plan battery (step 5) — either is the guard's absence.
+    expect(detail).toMatch(/must be rejected/)
+  })
+})
+
+describe('engine conformance suite (m6-2 row-diff execution)', () => {
+  it('exposes row-diff evidence (counts, flips, clamp, hostile probes, staging)', async () => {
+    const subject = makeSubject()
+    const result = await runEngineConformanceScenario(subject, 'row-diff-plan-execution')
+    expect(result.passed, result.detail).toBe(true)
+    expect(result.facts['keys']).toBe(FAKE_ROW_DIFF_DATASET.keys.length)
+    expect(result.facts['rowCountA']).toBe(FAKE_ROW_DIFF_BASE_EXPECTATIONS.rowCountA)
+    expect(result.facts['rowCountB']).toBe(FAKE_ROW_DIFF_BASE_EXPECTATIONS.rowCountB)
+    expect(result.facts['added']).toBe(130)
+    expect(result.facts['removed']).toBe(2)
+    expect(result.facts['changed']).toBe(130)
+    expect(result.facts['interactions']).toBe(FAKE_ROW_DIFF_DATASET.interactions.length)
+    expect(result.facts['countFlips']).toBeGreaterThanOrEqual(1)
+    expect(result.facts['clampedCount']).toBe(FAKE_ROW_DIFF_DATASET.truncation.expectCount)
+    expect(result.facts['clampedSamples']).toBe(FAKE_ROW_DIFF_DATASET.truncation.expectSamples)
+    expect(result.facts['hostileRejected']).toBe(FAKE_ROW_DIFF_DATASET.hostilePlans.length)
+    expect(result.facts['canariesAbsent']).toBe(true)
+    expect(result.facts['preExistingViewSurvived']).toBe(true)
+    expect(result.facts['stagingFailuresRejected']).toBe(true)
+    expect(result.facts['engineReusable']).toBe(true)
+  })
+
+  it('row-diff-plan-execution: detects inflated aspect counts', async () => {
+    const { passed, detail } = await runOne(
+      { liesAboutRowDiffCounts: true },
+      'row-diff-plan-execution',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('count')
+  })
+
+  it('row-diff-plan-execution: detects a missing hostile-plan guard', async () => {
+    const { passed, detail } = await runOne(
+      { acceptsHostileRowDiffPlans: true },
+      'row-diff-plan-execution',
+    )
+    expect(passed).toBe(false)
     expect(detail).toMatch(/must be rejected/)
   })
 })

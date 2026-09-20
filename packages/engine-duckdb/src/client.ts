@@ -27,6 +27,8 @@ import { EngineTypeError, validateEngineTypeExpression } from './type-expr'
 import { assertValidOverlayTypes } from './overlay-wire'
 import { parseValidationPlan } from './validate-plan-wire'
 import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
+import { parseRowDiffPlan } from './diff-plan-wire'
+import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire'
 import { parseEngineResponse } from './protocol'
 import type {
   EngineColumnSchema,
@@ -100,6 +102,18 @@ export interface EngineFileSource {
 export interface EngineTableHandle {
   readonly kind: 'table'
   readonly id: string
+}
+
+/**
+ * Opaque handle to a staged comparison dataset (m6-2): the `engine/diff`
+ * counterpart of a table handle. Structurally distinct from a grid table
+ * handle so a comparison can never be mistaken for an open dataset.
+ */
+export interface EngineComparisonHandle {
+  readonly kind: 'comparison'
+  readonly id: string
+  /** Columns of the staged comparison view (DESCRIBE), for plan compilation. */
+  readonly schema: readonly EngineColumnSchema[]
 }
 
 /** A requested row window for `fetchRange` (half-open: `[startRow, endRow)`). */
@@ -743,6 +757,76 @@ export class DuckDbEngineClient {
     })
     if (response.type !== 'engine/validate-result') {
       throw new EngineProtocolError(`unexpected ${response.type} response for engine/validate`)
+    }
+    return response.result
+  }
+
+  /**
+   * Stage a comparison dataset file for a row diff (m6-2, checkpoint C3):
+   * registers the file in the worker's comparison scratch slot (never the
+   * source path) and materializes a comparison view. Returns an opaque
+   * comparison handle; a later {@link diff} binds it as the plan's side B.
+   * Only one comparison is staged at a time — re-staging replaces the
+   * previous one, so repeated staging cannot leak views or registrations.
+   * Unsupported extensions reject with `EngineOperationError`.
+   */
+  async stageComparison(source: EngineFileSource): Promise<EngineComparisonHandle> {
+    await this.ensureReady()
+    const file = await source.getFile()
+    const response = await this.send({
+      type: 'engine/diff-stage',
+      requestId: this.takeRequestId(),
+      name: source.name,
+      file,
+    })
+    if (response.type !== 'engine/diff-stage-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/diff-stage`)
+    }
+    return { kind: 'comparison', id: response.comparisonId, schema: response.columns }
+  }
+
+  /**
+   * Row-diff execution (m6-2, query lane): execute a compiled m6-1
+   * `RowDiffPlan` (`@assay/diff`'s output — the parameter is the engine's
+   * structural wire mirror, which the compiler's plan assigns to directly)
+   * against the table's **effective view** (base + the given overlay, or the
+   * plain base view when absent) as side A, and the staged comparison as
+   * side B.
+   *
+   * The plan is shape-validated on this side too (fast, observable failure
+   * for a malformed plan — the worker re-validates at the boundary); the
+   * result carries the two effective row counts and one entry per aspect
+   * (`added`/`removed`/`changed`) with the exact count and bounded samples.
+   * A-side samples carry grid-resolvable logical row keys; B-side samples
+   * carry the report-only `b:<ordinal>` form (checkpoint C3). Row keys and
+   * changed-column names are report content — never logged (ADR 0025).
+   */
+  async diff(
+    handle: EngineTableHandle,
+    comparison: EngineComparisonHandle,
+    plan: EngineRowDiffPlan,
+    overlay?: EngineOverlay,
+  ): Promise<EngineRowDiffResult> {
+    await this.ensureReady()
+    const wirePlan = parseRowDiffPlan(plan)
+    if (wirePlan === null) {
+      throw new EngineOperationError('malformed row-diff plan')
+    }
+    if (overlay !== undefined) this.requireValidOverlayTypes(overlay)
+    const response = await this.send({
+      type: 'engine/diff',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      comparisonId: comparison.id,
+      plan: wirePlan,
+      ...(overlay === undefined
+        ? {}
+        : {
+            overlay: { base: overlay.base, ops: overlay.ops === undefined ? [] : [...overlay.ops] },
+          }),
+    })
+    if (response.type !== 'engine/diff-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/diff`)
     }
     return response.result
   }

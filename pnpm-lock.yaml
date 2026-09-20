@@ -247,6 +247,9 @@ importers:
       '@assay/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@assay/diff':
+        specifier: workspace:*
+        version: link:../diff
       '@assay/testing':
         specifier: workspace:*
         version: link:../testing
@@ -289,6 +292,9 @@ importers:
       '@assay/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@assay/diff':
+        specifier: workspace:*
+        version: link:../diff
       '@assay/validation':
         specifier: workspace:*
         version: link:../validation

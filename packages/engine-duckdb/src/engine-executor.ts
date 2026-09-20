@@ -64,6 +64,7 @@ import { parseEngineRequestEnvelope } from './protocol'
 import type {
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
+  EngineDiffRequest,
   EngineExportRequest,
   EngineFilterSpec,
   EngineNumericColumnStats,
@@ -103,6 +104,26 @@ import type { ValidationSampleRow } from './validate-query'
 import { assertValidationPlanRelationBinding } from './validate-plan-wire'
 import type { EngineValidationResult, EngineValidationRuleResult } from './validate-plan-wire'
 import { composeRowCountSql, composeWindowSql } from './window-query'
+import { ComparisonRegistry } from './comparison-registry'
+import { assertRowDiffPlanBinding } from './diff-plan-wire'
+import type { EngineRowDiffAspect, EngineRowDiffResult } from './diff-plan-wire'
+import {
+  buildDiffAspectSamples,
+  composeDiffAspectQuery,
+  composeDiffComparisonViewSql,
+  composeDiffCountSql,
+  composeDiffARowKeySql,
+  composeDiffViewDropSql,
+  diffEffectiveSampleLimit,
+  readDiffARowKeys,
+  readDiffAspectRows,
+  readDiffRowCount,
+  readDiffTotalsRows,
+  rowDiffCountExcess,
+  ROW_DIFF_BEGIN_SQL,
+  ROW_DIFF_ROLLBACK_SQL,
+} from './diff-query'
+import type { RowDiffSampleRow } from './diff-query'
 
 /**
  * Minimal structural view of an Apache Arrow record-batch stream reader —
@@ -191,6 +212,8 @@ export class EngineOpExecutor {
     connection: (session) => session.conn,
   }
   private readonly registry = new TableRegistry()
+  /** Single-slot staged comparison registry (m6-2, C3). */
+  private readonly comparisons = new ComparisonRegistry()
   /** Monotonic export sequence: generated, collision-free destination names. */
   private nextExportSeq = 1
 
@@ -245,7 +268,9 @@ export class EngineOpExecutor {
       request.type === 'engine/profile' ||
       request.type === 'engine/export' ||
       request.type === 'engine/overlay-cast-check' ||
-      request.type === 'engine/validate'
+      request.type === 'engine/validate' ||
+      request.type === 'engine/diff-stage' ||
+      request.type === 'engine/diff'
         ? this.queryLane
         : this.registryLane
     void lane.channel.run(() => this.dispatch(request, lane))
@@ -324,6 +349,14 @@ export class EngineOpExecutor {
         }
         case 'engine/validate': {
           await this.runValidate(request, lane)
+          break
+        }
+        case 'engine/diff-stage': {
+          await this.runDiffStage(request.requestId, request.name, request.file, lane)
+          break
+        }
+        case 'engine/diff': {
+          await this.runDiff(request, lane)
           break
         }
         case 'engine/export': {
@@ -923,6 +956,306 @@ export class EngineOpExecutor {
   }
 
   /**
+   * Stage a comparison dataset for a row diff (m6-2, checkpoint C3): detect
+   * the reader format from the file name, register the picked `File` with
+   * DuckDB under an engine-generated comparison name (lazy reader — no
+   * upfront copy), and create the comparison scratch view. Never the source
+   * path (ADR 0012/0017); user file names never enter SQL (ADR 0025).
+   *
+   * Single-slot replacement (idempotent-safe): any previously staged
+   * comparison is dropped — view then file — before the new registration, so
+   * re-staging a reference cannot accumulate views or file registrations.
+   * A failed registration/view creation rolls the reservation back
+   * best-effort, exactly like `runOpen`.
+   *
+   * Query lane: staging a large file and creating a view over it is the
+   * heavy, user-initiated class (ADR 0040) — it queues behind running
+   * queries, never behind the grid's windows.
+   */
+  private async runDiffStage(
+    requestId: number,
+    name: string,
+    file: File,
+    lane: OpLane,
+  ): Promise<void> {
+    const format = detectFileFormat(name)
+    if (format === null) {
+      throw new Error(
+        'unsupported comparison format: this engine reads .parquet, .csv, .jsonl and .json files',
+      )
+    }
+    const conn = lane.connection(await this.deps.ensureSession())
+    const previous = this.comparisons.clear()
+    if (previous !== null) {
+      await conn
+        .query(`DROP VIEW IF EXISTS ${quotedIdentifier(previous.viewName)}`)
+        .catch(() => undefined)
+      await this.deps.dropFile(previous.registeredFileName).catch(() => undefined)
+    }
+    const reservation = this.comparisons.reserve(format)
+    let confirmed = false
+    try {
+      await this.validationStep('the comparison file could not be registered', () =>
+        this.deps.registerFileHandle(reservation.registeredFileName, file),
+      )
+      await this.validationStep('the comparison view could not be created', () =>
+        conn.query(createViewSql(reservation.viewName, reservation.registeredFileName, format)),
+      )
+      this.comparisons.confirm(reservation)
+      confirmed = true
+      const columns = await this.describeView(conn, reservation.viewName)
+      this.post({
+        type: 'engine/diff-stage-result',
+        requestId,
+        comparisonId: reservation.comparisonId,
+        columns,
+      })
+    } finally {
+      if (!confirmed) {
+        // Best-effort rollback of the half-created comparison (the catalog
+        // entry and the file registration are both engine-generated names).
+        await conn
+          .query(`DROP VIEW IF EXISTS ${quotedIdentifier(reservation.viewName)}`)
+          .catch(() => undefined)
+        await this.deps.dropFile(reservation.registeredFileName).catch(() => undefined)
+      }
+    }
+  }
+
+  /**
+   * Row-diff execution (m6-2, query lane per ADR 0040): execute a compiled
+   * m6-1 `RowDiffPlan` with side A bound to the table's **effective view**
+   * (the m4-2 composed relation; absent `overlay` = the plain base view) and
+   * side B bound to the staged comparison view addressed by `comparisonId`.
+   *
+   * The plan's SQL is executed byte-identically: the executor materializes
+   * both binding views under the plan's own relation names (side A through
+   * the m5-2 composed-view helper — baked `assay_overlay_ord` is the A-side
+   * row-key channel; side B as a thin pass-through over the staged view),
+   * runs the three aspect queries plus the totals query, resolves every
+   * sampled A-side ordinal to its logical row key, then drops the views. The
+   * whole sequence is ONE query-lane FIFO op, so create → run → drop can
+   * never interleave with another query-lane op; both views are dropped in
+   * `finally`, and the containment transaction (`BEGIN…ROLLBACK`, the m5-2
+   * belt 2) is always rolled back.
+   *
+   * Boundary posture: the wire shape was validated at the envelope; here the
+   * plan must pass belt 1 (`assertRowDiffPlanBinding`) BEFORE any SQL runs —
+   * no shadowing of registered views, per-aspect single compiler-shaped
+   * SELECTs, the compiler's exact FROM renderings of BOTH relations with the
+   * fixed range aliases, and the compiler-shaped three-arm totals UNION ALL.
+   *
+   * Result sanity (the m5-4 analog, made explicit in `diff-query.ts`): each
+   * aspect's reported count must fit its bound (`added ≤ rowCount(B)`,
+   * `removed ≤ rowCount(A)`, `changed ≤ min(rowCount(A), rowCount(B))` under
+   * the compiler's unique-key semantics); the per-aspect counts must agree
+   * with the totals query (the m6-1 no-divergence invariant, asserted not
+   * assumed); samples are bounded by `min(plan K, hard max)`. A count past
+   * its bound cannot be compiler output — one typed error, never an
+   * out-of-contract result.
+   *
+   * An engine error is mapped through the fixed, value-free failure classes
+   * (the m5-2 `validationStep` discipline): DuckDB errors can embed values
+   * or plan text, so they never leave the worker. A-side sample keys carry
+   * the host's base anchor token; that token is report content returned to
+   * its owner, but is never interpolated into an error message or log (ADR
+   * 0025).
+   */
+  private async runDiff(request: EngineDiffRequest, lane: OpLane): Promise<void> {
+    const entryA = this.requireTable(request.tableId)
+    const comparison = this.comparisons.get(request.comparisonId)
+    if (comparison === null) {
+      throw new Error('unknown comparison handle')
+    }
+    const conn = lane.connection(await this.deps.ensureSession())
+    const plan = request.plan
+    if (!Number.isSafeInteger(plan.sampleLimit) || plan.sampleLimit < 1) {
+      throw new Error('row-diff plan sampleLimit must be a safe integer of at least 1')
+    }
+    const sampleLimit = diffEffectiveSampleLimit(plan.sampleLimit)
+    assertRowDiffPlanBinding(plan, [
+      ...this.registry.list().map((registered) => registered.viewName),
+      ...this.comparisons.viewNames(),
+    ])
+
+    const composition: OverlayComposition =
+      request.overlay === undefined
+        ? await this.validationStep('the row-diff side A could not be described', () =>
+            this.baseViewComposition(conn, entryA.viewName),
+          )
+        : {
+            viewName: entryA.viewName,
+            base: request.overlay.base,
+            state: this.compositionOf(request.overlay).state,
+          }
+
+    await this.validationStep('the row-diff containment transaction could not be started', () =>
+      conn.query(ROW_DIFF_BEGIN_SQL),
+    )
+    let aViewCreated = false
+    let bViewCreated = false
+    let cleanupError: Error | null = null
+    let runResult: EngineRowDiffResult | null = null
+    try {
+      await this.validationStep('the row-diff side A binding view could not be materialized', () =>
+        conn.query(composeValidationViewSql(composition, plan.relationA)),
+      )
+      aViewCreated = true
+      await this.validationStep('the row-diff side B binding view could not be materialized', () =>
+        conn.query(composeDiffComparisonViewSql(plan.relationB, comparison.viewName)),
+      )
+      bViewCreated = true
+
+      const rowCountA = await this.validationStep(
+        'the row-diff side A count query failed to execute',
+        async () => readDiffRowCount(await conn.query(composeValidationCountSql(plan.relationA))),
+      )
+      const rowCountB = await this.validationStep(
+        'the row-diff side B count query failed to execute',
+        async () => readDiffRowCount(await conn.query(composeDiffCountSql(plan.relationB))),
+      )
+
+      const aspectOrder: readonly EngineRowDiffAspect[] = ['added', 'removed', 'changed']
+      const aspectSqls: Readonly<Record<EngineRowDiffAspect, string>> = {
+        added: plan.addedSql,
+        removed: plan.removedSql,
+        changed: plan.changedSql,
+      }
+      const rowsByAspect = new Map<EngineRowDiffAspect, readonly RowDiffSampleRow[]>()
+      const counts = new Map<EngineRowDiffAspect, number>()
+      const aOrdinals = new Set<number>()
+      for (const aspect of aspectOrder) {
+        const rows = await this.validationStep(
+          `row-diff ${aspect} query failed to execute`,
+          async () =>
+            readDiffAspectRows(
+              await conn.query(composeDiffAspectQuery(aspectSqls[aspect], sampleLimit)),
+              aspect,
+            ),
+        )
+        const excess = rowDiffCountExcess(aspect, rows.count, rowCountA, rowCountB)
+        if (excess !== null) {
+          throw new Error(`row-diff ${aspect} ${excess}`)
+        }
+        if (rows.rows.length > sampleLimit) {
+          throw new Error(`row-diff ${aspect} returned more samples than the engine's bound`)
+        }
+        for (const sample of rows.rows) {
+          if (sample.side === 'A') {
+            if (sample.ordinal >= rowCountA) {
+              throw new Error(
+                `row-diff ${aspect} sampled an A-side ordinal past the effective row count`,
+              )
+            }
+            aOrdinals.add(sample.ordinal)
+          } else if (sample.ordinal >= rowCountB) {
+            throw new Error(
+              `row-diff ${aspect} sampled a B-side ordinal past the comparison row count`,
+            )
+          }
+        }
+        counts.set(aspect, rows.count)
+        rowsByAspect.set(aspect, rows.rows)
+      }
+
+      const aKeys =
+        aOrdinals.size > 0
+          ? await this.validationStep(
+              'the row-diff side A row-key query failed to execute',
+              async () =>
+                readDiffARowKeys(
+                  await conn.query(
+                    composeDiffARowKeySql(
+                      plan.relationA,
+                      [...aOrdinals].sort((a, b) => a - b),
+                    ),
+                  ),
+                ),
+            )
+          : new Map<number, string>()
+
+      const totals = await this.validationStep(
+        'the row-diff totals query failed to execute',
+        async () => readDiffTotalsRows(await conn.query(plan.totalsSql)),
+      )
+
+      const aspects: EngineRowDiffResult['aspects'] = aspectOrder.map((aspect) => {
+        const rows = rowsByAspect.get(aspect) ?? []
+        const count = counts.get(aspect) ?? 0
+        const totalCount = totals.get(aspect)
+        if (totalCount === undefined) {
+          throw new Error(`row-diff totals query is missing the ${aspect} aspect`)
+        }
+        if (totalCount !== count) {
+          throw new Error(`row-diff totals query disagrees with the ${aspect} count`)
+        }
+        return { aspect, count, samples: buildDiffAspectSamples(rows, aspect, aKeys) }
+      })
+
+      runResult = { rowCountA, rowCountB, aspects }
+    } finally {
+      // Containment cleanup: drop whichever binding views this op created,
+      // then ROLLBACK — both steps always attempted in order, before any
+      // success is posted (the m5-2 W2 ordering).
+      cleanupError = await this.cleanupDiffConnection(
+        conn,
+        aViewCreated,
+        bViewCreated,
+        plan.relationA,
+        plan.relationB,
+      )
+    }
+
+    if (cleanupError !== null) throw cleanupError
+    if (runResult === null) {
+      throw new Error('the row-diff op completed without a result')
+    }
+    this.post({
+      type: 'engine/diff-result',
+      requestId: request.requestId,
+      result: runResult,
+    })
+  }
+
+  /**
+   * The row-diff containment cleanup (the m5-2 `cleanupValidateConnection`
+   * analog): drop each binding view this op created, then ROLLBACK. A
+   * failed drop is reported (never silently swallowed) but does not skip
+   * the rollback; a failed rollback is the returned error.
+   */
+  private async cleanupDiffConnection(
+    conn: EngineConnectionLike,
+    aViewCreated: boolean,
+    bViewCreated: boolean,
+    relationA: string,
+    relationB: string,
+  ): Promise<Error | null> {
+    let dropError: Error | null = null
+    if (aViewCreated) {
+      try {
+        await conn.query(composeDiffViewDropSql(relationA))
+      } catch {
+        dropError = new Error('the row-diff side A binding view could not be dropped')
+      }
+    }
+    if (bViewCreated) {
+      try {
+        await conn.query(composeDiffViewDropSql(relationB))
+      } catch {
+        if (dropError === null) {
+          dropError = new Error('the row-diff side B binding view could not be dropped')
+        }
+      }
+    }
+    try {
+      await conn.query(ROW_DIFF_ROLLBACK_SQL)
+    } catch {
+      return new Error('the row-diff containment transaction could not be rolled back')
+    }
+    return dropError
+  }
+
+  /**
    * Export/rewrite op (m4-2; query lane — a long-running user-initiated
    * materialization that must never block the grid's windows, ADR 0040):
    * materializes the effective view (base + overlay; absent overlay = the
@@ -1178,6 +1511,14 @@ export class EngineOpExecutor {
         .query(`DROP VIEW IF EXISTS ${quotedIdentifier(entry.viewName)}`)
         .catch(() => undefined)
       await this.deps.dropFile(entry.registeredFileName).catch(() => undefined)
+    }
+    // m6-2: the single staged comparison (if any) is dropped with the rest.
+    const staged = this.comparisons.clear()
+    if (staged !== null) {
+      await conn
+        .query(`DROP VIEW IF EXISTS ${quotedIdentifier(staged.viewName)}`)
+        .catch(() => undefined)
+      await this.deps.dropFile(staged.registeredFileName).catch(() => undefined)
     }
     this.post({ type: 'engine/disposed', requestId })
   }

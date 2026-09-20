@@ -53,6 +53,7 @@ const SCENARIOS = [
   'source-immutability',
   'overlay-hostile-types-rejected',
   'validation-plan-execution',
+  'row-diff-plan-execution',
 ] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
@@ -77,6 +78,7 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'source-immutability': 'Conformance: source immutability',
   'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
   'validation-plan-execution': 'Conformance: validation plan execution',
+  'row-diff-plan-execution': 'Conformance: row-diff plan execution',
 }
 
 /** Click a scenario button and wait for its JSON result to render. */
@@ -238,6 +240,30 @@ for (const name of SCENARIOS) {
         expect(result.facts['canariesAbsent']).toBe(true)
         expect(result.facts['preExistingViewSurvived']).toBe(true)
         expect(result.facts['vocabularyAgreed']).toBe(21)
+        expect(result.facts['engineReusable']).toBe(true)
+        break
+      case 'row-diff-plan-execution':
+        // m6-2: the real m6-1 compiler's plan executed with side A on the
+        // effective view and side B on the staged comparison — exact counts
+        // (132 A rows / 260 B rows; 130 added / 2 removed / 130 changed),
+        // the overlay-interaction flips, the K clamp (a K=500 plan reports
+        // 100 samples with the FULL count 130), the hostile-plan rejections,
+        // the canary absence, the pre-existing-view survival pin, and the
+        // staging failure paths.
+        expect(result.facts['keys']).toBe(1)
+        expect(result.facts['rowCountA']).toBe(132)
+        expect(result.facts['rowCountB']).toBe(260)
+        expect(result.facts['added']).toBe(130)
+        expect(result.facts['removed']).toBe(2)
+        expect(result.facts['changed']).toBe(130)
+        expect(result.facts['interactions']).toBe(2)
+        expect(result.facts['countFlips']).toBeGreaterThanOrEqual(1)
+        expect(result.facts['clampedCount']).toBe(130)
+        expect(result.facts['clampedSamples']).toBe(100)
+        expect(result.facts['hostileRejected']).toBe(11)
+        expect(result.facts['canariesAbsent']).toBe(true)
+        expect(result.facts['preExistingViewSurvived']).toBe(true)
+        expect(result.facts['stagingFailuresRejected']).toBe(true)
         expect(result.facts['engineReusable']).toBe(true)
         break
       default:

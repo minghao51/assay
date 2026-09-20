@@ -344,7 +344,7 @@ export function parseValidationPlan(value: unknown): EngineValidationPlan | null
  * compiler-shaped. String/identifier terminators use SQL's doubled-quote
  * escaping (`''` / `""`).
  */
-type PlanSqlScan =
+export type PlanSqlScan =
   | { readonly ok: true; readonly code: string }
   | {
       readonly ok: false
@@ -376,7 +376,7 @@ type PlanSqlScan =
  * inside a literal can never read as code. (Comments never reach the code
  * view: they are refused outright.)
  */
-function scanPlanSql(sql: string): PlanSqlScan {
+export function scanPlanSql(sql: string): PlanSqlScan {
   let out = ''
   let index = 0
   const length = sql.length
@@ -499,7 +499,7 @@ function countCompilerShapedOccurrences(sql: string, quotedRelation: string): nu
  * either. A trailing lone separator with nothing after it is tolerated (the
  * compiler never emits one, but it cannot carry a second statement).
  */
-function isSingleSelectStatement(code: string): boolean {
+export function isSingleSelectStatement(code: string): boolean {
   if (!/^\s*select\b/i.test(code)) return false
   const separator = code.indexOf(';')
   return separator < 0 || code.slice(separator + 1).trim() === ''

@@ -43,6 +43,7 @@ import type { CellValue, EditOp, OverlayBase } from '@assay/domain'
 import { tableFromIPC } from 'apache-arrow'
 import { CONTRACT_TYPE_VOCABULARY } from '@assay/contracts'
 import { VALIDATION_DATASET, buildValidationJsonl } from './validation-dataset'
+import { ROW_DIFF_DATASET, buildRowDiffAJsonl, buildRowDiffBJsonl } from './row-diff-dataset'
 
 /** The customers.parquet golden fixture, as the DuckDB DESCRIBE reports it. */
 const GOOD_DATASET = {
@@ -1649,6 +1650,24 @@ export function createDuckDbConformanceSubject(
     stageValidationFile: async () => {
       const jsonl = buildValidationJsonl()
       return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-validation.jsonl'))
+    },
+    rowDiffDataset: ROW_DIFF_DATASET,
+    stageRowDiffFile: async () => {
+      const jsonl = buildRowDiffAJsonl()
+      return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-rowdiff-a.jsonl'))
+    },
+    stageRowDiffComparisonFile: async () => {
+      const jsonl = buildRowDiffBJsonl()
+      return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-rowdiff-b.jsonl'))
+    },
+    // The staging "missing file" path: the source's bytes cannot be resolved,
+    // classified as the typed operation category (the host owns file
+    // resolution; a deleted/moved handle is an operation failure).
+    missingComparisonSource: {
+      name: 'assay-conformance-rowdiff-missing.jsonl',
+      getFile: async () => {
+        throw new EngineOperationError('the comparison file could not be read')
+      },
     },
     vocabularySchema: async (client) => {
       // One column per m5-0 vocabulary spelling, created in the engine, then

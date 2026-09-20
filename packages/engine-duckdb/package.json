@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "@assay/contracts": "workspace:*",
+    "@assay/diff": "workspace:*",
     "@assay/testing": "workspace:*",
     "@assay/validation": "workspace:*",
     "typescript": "catalog:",

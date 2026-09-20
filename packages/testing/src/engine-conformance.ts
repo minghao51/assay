@@ -156,6 +156,7 @@
 import { Vector, type Table } from 'apache-arrow'
 import { CONTRACT_TYPE_VOCABULARY, parseContract } from '@assay/contracts'
 import { compileContract } from '@assay/validation'
+import { compileRowDiffPlan } from '@assay/diff'
 
 // ---- Structural surface the suite exercises (implementations adapt to it) ----
 
@@ -375,6 +376,28 @@ export interface ConformanceEngineClient {
     overlay?: ConformanceOverlay,
   ): Promise<ConformanceValidationResult>
   /**
+   * Stage a comparison dataset file for a row diff (m6-2, checkpoint C3):
+   * registers the file in the engine's comparison scratch slot (never the
+   * source path) and returns an opaque comparison handle carrying the staged
+   * view's schema. Only one comparison is staged at a time; re-staging
+   * replaces it. An unreadable or unsupported file rejects with a classified
+   * engine error.
+   */
+  stageComparison(source: ConformanceFileSource): Promise<ConformanceComparisonHandle>
+  /**
+   * Row-diff execution (m6-2): execute a compiled m6-1 plan with side A bound
+   * to the table's effective view (base + the optional overlay, or the plain
+   * base view when absent) and side B bound to the staged comparison. The
+   * result carries both row counts and per-aspect exact counts plus bounded,
+   * side-qualified samples.
+   */
+  diff(
+    handle: ConformanceTableHandle,
+    comparison: ConformanceComparisonHandle,
+    plan: ConformanceRowDiffPlan,
+    overlay?: ConformanceOverlay,
+  ): Promise<ConformanceRowDiffResult>
+  /**
    * Export/rewrite (m4-2): materialize the effective view (absent `overlay`:
    * the plain base view) into a NEW generated file — never the source path
    * (ADR 0012/0017).
@@ -535,6 +558,24 @@ export interface EngineConformanceSubject {
   readonly validationDataset: ConformanceValidationDataset
   /** Stage the dirty validation dataset (`validationDataset`). */
   stageValidationFile(): Promise<ConformanceFileSource>
+  /**
+   * The m6-2 row-diff dataset behind `stageRowDiffFile()` /
+   * `stageRowDiffComparisonFile()`: two runtime-built on-demand dirty files
+   * (temp/OPFS, never committed), the explicit keys, and CLI-derived
+   * expectations covering the base run, the overlay-interaction battery, the
+   * K-clamp, hostile plans, and the staging failure paths.
+   */
+  readonly rowDiffDataset: ConformanceRowDiffDataset
+  /** Stage side A of the row-diff pair (the main dataset). */
+  stageRowDiffFile(): Promise<ConformanceFileSource>
+  /** Stage side B of the row-diff pair (the comparison dataset). */
+  stageRowDiffComparisonFile(): Promise<ConformanceFileSource>
+  /**
+   * A comparison file source whose bytes cannot be resolved (the staging
+   * "missing file" path): `getFile()` rejects with a classified operation
+   * error, so the scenario can assert the typed rejection and reuse.
+   */
+  readonly missingComparisonSource: ConformanceFileSource
   /**
    * Create (and clean up) a table with one column per m5-0 vocabulary
    * spelling and return its reported name/type pairs — the engine-side half
@@ -1071,6 +1112,163 @@ export interface ConformanceHostileTypeProbe {
   readonly injectedTable?: string
 }
 
+// ---- Row-diff execution types (m6-2) ----
+//
+// Structural mirrors of the m6-1 `RowDiffPlan` (`@assay/diff`) and the
+// engine's `EngineRowDiffResult` (the same precedent as the validation
+// mirrors): the suite never imports an engine, and REAL compiled plans flow
+// through these shapes because the scenario compiles the subject's two
+// schemas with the real m6-1 compiler.
+
+/** The three row-diff aspects, in the compiler's documented order. */
+export type ConformanceRowDiffAspect = 'added' | 'removed' | 'changed'
+
+/** A compiled row-diff plan (mirror of m6-1's `RowDiffPlan`). */
+export interface ConformanceRowDiffPlan {
+  readonly planKind: string
+  readonly planVersion: number
+  readonly relationA: string
+  readonly relationB: string
+  readonly keys: readonly string[]
+  readonly sampleLimit: number
+  readonly sharedColumns: readonly string[]
+  readonly addedSql: string
+  readonly removedSql: string
+  readonly changedSql: string
+  readonly totalsSql: string
+}
+
+/**
+ * One sampled row: a side-qualified row key. A-side keys are grid-resolvable
+ * logical row ids (`base:<anchor>#<ordinal>`); B-side keys are the
+ * report-only `b:<ordinal>` form (checkpoint C3). `changedColumns` is present
+ * for the `changed` aspect only.
+ */
+export interface ConformanceRowDiffSample {
+  readonly side: 'A' | 'B'
+  readonly rowKey: string
+  readonly changedColumns?: readonly string[]
+}
+
+/** Per-aspect result (mirror of the engine's `EngineRowDiffAspectResult`). */
+export interface ConformanceRowDiffAspectResult {
+  readonly aspect: ConformanceRowDiffAspect
+  readonly count: number
+  readonly samples: readonly ConformanceRowDiffSample[]
+}
+
+/** Full row-diff result (mirror of the engine's `EngineRowDiffResult`). */
+export interface ConformanceRowDiffResult {
+  readonly rowCountA: number
+  readonly rowCountB: number
+  readonly aspects: readonly ConformanceRowDiffAspectResult[]
+}
+
+/**
+ * Opaque comparison handle returned by staging (m6-2): the comparison id plus
+ * the staged view's DESCRIBE columns, so the scenario can compile the plan
+ * against the engine's own schema for side B.
+ */
+export interface ConformanceComparisonHandle {
+  readonly kind: 'comparison'
+  readonly id: string
+  readonly schema: readonly ConformanceColumn[]
+}
+
+/** One aspect's pinned expectation for one run. */
+export interface ConformanceRowDiffAspectExpectation {
+  readonly aspect: ConformanceRowDiffAspect
+  readonly count: number
+  /**
+   * The exact expected samples (bounded by the plan K). Omit to assert only
+   * the count (the overlay interactions pin counts; the base run pins the
+   * full sample sets).
+   */
+  readonly samples?: readonly ConformanceRowDiffSample[]
+}
+
+/** One run's pinned expectations: both row counts and all three aspects. */
+export interface ConformanceRowDiffExpectations {
+  readonly rowCountA: number
+  readonly rowCountB: number
+  readonly aspects: readonly ConformanceRowDiffAspectExpectation[]
+}
+
+/**
+ * One overlay-interaction pin: the same plan re-run with side A composed over
+ * a scripted op list (side B stays the staged file). The battery must cover
+ * an A-side edit that changes the row-diff verdict (fix or break).
+ */
+export interface ConformanceRowDiffInteraction {
+  readonly label: string
+  readonly ops: readonly ConformanceEditOp[]
+  readonly expectations: ConformanceRowDiffExpectations
+}
+
+/**
+ * The K-clamp pin (m6-2, the m5-2 pattern): a plan compiled PAST the hard max
+ * EXECUTES with samples clamped to `min(K, hardMax)` while the aspect's exact
+ * count is never corrupted by the outer limit.
+ */
+export interface ConformanceRowDiffTruncation {
+  readonly aspect: ConformanceRowDiffAspect
+  readonly hardMax: number
+  readonly clampedSampleLimit: number
+  /** The aspect's exact count (must exceed the hard max for a non-vacuous pin). */
+  readonly expectCount: number
+  /** Reported samples under the clamped plan: min(expectCount, hardMax). */
+  readonly expectSamples: number
+  readonly expectFirstRowKey: string
+}
+
+/** One hostile row-diff plan probe (shape/semantics violation → one typed rejection). */
+export interface ConformanceHostileRowDiffPlan {
+  readonly label: string
+  readonly plan: ConformanceRowDiffPlan
+}
+
+/**
+ * The m6-2 row-diff dataset a subject stages and pins: two runtime-built
+ * on-demand dirty files (never committed), the explicit key columns, and
+ * every expectation host-engine-derived (engine-duckdb: DuckDB CLI 1.5.5
+ * over the identical plan SQL, cross-checked through the real client).
+ */
+export interface ConformanceRowDiffDataset {
+  /** Side-A binding name the plans are compiled against. */
+  readonly relationA: string
+  /** Side-B binding name the plans are compiled against. */
+  readonly relationB: string
+  /** The explicit key columns (C2: a surface confirms them; never inferred here). */
+  readonly keys: readonly string[]
+  /** The overlay base metadata the interaction runs compose over (side A). */
+  readonly base: ConformanceOverlayBase
+  /** The main plan's K. */
+  readonly sampleLimit: number
+  /** The absent-overlay run (base view; row keys carry the empty anchor). */
+  readonly baseExpectations: ConformanceRowDiffExpectations
+  /** The overlay-interaction battery (effective-vs-file). */
+  readonly interactions: readonly ConformanceRowDiffInteraction[]
+  readonly truncation: ConformanceRowDiffTruncation
+  /** Hostile plans that must each reject with one typed operation error. */
+  readonly hostilePlans: readonly ConformanceHostileRowDiffPlan[]
+  /**
+   * Side-effect tables the hostile plans attempt to create; each is asserted
+   * absent after the battery via a catalog listing query.
+   */
+  readonly injectedTables: readonly string[]
+  /**
+   * A binding name that already exists as a user-created (non-registered)
+   * view: the survival pin binds a plan to it, expects the materialization
+   * failure, and asserts the user's view SURVIVES.
+   */
+  readonly preExistingViewName: string
+  /**
+   * The comparison file name whose extension the engine cannot read
+   * (staging failure path: unsupported file).
+   */
+  readonly unsupportedComparisonName: string
+}
+
 // ---- Results ----
 
 /** Stable scenario identifiers (each runs independently, fresh client). */
@@ -1095,6 +1293,7 @@ export const engineConformanceScenarioNames = [
   'source-immutability',
   'overlay-hostile-types-rejected',
   'validation-plan-execution',
+  'row-diff-plan-execution',
 ] as const
 
 export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[number]
@@ -3214,6 +3413,248 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       canariesAbsent,
       preExistingViewSurvived: true,
       vocabularyAgreed: agreed,
+      engineReusable: true,
+    }
+  },
+
+  /**
+   * 21. `row-diff-plan-execution` (m6-2) — the REAL m6-1 compiler turns the
+   *     subject's two schemas + explicit keys into a plan; the engine stages
+   *     a comparison file and executes the plan with side A on the **effective
+   *     view** (base-vs-base) and side B on the staged scratch view. Pins:
+   *     exact per-aspect counts and bounded side-qualified samples
+   *     (CLI-derived, incl. changed-column sets); per-aspect ≡ totals count
+   *     agreement; the overlay-interaction battery (an A-side edit flips the
+   *     row-diff counts); the K clamp (a plan past the hard max executes with
+   *     samples clamped, count untouched); hostile plans rejected with one
+   *     typed error and no side effects; the pre-existing-view survival pin;
+   *     and the staging failure paths (missing + unsupported file).
+   */
+  'row-diff-plan-execution': async (subject) => {
+    const dataset = subject.rowDiffDataset
+    // Subject preconditions (fail loudly on misconfiguration, never vacuously).
+    expectCondition(dataset.keys.length > 0, 'subject misconfiguration: declare key columns')
+    expectCondition(
+      dataset.baseExpectations.aspects.length === 3,
+      'subject misconfiguration: declare all three base aspect expectations',
+    )
+    expectCondition(
+      dataset.baseExpectations.aspects.some((aspect) => aspect.count > 0) &&
+        dataset.baseExpectations.aspects.some((aspect) => aspect.samples !== undefined),
+      'subject misconfiguration: the base expectations must be non-empty and pin samples',
+    )
+    expectCondition(
+      dataset.interactions.length >= 1,
+      'subject misconfiguration: declare the overlay-interaction battery',
+    )
+    expectCondition(
+      dataset.truncation.clampedSampleLimit > dataset.truncation.hardMax &&
+        dataset.truncation.expectCount > dataset.truncation.hardMax &&
+        dataset.truncation.expectSamples ===
+          Math.min(dataset.truncation.expectCount, dataset.truncation.hardMax),
+      'subject misconfiguration: the clamp pin must be non-vacuous',
+    )
+    expectCondition(
+      dataset.hostilePlans.length > 0,
+      'subject misconfiguration: declare at least one hostile plan probe',
+    )
+    expectCondition(
+      dataset.injectedTables.length > 0,
+      'subject misconfiguration: declare the canary tables the hostile plans must not create',
+    )
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageRowDiffFile())
+    const schemaA = await client.schema(handle)
+    const comparison = await client.stageComparison(await subject.stageRowDiffComparisonFile())
+
+    /** Compile the real m6-1 plan against the engine's own two schemas. */
+    const compile = (sampleLimit: number): ConformanceRowDiffPlan => {
+      const result = compileRowDiffPlan(schemaA, comparison.schema, dataset.keys, {
+        relationA: dataset.relationA,
+        relationB: dataset.relationB,
+        sampleLimit,
+      })
+      expectCondition(
+        result.ok,
+        'subject misconfiguration: the plan must compile against the engine schemas',
+      )
+      if (!result.ok) fail('unreachable')
+      return result.plan
+    }
+    const plan = compile(dataset.sampleLimit)
+
+    /** Assert one run's result against its declared expectations. */
+    const expectRun = (
+      entry: ConformanceRowDiffExpectations,
+      result: ConformanceRowDiffResult,
+      label: string,
+    ): void => {
+      expectEqual(result.rowCountA, entry.rowCountA, `[${label}] side-A row count`)
+      expectEqual(result.rowCountB, entry.rowCountB, `[${label}] side-B row count`)
+      expectEqual(
+        result.aspects.length,
+        entry.aspects.length,
+        `[${label}] one result per aspect (plan order)`,
+      )
+      entry.aspects.forEach((expected, index) => {
+        const actual = result.aspects[index]
+        if (actual === undefined) fail(`[${label}] aspect ${String(index)} missing`)
+        expectEqual(actual!.aspect, expected.aspect, `[${label}] aspect ${String(index)} name`)
+        expectEqual(actual!.count, expected.count, `[${label}] ${expected.aspect} count`)
+        if (expected.samples !== undefined) {
+          expectEqual(
+            JSON.stringify(actual!.samples),
+            JSON.stringify(expected.samples),
+            `[${label}] ${expected.aspect} samples`,
+          )
+        }
+      })
+    }
+
+    // 1. The base run (absent overlay): the plain base view.
+    const baseResult = await client.diff(handle, comparison, plan)
+    expectRun(dataset.baseExpectations, baseResult, 'base')
+
+    // 2. The overlay-interaction battery: the same plan, side A composed over
+    //    different op lists. At least one interaction must change the aspect
+    //    counts (the A-side edit flips the row-diff verdict).
+    let countFlips = 0
+    const baseCounts = baseResult.aspects.map((aspect) => aspect.count).join(',')
+    for (const interaction of dataset.interactions) {
+      const result = await client.diff(handle, comparison, plan, {
+        base: dataset.base,
+        ops: interaction.ops,
+      })
+      expectRun(interaction.expectations, result, interaction.label)
+      if (result.aspects.map((aspect) => aspect.count).join(',') !== baseCounts) countFlips += 1
+    }
+    expectCondition(
+      countFlips >= 1,
+      `the interaction battery must flip at least one aspect count (got ${String(countFlips)})`,
+    )
+
+    // 3. The K clamp (the m5-2 semantics applied to row diff): a plan compiled
+    //    PAST the hard max EXECUTES — samples stop at the hard max while the
+    //    aspect's exact count is the FULL count, never corrupted by the outer
+    //    limit.
+    const overPlan = compile(dataset.truncation.clampedSampleLimit)
+    const overResult = await client.diff(handle, comparison, overPlan)
+    const overAspect = overResult.aspects.find(
+      (aspect) => aspect.aspect === dataset.truncation.aspect,
+    )
+    expectCondition(overAspect !== undefined, 'the clamped-K aspect is missing from the result')
+    expectEqual(
+      overAspect!.count,
+      dataset.truncation.expectCount,
+      '[clamped K] the aspect count is the FULL count — never corrupted by the outer limit',
+    )
+    expectEqual(
+      overAspect!.samples.length,
+      dataset.truncation.expectSamples,
+      '[clamped K] samples stop exactly at the hard max',
+    )
+    expectEqual(
+      overAspect!.samples[0]?.rowKey,
+      dataset.truncation.expectFirstRowKey,
+      '[clamped K] first sample row key',
+    )
+    expectCondition(subject.isReady(client), '[clamped K] the engine must stay ready')
+
+    // 4. Hostile plans: each rejects with ONE typed operation error, leaves no
+    //    side-effect objects, and the engine stays reusable.
+    let hostileRejected = 0
+    for (const probe of dataset.hostilePlans) {
+      const error = await rejectionOf(client.diff(handle, comparison, probe.plan))
+      expectCondition(error !== null, `[${probe.label}] a hostile plan must be rejected`)
+      expectCondition(
+        subject.errors.operation(error),
+        `[${probe.label}] the rejection must be the typed operation category (got: ${errorMessage(error)})`,
+      )
+      expectCondition(
+        subject.isReady(client),
+        `[${probe.label}] the engine must stay ready after the rejection`,
+      )
+      hostileRejected += 1
+    }
+    let canariesAbsent = true
+    for (const canary of dataset.injectedTables) {
+      if (await subject.tableExists(client, canary)) canariesAbsent = false
+    }
+    expectCondition(canariesAbsent, 'the hostile plan side-effect objects must not exist')
+
+    // 5. Pre-existing-view survival: a plan bound to a name that already
+    //    exists as a user-created view fails its materialization with one
+    //    typed error, and the user's view MUST survive it (the failed create
+    //    never marks the view as op-created, so cleanup never drops it).
+    const probeRelation = dataset.preExistingViewName
+    const probeQuoted = `"${probeRelation.replaceAll('"', '""')}"`
+    const sourceQuoted = `"${dataset.relationA.replaceAll('"', '""')}"`
+    const rebind = (sql: string): string => sql.split(sourceQuoted).join(probeQuoted)
+    const preExistingPlan: ConformanceRowDiffPlan = {
+      ...plan,
+      relationA: probeRelation,
+      addedSql: rebind(plan.addedSql),
+      removedSql: rebind(plan.removedSql),
+      changedSql: rebind(plan.changedSql),
+      totalsSql: rebind(plan.totalsSql),
+    }
+    await client.query(`CREATE VIEW ${probeQuoted} AS SELECT 42 AS v`)
+    const surviveError = await rejectionOf(client.diff(handle, comparison, preExistingPlan))
+    expectCondition(
+      surviveError !== null,
+      'a plan bound to an existing view name must fail its materialization',
+    )
+    expectCondition(
+      subject.errors.operation(surviveError),
+      `[pre-existing view] the rejection must be the typed operation category (got: ${errorMessage(surviveError)})`,
+    )
+    expectCondition(
+      await subject.tableExists(client, probeRelation),
+      'the pre-existing user view must survive the failed row diff',
+    )
+    await client.query(`DROP VIEW ${probeQuoted}`)
+
+    // 6. Staging failure paths: an unsupported extension rejects with the
+    //    typed operation category, and a file whose bytes cannot be resolved
+    //    rejects too — the engine stays ready and the previously staged
+    //    comparison is still usable afterwards.
+    const unsupportedSource = await subject.stageBytes(
+      new Uint8Array([1, 2, 3]),
+      dataset.unsupportedComparisonName,
+    )
+    const unsupportedError = await rejectionOf(client.stageComparison(unsupportedSource))
+    expectCondition(
+      unsupportedError !== null && subject.errors.operation(unsupportedError),
+      `[unsupported file] the rejection must be the typed operation category (got: ${errorMessage(unsupportedError)})`,
+    )
+    const missingError = await rejectionOf(client.stageComparison(subject.missingComparisonSource))
+    expectCondition(
+      missingError !== null && subject.errors.operation(missingError),
+      `[missing file] the rejection must be the typed operation category (got: ${errorMessage(missingError)})`,
+    )
+
+    // 7. The engine is reusable after everything (benign re-run over the same
+    //    still-staged comparison).
+    const after = await client.diff(handle, comparison, plan)
+    expectRun(dataset.baseExpectations, after, 'reuse')
+
+    return {
+      keys: dataset.keys.length,
+      rowCountA: baseResult.rowCountA,
+      rowCountB: baseResult.rowCountB,
+      added: baseResult.aspects.find((aspect) => aspect.aspect === 'added')?.count ?? -1,
+      removed: baseResult.aspects.find((aspect) => aspect.aspect === 'removed')?.count ?? -1,
+      changed: baseResult.aspects.find((aspect) => aspect.aspect === 'changed')?.count ?? -1,
+      interactions: dataset.interactions.length,
+      countFlips,
+      clampedCount: overAspect!.count,
+      clampedSamples: overAspect!.samples.length,
+      hostileRejected,
+      canariesAbsent,
+      preExistingViewSurvived: true,
+      stagingFailuresRejected: true,
       engineReusable: true,
     }
   },

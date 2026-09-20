@@ -62,3 +62,37 @@ export {
   sqlStringLiteral,
 } from './format-view'
 export type { EngineFileFormat } from './format-view'
+// m6-2: row-diff execution machinery (the m6-3 CLI consumes these exactly as
+// the m5-4 CLI consumes the validation helpers, so cross-surface agreement is
+// by construction). Pure SQL/text logic over plain data — no browser API.
+export {
+  assertRowDiffPlanBinding,
+  parseRowDiffPlan,
+  ROW_DIFF_SAMPLE_HARD_MAX,
+} from './diff-plan-wire'
+export type {
+  EngineRowDiffAspect,
+  EngineRowDiffAspectResult,
+  EngineRowDiffPlan,
+  EngineRowDiffResult,
+  EngineRowDiffSample,
+} from './diff-plan-wire'
+export {
+  buildDiffAspectSamples,
+  comparisonRowKey,
+  composeDiffARowKeySql,
+  composeDiffAspectQuery,
+  composeDiffAViewSql,
+  composeDiffComparisonViewSql,
+  composeDiffCountSql,
+  composeDiffViewDropSql,
+  diffEffectiveSampleLimit,
+  readDiffARowKeys,
+  readDiffAspectRows,
+  readDiffRowCount,
+  readDiffTotalsRows,
+  ROW_DIFF_BEGIN_SQL,
+  ROW_DIFF_ROLLBACK_SQL,
+  rowDiffCountExcess,
+} from './diff-query'
+export type { RowDiffAspectRows, RowDiffCountExcess, RowDiffSampleRow } from './diff-query'

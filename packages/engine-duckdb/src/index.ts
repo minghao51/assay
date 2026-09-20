@@ -44,6 +44,7 @@ export {
 } from './client'
 export type {
   DuckDbEngineClientOptions,
+  EngineComparisonHandle,
   EngineDatasetProfile,
   EngineExportResult,
   EngineFileSource,
@@ -67,6 +68,10 @@ export type {
   EngineCategoricalTopKEntry,
   EngineDisposedResponse,
   EngineDisposeRequest,
+  EngineDiffRequest,
+  EngineDiffResultResponse,
+  EngineDiffStageRequest,
+  EngineDiffStageResultResponse,
   EngineErrorResponse,
   EngineExportFormat,
   EngineExportRequest,
@@ -190,6 +195,43 @@ export {
   readValidationSummaryRows,
   VALIDATION_SAMPLE_HARD_MAX,
 } from './validate-query'
+// m6-2 fold: row-diff execution — the strict plan wire gate, the two-binding
+// composition helpers, the result readers, the result-sanity bounds, and the
+// side-qualified sample builder, public so hosts (m6-4 web, m6-3/m6-5 CLI
+// agreement work) and the conformance suite consume the same executed
+// semantics instead of re-deriving them.
+export {
+  assertRowDiffPlanBinding,
+  parseRowDiffPlan,
+  quotedRelationToken as quotedRowDiffRelationToken,
+  ROW_DIFF_SAMPLE_HARD_MAX,
+} from './diff-plan-wire'
+export type {
+  EngineRowDiffAspect,
+  EngineRowDiffAspectResult,
+  EngineRowDiffPlan,
+  EngineRowDiffResult,
+  EngineRowDiffSample,
+} from './diff-plan-wire'
+export {
+  buildDiffAspectSamples,
+  comparisonRowKey,
+  composeDiffARowKeySql,
+  composeDiffAspectQuery,
+  composeDiffAViewSql,
+  composeDiffComparisonViewSql,
+  composeDiffCountSql,
+  composeDiffViewDropSql,
+  diffEffectiveSampleLimit,
+  readDiffARowKeys,
+  readDiffAspectRows,
+  readDiffRowCount,
+  readDiffTotalsRows,
+  ROW_DIFF_BEGIN_SQL,
+  ROW_DIFF_ROLLBACK_SQL,
+  rowDiffCountExcess,
+} from './diff-query'
+export type { RowDiffAspectRows, RowDiffCountExcess, RowDiffSampleRow } from './diff-query'
 // m4-2 fix-round fold: the strict engine type-expression validator and the
 // canonical string-family classifier the CSV formula-injection guard keys
 // off. Public so hosts can validate declared cast types before submitting an

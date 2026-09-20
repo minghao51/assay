@@ -11,6 +11,8 @@ import type {
   EngineSessionLike,
 } from './engine-executor'
 import type { EngineRequest, EngineResponse } from './protocol'
+import { compileRowDiffPlan } from '@assay/diff'
+import type { EngineRowDiffPlan } from './diff-plan-wire'
 
 /**
  * T2 worker-side concurrency tests, two lanes since m2-7: interleaved
@@ -2684,5 +2686,260 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
     const posted = await awaitPosted(deps, 2)
     expect(posted).toMatchObject({ type: 'engine/error' })
     expect(deps.queryConn.sentSqls).toEqual([])
+  })
+})
+
+// m6-2: row-diff staging + execution (engine/diff-stage, engine/diff)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COMPARISON_FILE = new File([new Uint8Array([9, 9, 9])], 'comparison.parquet')
+
+/** A real compiler-shaped plan (relations `assay_diff_a` / `assay_diff_b`, K=2). */
+function rowDiffPlanFixture(): EngineRowDiffPlan {
+  const result = compileRowDiffPlan(
+    [
+      { name: 'id', type: 'BIGINT' },
+      { name: 'val', type: 'VARCHAR' },
+    ],
+    [
+      { name: 'id', type: 'BIGINT' },
+      { name: 'val', type: 'VARCHAR' },
+    ],
+    ['id'],
+    { relationA: 'assay_diff_a', relationB: 'assay_diff_b', sampleLimit: 2 },
+  )
+  if (!result.ok) throw new Error(`fixture compile failed: ${JSON.stringify(result.errors)}`)
+  return result.plan
+}
+
+function diffRequest(id: number, plan: EngineRowDiffPlan): EngineRequest {
+  return { type: 'engine/diff', requestId: id, tableId: 't1', comparisonId: 'd1', plan }
+}
+
+/** Empty aspect result (count 0, no samples) and an all-zero totals table. */
+function emptyAspectTable(): Table {
+  return tableFromArrays({})
+}
+function zeroTotalsTable(): Table {
+  return tableFromArrays({
+    assay_aspect: ['added', 'removed', 'changed'],
+    assay_count: BigInt64Array.from([0n, 0n, 0n]),
+  })
+}
+
+/** Stage a comparison through the full flow and wait for its result. */
+async function stageComparison(
+  executor: EngineOpExecutor,
+  deps: FakeDeps,
+  requestId = 2,
+): Promise<void> {
+  executor.accept({
+    type: 'engine/diff-stage',
+    requestId,
+    name: 'comparison.parquet',
+    file: COMPARISON_FILE,
+  })
+  await awaitSends(deps.queryConn, 1)
+  expect(deps.queryConn.sentSqls[0]).toMatch(/CREATE VIEW "assay_diff_d1"/)
+  deps.queryConn.resolveSend(0, intTable([]))
+  await awaitSends(deps.queryConn, 2)
+  expect(deps.queryConn.sentSqls[1]).toBe('DESCRIBE "assay_diff_d1"')
+  deps.queryConn.resolveSend(1, describeTable())
+  const posted = await awaitPosted(deps, requestId)
+  expect(posted).toMatchObject({ type: 'engine/diff-stage-result', comparisonId: 'd1' })
+}
+
+describe('EngineOpExecutor row-diff execution (m6-2; query lane)', () => {
+  it('stages a comparison and runs the plan inside a rolled-back transaction', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    await stageComparison(executor, deps)
+    // The comparison file was registered under its engine-generated name.
+    expect(deps.registeredFiles.map((entry) => entry.name)).toContain('diff_d1')
+
+    executor.accept(diffRequest(3, rowDiffPlanFixture()))
+    await awaitSends(deps.queryConn, 3) // DESCRIBE "assay_t1" (base composition)
+    expect(deps.queryConn.sentSqls[2]).toBe('DESCRIBE "assay_t1"')
+    deps.queryConn.resolveSend(2, describeTable())
+    await awaitSends(deps.queryConn, 4)
+    expect(deps.queryConn.sentSqls[3]).toBe('BEGIN TRANSACTION')
+    deps.queryConn.resolveSend(3, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 5)
+    expect(deps.queryConn.sentSqls[4]).toContain('CREATE VIEW "assay_diff_a"')
+    deps.queryConn.resolveSend(4, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 6)
+    expect(deps.queryConn.sentSqls[5]).toBe(
+      'CREATE VIEW "assay_diff_b" AS SELECT * FROM "assay_diff_d1"',
+    )
+    deps.queryConn.resolveSend(5, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 7)
+    expect(deps.queryConn.sentSqls[6]).toBe(
+      'SELECT count(*)::BIGINT AS "row_count" FROM "assay_diff_a"',
+    )
+    deps.queryConn.resolveSend(6, countTable(4n))
+    await awaitSends(deps.queryConn, 8)
+    expect(deps.queryConn.sentSqls[7]).toBe(
+      'SELECT count(*)::BIGINT AS "row_count" FROM "assay_diff_b"',
+    )
+    deps.queryConn.resolveSend(7, countTable(3n))
+    // Three clamped aspect queries.
+    for (let index = 0; index < 3; index += 1) {
+      await awaitSends(deps.queryConn, 9 + index)
+      expect(deps.queryConn.sentSqls[8 + index]).toContain('SELECT * FROM (')
+      deps.queryConn.resolveSend(8 + index, emptyAspectTable())
+    }
+    await awaitSends(deps.queryConn, 12)
+    expect(deps.queryConn.sentSqls[11]).toContain('UNION ALL')
+    deps.queryConn.resolveSend(11, zeroTotalsTable())
+    await awaitSends(deps.queryConn, 13)
+    expect(deps.queryConn.sentSqls[12]).toBe('DROP VIEW IF EXISTS "assay_diff_a"')
+    deps.queryConn.resolveSend(12, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 14)
+    expect(deps.queryConn.sentSqls[13]).toBe('DROP VIEW IF EXISTS "assay_diff_b"')
+    deps.queryConn.resolveSend(13, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 15)
+    expect(deps.queryConn.sentSqls[14]).toBe('ROLLBACK')
+    deps.queryConn.resolveSend(14, tableFromArrays({}))
+
+    const posted = await awaitPosted(deps, 3)
+    expect(posted).toMatchObject({ type: 'engine/diff-result' })
+    if (posted.type === 'engine/diff-result') {
+      expect(posted.result.rowCountA).toBe(4)
+      expect(posted.result.rowCountB).toBe(3)
+      expect(posted.result.aspects).toEqual([
+        { aspect: 'added', count: 0, samples: [] },
+        { aspect: 'removed', count: 0, samples: [] },
+        { aspect: 'changed', count: 0, samples: [] },
+      ])
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('rejects a hostile plan that shadows a registered view BEFORE any SQL', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    await stageComparison(executor, deps)
+    const plan = { ...rowDiffPlanFixture(), relationA: 'assay_t1' }
+    executor.accept(diffRequest(3, plan))
+    const posted = await awaitPosted(deps, 3)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    // Only the staging sends happened; the diff touched no connection.
+    expect(deps.queryConn.sentSqls).toHaveLength(2)
+  })
+
+  it('answers a malformed recognised diff request with one typed error (never a hang)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    executor.accept({
+      type: 'engine/diff',
+      requestId: 2,
+      tableId: 't1',
+      comparisonId: 'd1',
+      plan: { not: 'a plan' },
+    })
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error', message: 'malformed engine/diff request' })
+    expect(deps.queryConn.sentSqls).toEqual([])
+  })
+
+  it('rejects an unknown comparison handle with a typed error (no SQL)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    executor.accept(diffRequest(2, rowDiffPlanFixture()))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    expect(deps.queryConn.sentSqls).toEqual([])
+  })
+
+  it('rejects an unsupported comparison extension and leaks no registration', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    executor.accept({
+      type: 'engine/diff-stage',
+      requestId: 2,
+      name: 'comparison.xlsx',
+      file: COMPARISON_FILE,
+    })
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    expect(deps.registeredFiles.map((entry) => entry.name)).not.toContain('diff_d1')
+    expect(deps.queryConn.sentSqls).toEqual([])
+  })
+
+  it('re-staging replaces the previous comparison (single slot, no leak)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    await stageComparison(executor, deps, 2)
+    // Re-stage: the previous view/file are dropped before the new registration.
+    executor.accept({
+      type: 'engine/diff-stage',
+      requestId: 3,
+      name: 'comparison.parquet',
+      file: COMPARISON_FILE,
+    })
+    await awaitSends(deps.queryConn, 3)
+    expect(deps.queryConn.sentSqls[2]).toBe('DROP VIEW IF EXISTS "assay_diff_d1"')
+    deps.queryConn.resolveSend(2, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 4)
+    expect(deps.queryConn.sentSqls[3]).toMatch(/CREATE VIEW "assay_diff_d2"/)
+    deps.queryConn.resolveSend(3, intTable([]))
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, describeTable())
+    const posted = await awaitPosted(deps, 3)
+    expect(posted).toMatchObject({ type: 'engine/diff-stage-result', comparisonId: 'd2' })
+    expect(deps.droppedFiles).toContain('diff_d1')
+  })
+
+  it('rejects an aspect count past its result-sanity bound with a typed error', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    await stageComparison(executor, deps)
+    // A shape-valid plan whose added arm reports more rows than side B has.
+    const plan = rowDiffPlanFixture()
+    const inflated: EngineRowDiffPlan = {
+      ...plan,
+      addedSql: plan.addedSql.replace(
+        'count(*) OVER () AS "assay_count"',
+        'count(*) OVER () + 1000 AS "assay_count"',
+      ),
+    }
+    executor.accept(diffRequest(3, inflated))
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, describeTable())
+    await awaitSends(deps.queryConn, 4)
+    deps.queryConn.resolveSend(3, tableFromArrays({})) // BEGIN
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, tableFromArrays({})) // CREATE A
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(5, tableFromArrays({})) // CREATE B
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(6, countTable(0n)) // count A
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, countTable(0n)) // count B
+    await awaitSends(deps.queryConn, 9)
+    deps.queryConn.resolveSend(
+      8,
+      tableFromArrays({
+        assay_side: ['B'],
+        assay_row_ordinal: BigInt64Array.from([0n]),
+        sample_index: BigInt64Array.from([0n]),
+        assay_count: BigInt64Array.from([1000n]),
+      }),
+    )
+    // The excess fails the op; the containment cleanup still runs in order.
+    await awaitSends(deps.queryConn, 10)
+    deps.queryConn.resolveSend(9, tableFromArrays({})) // DROP VIEW A
+    await awaitSends(deps.queryConn, 11)
+    deps.queryConn.resolveSend(10, tableFromArrays({})) // DROP VIEW B
+    await awaitSends(deps.queryConn, 12)
+    deps.queryConn.resolveSend(11, tableFromArrays({})) // ROLLBACK
+    const posted = await awaitPosted(deps, 3)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toContain('added')
+    }
+    // Containment still ran: the binding views were dropped and the tx rolled back.
+    expect(deps.queryConn.sentSqls).toContain('DROP VIEW IF EXISTS "assay_diff_a"')
+    expect(deps.queryConn.sentSqls).toContain('ROLLBACK')
   })
 })

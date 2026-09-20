@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { compileRowDiffPlan } from '@assay/diff'
 import {
   OVERLAY_REQUEST_TYPES,
   parseEngineRequest,
   parseEngineRequestEnvelope,
   parseEngineResponse,
 } from './protocol'
+import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire'
 
 describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
   describe('parseEngineRequest', () => {
@@ -1292,3 +1294,156 @@ function OVERLAY_BASE_MINIMAL(): Record<string, unknown> {
     columns: [{ name: 'id', type: 'BIGINT' }],
   }
 }
+
+// m6-2: engine/diff-stage + engine/diff protocol
+// ─────────────────────────────────────────────────────────────────────────────
+
+function wireRowDiffPlan(): EngineRowDiffPlan {
+  const result = compileRowDiffPlan(
+    [
+      { name: 'id', type: 'BIGINT' },
+      { name: 'val', type: 'VARCHAR' },
+    ],
+    [
+      { name: 'id', type: 'BIGINT' },
+      { name: 'val', type: 'VARCHAR' },
+    ],
+    ['id'],
+    { relationA: 'ds_a', relationB: 'ds_b', sampleLimit: 3 },
+  )
+  if (!result.ok) throw new Error('wire row-diff plan failed to compile')
+  return result.plan
+}
+
+function wireRowDiffResult(): EngineRowDiffResult {
+  return {
+    rowCountA: 4,
+    rowCountB: 3,
+    aspects: [
+      { aspect: 'added', count: 1, samples: [{ side: 'B', rowKey: 'b:2' }] },
+      { aspect: 'removed', count: 1, samples: [{ side: 'A', rowKey: 'base:v#1' }] },
+      {
+        aspect: 'changed',
+        count: 1,
+        samples: [{ side: 'A', rowKey: 'base:v#0', changedColumns: ['val'] }],
+      },
+    ],
+  }
+}
+
+describe('m6-2: engine/diff-stage + engine/diff protocol', () => {
+  it('parses a well-formed engine/diff-stage request', () => {
+    const request = {
+      type: 'engine/diff-stage',
+      requestId: 5,
+      name: 'comparison.parquet',
+      file: new File([new Uint8Array([1])], 'comparison.parquet'),
+    }
+    expect(parseEngineRequest(request)).toEqual(request)
+  })
+
+  it('parses engine/diff with a compiler plan and optional overlay', () => {
+    const base = {
+      type: 'engine/diff',
+      requestId: 6,
+      tableId: 't1',
+      comparisonId: 'd1',
+      plan: wireRowDiffPlan(),
+    }
+    expect(parseEngineRequest(base)).toEqual(base)
+    expect(
+      parseEngineRequest({ ...base, overlay: { base: OVERLAY_BASE_MINIMAL(), ops: [] } }),
+    ).not.toBeNull()
+  })
+
+  it('rejects engine/diff with a malformed plan, missing comparison, or bad overlay', () => {
+    const base = { type: 'engine/diff', requestId: 6, tableId: 't1', comparisonId: 'd1' }
+    expect(parseEngineRequest(base)).toBeNull()
+    expect(
+      parseEngineRequest({ ...base, plan: { ...wireRowDiffPlan(), planVersion: 2 } }),
+    ).toBeNull()
+    expect(parseEngineRequest({ ...base, plan: { ...wireRowDiffPlan(), keys: [] } })).toBeNull()
+    expect(parseEngineRequest({ ...base, plan: wireRowDiffPlan(), comparisonId: 7 })).toBeNull()
+    expect(
+      parseEngineRequest({
+        ...base,
+        plan: wireRowDiffPlan(),
+        overlay: { base: OVERLAY_BASE_MINIMAL(), ops: 'nope' },
+      }),
+    ).toBeNull()
+  })
+
+  it('recognises malformed diff-stage/diff requests for the typed envelope', () => {
+    expect(
+      parseEngineRequestEnvelope({ type: 'engine/diff-stage', requestId: 9, name: 'x' }),
+    ).toEqual({
+      status: 'malformed',
+      malformed: { requestId: 9, requestType: 'engine/diff-stage' },
+    })
+    expect(
+      parseEngineRequestEnvelope({ type: 'engine/diff', requestId: 10, tableId: 't1' }),
+    ).toEqual({
+      status: 'malformed',
+      malformed: { requestId: 10, requestType: 'engine/diff' },
+    })
+    expect(OVERLAY_REQUEST_TYPES).toContain('engine/diff-stage')
+    expect(OVERLAY_REQUEST_TYPES).toContain('engine/diff')
+  })
+
+  it('parses diff-stage/diff result responses and rejects malformed ones', () => {
+    expect(
+      parseEngineResponse({
+        type: 'engine/diff-stage-result',
+        requestId: 5,
+        comparisonId: 'd1',
+        columns: [{ name: 'id', type: 'BIGINT' }],
+      }),
+    ).toEqual({
+      type: 'engine/diff-stage-result',
+      requestId: 5,
+      comparisonId: 'd1',
+      columns: [{ name: 'id', type: 'BIGINT' }],
+    })
+    expect(
+      parseEngineResponse({
+        type: 'engine/diff-stage-result',
+        requestId: 5,
+        comparisonId: 'd1',
+        columns: 'nope',
+      }),
+    ).toBeNull()
+    expect(
+      parseEngineResponse({
+        type: 'engine/diff-result',
+        requestId: 6,
+        result: wireRowDiffResult(),
+      }),
+    ).toEqual({ type: 'engine/diff-result', requestId: 6, result: wireRowDiffResult() })
+    // A wrong aspect order is not compiler-shaped output.
+    expect(
+      parseEngineResponse({
+        type: 'engine/diff-result',
+        requestId: 6,
+        result: {
+          ...wireRowDiffResult(),
+          aspects: [...wireRowDiffResult().aspects].reverse(),
+        },
+      }),
+    ).toBeNull()
+    // An empty B-side row key is malformed (the contract is a non-empty key).
+    expect(
+      parseEngineResponse({
+        type: 'engine/diff-result',
+        requestId: 6,
+        result: {
+          ...wireRowDiffResult(),
+          aspects: [
+            { aspect: 'added', count: 1, samples: [{ side: 'B', rowKey: '' }] },
+            wireRowDiffResult().aspects[1]!,
+            wireRowDiffResult().aspects[2]!,
+          ],
+        },
+      }),
+    ).toBeNull()
+  })
+})
