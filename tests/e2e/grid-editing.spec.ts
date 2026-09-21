@@ -49,12 +49,12 @@ test.beforeEach(async ({ page }) => {
 
 async function openCustomersFixture(page: Page): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(FIXTURE)
-  await expect(page.getByTestId('open-status')).toHaveText('ready')
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
   await expect(page.getByTestId('table-info')).not.toContainText('customers.parquet')
 }

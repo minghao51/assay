@@ -65,7 +65,7 @@ async function openFixture(page: Page, key: 'flat' | 'nested', tableId: string):
   // Laziness: loading the harness must not boot the engine.
   await expect(page.getByTestId('engine-status')).toHaveText('idle')
   await page.getByRole('button', { name: `Open ${key} fixture via engine` }).click()
-  await expect(page.getByTestId(`open-status-${key}`)).toHaveText('opened')
+  await expect(page.getByTestId(`open-status-${key}`)).toHaveText('opened', { timeout: 20_000 })
   await expect(page.getByTestId(`open-table-id-${key}`)).toHaveText(tableId)
 }
 

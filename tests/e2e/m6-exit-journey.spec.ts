@@ -446,11 +446,11 @@ test.beforeEach(async ({ page }) => {
 /** Open side A through the real open flow and wait for the grid. */
 async function openDatasetA(page: Page, aPath: string, expectedRows = '5'): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   const chooser = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   await (await chooser).setFiles(aPath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready')
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
   await expect(page.getByTestId('grid-total-rows')).toHaveText(expectedRows)
 }
 

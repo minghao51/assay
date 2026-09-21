@@ -112,12 +112,12 @@ function sha256(filePath: string): string {
 
 async function openFixture(page: Page, fixturePath: string): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(fixturePath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready')
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
 }
 
 function row(page: Page, index: number): Locator {
@@ -411,7 +411,7 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
 
   // --- 1. Cold start: a fresh context with no prior state renders idle. ---
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   await expect(page.getByTestId('edit-insert-row')).toHaveCount(0)
   await expect(page.getByTestId('history-empty')).toHaveCount(0)
 

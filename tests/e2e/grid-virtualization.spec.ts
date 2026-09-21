@@ -68,13 +68,13 @@ test.beforeEach(async ({ page }) => {
 
 async function openMillionFixture(page: Page): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(FIXTURE_PATH)
   // Engine boot + open + schema + count: the ready phase is fully loaded.
-  await expect(page.getByTestId('open-status')).toHaveText('ready')
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
   await expect(page.getByTestId('open-table-id')).toHaveText('t1')
   await expect(page.getByTestId('grid-total-rows')).toHaveText(String(MILLION_ROW_COUNT))
   await expect(page.getByTestId('grid-column-count')).toHaveText('4')

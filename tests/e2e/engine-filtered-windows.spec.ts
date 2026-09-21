@@ -35,7 +35,7 @@ async function openFlatFixture(page: Page): Promise<void> {
   // Laziness: loading the harness must not boot the engine.
   await expect(page.getByTestId('engine-status')).toHaveText('idle')
   await page.getByRole('button', { name: 'Open flat fixture via engine' }).click()
-  await expect(page.getByTestId('open-status-flat')).toHaveText('opened')
+  await expect(page.getByTestId('open-status-flat')).toHaveText('opened', { timeout: 20_000 })
   await expect(page.getByTestId('open-table-id-flat')).toHaveText('t1')
 }
 

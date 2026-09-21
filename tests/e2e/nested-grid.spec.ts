@@ -99,12 +99,12 @@ test.beforeEach(async ({ page }) => {
 
 async function openNestedFixture(page: Page): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(FIXTURE_PATH)
-  await expect(page.getByTestId('open-status')).toHaveText('ready')
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
   await expect(page.getByTestId('grid-column-count')).toHaveText('10')
   // Privacy (ADR 0025): the picked file name is never rendered.

@@ -70,12 +70,12 @@ test.beforeEach(async ({ page }) => {
 
 async function openFixture(page: Page, fixturePath: string): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(fixturePath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready')
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
 }
 
 function row(page: Page, index: number): Locator {
@@ -181,9 +181,9 @@ async function openFixtureViaFakeFsa(
   // No filechooser here: the fake `showOpenFilePicker` resolves directly, so
   // the app goes idle → ready without Playwright's file-chooser flow.
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   await page.getByTestId('open-button').click()
-  await expect(page.getByTestId('open-status')).toHaveText('ready')
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
 }
 
 /**

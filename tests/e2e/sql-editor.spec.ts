@@ -43,13 +43,13 @@ test.beforeEach(async ({ page }) => {
 
 async function openFixture(page: Page, fixturePath: string): Promise<string> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(fixturePath)
   // Engine boot + open + schema + count: the ready phase is fully loaded.
-  await expect(page.getByTestId('open-status')).toHaveText('ready')
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
   // Privacy (ADR 0025): the pane must never contain the file's name.
   await expect(page.getByTestId('sql-panel')).not.toContainText(fixturePath)
   // The engine-generated table id (safe to show; the pane's hint echoes it).

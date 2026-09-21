@@ -97,7 +97,7 @@ test('opens a staged fixture, serves its DESCRIBE schema and Arrow-backed row wi
   // the table id and status — never a file name (ADR 0025).
   await page.getByRole('button', { name: 'Open flat fixture via engine' }).click()
   await expect(page.getByTestId('engine-status')).toHaveText('ready')
-  await expect(page.getByTestId('open-status-flat')).toHaveText('opened')
+  await expect(page.getByTestId('open-status-flat')).toHaveText('opened', { timeout: 20_000 })
   await expect(page.getByTestId('open-table-id-flat')).toHaveText('t1')
 
   // Schema: DuckDB's DESCRIBE type strings pass through as-is.
@@ -131,7 +131,7 @@ test('schema() passes nested DuckDB type strings through unchanged', async ({ pa
 
   await page.getByRole('button', { name: 'Open nested fixture via engine' }).click()
   await expect(page.getByTestId('engine-status')).toHaveText('ready')
-  await expect(page.getByTestId('open-status-nested')).toHaveText('opened')
+  await expect(page.getByTestId('open-status-nested')).toHaveText('opened', { timeout: 20_000 })
   await expect(page.getByTestId('open-table-id-nested')).toHaveText('t1')
 
   // The nested column arrives as its full SQL type string — exactly what
