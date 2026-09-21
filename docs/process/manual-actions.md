@@ -21,3 +21,6 @@ Related decisions already made (2026-09-16, maintainer):
 - **Demo dataset (O5):** hybrid — real open data with deliberately injected
   flaws. Curation is a non-code track (pre-G0; best after M2–M4 give it
   something to demo).
+- **Public-flip checklist (when the repo goes public):** enable GitHub
+  **private vulnerability reporting** (public-repo-only feature; SECURITY.md
+  already documents the channel) — pt0-2 integration note, 2026-09-21.
