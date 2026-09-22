@@ -25,12 +25,14 @@
  * are an exit-2 binding error, never a silent fallback. Without `--infer` or
  * `--key`, the command is a usage error (exit 2).
  *
- * Privacy (ADR 0025): the report (stdout, human or JSON) is the product and
- * carries row-diff sample keys and changed-column NAMES; dataset values
- * never appear there. stderr carries authored, fixed messages — binding
- * errors name columns by their schema names, a missing path echoes the
- * caller's own typed path (the m5-4 readability rule), and raw engine error
- * text is never echoed.
+ * Privacy (ADR 0025): the report (stdout, human or JSON) is the product —
+ * row-diff samples carry keys and changed-column NAMES, and the
+ * schema-drift/profiling deltas carry **categorical dataset values**
+ * (new/vanished category labels — audit AR-C1); dataset values on stdout
+ * are legitimate product content. stderr carries authored, fixed messages
+ * — binding errors name columns by their schema names, a missing path
+ * echoes the caller's own typed path (the m5-4 readability rule), and raw
+ * engine error text is never echoed.
  */
 import { compileRowDiffPlan, diffDatasets, inferRowDiffKeys } from '@assay/diff'
 import type { KeyInferenceResult, RowDiffBindingError } from '@assay/diff'

@@ -22,6 +22,12 @@
  *   prints. Alias spellings (`TEXT`, `INT`, …) are not accepted: an engine
  *   never reports them, and accepting them would fork the canonical form
  *   (the same policy as the m5-0 contract vocabulary).
+ *   **Known-missing today** (audit AR-V4, DuckDB-1.5.5-verified): the
+ *   classifier maps `TIMESTAMP_S`, `TIMESTAMP_MS`, `TIMESTAMP_NS`,
+ *   `INTERVAL`, and `BIT` to `'other'` with an "unknown engine type
+ *   spelling" note even though `DESCRIBE` does print them — real spellings
+ *   the family set does not yet cover; adding them is queued (AR queue
+ *   ar-4). Until then such columns cannot carry value-constraining rules.
  * - Parameterized forms are classified only when their parameters can be
  *   validated honestly: `DECIMAL(p,s)` with `1 ≤ p ≤ 38, 0 ≤ s ≤ p`, and
  *   `VARCHAR(n)` with a non-negative safe-integer `n` (DuckDB accepts the

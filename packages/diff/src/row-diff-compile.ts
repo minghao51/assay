@@ -18,8 +18,11 @@
  *   a cast degrades to typed errors (every field read guarded; option
  *   getters read exactly once, m5-1's `readOptionOnce` pattern), and a
  *   revoked/all-traps Proxy in any argument position comes back as a
- *   binding error, never a raw throw. All independent errors are
- *   **collected** — never a first-error abort.
+ *   binding error, never a raw throw. Errors are collected **across
+ *   stages** — options, schema A, schema B, and the key set all run, and
+ *   every stage's findings are reported together; within the options
+ *   stage the first invalid option aborts that stage only (stage-wise,
+ *   not a full sweep — pinned by test, audit AR-F5).
  * - **Keys are explicit** (checkpoint C2) — an empty key set is a binding
  *   error. The compiler never guesses: `inferRowDiffKeys` proposes
  *   candidates; surfaces confirm. The compiler is deliberately blind to

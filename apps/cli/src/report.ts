@@ -23,9 +23,10 @@
  * Honesty rules baked in: samples carry `samplesReturned` +
  * `samplesComplete` (the bounded-set gate — a partial list says so, in both
  * renderers, with the clamp spelled out); dataset values appear ONLY as
- * sample rows (the product), never in stderr; the human dataset line prints
- * the file's BASENAME only (byte-stable across machines, and file paths stay
- * out of product output).
+ * product content on stdout — sample rows, and the categorical new/vanished
+ * category labels of schema-drift/profiling deltas (audit AR-C1) — never in
+ * stderr; the human dataset line prints the file's BASENAME only
+ * (byte-stable across machines, and file paths stay out of product output).
  */
 import { basename } from 'node:path'
 import { describeDiffIssue, roundForReport } from '@assay/diff'

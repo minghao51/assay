@@ -677,10 +677,14 @@ export function liveRowCount(base: OverlayBase, state: OverlayState): number {
  *
  * - `start`/`end` emit at the very beginning/end (before degraded rows).
  * - `before X` / `after X` emit immediately before/after `X`'s emission;
- *   several rows anchored to the same `X` keep insert-sequence order (the
- *   earliest allocated emits closest to `X`'s side — sequence order is a
- *   function of the state alone, not of application history), and chains
- *   nest depth-first (`after X` then `after` that row, etc.).
+ *   several rows anchored to the same `X` keep insert-sequence order —
+ *   reading AWAY from the anchor: an `after X` chain emits the earliest
+ *   closest to `X`, a `before X` chain emits the latest closest to `X`
+ *   (both lists read in ascending sequence order away from `X`'s side —
+ *   sequence order is a function of the state alone, not of application
+ *   history; this matches the engine's `insertSortKeys` composition,
+ *   m4-2/audit AR-D2) — and chains nest depth-first (`after X` then `after`
+ *   that row, etc.).
  * - An anchor that is not live (deleted, unknown, or foreign) — or a
  *   degenerate self-referencing chain — degrades deterministically to the
  *   end, after explicit `end` rows, in application order. Apply-time

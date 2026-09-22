@@ -65,12 +65,17 @@
  * - possessive quantifiers (surface as nested repetition), `\K`, `\Z`,
  *   `\Q…\E` quoting, Unicode classes `\p{…}`/`\P{…}`, octal escapes
  *   (`\0NN` — same refused `\0`–`\9` class as above, again stricter than
- *   DuckDB, which accepts the leading-zero forms), `\v`,
+ *   DuckDB, which accepts the leading-zero forms), `\v` (stricter than
+ *   both RE2 — which defines it — and DuckDB 1.5.5, which accepts it),
  *   `\b`/`\B`/`\A`/`\z` inside classes, unknown letter escapes
  * - structural errors: unbalanced groups/classes, empty classes (`]`
- *   always terminates — `[]a]` is refused, RE2's own error is near), a
- *   `]`-must-be-escaped strictness, reversed class ranges, malformed POSIX
- *   names, malformed hex escapes, NUL characters
+ *   always terminates — `[]a]` is refused; stricter than DuckDB 1.5.5,
+ *   which treats a leading `]` as a literal (`[]a]` there matches `]` and
+ *   `a`)), a `]`-must-be-escaped strictness, reversed class ranges,
+ *   malformed POSIX names, malformed hex escapes, NUL characters.
+ *   (These strictness refusals are checker policy, not RE2 rules —
+ *   aligning the refusal set with DuckDB-verified reality is queued as
+ *   audit AR-V1 / AR queue ar-4.)
  *
  * ## Bounds and totality (the checker never throws)
  *
@@ -250,6 +255,10 @@ function parseEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
 }
 
 /** Parse `\xHH` or `\x{h…}`; validates hex digits and the Unicode range. */
+// Note (audit AR-V1): the >6-digit refusal fires even when leading zeros
+// keep the value within the Unicode range (e.g. `\x{0000061}`) — stricter
+// than DuckDB 1.5.5, which accepts the padded spelling. Checker policy,
+// not an RE2 rule; queued for alignment in AR queue ar-4.
 function parseHexEscape(cursor: Cursor): string {
   if (peek(cursor) === '{') {
     consume(cursor)
@@ -456,7 +465,9 @@ function parseGroupName(cursor: Cursor): void {
  * Parse a `[...]` character class (the cursor sits just past the `[`).
  * Strict `]` handling: `]` always terminates the class (so `[]a]` is an
  * empty class followed by garbage — refused), and a literal `]` must be
- * escaped (`\]`).
+ * escaped (`\]`). This is **stricter than RE2/DuckDB 1.5.5**, which treat
+ * a leading `]` as a literal class member — a deliberate checker policy
+ * (audit AR-V1), not an RE2 rule.
  */
 function parseClass(cursor: Cursor): void {
   if (peek(cursor) === '^') consume(cursor)
@@ -555,8 +566,11 @@ function parseAlternation(cursor: Cursor): void {
 /**
  * Parse one alternation branch: a sequence of (possibly quantified) atoms.
  * `lastWasAtom` tracks whether the previous token is quantifiable — a
- * quantifier right after another quantifier, a zero-width token, or at a
- * branch start is RE2's "missing argument to repetition operator" error.
+ * quantifier right after another quantifier or at a branch start is RE2's
+ * "missing argument to repetition operator" error; after a zero-width
+ * token this checker is stricter than DuckDB 1.5.5 (which accepts `^*`,
+ * `$+`, `\b{2}`) — refusal there is checker policy, not an RE2 rule
+ * (audit AR-V1).
  */
 function parseBranch(cursor: Cursor): void {
   let lastWasAtom = false

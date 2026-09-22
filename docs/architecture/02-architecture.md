@@ -189,19 +189,21 @@ Future options:
 ## 8. Grid Architecture
 
 ```text
-DatasetGrid
+DatasetGrid (packages/grid — read-only, rendering-replaceable ADR 0022)
     |
     v
-GridDataProvider
+GridDataProvider (the contract the grid consumes — DEFINED in
+    |              packages/grid/contracts.ts, IMPLEMENTED by the host app,
+    |              never by the grid itself)
+    +-- rowCount() / fetchRange() / sort() / filter() / schema()
+    ^
     |
-    +-- fetchRange()
-    +-- sort()
-    +-- filter()
-    +-- updateCell()
-    +-- schema()
+Host app (apps/web) composes the provider over the engine client and the
+edit overlay — cell edits are overlay ops addressed by logical RowId
+(ADR 0011/0012), never positional mutations on the grid contract.
     |
     v
-DataEngine
+EngineClient (packages/engine-duckdb, Web Worker)
 ```
 
 The grid should request only visible or nearby data ranges.

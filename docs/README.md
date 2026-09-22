@@ -6,12 +6,13 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### Product (`product/`)
 
-| Doc                                                                                | Contents                                                                                                                                  |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| [`product/00-roadmap.md`](product/00-roadmap.md)                                   | Product vision, positioning, evolution phases 0–7, commercial model, strategic non-goals, north-star principles.                          |
-| [`product/01-features.md`](product/01-features.md)                                 | Feature taxonomy (Understand / Validate / Compare / Repair / Prepare / Govern), surface capabilities, AI/ML dataset features, governance. |
-| [`product/07-mvp-scope-and-acceptance.md`](product/07-mvp-scope-and-acceptance.md) | MVP boundary, exclusions, acceptance criteria, target demo scenario.                                                                      |
-| [`product/10-execution-roadmap.md`](product/10-execution-roadmap.md)               | **Canonical execution roadmap**: phase↔milestone↔ADR mapping, delivery tracks, decision gates, risk register, open decision backlog.      |
+| Doc                                                                                | Contents                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`product/00-roadmap.md`](product/00-roadmap.md)                                   | Product vision, positioning, evolution phases 0–7, commercial model, strategic non-goals, north-star principles.                                                         |
+| [`product/01-features.md`](product/01-features.md)                                 | Feature taxonomy (Understand / Validate / Compare / Repair / Prepare / Govern), surface capabilities, AI/ML dataset features, governance.                                |
+| [`product/07-mvp-scope-and-acceptance.md`](product/07-mvp-scope-and-acceptance.md) | MVP boundary, exclusions, acceptance criteria, target demo scenario.                                                                                                     |
+| [`product/10-execution-roadmap.md`](product/10-execution-roadmap.md)               | **Canonical execution roadmap**: phase↔milestone↔ADR mapping, delivery tracks, decision gates, risk register, open decision backlog.                                     |
+| [`product/11-post-mvp-track.md`](product/11-post-mvp-track.md)                     | **Post-MVP execution track** (D11): PT-0 launch readiness to G0, PT-V VS Code, PT-P pipeline, PT-H hardening carry-overs, PT-Q QoL queue; open decisions D12/D13/C-ar-5. |
 
 ### Architecture (`architecture/`)
 
@@ -22,12 +23,14 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### Engineering (`engineering/`)
 
-| Doc                                                                                        | Contents                                                                                       |
-| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| [`engineering/03-tech-stack.md`](engineering/03-tech-stack.md)                             | Recommended stack, alternatives, library choices, frontend/data/enterprise technologies.       |
-| [`engineering/04-implementation-plan.md`](engineering/04-implementation-plan.md)           | Milestone sequence M0–M11 from repo bootstrap through enterprise gateway.                      |
-| [`engineering/05-repository-structure.md`](engineering/05-repository-structure.md)         | Monorepo layout, package ownership, dependency direction, conformance testing.                 |
-| [`engineering/06-testing-security-quality.md`](engineering/06-testing-security-quality.md) | Testing strategy, privacy rules, fuzz/property testing, accessibility, performance benchmarks. |
+| Doc                                                                                        | Contents                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`engineering/03-tech-stack.md`](engineering/03-tech-stack.md)                             | Recommended stack, alternatives, library choices, frontend/data/enterprise technologies.                                                                       |
+| [`engineering/04-implementation-plan.md`](engineering/04-implementation-plan.md)           | Milestone sequence M0–M11 from repo bootstrap through enterprise gateway.                                                                                      |
+| [`engineering/05-repository-structure.md`](engineering/05-repository-structure.md)         | Monorepo layout, package ownership, dependency direction, conformance testing.                                                                                 |
+| [`engineering/06-testing-security-quality.md`](engineering/06-testing-security-quality.md) | Testing strategy, privacy rules, fuzz/property testing, accessibility, performance benchmarks.                                                                 |
+| [`engineering/07-m1-benchmarks.md`](engineering/07-m1-benchmarks.md)                       | M1 grid/engine benchmarks: 1.09 GiB/16M-row + G1-R 10.24 GiB/150M-row measurements (TTFR, picker→first-row, scan throughput, deep offsets, heap).              |
+| [`engineering/08-telemetry-design.md`](engineering/08-telemetry-design.md)                 | Telemetry design (D2 tail; design-only pending C-pt0-1): 10 allowlisted metadata-only events, no free-form strings, opt-out mechanics, ADR 0025 privacy table. |
 
 ### Process (`process/`)
 
@@ -46,7 +49,7 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### ADRs (`adr/`)
 
-See [`adr/README.md`](adr/README.md). The ADR series (0001–0035) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, and future Rust/DataFusion/Tauri directions. New ADRs use [`adr/template.md`](adr/template.md).
+See [`adr/README.md`](adr/README.md). The ADR series (0001–0041, 41 accepted) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, two-op-lane engine wiring, the Node CLI backend, the product name (Assay), and future Rust/DataFusion/Tauri directions. New ADRs use [`adr/template.md`](adr/template.md).
 
 ## Reading Orders
 

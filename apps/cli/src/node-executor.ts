@@ -45,20 +45,22 @@
  *   integer, else its exact decimal TEXT (the wasm path's contract);
  * - INTEGER/DOUBLE/FLOAT (JS `number`) → Arrow float64 (verbatim);
  * - DECIMAL (a `DuckDBDecimalValue`) → exact scaled TEXT, or a number when
- *   the value is a safe integer — the same decision the wasm decimal-object
- *   path makes through `normalizeSampleValue`;
+ *   the value is an integer within the safe range — the same decision the
+ *   wasm decimal-object path makes.
  * - VARCHAR → Arrow utf8; BOOLEAN → Arrow bool; BLOB (a `Buffer`) → Arrow
  *   binary (normalized to hex text, as on the web);
  * - NULL-only columns → Arrow utf8 (the readers' shape checks run first).
  *
- * Known, documented variance (pinned honestly, not hidden): a numeric column
- * (DECIMAL/HUGEINT) whose values STRADDLE the safe-integer boundary would be
- * normalized per-value (mixed number/text) on the web and can only be carried
- * here as one Arrow column — such a column is rendered as exact TEXT for ALL
- * of its values. Values within a single column are homogeneous, so this needs
- * a decimal/hugeint column spanning ±2⁵³ to observe; the agreement test's
- * dataset (BIGINT/VARCHAR/HUGEINT/DOUBLE/BOOLEAN, all within the safe range)
- * is byte-agreement-exact.
+ * Known, documented variance (pinned honestly, not hidden; audit AR-C5):
+ * the DECIMAL text/number toggle is **integer-valued vs fractional**, per
+ * value — `5::DECIMAL(10,0)` reads as a number; `1.5::DECIMAL(10,1)` reads
+ * as exact text even far from ±2⁵³ — and `buildColumnVector` types a
+ * column from its whole value set (text present → Utf8), so any **mixed**
+ * column (e.g. integers and fractions side by side, or integers straddling
+ * ±2⁵³) is carried as exact TEXT for ALL of its values. The cross-surface
+ * agreement suite has no DECIMAL leg yet; a fractional or straddling
+ * decimal column is where web and CLI reports can legitimately differ in
+ * number-vs-text rendering while staying value-exact.
  */
 import {
   Binary,

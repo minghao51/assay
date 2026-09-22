@@ -24,6 +24,7 @@ assay/
 │   ├── contracts/
 │   ├── security/
 │   ├── ai/
+│   ├── pipeline/
 │   └── testing/
 │
 ├── fixtures/
@@ -38,7 +39,6 @@ assay/
 ├── docs/
 │   └── adr/
 │
-├── tooling/
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── turbo.json
@@ -65,9 +65,10 @@ No browser or React dependencies.
 
 ### `core`
 
-Application use cases and orchestration.
+> **Scaffold today** — application use cases and orchestration land with the
+> post-MVP/gated tracks that need them.
 
-Examples:
+Intended responsibility:
 
 - open dataset,
 - compare versions,
@@ -77,20 +78,29 @@ Examples:
 
 ### `engine`
 
-Interfaces only:
+Interfaces only — the _target_ shapes:
 
 - DataEngine,
 - QueryRequest,
 - TableHandle,
 - ArrowBatchStream.
 
+> **Honest status (audit AR-D7; decision D13 pending):** nothing implements
+> or imports these types today — the real engine surface is the
+> `@assay/engine-duckdb` client, and `@assay/testing`'s conformance suite
+> pins a mirror of _that_ interface, not `DataEngine`. Realigning, deleting,
+> or type-pinning the relationship is open decision D13.
+
 ### `engine-duckdb`
 
-DuckDB-WASM implementation.
+The real engine: DuckDB-WASM running in a Web Worker behind a typed
+postMessage protocol (ADR 0002/0021), plus a Node seam (`./node`) for the
+CLI (ADR 0041).
 
 ### `engine-parquet`
 
-Parquet-specific metadata/read/write helpers.
+> **Scaffold today** — any Parquet-native engine work belongs to a post-MVP
+> track (the editing model stays overlay-based per ADR 0012 regardless).
 
 ### `grid`
 
@@ -105,7 +115,8 @@ Owned grid model:
 
 ### `ui`
 
-Reusable presentation components.
+> **Scaffold today** — reusable presentation components land when a second
+> surface needs them.
 
 ### `data-sources`
 
@@ -115,6 +126,9 @@ Adapters for:
 - browser directory,
 - VS Code workspace,
 - future remote systems.
+
+(Real today: `BrowserFileSource` + capability detection + fallback picker,
+with the `@assay/testing` behavior suite pinning the contract.)
 
 > **Entry-point convention (raw-TS exports):** packages export TypeScript
 > source, so every importer type-checks the package under its own `tsconfig`
@@ -137,15 +151,18 @@ Schema/profile/distribution/row diff.
 
 ### `transforms`
 
-Transform AST, compiler, preview semantics.
+> **Scaffold today** — transform AST/compiler land with the post-MVP track
+> that owns them (M4 editing shipped via the overlay/domain model instead).
 
 ### `security`
 
-Policy types, classifications, masking metadata, future authorization adapters.
+> **Scaffold today** — policy types, classifications, masking metadata, and
+> future authorization adapters belong to the gated enterprise tracks.
 
 ### `ai`
 
-AI provider abstractions and proposal schemas.
+> **Scaffold today** — AI provider abstractions and proposal schemas belong
+> to a post-MVP track.
 
 ### `testing`
 
@@ -189,7 +206,9 @@ The domain package should remain highly portable.
 
 ## 4. Conformance Tests
 
-Every DataEngine implementation should pass the same conformance suite.
+The parameterized suites in `@assay/testing` pin the **real engine client
+surface** (`engine-duckdb`) — a mirror of the intended `DataEngine` target
+interface (the type-level relationship is decision D13, see §2 `engine`).
 
 Every DataSource adapter should pass the same source behavior suite.
 
@@ -201,9 +220,11 @@ This allows engines and adapters to evolve without changing product behavior.
 
 ## 5. Pipeline Package
 
+> **Scaffold today** — the P-stage pipeline tracks own its realization.
+
 ### `pipeline`
 
-Owns:
+Intended to own:
 
 - Pipeline IR,
 - DAG validation,

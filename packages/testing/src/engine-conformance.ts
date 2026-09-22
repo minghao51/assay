@@ -1334,7 +1334,11 @@ export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[nu
 export interface ConformanceScenarioResult {
   readonly name: ConformanceScenarioName
   readonly passed: boolean
-  /** Failure message (or `passed`); never contains dataset contents. */
+  /**
+   * Failure message (or `passed`). May quote expected/actual values from
+   * the scenario's own **synthetic** probe datasets (the suite stages only
+   * authored data — no caller dataset exists in-process); audit AR-F7.
+   */
   readonly detail: string
   /** Scenario-specific evidence (counts/flags) for reports and specs. */
   readonly facts: Readonly<Record<string, string | number | boolean>>

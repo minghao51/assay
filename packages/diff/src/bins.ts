@@ -23,10 +23,14 @@
  *   bounds, so a value equal to an edge lands in the *upper* bin
  *   (`binIndex` pins the semantics).
  * - A constant/degenerate reference (all four quantiles equal) collapses to
- *   one edge and two bins — PSI over it still detects a shifted current
- *   side through the unbounded bins. A reference with no finite cutpoints
- *   (e.g. an all-null column) yields zero edges (one bin); divergence over
- *   such histograms is defined and documented in `divergence.ts`.
+ *   one edge and two bins — a known blind spot: only a **downward** shift
+ *   (below the point) lands in the unbounded lower bin and moves PSI; an
+ *   **upward** shift lands in the same upper bin as the mass itself, so
+ *   PSI reads exactly 0 (the raw quantile shift still surfaces it through
+ *   the profile comparison — audit AR-F1). A reference with no finite
+ *   cutpoints (e.g. an all-null column) yields zero edges (one bin);
+ *   divergence over such histograms is defined and documented in
+ *   `divergence.ts`.
  */
 
 import type { NumericColumnStats } from './profile'

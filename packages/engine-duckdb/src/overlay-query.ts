@@ -17,7 +17,9 @@
  *
  *     SELECT <effective projection> FROM (
  *       <base branch> UNION ALL <insert branch> UNION ALL …
- *     ) [WHERE <filters>] [ORDER BY <sort keys>, ] ORDER BY "assay_key"
+ *     ) [WHERE <filters>] [ORDER BY <sort keys>[, "assay_key"]] — the
+ *     `assay_key` tiebreak (and any ORDER BY at all) is composed only when
+ *     live inserts exist (see "Sort/filter composition" below)
  *
  * - **Base branch**: the registered view with a computed base ordinal
  *   (`row_number() OVER () − 1` — the same single-threaded natural-order
@@ -55,9 +57,12 @@
  *   whose expected orders/values are derived from the pinned DuckDB CLI.
  * - **Sort/filter composition** (m2-2 grammar): filters and sorts reference
  *   *effective* column names (the grid sees renamed columns and edited
- *   values) and apply over the composed relation; explicit sort keys are
- *   followed by `assay_key` as a deterministic tiebreak (strictly stronger
- *   than base windows, where equal sort keys are engine-ordered). This is
+ *   values) and apply over the composed relation; when live inserts exist,
+ *   explicit sort keys are followed by `assay_key` as a deterministic
+ *   tiebreak (and `assay_key` alone orders the effective view). With no
+ *   live inserts the composed relation is just the filtered base branch —
+ *   explicit sorts tie-break engine-ordered, exactly like base windows
+ *   (the tiebreak is appended only for inserts; audit AR-E8). This is
  *   the pinned v1 combination surface: overlay windows support the same
  *   filter/sort grammar over the *effective* view.
  *
@@ -775,9 +780,11 @@ export function composeOverlayCountSql(
 /**
  * The overlay window query (m2-2 grammar over the effective view): explicit
  * outer projection (never the sort key), filters over effective columns,
- * explicit sort keys with `assay_key` as the deterministic tiebreak (or
- * `assay_key` alone for effective order), then the pre-validated LIMIT/
- * OFFSET interpolated verbatim.
+ * explicit sort keys — with `assay_key` appended as the deterministic
+ * tiebreak only when live inserts exist (no-insert overlays keep base
+ * window semantics: equal sort keys engine-ordered, audit AR-E8; without
+ * explicit keys and without inserts no ORDER BY is added at all) — then the
+ * pre-validated LIMIT/OFFSET interpolated verbatim.
  */
 export function composeOverlayWindowSql(query: OverlayWindowQuery): string {
   const { columns, filters, sort, includeRowIds } = query

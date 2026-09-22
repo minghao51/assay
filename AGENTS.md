@@ -6,9 +6,12 @@ making changes. Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## What this project is
 
 **Assay** — the local-first data workbench (inspect, validate, compare,
-repair, transform, govern Parquet/JSONL/JSON/CSV/Arrow). Pre-MVP: milestone M0
-complete, M1 (local file explorer) next. TypeScript + DuckDB-WASM + Arrow;
-browser-native; **data never leaves the user's machine by default**.
+repair, transform, govern Parquet/JSONL/JSON/CSV/Arrow). **MVP complete
+(M0–M6, 2026-09-21); post-MVP track underway** (PT-0 launch readiness to G0;
+VS Code/pipeline/hardening tracks — see
+[docs/product/11-post-mvp-track.md](docs/product/11-post-mvp-track.md)).
+TypeScript + DuckDB-WASM + Arrow; browser-native; **data never leaves the
+user's machine by default**.
 
 > Historical note: docs written before 2026-09-14 call this product "Data
 > Workbench" — same product (ADR 0039).
@@ -76,12 +79,17 @@ implement and approve the same change.
 ## Where things live
 
 ```text
-apps/{web,cli,vscode}     product surfaces (vscode is an M7 placeholder)
-packages/domain           portable domain types (pure)
-packages/engine           DataEngine interface; engine-duckdb/engine-parquet implement
+apps/{web,cli,vscode}     product surfaces (web + cli real; vscode is a PT-V placeholder — the
+                          VS Code surface moved post-MVP, decision D11)
+packages/domain           portable domain types (pure; real)
+packages/engine           DataEngine *target* interface — currently orphaned from the real
+                          engine client (decision D13 pending); the conformance suite pins
+                          the real engine-duckdb client surface, not this type
+packages/engine-duckdb    the real engine (DuckDB-WASM in a Web Worker)
+packages/engine-parquet   scaffold (post-MVP track owns any Parquet-native engine)
 packages/grid             headless grid model; rendering is replaceable (ADR 0022)
-packages/{validation,diff,transforms,contracts,security,ai,pipeline}
-packages/testing          conformance suites + fixture helpers (fixturePath)
+packages/{validation,diff,contracts,data-sources,testing}   real
+packages/{transforms,security,ai,pipeline}                scaffolds (post-MVP/gated tracks own them)
 fixtures/                 golden datasets; parquet/ generated via DuckDB script
 docs/                     product / architecture / engineering / process / reviews / adr
 .changeset/               changesets config
@@ -89,9 +97,11 @@ docs/                     product / architecture / engineering / process / revie
 
 ## Definitions agents often confuse
 
-- **M-milestones** (M0–M12): core delivery sequence. **P-stages** (P1–P5):
-  pipeline track. **G-gates** (G0–G4): investment gates — do not start
-  gated work (hosted/enterprise) without the gate passing.
+- **M-milestones** (M0–M6 = the MVP, complete; the former M7 VS Code surface
+  is now the post-MVP **PT-V** track per D11 — older docs saying "M7" mean
+  PT-V). **P-stages** (P1–P5): pipeline track. **G-gates** (G0–G4):
+  investment gates — do not start gated work (hosted/enterprise) without the
+  gate passing.
 - **DCR** = Dataset Change Request (dataset pull-request, ADR 0014).
 - **Contract** = native data contract format compiled to deterministic checks
   (ADR 0013/0026) — no embedded JS/Python in contracts.
