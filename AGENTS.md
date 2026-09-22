@@ -16,7 +16,7 @@ browser-native; **data never leaves the user's machine by default**.
 ## Working as part of an agent team
 
 If you are one of several agents (or sessions) working this repo, follow the
-**multi-agent operating model** in `docs/process/handoff.md` §7: orchestrator
+**multi-agent operating model** in `docs/process/handoff/operating-model.md`: orchestrator
 dispatches tasks from §6, workers execute one task with full verification,
 an independent reviewer applies the definition-of-done checklist. Never both
 implement and approve the same change.
@@ -24,7 +24,8 @@ implement and approve the same change.
 ## Sources of truth (read before non-trivial work)
 
 1. `docs/process/handoff.md` — current state, decision ledger, environment
-   quirks, and the concrete next tasks. Start here.
+   quirks, and the concrete next tasks (active queues live in
+   `docs/process/handoff/<yyyymmdd>-*.md`). Start here.
 2. `docs/product/10-execution-roadmap.md` — what to build next, gates, risks,
    and the **decision backlog (§7)**: never re-decide something recorded there
    or in an ADR.

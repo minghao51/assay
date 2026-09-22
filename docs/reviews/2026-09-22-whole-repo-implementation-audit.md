@@ -18,7 +18,8 @@ highest-impact warnings before accepting them.
 **Verification labels:** `[REPRO]` = orchestrator independently reproduced/verified;
 `[PROBE]` = worker verified with a runnable probe; `[READ]` = code-reading finding, unprobed.
 
-**Finding IDs** (`AR-<area><n>`) are stable references used by the handoff §6 **AR queue** and the
+**Finding IDs** (`AR-<area><n>`) are stable references used by the handoff **AR queue**
+([`20260922-ar-queue.md`](../process/handoff/20260922-ar-queue.md)) and the
 post-MVP **PT-Q** track. Fix ownership: **AR queue** = correctness/security/honesty remediation;
 **PT-Q** = QoL/performance/polish (separate track — see `docs/product/11-post-mvp-track.md` §7).
 
@@ -206,13 +207,13 @@ and the engine's core boundaries (quoting helpers, type-expression validation, p
 
 ## 11. Findings → ownership map
 
-| Findings                                                                                                                   | Owner                                                                                  | Notes                         |
-| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------- |
-| AR-E1…E4                                                                                                                   | handoff §6 **AR queue: ar-1** (engine security + wire-gate hotfix)                     | ships first                   |
-| AR-W1, W3, W4, W5, W8, W9, W2, W11, W13                                                                                    | **ar-2** (web correctness batch)                                                       | after ar-1                    |
-| AR-R1 (AGENTS half), R2(AGENTS/05 claims), R8, AR-W6, AR-E8, AR-C1/C5 docs, AR-V1/V4 docs, AR-F1/F5/F7 docs, AR-D2 comment | **ar-3** (docs truthfulness sweep; solo-able; excludes README = pt0-3)                 | any time                      |
-| AR-D1…D6, D8, AR-V2…V5, AR-F2, F3                                                                                          | **ar-4** (pure-package hardening batch)                                                | parallel-safe with ar-2       |
-| AR-C3, C4, AR-R5 (+ checkpoint)                                                                                            | **ar-5** (publishability: packaging + `assay profile`)                                 | maintainer checkpoint C-ar-5  |
-| AR-R2, R3, R4, R7, R9(lint/tsconfig half)                                                                                  | **ar-6** (CI + automation + lint/tsconfig hardening)                                   | any time after ar-1           |
-| AR-E10, W7, W10, W12, AR-C6, C7, C8, AR-F4, F6, AR-D9, theme/a11y polish                                                   | post-MVP **PT-Q** track (§7 of the post-MVP doc) — the separate QoL/performance thread | independent agent can pick up |
-| AR-D7 (+ stub-package fate)                                                                                                | **maintainer decision D13** (open-decisions table, post-MVP §9)                        | not agent-queueable           |
+| Findings                                                                                                                   | Owner                                                                                   | Notes                         |
+| -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------- |
+| AR-E1…E4                                                                                                                   | handoff **AR queue: ar-1** (`20260922-ar-queue.md`; engine security + wire-gate hotfix) | ships first                   |
+| AR-W1, W3, W4, W5, W8, W9, W2, W11, W13                                                                                    | **ar-2** (web correctness batch)                                                        | after ar-1                    |
+| AR-R1 (AGENTS half), R2(AGENTS/05 claims), R8, AR-W6, AR-E8, AR-C1/C5 docs, AR-V1/V4 docs, AR-F1/F5/F7 docs, AR-D2 comment | **ar-3** (docs truthfulness sweep; solo-able; excludes README = pt0-3)                  | any time                      |
+| AR-D1…D6, D8, AR-V2…V5, AR-F2, F3                                                                                          | **ar-4** (pure-package hardening batch)                                                 | parallel-safe with ar-2       |
+| AR-C3, C4, AR-R5 (+ checkpoint)                                                                                            | **ar-5** (publishability: packaging + `assay profile`)                                  | maintainer checkpoint C-ar-5  |
+| AR-R2, R3, R4, R7, R9(lint/tsconfig half)                                                                                  | **ar-6** (CI + automation + lint/tsconfig hardening)                                    | any time after ar-1           |
+| AR-E10, W7, W10, W12, AR-C6, C7, C8, AR-F4, F6, AR-D9, theme/a11y polish                                                   | post-MVP **PT-Q** track (§7 of the post-MVP doc) — the separate QoL/performance thread  | independent agent can pick up |
+| AR-D7 (+ stub-package fate)                                                                                                | **maintainer decision D13** (open-decisions table, post-MVP §9)                         | not agent-queueable           |

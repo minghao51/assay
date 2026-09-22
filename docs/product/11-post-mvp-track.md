@@ -36,7 +36,7 @@ document details the post-MVP structure and carries the launch-readiness checkli
   typecheck 18/18, build 3/3); engine conformance suite + data-source behavior suite +
   seeded property suites with exact non-vacuity pins; every milestone closed with an exit
   journey asserting cross-surface agreement (M5 validation, M6 diff); adversarial
-  worker/reviewer protocol for every task (handoff §7).
+  worker/reviewer protocol for every task ([handoff operating model](../process/handoff/operating-model.md)).
 - **Not yet done (all tracked, none blocking local use):** no telemetry implementation exists
   (design-only: ADR 0037 opt-out stance, ADR 0025 exclusions); remote **now exists** — private
   [`minghao51/assay`](https://github.com/minghao51/assay), `main` pushed 2026-09-21, CI green on
@@ -45,7 +45,8 @@ document details the post-MVP structure and carries the launch-readiness checkli
 - **Whole-repo audit (2026-09-22):** seven-lane read-only audit of every package/app/infra
   ([report](../reviews/2026-09-22-whole-repo-implementation-audit.md)) — 2 criticals (BLOB CSV
   formula-injection bypass; web cell-editor wrong-row commit), ~35 warnings, structural gaps.
-  Correctness/security/honesty findings → handoff §6 **AR queue** (ar-1…ar-6); QoL/perf/polish
+  Correctness/security/honesty findings → the handoff **AR queue**
+  ([`20260922-ar-queue.md`](../process/handoff/20260922-ar-queue.md); ar-1…ar-6); QoL/perf/polish
   findings → **PT-Q** (§7 below); interface/stub fate → open decision **D13** (§9).
 
 ## 3. Track structure
@@ -101,7 +102,9 @@ validate → diff in VS Code) pass as e2e.
 
 ## 6. PT-H — hardening & backlog inventory (recorded carry-overs)
 
-Everything below is already recorded in handoff §6 rows or §9; listed here so the post-MVP
+Everything below is already recorded in the handoff queue files (now
+[`docs/process/handoff/`](../process/handoff/), completed queues archived there) or in its
+changelog; listed here so the post-MVP
 lanes have a single index:
 
 - Engine: bound the optional integer modifier (`VARCHAR(<huge>)` fails late); `VARBIT`
@@ -124,18 +127,21 @@ lanes have a single index:
 ## 7. PT-Q — QoL & performance track (the separate thread)
 
 Created 2026-09-22 when the whole-repo audit's findings were split: everything that is
-**correctness/security/honesty remediation** went to the handoff §6 AR queue (ar-1…ar-6);
+**correctness/security/honesty remediation** went to the handoff AR queue
+([`20260922-ar-queue.md`](../process/handoff/20260922-ar-queue.md); ar-1…ar-6);
 everything that is **quality-of-life, performance, polish, or tooling headroom** lives here —
 as one coherent thread a fresh agent session can pick up without further triage.
 
 **Pickup protocol (for any new agent session):**
 
-1. Read `docs/process/handoff.md` (§2 state, §5 definition of done, §7 multi-agent model) and the
+1. Read `docs/process/handoff.md` (§2 state, §5 definition of done),
+   [`docs/process/handoff/operating-model.md`](../process/handoff/operating-model.md) (multi-agent
+   model), and the
    [audit report](../reviews/2026-09-22-whole-repo-implementation-audit.md) sections cited below
    (each item carries stable `AR-*` finding IDs with file:line).
 2. Take items **in order** (q-1 first); one item per worker dispatch, reviewer per §7.5
    (worker `opencode-go/deepseek-v4.1-flash`, reviewer `zai/glm-5.3-flash`, briefs to `/tmp`
-   per handoff §7.6).
+   per the operating model's dispatch runbook §7.6).
 3. **Conflict rule:** q-1 touches `apps/web/src/grid/DataGrid.tsx` + `App.tsx`, which ar-2 also
    edits — serialize q-1 against ar-2 (land one before dispatching the other). Every other item is
    parallel-safe against the AR queue (disjoint paths).
@@ -180,6 +186,7 @@ no change.
 ## 10. Maintenance
 
 This document is orchestrator-owned (like the roadmap and handoff). Track tasks are still
-sliced into handoff §6 queues and executed under the §7 multi-agent protocol; the roadmap
+sliced into handoff queue files ([`docs/process/handoff/`](../process/handoff/)) and executed under the
+operating-model protocol; the roadmap
 remains canonical for sequencing, and any durable/architectural decision made here gets an
 ADR (next free number: 0042). Update §2's evidence line at every milestone close.
