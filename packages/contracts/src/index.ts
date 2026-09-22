@@ -19,10 +19,10 @@
  * generators (`property-testing.ts`) and the internal YAML-node walk
  * (`validate.ts`) stay in-package.
  */
-export * from './ast'
-export * from './vocabulary'
-export * from './errors'
-export * from './parse'
-export * from './serialize'
-export * from './re2-subset'
-export * from './json-schema'
+export * from './ast.js'
+export * from './vocabulary.js'
+export * from './errors.js'
+export * from './parse.js'
+export * from './serialize.js'
+export * from './re2-subset.js'
+export * from './json-schema.js'

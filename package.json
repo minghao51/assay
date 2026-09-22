@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "pnpm exec tsc --build apps/cli/tsconfig.build.json && vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "dev": "pnpm --filter @assay/web dev",

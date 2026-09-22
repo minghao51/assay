@@ -84,14 +84,14 @@
 import type { OverlayBase } from '@assay/domain'
 import { baseRowId, parseRowId } from '@assay/domain'
 import type { CellValue, InsertedRowRecord, OverlayState, RowId } from '@assay/domain'
-import { quotedIdentifier, sqlStringLiteral } from './format-view'
-import type { EngineExportFormat, EngineFilterSpec, EngineSortSpec } from './protocol'
+import { quotedIdentifier, sqlStringLiteral } from './format-view.js'
+import type { EngineExportFormat, EngineFilterSpec, EngineSortSpec } from './protocol.js'
 import {
   isBlobLikeEngineType,
   isStringLikeEngineType,
   validateEngineTypeExpression,
-} from './type-expr'
-import { orderByClauseSql, whereClauseSql } from './window-query'
+} from './type-expr.js'
+import { orderByClauseSql, whereClauseSql } from './window-query.js'
 
 /**
  * Column names this composer reserves for its own machinery. A dataset

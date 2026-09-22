@@ -64,8 +64,8 @@
  * Error messages name the failure class only — never plan content, relation
  * names, key names, or dataset contents (ADR 0025).
  */
-import { isSingleSelectStatement, scanPlanSql } from './validate-plan-wire'
-import type { PlanSqlScanOk } from './validate-plan-wire'
+import { isSingleSelectStatement, scanPlanSql } from './validate-plan-wire.js'
+import type { PlanSqlScanOk } from './validate-plan-wire.js'
 
 /** Discriminator carried by every v1 plan (mirror of the m6-1 constant). */
 const PLAN_KIND = 'assay-row-diff-plan'

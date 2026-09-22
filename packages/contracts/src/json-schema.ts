@@ -125,13 +125,13 @@
  * (docs/engineering/05-repository-structure.md §3, lint-enforced).
  */
 
-import { CONTRACT_FORMAT } from './ast'
-import type { ColumnRuleSet, ContractScalar, ContractV1 } from './ast'
-import type { ContractTypeSpelling } from './vocabulary'
-import { describeContractError } from './errors'
-import { serializeContract } from './serialize'
-import { parseContract } from './parse'
-import { checkRe2SubsetPattern } from './re2-subset'
+import { CONTRACT_FORMAT } from './ast.js'
+import type { ColumnRuleSet, ContractScalar, ContractV1 } from './ast.js'
+import type { ContractTypeSpelling } from './vocabulary.js'
+import { describeContractError } from './errors.js'
+import { serializeContract } from './serialize.js'
+import { parseContract } from './parse.js'
+import { checkRe2SubsetPattern } from './re2-subset.js'
 
 /**
  * Machine-readable adapter failure classes (stable, switch-able; mirrors the

@@ -30,10 +30,10 @@ import {
   isNonNegativeSafeInteger,
   readArray,
   readField,
-} from './guards'
-import type { DiffIssue, DiffSide } from './issues'
-import { makeIssue } from './issues'
-import type { CategoricalTopKEntry, NumericQuantiles, ProfileColumnKind } from './profile'
+} from './guards.js'
+import type { DiffIssue, DiffSide } from './issues.js'
+import { makeIssue } from './issues.js'
+import type { CategoricalTopKEntry, NumericQuantiles, ProfileColumnKind } from './profile.js'
 
 /** The profile `kind` vocabulary (the m2 profile contract). */
 const PROFILE_KINDS: ReadonlySet<string> = new Set(['numeric', 'categorical', 'other'])

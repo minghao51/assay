@@ -57,16 +57,16 @@
  * error messages by this module.
  */
 import type { Table } from 'apache-arrow'
-import { quotedIdentifier } from './format-view'
+import { quotedIdentifier } from './format-view.js'
 import {
   OVERLAY_ROW_ID_COLUMN,
   OVERLAY_SORT_KEY_COLUMN,
   RESERVED_OVERLAY_COLUMN_NAMES,
   composeSourceSql,
-} from './overlay-query'
-import type { OverlayComposition } from './overlay-query'
-import { VALIDATION_SAMPLE_HARD_MAX } from './validate-plan-wire'
-import type { EngineValidationSample } from './validate-plan-wire'
+} from './overlay-query.js'
+import type { OverlayComposition } from './overlay-query.js'
+import { VALIDATION_SAMPLE_HARD_MAX } from './validate-plan-wire.js'
+import type { EngineValidationSample } from './validate-plan-wire.js'
 /**
  * The composer-reserved column this module bakes the effective row index
  * into (in `RESERVED_OVERLAY_COLUMN_NAMES`, so a dataset can never carry it).

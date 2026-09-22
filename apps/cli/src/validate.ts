@@ -24,17 +24,17 @@ import type { ContractError } from '@assay/contracts'
 import { compileContract, DEFAULT_SAMPLE_LIMIT, describeBindingError } from '@assay/validation'
 import type { BindingError } from '@assay/validation'
 import { VALIDATION_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
-import { openConnection, PLAN_RELATION, registerDataset } from './connection'
-import { CliError, usageError } from './errors'
-import type { CliExitCode } from './errors'
-import { preparePlan, runValidationPlan } from './node-executor'
+import { openConnection, PLAN_RELATION, registerDataset } from './connection.js'
+import { CliError, usageError } from './errors.js'
+import type { CliExitCode } from './errors.js'
+import { preparePlan, runValidationPlan } from './node-executor.js'
 import {
   buildValidationReport,
   datasetDisplayName,
   renderHumanReport,
   renderJsonReport,
-} from './report'
-import type { ReportMeta } from './report'
+} from './report.js'
+import type { ReportMeta } from './report.js'
 import type {
   EngineValidationPlan,
   EngineValidationResult,

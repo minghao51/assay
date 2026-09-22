@@ -1,25 +1,24 @@
-#!/usr/bin/env -S node --import tsx
+#!/usr/bin/env node
 /**
- * assay — the Data Workbench CLI (pre-MVP, tsx-run; D10 default npm-only).
+ * assay — the Data Workbench CLI (D10 npm-only; compiled per ADR 0042).
  *
  * Commands (docs/product/07-mvp-scope-and-acceptance.md §2):
  *   assay validate <path> --contract <file>   (m5-4)
  *   assay diff <a> <b> (--key <column>… | --infer)  (m6-3)
+ *   assay profile <path>                       (ar-5 / AR-C4)
  *
- * Planned commands: `assay profile <path>`.
  * The CLI shares the same core packages as web and VS Code (ADR 0008) and
- * executes the m5-1 validation plan against the raw dataset file through the
- * engine-neutral helpers in `@assay/engine-duckdb` on a `@duckdb/node-api`
- * connection (the m5-4 backend spike's recommendation; ADR draft in the task
- * report — the orchestrator authors the ADR).
+ * executes validation and row-diff plans against the raw dataset file through
+ * the engine-neutral helpers in `@assay/engine-duckdb` on a
+ * `@duckdb/node-api` connection (ADR 0041). The runtime entry is the `tsc`
+ * output `dist/index.js` (ADR 0042) — no `tsx` at runtime; the command
+ * modules are imported lazily so `--help`/`--version` never load the engine.
  */
 import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { CliError } from './errors'
-import type { CliExitCode } from './errors'
-import { parseArgs } from './args'
-import { runValidateCommand, resolveValidateOptions } from './validate'
-import { runDiffCommand, resolveDiffOptions } from './diff'
+import { CliError } from './errors.js'
+import type { CliExitCode } from './errors.js'
+import { parseArgs } from './args.js'
 
 const VERSION = '0.0.0'
 
@@ -31,11 +30,14 @@ export function helpText(): string {
     'usage:',
     '  assay validate <path> --contract <file> [options]',
     '  assay diff <a> <b> (--key <column>… | --infer) [options]',
+    '  assay profile <path> [options]',
     '',
     'commands:',
     '  validate          validate a dataset against an assay contract',
     '  diff              compare two dataset versions (schema drift, profile',
     '                    deltas, then the key-based row diff)',
+    '  profile           profile a dataset (per-column null/distinct counts,',
+    '                    numeric stats and quantiles, categorical top-k)',
     '  help              show this help',
     '',
     'validate options:',
@@ -66,8 +68,19 @@ export function helpText(): string {
     'reports schema drift, then per-column profile deltas, then the key-based',
     'row diff (added / removed / changed rows) — in that aspect order.',
     '',
+    'profile options:',
+    '  --format <fmt>      human (default) or json — the report format',
+    '  --version           print the version',
+    '  --help              show this help',
+    '',
+    'profile opens the same parquet, csv, jsonl, and json files and reports',
+    'the RAW file (base view only; no editing session). Categorical top-k',
+    'lists at most 10 non-null values per column; numeric columns report',
+    'min/max/mean/stddev and the p50/p90/p95/p99 quantiles.',
+    '',
     'exit codes:',
-    '  0   no differences found across the aspects that ran',
+    '  0   no differences found across the aspects that ran (validate: valid;',
+    '      profile: the profile was produced)',
     '  1   differences were found (the report on stdout is the result)',
     '  2   usage, path, inference, or binding error (readable stderr; no',
     '      dataset values are ever printed to stderr)',
@@ -87,6 +100,7 @@ export async function main(argv: readonly string[]): Promise<CliExitCode> {
     return invocation.flags.help || invocation.command === 'help' ? 0 : 2
   }
   if (invocation.command === 'validate') {
+    const { runValidateCommand, resolveValidateOptions } = await import('./validate.js')
     const options = resolveValidateOptions({
       contract: invocation.flags.contract,
       format: invocation.flags.format,
@@ -98,6 +112,7 @@ export async function main(argv: readonly string[]): Promise<CliExitCode> {
     return runValidateCommand(options, (text) => process.stdout.write(text))
   }
   if (invocation.command === 'diff') {
+    const { runDiffCommand, resolveDiffOptions } = await import('./diff.js')
     const options = resolveDiffOptions({
       keys: invocation.flags.keys,
       infer: invocation.flags.infer,
@@ -107,6 +122,18 @@ export async function main(argv: readonly string[]): Promise<CliExitCode> {
       positionals: invocation.positionals,
     })
     return runDiffCommand(options, (text) => process.stdout.write(text))
+  }
+  if (invocation.command === 'profile') {
+    const { runProfileCommand, resolveProfileOptions } = await import('./profile.js')
+    const options = resolveProfileOptions({
+      contract: invocation.flags.contract,
+      format: invocation.flags.format,
+      sampleLimit: invocation.flags.sampleLimit,
+      keys: invocation.flags.keys,
+      infer: invocation.flags.infer,
+      positionals: invocation.positionals,
+    })
+    return runProfileCommand(options, (text) => process.stdout.write(text))
   }
   throw new CliError(2, `unknown command '${invocation.command}' (see --help)`)
 }

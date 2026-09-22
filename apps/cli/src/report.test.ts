@@ -14,8 +14,8 @@ import {
   renderJsonReport,
   ruleLabel,
   sampleValueText,
-} from './report'
-import type { ReportMeta, ValidationReportRow } from './report'
+} from './report.js'
+import type { ReportMeta, ValidationReportRow } from './report.js'
 import type { EngineValidationPlan, EngineValidationResult } from '@assay/engine-duckdb/node'
 
 /** A report row with only the ordering-relevant fields set. */

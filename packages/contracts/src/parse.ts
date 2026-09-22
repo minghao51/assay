@@ -29,8 +29,8 @@
  *   should apply their own size limits.
  */
 import { parseDocument } from 'yaml'
-import type { ContractError, ContractParseResult } from './errors'
-import { offsetToLineCol, makeLineIndex, validateContractDocument } from './validate'
+import type { ContractError, ContractParseResult } from './errors.js'
+import { offsetToLineCol, makeLineIndex, validateContractDocument } from './validate.js'
 
 /**
  * Parse a contract document (YAML text). Total over all inputs: for

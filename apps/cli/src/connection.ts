@@ -24,7 +24,7 @@ import type { DuckDBConnection, DuckDBResultReader } from '@duckdb/node-api'
 import { createViewSql, detectFileFormat, quotedIdentifier } from '@assay/engine-duckdb/node'
 import type { EngineFileFormat } from '@assay/engine-duckdb/node'
 import type { EngineSchema } from '@assay/validation'
-import { usageError } from './errors'
+import { usageError } from './errors.js'
 
 /** The engine-generated view name the dataset is registered under. */
 export const DATASET_VIEW = 'assay_t1'

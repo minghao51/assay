@@ -102,7 +102,7 @@
  * lint-enforced).
  */
 
-import type { ContractTypeSpelling } from './vocabulary'
+import type { ContractTypeSpelling } from './vocabulary.js'
 
 /** The only supported contract format version (recorded M5 non-goal: no versioning beyond this). */
 export const CONTRACT_FORMAT = 'v1'

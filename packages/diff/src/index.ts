@@ -38,15 +38,15 @@
  * lint-enforced purity boundary). Downstream: m6-2 engine execution, m6-3
  * CLI, m6-4 web panel; cross-surface byte-agreement is asserted in m6-5.
  */
-export { binIndex, deriveBins } from './bins'
-export type { BinSet } from './bins'
-export { distributionDeltas } from './deltas'
+export { binIndex, deriveBins } from './bins.js'
+export type { BinSet } from './bins.js'
+export { distributionDeltas } from './deltas.js'
 export type {
   CategoricalDistributionDelta,
   ColumnDistributionDelta,
   DistributionDeltasResult,
   NumericDistributionDelta,
-} from './deltas'
+} from './deltas.js'
 export {
   DIVERGENCE_EPSILON,
   JENSEN_SHANNON_MAX,
@@ -55,11 +55,11 @@ export {
   psi,
   totalVariation,
   vanishedCategories,
-} from './divergence'
-export { describeDiffIssue } from './issues'
-export type { DiffIssue, DiffIssueCode, DiffSide } from './issues'
-export { inferRowDiffKeys } from './key-inference'
-export type { KeyCandidate, KeyCandidateEvidence, KeyInferenceResult } from './key-inference'
+} from './divergence.js'
+export { describeDiffIssue } from './issues.js'
+export type { DiffIssue, DiffIssueCode, DiffSide } from './issues.js'
+export { inferRowDiffKeys } from './key-inference.js'
+export type { KeyCandidate, KeyCandidateEvidence, KeyInferenceResult } from './key-inference.js'
 export type {
   CategoricalColumnStats,
   CategoricalTopKEntry,
@@ -68,19 +68,19 @@ export type {
   NumericColumnStats,
   NumericQuantiles,
   ProfileColumnKind,
-} from './profile'
-export { REPORT_DECIMALS, roundForReport } from './rounding'
-export { diffDatasets, hasSchemaOrProfileDifferences } from './report'
-export type { DiffInput, DiffReport } from './report'
-export { nullabilityDrift, schemaDrift } from './schema-drift'
-export type { SchemaDriftFinding, SchemaDriftKind, SchemaDriftResult } from './schema-drift'
+} from './profile.js'
+export { REPORT_DECIMALS, roundForReport } from './rounding.js'
+export { diffDatasets, hasSchemaOrProfileDifferences } from './report.js'
+export type { DiffInput, DiffReport } from './report.js'
+export { nullabilityDrift, schemaDrift } from './schema-drift.js'
+export type { SchemaDriftFinding, SchemaDriftKind, SchemaDriftResult } from './schema-drift.js'
 export {
   compileRowDiffPlan,
   DEFAULT_ROW_DIFF_SAMPLE_LIMIT,
   keyTypesCompatible,
-} from './row-diff-compile'
-export type { RowDiffCompileOptions, RowDiffCompileResult } from './row-diff-compile'
-export { describeRowDiffBindingError } from './row-diff-errors'
-export type { RowDiffBindingError, RowDiffBindingErrorCode } from './row-diff-errors'
-export { DIFF_PLAN_KIND, DIFF_PLAN_VERSION, ROW_DIFF_ASPECTS } from './row-diff-plan'
-export type { RowDiffAspect, RowDiffPlan } from './row-diff-plan'
+} from './row-diff-compile.js'
+export type { RowDiffCompileOptions, RowDiffCompileResult } from './row-diff-compile.js'
+export { describeRowDiffBindingError } from './row-diff-errors.js'
+export type { RowDiffBindingError, RowDiffBindingErrorCode } from './row-diff-errors.js'
+export { DIFF_PLAN_KIND, DIFF_PLAN_VERSION, ROW_DIFF_ASPECTS } from './row-diff-plan.js'
+export type { RowDiffAspect, RowDiffPlan } from './row-diff-plan.js'

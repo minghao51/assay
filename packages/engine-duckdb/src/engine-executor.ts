@@ -49,7 +49,7 @@ import { Table, tableFromIPC, tableToIPC } from 'apache-arrow'
 import type { RecordBatch } from 'apache-arrow'
 import type { OverlayBase, OverlayState } from '@assay/domain'
 import { foldOverlay, initialState } from '@assay/domain'
-import { createViewSql, detectFileFormat, quotedIdentifier } from './format-view'
+import { createViewSql, detectFileFormat, quotedIdentifier } from './format-view.js'
 import {
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
@@ -58,9 +58,9 @@ import {
   composeOverlaySchemaSql,
   composeOverlayWindowSql,
   exportFileExtension,
-} from './overlay-query'
-import type { OverlayComposition } from './overlay-query'
-import { parseEngineRequestEnvelope } from './protocol'
+} from './overlay-query.js'
+import type { OverlayComposition } from './overlay-query.js'
+import { parseEngineRequestEnvelope } from './protocol.js'
 import type {
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
@@ -76,13 +76,13 @@ import type {
   EngineRequest,
   EngineResponse,
   EngineValidateRequest,
-} from './protocol'
-import { validateRowWindow } from './range-window'
-import { OpChannel } from './op-channel'
-import { classifyProfileColumnType } from './profile-classify'
-import { composeProfileBaseSql, composeProfileTopKSql, PROFILE_BASE_SLOT } from './profile-query'
-import { TableRegistry } from './table-registry'
-import type { RegisteredTable } from './table-registry'
+} from './protocol.js'
+import { validateRowWindow } from './range-window.js'
+import { OpChannel } from './op-channel.js'
+import { classifyProfileColumnType } from './profile-classify.js'
+import { composeProfileBaseSql, composeProfileTopKSql, PROFILE_BASE_SLOT } from './profile-query.js'
+import { TableRegistry } from './table-registry.js'
+import type { RegisteredTable } from './table-registry.js'
 import {
   buildSampleFailures,
   composeValidationCountSql,
@@ -99,14 +99,14 @@ import {
   validationFailCountExcess,
   VALIDATION_BEGIN_SQL,
   VALIDATION_ROLLBACK_SQL,
-} from './validate-query'
-import type { ValidationSampleRow } from './validate-query'
-import { assertValidationPlanRelationBinding } from './validate-plan-wire'
-import type { EngineValidationResult, EngineValidationRuleResult } from './validate-plan-wire'
-import { composeRowCountSql, composeWindowSql } from './window-query'
-import { ComparisonRegistry } from './comparison-registry'
-import { assertRowDiffPlanBinding } from './diff-plan-wire'
-import type { EngineRowDiffAspect, EngineRowDiffResult } from './diff-plan-wire'
+} from './validate-query.js'
+import type { ValidationSampleRow } from './validate-query.js'
+import { assertValidationPlanRelationBinding } from './validate-plan-wire.js'
+import type { EngineValidationResult, EngineValidationRuleResult } from './validate-plan-wire.js'
+import { composeRowCountSql, composeWindowSql } from './window-query.js'
+import { ComparisonRegistry } from './comparison-registry.js'
+import { assertRowDiffPlanBinding } from './diff-plan-wire.js'
+import type { EngineRowDiffAspect, EngineRowDiffResult } from './diff-plan-wire.js'
 import {
   buildDiffAspectSamples,
   composeDiffAspectQuery,
@@ -122,8 +122,8 @@ import {
   rowDiffCountExcess,
   ROW_DIFF_BEGIN_SQL,
   ROW_DIFF_ROLLBACK_SQL,
-} from './diff-query'
-import type { RowDiffSampleRow } from './diff-query'
+} from './diff-query.js'
+import type { RowDiffSampleRow } from './diff-query.js'
 
 /**
  * Minimal structural view of an Apache Arrow record-batch stream reader —

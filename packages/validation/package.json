@@ -1,12 +1,36 @@
 {
   "name": "@assay/validation",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/minghao51/assay.git",
+    "directory": "packages/validation"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map"
+  ],
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
   "scripts": {
+    "build": "tsc --build tsconfig.build.json",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

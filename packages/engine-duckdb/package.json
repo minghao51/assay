@@ -7,8 +7,26 @@
     ".": "./src/index.ts",
     "./node": "./src/node.ts"
   },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./node": {
+        "types": "./dist/node.d.ts",
+        "default": "./dist/node.js"
+      }
+    }
+  },
+  "files": [
+    "dist/*.js",
+    "dist/*.js.map",
+    "dist/*.d.ts",
+    "dist/*.d.ts.map"
+  ],
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && tsc --build tsconfig.build.json",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

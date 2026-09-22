@@ -20,7 +20,7 @@
  * Purity: this module is types + total pure helpers only — no React, no
  * browser APIs, no engine imports (docs/engineering/05 §3, lint-enforced).
  */
-import type { RowId } from './row-identity'
+import type { RowId } from './row-identity.js'
 
 /**
  * One cell value, tagged so "NULL" is data and absence is absence.

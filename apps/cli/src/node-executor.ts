@@ -134,8 +134,8 @@ import { initialState } from '@assay/domain'
 import type { OverlayBase } from '@assay/domain'
 import type { CategoricalTopKEntry, DatasetProfile, NumericQuantiles } from '@assay/diff'
 import type { EngineSchema } from '@assay/validation'
-import { DATASET_VIEW, PLAN_RELATION } from './connection'
-import { usageError } from './errors'
+import { DATASET_VIEW, PLAN_RELATION } from './connection.js'
+import { usageError } from './errors.js'
 
 /**
  * Wire-harden a freshly compiled plan (the m5-2 boundary discipline: the

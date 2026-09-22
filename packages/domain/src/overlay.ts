@@ -42,10 +42,10 @@
  * Purity: no React, no browser APIs, no engine imports (docs/engineering/05
  * §3, lint-enforced); no I/O; never throws.
  */
-import type { CellValue, CellValueRecord, ColumnSpec, EditOp, InsertPosition } from './edit-ops'
-import { NULL_VALUE, cellValueEqual } from './edit-ops'
-import { baseRowId, parseRowId } from './row-identity'
-import type { RowId } from './row-identity'
+import type { CellValue, CellValueRecord, ColumnSpec, EditOp, InsertPosition } from './edit-ops.js'
+import { NULL_VALUE, cellValueEqual } from './edit-ops.js'
+import { baseRowId, parseRowId } from './row-identity.js'
+import type { RowId } from './row-identity.js'
 
 /**
  * The immutable base an overlay edits *on top of*: metadata only — the base

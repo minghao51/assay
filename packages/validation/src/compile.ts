@@ -93,19 +93,19 @@
  */
 
 import type { ContractV1 } from '@assay/contracts'
-import type { BindingError, BindingErrorCode } from './errors'
+import type { BindingError, BindingErrorCode } from './errors.js'
 import {
   quoteIdentifier,
   sqlBooleanLiteral,
   sqlIntegerLiteral,
   sqlNumberLiteral,
   sqlStringLiteral,
-} from './literals'
-import type { PlannedRule, ValidationPlan, ValidationRuleKind } from './plan'
-import { PLAN_KIND, PLAN_VERSION } from './plan'
-import { checkRe2Pattern } from './re2'
-import type { ColumnTypeFamily, EngineSchema, EngineSchemaColumn } from './schema'
-import { classifyColumnType, describeUnbindableType } from './schema'
+} from './literals.js'
+import type { PlannedRule, ValidationPlan, ValidationRuleKind } from './plan.js'
+import { PLAN_KIND, PLAN_VERSION } from './plan.js'
+import { checkRe2Pattern } from './re2.js'
+import type { ColumnTypeFamily, EngineSchema, EngineSchemaColumn } from './schema.js'
+import { classifyColumnType, describeUnbindableType } from './schema.js'
 
 /** Where the compiled plan reads rows from: a table or view name. */
 export interface CompileOptions {

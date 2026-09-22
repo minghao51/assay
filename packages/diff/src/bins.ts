@@ -33,8 +33,8 @@
  *   `divergence.ts`.
  */
 
-import type { NumericColumnStats } from './profile'
-import { isFiniteNumber, normZero, readArray, readFieldPath } from './guards'
+import type { NumericColumnStats } from './profile.js'
+import { isFiniteNumber, normZero, readArray, readFieldPath } from './guards.js'
 
 /** The quantile cutpoints bins derive from (documented; the m2 position set). */
 const QUANTILE_KEYS = ['p50', 'p90', 'p95', 'p99'] as const

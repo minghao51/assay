@@ -47,9 +47,9 @@
 import * as duckdb from '@duckdb/duckdb-wasm'
 import duckdbWorkerUrl from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url'
 import duckdbWasmUrl from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url'
-import { EngineOpExecutor } from './engine-executor'
-import type { EngineSessionLike } from './engine-executor'
-import type { EngineResponse } from './protocol'
+import { EngineOpExecutor } from './engine-executor.js'
+import type { EngineSessionLike } from './engine-executor.js'
+import type { EngineResponse } from './protocol.js'
 
 /**
  * Structural type for the worker global scope. The package tsconfig uses the

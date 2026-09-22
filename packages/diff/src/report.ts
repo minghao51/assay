@@ -37,17 +37,17 @@
  * row-diff aspects land.
  */
 
-import type { DiffIssue } from './issues'
-import { makeIssue } from './issues'
-import type { DatasetProfile } from './profile'
-import { isFiniteNumber, readArray, readField } from './guards'
+import type { DiffIssue } from './issues.js'
+import { makeIssue } from './issues.js'
+import type { DatasetProfile } from './profile.js'
+import { isFiniteNumber, readArray, readField } from './guards.js'
 import type { EngineSchema } from '@assay/validation'
-import type { ColumnDistributionDelta } from './deltas'
-import { distributionDeltasFor } from './deltas'
-import type { SchemaDriftFinding } from './schema-drift'
-import { nullabilityFindings, sortFindings, typeDriftFindings } from './schema-drift'
-import type { ValidatedProfile, ValidatedSchema } from './input-validation'
-import { validateProfile, validateSchema } from './input-validation'
+import type { ColumnDistributionDelta } from './deltas.js'
+import { distributionDeltasFor } from './deltas.js'
+import type { SchemaDriftFinding } from './schema-drift.js'
+import { nullabilityFindings, sortFindings, typeDriftFindings } from './schema-drift.js'
+import type { ValidatedProfile, ValidatedSchema } from './input-validation.js'
+import { validateProfile, validateSchema } from './input-validation.js'
 
 /** The diff model's inputs: two engine schemas, two profile summaries. */
 export interface DiffInput {

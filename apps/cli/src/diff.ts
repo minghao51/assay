@@ -38,10 +38,10 @@ import { compileRowDiffPlan, diffDatasets, inferRowDiffKeys } from '@assay/diff'
 import type { KeyInferenceResult, RowDiffBindingError } from '@assay/diff'
 import { describeRowDiffBindingError } from '@assay/diff'
 import { ROW_DIFF_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
-import { DATASET_VIEW, openConnection, registerDatasetAs } from './connection'
-import { CliError, usageError } from './errors'
-import type { CliExitCode } from './errors'
-import { prepareDiffPlan, profileView, runDiffPlan } from './node-executor'
+import { DATASET_VIEW, openConnection, registerDatasetAs } from './connection.js'
+import { CliError, usageError } from './errors.js'
+import type { CliExitCode } from './errors.js'
+import { prepareDiffPlan, profileView, runDiffPlan } from './node-executor.js'
 import {
   buildDiffRowDiffReport,
   columnDeltaDiffers,
@@ -49,9 +49,9 @@ import {
   describeIssueLine,
   renderHumanDiffReport,
   renderJsonDiffReport,
-} from './report'
-import type { DiffCommandReport, DiffInferenceDisclosure, DiffReportMeta } from './report'
-import { resolveSampleLimit } from './validate'
+} from './report.js'
+import type { DiffCommandReport, DiffInferenceDisclosure, DiffReportMeta } from './report.js'
+import { resolveSampleLimit } from './validate.js'
 
 /**
  * The registered comparison view (side B). Side A is registered through

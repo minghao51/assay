@@ -31,7 +31,7 @@
  * the composer and fold consume them directly; no second mapping layer.
  */
 import type { CellValue, EditOp, InsertPosition, OverlayBase, RowId } from '@assay/domain'
-import { validateEngineTypeExpression } from './type-expr'
+import { validateEngineTypeExpression } from './type-expr.js'
 
 /** The overlay payload every overlay request carries (base + op list). */
 export interface EngineOverlayPayload {

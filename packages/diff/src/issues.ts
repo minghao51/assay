@@ -9,7 +9,7 @@
  * (the m5-0 never-echo lesson: never a rounded or re-formatted value).
  */
 
-import { readField } from './guards'
+import { readField } from './guards.js'
 
 /** Which input side an issue belongs to. A = reference, B = current. */
 export type DiffSide = 'A' | 'B'

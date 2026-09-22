@@ -25,8 +25,8 @@
  *   of `validateRowWindow` (safe non-negative integers, ≤ `MAX_RANGE_ROWS`),
  *   which both the client and the worker re-validate before composing.
  */
-import { quotedIdentifier } from './format-view'
-import type { EngineFilterSpec, EngineSortSpec } from './protocol'
+import { quotedIdentifier } from './format-view.js'
+import type { EngineFilterSpec, EngineSortSpec } from './protocol.js'
 
 /** Input for `composeWindowSql` (m2-2 `engine/range`). */
 export interface EngineWindowQuery {

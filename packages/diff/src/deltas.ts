@@ -38,18 +38,18 @@
  * it. Deltas appear in profile-A column order.
  */
 
-import type { BinSet } from './bins'
-import { deriveBins } from './bins'
-import type { DiffIssue } from './issues'
-import type { CategoricalTopKEntry, DatasetProfile, ProfileColumnKind } from './profile'
-import { isFiniteNumber, normZero } from './guards'
+import type { BinSet } from './bins.js'
+import { deriveBins } from './bins.js'
+import type { DiffIssue } from './issues.js'
+import type { CategoricalTopKEntry, DatasetProfile, ProfileColumnKind } from './profile.js'
+import { isFiniteNumber, normZero } from './guards.js'
 import type {
   ValidatedColumnProfile,
   ValidatedNumericStats,
   ValidatedProfile,
-} from './input-validation'
-import { nonNullCount, validateProfile } from './input-validation'
-import { newCategories, totalVariation, vanishedCategories } from './divergence'
+} from './input-validation.js'
+import { nonNullCount, validateProfile } from './input-validation.js'
+import { newCategories, totalVariation, vanishedCategories } from './divergence.js'
 
 /** Numeric deltas (checkpoint C1) for one column present as `numeric` on both sides. */
 export interface NumericDistributionDelta {

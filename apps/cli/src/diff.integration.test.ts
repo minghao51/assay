@@ -1,9 +1,12 @@
 /**
- * Integration tests for `assay diff` (m6-3): every test SPAWNS the CLI the
- * way a user does (`node --import tsx src/index.ts …`) against temp file
- * pairs built at runtime and never committed. Outputs are BYTE-PINNED where
- * they are path-free (the renderers keep dataset paths out of stdout), so
- * these pins are exact bytes, not shapes.
+ * Integration tests for `assay diff` (m6-3): every test SPAWNS the COMPILED
+ * CLI (`node --import tsx dist/index.js …`, ADR 0042) against temp file pairs
+ * built at runtime and never committed. Outputs are BYTE-PINNED where they
+ * are path-free (the renderers keep dataset paths out of stdout), so these
+ * pins are exact bytes, not shapes.
+ *
+ * The `tsx` loader is a test-harness concession (workspace packages still
+ * export `src/*.ts`); the CLI's own entry is the compiled artifact.
  *
  * The cross-surface agreement test (§"agreement") executes the SAME compiled
  * DiffPlan through the Node executor in-process — the m6-2 engine path, via
@@ -20,8 +23,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { compileRowDiffPlan } from '@assay/diff'
-import { DATASET_VIEW, openConnection, registerDatasetAs } from './connection'
-import { prepareDiffPlan, runDiffPlan } from './node-executor'
+import { DATASET_VIEW, openConnection, registerDatasetAs } from './connection.js'
+import { prepareDiffPlan, runDiffPlan } from './node-executor.js'
 
 const CLI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
 const COMPARISON_VIEW = 'assay_t2'
@@ -32,9 +35,9 @@ interface CliRun {
   readonly stderr: string
 }
 
-/** Spawn the CLI exactly as documented: `node --import tsx src/index.ts …`. */
+/** Spawn the compiled CLI (ADR 0042): `node --import tsx dist/index.js …`. */
 function runCli(args: readonly string[]): CliRun {
-  const result = spawnSync(process.execPath, ['--import', 'tsx', 'src/index.ts', ...args], {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'dist/index.js', ...args], {
     cwd: CLI_DIR,
     encoding: 'utf8',
   })

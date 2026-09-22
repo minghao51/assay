@@ -1,10 +1,16 @@
 /**
- * Integration tests for `assay validate` (m5-4): every test SPAWNS the CLI
- * the way a user does (`node --import tsx src/index.ts …`) against temp
+ * Integration tests for `assay validate` (m5-4): every test SPAWNS the
+ * COMPILED CLI (`node --import tsx dist/index.js …`, ADR 0042) against temp
  * dirty files built at runtime and never committed. Outputs are BYTE-PINNED
  * where they are path-free (the renderers keep dataset paths out of stdout
  * and contract-authored text only in stderr), so these pins are exact bytes,
  * not shapes.
+ *
+ * The `tsx` loader is a test-harness concession: workspace packages still
+ * export `src/*.ts` (the boundary rule freezes their src), so the CLI's
+ * dependency graph needs a TS loader here. The CLI's OWN entry is the
+ * compiled `dist/index.js` — the shipped artifact — and a byte-pinned
+ * plain-`node` check (no loader) covers `--version`.
  *
  * The cross-surface agreement test (§"agreement") executes the SAME compiled
  * plan through the Node executor in-process and asserts per-rule
@@ -14,7 +20,7 @@
  * discipline, rebuilt on demand (the harness dataset is never imported).
  */
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,8 +28,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { compileContract } from '@assay/validation'
 import { failPercentFromCounts } from '@assay/engine-duckdb/node'
 import { parseContract } from '@assay/contracts'
-import { openConnection, PLAN_RELATION, registerDataset } from './connection'
-import { preparePlan, runValidationPlan } from './node-executor'
+import { openConnection, PLAN_RELATION, registerDataset } from './connection.js'
+import { preparePlan, runValidationPlan } from './node-executor.js'
 import {
   BINDING_ERROR_CONTRACT,
   CLEAN_CONTRACT,
@@ -37,7 +43,7 @@ import {
   VALIDATION_CONTRACT,
   VALIDATION_FIRST_SAMPLES,
   buildValidationJsonl,
-} from './test-datasets'
+} from './test-datasets.js'
 
 const CLI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -47,9 +53,9 @@ interface CliRun {
   readonly stderr: string
 }
 
-/** Spawn the CLI exactly as documented: `node --import tsx src/index.ts …`. */
+/** Spawn the compiled CLI (ADR 0042): `node --import tsx dist/index.js …`. */
 function runCli(args: readonly string[]): CliRun {
-  const result = spawnSync(process.execPath, ['--import', 'tsx', 'src/index.ts', ...args], {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'dist/index.js', ...args], {
     cwd: CLI_DIR,
     encoding: 'utf8',
   })
@@ -496,9 +502,9 @@ error: columns[1].min (column 'region'): [rule-not-applicable] min/max bounds re
     expect(noPath.exitCode).toBe(2)
     expect(noPath.stderr).toBe('validate requires a dataset path (see --help)\n')
 
-    const unknownCommand = runCli(['profile', files.small])
+    const unknownCommand = runCli(['frobnicate', files.small])
     expect(unknownCommand.exitCode).toBe(2)
-    expect(unknownCommand.stderr).toBe("unknown command 'profile' (see --help)\n")
+    expect(unknownCommand.stderr).toBe("unknown command 'frobnicate' (see --help)\n")
 
     const noArgs = runCli([])
     expect(noArgs.exitCode).toBe(2)
@@ -510,8 +516,29 @@ error: columns[1].min (column 'region'): [rule-not-applicable] min/max bounds re
     expect(run.exitCode).toBe(0)
     expect(run.stdout.startsWith('assay 0.0.0 — the local-first data workbench CLI')).toBe(true)
     expect(run.stdout).toContain('  validate          validate a dataset against an assay contract')
+    expect(run.stdout).toContain(
+      '  profile           profile a dataset (per-column null/distinct counts,',
+    )
     expect(run.stdout).toContain('exit codes:')
     expect(run.stdout).toContain('baseViewOnly: true and stale: false in --format json')
+  })
+})
+
+describe('compiled entry (ADR 0042) — the shipped file runs under plain node', () => {
+  it('dist/index.js --version runs with NO loader and keeps the shebang', () => {
+    // No `--import tsx`: the CLI's own compiled graph must resolve under
+    // plain `node` (the workspace deps are only needed by the command
+    // modules, which `--version` never loads).
+    const result = spawnSync(process.execPath, ['dist/index.js', '--version'], {
+      cwd: CLI_DIR,
+      encoding: 'utf8',
+    })
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe('assay 0.0.0\n')
+    expect(result.stderr).toBe('')
+    // The shebang survives tsc emit (the installed bin relies on it).
+    const entry = readFileSync(join(CLI_DIR, 'dist', 'index.js'), 'utf8')
+    expect(entry.startsWith('#!/usr/bin/env node\n')).toBe(true)
   })
 })
 

@@ -84,13 +84,13 @@ import {
   sqlIntegerLiteral,
   sqlStringLiteral,
 } from '@assay/validation'
-import { echoValue, readArray } from './guards'
-import type { DiffIssue } from './issues'
-import type { ValidatedSchema } from './input-validation'
-import { validateSchema } from './input-validation'
-import type { RowDiffBindingError, RowDiffBindingErrorCode } from './row-diff-errors'
-import type { RowDiffPlan } from './row-diff-plan'
-import { DIFF_PLAN_KIND, DIFF_PLAN_VERSION } from './row-diff-plan'
+import { echoValue, readArray } from './guards.js'
+import type { DiffIssue } from './issues.js'
+import type { ValidatedSchema } from './input-validation.js'
+import { validateSchema } from './input-validation.js'
+import type { RowDiffBindingError, RowDiffBindingErrorCode } from './row-diff-errors.js'
+import type { RowDiffPlan } from './row-diff-plan.js'
+import { DIFF_PLAN_KIND, DIFF_PLAN_VERSION } from './row-diff-plan.js'
 
 /** Compile options: the two relation bindings and the sample bound K. */
 export interface RowDiffCompileOptions {

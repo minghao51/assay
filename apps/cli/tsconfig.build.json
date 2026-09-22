@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "exclude": ["src/**/*.test.ts", "src/test-datasets.ts"],
+  "references": [
+    { "path": "../../packages/contracts/tsconfig.build.json" },
+    { "path": "../../packages/diff/tsconfig.build.json" },
+    { "path": "../../packages/domain/tsconfig.build.json" },
+    { "path": "../../packages/engine-duckdb/tsconfig.build.json" },
+    { "path": "../../packages/validation/tsconfig.build.json" }
+  ]
+}

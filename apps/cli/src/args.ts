@@ -11,7 +11,7 @@
  * top inferred candidate and disclose it, checkpoint C2). Both are parsed
  * here; their command-level validation lives in `diff.ts`.
  */
-import { usageError } from './errors'
+import { usageError } from './errors.js'
 
 /** Parsed flags: long names only, values as given. */
 export interface CliFlags {

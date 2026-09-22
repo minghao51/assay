@@ -70,7 +70,7 @@
  * owns the token) but never logged here.
  */
 import type { Table } from 'apache-arrow'
-import { quotedIdentifier } from './format-view'
+import { quotedIdentifier } from './format-view.js'
 import {
   composeValidationCountSql,
   composeValidationRowKeySql,
@@ -78,9 +78,9 @@ import {
   composeValidationViewSql,
   readValidationRowCount,
   readValidationRowKeys,
-} from './validate-query'
-import { ROW_DIFF_SAMPLE_HARD_MAX } from './diff-plan-wire'
-import type { EngineRowDiffAspect, EngineRowDiffSample } from './diff-plan-wire'
+} from './validate-query.js'
+import { ROW_DIFF_SAMPLE_HARD_MAX } from './diff-plan-wire.js'
+import type { EngineRowDiffAspect, EngineRowDiffSample } from './diff-plan-wire.js'
 
 export { ROW_DIFF_SAMPLE_HARD_MAX }
 export { composeValidationViewSql as composeDiffAViewSql }

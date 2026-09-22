@@ -30,12 +30,12 @@
  */
 import { isAlias, isMap, isNode, isScalar, isSeq } from 'yaml'
 import type { Alias, Document, Scalar, YAMLMap, YAMLSeq } from 'yaml'
-import { CONTRACT_FORMAT } from './ast'
-import type { ColumnRuleSet, ContractV1, DatasetRuleSet } from './ast'
-import type { ContractError, ContractErrorCode } from './errors'
-import { canonicalDecimal, isExactDecimalLiteral } from './numeric'
-import { contractTypeHint, isKnownContractType } from './vocabulary'
-import type { ContractTypeSpelling } from './vocabulary'
+import { CONTRACT_FORMAT } from './ast.js'
+import type { ColumnRuleSet, ContractV1, DatasetRuleSet } from './ast.js'
+import type { ContractError, ContractErrorCode } from './errors.js'
+import { canonicalDecimal, isExactDecimalLiteral } from './numeric.js'
+import { contractTypeHint, isKnownContractType } from './vocabulary.js'
+import type { ContractTypeSpelling } from './vocabulary.js'
 
 /**
  * Any parsed YAML node (or absence). Deliberately the loose class union —

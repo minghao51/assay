@@ -17,7 +17,7 @@
  * user-written rule numbers (a different, exactness-critical problem).
  */
 
-import { normZero } from './guards'
+import { normZero } from './guards.js'
 
 /** Fractional digits kept in report-facing numbers. */
 export const REPORT_DECIMALS = 6

@@ -18,8 +18,8 @@
  * description pool, RE2-safe patterns without single quotes). Trickier
  * scalar shapes are covered by golden pins instead.
  */
-import type { ColumnRuleSet, ContractScalar, ContractV1, DatasetRuleSet } from './ast'
-import { CONTRACT_TYPE_VOCABULARY } from './vocabulary'
+import type { ColumnRuleSet, ContractScalar, ContractV1, DatasetRuleSet } from './ast.js'
+import { CONTRACT_TYPE_VOCABULARY } from './vocabulary.js'
 
 /** mulberry32 — 32-bit seeded PRNG, deterministic across platforms. */
 export function mulberry32(seed: number): () => number {

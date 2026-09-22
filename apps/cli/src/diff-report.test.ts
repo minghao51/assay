@@ -4,8 +4,9 @@
  * code and verdict share, and renderer byte-determinism. The full-pipeline
  * byte pins live in `diff.integration.test.ts`.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ColumnDistributionDelta, DiffReport } from '@assay/diff'
+import { ROW_DIFF_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
 import type { EngineRowDiffResult } from '@assay/engine-duckdb/node'
 import {
   buildDiffRowDiffReport,
@@ -16,8 +17,19 @@ import {
   renderHumanDiffReport,
   renderJsonDiffReport,
   schemaFindingLine,
-} from './report'
-import type { DiffCommandReport, DiffReportMeta } from './report'
+} from './report.js'
+import type { DiffCommandReport, DiffReportMeta } from './report.js'
+
+// AR-C2 divergent-constant pin: force the `./node` seam's DIFF clamp and
+// VALIDATION clamp apart for this file. Both are 100 in production, so a pin
+// that interpolated the imported constant would survive a regression to the
+// validation constant; with the mock they disagree (137 vs 3) and the
+// renderer must name the DIFF value. Swapping the constant in
+// `diffTruncationLine` therefore fails the assertion below.
+vi.mock('@assay/engine-duckdb/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@assay/engine-duckdb/node')>()
+  return { ...actual, ROW_DIFF_SAMPLE_HARD_MAX: 137, VALIDATION_SAMPLE_HARD_MAX: 3 }
+})
 
 const emptyDiff: DiffReport = { schemaDrift: [], columnDeltas: [], issues: [] }
 
@@ -166,6 +178,34 @@ describe('diff report — pure helpers', () => {
         kindB: 'other',
       }),
     ).toBe('tags — other -> other: no comparable metrics')
+  })
+
+  it('the diff truncation clamp names ROW_DIFF_SAMPLE_HARD_MAX, not the validation constant (AR-C2)', () => {
+    // The mock above makes the two constants diverge (137 vs 3) so this pin
+    // cannot be satisfied by reading the validation clamp.
+    expect(ROW_DIFF_SAMPLE_HARD_MAX).toBe(137)
+    const report: DiffCommandReport = {
+      diff: emptyDiff,
+      rowDiff: buildDiffRowDiffReport(
+        {
+          rowCountA: 1,
+          rowCountB: 121,
+          aspects: [
+            { aspect: 'added', count: 120, samples: [{ side: 'B', rowKey: 'b:1' }] },
+            { aspect: 'removed', count: 0, samples: [] },
+            { aspect: 'changed', count: 0, samples: [] },
+          ],
+        },
+        true,
+      ),
+    }
+    const human = renderHumanDiffReport(report, {
+      ...META,
+      sampleLimitRequested: 500,
+      sampleLimitEffective: 100,
+    })
+    expect(human).toContain('    … 119 more added rows not shown (sample limit 500 clamped to 137)')
+    expect(human).not.toContain('clamped to 3')
   })
 
   it('renderers are byte-deterministic and carry the json verdict', () => {

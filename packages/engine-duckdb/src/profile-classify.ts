@@ -34,7 +34,7 @@
  * precedent): an unknown or hostile type string classifies as `other`, never
  * an error — profiling an exotic type must degrade, not fail.
  */
-import type { EngineProfileColumnKind } from './protocol'
+import type { EngineProfileColumnKind } from './protocol.js'
 
 /** Canonical DuckDB numeric type strings (+ common aliases), parens stripped. */
 const NUMERIC_TYPES = new Set([

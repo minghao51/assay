@@ -14,7 +14,7 @@
  * The class is pure bookkeeping — DuckDB calls live in `engine-executor.ts`
  * — so it is unit-testable under Node.
  */
-import { detectFileFormat } from './format-view'
+import { detectFileFormat } from './format-view.js'
 
 /** One staged comparison dataset. */
 export interface StagedComparison {

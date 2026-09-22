@@ -41,7 +41,7 @@ export {
   EngineProtocolError,
   EngineQueryError,
   EngineWorkerError,
-} from './client'
+} from './client.js'
 export type {
   DuckDbEngineClientOptions,
   EngineComparisonHandle,
@@ -60,8 +60,8 @@ export type {
   EngineTableHandle,
   EngineWorkerFactory,
   EngineWorkerLike,
-} from './client'
-export { parseEngineRequest, parseEngineResponse } from './protocol'
+} from './client.js'
+export { parseEngineRequest, parseEngineResponse } from './protocol.js'
 export type {
   EngineColumnSchema,
   EngineCategoricalColumnStats,
@@ -110,35 +110,35 @@ export type {
   EngineSuccessResponse,
   EngineValidateRequest,
   EngineValidateResultResponse,
-} from './protocol'
-export { MAX_RANGE_ROWS, validateRowWindow } from './range-window'
-export type { RowWindow, RowWindowValidation } from './range-window'
+} from './protocol.js'
+export { MAX_RANGE_ROWS, validateRowWindow } from './range-window.js'
+export type { RowWindow, RowWindowValidation } from './range-window.js'
 // m2-7 fold (m2-4 carry-over): the engine-generated SQL-facing view name for
 // a table id (`assay_tN`) is public so consumers stop re-deriving the
 // convention locally.
-export { viewNameForTableId } from './table-registry'
-export { detectFileFormat } from './format-view'
-export type { EngineFileFormat } from './format-view'
+export { viewNameForTableId } from './table-registry.js'
+export { detectFileFormat } from './format-view.js'
+export type { EngineFileFormat } from './format-view.js'
 // m3-4 fold: the engine's identifier-quoting helper is public so web-side SQL
 // composers (m3-4 nested-compose) quote through the same implementation they
 // execute against instead of re-deriving quoting locally.
-export { quotedIdentifier } from './format-view'
-export { classifyProfileColumnType } from './profile-classify'
+export { quotedIdentifier } from './format-view.js'
+export { classifyProfileColumnType } from './profile-classify.js'
 export {
   composeProfileBaseSql,
   composeProfileTopKSql,
   PROFILE_BASE_SLOT,
   PROFILE_QUANTILE_POSITIONS,
   PROFILE_TOP_K,
-} from './profile-query'
-export type { ProfileBaseQueryPlan, ProfileColumnSpec } from './profile-query'
+} from './profile-query.js'
+export type { ProfileBaseQueryPlan, ProfileColumnSpec } from './profile-query.js'
 export {
   composeRowCountSql,
   composeWindowSql,
   orderByClauseSql,
   whereClauseSql,
-} from './window-query'
-export type { EngineWindowQuery } from './window-query'
+} from './window-query.js'
+export type { EngineWindowQuery } from './window-query.js'
 // m4-2 fold: overlay composition (stateless SQL over base view + ops), the
 // CSV formula-injection guard, and the boundary-validated overlay payload —
 // public so the conformance suite, harness, and m4-3's grid all consume the
@@ -159,10 +159,10 @@ export {
   OVERLAY_ROW_ID_COLUMN,
   OVERLAY_SORT_KEY_COLUMN,
   RESERVED_OVERLAY_COLUMN_NAMES,
-} from './overlay-query'
-export type { OverlayComposition, OverlayWindowQuery } from './overlay-query'
-export { parseOverlayPayload, assertValidOverlayTypes } from './overlay-wire'
-export type { EngineOverlayPayload } from './overlay-wire'
+} from './overlay-query.js'
+export type { OverlayComposition, OverlayWindowQuery } from './overlay-query.js'
+export { parseOverlayPayload, assertValidOverlayTypes } from './overlay-wire.js'
+export type { EngineOverlayPayload } from './overlay-wire.js'
 // m5-2 fold: validation execution — the strict plan wire validator, the
 // result contract, and the composed-view/row-key helpers, public so hosts
 // (m5-3 web, m5-4 CLI agreement work) and the conformance suite consume the
@@ -171,14 +171,14 @@ export {
   parseValidationPlan,
   assertValidationPlanRelationBinding,
   quotedRelationToken,
-} from './validate-plan-wire'
+} from './validate-plan-wire.js'
 export type {
   EngineValidationPlan,
   EngineValidationResult,
   EngineValidationRule,
   EngineValidationRuleResult,
   EngineValidationSample,
-} from './validate-plan-wire'
+} from './validate-plan-wire.js'
 export {
   composeValidationCountSql,
   composeValidationRowKeySql,
@@ -194,7 +194,7 @@ export {
   readValidationRowKeys,
   readValidationSummaryRows,
   VALIDATION_SAMPLE_HARD_MAX,
-} from './validate-query'
+} from './validate-query.js'
 // m6-2 fold: row-diff execution — the strict plan wire gate, the two-binding
 // composition helpers, the result readers, the result-sanity bounds, and the
 // side-qualified sample builder, public so hosts (m6-4 web, m6-3/m6-5 CLI
@@ -205,14 +205,14 @@ export {
   parseRowDiffPlan,
   quotedRelationToken as quotedRowDiffRelationToken,
   ROW_DIFF_SAMPLE_HARD_MAX,
-} from './diff-plan-wire'
+} from './diff-plan-wire.js'
 export type {
   EngineRowDiffAspect,
   EngineRowDiffAspectResult,
   EngineRowDiffPlan,
   EngineRowDiffResult,
   EngineRowDiffSample,
-} from './diff-plan-wire'
+} from './diff-plan-wire.js'
 export {
   buildDiffAspectSamples,
   comparisonRowKey,
@@ -230,8 +230,8 @@ export {
   ROW_DIFF_BEGIN_SQL,
   ROW_DIFF_ROLLBACK_SQL,
   rowDiffCountExcess,
-} from './diff-query'
-export type { RowDiffAspectRows, RowDiffCountExcess, RowDiffSampleRow } from './diff-query'
+} from './diff-query.js'
+export type { RowDiffAspectRows, RowDiffCountExcess, RowDiffSampleRow } from './diff-query.js'
 // m4-2 fix-round fold: the strict engine type-expression validator and the
 // canonical string/BLOB family classifiers the CSV formula-injection guard
 // keys off. Public so hosts can validate declared cast types before
@@ -242,8 +242,8 @@ export {
   isStringLikeEngineType,
   parseEngineTypeExpression,
   validateEngineTypeExpression,
-} from './type-expr'
-export type { EngineTypeFamily, EngineTypeInfo } from './type-expr'
+} from './type-expr.js'
+export type { EngineTypeFamily, EngineTypeInfo } from './type-expr.js'
 
 // The worker entry (`./worker.ts`) is intentionally not part of the
 // main-thread surface: the client loads it via

@@ -17,7 +17,7 @@
  * 0025). This class is pure bookkeeping — DuckDB calls live in `worker.ts` —
  * so it is unit-testable under Node.
  */
-import { detectFileFormat } from './format-view'
+import { detectFileFormat } from './format-view.js'
 
 /** One table opened from a file and registered with DuckDB. */
 export interface RegisteredTable {

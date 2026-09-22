@@ -32,8 +32,8 @@
  * throw; such output is not guaranteed to re-parse as a *valid* contract.
  */
 import { Document, stringify } from 'yaml'
-import { CONTRACT_FORMAT } from './ast'
-import type { ColumnRuleSet, ContractScalar, ContractV1, DatasetRuleSet } from './ast'
+import { CONTRACT_FORMAT } from './ast.js'
+import type { ColumnRuleSet, ContractScalar, ContractV1, DatasetRuleSet } from './ast.js'
 
 /** Serialize a contract to its canonical YAML form. Total; see the module doc. */
 export function serializeContract(contract: ContractV1): string {

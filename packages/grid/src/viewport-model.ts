@@ -35,7 +35,7 @@ import type {
   GridDataProvider,
   GridRowSlot,
   SortSpec,
-} from './contracts'
+} from './contracts.js'
 
 /** Inclusive row-index span `[start, end]`. */
 interface Span {

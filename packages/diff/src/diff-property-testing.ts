@@ -51,7 +51,7 @@ import type {
   DatasetProfile,
   NumericColumnStats,
   NumericQuantiles,
-} from './profile'
+} from './profile.js'
 
 /** mulberry32 — 32-bit seeded PRNG, deterministic across platforms. */
 export function mulberry32(seed: number): () => number {

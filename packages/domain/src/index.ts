@@ -131,7 +131,7 @@ export interface DataProduct {
  * history. Pure: no React, no browser APIs, no engine imports
  * (docs/engineering/05-repository-structure.md §3, lint-enforced).
  */
-export * from './edit-ops'
-export * from './history'
-export * from './overlay'
-export * from './row-identity'
+export * from './edit-ops.js'
+export * from './history.js'
+export * from './overlay.js'
+export * from './row-identity.js'

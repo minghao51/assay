@@ -59,10 +59,10 @@
  * `String()` form (the never-echo rule: no rounding, no re-formatting).
  */
 
-import type { DiffIssue } from './issues'
-import type { DatasetProfile } from './profile'
-import { validateProfile } from './input-validation'
-import { keyTypesCompatible } from './row-diff-compile'
+import type { DiffIssue } from './issues.js'
+import type { DatasetProfile } from './profile.js'
+import { validateProfile } from './input-validation.js'
+import { keyTypesCompatible } from './row-diff-compile.js'
 
 /** Machine-readable evidence for one candidate (what the profiles prove). */
 export interface KeyCandidateEvidence {

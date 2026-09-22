@@ -34,6 +34,6 @@ export type {
   GridDataProvider,
   GridRowSlot,
   SortSpec,
-} from './contracts'
-export { GridViewportModel } from './viewport-model'
-export type { GridViewportOptions, GridViewportStats } from './viewport-model'
+} from './contracts.js'
+export { GridViewportModel } from './viewport-model.js'
+export type { GridViewportOptions, GridViewportStats } from './viewport-model.js'

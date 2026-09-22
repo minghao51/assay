@@ -55,13 +55,13 @@
  * the host can re-open/verify the export through the engine (round-trip).
  */
 
-import type { EngineOverlayPayload } from './overlay-wire'
-import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire'
-import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
-import { parseValidationPlan } from './validate-plan-wire'
-import { validationFailCountExcess } from './validate-query'
-import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire'
-import { parseRowDiffPlan } from './diff-plan-wire'
+import type { EngineOverlayPayload } from './overlay-wire.js'
+import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire.js'
+import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire.js'
+import { parseValidationPlan } from './validate-plan-wire.js'
+import { validationFailCountExcess } from './validate-query.js'
+import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire.js'
+import { parseRowDiffPlan } from './diff-plan-wire.js'
 export type { EngineOverlayPayload, EngineValidationPlan, EngineValidationResult }
 export type { EngineRowDiffPlan, EngineRowDiffResult }
 

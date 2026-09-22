@@ -38,8 +38,8 @@
  *   upstream; these functions validate only their own arguments.
  */
 
-import type { CategoricalTopKEntry } from './profile'
-import { isFiniteNumber, isNonNegativeFinite, normZero, readArray, readField } from './guards'
+import type { CategoricalTopKEntry } from './profile.js'
+import { isFiniteNumber, isNonNegativeFinite, normZero, readArray, readField } from './guards.js'
 
 /** Substituted for a zero share when only one side has mass in a bin (documented). */
 export const DIVERGENCE_EPSILON = 1e-6

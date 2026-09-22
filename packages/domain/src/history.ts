@@ -41,9 +41,9 @@
  * histories are session-sized and the state is a pure value, so m4-3 may
  * memoize snapshots freely.
  */
-import type { EditOp } from './edit-ops'
-import type { OpOutcome, OverlayBase, OverlayState } from './overlay'
-import { foldOverlay, stepOverlay } from './overlay'
+import type { EditOp } from './edit-ops.js'
+import type { OpOutcome, OverlayBase, OverlayState } from './overlay.js'
+import { foldOverlay, stepOverlay } from './overlay.js'
 
 /**
  * One logged operation: the op, the typed outcome it had when it was

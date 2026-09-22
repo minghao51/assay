@@ -23,13 +23,13 @@ import { tableFromIPC } from 'apache-arrow'
 import type { Table } from 'apache-arrow'
 import type { EditOp, OverlayBase } from '@assay/domain'
 import { foldOverlay } from '@assay/domain'
-import { EngineTypeError, validateEngineTypeExpression } from './type-expr'
-import { assertValidOverlayTypes } from './overlay-wire'
-import { parseValidationPlan } from './validate-plan-wire'
-import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire'
-import { parseRowDiffPlan } from './diff-plan-wire'
-import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire'
-import { parseEngineResponse } from './protocol'
+import { EngineTypeError, validateEngineTypeExpression } from './type-expr.js'
+import { assertValidOverlayTypes } from './overlay-wire.js'
+import { parseValidationPlan } from './validate-plan-wire.js'
+import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire.js'
+import { parseRowDiffPlan } from './diff-plan-wire.js'
+import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire.js'
+import { parseEngineResponse } from './protocol.js'
 import type {
   EngineColumnSchema,
   EngineExportFormat,
@@ -39,8 +39,8 @@ import type {
   EngineRequest,
   EngineSortSpec,
   EngineSuccessResponse,
-} from './protocol'
-import { validateRowWindow } from './range-window'
+} from './protocol.js'
+import { validateRowWindow } from './range-window.js'
 
 /** Lifecycle of the lazy engine bootstrap. */
 export type EngineStatus = 'idle' | 'booting' | 'ready' | 'failed' | 'disposed'

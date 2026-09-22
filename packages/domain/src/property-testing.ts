@@ -6,12 +6,12 @@
  * a seedable PRNG (mulberry32) so a failing seed reproduces exactly; seeds
  * are fixed in the test files on purpose.
  */
-import type { CellValue, CellValueRecord, ColumnSpec, EditOp, InsertPosition } from './edit-ops'
-import { NULL_VALUE } from './edit-ops'
-import type { OverlayBase, OverlayState } from './overlay'
-import { foldOverlay } from './overlay'
-import { baseRowId, insertRowId, parseRowId } from './row-identity'
-import type { RowId } from './row-identity'
+import type { CellValue, CellValueRecord, ColumnSpec, EditOp, InsertPosition } from './edit-ops.js'
+import { NULL_VALUE } from './edit-ops.js'
+import type { OverlayBase, OverlayState } from './overlay.js'
+import { foldOverlay } from './overlay.js'
+import { baseRowId, insertRowId, parseRowId } from './row-identity.js'
+import type { RowId } from './row-identity.js'
 
 /** mulberry32 — 32-bit seeded PRNG, deterministic across platforms. */
 export function mulberry32(seed: number): () => number {

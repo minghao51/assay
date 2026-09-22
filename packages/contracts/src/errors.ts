@@ -12,7 +12,7 @@
  * type parser, the domain overlay fold): callers get data they can render,
  * not an exception to catch.
  */
-import type { ContractV1 } from './ast'
+import type { ContractV1 } from './ast.js'
 
 /** Machine-readable failure classes (one switch-able vocabulary; see `ContractError`). */
 export type ContractErrorCode =

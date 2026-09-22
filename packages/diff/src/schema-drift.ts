@@ -46,10 +46,10 @@
 
 import type { ColumnTypeFamily, EngineSchema } from '@assay/validation'
 import { classifyColumnType } from '@assay/validation'
-import type { DiffIssue } from './issues'
-import type { DatasetProfile } from './profile'
-import type { ValidatedProfile, ValidatedSchema } from './input-validation'
-import { validateProfile, validateSchema } from './input-validation'
+import type { DiffIssue } from './issues.js'
+import type { DatasetProfile } from './profile.js'
+import type { ValidatedProfile, ValidatedSchema } from './input-validation.js'
+import { validateProfile, validateSchema } from './input-validation.js'
 
 /** The schema-drift finding classes (see module doc). */
 export type SchemaDriftKind =

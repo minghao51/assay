@@ -21,8 +21,8 @@
  * registered view only. Numbers interpolated into SQL (quantile positions,
  * top-k limit) are composer-owned constants — never user input.
  */
-import { quotedIdentifier } from './format-view'
-import type { EngineProfileColumnKind } from './protocol'
+import { quotedIdentifier } from './format-view.js'
+import type { EngineProfileColumnKind } from './protocol.js'
 
 /** How many top-k values a categorical column reports (documented k). */
 export const PROFILE_TOP_K = 10

@@ -18,8 +18,8 @@
  * canonical one-liner).
  */
 
-import type { DiffSide } from './issues'
-import { readField } from './guards'
+import type { DiffSide } from './issues.js'
+import { readField } from './guards.js'
 
 /** Machine-readable row-diff binding-failure classes (see {@link RowDiffBindingError}). */
 export type RowDiffBindingErrorCode =

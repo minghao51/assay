@@ -18,20 +18,20 @@
  * composition contract with the engine). Property-test generators stay
  * in-package (`property-testing.ts` is never re-exported).
  */
-export { compileContract, DEFAULT_SAMPLE_LIMIT } from './compile'
-export type { CompileOptions, CompileResult } from './compile'
-export { describeBindingError } from './errors'
-export type { BindingError, BindingErrorCode } from './errors'
+export { compileContract, DEFAULT_SAMPLE_LIMIT } from './compile.js'
+export type { CompileOptions, CompileResult } from './compile.js'
+export { describeBindingError } from './errors.js'
+export type { BindingError, BindingErrorCode } from './errors.js'
 export {
   quoteIdentifier,
   sqlBooleanLiteral,
   sqlIntegerLiteral,
   sqlNumberLiteral,
   sqlStringLiteral,
-} from './literals'
-export { PLAN_KIND, PLAN_VERSION } from './plan'
-export type { PlannedRule, RuleOutcomeShape, ValidationPlan, ValidationRuleKind } from './plan'
-export { checkRe2Pattern } from './re2'
-export type { Re2PatternCheck } from './re2'
-export { classifyColumnType, describeUnbindableType } from './schema'
-export type { ColumnTypeFamily, EngineSchema, EngineSchemaColumn } from './schema'
+} from './literals.js'
+export { PLAN_KIND, PLAN_VERSION } from './plan.js'
+export type { PlannedRule, RuleOutcomeShape, ValidationPlan, ValidationRuleKind } from './plan.js'
+export { checkRe2Pattern } from './re2.js'
+export type { Re2PatternCheck } from './re2.js'
+export { classifyColumnType, describeUnbindableType } from './schema.js'
+export type { ColumnTypeFamily, EngineSchema, EngineSchemaColumn } from './schema.js'
