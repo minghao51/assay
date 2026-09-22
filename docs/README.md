@@ -39,9 +39,10 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### Reviews (`reviews/`)
 
-| Doc                                                                                                            | Contents                                                                             |
-| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [`reviews/2026-09-14-documentation-and-setup-review.md`](reviews/2026-09-14-documentation-and-setup-review.md) | Full documentation/setup review: strengths, findings, opportunities, open decisions. |
+| Doc                                                                                                              | Contents                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`reviews/2026-09-14-documentation-and-setup-review.md`](reviews/2026-09-14-documentation-and-setup-review.md)   | Full documentation/setup review: strengths, findings, opportunities, open decisions.                                                                                            |
+| [`reviews/2026-09-22-whole-repo-implementation-audit.md`](reviews/2026-09-22-whole-repo-implementation-audit.md) | Whole-repo implementation audit (7 lanes, all packages/apps/infra): 2 criticals, ~35 warnings with stable `AR-*` IDs; findings feed the handoff §6 AR queue and the PT-Q track. |
 
 ### ADRs (`adr/`)
 
