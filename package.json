@@ -23,13 +23,13 @@
     "version-packages": "changeset version"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.2",
+    "@changesets/cli": "^3.0.3",
     "@eslint/js": "^9.30.0",
     "@playwright/test": "^1.55.0",
     "@types/node": "catalog:",
-    "eslint": "^10.10.0",
-    "prettier": "^3.6.0",
-    "turbo": "^2.5.0",
+    "eslint": "^10.11.0",
+    "prettier": "^3.9.8",
+    "turbo": "^2.11.2",
     "typescript": "catalog:",
     "typescript-eslint": "^8.35.0",
     "vitest": "catalog:"

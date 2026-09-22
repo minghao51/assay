@@ -17,7 +17,7 @@
     "@assay/validation": "workspace:*",
     "@assay/engine-duckdb": "workspace:*",
     "@assay/grid": "workspace:*",
-    "@tanstack/react-virtual": "^3.14.12",
+    "@tanstack/react-virtual": "^3.14.13",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
