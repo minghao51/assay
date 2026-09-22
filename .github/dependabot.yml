@@ -1,0 +1,32 @@
+# Audit AR-R3: automation gaps. SHA-pinned actions + lockfile drift were fully
+# manual; this surfaces both on a weekly cadence.
+#
+# Note: the DuckDB CLI is a checksum-pinned *release asset* download (ADR 0038),
+# not a package-manager dependency — dependabot does not manage it, so that pin
+# stays deliberate and manual.
+version: 2
+updates:
+  # npm workspace dependencies (pnpm lockfile drift).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions, so the R1 full-SHA pins do not silently rot behind the
+  # floating v4 tags.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - '*'

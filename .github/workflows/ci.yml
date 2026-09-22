@@ -5,12 +5,33 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege (audit AR-R2): the GITHUB_TOKEN never needs write here.
+# Declared at the workflow level *and* repeated per job (explicit job-level
+# wins) so a future job that forgets its own block still inherits the safe
+# default rather than the repository default.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref (audit AR-R4b): a new push to a PR
+# cancels the in-flight run instead of paying for two full verify+e2e lanes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     name: typecheck / lint / test / build
     runs-on: ubuntu-latest
+    # Audit AR-R3: measured ≈3 min. 20 min ≈ 6× leaves room for a cold turbo
+    # cache and registry hiccups, while killing a hung job far short of the
+    # 6-hour default ceiling.
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4 # reads packageManager from package.json
 
@@ -18,6 +39,18 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
+
+      # Turbo's local cache defaults to `<repo>/.turbo/cache` on CI (there is no
+      # shared-worktree cache like the agent lanes have). Task results are
+      # content-hashed, so restoring the newest cache for this OS is safe —
+      # turbo re-validates every task hash before replaying.
+      - name: Cache turbo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
 
       - run: pnpm install --frozen-lockfile
 
@@ -51,8 +84,17 @@ jobs:
   e2e:
     name: playwright e2e
     runs-on: ubuntu-latest
+    # Audit AR-R3: measured ≈7.5 min. 45 min ≈ 6× is headroom for the red-run
+    # retry budget (worst case ≈7.5 + 2×7.5 ≈ 22.5 min) plus a cold browser
+    # download, while killing a stuck browser/webServer far short of the
+    # 6-hour default ceiling.
+    timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
@@ -62,6 +104,23 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # Browser builds are locked to the resolved Playwright version, so the
+      # cache key is that version, read cheaply from the installed package
+      # (`node -p` after install). A Playwright bump changes the key and
+      # triggers a fresh download; the lockfile hash would be a broader (and
+      # unnecessarily invalidating) proxy.
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - run: pnpm build
 
@@ -79,3 +138,18 @@ jobs:
           duckdb --version
 
       - run: pnpm test:e2e
+
+      # Audit AR-R4b: failure-only debug artifacts. On a red run the retries
+      # leave traces/screenshots/videos in test-results/; the HTML report dir
+      # is listed too in case a reporter emits it. Short retention keeps
+      # storage bounded.
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-failure-artifacts
+          path: |
+            test-results
+            playwright-report
+          retention-days: 5
+          if-no-files-found: ignore
