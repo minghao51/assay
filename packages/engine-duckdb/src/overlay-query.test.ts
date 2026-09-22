@@ -163,6 +163,31 @@ describe('overlay composition — tombstones, edits, renames, casts', () => {
       ).toThrow(/reserved/)
     }
   })
+
+  it('rejects a reserved name on a BASE column even when an overlay renames it away (AR-E4)', () => {
+    // The defect: the assertion ran on `state.columns` only, so a base column
+    // named exactly the ordinal alias (`assay_overlay_ord`) that a rename
+    // moved away escaped the check — the base branch would still project it
+    // and shadow the generated ordinal, corrupting the edit CASE arms.
+    const reservedBase: OverlayBase = {
+      ...BASE,
+      columns: [
+        { name: 'assay_overlay_ord', type: 'BIGINT' },
+        { name: 'label', type: 'VARCHAR' },
+      ],
+    }
+    const ops: EditOp[] = [{ kind: 'column-rename', from: 'assay_overlay_ord', to: 'ord_v2' }]
+    const state = foldOverlay(reservedBase, ops).state
+    // The effective name is not reserved; only the BASE name trips the check.
+    expect(state.columns.map((column) => column.name)).toEqual(['ord_v2', 'label'])
+    const composition = { viewName: 'assay_t1', base: reservedBase, state }
+    expect(() => composeOverlaySchemaSql(composition)).toThrow(/reserved/)
+    expect(() => composeOverlayWindowSql({ ...composition, limit: 1, offset: 0 })).toThrow(
+      /reserved/,
+    )
+    expect(() => composeOverlayCountSql(composition)).toThrow(/reserved/)
+    expect(() => composeOverlayExportSql(composition, 'csv', 'e1')).toThrow(/reserved/)
+  })
 })
 
 describe('overlay composition — insert branches and the sort-key grammar', () => {
@@ -616,6 +641,79 @@ describe('cellLiteralSql and the formula-injection guard', () => {
     // The array casts still compose verbatim.
     expect(csv).toContain('CAST("codes" AS VARCHAR[3])')
     expect(csv).toContain('CAST("aliases" AS VARCHAR[])')
+  })
+
+  it('hex-encodes scalar BLOB columns on CSV export (AR-E1)', () => {
+    // The critical bypass: DuckDB's CSV writer emits BLOB bytes raw, so
+    // `COPY (SELECT '=cmd|@SUM(1+1)'::BLOB …) TO … (FORMAT CSV)` writes a
+    // live formula-leading cell, and the string guard's `contains`/`left`
+    // cannot touch a BLOB (Binder Error). Hex is `[0-9A-F]`-only and cannot
+    // be read as a formula. The cast-to-BLOB overlay leg and a BLOB-typed
+    // insert value are both covered.
+    const blobBase: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'payload', type: 'VARCHAR' },
+      ],
+      baseRowCount: 2,
+    }
+    const ops: EditOp[] = [
+      { kind: 'column-cast', column: 'payload', targetType: 'BLOB' },
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([['payload', { kind: 'string', value: '=cmd|@SUM(1+1)' }]]),
+      },
+    ]
+    const state = foldOverlay(blobBase, ops).state
+    const composition = { viewName: 'assay_t1', base: blobBase, state }
+    const csv = composeSourceSql(composition, {
+      withRowIds: false,
+      sanitizeCsv: true,
+      withKey: false,
+    })
+    // Base branch: the cast-to-BLOB column is hex-encoded…
+    expect(csv).toContain('hex(CAST("payload" AS BLOB)) AS "payload"')
+    // …and the BLOB-typed insert value is hex-encoded on the insert branch.
+    expect(csv).toContain("hex(CAST('=cmd|@SUM(1+1)' AS BLOB))")
+    // BLOB is not treated as text: no string guard is applied to it.
+    expect(csv).not.toContain('contains(hex(')
+    expect(csv).not.toContain("contains(CAST('=cmd|@SUM(1+1)' AS BLOB)")
+    // Non-CSV exports keep the raw BLOB (only CSV is a spreadsheet surface).
+    const parquet = composeSourceSql(composition, {
+      withRowIds: false,
+      sanitizeCsv: false,
+      withKey: false,
+    })
+    expect(parquet).not.toContain('hex(')
+    // And the composed COPY SELECT is the exported content for CSV.
+    expect(composeOverlayExportSelectSql(composition, 'csv')).toContain(
+      'hex(CAST("payload" AS BLOB))',
+    )
+  })
+
+  it('hex-encodes an overlay-free base BLOB column on CSV export (AR-E1)', () => {
+    // The overlay-free export takes the DESCRIBE type verbatim; a Parquet
+    // BYTE_ARRAY inferred as BLOB reaches the guard with an empty state and
+    // must be hex-encoded exactly like an overlay column.
+    const blobBase: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [{ name: 'payload', type: 'BLOB' }],
+      baseRowCount: 1,
+    }
+    const composition = {
+      viewName: 'assay_t1',
+      base: blobBase,
+      state: foldOverlay(blobBase, []).state,
+    }
+    const csv = composeOverlayExportSql(composition, 'csv', 'e1')
+    expect(csv).toContain('hex("payload") AS "payload"')
+    const parquet = composeOverlayExportSql(composition, 'parquet', 'e2')
+    expect(parquet).not.toContain('hex(')
   })
 
   it('pins the text-value literal escaping (single quotes and backslashes)', () => {

@@ -102,6 +102,12 @@
  *     particular the CSV export must be **formula-injection-sanitized**
  *     (apostrophe-prefix convention) while the JSONL export keeps the raw
  *     content visible (both non-vacuously asserted).
+ * 15b. `blob-csv-export-sanitized` (AR-E1) — scalar BLOB columns must be
+ *     **hex-encoded** on CSV export (DuckDB's CSV writer emits raw BLOB
+ *     bytes, a formula-injection bypass), on both the overlay export
+ *     (cast-to-BLOB + BLOB-typed insert) and the overlay-free base export
+ *     (a real BLOB Parquet re-opened after materializing the effective
+ *     view), with the pinned hex cells re-opened through the engine.
  * 16. `source-immutability` — the staged source file's digest is captured
  *     before an edit+export session and re-checked after windows, counts,
  *     schema reads, and exports of every declared format: byte-identical
@@ -529,6 +535,12 @@ export interface EngineConformanceSubject {
   /** Stage the overlay base dataset (`overlayDataset.base`). */
   stageOverlayFile(): Promise<ConformanceFileSource>
   /**
+   * The AR-E1 BLOB CSV-export dataset behind `stageBlobExportFile()`.
+   */
+  readonly blobExportDataset: ConformanceBlobExportDataset
+  /** Stage the BLOB CSV-export base dataset (`blobExportDataset.base`). */
+  stageBlobExportFile(): Promise<ConformanceFileSource>
+  /**
    * The inserted-row-edit dataset behind `stageOverlayInsertEditsFile()`
    * (m4-2b defect fix): a focused op sequence over the canonical overlay base
    * that edits cells of an **inserted** row (one the insert left NULL, one
@@ -833,6 +845,25 @@ export interface ConformanceOverlayDataset {
   readonly sorted: ConformanceOverlaySemantics
   /** Per-format export checks (CSV must probe sanitization — see the scenario). */
   readonly exports: readonly ConformanceExportCheck[]
+}
+
+/**
+ * The AR-E1 BLOB CSV-export dataset behind `stageBlobExportFile()`: a base
+ * with a scalar BLOB column, an op sequence that also carries a
+ * `column-cast → BLOB` leg and a BLOB-typed insert value, and the pinned
+ * post-sanitization CSV content. The CSV exporter must **hex-encode** every
+ * scalar BLOB (raw BLOB bytes reach DuckDB's CSV writer verbatim and are a
+ * formula-injection bypass) while the non-CSV formats keep the raw value.
+ */
+export interface ConformanceBlobExportDataset {
+  /** The base metadata the ops compose over (must declare a BLOB column). */
+  readonly base: ConformanceOverlayBase
+  /** The scripted ops (a cast to BLOB and/or BLOB-typed insert values). */
+  readonly ops: readonly ConformanceEditOp[]
+  /** Expected CSV export row count (the export result's honest count). */
+  readonly rowCount: number
+  /** Expected re-opened CSV columns: names + rendered values, in order. */
+  readonly columns: readonly ConformanceOverlayColumnValues[]
 }
 
 /**
@@ -1290,6 +1321,7 @@ export const engineConformanceScenarioNames = [
   'overlay-insert-edits',
   'overlay-cast-check',
   'export-round-trip',
+  'blob-csv-export-sanitized',
   'source-immutability',
   'overlay-hostile-types-rejected',
   'validation-plan-execution',
@@ -2935,6 +2967,84 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       engineReopens,
       arrowVerified,
       csvSanitizationProbed: csvDiffers,
+    }
+  },
+
+  /**
+   * AR-E1: a BLOB column's raw CSV rendering is a formula-injection bypass
+   * (DuckDB's CSV writer emits the bytes verbatim), so the exporter must
+   * hex-encode every scalar BLOB — including a `column-cast → BLOB` effective
+   * column, a BLOB-typed insert value, and an **overlay-free base BLOB**. The
+   * overlay leg pins the cast/insert composition directly; the base leg first
+   * materializes the effective BLOB view to Parquet, re-opens it (its
+   * DESCRIBE type is then a genuine BLOB), and exports CSV with no overlay.
+   * Both re-open the CSV through the engine's ordinary `open()` path; a raw
+   * export would deliver the bait bytes and fail the cell assertion.
+   */
+  'blob-csv-export-sanitized': async (subject) => {
+    const dataset = subject.blobExportDataset
+    const blobAliases = new Set(['BLOB', 'BYTEA', 'BINARY', 'VARBINARY'])
+    expectCondition(
+      dataset.ops.some(
+        (op) => op.kind === 'column-cast' && blobAliases.has(op.targetType.toUpperCase()),
+      ),
+      'subject misconfiguration: blobExportDataset.ops must cast a column to a BLOB alias',
+    )
+    expectCondition(
+      dataset.ops.some((op) => op.kind === 'row-insert'),
+      'subject misconfiguration: blobExportDataset.ops must carry a BLOB-typed insert',
+    )
+    expectCondition(
+      dataset.columns.length > 0,
+      'subject misconfiguration: declare at least one expected CSV column',
+    )
+    for (const column of dataset.columns) {
+      expectCondition(
+        column.values.length === dataset.rowCount,
+        `subject misconfiguration: blob column "${column.name}" declares ${String(column.values.length)} values, expected ${String(dataset.rowCount)}`,
+      )
+    }
+
+    const client = subject.createClient()
+    await client.ensureReady()
+    const handle = await client.open(await subject.stageBlobExportFile())
+
+    /** Export, re-open, and assert the pinned CSV content. */
+    const roundTripCsv = async (
+      source: ConformanceTableHandle,
+      overlay: ConformanceOverlay | undefined,
+      label: string,
+    ): Promise<void> => {
+      const result = await client.exportView(source, {
+        format: 'csv',
+        ...(overlay === undefined ? {} : { overlay }),
+      })
+      expectEqual(result.format, 'csv', `${label} format`)
+      expectEqual(result.rowCount, dataset.rowCount, `${label} honest row count`)
+      expectCondition(result.bytes > 0, `${label} byte size must be positive`)
+      const reopened = await client.open(await subject.exportedSource(result))
+      expectEqual(await client.rowCount(reopened), dataset.rowCount, `${label} re-opened row count`)
+      const range = await client.fetchRange(reopened, { startRow: 0, endRow: dataset.rowCount })
+      expectEqual(range.batch.numRows, dataset.rowCount, `${label} re-opened window rows`)
+      for (const column of dataset.columns) {
+        expectColumnValues(range.batch, column.name, column.values, `${label} round-trip`)
+      }
+    }
+
+    // Leg 1 — the overlay export (cast-to-BLOB + BLOB-typed insert).
+    await roundTripCsv(handle, dataset, '[overlay blob csv export]')
+
+    // Leg 2 — the overlay-free base export over a REAL BLOB Parquet: export
+    // the effective BLOB view to Parquet, re-open it, then export CSV with no
+    // overlay (the base branch takes DESCRIBE's `blob` verbatim).
+    const parquet = await client.exportView(handle, { format: 'parquet', overlay: dataset })
+    const blobHandle = await client.open(await subject.exportedSource(parquet))
+    await roundTripCsv(blobHandle, undefined, '[base blob csv export]')
+
+    return {
+      overlayLegs: 1,
+      baseLegs: 1,
+      rowCount: dataset.rowCount,
     }
   },
 

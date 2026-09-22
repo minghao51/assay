@@ -181,4 +181,34 @@ describe('assertRowDiffPlanBinding (m6-2 belt 1)', () => {
       assertRowDiffPlanBinding({ ...plan, addedSql: 'SELECT $$x$$ AS "assay_side"' }, REGISTERED),
     ).toThrow()
   })
+
+  // ---- AR-E2: the gate is identifier-aware --------------------------------
+
+  it('accepts a compiler plan whose alias text contains UNION ALL (AR-E2)', () => {
+    // The old totals split ran on the raw code view, so an identifier whose
+    // text contains `UNION ALL` over-split the three arms and false-rejected
+    // a legal compiler plan. Identifier interiors are blanked in the split's
+    // structural view now.
+    const plan = compiledPlan()
+    const totals = plan.totalsSql.replace('SELECT', 'SELECT 1 AS "x UNION ALL y",')
+    expect(() => assertRowDiffPlanBinding({ ...plan, totalsSql: totals }, REGISTERED)).not.toThrow()
+    // The split really is still shape-strict: a genuine fourth arm rejects.
+    const fourArms = `${plan.totalsSql}\nUNION ALL\n${plan.totalsSql.split('\nUNION ALL\n')[0] as string}`
+    expect(() => assertRowDiffPlanBinding({ ...plan, totalsSql: fourArms }, REGISTERED)).toThrow(
+      /three-arm/,
+    )
+  })
+
+  it('accepts an aspect query with a column named exactly the relation (AR-E2)', () => {
+    const plan = compiledPlan()
+    const withRelationColumn = plan.addedSql.replace('SELECT', 'SELECT "ds_a",')
+    expect(() =>
+      assertRowDiffPlanBinding({ ...plan, addedSql: withRelationColumn }, REGISTERED),
+    ).not.toThrow()
+    // And still rejects the same shape when the FROM binding is gone.
+    const noFrom = withRelationColumn.split('FROM "ds_a" AS "a"').join('FROM "zzz" AS "a"')
+    expect(() => assertRowDiffPlanBinding({ ...plan, addedSql: noFrom }, REGISTERED)).toThrow(
+      /does not bind side A/,
+    )
+  })
 })

@@ -496,6 +496,65 @@ describe('assertValidationPlanRelationBinding (executor-side semantic gate)', ()
       expect(() => assertValidationPlanRelationBinding(plan, [])).toThrow(message)
     }
   })
+
+  // ---- AR-E2: the gate is identifier-aware --------------------------------
+
+  it('accepts a legal plan whose column is named with a semicolon (AR-E2)', () => {
+    // The old code view preserved quoted-identifier contents, so the `;` in
+    // `"a;b"` read as a statement separator and a legal compiler plan was
+    // false-rejected. Identifier interiors are now blanked in the structural
+    // view.
+    const plan = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[0].required',
+          sql:
+            'SELECT count(*) AS "fail_count" FROM "assay_conf_validate_src" AS "src" ' +
+            'WHERE "a;b" IS NULL',
+        }),
+      ],
+      summarySql:
+        'SELECT count(*) AS "fail_count" FROM "assay_conf_validate_src" AS "src" ' +
+        'WHERE "a;b" IS NULL',
+    })
+    expect(() => assertValidationPlanRelationBinding(plan, [])).not.toThrow()
+  })
+
+  it('accepts a legal plan whose column name equals the relation binding (AR-E2)', () => {
+    // The old counter returned 0 on ANY non-FROM occurrence, so a column
+    // named exactly `"<rel>"` outside a FROM position killed the count. Only
+    // genuine FROM-shaped identifier tokens count now.
+    const plan = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[0].required',
+          sql:
+            'SELECT count(*) AS "fail_count" FROM "assay_conf_validate_src" AS "src" ' +
+            'WHERE "assay_conf_validate_src" IS NULL',
+        }),
+      ],
+      summarySql:
+        'SELECT count(*) AS "fail_count" FROM "assay_conf_validate_src" AS "src" ' +
+        'WHERE "assay_conf_validate_src" IS NULL',
+    })
+    expect(() => assertValidationPlanRelationBinding(plan, [])).not.toThrow()
+  })
+
+  it('still rejects a column-only relation occurrence (no FROM binding) (AR-E2)', () => {
+    // The identifier-aware count must not loosen the rejection: a relation
+    // token that appears only as a column/predicate is still not a binding.
+    const plan = validPlan({
+      rules: [
+        validRule({
+          ruleId: 'columns[0].required',
+          sql:
+            'SELECT count(*) AS "fail_count" FROM "other" AS "src" ' +
+            'WHERE "assay_conf_validate_src" IS NULL',
+        }),
+      ],
+    })
+    expect(() => assertValidationPlanRelationBinding(plan, [])).toThrow(/FROM shape/)
+  })
 })
 
 describe('quotedRelationToken', () => {

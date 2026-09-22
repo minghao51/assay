@@ -26,6 +26,7 @@ import {
 } from '../src/index'
 import type {
   ConformanceBatchResult,
+  ConformanceBlobExportDataset,
   ConformanceEngineClient,
   ConformanceErrorMatchers,
   ConformanceExportResult,
@@ -912,6 +913,61 @@ const OVERLAY_DATASET: ConformanceOverlayDataset = {
 }
 
 /**
+ * AR-E1 BLOB CSV-export dataset (runtime-built JSONL, never committed data):
+ * a two-row base whose `payload` column is cast to BLOB by an overlay op, plus
+ * a BLOB-typed inserted row. The conformance scenario exports CSV twice — once
+ * from this overlay (cast-to-BLOB leg + BLOB insert leg) and once overlay-free
+ * from a Parquet re-opened after materializing the effective BLOB view (the
+ * genuine DESCRIBE-verbatim base leg). Expected cells are the pinned `hex()`
+ * rendering (CLI 1.5.5: `hex('=cmd|@SUM(1+1)')` → `3D636D…`, `hex('-1+1')` →
+ * `2D312B31`, `hex('safe')` → `73616665`). The effective order is the start
+ * insert first, then base ordinals 0, 1.
+ */
+const BLOB_EXPORT_BASE: OverlayBase = {
+  baseAnchor: 'conf-blob-v1',
+  overlayAnchor: 'conf-blob-ov-1',
+  columns: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'payload', type: 'VARCHAR' },
+  ],
+  baseRowCount: 2,
+}
+
+const BLOB_EXPORT_ROWS = [
+  { id: 1, payload: '=cmd|@SUM(1+1)' },
+  { id: 2, payload: 'safe' },
+] as const
+
+const BLOB_EXPORT_OPS: EditOp[] = [
+  { kind: 'column-cast', column: 'payload', targetType: 'BLOB' },
+  {
+    kind: 'row-insert',
+    rowId: insertRowId('conf-blob-ov-1', 0),
+    position: { kind: 'start' },
+    values: new Map<string, CellValue>([
+      ['id', overlayCell({ kind: 'number', value: 3 })],
+      ['payload', overlayCell({ kind: 'string', value: '-1+1' })],
+    ]),
+  },
+]
+
+const BLOB_EXPORT_DATASET: ConformanceBlobExportDataset = {
+  base: BLOB_EXPORT_BASE,
+  ops: BLOB_EXPORT_OPS,
+  rowCount: 3,
+  columns: [
+    { name: 'id', values: ['3', '1', '2'] },
+    { name: 'payload', values: ['2D312B31', '3D636D647C4053554D28312B3129', '73616665'] },
+  ],
+}
+
+/** Runtime-built BLOB-export JSONL (see BLOB_EXPORT_ROWS). */
+function buildBlobExportJsonl(): Uint8Array {
+  const lines = BLOB_EXPORT_ROWS.map((row) => JSON.stringify(row))
+  return new TextEncoder().encode(lines.join('\n') + '\n')
+}
+
+/**
  * m4-2b inserted-row-edit dataset: a focused op sequence over the canonical
  * overlay base (`OVERLAY_BASE`) that reproduces the defect the m4-2 composer
  * had — `cell-set`/`cell-revert` on an **inserted** row, plus renames after
@@ -1631,6 +1687,11 @@ export function createDuckDbConformanceSubject(
     stageOverlayFile: async () => {
       const jsonl = buildOverlayJsonl()
       return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-overlay.jsonl'))
+    },
+    blobExportDataset: BLOB_EXPORT_DATASET,
+    stageBlobExportFile: async () => {
+      const jsonl = buildBlobExportJsonl()
+      return asFileSource(await stageBytesInOpfs(jsonl, 'assay-conformance-blob-export.jsonl'))
     },
     overlayInsertEdits: OVERLAY_INSERT_EDITS_DATASET,
     stageOverlayInsertEditsFile: async () => {

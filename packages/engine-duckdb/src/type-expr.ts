@@ -107,8 +107,8 @@ export class EngineTypeError extends Error {
   }
 }
 
-/** Canonical string family used by the CSV formula-injection guard. */
-export type EngineTypeFamily = 'varchar' | 'other'
+/** Canonical family used by the CSV formula-injection guard / BLOB hex policy. */
+export type EngineTypeFamily = 'varchar' | 'blob' | 'other'
 
 /** Top-level shape: an array/list constructor versus a scalar type. */
 export type EngineTypeShape = 'scalar' | 'array'
@@ -117,7 +117,10 @@ export type EngineTypeShape = 'scalar' | 'array'
 export interface EngineTypeInfo {
   /** Uppercase base identifier (e.g. `VARCHAR`, `DECIMAL`, `STRUCT`, `LIST`). */
   readonly base: string
-  /** Canonical family of the type (`varchar` = a scalar that renders as text). */
+  /**
+   * Canonical family of the type (`varchar` = a scalar that renders as text,
+   * `blob` = a scalar binary whose raw CSV rendering is not text).
+   */
   readonly family: EngineTypeFamily
   /**
    * `'array'` for `T[]`/`T[n]` and `LIST(...)`; `'scalar'` otherwise. The CSV
@@ -144,6 +147,19 @@ const STRING_FAMILY_BASES: ReadonlySet<string> = new Set([
   'NVARCHAR',
   'ENUM',
 ])
+
+/**
+ * Binary base identifiers: DuckDB's CSV writer emits BLOB bytes **raw** (CLI
+ * 1.5.5: `COPY (SELECT '=cmd|@SUM(1+1)'::BLOB …) TO … (FORMAT CSV)` writes a
+ * live formula-leading cell), and the raw bytes cannot be handed to the
+ * string guard's `contains`/`left` (BLOB is not text — `contains(BLOB,
+ * VARCHAR)` is a Binder Error). The CSV exporter therefore **hex-encodes**
+ * scalar BLOBs (`hex(x)`), an `[0-9A-F]`-only rendering that no spreadsheet
+ * parser can read as a formula and that `from_hex` recovers losslessly.
+ * `DESCRIBE` canonicalizes all four aliases to `blob` at 1.5.5; an overlay
+ * may still declare them verbatim, so all four classify.
+ */
+const BLOB_FAMILY_BASES: ReadonlySet<string> = new Set(['BLOB', 'BYTEA', 'BINARY', 'VARBINARY'])
 
 /** Multi-word continuations that must not be mistaken for a struct field name. */
 const MULTI_WORD_CONTINUATIONS: ReadonlySet<string> = new Set([
@@ -355,7 +371,14 @@ class TypeExpressionParser {
     return {
       base,
       shape,
-      family: shape === 'scalar' && STRING_FAMILY_BASES.has(base) ? 'varchar' : 'other',
+      family:
+        shape !== 'scalar'
+          ? 'other'
+          : STRING_FAMILY_BASES.has(base)
+            ? 'varchar'
+            : BLOB_FAMILY_BASES.has(base)
+              ? 'blob'
+              : 'other',
     }
   }
 
@@ -590,6 +613,22 @@ export function validateEngineTypeExpression(text: unknown): void {
 export function isStringLikeEngineType(text: unknown): boolean {
   try {
     return parseEngineTypeExpression(text).family === 'varchar'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a type expression is a **scalar** DuckDB binary/BLOB alias — the
+ * classification that drives the CSV exporter's lossless hex rendering (raw
+ * BLOB bytes are a formula-injection bypass; see `BLOB_FAMILY_BASES`).
+ * Shape-aware and total, mirroring {@link isStringLikeEngineType}: an array
+ * of BLOBs or an invalid expression is `false`.
+ */
+export function isBlobLikeEngineType(text: unknown): boolean {
+  try {
+    const info = parseEngineTypeExpression(text)
+    return info.shape === 'scalar' && info.family === 'blob'
   } catch {
     return false
   }

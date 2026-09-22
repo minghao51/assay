@@ -655,6 +655,30 @@ describe('DuckDbEngineClient file lifecycle (M1-4)', () => {
     expect(client.status).toBe('disposed')
     await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
   })
+
+  it('a query that races dispose() rejects instead of hanging (AR-E3)', async () => {
+    // The race: `query()` passes `ensureReady()` and then suspends before
+    // `send()`. `dispose()` flips the status and sweeps pending work; without
+    // the `send()` status re-check the query would add a fresh pending entry
+    // and post to a terminated worker, never to settle (the audit probe:
+    // `query settled after dispose: false`).
+    const { client, workers } = makeClient({ disposeTimeoutMs: 20 })
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await boot
+
+    const queryPromise = client.query('SELECT 1')
+    const disposePromise = client.dispose()
+
+    // The awaiting query must true-reject (not hang)…
+    await expect(queryPromise).rejects.toThrow(EngineDisposedError)
+    await disposePromise
+    expect(client.status).toBe('disposed')
+    expect(worker.terminated).toBe(true)
+    // …and it never reached the worker at all.
+    expect(worker.postedRequests.some((request) => request.type === 'engine/query')).toBe(false)
+  })
 })
 
 describe('DuckDbEngineClient row count (M1-5)', () => {

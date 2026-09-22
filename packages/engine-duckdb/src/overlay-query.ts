@@ -66,7 +66,10 @@
  * reach SQL only as typed literals via `cellLiteralSql` (single-quote
  * escaped strings); host anchors reach SQL only inside string literals; the
  * CSV formula-injection guard composes from SQL functions, never by
- * concatenating data into the statement. Engine type expressions are
+ * concatenating data into the statement, and **scalar BLOB columns are
+ * hex-encoded** on CSV export (raw BLOB bytes reach the CSV writer verbatim
+ * and bypass the string guard — see `csvSafeExpression`). Engine type
+ * expressions are
  * untrusted input: every effective `state.columns[].type` (base or
  * `column-cast` target) is validated as exactly one complete DuckDB type by
  * `assertValidEffectiveTypes` before it reaches a `CAST(x AS <type>)`
@@ -78,7 +81,11 @@ import { baseRowId, parseRowId } from '@assay/domain'
 import type { CellValue, InsertedRowRecord, OverlayState, RowId } from '@assay/domain'
 import { quotedIdentifier, sqlStringLiteral } from './format-view'
 import type { EngineExportFormat, EngineFilterSpec, EngineSortSpec } from './protocol'
-import { isStringLikeEngineType, validateEngineTypeExpression } from './type-expr'
+import {
+  isBlobLikeEngineType,
+  isStringLikeEngineType,
+  validateEngineTypeExpression,
+} from './type-expr'
 import { orderByClauseSql, whereClauseSql } from './window-query'
 
 /**
@@ -343,12 +350,41 @@ export function formulaInjectionGuardSql(expr: string): string {
   )
 }
 
+/**
+ * The CSV-export rendering policy for one projected column expression: the
+ * **only** place the projection decides between the string guard and BLOB
+ * hex encoding, applied identically to the base branch and every insert
+ * branch so the two can never drift.
+ *
+ * - **Scalar textual** columns take the apostrophe-prefix guard.
+ * - **Scalar BLOB** columns are `hex()`-encoded. DuckDB's CSV writer emits
+ *   BLOB bytes **raw** (CLI 1.5.5: `COPY (SELECT '=cmd|@SUM(1+1)'::BLOB …)
+ *   TO … (FORMAT CSV)` writes a live formula-leading cell), and raw bytes
+ *   cannot be handed to the guard's `contains`/`left` (BLOB is not text — a
+ *   Binder Error). Hex is `[0-9A-F]`-only, so no spreadsheet parser can read
+ *   the cell as a formula, and `from_hex` recovers the bytes losslessly.
+ * - Every other type (numbers, dates, booleans, arrays, structs) is left
+ *   untouched: its CSV rendering cannot begin with a formula initiator.
+ *
+ * NULL passes through as NULL for every class (`hex(NULL)` is NULL).
+ */
+function csvSafeExpression(expr: string, type: string): string {
+  if (isBlobLikeEngineType(type)) return `hex(${expr})`
+  if (isStringLikeEngineType(type)) return formulaInjectionGuardSql(expr)
+  return expr
+}
+
 // ---------------------------------------------------------------------------
 // Composed relation parts
 // ---------------------------------------------------------------------------
 
-function assertNoReservedNames(columns: readonly { readonly name: string }[]): void {
-  for (const column of columns) {
+function assertNoReservedNames(base: OverlayBase, state: OverlayState): void {
+  // Both the **base** and **effective** column names are checked: a base
+  // column named `assay_overlay_ord` that a rename overlay moves away would
+  // still be projected by the base branch and shadow the generated ordinal,
+  // corrupting the edit CASE arms. The doc's "fail with a clear error"
+  // promise must hold for the base schema too, not only the effective one.
+  for (const column of [...base.columns, ...state.columns]) {
     if (RESERVED_OVERLAY_COLUMN_NAMES.has(column.name)) {
       throw new Error(
         `column name "${column.name}" is reserved by the engine overlay composer and cannot be composed`,
@@ -487,17 +523,14 @@ function baseBranchSql(
   viewName: string,
   options: RelationOptions,
 ): string {
-  assertNoReservedNames(state.columns)
+  assertNoReservedNames(base, state)
   const baseColumns = base.columns.map((column) => quotedIdentifier(column.name)).join(', ')
   const inner =
     `SELECT ${baseColumns}, (row_number() OVER () - 1) AS ${ORDINAL_COLUMN} ` +
     `FROM ${quotedIdentifier(viewName)}`
   const exprs = state.columns.map((column, index) => {
     const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN)
-    const guarded =
-      options.sanitizeCsv && isStringLikeEngineType(column.type)
-        ? formulaInjectionGuardSql(raw)
-        : raw
+    const guarded = options.sanitizeCsv ? csvSafeExpression(raw, column.type) : raw
     return `${guarded} AS ${quotedIdentifier(column.name)}`
   })
   if (options.withRowIds) {
@@ -543,12 +576,10 @@ function insertBranchSql(
     // The CSV guard applies to insert branches too — a bait value in an
     // inserted row must be sanitized exactly like an edited base cell
     // (probed by the conformance suite's export round-trip). Classification
-    // is the canonical string family, not an exact `VARCHAR` spelling: the
-    // m4-2 review found a `CAST(… AS TEXT)` column skipped the guard.
-    const guarded =
-      options.sanitizeCsv && isStringLikeEngineType(column.type)
-        ? formulaInjectionGuardSql(literal)
-        : literal
+    // is the canonical string/BLOB family, not an exact `VARCHAR` spelling:
+    // the m4-2 review found a `CAST(… AS TEXT)` column skipped the guard, and
+    // a BLOB insert would otherwise write raw bytes.
+    const guarded = options.sanitizeCsv ? csvSafeExpression(literal, column.type) : literal
     return `${guarded} AS ${quotedIdentifier(column.name)}`
   })
   if (options.withRowIds) {
@@ -602,7 +633,7 @@ export function composeSourceSql(
  * (window/count/export) — both typed engine errors, never silent drift.
  */
 export function composeOverlaySchemaSql(composition: OverlayComposition): string {
-  assertNoReservedNames(composition.state.columns)
+  assertNoReservedNames(composition.base, composition.state)
   assertValidEffectiveTypes(composition.state)
   const { base, state, viewName } = composition
   const exprs = state.columns.map((column, index) => {
@@ -670,7 +701,7 @@ export function composeOverlayCastCheckSql(
 ): string {
   validateEngineTypeExpression(targetType)
   const { base, state, viewName } = composition
-  assertNoReservedNames(state.columns)
+  assertNoReservedNames(base, state)
   assertValidEffectiveTypes(state)
   const effectiveIndex = state.columns.findIndex((candidate) => candidate.name === column)
   if (effectiveIndex < 0) {

@@ -50,6 +50,7 @@ const SCENARIOS = [
   'overlay-insert-edits',
   'overlay-cast-check',
   'export-round-trip',
+  'blob-csv-export-sanitized',
   'source-immutability',
   'overlay-hostile-types-rejected',
   'validation-plan-execution',
@@ -75,6 +76,7 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'overlay-insert-edits': 'Conformance: overlay insert edits',
   'overlay-cast-check': 'Conformance: overlay cast check',
   'export-round-trip': 'Conformance: export round-trip',
+  'blob-csv-export-sanitized': 'Conformance: blob csv export sanitized',
   'source-immutability': 'Conformance: source immutability',
   'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
   'validation-plan-execution': 'Conformance: validation plan execution',
@@ -197,6 +199,13 @@ for (const name of SCENARIOS) {
         expect(result.facts['engineReopens']).toBe(4)
         expect(result.facts['arrowVerified']).toBe(1)
         expect(result.facts['csvSanitizationProbed']).toBe(true)
+        break
+      case 'blob-csv-export-sanitized':
+        // AR-E1: both the overlay (cast-to-BLOB + BLOB insert) and the
+        // overlay-free base (real BLOB Parquet) CSV legs hex-encode.
+        expect(result.facts['overlayLegs']).toBe(1)
+        expect(result.facts['baseLegs']).toBe(1)
+        expect(result.facts['rowCount']).toBe(3)
         break
       case 'source-immutability':
         expect(result.facts['exports']).toBe(5)

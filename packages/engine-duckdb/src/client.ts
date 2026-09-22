@@ -863,6 +863,10 @@ export class DuckDbEngineClient {
       worker.terminate()
     }
     if (this.worker === worker) this.worker = null
+    // Re-fail after termination: the graceful `engine/dispose` request (and
+    // any entry that raced past the first sweep) must not be left pending on
+    // a terminated worker. Nothing can settle late.
+    this.failAllPending(new EngineDisposedError())
     this.ready = null
   }
 
@@ -897,6 +901,15 @@ export class DuckDbEngineClient {
     request: EngineRequest,
     workerOverride?: EngineWorkerLike,
   ): Promise<EngineSuccessResponse> {
+    // AR-E3: re-check the lifecycle status here, not only in `ensureReady()`.
+    // A public op can pass `ensureReady()` and then await host work (e.g.
+    // `source.getFile()`) while `dispose()` starts; without this check it
+    // would add a fresh pending entry and post to a terminated worker, never
+    // to settle. The internal graceful-dispose send passes `workerOverride`
+    // and is deliberately allowed through.
+    if (workerOverride === undefined && this.currentStatus === 'disposed') {
+      return Promise.reject(new EngineDisposedError())
+    }
     const worker = workerOverride ?? this.worker
     if (worker === null) {
       return Promise.reject(new EngineWorkerError('engine worker is not running'))

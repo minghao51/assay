@@ -337,19 +337,43 @@ export function parseValidationPlan(value: unknown): EngineValidationPlan | null
 }
 
 /**
+ * One quoted identifier found by {@link scanPlanSql}: its half-open span in
+ * the scanned SQL (the opening quote through just past the closing quote) and
+ * its decoded value (SQL's doubled-quote escaping collapsed). The structural
+ * code view blanks the identifier's interior, so this list is how the
+ * relation-binding checks recover real `FROM "<rel>"` tokens without letting
+ * a column whose name merely contains one read as a binding.
+ */
+export interface PlanSqlIdentifier {
+  /** Index of the opening quote in the scanned SQL. */
+  readonly start: number
+  /** Index just past the closing quote. */
+  readonly end: number
+  /** Decoded identifier contents (`""` collapsed to `"`). */
+  readonly value: string
+}
+
+/**
  * The result of the SQL-aware lexical scan ({@link scanPlanSql}): either a
  * code view of the SQL with every comment and string-literal contents
- * blanked out (same length, positions preserved — double-quoted identifier
- * regions are code and stay verbatim), or the reason the SQL is not
- * compiler-shaped. String/identifier terminators use SQL's doubled-quote
- * escaping (`''` / `""`).
+ * blanked out (same length, positions preserved — **quoted-identifier
+ * interiors are blanked too**, with the tokens exposed via `identifiers`),
+ * or the reason the SQL is not compiler-shaped. String/identifier
+ * terminators use SQL's doubled-quote escaping (`''` / `""`).
  */
-export type PlanSqlScan =
-  | { readonly ok: true; readonly code: string }
-  | {
-      readonly ok: false
-      readonly reason: 'comment' | 'unterminated' | 'dollar-quote' | 'escape-string'
-    }
+export interface PlanSqlScanOk {
+  readonly ok: true
+  readonly code: string
+  /** Every quoted identifier, in source order (see {@link PlanSqlIdentifier}). */
+  readonly identifiers: readonly PlanSqlIdentifier[]
+}
+
+export interface PlanSqlScanFailure {
+  readonly ok: false
+  readonly reason: 'comment' | 'unterminated' | 'dollar-quote' | 'escape-string'
+}
+
+export type PlanSqlScan = PlanSqlScanOk | PlanSqlScanFailure
 
 /**
  * Fully SQL-aware lexical scan of one plan SQL string (m5-2 round-3 fix):
@@ -370,16 +394,21 @@ export type PlanSqlScan =
  *   escapes would defeat the doubling model).
  *
  * On success, `code` is a same-length view of the SQL in which single-quoted
- * string CONTENTS are blanked to spaces (the quotes themselves remain), so
- * downstream checks — statement shape and compiler-shaped occurrence
- * counting — see only real code: a `;` or a pseudo `FROM "<rel>" AS "src"`
- * inside a literal can never read as code. (Comments never reach the code
- * view: they are refused outright.)
+ * string CONTENTS are blanked to spaces (the quotes themselves remain) **and
+ * quoted-identifier interiors are blanked the same way**; the identifiers are
+ * returned separately in `identifiers`. Downstream structural checks
+ * (statement shape, `UNION ALL` splitting, `;` detection) therefore see only
+ * real SQL structure: a `;` or `UNION ALL` or pseudo `FROM "<rel>" AS
+ * "src"` inside either a literal or an identifier can never read as code.
+ * The relation-binding checks stay correct by matching the returned
+ * identifier tokens against the relation name and the surrounding code view.
+ * (Comments never reach the code view: they are refused outright.)
  */
 export function scanPlanSql(sql: string): PlanSqlScan {
   let out = ''
   let index = 0
   const length = sql.length
+  const identifiers: PlanSqlIdentifier[] = []
   while (index < length) {
     const character = sql[index]
     if (character === '-') {
@@ -430,31 +459,38 @@ export function scanPlanSql(sql: string): PlanSqlScan {
       continue
     }
     if (character === '"') {
-      // Quoted identifier: CODE (identifier contents are code — the
-      // relation token itself is one). Consume it wholly, honoring `""`
-      // doubling, so a doubled quote inside can never re-open code.
+      // Quoted identifier: the token is code, but its **interior is not SQL
+      // structure** — a column named `a;b` or one containing `UNION ALL` or
+      // a relation-token text must not read as a separator, an operator, or
+      // a binding. Blank the interior in the structural code view and record
+      // the decoded token for the relation-binding checks.
       let cursor = index + 1
+      let decoded = ''
       let closed = false
       while (cursor < length) {
         if (sql[cursor] === '"') {
           if (sql[cursor + 1] === '"') {
+            decoded += '"'
             cursor += 2
             continue
           }
           closed = true
           break
         }
+        decoded += sql[cursor]
         cursor += 1
       }
       if (!closed) return { ok: false, reason: 'unterminated' }
-      out += sql.slice(index, cursor + 1)
-      index = cursor + 1
+      const end = cursor + 1
+      out += '"' + ' '.repeat(end - index - 2) + '"'
+      identifiers.push({ start: index, end, value: decoded })
+      index = end
       continue
     }
     out += character
     index += 1
   }
-  return { ok: true, code: out }
+  return { ok: true, code: out, identifiers }
 }
 
 /**
@@ -469,22 +505,31 @@ export function scanPlanSql(sql: string): PlanSqlScan {
  * shape — review round 2: a relation-free statement can carry arbitrary SQL
  * past an occurrence gate, so zero occurrences are only acceptable where
  * the compiler provably emits them). The input is the {@link scanPlanSql}
- * CODE VIEW: occurrences inside string literals or comments are blanked and
- * can never count (m5-2 round-3 fix — a pseudo-reference in a literal is
- * not a relation binding).
+ * result: the structural code view has literal AND identifier interiors
+ * blanked, and the relation/alias tokens are matched from `identifiers`.
+ * A column whose name merely *equals* or *contains* the relation token is
+ * therefore never a binding, and a pseudo-reference in a literal or another
+ * identifier can never count (m5-2 round-3 fix; AR-E2 made it
+ * identifier-aware).
  */
-function countCompilerShapedOccurrences(sql: string, quotedRelation: string): number {
+function countCompilerShapedOccurrences(scan: PlanSqlScanOk, relation: string): number {
+  const { code, identifiers } = scan
   let count = 0
-  let cursor = 0
-  for (;;) {
-    const index = sql.indexOf(quotedRelation, cursor)
-    if (index < 0) break
-    const from = index - 'FROM '.length
-    if (from < 0 || sql.slice(from, index) !== 'FROM ') return 0
-    const after = sql.slice(index + quotedRelation.length)
-    if (!after.startsWith(` AS "src"`) && !after.startsWith(')')) return 0
-    count += 1
-    cursor = index + quotedRelation.length
+  for (const identifier of identifiers) {
+    if (identifier.value !== relation) continue
+    const from = identifier.start - 'FROM '.length
+    if (from < 0 || code.slice(from, identifier.start) !== 'FROM ') continue
+    const after = code.slice(identifier.end)
+    if (after.startsWith(')')) {
+      count += 1
+      continue
+    }
+    // `FROM "<rel>" AS "src"` — the alias quote sits exactly after the ` AS "`.
+    if (after.startsWith(' AS "')) {
+      const aliasStart = identifier.end + ' AS "'.length - 1
+      const alias = identifiers.find((candidate) => candidate.start === aliasStart)
+      if (alias !== undefined && alias.value === 'src') count += 1
+    }
   }
   return count
 }
@@ -493,11 +538,12 @@ function countCompilerShapedOccurrences(sql: string, quotedRelation: string): nu
  * True when the (already scanned) code view is a single SELECT statement:
  * it starts with `SELECT` (the compiler emits no CTE/wrapper forms) and
  * contains no statement separator with anything after it. String literals
- * were blanked by {@link scanPlanSql}, so a legitimate rule VALUE containing
- * `;` (a regex or allowed-values literal) never reads as a second
- * statement; comments were refused outright, so they cannot hide one
- * either. A trailing lone separator with nothing after it is tolerated (the
- * compiler never emits one, but it cannot carry a second statement).
+ * AND quoted-identifier interiors were blanked by {@link scanPlanSql}, so a
+ * legitimate rule VALUE containing `;` (a regex or allowed-values literal) or
+ * a column named `a;b` never reads as a second statement; comments were
+ * refused outright, so they cannot hide one either. A trailing lone
+ * separator with nothing after it is tolerated (the compiler never emits
+ * one, but it cannot carry a second statement).
  */
 export function isSingleSelectStatement(code: string): boolean {
   if (!/^\s*select\b/i.test(code)) return false
@@ -543,7 +589,6 @@ export function assertValidationPlanRelationBinding(
       'validation plan relation collides with a registered table view; refusing to shadow it',
     )
   }
-  const quoted = quotedRelationToken(plan.relation)
   for (const rule of plan.rules) {
     const scanned = scanPlanSql(rule.sql)
     if (!scanned.ok) {
@@ -562,7 +607,7 @@ export function assertValidationPlanRelationBinding(
         `validation plan rule '${rule.ruleId}' is not a single compiler-shaped SELECT query`,
       )
     }
-    if (countCompilerShapedOccurrences(scanned.code, quoted) === 0) {
+    if (countCompilerShapedOccurrences(scanned, plan.relation) === 0) {
       throw new Error(
         `validation plan rule '${rule.ruleId}' does not bind its relation in the compiler's FROM shape`,
       )
@@ -585,7 +630,10 @@ export function assertValidationPlanRelationBinding(
   }
   // A rule-less plan's compiler-emitted empty summary is the one documented
   // zero-occurrence shape (it reads no relation); anything else must bind.
-  if (plan.rules.length > 0 && countCompilerShapedOccurrences(scannedSummary.code, quoted) === 0) {
+  if (
+    plan.rules.length > 0 &&
+    countCompilerShapedOccurrences(scannedSummary, plan.relation) === 0
+  ) {
     throw new Error('validation plan summary does not bind its relation in the compiler FROM shape')
   }
 }

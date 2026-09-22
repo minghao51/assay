@@ -65,6 +65,7 @@
  * names, key names, or dataset contents (ADR 0025).
  */
 import { isSingleSelectStatement, scanPlanSql } from './validate-plan-wire'
+import type { PlanSqlScanOk } from './validate-plan-wire'
 
 /** Discriminator carried by every v1 plan (mirror of the m6-1 constant). */
 const PLAN_KIND = 'assay-row-diff-plan'
@@ -240,36 +241,56 @@ export function quotedRelationToken(relation: string): string {
 /**
  * Count the compiler's exact FROM rendering of one relation bound to one of
  * the two fixed range aliases: `FROM "<rel>" AS "a"` / `FROM "<rel>" AS
- * "b"`. The input must be the {@link scanPlanSql} CODE VIEW (string contents
- * blanked, comments refused), so a pseudo-reference inside a literal can
- * never count. The compiler emits no other shape for its two top-level
- * ranges.
+ * "b"`. The input must be the {@link scanPlanSql} result (literal and
+ * quoted-identifier interiors blanked; relation/alias tokens in
+ * `identifiers`), so a pseudo-reference inside a literal or a column whose
+ * name merely contains the token can never count. The compiler emits no
+ * other shape for its two top-level ranges.
  */
 function countCompilerFromOccurrences(
-  code: string,
-  quotedRelation: string,
+  scan: PlanSqlScanOk,
+  relation: string,
   range: 'a' | 'b',
 ): number {
-  const needle = `FROM ${quotedRelation} AS ${range === 'a' ? '"a"' : '"b"'}`
+  const { code, identifiers } = scan
   let count = 0
-  let cursor = 0
-  for (;;) {
-    const index = code.indexOf(needle, cursor)
-    if (index < 0) break
-    count += 1
-    cursor = index + needle.length
+  for (const identifier of identifiers) {
+    if (identifier.value !== relation) continue
+    const from = identifier.start - 'FROM '.length
+    if (from < 0 || code.slice(from, identifier.start) !== 'FROM ') continue
+    const after = code.slice(identifier.end)
+    if (!after.startsWith(' AS "')) continue
+    const aliasStart = identifier.end + ' AS "'.length - 1
+    const alias = identifiers.find((candidate) => candidate.start === aliasStart)
+    if (alias !== undefined && alias.value === range) count += 1
   }
   return count
 }
 
 /** Split the compiler's totals query into its three `UNION ALL` arms. */
-function splitTotalsArms(code: string): string[] | null {
-  // The compiler emits exactly `\nUNION ALL\n` between arms. An identifier
-  // containing the literal text is not a shape the compiler ever emits, so a
-  // split that does not yield exactly three arms is a malformed plan.
-  const arms = code.split('UNION ALL')
-  if (arms.length !== 3) return null
-  return arms
+function splitTotalsArms(original: string, code: string): PlanSqlScanOk[] | null {
+  // The compiler emits exactly `\nUNION ALL\n` between arms. The split runs
+  // over the structural code view (`code`), whose literal AND
+  // quoted-identifier interiors are blanked — so an identifier containing the
+  // literal text can no longer over-split the query (AR-E2). Each arm is then
+  // re-scanned from the SAME offsets of the original SQL (the view is
+  // position-preserving), recovering the arm's own identifier tokens for the
+  // relation-binding checks. A shape that does not yield exactly three
+  // well-formed arms is a malformed plan.
+  const arms: PlanSqlScanOk[] = []
+  let start = 0
+  for (;;) {
+    const index = code.indexOf('UNION ALL', start)
+    if (index < 0) break
+    const scanned = scanPlanSql(original.slice(start, index))
+    if (!scanned.ok) return null
+    arms.push(scanned)
+    start = index + 'UNION ALL'.length
+  }
+  const last = scanPlanSql(original.slice(start))
+  if (!last.ok) return null
+  arms.push(last)
+  return arms.length === 3 ? arms : null
 }
 
 /**
@@ -293,9 +314,6 @@ export function assertRowDiffPlanBinding(
       )
     }
   }
-  const quotedA = quotedRelationToken(plan.relationA)
-  const quotedB = quotedRelationToken(plan.relationB)
-
   const aspectQueries: readonly {
     readonly label: string
     readonly sql: string
@@ -330,12 +348,12 @@ export function assertRowDiffPlanBinding(
         `row-diff ${aspect.label} query is not a single compiler-shaped SELECT statement`,
       )
     }
-    if (countCompilerFromOccurrences(scanned.code, quotedA, 'a') < 1) {
+    if (countCompilerFromOccurrences(scanned, plan.relationA, 'a') < 1) {
       throw new Error(
         `row-diff ${aspect.label} query does not bind side A in the compiler's FROM shape`,
       )
     }
-    if (countCompilerFromOccurrences(scanned.code, quotedB, 'b') < 1) {
+    if (countCompilerFromOccurrences(scanned, plan.relationB, 'b') < 1) {
       throw new Error(
         `row-diff ${aspect.label} query does not bind side B in the compiler's FROM shape`,
       )
@@ -360,18 +378,18 @@ export function assertRowDiffPlanBinding(
       `row-diff totals query is not lexically well-formed compiler SQL (${totalsScan.reason})`,
     )
   }
-  const arms = splitTotalsArms(totalsScan.code)
+  const arms = splitTotalsArms(plan.totalsSql, totalsScan.code)
   if (arms === null) {
     throw new Error('row-diff totals query is not the compiler-shaped three-arm UNION ALL')
   }
   for (const arm of arms) {
-    if (!isSingleSelectStatement(arm)) {
+    if (!isSingleSelectStatement(arm.code)) {
       throw new Error('row-diff totals query arm is not a single compiler-shaped SELECT statement')
     }
-    if (countCompilerFromOccurrences(arm, quotedA, 'a') < 1) {
+    if (countCompilerFromOccurrences(arm, plan.relationA, 'a') < 1) {
       throw new Error('row-diff totals query does not bind side A in the compiler FROM shape')
     }
-    if (countCompilerFromOccurrences(arm, quotedB, 'b') < 1) {
+    if (countCompilerFromOccurrences(arm, plan.relationB, 'b') < 1) {
       throw new Error('row-diff totals query does not bind side B in the compiler FROM shape')
     }
   }

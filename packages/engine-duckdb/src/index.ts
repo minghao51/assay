@@ -233,11 +233,12 @@ export {
 } from './diff-query'
 export type { RowDiffAspectRows, RowDiffCountExcess, RowDiffSampleRow } from './diff-query'
 // m4-2 fix-round fold: the strict engine type-expression validator and the
-// canonical string-family classifier the CSV formula-injection guard keys
-// off. Public so hosts can validate declared cast types before submitting an
-// overlay and so the guard's classification is inspectable.
+// canonical string/BLOB family classifiers the CSV formula-injection guard
+// keys off. Public so hosts can validate declared cast types before
+// submitting an overlay and so the guard's classification is inspectable.
 export {
   EngineTypeError,
+  isBlobLikeEngineType,
   isStringLikeEngineType,
   parseEngineTypeExpression,
   validateEngineTypeExpression,

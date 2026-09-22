@@ -28,6 +28,7 @@ import { CONTRACT_TYPE_VOCABULARY } from '@assay/contracts'
 import { compileRowDiffPlan } from '@assay/diff'
 import type {
   ConformanceBatchResult,
+  ConformanceBlobExportDataset,
   ConformanceCellValue,
   ConformanceCategoricalStats,
   ConformanceDatasetProfile,
@@ -506,6 +507,49 @@ const FAKE_OVERLAY_DATASET = {
     },
   ],
 } as const
+
+/**
+ * The AR-E1 BLOB CSV-export dataset the fake subject declares, in miniature:
+ * a base VARCHAR column cast to BLOB, plus a BLOB-typed inserted value. The
+ * fake models a compliant engine's `hex()` rendering for CSV (the DuckDB
+ * subject pins the same hex over the real engine, including the genuine
+ * overlay-free base BLOB that the two-step export produces).
+ */
+const FAKE_BLOB_BASE: ConformanceOverlayBase = {
+  baseAnchor: 'fake-blob-base-v1',
+  overlayAnchor: 'fake-blob-ov-1',
+  columns: [
+    { name: 'id', type: 'BIGINT' },
+    { name: 'cast_blob', type: 'VARCHAR' },
+  ],
+  baseRowCount: 2,
+}
+
+const FAKE_BLOB_ROWS: readonly { id: number; cast_blob: string | null }[] = [
+  { id: 1, cast_blob: '=cmd|@SUM(1+1)' },
+  { id: 2, cast_blob: 'safe' },
+]
+
+const FAKE_BLOB_EXPORT_DATASET: ConformanceBlobExportDataset = {
+  base: FAKE_BLOB_BASE,
+  ops: [
+    { kind: 'column-cast', column: 'cast_blob', targetType: 'BLOB' },
+    {
+      kind: 'row-insert',
+      rowId: 'ins:fake-blob-ov-1#0',
+      position: { kind: 'start' },
+      values: new Map([
+        ['id', { kind: 'number', value: 3 }],
+        ['cast_blob', { kind: 'string', value: '-1+1' }],
+      ]),
+    },
+  ],
+  rowCount: 3,
+  columns: [
+    { name: 'id', values: ['3', '1', '2'] },
+    { name: 'cast_blob', values: ['2D312B31', '3D636D647C4053554D28312B3129', '73616665'] },
+  ],
+}
 
 /**
  * The m4-2b inserted-row-edit dataset the fake subject declares, in
@@ -2320,12 +2364,46 @@ function fakeSanitizeCsvCell(value: string | null, skip: boolean): string | null
   return value
 }
 
+/** The DuckDB BLOB aliases whose CSV rendering is hex-encoded (AR-E1). */
+function fakeIsBlobType(type: string): boolean {
+  return ['BLOB', 'BYTEA', 'BINARY', 'VARBINARY'].includes(type.toUpperCase())
+}
+
+/** Uppercase hex of a value's UTF-8 bytes (`hex()` in miniature). */
+function fakeHexCell(value: string | null): string | null {
+  if (value === null) return null
+  return [...new TextEncoder().encode(value)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()
+}
+
+/**
+ * The fake's CSV cell policy: scalar BLOBs are hex-encoded, scalar text is
+ * apostrophe-guarded. Mirrors the engine's `csvSafeExpression` (AR-E1).
+ */
+function fakeCsvCell(value: string | null, type: string, skipSanitize: boolean): string | null {
+  if (fakeIsBlobType(type)) return fakeHexCell(value)
+  return fakeSanitizeCsvCell(value, skipSanitize)
+}
+
+/**
+ * The base rows a fake overlay composes over: the BLOB dataset has its own
+ * base, everything else uses the canonical overlay rows.
+ */
+function fakeBaseRowsFor(
+  base: ConformanceOverlayBase,
+): readonly Record<string, string | number | null>[] {
+  return base.baseAnchor === 'fake-blob-base-v1' ? FAKE_BLOB_ROWS : FAKE_OVERLAY_ROWS
+}
+
 /** The logical row-id column name overlay windows add when asked (m4-2). */
 const ROW_ID_COLUMN = 'assay_row_id'
 
 /** One exported (materialized) fake file, re-openable through `open()`. */
 interface FakeExportFile {
   readonly columns: readonly string[]
+  readonly types: readonly string[]
   readonly rows: readonly Record<string, string | null>[]
   readonly bytes: Uint8Array
 }
@@ -2743,7 +2821,7 @@ class FakeEngineClient implements ConformanceEngineClient {
     let rows = fakeOverlayRows(
       overlay.base,
       state,
-      FAKE_OVERLAY_ROWS,
+      fakeBaseRowsFor(overlay.base),
       this.mutations.misordersOverlayInserts === true,
     )
     // Filters over effective columns (the fake interprets its tiny language).
@@ -2941,35 +3019,52 @@ class FakeEngineClient implements ConformanceEngineClient {
     },
   ): Promise<ConformanceExportResult> {
     this.requireRegistered(handle)
-    if (request.overlay === undefined) {
-      throw new FakeQueryError('fake exports carry an overlay')
-    }
     const seq = this.nextExportSeq++
     const name = `fake-export-${String(seq)}.${request.format}`
-    const state = foldFakeOverlay(request.overlay.base, request.overlay.ops ?? [], this.mutations)
-    const rows = fakeOverlayRows(
-      request.overlay.base,
-      state,
-      FAKE_OVERLAY_ROWS,
-      this.mutations.misordersOverlayInserts === true,
-    )
     const sanitize = request.format === 'csv' && !this.mutations.skipsCsvSanitization
-    const materialized = rows.map((row) => {
-      const record: Record<string, string | null> = {}
-      for (const column of state.columns) {
-        const value = row.cells.get(column.name) ?? null
-        record[column.name] = sanitize ? fakeSanitizeCsvCell(value, false) : value
+    let columns: readonly string[]
+    let types: readonly string[]
+    let materialized: Record<string, string | null>[]
+    if (request.overlay === undefined) {
+      // Overlay-free export over a re-opened export (the AR-E1 two-step base
+      // BLOB leg): materialize the stored file directly from its own schema.
+      const source = this.exportedFile(handle)
+      if (source === null) {
+        throw new FakeQueryError('fake overlay-free exports require a reopened export')
       }
-      return record
-    })
+      columns = source.columns
+      types = source.types
+      materialized = source.rows.map((row) => {
+        const record: Record<string, string | null> = {}
+        columns.forEach((column, index) => {
+          const value = row[column] ?? null
+          record[column] = sanitize ? fakeCsvCell(value, types[index]!, false) : value
+        })
+        return record
+      })
+    } else {
+      const state = foldFakeOverlay(request.overlay.base, request.overlay.ops ?? [], this.mutations)
+      const rows = fakeOverlayRows(
+        request.overlay.base,
+        state,
+        fakeBaseRowsFor(request.overlay.base),
+        this.mutations.misordersOverlayInserts === true,
+      )
+      columns = state.columns.map((column) => column.name)
+      types = state.columns.map((column) => column.type)
+      materialized = rows.map((row) => {
+        const record: Record<string, string | null> = {}
+        for (const column of state.columns) {
+          const value = row.cells.get(column.name) ?? null
+          record[column.name] = sanitize ? fakeCsvCell(value, column.type, false) : value
+        }
+        return record
+      })
+    }
     const bytes = new TextEncoder().encode(
-      materialized.map((row) => state.columns.map((c) => row[c.name] ?? '').join(',')).join('\n'),
+      materialized.map((row) => columns.map((c) => row[c] ?? '').join(',')).join('\n'),
     )
-    subjectState.exports.set(name, {
-      columns: state.columns.map((column) => column.name),
-      rows: materialized,
-      bytes,
-    })
+    subjectState.exports.set(name, { columns, types, rows: materialized, bytes })
     if (this.mutations.rewritesSourceFile) {
       // The mutation: exporting rewrites the staged source in place.
       const sourceName = this.registered.get(handle.id)
@@ -2984,7 +3079,7 @@ class FakeEngineClient implements ConformanceEngineClient {
     return {
       path: `assay-exports/${name}`,
       format: request.format,
-      rowCount: rows.length + (this.mutations.liesAboutExportRowCount ? 1 : 0),
+      rowCount: materialized.length + (this.mutations.liesAboutExportRowCount ? 1 : 0),
       bytes: bytes.length,
     }
   }
@@ -2995,7 +3090,7 @@ class FakeEngineClient implements ConformanceEngineClient {
     return fakeOverlayRows(
       overlay.base,
       state,
-      FAKE_OVERLAY_ROWS,
+      fakeBaseRowsFor(overlay.base),
       this.mutations.misordersOverlayInserts === true,
     )
   }
@@ -3309,6 +3404,15 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
       for (const row of FAKE_OVERLAY_ROWS) {
         lines.push(`${String(row.id)},${row.label ?? ''}`)
       }
+      subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
+      return fileSource(name)
+    },
+    blobExportDataset: FAKE_BLOB_EXPORT_DATASET,
+    stageBlobExportFile: async () => {
+      const name = 'blob-export.jsonl'
+      const lines = FAKE_BLOB_ROWS.map((row) =>
+        JSON.stringify({ id: row.id, cast_blob: row.cast_blob }),
+      )
       subjectState.staged.set(name, new TextEncoder().encode(lines.join('\n') + '\n'))
       return fileSource(name)
     },

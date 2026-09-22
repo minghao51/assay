@@ -116,6 +116,15 @@ async function sortBy(page: Page, column: string): Promise<void> {
   await page.locator(`[data-testid="grid-sort-toggle"][data-col-name="${column}"]`).click()
 }
 
+/** Cast a column to a custom engine type through the schema panel (AR-E1). */
+async function castColumnCustom(page: Page, column: string, target: string): Promise<void> {
+  const panel = page.getByTestId('schema-panel')
+  await panel.locator(`[data-testid="column-cast-open"][data-col-name="${column}"]`).click()
+  await panel.locator('[data-testid="column-cast-select"]').selectOption('__custom__')
+  await panel.locator('[data-testid="column-cast-custom"]').fill(target)
+  await panel.locator('[data-testid="column-cast-commit"]').click()
+}
+
 /**
  * Open the fixture through a FAKE File System Access open (the native open
  * picker is not automatable through Playwright's filechooser): an init
@@ -266,6 +275,28 @@ test('export a copy from an edited overlay: CSV sanitized, JSONL raw, and the ex
   // The inserted row survived the round-trip too.
   await expect(cell(page, 5, 1)).toHaveText('INSERTED_ROW')
   await expect(row(page, 5)).toHaveAttribute('data-status', 'ready')
+})
+
+test('a cast-to-BLOB column exports CSV hex-encoded, never a raw formula (AR-E1)', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  await openFixture(page, FIXTURE)
+  // Bait the country cell, then cast the column to BLOB (a real DuckDB BLOB
+  // effective column). The raw BLOB would reach the CSV writer verbatim and
+  // be a live formula; the exporter must hex-encode it instead.
+  await editCell(page, 0, 1, '=cmd|@SUM(1+1)')
+  await castColumnCustom(page, 'country', 'BLOB')
+  await expect(
+    page.locator('[data-testid="grid-header-cell"][data-col-name="country"]'),
+  ).toHaveAttribute('data-col-type', /BLOB/i)
+  await page.getByTestId('export-open').click()
+  const download = await exportFormat(page, 'csv')
+  const csvPath = await saveDownload(download)
+  const csvText = readFileSync(csvPath, 'utf8')
+  // `hex('=cmd|@SUM(1+1)')` (CLI 1.5.5, uppercase) — and never the raw bait.
+  expect(csvText).toContain('3D636D647C4053554D28312B3129')
+  expect(csvText).not.toContain('=cmd|@SUM(1+1)')
 })
 
 test('the source fixture is never written by an export (ADR 0012)', async ({ page }) => {

@@ -21,6 +21,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   EngineTypeError,
+  isBlobLikeEngineType,
   isStringLikeEngineType,
   parseEngineTypeExpression,
   validateEngineTypeExpression,
@@ -247,6 +248,21 @@ describe('parseEngineTypeExpression — accept battery', () => {
       family: 'varchar',
       shape: 'scalar',
     })
+    expect(parseEngineTypeExpression('BLOB')).toEqual({
+      base: 'BLOB',
+      family: 'blob',
+      shape: 'scalar',
+    })
+    expect(parseEngineTypeExpression('bytea')).toEqual({
+      base: 'BYTEA',
+      family: 'blob',
+      shape: 'scalar',
+    })
+    expect(parseEngineTypeExpression('BLOB[]')).toEqual({
+      base: 'BLOB',
+      family: 'other',
+      shape: 'array',
+    })
   })
 })
 
@@ -321,6 +337,10 @@ describe('isStringLikeEngineType — shape-aware canonical string-family classif
       'TIMESTAMP WITH TIME ZONE',
       'JSON',
       'UUID',
+      'BLOB',
+      'BYTEA',
+      'BINARY',
+      'VARBINARY',
       'INTEGER[]',
       'STRUCT(a INTEGER)',
       'STRUCT(a VARCHAR)',
@@ -333,6 +353,40 @@ describe('isStringLikeEngineType — shape-aware canonical string-family classif
       null,
     ]) {
       expect(isStringLikeEngineType(type), String(type)).toBe(false)
+    }
+  })
+})
+
+describe('isBlobLikeEngineType — scalar binary/BLOB alias classification (AR-E1)', () => {
+  it('classifies every scalar DuckDB binary alias', () => {
+    // DESCRIBE canonicalizes all four to `blob` at the pinned CLI 1.5.5
+    // (`DESCRIBE SELECT NULL::BLOB, NULL::BYTEA, NULL::BINARY,
+    // NULL::VARBINARY` → one `blob` column each); an overlay may still declare
+    // the aliases verbatim, so all four classify.
+    for (const type of ['BLOB', 'blob', 'BYTEA', 'BINARY', 'VARBINARY']) {
+      expect(isBlobLikeEngineType(type), type).toBe(true)
+    }
+  })
+
+  it('never classifies a BLOB array/list as a scalar binary (shape-aware)', () => {
+    for (const type of ['BLOB[]', 'BLOB[3]', 'LIST(BLOB)']) {
+      expect(isBlobLikeEngineType(type), type).toBe(false)
+    }
+  })
+
+  it('classifies textual, numeric, and invalid types as not BLOB-like (total)', () => {
+    for (const type of [
+      'VARCHAR',
+      'TEXT',
+      'BIGINT',
+      'DECIMAL(10,2)',
+      'BIT',
+      'BIT VARYING',
+      REVIEWER_PAYLOAD,
+      '',
+      null,
+    ]) {
+      expect(isBlobLikeEngineType(type), String(type)).toBe(false)
     }
   })
 })
