@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { formatNestedPreview } from '../grid/nested-preview'
-import { buildRecordTree, collectBranchPaths } from './record-tree'
+import {
+  buildRecordTree,
+  collectBranchPaths,
+  RECORD_TREE_DEFAULT_MAX_CHILDREN,
+  RECORD_TREE_DEFAULT_MAX_DEPTH,
+  RECORD_TREE_EXPANDED_MAX_CHILDREN,
+  treeHasTruncation,
+} from './record-tree'
 import type { RecordTreeNode } from './record-tree'
 
 /**
@@ -320,5 +327,69 @@ describe('collectBranchPaths — expand-all affordance geometry', () => {
     // Empty containers are branches (renderable, expandable — their children list is just empty).
     const paths = collectBranchPaths(buildRecordTree({ columns: ['l', 'o'], cells: [[], {}] }))
     expect(paths).toEqual(['l', 'o'])
+  })
+})
+
+/** Total node count (the bound AR-W8 makes structural). */
+function countNodes(node: RecordTreeNode): number {
+  let total = 1
+  for (const childNode of node.children) total += countNodes(childNode)
+  return total
+}
+
+describe('buildRecordTree — AR-W8 length and depth caps', () => {
+  it('caps a large list, records the omitted count, and bounds the node count', () => {
+    const big = Array.from({ length: 500 }, (_, index) => index)
+    const tree = buildRecordTree({ columns: ['big'], cells: [big] })
+    const node = child(tree, 'big')
+    expect(node.children).toHaveLength(RECORD_TREE_DEFAULT_MAX_CHILDREN)
+    expect(node.omittedChildren).toBe(500 - RECORD_TREE_DEFAULT_MAX_CHILDREN)
+    // One root + one container + capped children; never the full 500.
+    expect(countNodes(tree)).toBe(2 + RECORD_TREE_DEFAULT_MAX_CHILDREN)
+    expect(treeHasTruncation(tree)).toBe(true)
+  })
+
+  it('caps a wide record with the same discipline', () => {
+    const record: Record<string, number> = {}
+    for (let index = 0; index < 300; index++) record[`k${String(index)}`] = index
+    const tree = buildRecordTree({ columns: ['rec'], cells: [record] })
+    const node = child(tree, 'rec')
+    expect(node.children).toHaveLength(RECORD_TREE_DEFAULT_MAX_CHILDREN)
+    expect(node.omittedChildren).toBe(300 - RECORD_TREE_DEFAULT_MAX_CHILDREN)
+  })
+
+  it('caps a deep chain and marks the node depthCapped (not empty)', () => {
+    let deep: unknown = 'leaf'
+    for (let index = 0; index < RECORD_TREE_DEFAULT_MAX_DEPTH + 3; index++) {
+      deep = { next: deep }
+    }
+    const tree = buildRecordTree({ columns: ['deep'], cells: [deep] })
+    let node = child(tree, 'deep')
+    let depth = 1
+    while (node.children.length > 0) {
+      node = node.children[0]!
+      depth += 1
+    }
+    expect(node.depthCapped).toBe(true)
+    expect(node.children).toEqual([])
+    expect(depth).toBe(RECORD_TREE_DEFAULT_MAX_DEPTH)
+    expect(treeHasTruncation(tree)).toBe(true)
+  })
+
+  it('honest markers only: small values are uncapped and report no truncation', () => {
+    expect(treeHasTruncation(buildRecordTree(rowId1()))).toBe(false)
+    expect(treeHasTruncation(buildRecordTree({ columns: ['id'], cells: [1n] }))).toBe(false)
+  })
+
+  it('the expanded caps are progressive disclosure, not data loss', () => {
+    const big = Array.from({ length: 500 }, (_, index) => index)
+    const expanded = buildRecordTree(
+      { columns: ['big'], cells: [big] },
+      { maxChildren: RECORD_TREE_EXPANDED_MAX_CHILDREN },
+    )
+    const node = child(expanded, 'big')
+    expect(node.children).toHaveLength(500)
+    expect(node.omittedChildren).toBeUndefined()
+    expect(treeHasTruncation(expanded)).toBe(false)
   })
 })

@@ -8,8 +8,14 @@ import {
   reduceRecordInspector,
 } from './record-state'
 import type { RecordContext } from './record-state'
-import { buildRecordTree, collectBranchPaths } from './record-tree'
-import type { RecordTreeNode } from './record-tree'
+import {
+  buildRecordTree,
+  collectBranchPaths,
+  RECORD_TREE_EXPANDED_MAX_CHILDREN,
+  RECORD_TREE_EXPANDED_MAX_DEPTH,
+  treeHasTruncation,
+} from './record-tree'
+import type { RecordTreeBuildOptions, RecordTreeNode } from './record-tree'
 
 /**
  * Record inspector (m3-3): the full-value home for one grid row — the whole
@@ -128,6 +134,17 @@ function BranchNode({ node, path, expanded, onToggle }: NodeViewProps) {
       <span className="record-summary" data-testid="record-node-summary">
         {node.summary}
       </span>
+      {/* AR-W8: honest truncation notes stay visible even while collapsed. */}
+      {node.omittedChildren !== undefined && node.omittedChildren > 0 && (
+        <span className="record-truncated" data-testid="record-truncated" role="note">
+          … {String(node.omittedChildren)} more not shown
+        </span>
+      )}
+      {node.depthCapped === true && (
+        <span className="record-depth-capped" data-testid="record-depth-capped" role="note">
+          … deeper values not shown
+        </span>
+      )}
       {open && (
         <ul id={detailId} className="record-children" data-testid="record-children">
           {node.children.map((child, index) => (
@@ -220,6 +237,15 @@ export function RecordInspector({
   const [state, dispatch] = useReducer(reduceRecordInspector, { kind: 'closed' as const })
   const guard = useRef(new RunGuard())
   const [expanded, setExpanded] = useState<ExpandedPaths>(() => new Set<string>())
+  /**
+   * AR-W8: the tree is capped (length + depth) so a large list cell cannot
+   * freeze the main thread. This flips the caps to the expanded bound when
+   * the user asks to see the full value; the ref lets the freshness reload
+   * path read the current choice without re-running the open effect.
+   */
+  const [fullValues, setFullValues] = useState(false)
+  const fullValuesRef = useRef(false)
+  fullValuesRef.current = fullValues
   const onClosedRef = useRef(onClosed)
   useEffect(() => {
     onClosedRef.current = onClosed
@@ -256,14 +282,21 @@ export function RecordInspector({
     if (schema === null) return
     const token = guard.current.begin()
     setExpanded(new Set<string>()) // every open starts collapsed — a fresh look
+    // AR-W8: every open starts capped; the user can expand on request.
+    fullValuesRef.current = false
+    setFullValues(false)
+    const options: RecordTreeBuildOptions = {}
     dispatch({
       type: 'opened',
       rowIndex: request.rowIndex,
       token,
-      tree: buildRecordTree({
-        columns: schema.map((column) => column.name),
-        cells: slot.row,
-      }),
+      tree: buildRecordTree(
+        {
+          columns: schema.map((column) => column.name),
+          cells: slot.row,
+        },
+        options,
+      ),
       context: readRecordContext(model, overlayRevision, request.rowIndex),
     })
     // Deliberately NOT keyed on `overlayRevision`: a new edit must reload the
@@ -321,12 +354,22 @@ export function RecordInspector({
     }
     const schema = model.schema
     if (schema === null) return
+    // AR-W8: preserve the user's expanded-caps choice across a value reload.
+    const options: RecordTreeBuildOptions = fullValuesRef.current
+      ? {
+          maxChildren: RECORD_TREE_EXPANDED_MAX_CHILDREN,
+          maxDepth: RECORD_TREE_EXPANDED_MAX_DEPTH,
+        }
+      : {}
     dispatch({
       type: 'reloaded',
-      tree: buildRecordTree({
-        columns: schema.map((column) => column.name),
-        cells: slot.row,
-      }),
+      tree: buildRecordTree(
+        {
+          columns: schema.map((column) => column.name),
+          cells: slot.row,
+        },
+        options,
+      ),
       context: readRecordContext(model, overlayRevision, state.rowIndex),
     })
   }, [needsReload, state, model, overlayRevision, modelVersion])
@@ -355,6 +398,27 @@ export function RecordInspector({
   const collapseAll = (): void => {
     setExpanded(new Set<string>())
   }
+  /** AR-W8: rebuild the open record's tree with the expanded caps. */
+  const showAllValues = (): void => {
+    if (state.kind !== 'open') return
+    const slot = model.getRow(state.rowIndex)
+    if (slot.status !== 'ready') return
+    const schema = model.schema
+    if (schema === null) return
+    fullValuesRef.current = true
+    setFullValues(true)
+    dispatch({
+      type: 'reloaded',
+      tree: buildRecordTree(
+        { columns: schema.map((column) => column.name), cells: slot.row },
+        {
+          maxChildren: RECORD_TREE_EXPANDED_MAX_CHILDREN,
+          maxDepth: RECORD_TREE_EXPANDED_MAX_DEPTH,
+        },
+      ),
+      context: readRecordContext(model, overlayRevision, state.rowIndex),
+    })
+  }
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     if (event.key === 'Escape') close()
   }
@@ -380,6 +444,16 @@ export function RecordInspector({
         >
           Expand all
         </button>
+        {!fullValues && treeHasTruncation(state.tree) && (
+          <button
+            type="button"
+            className="record-affordance"
+            data-testid="record-show-all-values"
+            onClick={showAllValues}
+          >
+            Show all values
+          </button>
+        )}
         <button
           type="button"
           className="record-affordance"

@@ -373,3 +373,52 @@ test('rapid epoch changes settle consistently — no stale/in-flight window rend
   await expectCustomerOrder(page, ['1', '2', '3', '4', '5'])
   await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
 })
+
+// AR-W1 (critical): a cell editor must not survive a data-epoch shift. Before
+// the fix the editor held only `rowIndex`/`columnIndex` and resolved the
+// logical row id at commit time, so an accepted sort/filter that renumbered
+// rows redirected the commit to whatever record moved into the stale
+// position — a wrong-row write. This drill is the reproduction: edit →
+// invalid draft (the editor stays open) → epoch shift → corrected commit must
+// land on the row the user began editing, never on the row that shifted into
+// the old index.
+//
+test('AR-W1: a rejected edit cannot be redirected by an epoch shift', async ({ page }) => {
+  await openCustomersFixture(page)
+
+  // Begin editing customer 1 (row 0, income 52000) and produce a draft the
+  // client rejects, so the editor deliberately stays open (m4-3 UX).
+  await openEditor(page, 0, 2)
+  const editor = page.getByTestId('grid-editor-input')
+  await expect(editor).toHaveValue('52000')
+  await editor.fill('not-a-number')
+  await editor.press('Enter')
+  await expect(page.getByTestId('grid-edit-error')).toBeVisible()
+  await expect(page.getByTestId('grid-cell-editor')).toBeVisible()
+
+  // Sort by income ascending: rows renumber. DuckDB default NULLS LAST puts
+  // customer 4 (48000) at row 0 and moves customer 1 to row 1.
+  await page.locator('[data-testid="grid-sort-toggle"][data-col-name="income"]').click()
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  await expectCustomerOrder(page, ['4', '1', '2', '5', '3'])
+
+  // The editor follows the logical row captured when it opened: after the
+  // reload it is visible again (on the pre-fix code it stayed on the stale
+  // position, row 0 = customer 4).
+  await expect(page.getByTestId('grid-cell-editor')).toBeVisible()
+
+  // Correct the draft and commit.
+  await page.getByTestId('grid-editor-input').fill('11111')
+  await page.getByTestId('grid-editor-input').press('Enter')
+  await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
+
+  // The edit changed the active sort key, so clear the sort and assert in
+  // natural order: the value landed on customer 1 (base row 0), never on the
+  // row that shifted into the stale position (customer 4, base row 3).
+  const sortToggle = page.locator('[data-testid="grid-sort-toggle"][data-col-name="income"]')
+  await sortToggle.click() // asc → desc
+  await sortToggle.click() // desc → cleared
+  await expectCustomerOrder(page, ['1', '2', '3', '4', '5'])
+  await expect(cell(page, 0, 2)).toHaveText('11111')
+  await expect(cell(page, 3, 2)).toHaveText('48000')
+})

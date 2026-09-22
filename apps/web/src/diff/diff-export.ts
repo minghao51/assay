@@ -244,9 +244,23 @@ function csvCell(text: string): string {
   return text
 }
 
-/** One CSV row, every cell sanitized before quoting. */
-function csvRow(cells: readonly (string | null | undefined)[]): string {
-  return cells.map((cell) => csvCell(csvFormulaSanitize(cell ?? ''))).join(',')
+/** One CSV cell value: strings are formula-sanitized; numbers/booleans stay raw. */
+type CsvCell = string | number | boolean | null | undefined
+
+/**
+ * One CSV row. Only **string** cells are formula-sanitized (the m5-3
+ * `report-export.ts` split): numeric metrics must stay numbers — a
+ * sanitized `-0.5059…` would be prefixed with an apostrophe and exported as
+ * text, corrupting every negative metric (AR-W3).
+ */
+function csvRow(cells: readonly CsvCell[]): string {
+  return cells
+    .map((cell) => {
+      if (typeof cell === 'string') return csvCell(csvFormulaSanitize(cell))
+      if (cell === null || cell === undefined) return ''
+      return csvCell(String(cell))
+    })
+    .join(',')
 }
 
 const CSV_HEADER = ['section', 'column', 'kind', 'field', 'value'] as const
@@ -268,20 +282,14 @@ export function buildDiffReportCsv(
 ): Uint8Array<ArrayBuffer> {
   const lines: string[] = [CSV_HEADER.join(',')]
   for (const finding of report.drift) {
-    const fields: [string, string | null][] = [
+    const fields: [string, CsvCell][] = [
       ['kind', finding.kind],
       ['typeA', finding.typeA ?? null],
       ['typeB', finding.typeB ?? null],
       ['familyA', finding.familyA ?? null],
       ['familyB', finding.familyB ?? null],
-      [
-        'nullShareA',
-        finding.nullShareA === undefined ? null : String(roundMetric(finding.nullShareA)),
-      ],
-      [
-        'nullShareB',
-        finding.nullShareB === undefined ? null : String(roundMetric(finding.nullShareB)),
-      ],
+      ['nullShareA', roundMetric(finding.nullShareA)],
+      ['nullShareB', roundMetric(finding.nullShareB)],
     ]
     for (const [field, value] of fields) {
       lines.push(csvRow(['schema-drift', finding.column, 'finding', field, value]))
@@ -296,7 +304,7 @@ export function buildDiffReportCsv(
           delta.column,
           'numeric',
           'meanShiftStandardized',
-          String(roundMetric(numeric.meanShiftStandardized)),
+          roundMetric(numeric.meanShiftStandardized),
         ]),
       )
       lines.push(
@@ -305,7 +313,7 @@ export function buildDiffReportCsv(
           delta.column,
           'numeric',
           'varianceShiftStandardized',
-          String(roundMetric(numeric.varianceShiftStandardized)),
+          roundMetric(numeric.varianceShiftStandardized),
         ]),
       )
       lines.push(
@@ -314,7 +322,7 @@ export function buildDiffReportCsv(
           delta.column,
           'numeric',
           'p50Shift',
-          String(roundMetric(numeric.p50Shift)),
+          roundMetric(numeric.p50Shift),
         ]),
       )
       lines.push(
@@ -323,7 +331,7 @@ export function buildDiffReportCsv(
           delta.column,
           'numeric',
           'p90Shift',
-          String(roundMetric(numeric.p90Shift)),
+          roundMetric(numeric.p90Shift),
         ]),
       )
     }
@@ -335,7 +343,7 @@ export function buildDiffReportCsv(
           delta.column,
           'categorical',
           'totalVariation',
-          String(roundMetric(categorical.totalVariation)),
+          roundMetric(categorical.totalVariation),
         ]),
       )
       lines.push(
@@ -363,11 +371,9 @@ export function buildDiffReportCsv(
     ['removed', report.removed],
     ['changed', report.changed],
   ] as const) {
-    lines.push(csvRow(['row-diff', '', kind, 'count', String(aspect.count)]))
-    lines.push(csvRow(['row-diff', '', kind, 'samplesReturned', String(aspect.samplesReturned)]))
-    lines.push(
-      csvRow(['row-diff', '', kind, 'samplesComplete', aspect.samplesComplete ? 'true' : 'false']),
-    )
+    lines.push(csvRow(['row-diff', '', kind, 'count', aspect.count]))
+    lines.push(csvRow(['row-diff', '', kind, 'samplesReturned', aspect.samplesReturned]))
+    lines.push(csvRow(['row-diff', '', kind, 'samplesComplete', aspect.samplesComplete]))
     for (const sample of aspect.samples) {
       lines.push(csvRow(['row-diff-sample', '', kind, 'rowKey', sample.exportKey]))
       if (sample.changedColumns !== null) {
@@ -379,8 +385,8 @@ export function buildDiffReportCsv(
   }
   lines.push(csvRow(['verdict', '', '', 'keys', listText(report.keys)]))
   lines.push(csvRow(['verdict', '', '', 'keySource', report.keySource]))
-  lines.push(csvRow(['verdict', '', '', 'identical', report.identical ? 'true' : 'false']))
-  lines.push(csvRow(['verdict', '', '', 'stale', meta.stale ? 'true' : 'false']))
+  lines.push(csvRow(['verdict', '', '', 'identical', report.identical]))
+  lines.push(csvRow(['verdict', '', '', 'stale', meta.stale]))
   return new TextEncoder().encode(lines.join('\n') + '\n')
 }
 

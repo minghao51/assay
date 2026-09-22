@@ -60,6 +60,43 @@ export interface RecordTreeNode {
   readonly summary: string
   /** Child nodes (empty for leaf/null; positional or own-key order as delivered). */
   readonly children: readonly RecordTreeNode[]
+  /**
+   * AR-W8: children elided by the length cap (0/undefined = none). The
+   * inspector renders an honest truncation note + expand affordance so a
+   * large list is progressively disclosed, never silently lost.
+   */
+  readonly omittedChildren?: number
+  /**
+   * AR-W8: true when the depth cap stopped this container's expansion (its
+   * `children` is empty because the walk did not recurse, not because it has
+   * none).
+   */
+  readonly depthCapped?: boolean
+}
+
+/**
+ * AR-W8: default per-container child cap for the inspector tree. Mirrors the
+ * `nested-preview` discipline (bounded work from untrusted values); the
+ * inspector's expand affordance raises it on request.
+ */
+export const RECORD_TREE_DEFAULT_MAX_CHILDREN = 100
+/** Default container-depth cap (root's children are depth 1). */
+export const RECORD_TREE_DEFAULT_MAX_DEPTH = 6
+/** Child cap after the user asks to see the full value (still bounded). */
+export const RECORD_TREE_EXPANDED_MAX_CHILDREN = 10_000
+/** Depth cap after the user asks to see the full value (still bounded). */
+export const RECORD_TREE_EXPANDED_MAX_DEPTH = 32
+
+/** Optional build caps (defaults preserve the pre-AR-W8 small-value tree). */
+export interface RecordTreeBuildOptions {
+  readonly maxChildren?: number
+  readonly maxDepth?: number
+}
+
+/** Resolved caps threaded through the recursive walk. */
+interface BuildLimits {
+  readonly maxChildren: number
+  readonly maxDepth: number
 }
 
 /** Builds a leaf/null node; the only place summaries are produced. */
@@ -73,9 +110,15 @@ function terminalNode(key: string, kind: 'leaf' | 'null', summary: string): Reco
  * deeper) and degrades to a marked leaf — at EVERY depth, so one hostile
  * field never sinks its siblings.
  */
-function classifyNode(key: string, value: unknown, active: WeakSet<object>): RecordTreeNode {
+function classifyNode(
+  key: string,
+  value: unknown,
+  active: WeakSet<object>,
+  depth: number,
+  limits: BuildLimits,
+): RecordTreeNode {
   try {
-    return classifyUnchecked(key, value, active)
+    return classifyUnchecked(key, value, active, depth, limits)
   } catch {
     return terminalNode(key, 'leaf', '(unreadable)')
   }
@@ -86,16 +129,34 @@ function classifyNode(key: string, value: unknown, active: WeakSet<object>): Rec
  * property access / positional `get` itself can throw (hostile getter), and
  * that failure must degrade the child alone — not the parent's traversal.
  */
-function classifyChild(key: string, read: () => unknown, active: WeakSet<object>): RecordTreeNode {
+function classifyChild(
+  key: string,
+  read: () => unknown,
+  active: WeakSet<object>,
+  depth: number,
+  limits: BuildLimits,
+): RecordTreeNode {
   try {
-    return classifyNode(key, read(), active)
+    return classifyNode(key, read(), active, depth, limits)
   } catch {
     return terminalNode(key, 'leaf', '(unreadable)')
   }
 }
 
+/** Attaches the AR-W8 length-cap count when children were elided. */
+function withTruncation(node: RecordTreeNode, total: number): RecordTreeNode {
+  const omitted = total - node.children.length
+  return omitted > 0 ? { ...node, omittedChildren: omitted } : node
+}
+
 /** The unchecked classification body (see `classifyNode` for the guard). */
-function classifyUnchecked(key: string, value: unknown, active: WeakSet<object>): RecordTreeNode {
+function classifyUnchecked(
+  key: string,
+  value: unknown,
+  active: WeakSet<object>,
+  depth: number,
+  limits: BuildLimits,
+): RecordTreeNode {
   // null FIRST — typeof null is 'object', and NULL-vs-empty is the point.
   if (value === null) return terminalNode(key, 'null', formatNestedPreview(value))
   if (typeof value !== 'object') {
@@ -115,38 +176,68 @@ function classifyUnchecked(key: string, value: unknown, active: WeakSet<object>)
   if (ArrayBuffer.isView(container) || value instanceof Date) {
     return terminalNode(key, 'leaf', formatNestedPreview(value))
   }
+  const isArrayLike = Array.isArray(container) || isListLike(container)
+  const kind: RecordNodeKind = isArrayLike ? 'array' : 'object'
+  // AR-W8 depth cap: stop recursing at the bound; the node stays (with its
+  // bounded summary) and says its deeper values were not expanded.
+  if (depth >= limits.maxDepth) {
+    return {
+      key,
+      kind,
+      summary: formatNestedPreview(value),
+      children: [],
+      depthCapped: true,
+    }
+  }
   if (Array.isArray(container)) {
     active.add(container)
+    const total = container.length
+    const limit = Math.min(total, limits.maxChildren)
     const children: RecordTreeNode[] = []
     // Index loop, not `.map`: sparse arrays must surface their holes as
     // `undefined` children, not silently shorten the list.
-    for (let index = 0; index < container.length; index++) {
-      children.push(classifyChild(String(index), () => container[index], active))
+    for (let index = 0; index < limit; index++) {
+      children.push(classifyChild(String(index), () => container[index], active, depth + 1, limits))
     }
     active.delete(container)
-    return { key, kind: 'array', summary: formatNestedPreview(value), children }
+    return withTruncation(
+      { key, kind: 'array', summary: formatNestedPreview(value), children },
+      total,
+    )
   }
   if (isListLike(container)) {
     // Arrow list slices: read positionally through `get`, never via
     // property enumeration (whose keys are internal machinery).
     active.add(container)
     const listLike = container as { length: number; get(index: number): unknown }
+    const total = listLike.length
+    const limit = Math.min(total, limits.maxChildren)
     const children: RecordTreeNode[] = []
-    for (let index = 0; index < listLike.length; index++) {
-      children.push(classifyChild(String(index), () => listLike.get(index), active))
+    for (let index = 0; index < limit; index++) {
+      children.push(
+        classifyChild(String(index), () => listLike.get(index), active, depth + 1, limits),
+      )
     }
     active.delete(container)
-    return { key, kind: 'array', summary: formatNestedPreview(value), children }
+    return withTruncation(
+      { key, kind: 'array', summary: formatNestedPreview(value), children },
+      total,
+    )
   }
   // Record-like (struct cells arrive as plain records): children in the
   // object's own key order — deliberately never re-sorted (m3-2 ruling).
   active.add(container)
   const record = container as Record<string, unknown>
-  const children = Object.keys(record).map((fieldKey) =>
-    classifyChild(fieldKey, () => record[fieldKey], active),
-  )
+  const fieldKeys = Object.keys(record)
+  const limit = Math.min(fieldKeys.length, limits.maxChildren)
+  const children = fieldKeys
+    .slice(0, limit)
+    .map((fieldKey) => classifyChild(fieldKey, () => record[fieldKey], active, depth + 1, limits))
   active.delete(container)
-  return { key, kind: 'object', summary: formatNestedPreview(value), children }
+  return withTruncation(
+    { key, kind: 'object', summary: formatNestedPreview(value), children },
+    fieldKeys.length,
+  )
 }
 
 /**
@@ -155,10 +246,17 @@ function classifyUnchecked(key: string, value: unknown, active: WeakSet<object>)
  * root's children under the panel header, so the root carries no key/summary.
  * Totality: every per-value failure degrades to a marked leaf, never a throw.
  */
-export function buildRecordTree(row: RecordRowInput): RecordTreeNode {
+export function buildRecordTree(
+  row: RecordRowInput,
+  options: RecordTreeBuildOptions = {},
+): RecordTreeNode {
   const active = new WeakSet<object>()
+  const limits: BuildLimits = {
+    maxChildren: options.maxChildren ?? RECORD_TREE_DEFAULT_MAX_CHILDREN,
+    maxDepth: options.maxDepth ?? RECORD_TREE_DEFAULT_MAX_DEPTH,
+  }
   const children = row.columns.map((column, index) =>
-    classifyNode(column, row.cells[index], active),
+    classifyNode(column, row.cells[index], active, 1, limits),
   )
   return { key: '', kind: 'object', summary: '', children }
 }
@@ -184,4 +282,21 @@ export function collectBranchPaths(root: RecordTreeNode): readonly string[] {
   }
   walk(root, '')
   return paths
+}
+
+/**
+ * AR-W8: true when any node in the tree hit a cap (length or depth), so the
+ * inspector can offer its expand affordance. Iterative so the check itself is
+ * bounded and total.
+ */
+export function treeHasTruncation(root: RecordTreeNode): boolean {
+  const stack: RecordTreeNode[] = [...root.children]
+  while (stack.length > 0) {
+    const node = stack.pop()
+    if (node === undefined) break
+    if (node.depthCapped === true) return true
+    if (node.omittedChildren !== undefined && node.omittedChildren > 0) return true
+    stack.push(...node.children)
+  }
+  return false
 }

@@ -56,9 +56,16 @@ interface DataGridProps {
   scrollRequest?: { readonly rowIndex: number; readonly seq: number } | null
 }
 
-/** One in-progress edit: which cell, the raw editor draft, and its initial state. */
+/**
+ * One in-progress edit: the cell's **logical row identity** (captured at
+ * `beginEdit`, never the live position), the column, the raw editor draft,
+ * and its initial state. Keying on the logical id is the AR-W1 fix: an
+ * accepted sort/filter starts a fresh data epoch and renumbers rows, and a
+ * commit must land on the record the user began editing — never on whatever
+ * record the old position now holds (ADR 0011).
+ */
 interface EditingCell {
-  readonly rowIndex: number
+  readonly rowKey: RowId
   readonly columnIndex: number
   readonly draft: string
   /**
@@ -130,6 +137,13 @@ export function DataGrid({
   const [editError, setEditError] = useState<string | null>(null)
   /** Column index of the last focused/clicked cell (Enter-to-edit target). */
   const [focusedColumn, setFocusedColumn] = useState<number | null>(null)
+  /**
+   * AR-W2: the last `scrollRequest.seq` actually consumed. The jump effect
+   * also re-runs on `totalRows` changes (filters/insert/delete); without this
+   * guard a consumed request would re-scroll the grid to a now-stale index,
+   * contradicting the prop's "immediate gesture" contract.
+   */
+  const consumedScrollSeq = useRef<number | null>(null)
 
   const editingEnabled = overlayState !== null && onCommitCell !== undefined
   const rowActionsEnabled = overlayState !== null && onDeleteRow !== undefined
@@ -155,13 +169,6 @@ export function DataGrid({
     })
   }
 
-  /** The logical row id of a rendered row, when the provider supplied one. */
-  const rowIdAt = (rowIndex: number): RowId | null => {
-    const slot = model.getRow(rowIndex)
-    if (slot.status !== 'ready' || slot.key === undefined) return null
-    return slot.key as RowId
-  }
-
   const beginEdit = (rowIndex: number, columnIndex: number): void => {
     if (!editingEnabled) return
     const column = schema[columnIndex]
@@ -178,7 +185,7 @@ export function DataGrid({
     const initialDraft = cellEditDraft(cell, parsedType)
     setEditError(null)
     setEditing({
-      rowIndex,
+      rowKey: slot.key as RowId,
       columnIndex,
       // Temporal cells cross the engine boundary as epoch numbers; the draft
       // is formatted human-readably and engine-round-trippably (typed-input).
@@ -196,9 +203,11 @@ export function DataGrid({
   const commitEditValue = (value: CellValue): void => {
     if (editing === null) return
     const column = schema[editing.columnIndex]
-    const rowId = rowIdAt(editing.rowIndex)
-    if (column !== undefined && rowId !== null && onCommitCell !== undefined) {
-      onCommitCell(rowId, column.name, value)
+    if (column !== undefined && onCommitCell !== undefined) {
+      // The logical row id captured when the editor opened (AR-W1): a sort/
+      // filter that ran while the editor was open renumbered positions, so
+      // resolving the id from `rowIndex` here would target a different record.
+      onCommitCell(editing.rowKey, column.name, value)
     }
     setEditing(null)
     setEditError(null)
@@ -244,7 +253,11 @@ export function DataGrid({
   // against the same model, so this is a race guard, not a feature).
   useEffect(() => {
     if (scrollRequest === null) return
+    // AR-W2: consume each request exactly once. The effect re-runs when
+    // `totalRows` changes; a consumed request must never re-fire.
+    if (consumedScrollSeq.current === scrollRequest.seq) return
     if (scrollRequest.rowIndex < 0 || scrollRequest.rowIndex >= totalRows) return
+    consumedScrollSeq.current = scrollRequest.seq
     virtualizer.scrollToIndex(scrollRequest.rowIndex, { align: 'start' })
     // One rAF later the virtualizer has re-rendered the target window, so
     // the row element exists; scrolling it to the viewport center moves only
@@ -428,9 +441,13 @@ export function DataGrid({
                 {status === 'ready'
                   ? slot.row.map((cell, columnIndex) => {
                       const column = schema[columnIndex]
+                      // Follow the logical row (AR-W1): after an epoch shift
+                      // the editor renders on the captured row's new position
+                      // and disappears if that row is no longer in the view.
                       const isEditing =
                         editing !== null &&
-                        editing.rowIndex === item.index &&
+                        rowId !== null &&
+                        editing.rowKey === rowId &&
                         editing.columnIndex === columnIndex
                       const dirty = rowEdits?.has(column?.name ?? '') ?? false
                       const isNull = cell === null || cell === undefined

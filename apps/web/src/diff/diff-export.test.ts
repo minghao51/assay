@@ -217,6 +217,44 @@ describe('diff report CSV export', () => {
     expect(csv).toContain('verdict,,,identical,false')
     expect(csv).toContain('verdict,,,stale,false')
   })
+
+  it('exports negative numeric metrics as numbers, never as apostrophe-prefixed text', () => {
+    // AR-W3: `csvRow` sanitized every cell, so a negative metric like
+    // `-0.5059…` gained the formula-guard apostrophe and exported as text.
+    // Only STRING cells may be sanitized; numeric metrics pass through raw.
+    const base = fixtureReport()
+    const negative: DiffPanelReport = {
+      ...base,
+      drift: [
+        { kind: 'nullability-changed', column: 'amount', nullShareA: 1 / 3, nullShareB: -0.5 },
+      ],
+      deltas: base.deltas.map((delta) =>
+        delta.numeric === undefined
+          ? delta
+          : {
+              ...delta,
+              numeric: {
+                ...delta.numeric,
+                meanShiftStandardized: -0.5059644256269407,
+                varianceShiftStandardized: -1.68,
+                p50Shift: -0.25,
+                p90Shift: -2,
+              },
+            },
+      ),
+    }
+    const csv = new TextDecoder().decode(buildDiffReportCsv(negative, { stale: false }))
+    // Byte-pinned as a number: no leading apostrophe anywhere.
+    expect(csv).toContain('column-delta,id,numeric,meanShiftStandardized,-0.505964')
+    expect(csv).toContain('column-delta,id,numeric,varianceShiftStandardized,-1.68')
+    expect(csv).toContain('column-delta,id,numeric,p50Shift,-0.25')
+    expect(csv).toContain('column-delta,id,numeric,p90Shift,-2')
+    expect(csv).toContain('schema-drift,amount,finding,nullShareB,-0.5')
+    expect(csv).not.toContain("'-0.505964")
+    expect(csv).not.toContain("'-1.68")
+    // String sample cells are still sanitized (the guard is intact).
+    expect(csv).toContain("'=SUM(A1)")
+  })
 })
 
 describe('diff report destination and delivery', () => {

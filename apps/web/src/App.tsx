@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type {
   EngineComparisonHandle,
   EngineExportFormat,
@@ -23,6 +23,7 @@ import { parseContract } from '@assay/contracts'
 import { compileContract } from '@assay/validation'
 import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
+import { ErrorBoundary } from './ErrorBoundary'
 import { FilterBar } from './grid/FilterBar'
 import { EditToolbar } from './edit/EditToolbar'
 import { ExportDialog } from './export/ExportDialog'
@@ -296,6 +297,30 @@ export function App() {
   const comparisonRef = useRef<EngineComparisonHandle | null>(null)
 
   /**
+   * AR-W5: release the engine (every registered view + file handle) when the
+   * tab goes away. `dispose()` is the only release op the current client
+   * exposes and is terminal + idempotent; the ref makes repeated unload
+   * events (`beforeunload` + `pagehide`) request it exactly once. The
+   * comparison B-side transient open stays the recorded PT-H carry-over —
+   * the client has no `closeTable`/`profileComparison` op, so it cannot be
+   * released per-action without an engine change (boundary rule §7.4).
+   */
+  const disposeRequested = useRef(false)
+  useEffect(() => {
+    const disposeEngine = (): void => {
+      if (disposeRequested.current) return
+      disposeRequested.current = true
+      void engineClient.dispose()
+    }
+    window.addEventListener('beforeunload', disposeEngine)
+    window.addEventListener('pagehide', disposeEngine)
+    return () => {
+      window.removeEventListener('beforeunload', disposeEngine)
+      window.removeEventListener('pagehide', disposeEngine)
+    }
+  }, [])
+
+  /**
    * Subscribe to the model so schema re-keys after a rename/cast re-render the
    * panel (and the nested-action specs). `DataGrid`/`LiveTableInfo` already
    * subscribe; `schemaColumns` is derived from `model.schema`, which
@@ -562,8 +587,13 @@ export function App() {
     (diffRun.kind === 'binding-errors' && diffRun.revision !== overlayRevision)
 
   const handleContractFile = useCallback((file: File) => {
+    const session = sessionToken.current
     void (async () => {
       const imported = await readContractFile(file)
+      // AR-W9: the read awaits, so a re-open that happened meanwhile means
+      // this contract was authored for the previous dataset — discard it
+      // (the house session-token guard used by validate/diff/cast).
+      if (sessionToken.current !== session) return
       if (imported.kind === 'too-large') {
         setContractState({ kind: 'too-large' })
       } else if (imported.kind === 'read-failed') {
@@ -934,6 +964,10 @@ export function App() {
   }, [phase])
 
   const openDataFile = useCallback(async () => {
+    // AR-W13: generation guard. Bump the session token up front and capture
+    // it; a picker/open chain that resolves after a newer open (or any newer
+    // phase transition) is discarded rather than clobbering the newer phase.
+    const session = ++sessionToken.current
     setPhase({ kind: 'opening' })
     setRecordRequest(null)
     setExportOpen(false)
@@ -962,7 +996,6 @@ export function App() {
     comparisonSeq.current += 1
     diffSeq.current += 1
     sourceIdentityRef.current = null
-    sessionToken.current += 1
     historyRevision.current += 1
     setCastPendingColumn(null)
     overlayRef.current = null
@@ -988,6 +1021,7 @@ export function App() {
           return handles
         },
       })
+      if (sessionToken.current !== session) return
       if (picked === null) {
         // User dismissed the picker — back to idle, nothing opened.
         setPhase({ kind: 'idle' })
@@ -999,6 +1033,7 @@ export function App() {
       // ADR 0001); the name is transported per protocol but never rendered or
       // logged (ADR 0025).
       const file = await picked.source.getFile()
+      if (sessionToken.current !== session) return
       // Export same-source guard identity (m4-5 fix round, hardened in
       // round 2). FSA opens retain the handle — the platform's
       // authoritative `isSameEntry` verdict, so a picked save destination
@@ -1016,12 +1051,15 @@ export function App() {
         name: file.name,
         getFile: () => Promise.resolve(file),
       })
+      if (sessionToken.current !== session) return
       // Base metadata for the editing session (ADR 0011/0012). The anchor is
       // the stable function of the file *version* (size + mtime) — re-opening
       // the same unchanged file keeps base row ids stable; the token is never
       // rendered or logged.
       const baseSchema = await engineClient.schema(handle)
+      if (sessionToken.current !== session) return
       const baseRowCount = await engineClient.rowCount(handle)
+      if (sessionToken.current !== session) return
       const base: OverlayBase = {
         baseAnchor: fileVersionAnchor({ size: file.size, lastModified: file.lastModified }),
         overlayAnchor: createOverlayAnchor(),
@@ -1038,8 +1076,11 @@ export function App() {
       )
       const model = new GridViewportModel(provider)
       await model.load()
+      if (sessionToken.current !== session) return
       setPhase({ kind: 'ready', model, tableId: handle.id, handle, base, provider })
     } catch (error) {
+      // A stale chain must not surface its failure over the newer phase.
+      if (sessionToken.current !== session) return
       setPhase({
         kind: 'error',
         message: error instanceof Error ? error.message : String(error),
@@ -1190,17 +1231,19 @@ export function App() {
             deliverReportCopy={writeDiffReportCopy}
           />
           <FilterBar model={phase.model} />
-          <DataGrid
-            model={phase.model}
-            overlayState={overlayState}
-            scrollRequest={scrollRequest}
-            onCommitCell={handleCommitCell}
-            onDeleteRow={handleDeleteRow}
-            onOpenRecord={(rowIndex) => {
-              setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
-            }}
-            onNestedAction={runNestedAction}
-          />
+          <ErrorBoundary scope="grid">
+            <DataGrid
+              model={phase.model}
+              overlayState={overlayState}
+              scrollRequest={scrollRequest}
+              onCommitCell={handleCommitCell}
+              onDeleteRow={handleDeleteRow}
+              onOpenRecord={(rowIndex) => {
+                setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
+              }}
+              onNestedAction={runNestedAction}
+            />
+          </ErrorBoundary>
           {/**
            * Placement (m3-3): directly under the grid it inspects. The app
            * composes single-column, full-width disclosure sections (schema →

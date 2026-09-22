@@ -10,9 +10,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** DOM-id-safe form of a column name (names can contain any characters). */
-function inputId(columnName: string): string {
-  return `filter-input-${columnName.replaceAll(/[^A-Za-z0-9_-]/g, '-')}`
+/**
+ * Collision-safe DOM id for a column's filter input (AR-W11). Column names
+ * can contain any characters, and the previous `[^A-Za-z0-9_-] → -` mapping
+ * made distinct names collide (`a.b` and `a-b` both became `a-b`), so a label
+ * could point at another column's input. Encoding every code point as hex is
+ * injective (the `-` join cannot appear inside a hex run) and stable across
+ * renders; the ids are intentionally opaque.
+ */
+export function filterInputId(columnName: string): string {
+  const encoded = Array.from(columnName, (char) => (char.codePointAt(0) ?? 0).toString(16)).join(
+    '-',
+  )
+  return `filter-input-${encoded}`
 }
 
 /**
@@ -97,11 +107,11 @@ export function FilterBar({ model }: FilterBarProps) {
       <ul className="filter-columns" data-testid="filter-columns">
         {schema.map((column) => (
           <li key={column.name} className="filter-column" data-testid="filter-column">
-            <label className="filter-label" htmlFor={inputId(column.name)}>
+            <label className="filter-label" htmlFor={filterInputId(column.name)}>
               {column.name}
             </label>
             <input
-              id={inputId(column.name)}
+              id={filterInputId(column.name)}
               className="filter-input"
               data-testid="filter-input"
               data-col-name={column.name}
