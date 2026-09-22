@@ -21,13 +21,11 @@
  * - Recognized **canonical engine spellings only** — what DuckDB's `DESCRIBE`
  *   prints. Alias spellings (`TEXT`, `INT`, …) are not accepted: an engine
  *   never reports them, and accepting them would fork the canonical form
- *   (the same policy as the m5-0 contract vocabulary).
- *   **Known-missing today** (audit AR-V4, DuckDB-1.5.5-verified): the
- *   classifier maps `TIMESTAMP_S`, `TIMESTAMP_MS`, `TIMESTAMP_NS`,
- *   `INTERVAL`, and `BIT` to `'other'` with an "unknown engine type
- *   spelling" note even though `DESCRIBE` does print them — real spellings
- *   the family set does not yet cover; adding them is queued (AR queue
- *   ar-4). Until then such columns cannot carry value-constraining rules.
+ *   (the same policy as the m5-0 contract vocabulary). `DESCRIBE`
+ *   (DuckDB-1.5.5-verified) also prints `TIMESTAMP_S`, `TIMESTAMP_MS`,
+ *   `TIMESTAMP_NS` (classified `temporal` with the other timestamps) and
+ *   `INTERVAL` / `BIT` (recognized engine spellings with no bindable value
+ *   family in v1 — see {@link describeUnbindableType}).
  * - Parameterized forms are classified only when their parameters can be
  *   validated honestly: `DECIMAL(p,s)` with `1 ≤ p ≤ 38, 0 ≤ s ≤ p`, and
  *   `VARCHAR(n)` with a non-negative safe-integer `n` (DuckDB accepts the
@@ -109,11 +107,24 @@ const FLAT_FAMILIES: Readonly<Record<string, ColumnTypeFamily>> = {
   'TIME WITH TIME ZONE': 'temporal',
   TIMESTAMP: 'temporal',
   'TIMESTAMP WITH TIME ZONE': 'temporal',
+  // temporal — the sub-second-resolution DESCRIBE spellings (DuckDB 1.5.5)
+  TIMESTAMP_S: 'temporal',
+  TIMESTAMP_MS: 'temporal',
+  TIMESTAMP_NS: 'temporal',
   // uuid / json / blob
   UUID: 'uuid',
   JSON: 'json',
   BLOB: 'blob',
 }
+
+/**
+ * Engine spellings the classifier **recognizes** but cannot bind to a value
+ * family in v1: `INTERVAL` (a duration, not an ordered scalar) and `BIT`
+ * (a bit string). They classify as `'other'` (family-needing rules reject,
+ * family-free rules still bind) but {@link describeUnbindableType} names
+ * them as recognized spellings, never as unknown ones (AR-V4).
+ */
+const RECOGNIZED_UNBINDABLE: ReadonlySet<string> = new Set(['INTERVAL', 'BIT'])
 
 /** `DECIMAL(p,s)` — DuckDB's canonical decimal spelling (no spaces). */
 const DECIMAL_PARAMS = /^DECIMAL\((\d+),(\d+)\)$/
@@ -166,5 +177,8 @@ export function classifyColumnType(type: string): ColumnTypeFamily {
 export function describeUnbindableType(type: string): string {
   if (type.endsWith('[]')) return `array type '${type}'`
   if (/^(STRUCT|MAP|UNION|ENUM)\(/.test(type)) return `nested type '${type}'`
+  if (RECOGNIZED_UNBINDABLE.has(type)) {
+    return `recognized engine type '${type}' (no bindable value family in v1)`
+  }
   return `unknown engine type spelling '${type}'`
 }

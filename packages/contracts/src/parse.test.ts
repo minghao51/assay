@@ -1191,6 +1191,39 @@ columns:
   })
 })
 
+describe('parseContract — NUL is refused at the parse seam (AR-V2)', () => {
+  it.each([
+    [
+      'column name',
+      'format: v1\nname: n\nversion: 1\ncolumns:\n  - name: "a\\0b"\n    required: true\n',
+    ],
+    [
+      'allowed-values entry',
+      'format: v1\nname: n\nversion: 1\ncolumns:\n  - name: x\n    allowed-values: ["a\\0b"]\n',
+    ],
+    [
+      'regex pattern',
+      'format: v1\nname: n\nversion: 1\ncolumns:\n  - name: x\n    regex: "a\\0b"\n',
+    ],
+    ['metadata name', 'format: v1\nname: "a\\0b"\nversion: 1\n'],
+    ['metadata description', 'format: v1\nname: n\nversion: 1\ndescription: "a\\0b"\n'],
+  ])('rejects a NUL in a %s with a typed out-of-range error', (_label, document) => {
+    const result = parseContract(document)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    const error = result.errors[0]
+    expect(error?.code).toBe('out-of-range')
+    expect(error?.message).toContain('NUL')
+  })
+
+  it('the NUL rejection keeps the compiler taxonomy honest: parsed NUL never reaches invalid-contract-input', () => {
+    const result = parseContract(
+      'format: v1\nname: n\nversion: 1\ncolumns:\n  - name: "a\\0b"\n    required: true\n',
+    )
+    expect(result.ok).toBe(false)
+  })
+})
+
 describe('describeContractError', () => {
   it('renders the canonical greppable one-liner', () => {
     const result = parseContract('format: v1\nname: x\nversion: 0\n')

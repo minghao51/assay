@@ -26,14 +26,23 @@
  *   "invalid perl operator" and are refused — pinned against DuckDB
  *   1.5.5, see the regression pins in `re2.test.ts`)
  * - quantifiers `* + ? {n} {n,} {n,m}` with optional lazy `?`; RE2's
- *   documented limits hold (`n,m ≤ 1000`, `n ≤ m`); only repeatable atoms
- *   quantify (no `a**`, no `^*`, no `(?i)*`)
+ *   documented limits hold (`n,m ≤ 1000`, `n ≤ m`). Quantifiers after a
+ *   zero-width atom are accepted, matching DuckDB 1.5.5: anchors and word
+ *   boundaries quantify (`^*`, `$+`, `\b{2}`, `\A?`, `\z{2}`), and a
+ *   quantifier following a `(?flags)` directive binds to the atom before it
+ *   (`a(?i)*` accepted). A quantifier with nothing before it (`*a`,
+ *   `(?i)*`) or directly after another quantifier (`a**`, `a*??`) is
+ *   refused — DuckDB rejects those too
  * - character classes with ranges, negation, POSIX classes
  *   `[:name:]`/`[:^name:]` from the fourteen POSIX names, and the
- *   shorthand escapes below as items
+ *   shorthand escapes below as items. A `]` as the first class member
+ *   (after an optional `^`) is a **literal** member, exactly as in
+ *   RE2/DuckDB 1.5.5: `[]a]` matches `]` and `a`, `[]]` matches `]`. The
+ *   empty classes `[]` and `[^]` are still refused (DuckDB rejects them)
  * - escapes: shorthands `\d \D \s \S \w \W`; anchors `\b \B \A \z`
- *   (outside classes); controls `\n \t \r \f \a`; hex `\xHH`/`\x{h…}`
- *   (≤ U+10FFFF); any escaped **ASCII non-alphanumeric** character as a
+ *   (outside classes); controls `\n \t \r \f \a \v`; hex
+ *   `\xHH`/`\x{h…}` (value ≤ U+10FFFF, any number of leading zeros); any
+ *   escaped **ASCII non-alphanumeric** character as a
  *   literal. An escaped non-ASCII codepoint (`\é`, `\😀`) is RE2's
  *   "invalid escape sequence" (DuckDB 1.5.5 rejects it; pinned) and is
  *   refused here — only ASCII punctuation/spaces can be escaped
@@ -65,17 +74,14 @@
  * - possessive quantifiers (surface as nested repetition), `\K`, `\Z`,
  *   `\Q…\E` quoting, Unicode classes `\p{…}`/`\P{…}`, octal escapes
  *   (`\0NN` — same refused `\0`–`\9` class as above, again stricter than
- *   DuckDB, which accepts the leading-zero forms), `\v` (stricter than
- *   both RE2 — which defines it — and DuckDB 1.5.5, which accepts it),
- *   `\b`/`\B`/`\A`/`\z` inside classes, unknown letter escapes
- * - structural errors: unbalanced groups/classes, empty classes (`]`
- *   always terminates — `[]a]` is refused; stricter than DuckDB 1.5.5,
- *   which treats a leading `]` as a literal (`[]a]` there matches `]` and
- *   `a`)), a `]`-must-be-escaped strictness, reversed class ranges,
- *   malformed POSIX names, malformed hex escapes, NUL characters.
- *   (These strictness refusals are checker policy, not RE2 rules —
- *   aligning the refusal set with DuckDB-verified reality is queued as
- *   audit AR-V1 / AR queue ar-4.)
+ *   DuckDB, which accepts the leading-zero forms), `\b`/`\B`/`\A`/`\z`
+ *   inside classes, unknown letter escapes. Where this checker is stricter
+ *   than DuckDB (the `\0`–`\9` class, `\p{…}`, `\Q…\E`, in-class anchors,
+ *   the nesting bound), the reason strings say *this checker* refuses the
+ *   construct — never that RE2 does (AR-V1)
+ * - structural errors: unbalanced groups/classes, the empty classes `[]`
+ *   and `[^]` (DuckDB rejects both), reversed class ranges, malformed POSIX
+ *   names, malformed hex escapes, NUL characters
  *
  * ## Bounds and totality (the checker never throws)
  *
@@ -175,6 +181,16 @@ type EscapeResolution =
   | { readonly kind: 'zero' }
 
 /**
+ * Repeatability of one parsed atom. `'repeatable'` sets "a quantifier may
+ * follow"; `'not-repeatable'` clears it; `'transparent'` leaves it unchanged
+ * (a `(?flags)` directive is zero-width, and RE2 lets a following quantifier
+ * bind to the atom *before* it — `a(?i)*` is accepted while `(?i)*` is not;
+ * DuckDB 1.5.5-verified). Zero-width anchors and word boundaries are
+ * `'repeatable'`: DuckDB accepts `^*`, `$+`, `\b{2}`, `\A?`, `\z{2}`.
+ */
+type AtomRepeat = 'repeatable' | 'not-repeatable' | 'transparent'
+
+/**
  * Parse one escape sequence (the cursor sits on the character after the
  * backslash). `inClass` selects the class-context rules (anchors refuse).
  */
@@ -218,18 +234,20 @@ function parseEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
     case 't':
     case 'r':
     case 'f':
-    case 'a': {
+    case 'a':
+    case 'v': {
       const values: Readonly<Record<string, string>> = {
         n: '\n',
         t: '\t',
         r: '\r',
         f: '\f',
         a: '\u0007',
+        // RE2 defines `\v` as the vertical tab (U+000B) — DuckDB 1.5.5
+        // accepts it; this checker now accepts it too (AR-V1).
+        v: '\u000b',
       }
       return { kind: 'char', value: values[ch] ?? '' }
     }
-    case 'v':
-      return reject('\\v is not accepted by this checker (use the literal character or \\x0B)')
     case 'x':
       return { kind: 'char', value: parseHexEscape(cursor) }
     case 'p':
@@ -255,10 +273,6 @@ function parseEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
 }
 
 /** Parse `\xHH` or `\x{h…}`; validates hex digits and the Unicode range. */
-// Note (audit AR-V1): the >6-digit refusal fires even when leading zeros
-// keep the value within the Unicode range (e.g. `\x{0000061}`) — stricter
-// than DuckDB 1.5.5, which accepts the padded spelling. Checker policy,
-// not an RE2 rule; queued for alignment in AR queue ar-4.
 function parseHexEscape(cursor: Cursor): string {
   if (peek(cursor) === '{') {
     consume(cursor)
@@ -269,7 +283,10 @@ function parseHexEscape(cursor: Cursor): string {
     if (peek(cursor) !== '}') reject('unterminated \\x{…} escape')
     consume(cursor)
     if (!/^[0-9a-fA-F]+$/.test(digits)) reject(`invalid \\x{…} escape (\\x{${digits}})`)
-    if (digits.length > 6 || Number.parseInt(digits, 16) > 0x10ffff) {
+    // Only the *value* is bounded (Unicode range); leading zeros are allowed
+    // however many there are — DuckDB 1.5.5 accepts `\x{0000061}` and even
+    // far longer zero-padded in-range spellings (AR-V1).
+    if (Number.parseInt(digits, 16) > 0x10ffff) {
       reject(`\\x{${digits}} exceeds the Unicode range`)
     }
     return String.fromCodePoint(Number.parseInt(digits, 16))
@@ -332,28 +349,32 @@ function consumeQuantifier(cursor: Cursor): void {
 
 /**
  * Parse one atom starting at the cursor (anything but a quantifier
- * character, `|`, or a group close). Returns whether the atom is
- * quantifiable — zero-width tokens (anchors, `(?flags)` directives) are not.
+ * character, `|`, or a group close). Returns the atom's repeatability
+ * (zero-width anchors are repeatable; a `(?flags)` directive is
+ * transparent — see {@link AtomRepeat}).
  */
-function parseAtom(cursor: Cursor): { readonly quantifiable: boolean } {
+function parseAtom(cursor: Cursor): AtomRepeat {
   const ch = consume(cursor)
   switch (ch) {
     case '^':
     case '$':
-      return { quantifiable: false }
+      // Zero-width anchors ARE quantifiable in RE2/DuckDB (`^*`, `$+`).
+      return 'repeatable'
     case '.':
-      return { quantifiable: true }
+      return 'repeatable'
     case '[':
       parseClass(cursor)
-      return { quantifiable: true }
+      return 'repeatable'
     case '(':
       return parseGroup(cursor)
     case '\\': {
       const resolution = parseEscape(cursor, false)
-      return { quantifiable: resolution.kind !== 'zero' }
+      // A zero-width escape (`\b`, `\B`, `\A`, `\z`) is quantifiable too.
+      void resolution
+      return 'repeatable'
     }
     default:
-      return { quantifiable: true } // literal (including a non-quantifier `{`)
+      return 'repeatable' // literal (including a non-quantifier `{`)
   }
 }
 
@@ -362,7 +383,7 @@ function parseAtom(cursor: Cursor): { readonly quantifiable: boolean } {
  * depth guard makes the recursive descent total: past the documented
  * bound the pattern is refused as data (never a stack-overflow throw).
  */
-function parseGroup(cursor: Cursor): { readonly quantifiable: boolean } {
+function parseGroup(cursor: Cursor): AtomRepeat {
   cursor.depth += 1
   if (cursor.depth > MAX_NESTING_DEPTH) {
     reject(
@@ -377,11 +398,11 @@ function parseGroup(cursor: Cursor): { readonly quantifiable: boolean } {
 }
 
 /** The `(...)`-group body (depth-guarded by {@link parseGroup}). */
-function parseGroupBody(cursor: Cursor): { readonly quantifiable: boolean } {
+function parseGroupBody(cursor: Cursor): AtomRepeat {
   if (peek(cursor) !== '?') {
     parseAlternation(cursor)
     expectGroupClose(cursor)
-    return { quantifiable: true }
+    return 'repeatable'
   }
   consume(cursor) // '?'
   if (atEnd(cursor)) reject('unbalanced parenthesis')
@@ -390,7 +411,7 @@ function parseGroupBody(cursor: Cursor): { readonly quantifiable: boolean } {
     consume(cursor)
     parseAlternation(cursor)
     expectGroupClose(cursor)
-    return { quantifiable: true }
+    return 'repeatable'
   }
   if (ch === 'P') {
     consume(cursor)
@@ -401,7 +422,7 @@ function parseGroupBody(cursor: Cursor): { readonly quantifiable: boolean } {
     consume(cursor)
     parseAlternation(cursor)
     expectGroupClose(cursor)
-    return { quantifiable: true }
+    return 'repeatable'
   }
   if (ch === '=' || ch === '!') {
     reject('lookaround ((?=…), (?!…)) is not RE2')
@@ -436,13 +457,16 @@ function parseGroupBody(cursor: Cursor): { readonly quantifiable: boolean } {
   if (on === 0 && off === null) reject(`unsupported group syntax (?${ch}…`)
   if (peek(cursor) === ')') {
     consume(cursor)
-    return { quantifiable: false } // a flags directive matches nothing
+    // A flags directive matches nothing and is *transparent* for
+    // repeatability: RE2 lets a following quantifier bind to the atom before
+    // it (`a(?i)*` accepted, `(?i)*` rejected — DuckDB 1.5.5-verified).
+    return 'transparent'
   }
   if (peek(cursor) === ':') {
     consume(cursor)
     parseAlternation(cursor)
     expectGroupClose(cursor)
-    return { quantifiable: true }
+    return 'repeatable'
   }
   reject(`unsupported group syntax (?…${peek(cursor)}`)
 }
@@ -462,12 +486,12 @@ function parseGroupName(cursor: Cursor): void {
 }
 
 /**
- * Parse a `[...]` character class (the cursor sits just past the `[`).
- * Strict `]` handling: `]` always terminates the class (so `[]a]` is an
- * empty class followed by garbage — refused), and a literal `]` must be
- * escaped (`\]`). This is **stricter than RE2/DuckDB 1.5.5**, which treat
- * a leading `]` as a literal class member — a deliberate checker policy
- * (audit AR-V1), not an RE2 rule.
+ * Parse a `[...]` character class (the cursor sits just past the `[`). A `]`
+ * as the very first item (after an optional `^`) is a literal member, exactly
+ * as in RE2/DuckDB 1.5.5: `[]a]` matches `]` and `a`, `[^]a]` is its
+ * negation, and `[]]` matches `]`. The empty classes `[]` and `[^]` remain
+ * refused (DuckDB rejects both too — the leading `]` is consumed as a
+ * literal, leaving the class unterminated).
  */
 function parseClass(cursor: Cursor): void {
   if (peek(cursor) === '^') consume(cursor)
@@ -478,8 +502,15 @@ function parseClass(cursor: Cursor): void {
   for (;;) {
     if (atEnd(cursor)) reject('unterminated character class')
     const ch = peek(cursor)
+    if (items === 0 && ch === ']') {
+      // Leading `]` is a literal member (AR-V1). `[]` falls through to the
+      // unterminated-class error on the next iteration, matching DuckDB.
+      consume(cursor)
+      items += 1
+      prevChar = ']'
+      continue
+    }
     if (ch === ']') {
-      if (items === 0) reject('empty character class (escape a literal ] as \\])')
       consume(cursor)
       return
     }
@@ -565,12 +596,13 @@ function parseAlternation(cursor: Cursor): void {
 
 /**
  * Parse one alternation branch: a sequence of (possibly quantified) atoms.
- * `lastWasAtom` tracks whether the previous token is quantifiable — a
- * quantifier right after another quantifier or at a branch start is RE2's
- * "missing argument to repetition operator" error; after a zero-width
- * token this checker is stricter than DuckDB 1.5.5 (which accepts `^*`,
- * `$+`, `\b{2}`) — refusal there is checker policy, not an RE2 rule
- * (audit AR-V1).
+ * `lastWasAtom` tracks whether a quantifier may bind here — false at a
+ * branch start, after a quantifier, and after a consuming atom until the
+ * next atom; true after any atom (including zero-width anchors); unchanged
+ * by a transparent `(?flags)` directive (so `a(?i)*` is accepted while
+ * `(?i)*` is not, matching DuckDB 1.5.5). A quantifier with
+ * `lastWasAtom === false` is RE2's "missing argument to repetition
+ * operator" error.
  */
 function parseBranch(cursor: Cursor): void {
   let lastWasAtom = false
@@ -595,8 +627,10 @@ function parseBranch(cursor: Cursor): void {
       }
       continue
     }
-    const atom = parseAtom(cursor)
-    lastWasAtom = atom.quantifiable
+    const repeat = parseAtom(cursor)
+    if (repeat === 'repeatable') lastWasAtom = true
+    else if (repeat === 'not-repeatable') lastWasAtom = false
+    // 'transparent' leaves lastWasAtom unchanged (a flags directive).
   }
 }
 

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { ColumnRuleSet, ContractV1 } from '@assay/contracts'
 import { compileContract } from './compile'
+import { classifyColumnType, describeUnbindableType } from './schema'
 import type { PlannedRule, ValidationPlan } from './plan'
 
 /**
@@ -425,6 +426,38 @@ describe.skipIf(!hasDuckDbCli)(
         expect(Number(row['fail_count']), `summary ${ruleId}`).toBe(expected[ruleId])
         expect(Number(row['total_rows'])).toBe(3)
       }
+    })
+  },
+)
+
+describe.skipIf(!hasDuckDbCli)(
+  'type classifier vs real DESCRIBE (pinned CLI 1.5.5) — AR-V4',
+  () => {
+    afterAll(() => {
+      rmSync(DB_PATH, { force: true })
+    })
+
+    it('every sub-second TIMESTAMP and the INTERVAL/BIT spellings DESCRIBE prints classify honestly', () => {
+      exec(`CREATE TABLE ar_v4 (
+        ts_s TIMESTAMP_S, ts_ms TIMESTAMP_MS, ts_ns TIMESTAMP_NS,
+        iv INTERVAL, bits BIT);`)
+      const rows = query('DESCRIBE ar_v4;')
+      const types = new Map(
+        rows.map((row) => [String(row['column_name']), String(row['column_type'])]),
+      )
+      // The engine's actual printed spellings (re-derived, not assumed).
+      expect(types.get('ts_s')).toBe('TIMESTAMP_S')
+      expect(types.get('ts_ms')).toBe('TIMESTAMP_MS')
+      expect(types.get('ts_ns')).toBe('TIMESTAMP_NS')
+      expect(types.get('iv')).toBe('INTERVAL')
+      expect(types.get('bits')).toBe('BIT')
+      expect(classifyColumnType(types.get('ts_s') ?? '')).toBe('temporal')
+      expect(classifyColumnType(types.get('ts_ms') ?? '')).toBe('temporal')
+      expect(classifyColumnType(types.get('ts_ns') ?? '')).toBe('temporal')
+      expect(classifyColumnType(types.get('iv') ?? '')).toBe('other')
+      expect(classifyColumnType(types.get('bits') ?? '')).toBe('other')
+      expect(describeUnbindableType(types.get('iv') ?? '')).toContain('recognized engine type')
+      expect(describeUnbindableType(types.get('bits') ?? '')).toContain('recognized engine type')
     })
   },
 )

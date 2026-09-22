@@ -70,18 +70,22 @@ function serializeColumn(doc: Document, column: ColumnRuleSet): Record<string, u
   if (typeof column?.type === 'string') out.type = column.type
   if (column?.required === true) out.required = true
   if (column?.unique === true) out.unique = true
-  if (isFiniteNumber(column?.min)) out.min = column.min
-  if (isFiniteNumber(column?.max)) out.max = column.max
+  if (isFiniteNumber(column?.min)) out.min = normZero(column.min)
+  if (isFiniteNumber(column?.max)) out.max = normZero(column.max)
   const allowedValues = column?.allowedValues
   if (Array.isArray(allowedValues)) {
     // Flow style is the canonical rendering for value lists; invalid entries
-    // (a caller bug behind a cast) are dropped defensively.
-    const scalars = allowedValues.filter(isContractScalar)
+    // (a caller bug behind a cast) are dropped defensively. Numeric entries
+    // normalize `-0` → `0` (the m5-0 ±0 rule, AR-V5).
+    const scalars = allowedValues
+      .filter(isContractScalar)
+      .map((value) => (typeof value === 'number' ? normZero(value) : value))
     out['allowed-values'] = doc.createNode(scalars, { flow: true })
   }
   if (typeof column?.regex === 'string') out.regex = column.regex
-  if (isUnitInterval(column?.maxNullShare)) out['max-null-share'] = column.maxNullShare
-  if (isUnitInterval(column?.minDistinctShare)) out['min-distinct-share'] = column.minDistinctShare
+  if (isUnitInterval(column?.maxNullShare)) out['max-null-share'] = normZero(column.maxNullShare)
+  if (isUnitInterval(column?.minDistinctShare))
+    out['min-distinct-share'] = normZero(column.minDistinctShare)
   return out
 }
 
@@ -89,9 +93,14 @@ function serializeDataset(
   dataset: DatasetRuleSet | undefined,
 ): Record<string, unknown> | undefined {
   const out: Record<string, unknown> = {}
-  if (isNonNegativeInt(dataset?.minRows)) out['min-rows'] = dataset.minRows
-  if (isNonNegativeInt(dataset?.maxRows)) out['max-rows'] = dataset.maxRows
+  if (isNonNegativeInt(dataset?.minRows)) out['min-rows'] = normZero(dataset.minRows)
+  if (isNonNegativeInt(dataset?.maxRows)) out['max-rows'] = normZero(dataset.maxRows)
   return Object.keys(out).length > 0 ? out : undefined
+}
+
+/** m5-0's canonical ±0 rule: `-0` and `0` are one value (AR-V5). */
+function normZero(value: number): number {
+  return value === 0 ? 0 : value
 }
 
 function isFiniteNumber(value: unknown): value is number {

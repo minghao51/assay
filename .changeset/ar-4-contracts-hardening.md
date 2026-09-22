@@ -1,0 +1,5 @@
+---
+'@assay/contracts': patch
+---
+
+fix(ar-4): contract-seam hardening batch (AR-V1 filter half, AR-V2, AR-V5). The conservative JSON-Schema RE2 filter now accepts `\v` (vertical tab in both ECMA-262 and RE2) and a leading-`]` literal class member (`[]a]`), matching the binding-time checker; the false "RE2 has no `\v` escape" / "empty class" justifications are corrected to true statements (AR-V1). `parseContract` now refuses a NUL character in any string value (column name, `allowed-values` entry, `regex`, metadata) with a typed `out-of-range` error, closing the seam where a parsed contract could reach the compiler's `invalid-contract-input` — and the JSON Schema adapter refuses NUL property names/enum entries the same way (AR-V2). `-0` is normalized to `0` throughout the YAML path (parser and serializer), so `min: -0` and `min: 0` are one canonical shape matching `literals.ts`/`json-schema.ts` (AR-V5). Canonical bytes change only for contracts that previously carried `-0` (none in the golden corpus): `min: -0` now serializes as `min: 0`, the intentional "one shape per meaning" fix, pinned byte-for-byte.

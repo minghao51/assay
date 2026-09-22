@@ -43,7 +43,7 @@
  * §3, lint-enforced); no I/O; never throws.
  */
 import type { CellValue, CellValueRecord, ColumnSpec, EditOp, InsertPosition } from './edit-ops'
-import { cellValueEqual } from './edit-ops'
+import { NULL_VALUE, cellValueEqual } from './edit-ops'
 import { baseRowId, parseRowId } from './row-identity'
 import type { RowId } from './row-identity'
 
@@ -92,6 +92,15 @@ export interface InsertedRowRecord {
 }
 
 /**
+ * The base/overlay anchors a folded state is bound to (see
+ * {@link OverlayState.anchors}).
+ */
+export interface OverlayAnchors {
+  readonly baseAnchor: string
+  readonly overlayAnchor: string
+}
+
+/**
  * The folded overlay state: effective schema + the delta over the base.
  * Everything is keyed by logical row id (`row-identity.ts`); base rows exist
  * virtually (anchor + ordinal < baseRowCount) and only *touched* base rows
@@ -99,6 +108,16 @@ export interface InsertedRowRecord {
  * activity, never by dataset size.
  */
 export interface OverlayState {
+  /**
+   * The anchors this state was folded against. Carried so a state can never
+   * be silently applied against a different base version or overlay session:
+   * `stepOverlay` compares these to its `base` and returns a typed
+   * `state-anchor-mismatch` conflict on divergence (the foreign-state
+   * guard; base-row ids and insert ids carry their own anchors, but
+   * `deletedBase` ordinals alone do not, so the binding must live on the
+   * state itself).
+   */
+  readonly anchors: OverlayAnchors
   /** Effective schema, in order (renames/casts applied). */
   readonly columns: readonly ColumnSpec[]
   /**
@@ -114,13 +133,13 @@ export interface OverlayState {
   readonly deletedBase: ReadonlySet<number>
   /**
    * Monotonic next insert sequence for `base.overlayAnchor`. Advances past
-   * every allocated seq (never rewinds within a fold — even deleting an
-   * inserted row keeps its id spent, so ids are never reused while any log
-   * entry references them). Hosts allocate via `insertRowId(overlayAnchor,
-   * nextInsertSeq)`; undoing an expunge (`row-uninsert`) reclaims the
-   * allocation point when nothing lives above the freed seq, so gap-free
-   * allocation (the allocator discipline) restores the counter exactly
-   * under undo. A host that hand-skips seqs only lowers the counter's
+   * every allocated seq. Deleting an inserted row keeps its id spent (the
+   * record still exists, so its seq is never reused), while an *expunge*
+   * (`row-uninsert`) reclaims the freed top-of-stack seq when nothing lives
+   * above it — so undo restores the counter exactly (gap-free allocation is
+   * the allocator discipline). This rewind on expunge is deliberate and
+   * canonical: the counter is a function of the state, never of application
+   * history. A host that hand-skips seqs only lowers the counter's
    * usefulness — the visible projection still restores exactly, but the
    * freed floor stays spent.
    */
@@ -175,6 +194,8 @@ export type ConflictReason =
   | 'rename-collision'
   /** An insert id is already spent (live with different values, or tombstoned). */
   | 'insert-id-collision'
+  /** The state was folded against a different base version or overlay session (its {@link OverlayState.anchors} do not match the `base` it is being stepped against). */
+  | 'state-anchor-mismatch'
 
 /** One op's interpretation: the op, its typed outcome, and its derived inverse. */
 export interface OpApplication {
@@ -200,6 +221,7 @@ export interface OverlayStep {
 /** The empty overlay over `base` — fold of the empty prefix. */
 export function initialState(base: OverlayBase): OverlayState {
   return {
+    anchors: { baseAnchor: base.baseAnchor, overlayAnchor: base.overlayAnchor },
     columns: base.columns,
     edits: new Map(),
     inserts: new Map(),
@@ -215,6 +237,17 @@ export function initialState(base: OverlayBase): OverlayState {
  * a cheap change signal; deep equality holds regardless).
  */
 export function stepOverlay(base: OverlayBase, state: OverlayState, op: EditOp): OverlayStep {
+  // Foreign-state guard: a state folded against another base version or
+  // overlay session must never be applied here. `deletedBase` ordinals do
+  // not carry an anchor, so the binding lives on the state itself (see
+  // {@link OverlayState.anchors}); divergence is a typed conflict, never a
+  // silent cross-application.
+  if (
+    state.anchors.baseAnchor !== base.baseAnchor ||
+    state.anchors.overlayAnchor !== base.overlayAnchor
+  ) {
+    return unchanged(op, state, conflict('state-anchor-mismatch'))
+  }
   switch (op.kind) {
     case 'cell-set':
       return stepCellSet(base, state, op)
@@ -761,10 +794,16 @@ function hasColumn(columns: readonly ColumnSpec[], name: string): boolean {
 }
 
 function valueRecordsEqual(a: CellValueRecord, b: CellValueRecord): boolean {
-  if (a.size !== b.size) return false
-  for (const [column, value] of a) {
-    const other = b.get(column)
-    if (other === undefined || !cellValueEqual(value, other)) return false
+  // Columns absent from a record materialize as NULL (the documented v1
+  // rule, `edit-ops.ts`), so `{a: 1}` and `{a: 1, b: null}` describe the
+  // same logical insert — a benign replay, not a conflict (AR-D1). Compare
+  // the *materialized* records over the union of keys; a real value against
+  // an explicit NULL still diverges.
+  const columns = new Set<string>([...a.keys(), ...b.keys()])
+  for (const column of columns) {
+    const left = a.get(column) ?? NULL_VALUE
+    const right = b.get(column) ?? NULL_VALUE
+    if (!cellValueEqual(left, right)) return false
   }
   return true
 }

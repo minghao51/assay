@@ -69,6 +69,23 @@ const ACCEPTED = [
   '(?P<year>\\d{4})-(?P<month>\\d{2})',
   '((a)(b))c',
   '(a(b(c)))',
+  // AR-V1 acceptances (DuckDB 1.5.5-verified): the checker previously
+  // refused these as policy; aligned with real RE2/DuckDB behavior.
+  '\\v', // vertical tab (RE2 defines it)
+  '[\\v]',
+  '[]a]', // leading ] is a literal class member
+  '[]]',
+  '[^]a]',
+  '^*', // zero-width anchors/boundaries are quantifiable
+  '$+',
+  '^{2,3}',
+  '\\b{2}',
+  '\\B+',
+  '\\A?',
+  '\\z{2}',
+  'a(?i)*', // a quantifier after a (?flags) directive binds to the atom before it
+  '\\x{0000061}', // zero-padded hex escapes inside the Unicode range
+  '\\x{00000000000000000000000000000000000000000000000000000000000000000061}',
 ]
 
 const ACCEPT_SHOULD_NOT_INCLUDE: readonly string[] = []
@@ -96,8 +113,8 @@ describe('checkRe2Pattern — accepted subset', () => {
 })
 
 describe('checkRe2Pattern — the accepted pool is the claim (m5-1 re-review round 2)', () => {
-  it('the accepted pool has its exact size and uniqueness pinned — 50 unique patterns, all DuckDB-executed', () => {
-    expect(ACCEPTED).toHaveLength(50)
+  it('the accepted pool has its exact size and uniqueness pinned — 65 unique patterns, all DuckDB-executed', () => {
+    expect(ACCEPTED).toHaveLength(65)
     expect(new Set(ACCEPTED).size).toBe(ACCEPTED.length)
   })
 
@@ -127,20 +144,15 @@ const REJECTED: readonly Rejection[] = [
   { pattern: 'a**', reasonSubstance: 'nothing to repeat' },
   { pattern: 'a*??', reasonSubstance: 'nothing to repeat' },
   { pattern: 'a{2}{3}', reasonSubstance: 'nothing to repeat' },
-  { pattern: 'a(?i)*', reasonSubstance: 'nothing to repeat' }, // flags directive is zero-width
+  { pattern: '(?i)*', reasonSubstance: 'nothing to repeat' }, // a flags directive with nothing before it
   { pattern: '*a', reasonSubstance: 'nothing to repeat' },
   { pattern: '|*a', reasonSubstance: 'nothing to repeat' },
-  { pattern: '^*', reasonSubstance: 'nothing to repeat' },
-  { pattern: '$+', reasonSubstance: 'nothing to repeat' },
-  { pattern: '\\A?', reasonSubstance: 'nothing to repeat' },
   { pattern: '\\Z', reasonSubstance: '\\Z is not RE2' },
   { pattern: '\\K', reasonSubstance: 'unsupported escape' },
   { pattern: '\\Qa+b\\E', reasonSubstance: '\\Q…\\E quoting' },
   { pattern: '\\E', reasonSubstance: '\\E without \\Q' },
   { pattern: '\\p{L}', reasonSubstance: 'Unicode property/class escapes' },
   { pattern: '\\PL', reasonSubstance: 'Unicode property/class escapes' },
-  { pattern: '\\v', reasonSubstance: '\\v is not accepted' },
-  { pattern: '[\\v]', reasonSubstance: '\\v is not accepted' },
   { pattern: '[\\b]', reasonSubstance: 'inside a character class' },
   { pattern: '[\\A]', reasonSubstance: 'inside a character class' },
   { pattern: '\\y', reasonSubstance: 'unsupported escape \\y' },
@@ -161,8 +173,7 @@ const REJECTED: readonly Rejection[] = [
   { pattern: '(?Z)a', reasonSubstance: 'unsupported group syntax' },
   { pattern: '[a-', reasonSubstance: 'unterminated character class' },
   { pattern: '[', reasonSubstance: 'unterminated character class' },
-  { pattern: '[]', reasonSubstance: 'empty character class' },
-  { pattern: '[]a]', reasonSubstance: 'empty character class' },
+  { pattern: '[]', reasonSubstance: 'unterminated character class' },
   { pattern: '[z-a]', reasonSubstance: 'is reversed' },
   { pattern: '[a-\\d]', reasonSubstance: 'upper bound is not a single character' },
   { pattern: '[a-[:alpha:]]', reasonSubstance: 'upper bound is a POSIX class' },
@@ -280,6 +291,40 @@ describe.skipIf(!hasDuckDbCli)('checkRe2Pattern — real DuckDB agreement (pinne
   it('the review-reported over-acceptances are DuckDB-rejected (defect evidence)', () => {
     for (const pattern of ['(?i-)abc', '(?i--s)abc', '\\é', '\\😀']) {
       expect(duckdbAcceptsRegex(pattern), `pattern ${JSON.stringify(pattern)}`).toBe(false)
+    }
+  })
+
+  it('AR-V1 — the previously-refused pool members are DuckDB-accepted and the checker now agrees', () => {
+    const newlyAccepted = [
+      '\\v',
+      '[\\v]',
+      '[]a]',
+      '[]]',
+      '[^]a]',
+      '^*',
+      '$+',
+      '^{2,3}',
+      '\\b{2}',
+      '\\B+',
+      '\\A?',
+      '\\z{2}',
+      'a(?i)*',
+      '\\x{0000061}',
+      '\\x{00000000000000000000000000000000000000000000000000000000000000000061}',
+    ]
+    for (const pattern of newlyAccepted) {
+      expect(duckdbAcceptsRegex(pattern), `DuckDB accepts ${JSON.stringify(pattern)}`).toBe(true)
+      expect(checkRe2Pattern(pattern), `checker accepts ${JSON.stringify(pattern)}`).toEqual({
+        valid: true,
+      })
+    }
+    // The distinguishing refusal (there is nothing before the flags directive).
+    expect(duckdbAcceptsRegex('(?i)*')).toBe(false)
+    expect(checkRe2Pattern('(?i)*').valid).toBe(false)
+    // Genuinely-out-of-range zero-padded hex stays refused by both.
+    for (const pattern of ['\\x{110000}', '\\x{0000110000}', '\\x{FFFFFFFFFFFFFFFF}']) {
+      expect(duckdbAcceptsRegex(pattern), `DuckDB rejects ${JSON.stringify(pattern)}`).toBe(false)
+      expect(checkRe2Pattern(pattern).valid).toBe(false)
     }
   })
 

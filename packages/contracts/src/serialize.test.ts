@@ -36,6 +36,58 @@ dataset:
   max-rows: 1000000
 `
 
+describe('serializeContract — ±0 is one value (AR-V5)', () => {
+  it('serializes a contract authored with -0 byte-identically to the same contract authored with 0', () => {
+    const negZero = `format: v1
+name: c
+version: 1
+columns:
+  - name: id
+    min: -0
+    max: -0
+    allowed-values: [ -0, 1 ]
+    max-null-share: -0
+dataset:
+  min-rows: -0
+`
+    const plain = `format: v1
+name: c
+version: 1
+columns:
+  - name: id
+    min: 0
+    max: 0
+    allowed-values: [ 0, 1 ]
+    max-null-share: 0
+dataset:
+  min-rows: 0
+`
+    const neg = parseContract(negZero)
+    const pos = parseContract(plain)
+    expect(neg.ok).toBe(true)
+    expect(pos.ok).toBe(true)
+    if (!neg.ok || !pos.ok) return
+    expect(serializeContract(neg.contract)).toBe(serializeContract(pos.contract))
+    expect(serializeContract(neg.contract)).not.toContain('-0')
+    // Round-trip stable.
+    const again = parseContract(serializeContract(neg.contract))
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(serializeContract(again.contract)).toBe(serializeContract(neg.contract))
+  })
+
+  it('normalizes a caller-bug -0 in the AST too (defensive read)', () => {
+    const contract: ContractV1 = {
+      format: 'v1',
+      metadata: { name: 'c', version: 1 },
+      columns: [{ name: 'id', min: -0, max: -0, allowedValues: [-0, 1], maxNullShare: -0 }],
+      dataset: { minRows: -0 },
+    }
+    const text = serializeContract(contract)
+    expect(text).not.toContain('-0')
+    expect(text).toContain('min: 0')
+  })
+})
+
 describe('serializeContract — canonical byte pins', () => {
   it('serializes golden A byte-exactly (the same pin parse.test.ts parses)', () => {
     const result = parseContract(GOLDEN_A_YAML)

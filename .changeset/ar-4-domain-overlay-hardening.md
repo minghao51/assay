@@ -1,0 +1,5 @@
+---
+'@assay/domain': patch
+---
+
+fix(ar-4): overlay hardening batch (AR-D1, AR-D2, AR-D8). Insert-value equality now treats an absent column as the explicit NULL it materializes to (`{a: 1}` ≡ `{a: 1, b: null}`), so a materialization-identical `row-insert` replay is the documented benign no-op instead of a spurious `insert-id-collision` — while a real value against an explicit NULL still conflicts (AR-D1; seeded property pin). Added the missing multi-`before`/`after` anchor-ordering pins: several `before X` inserts emit latest-closest to the anchor, `after X` chains emit earliest-closest, and chains nest depth-first — code semantics unchanged; the test notes the engine-side `insertSortKeys` mirror for a future engine pin (AR-D2). `OverlayState` now carries its `{ baseAnchor, overlayAnchor }` binding, so a state folded against a different base version/session is a typed `state-anchor-mismatch` conflict instead of a silent cross-application (AR-D8); the `nextInsertSeq` doc is reconciled with `row-uninsert`'s deliberate rewind, and `describeOp`/`formatCellValue` state the ADR 0025 local-UI-only invariant at the definition site. No golden/canonical bytes change.

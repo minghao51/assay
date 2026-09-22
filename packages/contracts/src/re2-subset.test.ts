@@ -80,6 +80,9 @@ describe('accepted: the documented conservative subset', () => {
     accept('[^\\w.]')
     accept('[[]') // '[' is a literal class item (only '[:' is special — refused below)
     accept('[A-F0-9 -]')
+    accept('[]a]') // leading ] is a literal member in both dialects (AR-V1)
+    accept('[]]')
+    accept('[^]a]')
   })
 
   it('accepts the escape whitelist', () => {
@@ -93,6 +96,8 @@ describe('accepted: the documented conservative subset', () => {
     accept('\\B')
     accept('\\bfoo\\b')
     accept('\\n\\t\\r\\f')
+    accept('\\v') // vertical tab in both ECMA-262 and RE2 (AR-V1)
+    accept('[\\v]')
     accept('\\w+@\\w+\\.com')
     accept('\\{\\}') // escaped ASCII punctuation → literal
     accept('a\\\\b') // escaped backslash
@@ -132,7 +137,6 @@ describe('refused: constructs RE2 cannot express (dialect honesty)', () => {
     reject('\\A', 'anchor')
     reject('\\z', 'anchor')
     reject('\\a', 'bell')
-    reject('\\v', 'vertical tab')
     reject('\\cA', 'control escape')
     reject('\\u0041', 'RE2 has no \\u escape')
     reject('\\u{41}', 'RE2 has no')
@@ -163,8 +167,8 @@ describe('refused: constructs RE2 cannot express (dialect honesty)', () => {
     reject('(a', 'unbalanced parenthesis')
     reject('a)b', 'unbalanced parenthesis')
     reject('[abc', 'unterminated character class')
-    reject('[]a]', 'empty character class')
-    reject('[^]', 'empty character class')
+    reject('[]', 'unterminated character class')
+    reject('[^]', 'unterminated character class')
     reject('[z-a]', 'reversed')
     reject('[a-\\d]', 'not a single character')
     reject('[a-[b]]', 'POSIX') // '[' as a range endpoint

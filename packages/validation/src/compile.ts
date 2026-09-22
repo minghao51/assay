@@ -148,23 +148,17 @@ const COLUMN_RULE_KEYS = [
 
 type ColumnRuleKey = (typeof COLUMN_RULE_KEYS)[number]
 
-/** Which AST field a rule key reads (only where the spelling differs). */
-function ruleValue(column: Record<string, unknown>, key: ColumnRuleKey): unknown {
-  switch (key) {
-    case 'type':
-    case 'required':
-    case 'unique':
-    case 'min':
-    case 'max':
-    case 'regex':
-      return column[key]
-    case 'allowed-values':
-      return column['allowedValues']
-    case 'max-null-share':
-      return column['maxNullShare']
-    case 'min-distinct-share':
-      return column['minDistinctShare']
-  }
+/** Which AST field a rule key reads; guarded (a throwing getter is data). */
+function ruleValue(column: unknown, key: ColumnRuleKey): GuardedRead {
+  const field =
+    key === 'allowed-values'
+      ? 'allowedValues'
+      : key === 'max-null-share'
+        ? 'maxNullShare'
+        : key === 'min-distinct-share'
+          ? 'minDistinctShare'
+          : key
+  return guardedGet(column, field)
 }
 
 /** Rule key → plan rule kind. */
@@ -236,6 +230,9 @@ interface Ctx {
   /** Quoted relation reference; set after option validation. */
   rel: string
   sampleLimit: number
+  /** Validated contract metadata, resolved once through guarded reads. */
+  metadataName: string
+  metadataVersion: number
 }
 
 function pushError(
@@ -246,6 +243,60 @@ function pushError(
   extra?: { readonly ruleId?: string; readonly column?: string },
 ): void {
   ctx.errors.push({ code, message, path, ruleId: extra?.ruleId, column: extra?.column })
+}
+
+/**
+ * One guarded field read (the `readOptionOnce` precedent, generalized to
+ * every contract/schema read): a value, or "the accessor threw" as data.
+ * `Array.isArray` and `Object.keys` are guarded too — both throw on a
+ * revoked Proxy (`IsArray`/`ownKeys` on a revoked Proxy are TypeErrors) —
+ * and element arrays are snapshotted so the compiler never iterates hostile
+ * input directly. The compiler's "never throws, over any input" promise
+ * (AR-V3) rests on every caller-input read routing through here.
+ */
+type GuardedRead = { readonly ok: true; readonly value: unknown } | { readonly ok: false }
+
+/** Read one property without throwing; non-objects read as `undefined` (optional-chaining semantics). */
+function guardedGet(target: unknown, key: string): GuardedRead {
+  try {
+    return { ok: true, value: (target as Record<string, unknown> | null | undefined)?.[key] }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** Total `Array.isArray`; a revoked/unanswerable Proxy reads as "not an array". */
+function guardedIsArray(value: unknown): boolean {
+  try {
+    return Array.isArray(value)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Guarded array snapshot: the elements, or `null` when the value is not an
+ * array or cannot be read (an array Proxy whose traps throw detonates on
+ * `length`/an index/its iterator). Callers never iterate caller input
+ * directly — they iterate the snapshot.
+ */
+function readArraySnapshot(value: unknown): readonly unknown[] | null {
+  try {
+    if (!Array.isArray(value)) return null
+    return Array.from(value)
+  } catch {
+    return null
+  }
+}
+
+/** Guarded `Object.keys`; non-objects read as empty, an unreadable one as `null`. */
+function readOwnKeys(target: unknown): readonly string[] | null {
+  try {
+    if (target === null || typeof target !== 'object') return []
+    return Object.keys(target)
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -688,17 +739,71 @@ function ruleValueIsBindable(
   }
 }
 
+/**
+ * Snapshot an `allowed-values` value to a plain array, or return `undefined`
+ * (a typed error is pushed) when it is unreadable. Keeping the snapshot as
+ * the value means every downstream step (`ruleValueIsBindable`,
+ * `allowedValuesKindMismatch`, `violationPredicate`) iterates plain data,
+ * never a hostile proxy (AR-V3).
+ */
+function snapshotAllowedValues(
+  value: unknown,
+  ctx: Ctx,
+  pathBase: string,
+  columnName: string,
+): readonly unknown[] | undefined {
+  if (value === undefined) return undefined
+  const snapshot = readArraySnapshot(value)
+  if (snapshot === null) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      `${pathBase}.allowed-values`,
+      'allowed-values must be an array of scalars',
+      { ruleId: `${pathBase}.allowed-values`, column: columnName },
+    )
+    return undefined
+  }
+  return snapshot
+}
+
 /** Compile one column's rule set; pushes planned rules and/or errors. */
 function compileColumnRule(
   ctx: Ctx,
   schema: ReadonlyMap<string, EngineSchemaColumn>,
   index: number,
-  column: Record<string, unknown>,
+  column: unknown,
 ): void {
   const pathBase = `columns[${index}]`
-  const columnName = typeof column['name'] === 'string' ? column['name'] : ''
+  const columnNameRead = guardedGet(column, 'name')
+  if (!columnNameRead.ok) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      pathBase,
+      'reading the column name threw an exception — column input must be plain data, not a throwing getter (the compiler is total)',
+    )
+    return
+  }
+  const columnName = typeof columnNameRead.value === 'string' ? columnNameRead.value : ''
   for (const key of COLUMN_RULE_KEYS) {
-    const value = ruleValue(column, key)
+    const read = ruleValue(column, key)
+    if (!read.ok) {
+      pushError(
+        ctx,
+        'invalid-contract-input',
+        `${pathBase}.${key}`,
+        `reading '${key}' threw an exception — rule values must be plain data, not throwing getters or proxies (the compiler is total)`,
+        { ruleId: `${pathBase}.${key}`, column: columnName },
+      )
+      continue
+    }
+    // Snapshot `allowed-values` once so no downstream step iterates a
+    // hostile array (its traps/length/index reads can throw).
+    const value =
+      key === 'allowed-values'
+        ? snapshotAllowedValues(read.value, ctx, pathBase, columnName)
+        : read.value
     // `required`/`unique` normalize to true-or-absent (m5-0 semantics).
     if (value === undefined || value === false) continue
     const path = `${pathBase}.${key}`
@@ -872,7 +977,18 @@ function compileDatasetRule(
   key: 'min-rows' | 'max-rows',
 ): void {
   const path = `dataset.${key}`
-  const value = dataset[key === 'min-rows' ? 'minRows' : 'maxRows']
+  const read = guardedGet(dataset, key === 'min-rows' ? 'minRows' : 'maxRows')
+  if (!read.ok) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      path,
+      'reading the rule value threw an exception — dataset rules must be plain data, not throwing getters (the compiler is total)',
+      { ruleId: path },
+    )
+    return
+  }
+  const value = read.value
   if (value === undefined) return
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     pushError(
@@ -1018,8 +1134,20 @@ function validateSchema(
       ok = false
       return
     }
-    const name = record['name']
-    const type = record['type']
+    const nameRead = guardedGet(entry, 'name')
+    const typeRead = guardedGet(entry, 'type')
+    if (!nameRead.ok || !typeRead.ok) {
+      pushError(
+        ctx,
+        'invalid-schema-input',
+        path,
+        'schema entry could not be read — reading its name/type threw (a hostile getter or proxy); schema entries must be plain { name, type } objects',
+      )
+      ok = false
+      return
+    }
+    const name = nameRead.value
+    const type = typeRead.value
     if (typeof name !== 'string' || name === '') {
       pushError(ctx, 'invalid-schema-input', path, 'schema entry must have a non-empty string name')
       ok = false
@@ -1087,24 +1215,56 @@ const COLUMN_RULE_KEY_SPELLINGS: ReadonlySet<string> = new Set([
 const TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(['format', 'metadata', 'columns', 'dataset'])
 function validateContractShape(ctx: Ctx, contract: ContractV1): boolean {
   let ok = true
-  if (contract?.format !== 'v1') {
+  const formatRead = guardedGet(contract, 'format')
+  if (!formatRead.ok) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      'contract',
+      "reading the contract's 'format' threw an exception — contract input must be plain data, not a throwing getter or proxy (the compiler is total, so this typed error replaces the raw exception)",
+    )
+    return false
+  }
+  if (formatRead.value !== 'v1') {
     pushError(ctx, 'invalid-contract-input', 'format', "contract format must be 'v1'")
     ok = false
   }
-  if (contract !== null && typeof contract === 'object') {
-    for (const key of Object.keys(contract).sort()) {
-      if (!TOP_LEVEL_KEYS.has(key)) {
-        pushError(
-          ctx,
-          'invalid-contract-input',
-          key,
-          `'${key}' is not a v1 contract key (format, metadata, columns, dataset)`,
-        )
-        ok = false
-      }
+  const topKeys = readOwnKeys(contract)
+  if (topKeys === null) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      'contract',
+      'enumerating the contract keys threw an exception — contract input must be plain data, not a hostile proxy (the compiler is total, so this typed error replaces the raw exception)',
+    )
+    return false
+  }
+  for (const key of [...topKeys].sort()) {
+    if (!TOP_LEVEL_KEYS.has(key)) {
+      pushError(
+        ctx,
+        'invalid-contract-input',
+        key,
+        `'${key}' is not a v1 contract key (format, metadata, columns, dataset)`,
+      )
+      ok = false
     }
   }
-  if (typeof contract?.metadata?.name !== 'string') {
+  const metadataRead = guardedGet(contract, 'metadata')
+  const nameRead = metadataRead.ok ? guardedGet(metadataRead.value, 'name') : { ok: false as const }
+  const versionRead = metadataRead.ok
+    ? guardedGet(metadataRead.value, 'version')
+    : { ok: false as const }
+  if (!metadataRead.ok || !nameRead.ok || !versionRead.ok) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      'metadata.name',
+      'reading contract metadata threw an exception — metadata must be plain data, not a throwing getter or proxy (the compiler is total)',
+    )
+    return false
+  }
+  if (typeof nameRead.value !== 'string') {
     pushError(
       ctx,
       'invalid-contract-input',
@@ -1112,8 +1272,10 @@ function validateContractShape(ctx: Ctx, contract: ContractV1): boolean {
       'contract metadata.name must be a string',
     )
     ok = false
+  } else {
+    ctx.metadataName = nameRead.value
   }
-  const version = contract?.metadata?.version
+  const version = versionRead.value
   if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1) {
     pushError(
       ctx,
@@ -1122,16 +1284,28 @@ function validateContractShape(ctx: Ctx, contract: ContractV1): boolean {
       'contract metadata.version must be a positive safe integer',
     )
     ok = false
+  } else {
+    ctx.metadataVersion = version
   }
-  if (!Array.isArray(contract?.columns)) {
+  const columnsRead = guardedGet(contract, 'columns')
+  if (!columnsRead.ok) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      'columns',
+      'reading contract columns threw an exception — contract input must be plain data (the compiler is total)',
+    )
+    return false
+  }
+  const columns = readArraySnapshot(columnsRead.value)
+  if (columns === null) {
     pushError(ctx, 'invalid-contract-input', 'columns', 'contract columns must be an array')
     return false
   }
   const seen = new Set<string>()
-  contract.columns.forEach((entry, index) => {
+  columns.forEach((entry, index) => {
     const path = `columns[${index}]`
-    const record = entry as { readonly name?: unknown } | null
-    if (record === null || typeof record !== 'object' || typeof record['name'] !== 'string') {
+    if (entry === null || typeof entry !== 'object') {
       pushError(
         ctx,
         'invalid-contract-input',
@@ -1141,14 +1315,36 @@ function validateContractShape(ctx: Ctx, contract: ContractV1): boolean {
       ok = false
       return
     }
-    const name = record['name']
+    const columnNameRead = guardedGet(entry, 'name')
+    if (!columnNameRead.ok || typeof columnNameRead.value !== 'string') {
+      pushError(
+        ctx,
+        'invalid-contract-input',
+        path,
+        'column rule set must be a readable object with a string name',
+      )
+      ok = false
+      return
+    }
+    const name = columnNameRead.value
     if (seen.has(name)) {
       pushError(ctx, 'invalid-contract-input', path, `duplicate column rule set for '${name}'`)
       ok = false
       return
     }
     seen.add(name)
-    for (const key of Object.keys(record).sort()) {
+    const keys = readOwnKeys(entry)
+    if (keys === null) {
+      pushError(
+        ctx,
+        'invalid-contract-input',
+        path,
+        'enumerating the column rule keys threw an exception — column input must be plain data (the compiler is total)',
+      )
+      ok = false
+      return
+    }
+    for (const key of [...keys].sort()) {
       if (!COLUMN_RULE_KEY_SPELLINGS.has(key)) {
         pushError(
           ctx,
@@ -1193,10 +1389,14 @@ export function compileContract(
     summaryArms: [],
     rel: '',
     sampleLimit: DEFAULT_SAMPLE_LIMIT,
+    metadataName: '',
+    metadataVersion: 1,
   }
 
   const resolved = validateOptions(ctx, options)
-  const schemaList = Array.isArray(schema) ? (schema as readonly unknown[]) : null
+  // Guarded snapshot: `Array.isArray` itself throws on a revoked Proxy, and
+  // an array Proxy's traps can throw during iteration (AR-V3).
+  const schemaList = readArraySnapshot(schema)
   if (schemaList === null) {
     pushError(
       ctx,
@@ -1213,26 +1413,41 @@ export function compileContract(
   // Only the resolved (inert) option values flow onward — the live
   // `options` object is never read again (m5-1 re-review: a stateful
   // accessor cannot make the validated relation differ from the compiled
-  // one).
+  // one). Contract/schema reads are guarded the same way (AR-V3).
   ctx.rel = q(resolved.relation)
   ctx.sampleLimit = resolved.sampleLimit
 
   // Column rules in canonical contract order; dataset rules after. Each
   // rule compiles or is rejected — errors collect across everything.
-  const columns = contract.columns as unknown as readonly Record<string, unknown>[]
-  for (let index = 0; index < columns.length; index++) {
-    compileColumnRule(ctx, byName, index, columns[index])
+  const columnsRead = guardedGet(contract, 'columns')
+  const columns = columnsRead.ok ? readArraySnapshot(columnsRead.value) : null
+  if (columns === null) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      'columns',
+      'contract columns could not be read on the compile pass — contract input must be plain, inert data, not a stateful or throwing accessor (the compiler is total)',
+    )
+  } else {
+    for (let index = 0; index < columns.length; index++) {
+      compileColumnRule(ctx, byName, index, columns[index])
+    }
   }
   // The dataset rule set is defensively validated (no silent skips): a
   // non-object `dataset` behind a broken cast cannot carry rules, so it is
   // a typed error rather than an absent rule set; unknown keys are caller
   // bugs just like unknown column rule keys.
-  const dataset: unknown =
-    contract === null || typeof contract !== 'object'
-      ? undefined
-      : (contract as unknown as Record<string, unknown>)['dataset']
-  if (dataset !== undefined) {
-    if (dataset === null || typeof dataset !== 'object' || Array.isArray(dataset)) {
+  const datasetRead = guardedGet(contract, 'dataset')
+  if (!datasetRead.ok) {
+    pushError(
+      ctx,
+      'invalid-contract-input',
+      'dataset',
+      "reading the contract's 'dataset' threw an exception — contract input must be plain data, not a throwing getter (the compiler is total)",
+    )
+  } else if (datasetRead.value !== undefined) {
+    const dataset = datasetRead.value
+    if (dataset === null || typeof dataset !== 'object' || guardedIsArray(dataset)) {
       pushError(
         ctx,
         'invalid-contract-input',
@@ -1241,18 +1456,28 @@ export function compileContract(
       )
     } else {
       const record = dataset as Record<string, unknown>
-      for (const key of Object.keys(record).sort()) {
-        if (key !== 'minRows' && key !== 'maxRows') {
-          pushError(
-            ctx,
-            'invalid-contract-input',
-            `dataset.${key}`,
-            `'${key}' is not a dataset rule key (only minRows/maxRows exist in v1)`,
-          )
+      const datasetKeys = readOwnKeys(record)
+      if (datasetKeys === null) {
+        pushError(
+          ctx,
+          'invalid-contract-input',
+          'dataset',
+          'enumerating the dataset keys threw an exception — contract input must be plain data (the compiler is total)',
+        )
+      } else {
+        for (const key of [...datasetKeys].sort()) {
+          if (key !== 'minRows' && key !== 'maxRows') {
+            pushError(
+              ctx,
+              'invalid-contract-input',
+              `dataset.${key}`,
+              `'${key}' is not a dataset rule key (only minRows/maxRows exist in v1)`,
+            )
+          }
         }
+        compileDatasetRule(ctx, record, 'min-rows')
+        compileDatasetRule(ctx, record, 'max-rows')
       }
-      compileDatasetRule(ctx, record, 'min-rows')
-      compileDatasetRule(ctx, record, 'max-rows')
     }
   }
 
@@ -1261,8 +1486,8 @@ export function compileContract(
   const plan: ValidationPlan = {
     planKind: PLAN_KIND,
     planVersion: PLAN_VERSION,
-    contractName: contract.metadata.name,
-    contractVersion: contract.metadata.version,
+    contractName: ctx.metadataName,
+    contractVersion: ctx.metadataVersion,
     relation: resolved.relation,
     sampleLimit: ctx.sampleLimit,
     rules: ctx.rules,

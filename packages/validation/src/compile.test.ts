@@ -321,6 +321,28 @@ describe('invalid-regex — RE2 dialect honesty at binding time', () => {
     expect(error.code).toBe('invalid-regex')
     expect(error.message).toContain('nothing to repeat')
   })
+  it('AR-V1 newly accepted patterns compile (no invalid-regex)', () => {
+    for (const pattern of [
+      '\\v',
+      '[\\v]',
+      '[]a]',
+      '[]]',
+      '[^]a]',
+      '^*',
+      '$+',
+      '^{2,3}',
+      '\\b{2}',
+      '\\B+',
+      '\\A?',
+      '\\z{2}',
+      'a(?i)*',
+      '\\x{0000061}',
+      '\\x{00000000000000000000000000000000000000000000000000000000000000000061}',
+    ]) {
+      const result = compileOne({ name: 'name', regex: pattern })
+      expect(result.ok, pattern).toBe(true)
+    }
+  })
   it('rejects a non-string pattern as a contract-shape error, never a crash', () => {
     const error = firstError(compileOne(broken({ name: 'name', regex: 42 })))
     expect(error.code).toBe('invalid-contract-input')
@@ -742,6 +764,131 @@ describe('error rendering — describeBindingError', () => {
       path: 'options',
     })
     expect(datasetLevel).toBe('options: [invalid-options] relation must be a non-empty string')
+  })
+})
+
+describe('totality against hostile contract/schema accessors (AR-V3)', () => {
+  /** A Proxy whose `revoke()` has already fired: even `Array.isArray` throws. */
+  const makeRevokedProxy = (): unknown => {
+    const { proxy, revoke } = Proxy.revocable([] as unknown[], {})
+    revoke()
+    return proxy
+  }
+  /** An array Proxy whose every trap throws (passes `Array.isArray`). */
+  const makeAllTrapsProxy = (): unknown => {
+    const boom = (): never => {
+      throw new Error('trap exploded')
+    }
+    return new Proxy([] as unknown[], {
+      getPrototypeOf: boom,
+      setPrototypeOf: boom,
+      isExtensible: boom,
+      preventExtensions: boom,
+      getOwnPropertyDescriptor: boom,
+      defineProperty: boom,
+      has: boom,
+      get: boom,
+      set: boom,
+      deleteProperty: boom,
+      ownKeys: boom,
+      apply: boom,
+      construct: boom,
+    })
+  }
+  /** A plain object with one throwing, enumerable getter. */
+  const withThrowingGetter = (key: string, base: object = {}): Record<string, unknown> => {
+    Object.defineProperty(base, key, {
+      get() {
+        throw new Error(`${key} getter exploded`)
+      },
+      enumerable: true,
+      configurable: true,
+    })
+    return base as Record<string, unknown>
+  }
+
+  it('a revoked/all-traps Proxy as the contract or the schema is a typed error, never a throw', () => {
+    const valid = contractOf([{ name: 'id', required: true }])
+    for (const hostile of [makeRevokedProxy(), makeAllTrapsProxy()]) {
+      let contractResult: ReturnType<typeof compileContract> | undefined
+      expect(() => {
+        contractResult = compileContract(hostile as ContractV1, BASE_SCHEMA, { relation: 't1' })
+      }).not.toThrow()
+      expect(contractResult?.ok).toBe(false)
+      if (contractResult !== undefined && !contractResult.ok) {
+        expect(contractResult.errors.length).toBeGreaterThan(0)
+      }
+
+      let schemaResult: ReturnType<typeof compileContract> | undefined
+      expect(() => {
+        schemaResult = compileContract(valid, hostile as never, { relation: 't1' })
+      }).not.toThrow()
+      expect(schemaResult?.ok).toBe(false)
+      if (schemaResult !== undefined && !schemaResult.ok) {
+        expect(schemaResult.errors.length).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('throwing getters in contract/schema positions degrade to typed errors, never raw throws', () => {
+    const columnWithThrowingRule = withThrowingGetter('required', { name: 'id' }) as never
+    const contractWithThrowingDataset = contractOf([{ name: 'id', required: true }])
+    withThrowingGetter('dataset', contractWithThrowingDataset)
+    const contractWithThrowingMetadataName = contractOf([{ name: 'id', required: true }])
+    withThrowingGetter('name', contractWithThrowingMetadataName.metadata)
+
+    const probes: ReadonlyArray<readonly [string, () => ReturnType<typeof compileContract>]> = [
+      [
+        'contract.format',
+        () =>
+          compileContract(withThrowingGetter('format') as unknown as ContractV1, BASE_SCHEMA, {
+            relation: 't1',
+          }),
+      ],
+      [
+        'contract.columns',
+        () =>
+          compileContract(withThrowingGetter('columns') as unknown as ContractV1, BASE_SCHEMA, {
+            relation: 't1',
+          }),
+      ],
+      [
+        'contract.dataset',
+        () => compileContract(contractWithThrowingDataset, BASE_SCHEMA, { relation: 't1' }),
+      ],
+      [
+        'contract.metadata.name',
+        () => compileContract(contractWithThrowingMetadataName, BASE_SCHEMA, { relation: 't1' }),
+      ],
+      [
+        'columns[0].required',
+        () =>
+          compileContract(contractOf([columnWithThrowingRule]), BASE_SCHEMA, { relation: 't1' }),
+      ],
+      [
+        'schema[0].name',
+        () =>
+          compileContract(
+            contractOf([{ name: 'id', required: true }]),
+            [withThrowingGetter('name') as never],
+            { relation: 't1' },
+          ),
+      ],
+    ]
+    for (const [label, run] of probes) {
+      let result: ReturnType<typeof compileContract> | undefined
+      expect(() => {
+        result = run()
+      }, label).not.toThrow()
+      expect(result?.ok, label).toBe(false)
+      if (result !== undefined && !result.ok) {
+        expect(result.errors.length, label).toBeGreaterThan(0)
+        expect(
+          result.errors.every((e) => typeof e.code === 'string'),
+          label,
+        ).toBe(true)
+      }
+    }
   })
 })
 

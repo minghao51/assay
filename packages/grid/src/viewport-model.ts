@@ -71,8 +71,15 @@ export interface GridViewportStats {
   readonly maxSpanRows: number
   /** Rows currently held in the LRU cache (≤ `maxCachedRows`). */
   readonly cachedRows: number
-  /** Spans whose last fetch failed and are surfacing errors to the renderer. */
+  /** Spans whose last fetch failed and are surfacing errors to the renderer (≤ `maxFailedSpans`). */
   readonly failedSpans: number
+  /**
+   * The provider-contract violation that stopped fetching (`null` = healthy).
+   * A fatal error is **not** retryable — `retry()` ignores it; only
+   * `refresh()`/`load()` clear it. Distinct from a transient span failure so
+   * the retry path can never loop on a broken provider (AR-D3).
+   */
+  readonly fatalError: string | null
 }
 
 export interface GridViewportOptions {
@@ -80,8 +87,27 @@ export interface GridViewportOptions {
   readonly overscanRows?: number
   /** Hard LRU bound on cached rows (UI state, never the dataset). Default 10_000. */
   readonly maxCachedRows?: number
-  /** Longest contiguous span per `fetchRange` call. Default 1000. */
+  /**
+   * Longest contiguous span per `fetchRange` call. Default 1000.
+   *
+   * **Provider-clamp contract:** the model splits every uncovered run into
+   * spans no longer than this, so an in-range request never exceeds
+   * `maxSpanRows`. A provider **must** return exactly the requested rows for
+   * an in-range request — a short or misaligned page is a contract violation
+   * and surfaces as a fatal, non-retryable model error, never as a transient
+   * failure (a transient classification would make `retry()` re-request the
+   * same span forever). Set this at or below the provider's own per-request
+   * cap (the engine's `MAX_RANGE_ROWS`).
+   */
   readonly maxSpanRows?: number
+  /**
+   * Hard bound on remembered failed spans per epoch, oldest evicted first
+   * (UI state, like the row cache — a persistently failing provider must not
+   * grow the map without bound within an epoch). Default 256. `stats`
+   * reports the current size. Failed spans past the bound degrade to
+   * `loading` on read, never to a silent wrong row (AR-D4).
+   */
+  readonly maxFailedSpans?: number
 }
 
 const DEFAULT_OVERSCAN_ROWS = 20
@@ -90,8 +116,19 @@ const DEFAULT_MAX_CACHED_ROWS = 10_000
  * Matches `MAX_RANGE_ROWS` in `@assay/engine-duckdb` (deliberately
  * duplicated: the grid must not depend on an engine package). Spans longer
  * than this are split, so the provider never receives an unbounded range.
+ * See `GridViewportOptions.maxSpanRows` for the provider-clamp contract.
  */
 const DEFAULT_MAX_SPAN_ROWS = 1000
+/** Bounds `failedSpans` within an epoch (see `maxFailedSpans`). */
+const DEFAULT_MAX_FAILED_SPANS = 256
+
+/**
+ * A provider returned a page that violates the `fetchRange` contract
+ * (misaligned start, short row count, mismatched key channel). Distinct from
+ * a transient provider failure: it is classified as fatal and never enters
+ * the retryable `failedSpans` path (AR-D3).
+ */
+class ProviderContractError extends Error {}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -126,6 +163,7 @@ export class GridViewportModel {
   private readonly overscanRows: number
   private readonly maxCachedRows: number
   private readonly maxSpanRows: number
+  private readonly maxFailedSpans: number
 
   private schemaColumns: ColumnSchema[] | null = null
   private totalRowCount: number | null = null
@@ -144,8 +182,21 @@ export class GridViewportModel {
   private readonly rowKeys = new Map<number, string>()
   /** In-flight span fetches, keyed `start:end`, epoch-tagged (dedup of asks). */
   private readonly inflight = new Map<string, InflightSpan>()
-  /** Failed spans (keyed like `inflight`) with the provider's error message. */
+  /** Failed spans (keyed like `inflight`) with the provider's error message. Bounded by `maxFailedSpans`. */
   private readonly failedSpans = new Map<string, Span & { message: string }>()
+  /**
+   * A provider-contract violation stopped fetching (`null` = healthy). Not
+   * retryable; cleared by `load()`/`refresh()` (AR-D3).
+   */
+  private fatalError: string | null = null
+  /**
+   * Query-state request counter and serialization queue (AR-D5): mutations
+   * (`setSort`/`setFilters`) apply their provider pushes strictly in request
+   * order, and the latest request's exposed state always wins — a superseded
+   * call never clobbers it or leaves the provider half-updated.
+   */
+  private querySeq = 0
+  private queryQueue: Promise<void> = Promise.resolve()
   private viewport: Span | null = null
   /**
    * Data epoch: bumped by `refresh()` so results of fetches issued before the
@@ -164,6 +215,7 @@ export class GridViewportModel {
     this.overscanRows = options.overscanRows ?? DEFAULT_OVERSCAN_ROWS
     this.maxCachedRows = options.maxCachedRows ?? DEFAULT_MAX_CACHED_ROWS
     this.maxSpanRows = options.maxSpanRows ?? DEFAULT_MAX_SPAN_ROWS
+    this.maxFailedSpans = options.maxFailedSpans ?? DEFAULT_MAX_FAILED_SPANS
     if (!Number.isInteger(this.overscanRows) || this.overscanRows < 0) {
       throw new RangeError('overscanRows must be a non-negative integer')
     }
@@ -172,6 +224,9 @@ export class GridViewportModel {
     }
     if (!Number.isInteger(this.maxSpanRows) || this.maxSpanRows < 1) {
       throw new RangeError('maxSpanRows must be a positive integer')
+    }
+    if (!Number.isInteger(this.maxFailedSpans) || this.maxFailedSpans < 1) {
+      throw new RangeError('maxFailedSpans must be a positive integer')
     }
   }
 
@@ -217,6 +272,7 @@ export class GridViewportModel {
       maxSpanRows: this.currentMaxSpanRows,
       cachedRows: this.cache.size,
       failedSpans: this.failedSpans.size,
+      fatalError: this.fatalError,
     })
   }
 
@@ -235,8 +291,24 @@ export class GridViewportModel {
    * Fetch schema and total row count. Must complete before
    * `observeViewport`/`refresh` do anything (they no-op / refuse otherwise).
    * Safe to call again (e.g. via `refresh()`).
+   *
+   * A `load()` is a fresh data epoch: it drops every cached/failed row and
+   * in-flight marker, clears the request counters, and bumps the generation
+   * so a page issued before it can never land (AR-D6) — a reloaded dataset
+   * must never serve the previous load's cells. The caller re-observes the
+   * viewport afterwards (as `refresh()` does).
    */
   async load(): Promise<void> {
+    this.generation += 1
+    this.cache.clear()
+    this.rowKeys.clear()
+    this.failedSpans.clear()
+    this.inflight.clear()
+    this.fatalError = null
+    this.currentFetchCalls = 0
+    this.currentRowsRequested = 0
+    this.currentRowsReceived = 0
+    this.currentMaxSpanRows = 0
     const [schema, rowCount] = await Promise.all([this.provider.schema(), this.provider.rowCount()])
     if (!Number.isSafeInteger(rowCount) || rowCount < 0) {
       throw new Error(`provider reported an invalid row count: ${String(rowCount)}`)
@@ -282,7 +354,9 @@ export class GridViewportModel {
    * failures are unaffected; distant failures are not retried speculatively.
    */
   retry(): void {
-    if (this.viewport === null) return
+    // A fatal contract violation is not retryable — retrying would re-request
+    // the same broken span forever (AR-D3). Only load()/refresh() clear it.
+    if (this.viewport === null || this.fatalError !== null) return
     const window = this.currentWindow()
     for (const [key, span] of [...this.failedSpans]) {
       if (span.end < window.start || span.start > window.end) continue
@@ -298,12 +372,22 @@ export class GridViewportModel {
    * is refetched under the new ordering, and pages still in flight from the
    * old state are discarded on arrival by the generation guard (row order
    * may have changed under them). Stats reset with the epoch.
+   *
+   * **Sequence guard (AR-D5):** overlapping calls apply their provider
+   * pushes in request order and the **last requested** state wins — a
+   * superseded call neither assigns `sortState` nor starts a refresh, so the
+   * exposed state can never disagree with what `fetchRange` serves.
    */
   async setSort(spec: SortSpec | null): Promise<void> {
     if (spec !== null) assertSortSpec(spec)
-    await this.provider.sort(spec)
-    this.sortState = spec
-    await this.refresh()
+    const seq = ++this.querySeq
+    return this.enqueueQuery(async () => {
+      if (seq !== this.querySeq) return // superseded before it ran
+      await this.provider.sort(spec)
+      if (seq !== this.querySeq) return // superseded while the provider applied it
+      this.sortState = spec
+      await this.refresh()
+    })
   }
 
   /**
@@ -317,6 +401,12 @@ export class GridViewportModel {
    * guard discarding stale in-flight pages. A mid-sequence provider
    * rejection leaves the model state (and cache) untouched; the next
    * successful `setFilters` re-syncs the provider from scratch.
+   *
+   * **Sequence guard (AR-D5):** overlapping calls are serialized so their
+   * provider pushes apply in request order, and the **last requested** list
+   * wins — a superseded call neither assigns `filterState` nor starts a
+   * refresh, so the exposed list can never disagree with what `fetchRange`
+   * serves.
    */
   async setFilters(specs: readonly FilterSpec[]): Promise<void> {
     if (!Array.isArray(specs)) {
@@ -324,10 +414,30 @@ export class GridViewportModel {
     }
     const list = [...specs]
     for (const spec of list) assertFilterSpec(spec)
-    await this.provider.filter(null)
-    for (const spec of list) await this.provider.filter(spec)
-    this.filterState = list
-    await this.refresh()
+    const seq = ++this.querySeq
+    return this.enqueueQuery(async () => {
+      if (seq !== this.querySeq) return // superseded before it ran
+      await this.provider.filter(null)
+      for (const spec of list) await this.provider.filter(spec)
+      if (seq !== this.querySeq) return // superseded while the provider applied it
+      this.filterState = list
+      await this.refresh()
+    })
+  }
+
+  /**
+   * Serialize one query-state mutation behind the previous one (AR-D5), so
+   * provider pushes apply strictly in request order. The queue never
+   * rejects (a failed mutation must not poison later ones); the caller's
+   * own promise still surfaces the rejection.
+   */
+  private enqueueQuery(run: () => Promise<void>): Promise<void> {
+    const next = this.queryQueue.then(run, run)
+    this.queryQueue = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
   }
 
   /**
@@ -339,15 +449,6 @@ export class GridViewportModel {
    * Stats reset with the epoch so instrumentation stays per-dataset-view.
    */
   async refresh(): Promise<void> {
-    this.generation += 1
-    this.cache.clear()
-    this.rowKeys.clear()
-    this.failedSpans.clear()
-    this.inflight.clear()
-    this.currentFetchCalls = 0
-    this.currentRowsRequested = 0
-    this.currentRowsReceived = 0
-    this.currentMaxSpanRows = 0
     await this.load()
     if (this.viewport !== null) {
       this.observeViewport(this.viewport.start, this.viewport.end)
@@ -378,6 +479,9 @@ export class GridViewportModel {
       const key = this.rowKeys.get(index)
       return key === undefined ? { status: 'ready', row } : { status: 'ready', row, key }
     }
+    // A fatal provider-contract violation surfaces on every uncached row
+    // (it stopped all fetching); it is not retryable (AR-D3).
+    if (this.fatalError !== null) return { status: 'error', message: this.fatalError }
     const failed = this.failedSpanCovering(index)
     if (failed !== null) return { status: 'error', message: failed.message }
     return { status: 'loading' }
@@ -418,6 +522,9 @@ export class GridViewportModel {
   }
 
   private requestSpan(start: number, end: number): void {
+    // A fatal provider-contract violation stops all fetching until the next
+    // epoch (AR-D3): no new spans, so no retry loop can form.
+    if (this.fatalError !== null) return
     const key = `${String(start)}:${String(end)}`
     const existing = this.inflight.get(key)
     // A marker from the *current* epoch means this span is already being
@@ -449,17 +556,17 @@ export class GridViewportModel {
       })
       if (generation !== this.generation) return // stale epoch: discard silently
       if (page.startRow !== start) {
-        throw new Error(
+        throw new ProviderContractError(
           `provider returned a page for row ${String(page.startRow)}, expected ${String(start)}`,
         )
       }
       if (page.rows.length !== spanRows) {
-        throw new Error(
-          `provider returned ${String(page.rows.length)} rows for a ${String(spanRows)}-row span`,
+        throw new ProviderContractError(
+          `provider returned ${String(page.rows.length)} rows for a ${String(spanRows)}-row span (a provider must not return a short span for an in-range request — see maxSpanRows)`,
         )
       }
       if (page.rowKeys !== undefined && page.rowKeys.length !== spanRows) {
-        throw new Error(
+        throw new ProviderContractError(
           `provider returned ${String(page.rowKeys.length)} row keys for a ${String(spanRows)}-row span`,
         )
       }
@@ -471,7 +578,9 @@ export class GridViewportModel {
         // affordances then decline), never a key from a previous epoch.
         if (key === undefined) this.rowKeys.delete(start + index)
         else if (typeof key !== 'string') {
-          throw new Error(`provider returned a non-string row key at ${String(start + index)}`)
+          throw new ProviderContractError(
+            `provider returned a non-string row key at ${String(start + index)}`,
+          )
         } else this.rowKeys.set(start + index, key)
       }
       this.currentRowsReceived += page.rows.length
@@ -479,7 +588,13 @@ export class GridViewportModel {
       this.evictIfNeeded()
     } catch (error) {
       if (generation !== this.generation) return
-      this.failedSpans.set(key, { start, end, message: errorMessage(error) })
+      if (error instanceof ProviderContractError) {
+        // Contract violation: fatal, not transient. Never enters failedSpans
+        // (which retry()/re-observe would re-request forever).
+        this.fatalError = error.message
+      } else {
+        this.recordFailedSpan(key, { start, end, message: errorMessage(error) })
+      }
     } finally {
       // Conditional cleanup (m4-3): only the marker this fetch installed may
       // be removed. A newer epoch's marker for the same span survives an old
@@ -489,6 +604,21 @@ export class GridViewportModel {
         this.inflight.delete(key)
       }
       if (generation === this.generation) this.notify()
+    }
+  }
+
+  /**
+   * Record one failed span, bounding the map at `maxFailedSpans` by evicting
+   * the oldest entry first (insertion order). A persistently failing
+   * provider must not grow `failedSpans` without bound within an epoch
+   * (AR-D4); `stats.failedSpans` still reports the live count.
+   */
+  private recordFailedSpan(key: string, span: Span & { message: string }): void {
+    this.failedSpans.set(key, span)
+    while (this.failedSpans.size > this.maxFailedSpans) {
+      const oldest = this.failedSpans.keys().next().value
+      if (oldest === undefined) break
+      this.failedSpans.delete(oldest)
     }
   }
 

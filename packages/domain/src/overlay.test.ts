@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NULL_VALUE, describeOp } from './edit-ops'
-import type { CellValue, EditOp, InsertPosition } from './edit-ops'
+import type { CellValue, CellValueRecord, EditOp, InsertPosition } from './edit-ops'
 import type { OpApplication, OverlayBase } from './overlay'
 import {
   effectiveRowIds,
@@ -13,7 +13,13 @@ import {
 } from './overlay'
 import { baseRowId, insertRowId } from './row-identity'
 import type { RowId } from './row-identity'
-import { genBase, genGarbageOp, genOpSession, makeTestRng } from './property-testing'
+import {
+  genBase,
+  genGarbageOp,
+  genOpSession,
+  genValueRecord,
+  makeTestRng,
+} from './property-testing'
 
 /** Fixture base: 3 columns, 5 base rows, fixed anchors. */
 function makeBase(overrides: Partial<OverlayBase> = {}): OverlayBase {
@@ -39,11 +45,7 @@ const CELL_SET = (rowId: RowId, column: string, value: CellValue): EditOp => ({
   column,
   value,
 })
-const INSERT = (
-  rowId: RowId,
-  values: Map<string, CellValue>,
-  position: InsertPosition,
-): EditOp => ({
+const INSERT = (rowId: RowId, values: CellValueRecord, position: InsertPosition): EditOp => ({
   kind: 'row-insert',
   rowId,
   position,
@@ -229,6 +231,80 @@ describe('overlay fold — row ops', () => {
       status: 'conflict',
       reason: 'insert-id-collision',
     })
+  })
+
+  it('insert replay treats absent ≡ explicit NULL per the materialization rule (AR-D1)', () => {
+    const base = makeBase()
+    // Same logical insert written two ways: omitted column vs explicit NULL.
+    const omitted = new Map<string, CellValue>([['id', { kind: 'number', value: 1 }]])
+    const explicit = new Map<string, CellValue>([
+      ['id', { kind: 'number', value: 1 }],
+      ['label', NULL_VALUE],
+    ])
+    const first = stepOverlay(base, initialState(base), INSERT(ins(0), omitted, { kind: 'end' }))
+    const replayExplicit = stepOverlay(base, first.state, INSERT(ins(0), explicit, { kind: 'end' }))
+    expect(replayExplicit.application.outcome).toEqual({
+      status: 'no-op',
+      reason: 'row-already-present',
+    })
+    // …and the mirror: explicit first, omitted replay.
+    const explicitFirst = stepOverlay(
+      base,
+      initialState(base),
+      INSERT(ins(0), explicit, { kind: 'end' }),
+    )
+    const replayOmitted = stepOverlay(
+      base,
+      explicitFirst.state,
+      INSERT(ins(0), omitted, { kind: 'end' }),
+    )
+    expect(replayOmitted.application.outcome).toEqual({
+      status: 'no-op',
+      reason: 'row-already-present',
+    })
+    // A real value against an explicit NULL stays a genuine divergence.
+    const withRealLabel = new Map<string, CellValue>([
+      ['id', { kind: 'number', value: 1 }],
+      ['label', { kind: 'string', value: 'x' }],
+    ])
+    expect(
+      stepOverlay(base, first.state, INSERT(ins(0), withRealLabel, { kind: 'end' })).application
+        .outcome,
+    ).toEqual({ status: 'conflict', reason: 'insert-id-collision' })
+    expect(
+      stepOverlay(base, explicitFirst.state, INSERT(ins(0), withRealLabel, { kind: 'end' }))
+        .application.outcome,
+    ).toEqual({ status: 'conflict', reason: 'insert-id-collision' })
+  })
+
+  it('property (seeded): materialize(spec) ≡ materialize(spec + explicit NULLs) replays as a no-op', () => {
+    for (const seed of [20260922, 77, 424242]) {
+      const rng = makeTestRng(seed)
+      for (let round = 0; round < 60; round++) {
+        const base = genBase(rng, 'd1')
+        const spec = genValueRecord(rng, base.columns)
+        // Fill every absent column with an explicit NULL — the materialized
+        // spelling of the same logical insert.
+        const filled = new Map<string, CellValue>(Array.from(spec))
+        for (const column of base.columns) {
+          if (!filled.has(column.name)) filled.set(column.name, NULL_VALUE)
+        }
+        const first = stepOverlay(
+          base,
+          initialState(base),
+          INSERT(insertRowId(base.overlayAnchor, 0), spec, { kind: 'end' }),
+        )
+        const replay = stepOverlay(
+          base,
+          first.state,
+          INSERT(insertRowId(base.overlayAnchor, 0), filled, { kind: 'end' }),
+        )
+        expect(replay.application.outcome).toEqual({
+          status: 'no-op',
+          reason: 'row-already-present',
+        })
+      }
+    }
   })
 
   it('insert ids are validated: session anchor, origin shape, canonical form, seq monotonicity', () => {
@@ -460,6 +536,36 @@ describe('overlay fold — effective order (insert positions)', () => {
     expect(effectiveRowIds(base, state)).toEqual([row(0), ins(0), ins(2), ins(1)])
   })
 
+  it('multi-before chains emit latest-closest to the anchor; multi-after emit earliest-closest (AR-D2)', () => {
+    // Engine-side mirror: `insertSortKeys` in
+    // `packages/engine-duckdb/src/overlay-query.ts` composes the same order
+    // in SQL — a future engine pin can lift this domain pin's expectations.
+    const base = makeBase({ baseRowCount: 1 })
+    const ops: EditOp[] = [
+      INSERT(ins(0), new Map(), { kind: 'before', rowId: row(0) }),
+      INSERT(ins(1), new Map(), { kind: 'before', rowId: row(0) }),
+      INSERT(ins(2), new Map(), { kind: 'before', rowId: row(0) }),
+      INSERT(ins(3), new Map(), { kind: 'after', rowId: row(0) }),
+      INSERT(ins(4), new Map(), { kind: 'after', rowId: row(0) }),
+    ]
+    const { state } = foldOverlay(base, ops)
+    // Reading away from the anchor: `before` chains emit ascending sequence
+    // (latest, ins(2), sits closest to row 0); `after` chains emit ascending
+    // sequence too (earliest, ins(3), sits closest to row 0).
+    expect(effectiveRowIds(base, state)).toEqual([ins(0), ins(1), ins(2), row(0), ins(3), ins(4)])
+  })
+
+  it('nested before-chains nest depth-first, latest-closest at each level (AR-D2)', () => {
+    const base = makeBase({ baseRowCount: 1 })
+    const ops: EditOp[] = [
+      INSERT(ins(0), new Map(), { kind: 'before', rowId: row(0) }),
+      INSERT(ins(1), new Map(), { kind: 'before', rowId: ins(0) }),
+    ]
+    const { state } = foldOverlay(base, ops)
+    // ins(1) is before ins(0), which is before row 0: depth-first.
+    expect(effectiveRowIds(base, state)).toEqual([ins(1), ins(0), row(0)])
+  })
+
   it('degraded anchors fall to the end and the outcome says so honestly', () => {
     const base = makeBase({ baseRowCount: 2 })
     const first = stepOverlay(
@@ -648,6 +754,7 @@ describe('property: the fold is total, typed, and pure', () => {
       'unknown-column',
       'rename-collision',
       'insert-id-collision',
+      'state-anchor-mismatch',
     ])
     for (const seed of [5150, 2, 31337]) {
       const rng = makeTestRng(seed)
@@ -703,6 +810,33 @@ describe('property: the fold is total, typed, and pure', () => {
         }
       }
     }
+  })
+})
+
+describe('overlay fold — the state is bound to its anchors (AR-D8)', () => {
+  it('initialState records the base/overlay anchors', () => {
+    const base = makeBase()
+    expect(initialState(base).anchors).toEqual({
+      baseAnchor: 'file-v1',
+      overlayAnchor: 'session-1',
+    })
+  })
+
+  it('a state folded against another base/session is a typed conflict, never a silent cross-application', () => {
+    const base = makeBase()
+    const foreignBase = makeBase({ baseAnchor: 'file-v2', overlayAnchor: 'session-1' })
+    const foreignSession = makeBase({ baseAnchor: 'file-v1', overlayAnchor: 'session-2' })
+    const state = foldOverlay(base, [DELETE(row(0))]).state
+    for (const other of [foreignBase, foreignSession]) {
+      const step = stepOverlay(other, state, DELETE(row(1)))
+      expect(step.application.outcome).toEqual({
+        status: 'conflict',
+        reason: 'state-anchor-mismatch',
+      })
+      expect(step.state).toBe(state) // untouched
+    }
+    // The matching base still applies.
+    expect(stepOverlay(base, state, DELETE(row(1))).application.outcome.status).toBe('applied')
   })
 })
 

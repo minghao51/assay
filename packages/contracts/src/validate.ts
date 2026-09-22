@@ -304,6 +304,16 @@ function rejectImpreciseNumber(
   return false
 }
 
+/**
+ * m5-0's canonical ±0 rule: `-0` and `0` are one value. `literals.ts`
+ * renders `-0` as `0`, `json-schema.ts` normalizes `-0`, and the canonical
+ * serializer must too — otherwise `min: -0` and `min: 0` would be two
+ * shapes for one meaning (AR-V5). Applied at every numeric read site.
+ */
+function normalizeZero(value: number): number {
+  return value === 0 ? 0 : value
+}
+
 function wantString(ctx: WalkContext, entry: Entry, path: string): string | null {
   const resolved = resolveNode(ctx, entry.valueNode)
   const { kind, value } = scalarKind(resolved)
@@ -317,7 +327,23 @@ function wantString(ctx: WalkContext, entry: Entry, path: string): string | null
     )
     return null
   }
-  return value as string
+  const text = value as string
+  // NUL is unbindable in SQL text (and unrepresentable in a plan). Rejecting
+  // it here keeps the parser's output inside the compiler's valid domain —
+  // without this, a parsed contract could reach `invalid-contract-input`,
+  // contradicting that code's "parseContract output can never trigger this"
+  // doc (AR-V2).
+  if (text.includes('\u0000')) {
+    pushError(
+      ctx,
+      'out-of-range',
+      `${path}: must not contain a NUL character (it cannot be bound to SQL text)`,
+      path,
+      valuePosition(entry, resolved),
+    )
+    return null
+  }
+  return text
 }
 
 function wantBoolean(ctx: WalkContext, entry: Entry, path: string): boolean | null {
@@ -362,7 +388,7 @@ function wantFiniteNumber(ctx: WalkContext, entry: Entry, path: string): number 
     return null
   }
   if (!rejectImpreciseNumber(ctx, resolved, n, path)) return null
-  return n
+  return normalizeZero(n)
 }
 
 /** A finite number in [0, 1] (the two share rules). */
@@ -424,7 +450,7 @@ function wantInteger(
     )
     return null
   }
-  return n
+  return normalizeZero(n)
 }
 
 /** Unknown-key message with a misplaced-key hint when the key is legal somewhere else. */
@@ -885,11 +911,24 @@ function walkAllowedValues(
     const itemPath = `${path}[${index}]`
     const itemResolved = resolveNode(ctx, items[index] ?? null)
     const { kind, value } = scalarKind(itemResolved)
-    if (kind === 'string' || kind === 'boolean') {
-      values.push(value as string | boolean)
+    if (kind === 'string') {
+      const text = value as string
+      if (text.includes('\u0000')) {
+        pushError(
+          ctx,
+          'out-of-range',
+          `${itemPath}: must not contain a NUL character (it cannot be bound to SQL text)`,
+          itemPath,
+          itemResolved,
+        )
+        continue
+      }
+      values.push(text)
+    } else if (kind === 'boolean') {
+      values.push(value as boolean)
     } else if (kind === 'number' && Number.isFinite(value as number)) {
       if (!rejectImpreciseNumber(ctx, itemResolved, value as number, itemPath)) continue
-      values.push(value as number)
+      values.push(normalizeZero(value as number))
     } else {
       pushError(
         ctx,

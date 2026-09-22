@@ -625,6 +625,17 @@ function walkProperty(
     })
     return null
   }
+  if (name.includes('\u0000')) {
+    // A NUL in a column name is unbindable in SQL text and the m5-0 parser
+    // rejects it; refuse it here so the adapter never builds a contract its
+    // own re-parse shield would reject (AR-V2).
+    state.errors.push({
+      code: 'out-of-range',
+      message: `${pointer}: property names must not contain a NUL character (it cannot be bound to SQL text)`,
+      path: pointer,
+    })
+    return null
+  }
   const schema = readKey(properties, name)
   if (schema === THREW) {
     state.errors.push({
@@ -774,7 +785,17 @@ function walkProperty(
           continue
         }
         const entryPointer = `${pointer}/enum/${index}`
-        if (typeof entry === 'string' || typeof entry === 'boolean') {
+        if (typeof entry === 'string') {
+          if (entry.includes('\u0000')) {
+            state.errors.push({
+              code: 'out-of-range',
+              message: `${entryPointer}: must not contain a NUL character (it cannot be bound to SQL text)`,
+              path: entryPointer,
+            })
+          } else {
+            values.push(entry)
+          }
+        } else if (typeof entry === 'boolean') {
           values.push(entry)
         } else if (typeof entry === 'number') {
           if (!Number.isFinite(entry)) {

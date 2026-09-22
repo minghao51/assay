@@ -35,6 +35,11 @@ class FakeProvider implements GridDataProvider {
   /** Accepted filter pushes, in order (`null` entries = clears). */
   readonly filterCalls: (FilterSpec | null)[] = []
   rejectQueryPushes = false
+  /** When true, every span fails (a persistently failing provider, AR-D4). */
+  failAllSpans = false
+  /** When true, `sort`/`filter` return held promises (resolution via `releaseQueryPush`, AR-D5). */
+  holdQueryPushes = false
+  private pendingQueryPushes: Array<{ resolve: () => void }> = []
   private pending: Array<{
     range: CellRange
     /** Frozen at request time, like a real provider's computed page. */
@@ -48,11 +53,13 @@ class FakeProvider implements GridDataProvider {
       rowCount?: number
       manual?: boolean
       failStartRows?: ReadonlySet<number>
+      failAllSpans?: boolean
     } = {},
   ) {
     this.totalRowCount = options.rowCount ?? 1000
     this.manual = options.manual ?? false
     this.failStartRows = options.failStartRows ?? new Set()
+    this.failAllSpans = options.failAllSpans ?? false
   }
 
   async rowCount(): Promise<number> {
@@ -81,7 +88,7 @@ class FakeProvider implements GridDataProvider {
         this.pending.push({ range, page, resolve, reject })
       })
     }
-    if (this.failStartRows.has(range.startRow)) {
+    if (this.failAllSpans || this.failStartRows.has(range.startRow)) {
       throw new Error(`provider failure at row ${String(range.startRow)}`)
     }
     return this.pageFor(range)
@@ -91,6 +98,9 @@ class FakeProvider implements GridDataProvider {
     if (this.rejectQueryPushes) throw new Error('sort rejected by provider')
     this.sortSpec = spec
     this.sortCalls.push(spec)
+    if (this.holdQueryPushes) {
+      await new Promise<void>((resolve) => this.pendingQueryPushes.push({ resolve }))
+    }
   }
 
   async filter(spec: FilterSpec | null): Promise<void> {
@@ -101,6 +111,16 @@ class FakeProvider implements GridDataProvider {
       this.filterList.push(spec)
     }
     this.filterCalls.push(spec)
+    if (this.holdQueryPushes) {
+      await new Promise<void>((resolve) => this.pendingQueryPushes.push({ resolve }))
+    }
+  }
+
+  /** Release one held `sort`/`filter` push (FIFO by default) — AR-D5 pin control. */
+  releaseQueryPush(index = 0): void {
+    const [entry] = this.pendingQueryPushes.splice(index, 1)
+    if (entry === undefined) throw new Error(`no pending query push at index ${String(index)}`)
+    entry.resolve()
   }
 
   // No `updateCell`: the m4-3 contract removed the positional mutator stub
@@ -112,7 +132,7 @@ class FakeProvider implements GridDataProvider {
     const held = this.pending
     this.pending = []
     for (const entry of held) {
-      if (this.failStartRows.has(entry.range.startRow)) {
+      if (this.failAllSpans || this.failStartRows.has(entry.range.startRow)) {
         entry.reject(new Error(`provider failure at row ${String(entry.range.startRow)}`))
       } else {
         entry.resolve(entry.page)
@@ -258,6 +278,33 @@ describe('GridViewportModel — load()', () => {
     await flush()
     expect(provider.fetchLog).toEqual([])
     expect(model.getRow(0)).toEqual({ status: 'error', message: 'the dataset has no rows' })
+  })
+
+  it('load() clears the cache and bumps the epoch — stale cells are never served (AR-D6)', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+    expect(model.stats.rowsReceived).toBe(10)
+
+    // The provider's data changes underneath (a reloaded dataset).
+    provider.pageFor = (range) => ({
+      startRow: range.startRow,
+      rows: Array.from({ length: range.endRow - range.startRow }, (_, i) => [
+        range.startRow + i,
+        `fresh-${String(range.startRow + i)}`,
+      ]),
+    })
+    await model.load()
+
+    // Cache dropped synchronously by load(); the stale cells are not served.
+    expect(model.getRow(0)).toEqual({ status: 'loading' })
+    expect(model.stats.rowsReceived).toBe(0)
+    model.observeViewport(0, 9)
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'fresh-0'] })
   })
 })
 
@@ -487,6 +534,60 @@ describe('GridViewportModel — error spans and retry', () => {
       status: 'error',
       message: expect.stringContaining('expected 0'),
     })
+  })
+
+  it('a short span is a fatal contract violation, never an unbounded retry (AR-D3)', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    provider.pageFor = (range) => ({ startRow: range.startRow, rows: [[range.startRow, 'cell']] })
+    const model = new GridViewportModel(provider, { overscanRows: 0, maxSpanRows: 10 })
+    await model.load()
+    model.observeViewport(0, 29)
+    await flush()
+
+    expect(model.stats.fatalError).toContain('short span')
+    expect(model.getRow(0)).toEqual({
+      status: 'error',
+      message: expect.stringContaining('short span'),
+    })
+    // The violation never enters the retryable failed-spans path…
+    expect(model.stats.failedSpans).toBe(0)
+    // …and re-observing/retrying cannot loop on it.
+    const callsAfterFailure = model.stats.fetchCalls
+    model.retry()
+    model.observeViewport(0, 29)
+    await flush()
+    expect(model.stats.fetchCalls).toBe(callsAfterFailure)
+
+    // A refresh clears the fatal state and fetches normally again.
+    provider.pageFor = (range) => ({
+      startRow: range.startRow,
+      rows: Array.from({ length: range.endRow - range.startRow }, (_, i) => [
+        range.startRow + i,
+        `cell-${String(range.startRow + i)}`,
+      ]),
+    })
+    await model.refresh()
+    expect(model.stats.fatalError).toBeNull()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+  })
+
+  it('bounds failedSpans under a persistently failing provider, stats still report failures (AR-D4)', async () => {
+    const provider = new FakeProvider({ rowCount: 1000, failAllSpans: true })
+    const model = new GridViewportModel(provider, {
+      overscanRows: 0,
+      maxSpanRows: 1,
+      maxFailedSpans: 3,
+    })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+
+    expect(model.stats.failedSpans).toBe(3) // capped, not 10
+    expect(model.stats.failedSpans).toBeLessThanOrEqual(3)
+    expect(model.stats.fatalError).toBeNull()
+    // The most recent failures are still surfaced; evicted ones degrade to loading.
+    expect(model.getRow(9)).toEqual({ status: 'error', message: 'provider failure at row 9' })
+    expect(model.getRow(0)).toEqual({ status: 'loading' })
   })
 })
 
@@ -971,5 +1072,61 @@ describe('GridViewportModel — construction validation', () => {
   })
   it('rejects a zero or negative span cap', () => {
     expect(() => new GridViewportModel(provider, { maxSpanRows: 0 })).toThrow(RangeError)
+  })
+  it('rejects a zero or negative failed-span bound', () => {
+    expect(() => new GridViewportModel(provider, { maxFailedSpans: 0 })).toThrow(RangeError)
+  })
+})
+
+describe('GridViewportModel — overlapping query-state mutations (AR-D5)', () => {
+  it('setSort: the last requested state wins even when the older provider push resolves last', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    provider.holdQueryPushes = true
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+
+    const asc: SortSpec = { column: 'id', direction: 'asc' }
+    const desc: SortSpec = { column: 'id', direction: 'desc' }
+    const first = model.setSort(asc)
+    await flush()
+    // The first call's provider push is in flight; request the second.
+    provider.holdQueryPushes = false
+    const second = model.setSort(desc)
+    await flush()
+    // Release the OLDER push last: the superseded call must not clobber desc.
+    provider.releaseQueryPush(0)
+    await Promise.all([first, second])
+    await flush()
+
+    expect(model.sort).toEqual(desc)
+    expect(provider.sortCalls.at(-1)).toEqual(desc) // the provider serves what the model exposes
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+  })
+
+  it('setFilters: the last requested list wins and the provider serves it', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    provider.holdQueryPushes = true
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+
+    const firstList: FilterSpec[] = [{ column: 'id', predicate: 'id >= 995' }]
+    const secondList: FilterSpec[] = [{ column: 'id', predicate: 'id <= 4' }]
+    const first = model.setFilters(firstList)
+    await flush()
+    provider.holdQueryPushes = false
+    const second = model.setFilters(secondList)
+    await flush()
+    provider.releaseQueryPush(0) // release the older call's `filter(null)` push
+    await Promise.all([first, second])
+    await flush()
+
+    expect(model.filters).toEqual(secondList)
+    expect(provider.filterCalls.at(-1)).toEqual(secondList[0])
+    expect(model.totalRows).toBe(5)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
   })
 })

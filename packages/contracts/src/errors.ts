@@ -26,7 +26,7 @@ export type ContractErrorCode =
   | 'unknown-key'
   /** A value has the wrong YAML type for its key (string where boolean was required, a mapping where a list was required, …). */
   | 'wrong-type'
-  /** A number violates its domain: non-finite, a share outside [0,1], a non-integer version, `min > max`, … */
+  /** A value violates its domain: non-finite, a share outside [0,1], a non-integer version, `min > max`, an empty name, a string carrying a NUL character (unbindable in SQL text), … */
   | 'out-of-range'
   /** A written number is not exactly representable — the parse would silently alter it (`9007199254740993` → `9007199254740992`) — or its content literal is not a plain decimal spelling whose exact value can be verified (`0x1F`). The message names the written literal only, never the rounded double. v1 carries no arbitrary-precision numbers; only tagged forms the library resolves (`!!int 5`, `!!float 1.5`) are accepted, their content passes the same gate, and unresolvable tags (`!!float 2`) fail `yaml-syntax` before this check. */
   | 'imprecise-number'

@@ -68,10 +68,12 @@
  *   quantify; possessive suffixes (`a*+`) are refused
  * - character classes `[...]`/`[^...]`: ranges between single characters
  *   (escaped characters allowed as endpoints; class shorthands are not
- *   endpoints), negation, a literal `-` at the edges; `]` always closes
- *   (a literal `]` must be escaped, so `[]a]` is refused as an empty class)
+ *   endpoints), negation, a literal `-` at the edges; a `]` as the first
+ *   member is a **literal** (ECMA-262 annex B and RE2 agree: `[]a]` matches
+ *   `]` or `a`), while the empty classes `[]`/`[^]` are refused
  * - escapes: shorthands `\d \D \s \S \w \W` (in and out of classes);
- *   `\b \B` outside classes; controls `\n \t \r \f`; any escaped **ASCII
+ *   `\b \B` outside classes; controls `\n \t \r \f \v` (`\v` is the
+ *   vertical tab in both ECMA-262 and RE2); any escaped **ASCII
  *   non-alphanumeric** character as a literal
  *
  * ## Refused (each with a stable, actionable reason)
@@ -82,8 +84,8 @@
  * - backreferences and decimal escapes: the whole `\0`–`\9` class (mirrors
  *   the m5-1 checker's documented stricter-than-DuckDB policy)
  * - divergent-reading letter escapes: `\A` `\z` (RE2 anchors vs ECMA literal
- *   letters — use `^`/`$`), `\a` (bell vs literal `a`), `\v` (ECMA vertical
- *   tab vs no RE2 escape), `\cX` (ECMA control escape vs no RE2 escape)
+ *   letters — use `^`/`$`), `\a` (bell vs literal `a`), `\cX` (ECMA control
+ *   escape vs no RE2 escape)
  * - `\u`/`\x` escapes (ECMA spellings; `\u` does not exist in RE2, and
  *   `\xHH` is refused by this filter as an exotic spelling — write the
  *   character itself), `\p{…}`/`\P{…}` Unicode classes, `\Q…\E`, `\Z`,
@@ -93,8 +95,8 @@
  * - POSIX classes `[:name:]` (not part of ECMA-262 at all — a POSIX class in
  *   a JSON Schema pattern is more likely an authoring accident than intent;
  *   spell the ranges out)
- * - structural errors: unbalanced groups/classes, empty classes, trailing
- *   backslash, reversed ranges, NUL anywhere
+ * - structural errors: unbalanced groups/classes, the empty classes
+ *   `[]`/`[^]`, trailing backslash, reversed ranges, NUL anywhere
  * - group nesting deeper than {@link MAX_NESTING_DEPTH} — a filter-safety
  *   bound (recursive descent over the JS stack), not an RE2 rule; deeper
  *   patterns are refused as data rather than risking a stack-overflow throw
@@ -190,9 +192,9 @@ function scanEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
         '\\z is refused — in RE2 it is an end-of-text anchor but in ECMA-262 it reads as the literal letter "z"; use $ instead',
       )
     case 'v':
-      return refuse(
-        '\\v is refused — RE2 has no \\v escape (in ECMA-262 it is the vertical tab); write the character itself',
-      )
+      // The vertical tab in both ECMA-262 and RE2 (DuckDB 1.5.5 accepts
+      // `\v`); accepted here too (AR-V1).
+      return { kind: 'char', value: '\u000b' }
     case 'c':
       return refuse(
         '\\c is refused — RE2 has no ECMA-style control escape; write the control character or a \\u-free spelling of it',
@@ -397,10 +399,11 @@ function scanGroupName(cursor: Cursor): void {
 }
 
 /**
- * Parse a `[...]` character class (cursor sits just past `[`). Strict `]`
- * handling (RE2's own rule, mirrored from the binding-time checker): `]`
- * always terminates the class, so a literal `]` must be escaped and
- * `[]a]` is refused as an empty class.
+ * Parse a `[...]` character class (cursor sits just past `[`). A `]` as the
+ * very first member (after an optional `^`) is a literal — ECMA-262 annex B
+ * (the JSON Schema dialect) and RE2 agree (`[]a]` matches `]` or `a`),
+ * mirroring the binding-time checker. The empty classes `[]`/`[^]` remain
+ * refused (both dialects reject them).
  */
 function scanClass(cursor: Cursor): void {
   if (cursor.src[cursor.at] === '^') cursor.at += 1
@@ -411,8 +414,15 @@ function scanClass(cursor: Cursor): void {
   for (;;) {
     const ch = cursor.src[cursor.at]
     if (ch === undefined) refuse('unterminated character class')
+    if (items === 0 && ch === ']') {
+      // Leading `]` is a literal member; `[]` falls through to the
+      // unterminated-class error on the next iteration.
+      cursor.at += 1
+      items += 1
+      prevChar = ']'
+      continue
+    }
     if (ch === ']') {
-      if (items === 0) refuse('empty character class (escape a literal ] as \\])')
       cursor.at += 1
       return
     }

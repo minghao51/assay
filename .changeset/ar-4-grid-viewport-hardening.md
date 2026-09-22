@@ -1,0 +1,5 @@
+---
+'@assay/grid': patch
+---
+
+fix(ar-4): viewport-model hardening batch (AR-D3, AR-D4, AR-D5, AR-D6). `maxSpanRows` now documents the provider-clamp contract, and a provider that returns a short/misaligned page is classified as a **fatal, non-retryable** contract violation (`stats.fatalError`) instead of entering the `failedSpans` retry loop forever (`retry()`/re-observe no longer loop on it; `load()`/`refresh()` clear it) (AR-D3). `failedSpans` is bounded by a new `maxFailedSpans` option (default 256, oldest evicted first) while `stats.failedSpans` still reports the live count (AR-D4). `setSort`/`setFilters` are sequence-guarded and serialized so provider pushes apply in request order and the **last requested** state always wins — a superseded call never clobbers the newer exposed state or leaves the provider half-updated (AR-D5). `load()` now clears the cache and bumps the data epoch exactly like `refresh()`, so a reload can never serve the previous load's cells (AR-D6). Existing `stats` consumers keep their shape; the additive `fatalError` field is documented. No golden/canonical bytes change.

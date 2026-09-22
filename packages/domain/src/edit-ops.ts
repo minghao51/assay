@@ -140,9 +140,15 @@ export type EditOp =
 /**
  * Human-readable, deterministic description of one op — the m4-4 history
  * panel renders these directly. Descriptions intentionally include cell
- * values and row/column names: they are the user's own local UI, never
- * telemetry (no field of an `EditOp` may ever reach telemetry — ADR 0025).
- * NULL renders as `NULL`, never "empty"/"cleared" — a NULL cell is data.
+ * values and row/column names: they are the user's own local UI.
+ *
+ * **Privacy invariant (ADR 0025, mechanical at the definition site):** the
+ * output of this function (and of {@link formatCellValue}) embeds dataset
+ * values, so it may be rendered to the local user and never logged,
+ * persisted, telemetered, or transmitted — no field of an `EditOp` may ever
+ * reach telemetry. Callers must treat the returned string as local UI
+ * content, never as a log line. NULL renders as `NULL`, never
+ * "empty"/"cleared" — a NULL cell is data.
  */
 export function describeOp(op: EditOp): string {
   switch (op.kind) {
@@ -169,6 +175,11 @@ function formatName(name: string): string {
   return JSON.stringify(name)
 }
 
+/**
+ * Render one cell value for local UI display. **Privacy invariant (ADR
+ * 0025):** the result contains a dataset value; it is display-only and must
+ * never be logged or transmitted (see {@link describeOp}).
+ */
 function formatCellValue(value: CellValue): string {
   switch (value.kind) {
     case 'null':

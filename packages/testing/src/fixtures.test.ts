@@ -6,6 +6,24 @@ import { fixturePath } from './node'
 const categories = ['csv', 'jsonl', 'nested-json', 'parquet', 'drift', 'diff', 'llm']
 const textCategories = ['csv', 'jsonl', 'nested-json', 'llm']
 
+/**
+ * Two-way set difference for the fixture manifest (AR-F3): `missing` are
+ * manifest entries with no file on disk, `unlisted` are files on disk absent
+ * from the manifest. Kept pure so a unit can prove the converse direction is
+ * actually enforced (an unlisted parquet is caught).
+ */
+export function manifestDifferences(
+  manifestNames: readonly string[],
+  presentNames: readonly string[],
+): { readonly missing: string[]; readonly unlisted: string[] } {
+  const manifest = new Set(manifestNames)
+  const present = new Set(presentNames)
+  return {
+    missing: manifestNames.filter((name) => !present.has(name)),
+    unlisted: presentNames.filter((name) => !manifest.has(name)),
+  }
+}
+
 describe('golden fixtures manifest (docs/engineering/06-testing-security-quality.md §3)', () => {
   it('defines every fixture category from the repository structure', () => {
     for (const category of categories) {
@@ -20,7 +38,7 @@ describe('golden fixtures manifest (docs/engineering/06-testing-security-quality
     }
   })
 
-  it('parquet fixtures match the committed manifest (ADR 0038)', () => {
+  it('parquet fixtures match the committed manifest exactly (both directions, ADR 0038/AR-F3)', () => {
     const manifest = JSON.parse(readFileSync(fixturePath('parquet/manifest.json'), 'utf8')) as {
       duckdb_version: string
       files: Array<{ name: string; sha256: string; description: string }>
@@ -35,6 +53,28 @@ describe('golden fixtures manifest (docs/engineering/06-testing-security-quality
         `checksum of fixtures/parquet/${file.name} (regenerate + commit manifest deliberately via generate.sh)`,
       ).toBe(file.sha256)
     }
+    // Converse direction: every committed `.parquet` under fixtures/ must be
+    // listed, so an unlisted file can never pass unnoticed (AR-F3).
+    const present = readdirSync(fixturePath('parquet'))
+      .filter((name) => name.endsWith('.parquet'))
+      .sort()
+    const differences = manifestDifferences(
+      manifest.files.map((file) => file.name),
+      present,
+    )
+    expect(differences.missing, 'manifest entries with no file on disk').toEqual([])
+    expect(differences.unlisted, 'parquet files absent from the manifest').toEqual([])
+  })
+
+  it('manifestDifferences catches an unlisted (and a missing) parquet file (AR-F3)', () => {
+    expect(manifestDifferences(['a.parquet'], ['a.parquet', 'b.parquet'])).toEqual({
+      missing: [],
+      unlisted: ['b.parquet'],
+    })
+    expect(manifestDifferences(['a.parquet', 'gone.parquet'], ['a.parquet'])).toEqual({
+      missing: ['gone.parquet'],
+      unlisted: [],
+    })
   })
 
   it('jsonl fixtures parse line by line', () => {

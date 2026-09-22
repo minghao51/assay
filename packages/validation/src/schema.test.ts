@@ -34,6 +34,10 @@ describe('classifyColumnType — recognized canonical spellings', () => {
     ['TIME WITH TIME ZONE', 'temporal'],
     ['TIMESTAMP', 'temporal'],
     ['TIMESTAMP WITH TIME ZONE', 'temporal'],
+    // DuckDB 1.5.5 DESCRIBE sub-second-resolution spellings (AR-V4)
+    ['TIMESTAMP_S', 'temporal'],
+    ['TIMESTAMP_MS', 'temporal'],
+    ['TIMESTAMP_NS', 'temporal'],
     // uuid / json / blob
     ['UUID', 'uuid'],
     ['JSON', 'json'],
@@ -81,6 +85,9 @@ describe('classifyColumnType — arrays, nested types, unknown spellings', () =>
     'MAP(VARCHAR, INTEGER)',
     'UNION(a INTEGER, b VARCHAR)',
     'ENUM(a, b)',
+    // Recognized DESCRIBE spellings with no bindable value family in v1 (AR-V4).
+    'INTERVAL',
+    'BIT',
     'FOO',
     'varchar', // case-sensitive: aliases/lowercase are not canonical output
     'TEXT', // an alias, never engine output — refused like the m5-0 vocabulary
@@ -92,9 +99,16 @@ describe('classifyColumnType — arrays, nested types, unknown spellings', () =>
 })
 
 describe('describeUnbindableType — honest rejection classes', () => {
-  it('names arrays, nested types and unknown spellings distinctly', () => {
+  it('names arrays, nested types, recognized-unbindable and unknown spellings distinctly', () => {
     expect(describeUnbindableType('INTEGER[]')).toBe("array type 'INTEGER[]'")
     expect(describeUnbindableType('STRUCT(a INTEGER)')).toBe("nested type 'STRUCT(a INTEGER)'")
     expect(describeUnbindableType('FOO')).toBe("unknown engine type spelling 'FOO'")
+    // Recognized DESCRIBE output is never called an unknown spelling (AR-V4).
+    expect(describeUnbindableType('INTERVAL')).toBe(
+      "recognized engine type 'INTERVAL' (no bindable value family in v1)",
+    )
+    expect(describeUnbindableType('BIT')).toBe(
+      "recognized engine type 'BIT' (no bindable value family in v1)",
+    )
   })
 })
