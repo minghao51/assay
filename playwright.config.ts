@@ -9,9 +9,18 @@ const PORT_DS = Number(process.env['ASSAY_E2E_PORT_DS'] ?? 4180)
 
 export default defineConfig({
   testDir: './tests/e2e',
-  report: 'list',
+  reporter: 'list',
+  // CI gets a small retry budget (audit AR-R4, AR-R4b); local runs stay at 0
+  // so flakes surface immediately instead of being papered over.
+  retries: process.env['CI'] ? 2 : 0,
   use: {
     baseURL: `http://localhost:${PORT_WEB}`,
+    // Debug artifacts only in CI — local runs stay quiet and fast. Note:
+    // Playwright has no `only-on-failure` video mode (that value is
+    // screenshot-only); `retain-on-failure` is the video equivalent.
+    trace: process.env['CI'] ? 'on-first-retry' : 'off',
+    screenshot: process.env['CI'] ? 'only-on-failure' : 'off',
+    video: process.env['CI'] ? 'retain-on-failure' : 'off',
   },
   webServer: [
     {
