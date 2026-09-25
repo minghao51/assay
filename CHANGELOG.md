@@ -12,6 +12,15 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Docs — documentation audit + remediation (doc queue dr-0…dr-4, 2026-09-23)
+
+- Six-lane documentation audit (~55k words, every claim verified against tree/git/CI); remediation
+  landed as five tasks: front-door/truth repairs, a one-shot per-category doc renumber (legacy-path
+  redirect table in `docs/README.md`), handoff §9 converted to one-line entries with queue-row
+  authority, single-ownership dedup across the doc set (one owner per topic), an ADR index generated
+  from ADR headers with a drift check (`pnpm adr:index`), READMEs for the five publishable libraries
+  - the CLI (pack-verified), and ADR 0013 (native data contract format) accepted.
+
 ### Whole-repo audit remediation — AR queue (2026-09-22 → 2026-09-23, ar-1…ar-6)
 
 - **Security:** the CSV formula-injection bypass in the engine's BLOB export

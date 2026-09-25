@@ -1,21 +1,21 @@
 # Project Handoff — Assay
 
 **Status:** living document — the single entry point for any human or AI agent picking up this project. Updated at every milestone completion or gate passage. **This file is the slim entry point; the bulk lives in dated component files** — see §0 and §6.
-**Last updated:** 2026-09-23 (**AR queue complete & archived** — all six merged: engine security `eec593d`, web correctness `0caa73e`, docs truthfulness `78b20e4`, pure-package hardening `cbdd433`, CI hardening `b1f1df1`, publishability+CLI `f3691b8`; M0–M6 complete; **doc queue ACTIVE — C-dr landed (DM-1a/2a/3a/4b/5a/6a/7a), renumber + truth repair + process structure done (dr-0/1/3 ✅), **dr-2 ∥ dr-4 next**; roster: worker `opencode-go/deepseek-v4.1-flash`, reviewer `zai/glm-5.3-flash`)
+**Last updated:** 2026-09-23 (**AR queue complete & archived** — all six merged: engine security `eec593d`, web correctness `0caa73e`, docs truthfulness `78b20e4`, pure-package hardening `cbdd433`, CI hardening `b1f1df1`, publishability+CLI `f3691b8`; M0–M6 complete; **doc queue COMPLETE (dr-0…dr-4 all merged 2026-09-23) — docs single-sourced, §9 one-liners, ADR index generated**; roster: worker `opencode-go/deepseek-v4.1-flash`, reviewer `zai/glm-5.3-flash`)
 
 **File layout (since 2026-09-22):**
 
-| File                                                                           | Contents                                                                                        | Status             |
-| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------ |
-| [`handoff.md`](handoff.md) (this file)                                         | current state, decisions, environment, definition of done, active-queue index, recent changelog | living             |
-| [`handoff/20260923-doc-queue.md`](handoff/20260923-doc-queue.md)               | Doc queue — documentation audit remediation (dr-1…dr-4)                                         | **BLOCKED (C-dr)** |
-| [`handoff/20260921-pt0-queue.md`](handoff/20260921-pt0-queue.md)               | PT-0 queue — launch readiness (pt0-3, pt0-4 open)                                               | **ACTIVE**         |
-| [`handoff/operating-model.md`](handoff/operating-model.md)                     | multi-agent operating model (former §7; numbering 7.1–7.6 preserved)                            | living reference   |
-| [`handoff/archive/20260920-m6-queue.md`](handoff/archive/20260920-m6-queue.md) | M6 dataset diff queue                                                                           | closed             |
-| [`handoff/archive/20260919-m5-queue.md`](handoff/archive/20260919-m5-queue.md) | M5 validation & contracts queue                                                                 | closed             |
-| [`handoff/archive/20260918-m4-queue.md`](handoff/archive/20260918-m4-queue.md) | M4 editing & transforms queue                                                                   | closed             |
-| [`handoff/archive/changelog-202609.md`](handoff/archive/changelog-202609.md)   | full operation log through 2026-09-22                                                           | archived           |
-| [`handoff/archive/20260922-ar-queue.md`](handoff/archive/20260922-ar-queue.md) | AR queue — whole-repo audit remediation (all six ✅)                                            | closed             |
+| File                                                                             | Contents                                                                                        | Status           |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------- |
+| [`handoff.md`](handoff.md) (this file)                                           | current state, decisions, environment, definition of done, active-queue index, recent changelog | living           |
+| [`handoff/archive/20260923-doc-queue.md`](handoff/archive/20260923-doc-queue.md) | Doc queue — documentation audit remediation (dr-0…dr-4)                                         | closed           |
+| [`handoff/20260921-pt0-queue.md`](handoff/20260921-pt0-queue.md)                 | PT-0 queue — launch readiness (pt0-3, pt0-4 open)                                               | **ACTIVE**       |
+| [`handoff/operating-model.md`](handoff/operating-model.md)                       | multi-agent operating model (former §7; numbering 7.1–7.6 preserved)                            | living reference |
+| [`handoff/archive/20260920-m6-queue.md`](handoff/archive/20260920-m6-queue.md)   | M6 dataset diff queue                                                                           | closed           |
+| [`handoff/archive/20260919-m5-queue.md`](handoff/archive/20260919-m5-queue.md)   | M5 validation & contracts queue                                                                 | closed           |
+| [`handoff/archive/20260918-m4-queue.md`](handoff/archive/20260918-m4-queue.md)   | M4 editing & transforms queue                                                                   | closed           |
+| [`handoff/archive/changelog-202609.md`](handoff/archive/changelog-202609.md)     | full operation log through 2026-09-22                                                           | archived         |
+| [`handoff/archive/20260922-ar-queue.md`](handoff/archive/20260922-ar-queue.md)   | AR queue — whole-repo audit remediation (all six ✅)                                            | closed           |
 
 > **Old references:** "handoff §6" in completed-milestone records (roadmap §4, ADR 0041, manual-actions) now resolves to `docs/process/handoff/archive/`; "handoff §7" resolves to `handoff/operating-model.md` (same numbering).
 
@@ -111,10 +111,9 @@ it whenever a queue opens/closes, and splice its outcome rows here only as one-l
 
 ### Active
 
-| Queue                              | File                                                             | State                                           | Next action                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ---------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PT-0 — launch readiness**        | [`handoff/20260921-pt0-queue.md`](handoff/20260921-pt0-queue.md) | pt0-0…pt0-2 done                                | **pt0-3 (README front door) → pt0-4 (a11y e2e)**; serial order; human items (npm org M1, trademark M4, demo dataset O5) tracked in [manual-actions](manual-actions.md)                                                                                                                                                                                                                                            |
-| **DR — documentation remediation** | [`handoff/20260923-doc-queue.md`](handoff/20260923-doc-queue.md) | dr-0 ✅; dr-1 ✅; dr-3 ✅; **dr-2 ∥ dr-4 next** | C-dr landed 2026-09-23 (all seven rulings recorded in the queue file; **DM-4 overrode the recommendation: one-shot renumber** — executed as dr-0, per-category reading order + redirect table). Remaining order: **dr-1 (solo truth repair)** → dr-3 (process structure + §9 one-liners per DM-5a) → dr-2 (dedup; embeds DM-2a web-only G2) ∥ dr-4 (ADR 0013 accept per DM-1a, index automation, package READMEs) |
+| Queue                       | File                                                             | State            | Next action                                                                                                                                                            |
+| --------------------------- | ---------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PT-0 — launch readiness** | [`handoff/20260921-pt0-queue.md`](handoff/20260921-pt0-queue.md) | pt0-0…pt0-2 done | **pt0-3 (README front door) → pt0-4 (a11y e2e)**; serial order; human items (npm org M1, trademark M4, demo dataset O5) tracked in [manual-actions](manual-actions.md) |
 
 Non-queue work tracks (not dispatched from here): **PT-Q** QoL/performance items live in
 [`../product/04-post-mvp-track.md`](../product/04-post-mvp-track.md) §7 (q-1…q-9, pickup-ready);
@@ -122,12 +121,13 @@ Non-queue work tracks (not dispatched from here): **PT-Q** QoL/performance items
 
 ### Closed (archive)
 
-| Queue                                        | File                                                                           | Closed                          |
-| -------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------- |
-| AR — audit remediation (ar-1…ar-6)           | [`handoff/archive/20260922-ar-queue.md`](handoff/archive/20260922-ar-queue.md) | 2026-09-23 — all six ✅         |
-| M6 — dataset diff (m6-0…m6-5)                | [`handoff/archive/20260920-m6-queue.md`](handoff/archive/20260920-m6-queue.md) | 2026-09-21 — MVP M0–M6 complete |
-| M5 — validation & contracts (m5-0…m5-6)      | [`handoff/archive/20260919-m5-queue.md`](handoff/archive/20260919-m5-queue.md) | 2026-09-20                      |
-| M4 — editing & transforms (m4-0…m4-6, m4-2b) | [`handoff/archive/20260918-m4-queue.md`](handoff/archive/20260918-m4-queue.md) | 2026-09-19                      |
+| Queue                                        | File                                                                             | Closed                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------- |
+| DR — documentation remediation (dr-0…dr-4)   | [`handoff/archive/20260923-doc-queue.md`](handoff/archive/20260923-doc-queue.md) | 2026-09-23 — all five ✅        |
+| AR — audit remediation (ar-1…ar-6)           | [`handoff/archive/20260922-ar-queue.md`](handoff/archive/20260922-ar-queue.md)   | 2026-09-23 — all six ✅         |
+| M6 — dataset diff (m6-0…m6-5)                | [`handoff/archive/20260920-m6-queue.md`](handoff/archive/20260920-m6-queue.md)   | 2026-09-21 — MVP M0–M6 complete |
+| M5 — validation & contracts (m5-0…m5-6)      | [`handoff/archive/20260919-m5-queue.md`](handoff/archive/20260919-m5-queue.md)   | 2026-09-20                      |
+| M4 — editing & transforms (m4-0…m4-6, m4-2b) | [`handoff/archive/20260918-m4-queue.md`](handoff/archive/20260918-m4-queue.md)   | 2026-09-19                      |
 
 M1–M3 predate the queue-file convention; their per-task records live in
 [`archive/changelog-202609.md`](handoff/archive/changelog-202609.md) and the roadmap §4 checkboxes.
@@ -155,15 +155,11 @@ approve`/`request-changes` with mutation drills.
 
 One line per entry. **The authoritative task narratives are the queue files' status cells and the review docs — this section never re-records them.** Entry codes are append-only, globally sequential, and never reused; cite them as `§9(x)`, and resolve older codes in [`handoff/archive/changelog-202609.md`](handoff/archive/changelog-202609.md), which holds the full text. **Splice trigger (DM-5a): when a queue closes — or §9 exceeds 25 entries — splice the older one-liners into the archive; §9 keeps the codes since the most recent queue closure.**
 
+- 2026-09-23 (bs) — dr-4 merged (ADR index generator + drift check `pnpm adr:index`, template Date/Deciders, six package READMEs pack-verified, **ADR 0013 accepted per DM-1a** → 35/7; reviewer approve 0/0) — see the [doc queue](handoff/archive/20260923-doc-queue.md).
+- 2026-09-23 (br) — dr-2 merged (dedup + single ownership, DD-1…7/11–13 + DD-4 + DX-1/2; reviewer approve 0 critical/2 warnings → both fixed at integration; net −246 duplication lines) — see the [doc queue](handoff/archive/20260923-doc-queue.md).
 - 2026-09-23 (bq) — **dr-3 merged (process structure, `350f395`→main, reviewer approve 0/0; cherry-pick patch-id-identical) + two pre-existing broken ar-queue links fixed** — full narrative: doc-queue row dr-3.
 
 - 2026-09-23 (bp) — dr-1 truth repair merged (`33218cc`), resolving audit DC-1…13/15/16 + DS-9 — see the [doc queue](handoff/20260923-doc-queue.md).
 - 2026-09-23 (bo) — C-dr rulings landed and dr-0 (one-shot doc renumber) merged, unblocking the queue — see the [doc queue](handoff/20260923-doc-queue.md).
 - 2026-09-23 (bn) — whole-doc-set audit executed and the doc queue authored (initially blocked on C-dr) — see the [audit](../reviews/2026-09-23-documentation-audit.md) and [doc queue](handoff/20260923-doc-queue.md).
 - 2026-09-23 (bm) — ar-5 merged (`f3691b8`), completing the AR queue (6/6) — see the [AR queue](handoff/archive/20260922-ar-queue.md).
-- 2026-09-23 (bl) — C-ar-5 resolved (Option B: tsc project references, [ADR 0042](../adr/0042-library-builds-tsc-project-references.md)) — see the [AR queue](handoff/archive/20260922-ar-queue.md).
-- 2026-09-23 (bk) — ar-6 merged (`b1f1df1`), CI + automation hardening — see the [AR queue](handoff/archive/20260922-ar-queue.md).
-- 2026-09-22 (bj) — ar-4 merged (`cbdd433`), pure-package hardening — see the [AR queue](handoff/archive/20260922-ar-queue.md).
-- 2026-09-22 (bi) — ar-3 merged (`78b20e4`), docs truthfulness sweep — see the [AR queue](handoff/archive/20260922-ar-queue.md).
-- 2026-09-22 (bh) — ar-2 merged (`0caa73e`), web correctness batch — see the [AR queue](handoff/archive/20260922-ar-queue.md).
-- 2026-09-22 (bg) — ar-1 merged (`eec593d`), engine security + wire-gate hotfix — see the [AR queue](handoff/archive/20260922-ar-queue.md).
