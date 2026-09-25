@@ -11,6 +11,8 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "adr:index": "node scripts/generate-adr-index.mjs",
+    "adr:index:check": "node scripts/generate-adr-index.mjs --check",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",

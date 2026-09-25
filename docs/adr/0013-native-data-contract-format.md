@@ -2,7 +2,15 @@
 
 ## Status
 
-Proposed
+Accepted — 2026-09-23 (maintainer decision DM-1a)
+
+## Date
+
+Proposed 2026-09-14 → Accepted 2026-09-23
+
+## Deciders
+
+- Maintainer (decision DM-1a; doc-remediation checkpoint C-dr)
 
 ## Context
 

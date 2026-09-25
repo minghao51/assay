@@ -4,6 +4,18 @@
 
 Proposed
 
+## Date
+
+<!-- One line per status transition, oldest first — e.g. `Proposed 2026-09-23 → Accepted 2026-09-24`. -->
+
+YYYY-MM-DD
+
+## Deciders
+
+<!-- Who decided or confirmed this (names or roles). -->
+
+- <decider>
+
 ## Context
 
 What is the problem or force that requires a decision? Include the constraints that matter (product phase, users, performance, security, ecosystem). Reference related ADRs and documents.

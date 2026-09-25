@@ -4,6 +4,13 @@ ADRs capture durable product and architecture decisions.
 
 New ADRs are created from [`template.md`](template.md); see `../process/contributing.md` for the process.
 
+## Conventions
+
+- ADRs 0001–0039 predate the `Date` field: backfill dates opportunistically when an ADR is next legitimately edited — never bulk-rewrite. The same rule applies to early ADRs that lack an Alternatives section.
+- Run `pnpm adr:index` before committing an ADR change; the tables below are generated from each file's H1 and Status, and `pnpm adr:index:check` fails on drift.
+
+<!-- adr-index:begin -->
+
 ## Accepted
 
 | ADR  | Decision                                                                        |
@@ -19,6 +26,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0009 | AI Proposes; Deterministic Systems Enforce                                      |
 | 0011 | Dataset Identity and Versioning Are Logical, Not File-Based                     |
 | 0012 | Use an Edit Overlay with Transaction-Like Semantics                             |
+| 0013 | Define a Small Native Data Contract Format with Adapters                        |
 | 0014 | Dataset Change Request Is the Primary Review Artifact                           |
 | 0017 | Local Workspace Metadata Is Portable and Human-Readable                         |
 | 0019 | React, TypeScript, and Vite for Product Surfaces                                |
@@ -40,7 +48,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0038 | Golden Parquet Fixtures Are Generated with the DuckDB CLI                       |
 | 0039 | The Product Name Is Assay                                                       |
 | 0040 | Two Op Lanes in the Engine Worker (Query Lane + Registry Lane)                  |
-| 0041 | CLI Validation Runs on @duckdb/node-api Behind the Engine's `./node` Seam       |
+| 0041 | CLI validation runs on @duckdb/node-api behind the engine's `./node` seam       |
 | 0042 | Library Builds Use tsc Project References                                       |
 
 ## Proposed
@@ -48,10 +56,11 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | ADR  | Decision                                                       |
 | ---- | -------------------------------------------------------------- |
 | 0010 | Open-Core Local Product, Paid Collaboration and Governance     |
-| 0013 | Define a Small Native Data Contract Format with Adapters       |
 | 0015 | Use Capability-Based Connectors and Plugins                    |
 | 0016 | Build a Dataset-Native Grid Layer Incrementally                |
 | 0018 | Enterprise Policies Use a Declarative, Engine-Neutral Model    |
 | 0023 | Rust and DataFusion for the Future Governed Data Gateway       |
 | 0027 | TypeScript and PostgreSQL for the Initial Hosted Control Plane |
 | 0028 | Tauri Is the Preferred Future Desktop Shell                    |
+
+<!-- adr-index:end -->

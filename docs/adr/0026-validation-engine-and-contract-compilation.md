@@ -4,6 +4,8 @@
 
 Accepted
 
+0013 accepted 2026-09-23 (DM-1a) — this ADR builds on it.
+
 ## Context
 
 Contract semantics must work across Web, VS Code, CLI, CI, and future remote engines. Binding contracts directly to one library/runtime reduces portability.
