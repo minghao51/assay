@@ -21,10 +21,11 @@ This produces:
 | `wide.parquet` | multi-row-group (10 x 100 rows), nulls, low-cardinality column |
 
 plus `manifest.json` with SHA-256 checksums, the DuckDB version used, and the
-policy. Tests (`packages/testing/src/fixtures.test.ts`) verify that every
-manifest-listed file exists with a matching checksum — so regeneration is
-always a deliberate, reviewed change that updates the manifest in the same
-commit.
+policy. Tests (`packages/testing/src/fixtures.test.ts`) verify the manifest
+**bidirectionally** — every manifest-listed file exists with a matching
+checksum, and every generated Parquet file in the directory is listed — so
+regeneration is always a deliberate, reviewed change that updates the
+manifest in the same commit.
 
 ## Policy
 

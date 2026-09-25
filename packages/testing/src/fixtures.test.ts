@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { fixturePath } from './node'
 
-const categories = ['csv', 'jsonl', 'nested-json', 'parquet', 'drift', 'diff', 'llm']
+const categories = ['csv', 'jsonl', 'nested-json', 'parquet', 'llm'] // drift/diff pruned 2026-09-23 (DM-3a, dr-1)
 const textCategories = ['csv', 'jsonl', 'nested-json', 'llm']
 
 /**

@@ -12,6 +12,26 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Whole-repo audit remediation — AR queue (2026-09-22 → 2026-09-23, ar-1…ar-6)
+
+- **Security:** the CSV formula-injection bypass in the engine's BLOB export
+  path is closed — the formula-safe guard is now total over all cell families,
+  fixture-pinned (ar-1, `eec593d`).
+- **Fixed:** the web cell editor could commit an edit to the **wrong row**
+  after sort/filter churn; logical-row-key discipline is now enforced
+  end-to-end (ar-2, `0caa73e`).
+- **Hardened:** the pure packages (`@assay/domain`, `contracts`, `validation`,
+  `diff`, `grid`) — literal/clone/type hardening with golden-fixture
+  regressions; the fixture-manifest check is now bidirectional (ar-4,
+  `cbdd433`).
+- **Docs:** truthfulness sweep over the doc set (stale phase claims, dead
+  pre-rename identifiers, broken pointers) (ar-3, `78b20e4`).
+- **CI:** Dependabot (npm + actions) enabled and verified end-to-end (ar-6,
+  `b1f1df1`).
+- **Publish readiness:** the five pure libraries + the CLI compile and pack
+  cleanly via tsc project references (ADR 0042) and a real installed-CLI smoke
+  harness — publish-ready, not yet published (ar-5, `f3691b8`).
+
 ### Added — M6, dataset diff (m6-0…m6-5) — completes the MVP feature milestones
 
 - **Compare any two dataset versions, honestly.** The diff always discloses in the documented
@@ -161,7 +181,7 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 - **CI guards golden fixtures (m1-8):** the CI workflow installs a
   sha256-pinned DuckDB 1.5.5, regenerates the golden Parquet fixtures, and
   fails on any drift; the e2e job installs the CLI for on-demand fixture
-  generation. (CI has still never run remotely — no git remote configured.)
+  generation. (CI has run remotely on GitHub Actions since 2026-09-21.)
 - **Schema panel (m1-6):** the web app renders the dataset schema as a
   navigable, keyboard-accessible tree (disclosure pattern) built from a
   total DuckDB type-string parser that degrades verbatim on unknown types —

@@ -1,8 +1,15 @@
-<!-- Renumbered to 07 at integration (04-testing-security-quality.md already
-     exists). Gate G1 evidence per roadmap §5; reproduction: see the
-     "Reproducing" section below. -->
+<!--
+  Legacy numbering note: this file was docs/engineering/07-m1-benchmarks.md
+  before the 2026-09-23 per-category renumber (docs/README.md has the map).
+-->
 
 # M1 benchmark: time-to-first-row and memory on big Parquet (1.09 GiB m1-7; 10.24 GiB G1-R)
+
+**Status: G1 gate-evidence record — PASSED 2026-09-16** (maintainer, manual-actions M5) on the
+G1-R round below, which superseded the m1-7 1.09 GiB round as gate evidence. This note is also a
+**live reproduction guide**: the benchmark still runs via the env-gated e2e spec
+(`tests/e2e/bench-ttfr.spec.ts`, `DUCKDB=/tmp/duckdb`) against the still-shipped bench fixture —
+recorded numbers below are never edited; new rounds append.
 
 **Task:** M1 §6 #7 ("Measure: time-to-first-row + memory on 1 GB file; record
 results"). **Gate evidence for:** G1 — "multi-GB Parquet opens; column/filter

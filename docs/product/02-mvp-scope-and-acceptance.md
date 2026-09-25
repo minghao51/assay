@@ -58,7 +58,7 @@ Prove that developers prefer Data Workbench over notebooks, raw editors, and one
 At minimum:
 
 ```bash
-dataworkbench profile
+assay profile
 dataworkbench validate
 dataworkbench diff
 ```

@@ -28,6 +28,13 @@ version tags, or package-manager artifacts yet.
 
 ## Reporting a vulnerability
 
+> **Note (2026-09-23):** GitHub private vulnerability reporting is a
+> public-repository feature; this repository is currently **private** (public
+> flip is a tracked G0 item), so the button below may not be available yet. In
+> that case contact the maintainer privately through the GitHub account
+> (`minghao51`) — see `docs/process/manual-actions.md` M2 for the repo-status
+> record. Everything else in this section applies unchanged.
+
 **Use GitHub private vulnerability reporting for this repository** — the
 primary and preferred channel. On the repository's **Security** tab, choose
 **"Report a vulnerability"** to open a private advisory visible only to you

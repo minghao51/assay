@@ -6,7 +6,7 @@ VS Code surface (former milestone M7) out of the MVP and into this track. The
 [execution roadmap](03-execution-roadmap.md) stays canonical for sequencing and gates; this
 document details the post-MVP structure and carries the launch-readiness checklist that gate
 **G0** requires. Decision record: [roadmap §7](03-execution-roadmap.md) (D11) and
-[handoff §9](../process/handoff.md).
+[handoff §3 decision ledger](../process/handoff.md).
 
 ---
 
@@ -25,28 +25,29 @@ document details the post-MVP structure and carries the launch-readiness checkli
   top points here. Scenarios in docs 07 that reference VS Code (e.g. "open the same workflow in
   VS Code") are post-MVP acceptance criteria for PT-V, not MVP gaps.
 
-## 2. Where things stand (evidence base, 2026-09-21)
+## 2. Where things stand (evidence base, updated 2026-09-23)
 
 - **Surfaces:** web app (inspect/nested/edit/export/validate/diff), CLI (`assay validate`,
   `assay diff`), shared pure packages (`@assay/domain`, `@assay/contracts`, `@assay/validation`,
   `@assay/diff`), engine (DuckDB-WASM in the browser worker + `@duckdb/node-api` behind the
   `./node` seam for the CLI, ADR 0041), headless grid (ADR 0022), data-sources with
   capability detection. `apps/vscode` is a placeholder.
-- **Quality posture:** six gates green at every integration (vitest 1688, e2e 128 + 1 skip,
-  typecheck 18/18, build 3/3); engine conformance suite + data-source behavior suite +
+- **Quality posture:** six gates green at every integration (vitest 1772, e2e 131 + 1 skip,
+  typecheck 18/18, build 9/9); the AR queue (2026-09-22/23) closed both of its criticals; engine conformance suite + data-source behavior suite +
   seeded property suites with exact non-vacuity pins; every milestone closed with an exit
   journey asserting cross-surface agreement (M5 validation, M6 diff); adversarial
   worker/reviewer protocol for every task ([handoff operating model](../process/handoff/operating-model.md)).
 - **Not yet done (all tracked, none blocking local use):** no telemetry implementation exists
-  (design-only: ADR 0037 opt-out stance, ADR 0025 exclusions); remote **now exists** — private
+  (design authored 2026-09-21 — `../engineering/06-telemetry-design.md`, opt-out stance per
+  ADR 0037, metadata-only per ADR 0025 — **awaiting approval, C-pt0-1**); remote **now exists** — private
   [`minghao51/assay`](https://github.com/minghao51/assay), `main` pushed 2026-09-21, CI green on
   the first remote run and again after the `actions/*` SHA-pin (M2/M3 done; org-transfer +
   public flip remain maintainer calls); no npm org claim; no demo dataset; a11y CI not started.
 - **Whole-repo audit (2026-09-22):** seven-lane read-only audit of every package/app/infra
   ([report](../reviews/2026-09-22-whole-repo-implementation-audit.md)) — 2 criticals (BLOB CSV
   formula-injection bypass; web cell-editor wrong-row commit), ~35 warnings, structural gaps.
-  Correctness/security/honesty findings → the handoff **AR queue**
-  ([`20260922-ar-queue.md`](../process/handoff/20260922-ar-queue.md); ar-1…ar-6); QoL/perf/polish
+  Correctness/security/honesty findings → the handoff **AR queue** — **all six merged
+  2026-09-23, queue archived**; QoL/perf/polish
   findings → **PT-Q** (§7 below); interface/stub fate → open decision **D13** (§9).
 
 ## 3. Track structure
@@ -189,4 +190,4 @@ This document is orchestrator-owned (like the roadmap and handoff). Track tasks 
 sliced into handoff queue files ([`docs/process/handoff/`](../process/handoff/)) and executed under the
 operating-model protocol; the roadmap
 remains canonical for sequencing, and any durable/architectural decision made here gets an
-ADR (next free number: 0042). Update §2's evidence line at every milestone close.
+ADR (next free number: 0043). Update §2's evidence line at every milestone close.

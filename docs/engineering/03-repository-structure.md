@@ -32,8 +32,6 @@ assay/
 │   ├── jsonl/
 │   ├── nested-json/
 │   ├── parquet/
-│   ├── drift/
-│   ├── diff/
 │   └── llm/
 │
 ├── docs/

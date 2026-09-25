@@ -10,10 +10,8 @@ Policy (from `docs/engineering/04-testing-security-quality.md` §3):
 
 | Category | Contents |
 |---|---|
-| `csv/` | CSV/TSV, including a v1/v2 pair for diff testing |
+| `csv/` | CSV/TSV; `customers.csv` ↔ `customers-v2.csv` is the canonical row/schema diff pair (row 3 income changed, row 5 removed, row 6 added) |
 | `jsonl/` | NDJSON with nested metadata |
 | `nested-json/` | deeply nested structures |
-| `parquet/` | generated Parquet (tooling pending — decision D3) |
-| `drift/` | dataset pairs with distribution drift |
-| `diff/` | canonical pairs for row/schema diff tests |
+| `parquet/` | generated Parquet (DuckDB CLI script — see `parquet/README.md`) |
 | `llm/` | chat/eval-style records incl. deliberately malformed ones |

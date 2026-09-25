@@ -1,4 +1,10 @@
-# Data Workbench Roadmap
+# Assay Roadmap
+
+> **Naming + status (2026-09-23):** the product was named **Assay** on 2026-09-14 (ADR 0039);
+> this document predates the rename, so "Data Workbench" below means Assay. It is the vision
+> record: the phases described here as the MVP (executed as milestones M0–M6) are **complete**
+> (closed 2026-09-21). Live sequencing: [`03-execution-roadmap.md`](03-execution-roadmap.md) +
+> [`04-post-mvp-track.md`](04-post-mvp-track.md).
 
 ## 1. Product Vision
 
@@ -228,7 +234,7 @@ Example:
 ```bash
 dataworkbench validate dataset.parquet
 dataworkbench diff baseline.parquet candidate.parquet
-dataworkbench profile dataset/
+assay profile dataset/
 ```
 
 Exit criteria:

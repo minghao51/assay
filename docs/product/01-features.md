@@ -1,4 +1,11 @@
-# Data Workbench Feature Specification
+# Assay Feature Specification
+
+> **Naming + status (2026-09-23):** written pre-rename — "Data Workbench" means **Assay**
+> (ADR 0039). This is a capability specification, **not a shipping list**. Shipped today: the
+> browser workbench (inspect, nested data, edit, export, validate, diff) and the `assay` CLI
+> (profile, validate, diff) with exact cross-surface agreement. The VS Code and enterprise
+> surfaces are gated post-MVP tracks (D11; gates G3/G4). Live sequencing:
+> [`03-execution-roadmap.md`](03-execution-roadmap.md).
 
 ## 1. Feature Taxonomy
 
@@ -488,7 +495,7 @@ Primary onboarding and local-first interface.
 
 ### VS Code
 
-Primary developer workflow integration.
+Primary developer workflow integration. **Deferred to the post-MVP track (PT-V) by decision D11 — not shipped** (starts only if selected by D12).
 
 ### CLI
 
@@ -500,7 +507,7 @@ Validation, policy enforcement, and dataset-change reporting.
 
 ### Enterprise Web Workspace
 
-Collaboration, governance, audit, and administration.
+Collaboration, governance, audit, and administration. **Not shipped — gated on G3/G4** (open-core boundary, ADR 0010).
 
 ---
 

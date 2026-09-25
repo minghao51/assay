@@ -1,5 +1,12 @@
 # Documentation and Setup Review — 2026-09-14
 
+> **ARCHIVE — point-in-time record (2026-09-14). Read as history, not as open work.**
+> Dispositions shown below as "open" were settled the same day or soon after: C3 license →
+> **AGPL-3.0-or-later** (D1, ADR 0036); the fixture-generator question → **DuckDB CLI**
+> (D3, ADR 0038); §6 "decisions still needed" — 5 of the 6 decided 2026-09-14 (D1–D5); the M4
+> row references the pre-rename `@dataworkbench/*` names (product renamed **Assay**, ADR 0039).
+> Current state always: `docs/process/handoff.md`.
+
 Status: complete
 Reviewer: automated documentation/setup review (three-pass: docs review, setup review, synthesis)
 Scope: `docs/` (10 core documents + 36 ADR files), repository scaffolding, git state, tooling environment.

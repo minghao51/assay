@@ -1,5 +1,10 @@
 # Whole-Repo Implementation Audit — 2026-09-22
 
+> **Point-in-time record, pinned at `main` = `0bd01de`.** Findings with `AR-*` IDs were
+> remediated by the AR queue — all six tasks merged 2026-09-23 (handoff §6 closed table +
+> archived queue); known omissions in the §11 ownership map get an errata banner when the doc
+> queue's dr-3 lands. Read as history; current state: `docs/process/handoff.md`.
+
 **Scope:** every package, app, fixture set, and the repo infrastructure at `main` = `0bd01de`
 (post-MVP; M0–M6 complete, PT-0 partially done: pt0-0…pt0-2 merged, pt0-3/pt0-4 queued).
 **Baseline:** six gates verified green immediately before the audit — `lint` ✓,

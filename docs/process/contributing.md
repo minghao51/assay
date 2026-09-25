@@ -33,7 +33,7 @@ See [`../engineering/03-repository-structure.md`](../engineering/03-repository-s
 Quick orientation:
 
 ```text
-apps/        web (Vite/React), cli, vscode (placeholder until M7)
+apps/        web (Vite/React), cli, vscode (placeholder until PT-V)
 packages/    domain, core, ui, grid, engine*, data-sources,
              validation, diff, transforms, contracts, security,
              ai, pipeline, testing
@@ -68,11 +68,11 @@ If a core document and an ADR conflict, the ADR wins and the document must be up
 
 ## Release and versioning
 
-- All packages are `0.x.y` and `private` until publishing begins (decision D4, resolved 2026-09-14).
+- Publishing is **npm-only** (decision D10). Since ar-5 (2026-09-23, ADR 0042) the five pure libraries (`@assay/domain`, `@assay/contracts`, `@assay/validation`, `@assay/diff`, `@assay/grid`) and the CLI are publish-ready — `0.x.y`, no longer `private`, compiled via tsc project references with a pack/consumer smoke harness. The remaining 11 packages stay private workspaces; nothing publishes until the npm org claim (manual-actions, pre-G0).
 - **Changesets** manage package versions: run `pnpm changeset` in a PR that changes a workspace package and describe the change (patch/minor/major). `pnpm version-packages` consumes changesets and writes per-package changelogs.
 - Product-level narrative changes go into the root [`CHANGELOG.md`](../../CHANGELOG.md) (Keep a Changelog format).
-- The publishing workflow (npm publish, tags, GitHub Releases) is added when packages leave `private` — expected around M1–M5.
+- The publishing workflow (npm publish, tags, GitHub Releases) lands with the first tagged release — the npm org claim is the remaining gate (roadmap §6, manual-actions).
 
 ## Review gates before implementing
 
-Before starting work on editing, validation, collaboration, enterprise access, or pipelines, re-read the ADR review gates in [`project-start-checklist.md`](project-start-checklist.md). They exist to prevent re-litigating settled decisions in code.
+Before starting work on editing, validation, collaboration, enterprise access, or pipelines, re-read the ADR-gate map in [`project-start-checklist.md`](project-start-checklist.md) and check the [handoff](handoff.md) §6 index for in-flight queues. They exist to prevent re-litigating settled decisions in code.

@@ -50,7 +50,7 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### ADRs (`adr/`)
 
-See [`adr/README.md`](adr/README.md). The ADR series (0001–0042, 42 accepted) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, two-op-lane engine wiring, the Node CLI backend, the product name (Assay), tsc
+See [`adr/README.md`](adr/README.md). The ADR series (0001–0042 — 34 accepted, 8 proposed) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, two-op-lane engine wiring, the Node CLI backend, the product name (Assay), tsc
 project-reference library builds (ADR 0042), and future Rust/DataFusion/Tauri directions. New ADRs use [`adr/template.md`](adr/template.md).
 
 ## Reading Orders
@@ -72,7 +72,8 @@ engineering/02-implementation-plan
     ↓
 engineering/04-testing-security-quality
     ↓
-relevant ADRs during implementation (see process/08 review gates)
+relevant ADRs during implementation (gate map: process/project-start-checklist;
+current state + live queue: process/handoff.md §2/§6)
 ```
 
 ### For new contributors (fastest path to a PR)
@@ -82,9 +83,11 @@ product/00-roadmap (§1–2 only)
     ↓
 process/contributing
     ↓
+process/handoff (§0–§2 + §6 — current state, decisions, live queues)
+    ↓
 engineering/03-repository-structure
     ↓
-process/project-start-checklist (remaining open items)
+process/project-start-checklist (ADR-gate map)
 ```
 
 ### For long-term planning
@@ -96,7 +99,7 @@ product/00-roadmap  →  product/03-execution-roadmap  →  ADR index
 ## Current Architectural Summary
 
 ```text
-                           Data Workbench
+                              Assay
 
                  ┌──────────── Product Surfaces ────────────┐
                  │                                           │

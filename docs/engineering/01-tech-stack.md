@@ -86,6 +86,13 @@ This avoids building a custom query engine prematurely.
 | TS testing              | Vitest + Playwright + fast-check          | —                                        |
 | Rust testing            | cargo test + proptest + fuzzing           | criterion benchmarks                     |
 
+**Adoption status (2026-09-23):** this table is the recommended target stack, not a shipping list.
+Adopted and shipping today: pnpm workspaces + Turborepo, React + TypeScript, Vite, DuckDB-WASM,
+parquet-wasm, Apache Arrow, Web Workers + typed RPC, Vitest + Playwright + fast-check, and the
+TypeScript/Node CLI. Not yet adopted (recommendations only): Radix/shadcn, Tailwind, CodeMirror 6
+(the shipped SQL editor is a dependency-free textarea), Vega-Lite, Zustand, TanStack Query, and
+everything from "Desktop later" down.
+
 ---
 
 ## 4. Frontend Runtime
@@ -343,7 +350,7 @@ Use for:
 - handles,
 - recent-workspace references.
 
-Portable project semantics should remain in `.dataworkbench/` files rather than being trapped in browser storage.
+Portable project semantics should remain in `.assay/` files (ADR 0039) rather than being trapped in browser storage.
 
 ---
 
@@ -458,10 +465,10 @@ Webview
 
 Reuse:
 
-- `@dataworkbench/core`,
-- `@dataworkbench/domain`,
-- `@dataworkbench/ui`,
-- `@dataworkbench/grid`.
+- `@assay/core`,
+- `@assay/domain`,
+- `@assay/ui`,
+- `@assay/grid`.
 
 VS Code-specific adapters should provide:
 
@@ -481,9 +488,9 @@ TypeScript/Node CLI for speed of implementation and code reuse.
 Example:
 
 ```bash
-dataworkbench profile ./data
-dataworkbench validate ./data
-dataworkbench diff baseline.parquet candidate.parquet
+assay profile ./data
+assay validate ./data
+assay diff baseline.parquet candidate.parquet
 ```
 
 ### Later

@@ -1,5 +1,11 @@
 # Data Workbench Implementation Plan
 
+**Status:** living plan document. §2–§14 (M0–M6) are complete and retained as the
+delivery record; §9 (VS Code) was moved out of the MVP sequence to the post-MVP
+track (decision D11, 2026-09-21 — see [`../product/04-post-mvp-track.md`](../product/04-post-mvp-track.md));
+§17 is superseded by the pipeline track (ADR 0031/0032 + the same post-MVP doc).
+Canonical sequencing and gates live in [`../product/03-execution-roadmap.md`](../product/03-execution-roadmap.md).
+
 ## 1. Objective
 
 Build the smallest architecture that proves the product thesis while preserving the seams needed for the longer-term governed data platform.
@@ -21,7 +27,7 @@ Deliver:
 - shared TypeScript config,
 - release/version conventions.
 
-Suggested packages:
+Suggested packages (as built — 16):
 
 ```text
 apps/
@@ -42,6 +48,10 @@ packages/
   diff/
   transforms/
   contracts/
+  security/
+  ai/
+  pipeline/
+  testing/
 ```
 
 Exit criteria:
@@ -169,6 +179,10 @@ Exit criteria:
 
 ## 9. Milestone 7 — VS Code Extension
 
+> **Deferred (D11, 2026-09-21):** this milestone moved out of the MVP sequence to the
+> post-MVP track — [`../product/04-post-mvp-track.md`](../product/04-post-mvp-track.md) §5
+> (PT-V). Section retained as the original plan record.
+
 Deliver:
 
 - custom editors for supported formats,
@@ -268,6 +282,9 @@ dataset diff
 VS Code extension
 ```
 
+> 2026-09-23 update (D11): the VS Code surface no longer blocks the MVP — the MVP closed as
+> M0–M6 (see [`../product/04-post-mvp-track.md`](../product/04-post-mvp-track.md) §1).
+
 AI, collaboration, remote connectors, RLS, KMS, and enterprise governance should not block the MVP.
 
 ---
@@ -306,6 +323,11 @@ Do not collect raw dataset values.
 ---
 
 ## 17. Pipeline / DAG Implementation Track
+
+> **Superseded sequencing:** the pipeline track now lives in
+> [`../product/04-post-mvp-track.md`](../product/04-post-mvp-track.md) (PT-P, P1–P5; entry timing
+> is open decision D12) with its semantics fixed by ADR 0031/0032. This section is the original
+> plan record.
 
 The pipeline layer should begin after the local explorer, SQL, and validation primitives are stable.
 
