@@ -129,7 +129,7 @@ lanes have a single index:
 
 Created 2026-09-22 when the whole-repo audit's findings were split: everything that is
 **correctness/security/honesty remediation** went to the handoff AR queue
-([`20260922-ar-queue.md`](../process/handoff/20260922-ar-queue.md); ar-1…ar-6);
+([archived AR queue](../process/handoff/archive/20260922-ar-queue.md); ar-1…ar-6, all merged);
 everything that is **quality-of-life, performance, polish, or tooling headroom** lives here —
 as one coherent thread a fresh agent session can pick up without further triage.
 

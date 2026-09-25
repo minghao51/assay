@@ -24,7 +24,7 @@ highest-impact warnings before accepting them.
 `[PROBE]` = worker verified with a runnable probe; `[READ]` = code-reading finding, unprobed.
 
 **Finding IDs** (`AR-<area><n>`) are stable references used by the handoff **AR queue**
-([`20260922-ar-queue.md`](../process/handoff/20260922-ar-queue.md)) and the
+([archived AR queue](../process/handoff/archive/20260922-ar-queue.md)) and the
 post-MVP **PT-Q** track. Fix ownership: **AR queue** = correctness/security/honesty remediation;
 **PT-Q** = QoL/performance/polish (separate track — see `docs/product/11-post-mvp-track.md` §7).
 
