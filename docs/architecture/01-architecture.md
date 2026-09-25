@@ -160,15 +160,26 @@ Implementations:
 
 ## 7. Data Engine Abstraction
 
+**Target shape — interface exists; runtime wiring is decision D13-pending.** The interface of
+record is [`packages/engine/src/index.ts`](../../packages/engine/src/index.ts); nothing
+implements or imports it today (the real engine surface is the `@assay/engine-duckdb` client).
+The sketch below matches the code exactly:
+
 ```ts
-interface DataEngine {
+export interface DataEngine {
   open(source: DataSource): Promise<TableHandle>
-  query(sql: string): Promise<ArrowBatchStream>
-  schema(table: TableHandle): Promise<Schema>
+  query(request: QueryRequest): Promise<ArrowBatchStream>
+  schema(table: TableHandle): Promise<Array<{ name: string; type: string }>>
   profile(table: TableHandle): Promise<DatasetProfile>
-  export(table: TableHandle, format: ExportFormat, options?: ExportOptions): Promise<ReadableStream>
+  exportTable(
+    table: TableHandle,
+    format: ExportFormat,
+    options?: ExportOptions,
+  ): Promise<ReadableStream<Uint8Array>>
 }
 ```
+
+`QueryRequest` carries `sql` plus optional `limit`/`offset`.
 
 Initial engine:
 
@@ -470,7 +481,9 @@ Initial recommendations:
 - DuckDB-WASM for analytical execution.
 - Apache Arrow JS for data interchange.
 - parquet-wasm for low-level Parquet operations.
-- Monaco for SQL and structured text editing.
+- SQL/structured text editing: the shipped editor is a dependency-free textarea; CodeMirror 6
+  is the recommended upgrade once justified, Monaco only if rich language services justify its
+  cost.
 - Ajv for JSON Schema.
 - Web Workers for compute isolation.
 - OPFS / File System Access API for browser-local state.

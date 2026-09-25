@@ -66,9 +66,8 @@ investment-gated** — nothing in this track re-opens that.
 
 ## 4. PT-0 — launch readiness (the G0 checklist)
 
-G0 (roadmap §5) requires: license chosen ✅ (AGPL-3.0-or-later, ADR 0036); telemetry design
-approved (opt-out stance per ADR 0037 — first-run disclosure + `ASSAY_NO_TELEMETRY`; metadata-only per ADR 0025); security
-disclosure channel live; demo scenario passes end-to-end. The concrete remaining items:
+G0 (roadmap §5) is the canonical gate statement; the concrete remaining items below are this
+track's operational expansion of it:
 
 | #   | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Kind                      | Tracked                            |
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ---------------------------------- |
@@ -174,9 +173,8 @@ same `AR-*`-style referencing discipline.
 
 ## 8. Gated tracks (unchanged)
 
-M8 (AI dataset mode) waits on **G2** adoption evidence (repeat usage of web + VS Code,
-validation/diff actually used per privacy-safe metrics, ≥10 recurring users qualitative);
-M10 waits on **G3**; M11/M12 on **G4**. P3–P5 per roadmap §3.2 (P5 additionally requires
+M8 (AI dataset mode) waits on **G2**; M10 waits on **G3**; M11/M12 on **G4** (gate wording is
+owned by [roadmap §5](03-execution-roadmap.md#5-decision-gates)). P3–P5 per roadmap §3.2 (P5 additionally requires
 validated user demand). The gates exist precisely so these tracks never start on enthusiasm —
 no change.
 
@@ -184,11 +182,13 @@ no change.
 
 | ID  | Decision                                                                                                                                                                  | Options / notes                                                                                                                                                                                                                                                                                                                                                                                             | Target                                        |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| D12 | First post-MVP engineering track after PT-0                                                                                                                               | (a) PT-V VS Code (completes the original MVP vision, another surface for G2 evidence) vs (b) PT-P P1 pipeline (opens the quality/publish story; T3 foundations are stable)                                                                                                                                                                                                                                  | first lane after G0 items land                |
-| D2  | Telemetry event schema + sampling (design tail)                                                                                                                           | self-hosted minimal collector decided; schema/sampling open                                                                                                                                                                                                                                                                                                                                                 | G0                                            |
 | D13 | Fate of the `@assay/engine` `DataEngine` abstraction + the 7 stub packages                                                                                                | (a) delete `packages/engine` until a second engine exists (docs 05/AGENTS corrected to match); (b) realign the interface to the real client shape + a type-level pin; (c) keep as aspirational spec. Stub packages (`ai`/`core`/`pipeline`/`security`/`transforms`/`ui`/`engine-parquet`): keep as track placeholders or prune from the workspace until their track starts. Audit finding AR-D7 (report §5) | before ar-3 edits the docs that describe them |
 | —   | Demo dataset curation start                                                                                                                                               | hybrid decided; needs a maintainer go + source-data pick                                                                                                                                                                                                                                                                                                                                                    | G0 (demo scenario)                            |
 | —   | ar-5 publishability checkpoint (C-ar-5) — **RESOLVED 2026-09-23: Option B, tsc project references (ADR 0042)**; npm org claim (M1, human) still open before first publish | before ar-5 dispatches                                                                                                                                                                                                                                                                                                                                                                                      |
+
+Open decision rows D2 (telemetry vendor/sampling) and D12 (first post-MVP track) are owned by
+the [roadmap §7 decision backlog](03-execution-roadmap.md#7-decision-backlog); this table keeps
+only the decisions unique to the post-MVP track (D13) and its checkpoints.
 
 ## 10. Maintenance
 

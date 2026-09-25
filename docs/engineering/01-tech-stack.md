@@ -226,29 +226,13 @@ The grid should be modernized incrementally behind our own interfaces.
 
 ### DuckDB-WASM
 
-Use as the first analytical engine for:
+Use as the first analytical engine for SQL, filters, sorts, joins, aggregation, profiling,
+Parquet/CSV/JSON querying, and multi-file logical datasets.
 
-- SQL,
-- filters,
-- sorts,
-- joins,
-- aggregation,
-- profiling,
-- Parquet/CSV/JSON querying,
-- multi-file logical datasets.
-
-Keep it behind:
-
-```ts
-interface DataEngine {
-  open(source: DataSource): Promise<TableHandle>
-  query(request: QueryRequest): Promise<ArrowBatchStream>
-  schema(table: TableHandle): Promise<Schema>
-  profile(table: TableHandle): Promise<DatasetProfile>
-}
-```
-
-This abstraction exists because browser WASM constraints should not become product constraints.
+It stays behind the `DataEngine` interface; the authoritative target shape, its D13-pending
+status, and the exact interface text live in
+[architecture/01 §7](../architecture/01-architecture.md#7-data-engine-abstraction). That
+abstraction exists because browser WASM constraints should not become product constraints.
 
 ---
 
@@ -356,24 +340,10 @@ Portable project semantics should remain in `.assay/` files (ADR 0039) rather th
 
 ## 12. Editor Layer
 
-Recommended initial choice: **CodeMirror 6**.
-
-Use for:
-
-- SQL,
-- YAML contracts,
-- JSON,
-- policy expressions,
-- transformation recipes.
-
-Why:
-
-- modular,
-- lightweight relative to Monaco,
-- strong editor state model,
-- easy embedding.
-
-Re-evaluate Monaco if richer IDE-style language services become central.
+**Shipped today: a dependency-free textarea** (`apps/web/src/sql/SqlPanel.tsx`). **Recommended
+upgrade: CodeMirror 6** — modular, lightweight relative to Monaco — for SQL, YAML contracts,
+JSON, policy expressions, and transformation recipes, adopted once the editing surface justifies
+it. **Alternative: Monaco**, only if richer IDE-style language services become central.
 
 ---
 

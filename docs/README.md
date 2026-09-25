@@ -136,11 +136,10 @@ Future enterprise:
 
 ## Product Principle
 
-The project should win on:
-
-> dataset understanding, validation, comparison, repair, review, and governance
-
-rather than on rebuilding commodity infrastructure such as query engines, cryptography, storage systems, or generic charting.
+Assay should win on dataset understanding, validation, comparison, repair, review, and governance
+rather than on rebuilding commodity infrastructure such as query engines, cryptography, storage
+systems, or generic charting. The full vision statement is owned by
+[product/00-roadmap.md §1](product/00-roadmap.md#1-product-vision).
 
 ## Legacy document numbering (renumbered 2026-09-23, decision DM-4b)
 

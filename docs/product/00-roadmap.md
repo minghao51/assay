@@ -113,43 +113,8 @@ Exit criteria:
 
 Goal: create the free utility developers adopt.
 
-Supported formats:
-
-- Parquet,
-- JSONL / NDJSON,
-- JSON,
-- CSV / TSV,
-- Arrow / Feather.
-
-Core capabilities:
-
-- drag-and-drop and file picker,
-- schema inspection,
-- row browsing,
-- nested data inspection,
-- search,
-- filtering,
-- sorting,
-- SQL,
-- column statistics,
-- null/distinct counts,
-- type inference,
-- basic charting,
-- file metadata,
-- export and conversion,
-- client-side execution.
-
-Editing:
-
-- cell editing,
-- row insertion,
-- row deletion,
-- rename column,
-- cast type,
-- fill values,
-- find/replace,
-- drop column,
-- add computed column.
+Capabilities: [product/01 §2–§6](01-features.md#2-understand) — the inspector (formats, grid,
+nested views, schema, profiling, SQL) plus editing/repair and export.
 
 Important constraint:
 
@@ -167,24 +132,9 @@ Exit criteria:
 
 Goal: move from file inspection to dataset engineering.
 
-Capabilities:
-
-- dataset-level object model,
-- multi-file datasets,
-- partitioned datasets,
-- schema consistency checks,
-- schema drift detection,
-- dataset diff,
-- row diff,
-- distribution diff,
-- duplicate detection,
-- null drift,
-- transformation history,
-- reusable transformation recipes,
-- validation rules,
-- invalid-row explorer,
-- repair actions,
-- reproducible SQL or declarative transforms.
+Capabilities: [product/01 §3–§4](01-features.md#3-validate) (validation, contracts,
+invalid-row explorer; dataset/row/schema/distribution diff) and
+[§9.1–§9.2](01-features.md#9-dataset-level-features) (directory-as-dataset, dataset versioning).
 
 Directory support:
 
@@ -247,47 +197,12 @@ Exit criteria:
 
 Goal: become especially strong for modern ML and LLM data workflows.
 
-Supported semantic dataset patterns:
-
-- OpenAI messages,
-- Anthropic messages,
-- ShareGPT,
-- Alpaca,
-- instruction/input/output,
-- prompt/completion,
-- TRL datasets,
-- Hugging Face datasets,
-- eval JSONL,
-- agent traces,
-- tool-call traces.
-
-Capabilities:
-
-- conversation view,
-- turn validation,
-- role validation,
-- structured-output checks,
-- tool-call validation,
-- token statistics,
-- duplicate prompt detection,
-- near-duplicate detection,
-- malformed record detection,
-- context length analysis,
-- eval-result comparison,
-- prompt/response drift,
-- leakage checks,
-- PII scanning.
-
-AI assistance should focus on dataset engineering:
-
-- schema mapping,
-- quality rule suggestions,
-- transformation suggestions,
-- anomaly explanations,
-- repair proposals,
-- semantic field classification.
-
-AI recommendations must resolve into deterministic rules or transformations before execution.
+Capabilities: [product/01 §7–§8](01-features.md#7-ai--ml-dataset-features) — semantic dataset
+recognition, conversation viewer, LLM diagnostics (role/structured-output/tool-call checks,
+duplicate and near-duplicate detection, token and context analysis, leakage/PII scanning),
+evaluation comparison, and AI assistance. The governing principle: AI proposes; deterministic
+systems enforce (recommendations must resolve into reviewable rules or transformations before
+execution).
 
 Exit criteria:
 
@@ -297,39 +212,11 @@ Exit criteria:
 
 ### Phase 5 — Team Workspaces
 
-Goal: introduce monetizable collaboration.
-
-Workspace capabilities:
-
-- shared datasets,
-- dataset versions,
-- comments,
-- saved views,
-- shared SQL,
-- shared validation rules,
-- shared contracts,
-- shared transformations,
-- review workflows,
-- approvals,
-- ownership,
-- dataset change requests.
-
-Core concept:
-
-## Dataset Change Request
-
-A dataset change request should summarize:
-
-- rows added / removed / changed,
-- schema changes,
-- quality changes,
-- drift,
-- privacy findings,
-- validation findings,
-- AI/ML evaluation changes,
-- reviewer decisions.
-
-This becomes the dataset equivalent of a pull request.
+Goal: introduce monetizable collaboration. The phase adds shared datasets and versions,
+comments, saved views, shared SQL/rules/contracts/transformations, review workflows, approvals,
+ownership, and dataset change requests. Capabilities: [product/01 §9.3](01-features.md#93-dataset-change-request)
+(DCR) and [§10](01-features.md#10-governance-features) (ownership, governed sharing). The
+dataset change request is the dataset equivalent of a pull request.
 
 Exit criteria:
 
@@ -381,59 +268,14 @@ Exit criteria:
 
 ### Phase 7 — Enterprise Control Plane
 
-Goal: support regulated and large-scale enterprise usage.
-
-Identity:
-
-- SSO / SAML,
-- SCIM,
-- RBAC,
-- ABAC,
-- groups,
-- service identities.
-
-Governance:
-
-- central policy registry,
-- central contract registry,
-- privacy policies,
-- retention policies,
-- audit logs,
-- lineage,
-- approvals.
-
-Security:
-
-- row-level policies,
-- column masking,
-- encryption metadata,
-- BYOK,
-- KMS integration,
-- private networking,
-- VPC deployment,
-- on-prem deployment.
-
-Connectors:
-
-- S3,
-- Azure Data Lake Storage,
-- GCS,
-- Snowflake,
-- Databricks,
-- BigQuery,
-- Postgres,
-- Hugging Face.
-
-Enterprise AI:
-
-- configurable providers,
-- local models,
-- company-approved endpoints,
-- AI access policies,
-- schema-only AI mode,
-- raw-row access controls,
-- PII restrictions,
-- prompt and action auditability.
+Goal: support regulated and large-scale enterprise usage. The phase spans identity
+(SSO/SAML, SCIM, RBAC/ABAC, groups, service identities), central policy and contract registries,
+privacy/retention policy, audit and lineage, approvals, row/column controls, encryption metadata
+with BYOK/KMS, private/VPC/on-prem deployment, connectors (S3, ADLS, GCS, Snowflake, Databricks,
+BigQuery, Postgres, Hugging Face), and enterprise AI governance (configurable/local providers,
+approved endpoints, schema-only mode, raw-row access controls, prompt/action auditability).
+Capabilities: [product/01 §10–§12](01-features.md#10-governance-features). Connector and
+control-plane architecture: [architecture/01 §14](../architecture/01-architecture.md#14-enterprise-architecture).
 
 Exit criteria:
 

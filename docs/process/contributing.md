@@ -9,37 +9,13 @@ This document covers developer setup, commands, conventions, and process. For pr
 
 ## Setup
 
-```bash
-pnpm install        # install all workspace dependencies
-pnpm dev            # start the web app (Vite)
-```
-
-Everything else runs from the repository root:
-
-| Command                             | What it does                                       |
-| ----------------------------------- | -------------------------------------------------- |
-| `pnpm build`                        | Build all buildable packages/apps (Turborepo)      |
-| `pnpm typecheck`                    | TypeScript check across all packages               |
-| `pnpm lint`                         | ESLint across the repo                             |
-| `pnpm test`                         | Unit/property tests (Vitest)                       |
-| `pnpm test:watch`                   | Vitest in watch mode                               |
-| `pnpm test:e2e`                     | Playwright E2E (build first; CI installs browsers) |
-| `pnpm format` / `pnpm format:check` | Prettier                                           |
+Install dependencies and start the dev server with the root scripts `pnpm install` and
+`pnpm dev`. The full command table (install, dev, build, gates, e2e, format, changeset,
+fixture regeneration) is owned by [AGENTS.md § Commands](../../AGENTS.md#commands).
 
 ## Repository layout
 
-See [`../engineering/03-repository-structure.md`](../engineering/03-repository-structure.md) for the authoritative layout and package responsibilities.
-
-Quick orientation:
-
-```text
-apps/        web (Vite/React), cli, vscode (placeholder until PT-V)
-packages/    domain, core, ui, grid, engine*, data-sources,
-             validation, diff, transforms, contracts, security,
-             ai, pipeline, testing
-fixtures/    golden datasets (see fixtures/README.md)
-docs/        product, architecture, engineering, process, reviews, adr
-```
+See [`../engineering/03-repository-structure.md`](../engineering/03-repository-structure.md) for the authoritative layout and package responsibilities. In brief: `apps/` (web, cli, vscode placeholder), `packages/` (16 domain-to-testing packages), `fixtures/` (golden datasets, see `fixtures/README.md`), and `docs/`.
 
 ## Dependency rules (enforced by lint where practical)
 

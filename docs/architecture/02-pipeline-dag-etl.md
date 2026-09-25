@@ -12,15 +12,12 @@ The product should not attempt to rebuild dbt, SQLMesh, Dagster, Airflow, or dlt
 
 > Own the pipeline model and UX. Reuse SQL and existing transformation/orchestration ecosystems.
 
-Separate five concerns:
-
-1. logical pipeline,
-2. transformation execution,
-3. orchestration,
-4. ingestion,
-5. governance.
-
-Do not collapse them into one runtime.
+The five concerns — logical pipeline, transformation execution, orchestration, ingestion, and
+governance — stay separate and are never collapsed into one runtime. These are decided by
+[ADR 0029](../adr/0029-sql-first-pipeline-semantics.md),
+[ADR 0030](../adr/0030-owned-pipeline-ir.md),
+[ADR 0032](../adr/0032-separate-transformation-dag-from-orchestration.md), and
+[ADR 0034](../adr/0034-ingestion-is-a-separate-capability.md).
 
 ## 3. Conceptual Architecture
 
@@ -68,20 +65,10 @@ Ingestion is orthogonal:
 
 ## 4. SQL-First Transformation Model
 
-SQL is the canonical execution target for relational transformations such as:
-
-- filter,
-- select/projection,
-- rename,
-- cast,
-- join,
-- aggregate,
-- deduplicate,
-- window operations,
-- pivot/unpivot,
-- nested extraction where supported.
-
-A visual operation must be inspectable as SQL.
+SQL is the canonical execution target for relational transformations (filter, select, rename,
+cast, join, aggregate, deduplicate, windows, pivot/unpivot, nested extraction) — decision:
+[ADR 0029](../adr/0029-sql-first-pipeline-semantics.md). A visual operation must be inspectable
+as SQL.
 
 ```text
 Customers
@@ -108,13 +95,13 @@ WHERE c.country = 'SG'
 GROUP BY c.customer_id;
 ```
 
-SQL is preferred because it is portable, inspectable, versionable, composable, and compatible with DuckDB, databases, warehouses, dbt, and SQLMesh.
+SQL's portability, inspectability, and Git-friendliness are recorded in
+[ADR 0029](../adr/0029-sql-first-pipeline-semantics.md).
 
 ## 5. Pipeline IR
 
-SQL text itself is not the complete pipeline source of truth. Data Workbench owns a portable Pipeline IR.
-
-Example:
+SQL text alone is not the complete pipeline source of truth: the product owns a portable
+Pipeline IR — decision [ADR 0030](../adr/0030-owned-pipeline-ir.md). Example:
 
 ```yaml
 version: 1
@@ -168,7 +155,9 @@ nodes:
     requires: [quality]
 ```
 
-The IR must remain declarative, serializable, engine-neutral, human-readable, Git-friendly, and usable by Web, VS Code, CLI, and enterprise services.
+The IR's required properties (declarative, serializable, engine-neutral, human-readable,
+Git-friendly, and shared by Web, VS Code, CLI, and enterprise services) are stated in
+[ADR 0030](../adr/0030-owned-pipeline-ir.md).
 
 ## 6. Node Types
 
@@ -203,17 +192,10 @@ This prevents the visual builder from becoming a restrictive proprietary DSL.
 
 ## 8. Materialization Model
 
-Nodes may declare a logical materialization mode:
-
-- `ephemeral`
-- `view`
-- `table`
-- `cache`
-- `incremental`
-- `export`
-- `publish`
-
-Local mapping:
+Nodes declare one of the logical modes decided in
+[ADR 0033](../adr/0033-materialization-is-logical-and-backend-mapped.md)
+(`ephemeral`, `view`, `table`, `cache`, `incremental`, `export`, `publish`). Backends map them
+to their own mechanisms; the local mapping is:
 
 | Logical mode | DuckDB/local behavior    |
 | ------------ | ------------------------ |
@@ -243,46 +225,34 @@ The local runner is not a general-purpose scheduler.
 
 ## 10. dbt Integration
 
-dbt is a first-class compatibility target, not a core browser dependency.
-
-Future support should include:
-
-- inspect/import dbt projects,
-- visualize models and sources,
-- understand lineage,
-- map compatible tests/contracts,
-- export compatible models and YAML,
-- optionally invoke dbt in suitable environments.
-
-Unsupported Jinja/macros should be preserved rather than silently rewritten.
+dbt is a first-class compatibility target, not a core browser dependency — decision
+[ADR 0031](../adr/0031-dbt-sqlmesh-as-compatibility-and-execution-adapters.md). Support evolves
+toward project inspection/import, lineage visualization, compatible test/contract mapping, and
+export, with optional execution in suitable environments; unsupported Jinja/macros are preserved
+rather than silently rewritten.
 
 ## 11. SQLMesh Integration
 
-SQLMesh is both an architectural reference and a potential execution adapter.
-
-Concepts worth borrowing include:
-
-- environments,
-- plans,
-- model changes,
-- audits,
-- table diff,
-- impact analysis,
-- incremental models.
-
-Data Workbench's Dataset Change Request remains the product-owned review primitive.
+SQLMesh is both an architectural reference and a potential execution adapter — decision
+[ADR 0031](../adr/0031-dbt-sqlmesh-as-compatibility-and-execution-adapters.md). Concepts worth
+borrowing include environments, plans, model changes, audits, table diff, impact analysis, and
+incremental models. Data Workbench's Dataset Change Request remains the product-owned review
+primitive.
 
 ## 12. Ingestion and dlt
 
-Ingestion remains separate from transformation.
-
-Simple local sources are handled directly through DataSource adapters and DuckDB registration.
-
-Complex API/SaaS/database extraction may use connectors or external ingestion engines such as dlt rather than rebuilding pagination, incremental loading, and schema evolution.
+Ingestion remains separate from transformation — decision
+[ADR 0034](../adr/0034-ingestion-is-a-separate-capability.md). Simple local sources are handled
+directly through DataSource adapters and DuckDB registration; complex API/SaaS/database
+extraction uses connectors or external engines such as dlt rather than rebuilding pagination,
+incremental loading, and schema evolution.
 
 ## 13. Orchestration and Dagster
 
-Production orchestration is introduced only when workflows require schedules, retries, backfills, sensors, event triggers, cross-system tasks, or notifications.
+Production orchestration is introduced only when workflows require schedules, retries,
+backfills, sensors, triggers, or cross-system tasks — the logical DAG stays separate from
+scheduling (decision
+[ADR 0032](../adr/0032-separate-transformation-dag-from-orchestration.md)).
 
 ```text
 Pipeline
@@ -385,7 +355,9 @@ Incremental semantics belong to node/materialization configuration, not the visu
 
 ## 19. Data Quality as a DAG Primitive
 
-Validation is visible in the data flow:
+Validation and publish gates are first-class pipeline semantics — decision
+[ADR 0035](../adr/0035-data-quality-and-publish-gates-are-first-class-dag-nodes.md). Validation
+is visible in the data flow:
 
 ```text
 Source -> Transform -> Validate -> Publish

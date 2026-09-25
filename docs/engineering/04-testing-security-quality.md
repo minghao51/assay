@@ -152,26 +152,11 @@ Expected future controls:
 
 ## 8. Privacy-Safe Observability
 
-Allowed examples:
-
-```text
-operation=profile
-format=parquet
-duration_ms=840
-size_bucket=1-5GB
-success=true
-```
-
-Disallowed:
-
-- filenames where sensitive,
-- raw SQL results,
-- cell values,
-- prompts contained in dataset rows,
-- emails,
-- identifiers,
-- user dataset schema if configured as private.
-
+What telemetry may and may not contain is an absolute boundary decided by
+[ADR 0025](../adr/0025-telemetry-and-data-privacy-boundary.md) (metadata-only; dataset
+contents, query results, secrets, and PII excluded); the consent/opt-out mechanics are
+[ADR 0037](../adr/0037-telemetry-opt-out-consent.md). The concrete event schema and privacy
+arguments are designed in [engineering/06-telemetry-design.md](06-telemetry-design.md).
 Enterprise deployments should support telemetry disablement.
 
 ---

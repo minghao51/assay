@@ -26,16 +26,10 @@ pnpm install   # requires Node >= 22 (see .node-version); pnpm via corepack
 pnpm dev       # start the web app
 ```
 
-| Command                             | Purpose                                                    |
-| ----------------------------------- | ---------------------------------------------------------- |
-| `pnpm build`                        | Build all buildable packages/apps                          |
-| `pnpm typecheck`                    | TypeScript check across the monorepo                       |
-| `pnpm lint`                         | ESLint (incl. package dependency-boundary rules)           |
-| `pnpm test`                         | Unit tests (Vitest)                                        |
-| `pnpm test:e2e`                     | Playwright E2E                                             |
-| `pnpm format`                       | Prettier                                                   |
-| `pnpm changeset`                    | Record a releasable change (with PRs that change packages) |
-| `bash fixtures/parquet/generate.sh` | Regenerate Parquet golden fixtures (needs DuckDB CLI)      |
+Every other task is a root script: `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test`
+(unit), `pnpm test:e2e` (Playwright), `pnpm format`, `pnpm changeset`, and
+`bash fixtures/parquet/generate.sh` (regenerate Parquet fixtures). The full command table with
+descriptions is the single source of truth at [AGENTS.md § Commands](AGENTS.md#commands).
 
 ## Documentation
 
@@ -53,12 +47,15 @@ Start at [`docs/README.md`](docs/README.md). Highlights:
 
 ```text
 apps/        web (Vite/React), cli, vscode (placeholder until PT-V)
-packages/    domain, core, ui, grid, engine, engine-duckdb, engine-parquet,
-             data-sources, validation, diff, transforms, contracts,
-             security, ai, pipeline, testing
+packages/    domain, core, ui, grid, engine*, data-sources,
+             validation, diff, transforms, contracts, security,
+             ai, pipeline, testing
 fixtures/    golden datasets for tests
 docs/        product / architecture / engineering / process / reviews / adr
 ```
+
+Authoritative layout and package responsibilities live in
+[engineering/03-repository-structure.md](docs/engineering/03-repository-structure.md).
 
 ## Contributing
 

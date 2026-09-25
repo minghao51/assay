@@ -8,14 +8,14 @@ queued until the maintainer approves this design.**
 
 Related sources of truth (this document does not re-decide them):
 
-- [ADR 0025](../adr/0025-telemetry-and-data-privacy-boundary.md) — absolute exclusions:
-  never dataset contents, sensitive filenames, raw SQL results, cell values, or PII.
+- [ADR 0025](../adr/0025-telemetry-and-data-privacy-boundary.md) — the single source of truth
+  for the absolute exclusions (what telemetry must never include).
 - [ADR 0037](../adr/0037-telemetry-opt-out-consent.md) — opt-out consent: on by default,
   first-run disclosure, in-product toggle, `ASSAY_NO_TELEMETRY`.
 - [ADR 0001](../adr/0001-local-first-default.md) — local-first default; data never leaves the machine.
 - [ADR 0039](../adr/0039-product-name-assay.md) — product rename to Assay (the `DATAWORKBENCH_`
   spelling in ADR 0037 maps to the current `ASSAY_` prefix; see §6.1).
-- [docs 06 §8](04-testing-security-quality.md) — privacy-safe observability examples.
+- [docs 06 §8](04-testing-security-quality.md) — privacy-safe observability boundary.
 - [docs 04 §15](02-implementation-plan.md) — product-validation metrics this design serves.
 - [roadmap §5/§7](../product/03-execution-roadmap.md) — G0/G2 gates and the D2 decision ledger.
 - [post-MVP track §4](../product/04-post-mvp-track.md) — PT-0 launch-readiness checklist item 1.
