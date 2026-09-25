@@ -40,14 +40,16 @@ Start at [`docs/README.md`](docs/README.md). Highlights:
 - [MVP scope and acceptance criteria](docs/product/02-mvp-scope-and-acceptance.md)
 - [Architecture](docs/architecture/01-architecture.md) · [Pipeline/DAG/ETL](docs/architecture/02-pipeline-dag-etl.md)
 - [Tech stack](docs/engineering/01-tech-stack.md) · [Repository structure](docs/engineering/03-repository-structure.md)
-- [ADRs](docs/adr/README.md) (42 records: 34 accepted, 8 proposed)
+- [ADRs](docs/adr/README.md) (42 records: 35 accepted, 7 proposed)
 - [Documentation & setup review (2026-09-14)](docs/reviews/2026-09-14-documentation-and-setup-review.md)
 
 ## Repository layout
 
 ```text
 apps/        web (Vite/React), cli, vscode (placeholder until PT-V)
-packages/    domain, core, ui, grid, engine*, data-sources,
+packages/    domain, core, ui, grid, engine family
+             (engine + engine-duckdb + engine-parquet),
+             data-sources,
              validation, diff, transforms, contracts, security,
              ai, pipeline, testing
 fixtures/    golden datasets for tests

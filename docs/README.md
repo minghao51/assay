@@ -50,7 +50,7 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### ADRs (`adr/`)
 
-See [`adr/README.md`](adr/README.md). The ADR series (0001–0042 — 34 accepted, 8 proposed) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, two-op-lane engine wiring, the Node CLI backend, the product name (Assay), tsc
+See [`adr/README.md`](adr/README.md). The ADR series (0001–0042 — 35 accepted, 7 proposed) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, two-op-lane engine wiring, the Node CLI backend, the product name (Assay), tsc
 project-reference library builds (ADR 0042), and future Rust/DataFusion/Tauri directions. New ADRs use [`adr/template.md`](adr/template.md).
 
 ## Reading Orders

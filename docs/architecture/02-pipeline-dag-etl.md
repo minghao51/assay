@@ -155,8 +155,8 @@ nodes:
     requires: [quality]
 ```
 
-The IR's required properties (declarative, serializable, engine-neutral, human-readable,
-Git-friendly, and shared by Web, VS Code, CLI, and enterprise services) are stated in
+The IR's required properties (declarative, serializable, engine-neutral, Git-friendly,
+and shared by Web, VS Code, CLI, and enterprise services) are stated in
 [ADR 0030](../adr/0030-owned-pipeline-ir.md).
 
 ## 6. Node Types
