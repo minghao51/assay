@@ -79,7 +79,7 @@ import type { DiffReportFormat } from './diff/diff-export'
 /**
  * App phases. `ready` holds the composed grid: adapter (engine client) →
  * provider (`GridDataProvider`) → headless model → virtualized DOM renderer
- * (docs/architecture/02-architecture.md §8). Only the table id, row count,
+ * (docs/architecture/01-architecture.md §8). Only the table id, row count,
  * and column count are shown — never the picked file's name (ADR 0025).
  *
  * m3-5: the ready phase also wires the one-click nested actions.

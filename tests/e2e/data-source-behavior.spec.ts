@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 // Task T3 (handoff §6): the data-source behavior suite lives in @assay/testing
-// (docs/engineering/05-repository-structure.md §4) and is parameterized over a
+// (docs/engineering/03-repository-structure.md §4) and is parameterized over a
 // DataSourceBehaviorSubject. This spec runs every scenario against the REAL
 // BrowserFileSource in Chromium through the data-sources harness
 // (packages/data-sources/harness): genuine OPFS-staged FileSystemFileHandles

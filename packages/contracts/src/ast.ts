@@ -98,7 +98,7 @@
  * - `minRows`/`maxRows` — bounds on the dataset's row count.
  *
  * Purity: types + total helpers only — no React, no browser APIs, no engine
- * or `@assay/*` imports (docs/engineering/05-repository-structure.md §3,
+ * or `@assay/*` imports (docs/engineering/03-repository-structure.md §3,
  * lint-enforced).
  */
 

@@ -122,7 +122,7 @@
  * the round trip is *exact* (the re-parsed AST equals the produced one).
  *
  * Purity: no React, no browser APIs, no engine or `@assay/*` imports
- * (docs/engineering/05-repository-structure.md §3, lint-enforced).
+ * (docs/engineering/03-repository-structure.md §3, lint-enforced).
  */
 
 import { CONTRACT_FORMAT } from './ast.js'

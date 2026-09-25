@@ -13,4 +13,4 @@ pnpm dev
 
 Before implementing a major area (editing, validation, collaboration,
 enterprise access, pipelines), check the ADR review gates in
-[docs/process/08-project-start-checklist.md](docs/process/08-project-start-checklist.md).
+[docs/process/project-start-checklist.md](docs/process/project-start-checklist.md).

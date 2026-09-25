@@ -2,7 +2,7 @@
 
 Adapters that produce `DataHandle`s from files, directories, and (later)
 remote systems. The `DataSource`/`DataHandle`/`DataSourceMetadata` interfaces
-mirror docs/architecture/02-architecture.md §6.
+mirror docs/architecture/01-architecture.md §6.
 
 Two entry points:
 

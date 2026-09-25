@@ -172,7 +172,7 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   Chromium: time-to-first-row ~0.3 s (picker→first row ~2 s), filtered
   full-scan ~2.3 s, sequential windows ~0.23 s, main-thread heap 4 MB of a
   3.6 GB limit. Numbers, methodology, and honest multi-GB extrapolation in
-  `docs/engineering/07-m1-benchmarks.md`; a multi-GB re-run remains open
+  `docs/engineering/05-m1-benchmarks.md`; a multi-GB re-run remains open
   before G1 sign-off.
 
 - **Decisions recorded (2026-09-14):** AGPL-3.0-or-later license for the open
@@ -190,7 +190,7 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   shared TypeScript config, ESLint with dependency-boundary rules, Prettier,
   Vitest, Playwright E2E, GitHub Actions CI (verify + e2e), golden text
   fixtures, root README/CONTRIBUTING/SECURITY.
-- Canonical execution roadmap (`docs/product/10-execution-roadmap.md`) with
+- Canonical execution roadmap (`docs/product/03-execution-roadmap.md`) with
   phase↔milestone↔ADR mapping, decision gates G0–G4, risk register, decision
   backlog.
 - Documentation reorganized into `docs/{product,architecture,engineering,process,reviews}`

@@ -1,4 +1,4 @@
-<!-- Renumbered to 07 at integration (06-testing-security-quality.md already
+<!-- Renumbered to 07 at integration (04-testing-security-quality.md already
      exists). Gate G1 evidence per roadmap §5; reproduction: see the
      "Reproducing" section below. -->
 
@@ -7,7 +7,7 @@
 **Task:** M1 §6 #7 ("Measure: time-to-first-row + memory on 1 GB file; record
 results"). **Gate evidence for:** G1 — "multi-GB Parquet opens; column/filter
 queries stream; grid stays responsive; no data leaves the browser"
-([roadmap §5](../product/10-execution-roadmap.md)), with risk R1 (browser
+([roadmap §5](../product/03-execution-roadmap.md)), with risk R1 (browser
 memory ceilings — measure early) and R4 (DuckDB-WASM startup cost) in scope.
 
 **G1 record: PASSED 2026-09-16** (maintainer, manual-actions M5) on the G1-R round

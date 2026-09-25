@@ -2,7 +2,7 @@
  * Row-window validation and clamping for `fetchRange` (task M1-4).
  *
  * The engine serves *visible-window sized* Arrow slices, never the whole
- * dataset (docs/architecture/02-architecture.md §8: the grid requests only
+ * dataset (docs/architecture/01-architecture.md §8: the grid requests only
  * visible or nearby ranges). To keep that guarantee structural, every window
  * is validated and clamped against `MAX_RANGE_ROWS` on both sides of the
  * worker boundary: the client clamps before sending (fast, honest errors) and

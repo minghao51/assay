@@ -2,7 +2,7 @@
 
 Shared test datasets for unit, property, conformance, and E2E tests.
 
-Policy (from `docs/engineering/06-testing-security-quality.md` §3):
+Policy (from `docs/engineering/04-testing-security-quality.md` §3):
 
 - Every bug involving a specific dataset shape results in a minimal fixture plus a regression test.
 - Fixtures must never contain real or sensitive data — synthetic data only.

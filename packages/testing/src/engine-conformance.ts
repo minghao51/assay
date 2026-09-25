@@ -1,5 +1,5 @@
 /**
- * Data-engine conformance suite (docs/engineering/05-repository-structure.md §4).
+ * Data-engine conformance suite (docs/engineering/03-repository-structure.md §4).
  *
  * Mandate: every DataEngine implementation passes the same conformance suite,
  * so engines can evolve (or be added) without changing product behavior. The

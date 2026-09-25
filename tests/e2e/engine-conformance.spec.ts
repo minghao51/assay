@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 // Task T1 (handoff §6): the data-engine conformance suite lives in
-// @assay/testing (docs/engineering/05-repository-structure.md §4) and is
+// @assay/testing (docs/engineering/03-repository-structure.md §4) and is
 // parameterized over an EngineConformanceSubject. This spec runs every
 // scenario against the REAL DuckDB-WASM client in Chromium: the harness
 // (packages/engine-duckdb/harness) hosts the DuckDB subject adapter and

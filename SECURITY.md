@@ -140,7 +140,7 @@ Each of these is a property you can test or hold us to:
 2. **Dataset values are untrusted content.** Cell values render as text
    only — no HTML or script execution — and CSV exports are neutralized
    against formula injection ([AGENTS.md](AGENTS.md);
-   [docs 06 §5](docs/engineering/06-testing-security-quality.md)).
+   [docs 06 §5](docs/engineering/04-testing-security-quality.md)).
 3. **We never invent cryptographic primitives.** Assay uses established
    patterns — TLS, storage and envelope encryption, KMS, and WebCrypto — and
    does not roll its own cryptography
@@ -149,12 +149,12 @@ Each of these is a property you can test or hold us to:
    forbids row or cell values, raw SQL results, sensitive filenames, and PII;
    only operational metadata is allowed
    ([ADR 0025](docs/adr/0025-telemetry-and-data-privacy-boundary.md);
-   [docs 06 §8](docs/engineering/06-testing-security-quality.md)).
+   [docs 06 §8](docs/engineering/04-testing-security-quality.md)).
    Telemetry is opt-out, with a first-run disclosure and an in-product toggle
    ([ADR 0037](docs/adr/0037-telemetry-opt-out-consent.md)).
 5. **Raw-row access for AI is opt-in** and AI output becomes an explicit,
    reviewable artifact before it is applied — the model never directly mutates
-   data ([docs 06 §4](docs/engineering/06-testing-security-quality.md);
+   data ([docs 06 §4](docs/engineering/04-testing-security-quality.md);
    [ADR 0009](docs/adr/0009-ai-proposes-deterministic-systems-enforce.md)).
 
 ## License

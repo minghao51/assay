@@ -2,7 +2,7 @@
  * @assay/data-sources — adapters that produce data handles from
  * files, directories, and (later) remote systems.
  *
- * Interface from docs/architecture/02-architecture.md §6. Implementations:
+ * Interface from docs/architecture/01-architecture.md §6. Implementations:
  * BrowserFileSource (M1-3); planned: BrowserDirectorySource,
  * VSCodeWorkspaceSource (M1/M7), HuggingFaceSource, S3Source, ADLSSource,
  * SnowflakeSource, DatabricksSource (gated, M11 — ADR 0015).

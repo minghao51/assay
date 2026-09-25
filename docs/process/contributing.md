@@ -1,6 +1,6 @@
 # Contributing to Assay
 
-This document covers developer setup, commands, conventions, and process. For product direction see [`../product/00-roadmap.md`](../product/00-roadmap.md); for the current delivery plan see [`../product/10-execution-roadmap.md`](../product/10-execution-roadmap.md).
+This document covers developer setup, commands, conventions, and process. For product direction see [`../product/00-roadmap.md`](../product/00-roadmap.md); for the current delivery plan see [`../product/03-execution-roadmap.md`](../product/03-execution-roadmap.md).
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ Everything else runs from the repository root:
 
 ## Repository layout
 
-See [`../engineering/05-repository-structure.md`](../engineering/05-repository-structure.md) for the authoritative layout and package responsibilities.
+See [`../engineering/03-repository-structure.md`](../engineering/03-repository-structure.md) for the authoritative layout and package responsibilities.
 
 Quick orientation:
 
@@ -53,7 +53,7 @@ docs/        product, architecture, engineering, process, reviews, adr
 - **TypeScript**: strict mode is non-negotiable (see `tsconfig.base.json`). No `any` without a comment explaining why.
 - **Formatting**: Prettier (no semicolons, single quotes, 100 cols). Formatting is not review content — run `pnpm format`.
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `perf:`).
-- **Tests**: every bug fix for a dataset-shape issue adds a minimal golden fixture + regression test (docs `06-testing-security-quality.md` §3).
+- **Tests**: every bug fix for a dataset-shape issue adds a minimal golden fixture + regression test (docs `04-testing-security-quality.md` §3).
 - **Privacy**: never add telemetry that includes dataset contents, filenames where sensitive, raw SQL results, cell values, or PII (ADR 0025).
 
 ## Architecture Decision Records
@@ -75,4 +75,4 @@ If a core document and an ADR conflict, the ADR wins and the document must be up
 
 ## Review gates before implementing
 
-Before starting work on editing, validation, collaboration, enterprise access, or pipelines, re-read the ADR review gates in [`08-project-start-checklist.md`](08-project-start-checklist.md). They exist to prevent re-litigating settled decisions in code.
+Before starting work on editing, validation, collaboration, enterprise access, or pipelines, re-read the ADR review gates in [`project-start-checklist.md`](project-start-checklist.md). They exist to prevent re-litigating settled decisions in code.

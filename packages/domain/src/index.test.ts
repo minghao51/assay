@@ -14,7 +14,7 @@ import type {
   Review,
 } from './index'
 
-describe('domain model types (docs/architecture/02-architecture.md §5)', () => {
+describe('domain model types (docs/architecture/01-architecture.md §5)', () => {
   it('declares the core aggregates without any runtime dependencies', () => {
     expectTypeOf<DataProduct>().not.toBeAny()
     expectTypeOf<Dataset>().not.toBeAny()

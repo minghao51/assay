@@ -10,7 +10,7 @@ products and an enterprise data control plane.
 
 **Status: pre-MVP.** Milestone M0 (repository bootstrap) is complete; the next
 milestone is M1 — the local file explorer (virtualized grid + DuckDB-WASM
-worker). See the [execution roadmap](docs/product/10-execution-roadmap.md).
+worker). See the [execution roadmap](docs/product/03-execution-roadmap.md).
 
 **Picking the project up (handoff/onboarding)? Start with the
 [project handoff](docs/process/handoff.md)** — current state, decisions,
@@ -37,10 +37,10 @@ pnpm dev       # start the web app
 Start at [`docs/README.md`](docs/README.md). Highlights:
 
 - [Product roadmap (vision, phases 0–7)](docs/product/00-roadmap.md)
-- [Execution roadmap (canonical sequencing, gates, risks)](docs/product/10-execution-roadmap.md)
-- [MVP scope and acceptance criteria](docs/product/07-mvp-scope-and-acceptance.md)
-- [Architecture](docs/architecture/02-architecture.md) · [Pipeline/DAG/ETL](docs/architecture/09-pipeline-dag-etl.md)
-- [Tech stack](docs/engineering/03-tech-stack.md) · [Repository structure](docs/engineering/05-repository-structure.md)
+- [Execution roadmap (canonical sequencing, gates, risks)](docs/product/03-execution-roadmap.md)
+- [MVP scope and acceptance criteria](docs/product/02-mvp-scope-and-acceptance.md)
+- [Architecture](docs/architecture/01-architecture.md) · [Pipeline/DAG/ETL](docs/architecture/02-pipeline-dag-etl.md)
+- [Tech stack](docs/engineering/01-tech-stack.md) · [Repository structure](docs/engineering/03-repository-structure.md)
 - [ADRs](docs/adr/README.md) (35 decisions)
 - [Documentation & setup review (2026-09-14)](docs/reviews/2026-09-14-documentation-and-setup-review.md)
 

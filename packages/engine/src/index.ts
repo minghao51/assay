@@ -3,9 +3,9 @@
  *
  * Every engine implementation (engine-duckdb, engine-parquet, future
  * DataFusion/native engines) passes the same conformance suite
- * (docs/engineering/05-repository-structure.md §4) and stays behind this
+ * (docs/engineering/03-repository-structure.md §4) and stays behind this
  * interface so browser WASM constraints never become product constraints
- * (docs/engineering/03-tech-stack.md §7, ADR 0002/0020).
+ * (docs/engineering/01-tech-stack.md §7, ADR 0002/0020).
  */
 import type { DataSource } from '@assay/data-sources'
 
@@ -126,7 +126,7 @@ export interface ExportOptions {
   partitionBy?: string[]
 }
 
-/** The engine contract (docs/architecture/02-architecture.md §7). */
+/** The engine contract (docs/architecture/01-architecture.md §7). */
 export interface DataEngine {
   open(source: DataSource): Promise<TableHandle>
   query(request: QueryRequest): Promise<ArrowBatchStream>

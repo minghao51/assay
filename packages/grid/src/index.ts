@@ -5,7 +5,7 @@
  * viewport coordinates, selection, editing state, keyboard commands,
  * clipboard, and annotations; rendering stays replaceable behind it. The
  * grid requests only visible or nearby ranges and must never materialize
- * the full dataset in UI state (docs/architecture/02-architecture.md §8).
+ * the full dataset in UI state (docs/architecture/01-architecture.md §8).
  *
  * M1-5: the placeholder `GridDataProvider` row shape became the explicit
  * structural `GridDataPage`, the provider gained `rowCount()` (totals are

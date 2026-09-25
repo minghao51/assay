@@ -2,7 +2,7 @@
 /**
  * assay — the Data Workbench CLI (D10 npm-only; compiled per ADR 0042).
  *
- * Commands (docs/product/07-mvp-scope-and-acceptance.md §2):
+ * Commands (docs/product/02-mvp-scope-and-acceptance.md §2):
  *   assay validate <path> --contract <file>   (m5-4)
  *   assay diff <a> <b> (--key <column>… | --infer)  (m6-3)
  *   assay profile <path>                       (ar-5 / AR-C4)

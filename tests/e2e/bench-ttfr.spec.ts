@@ -15,7 +15,7 @@ import os from 'node:os'
 //
 // (pnpm passes positional args through verbatim — do NOT add `--`, which
 // pnpm 11 swallows and the whole suite runs; harmless but slow.)
-// (the full suite honors the same env; see docs/engineering/07-m1-benchmarks.md
+// (the full suite honors the same env; see docs/engineering/05-m1-benchmarks.md
 // for methodology, results, and reproduction).
 //
 // Fixture size is env-tunable via ASSAY_E2E_BIG_ROWS (default 16M rows ≈

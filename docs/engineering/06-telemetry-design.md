@@ -15,10 +15,10 @@ Related sources of truth (this document does not re-decide them):
 - [ADR 0001](../adr/0001-local-first-default.md) — local-first default; data never leaves the machine.
 - [ADR 0039](../adr/0039-product-name-assay.md) — product rename to Assay (the `DATAWORKBENCH_`
   spelling in ADR 0037 maps to the current `ASSAY_` prefix; see §6.1).
-- [docs 06 §8](06-testing-security-quality.md) — privacy-safe observability examples.
-- [docs 04 §15](04-implementation-plan.md) — product-validation metrics this design serves.
-- [roadmap §5/§7](../product/10-execution-roadmap.md) — G0/G2 gates and the D2 decision ledger.
-- [post-MVP track §4](../product/11-post-mvp-track.md) — PT-0 launch-readiness checklist item 1.
+- [docs 06 §8](04-testing-security-quality.md) — privacy-safe observability examples.
+- [docs 04 §15](02-implementation-plan.md) — product-validation metrics this design serves.
+- [roadmap §5/§7](../product/03-execution-roadmap.md) — G0/G2 gates and the D2 decision ledger.
+- [post-MVP track §4](../product/04-post-mvp-track.md) — PT-0 launch-readiness checklist item 1.
 
 ---
 
@@ -501,7 +501,7 @@ Assay sends anonymous usage metadata by default: which commands you run, coarse
 counts and durations, success/failure, and the app/engine version. It never
 sends your data, file names, SQL, or cell values. Disable with
 ASSAY_NO_TELEMETRY=1 (or `assay --no-telemetry`). This notice is shown once.
-See docs/engineering/08-telemetry-design.md.
+See docs/engineering/06-telemetry-design.md.
 ```
 
 Disclosure rules for the future implementation:
@@ -688,7 +688,7 @@ Defaults are proposed so these do not block; the orchestrator/maintainer may ove
 | OQ7  | Retirement window for the `DATAWORKBENCH_NO_TELEMETRY` alias                                                                                                        | Accept as alias for one release, then retire                                      |
 | OQ8  | Drop `session_token`?                                                                                                                                               | No — needed for session caps/dedup; ephemeral, fixed grammar                      |
 | OQ9  | Elevate the "typed schema is the privacy mechanism / no free-form strings" rule to an ADR?                                                                          | Candidate for a durable ADR; this design keeps it as red line R2 pending approval |
-| OQ10 | Document inconsistency to fix outside this task: `docs/product/11-post-mvp-track.md` §4 item 1 says "opt-in stance per ADR 0025" while ADR 0037/D2a are **opt-out** | Orchestrator should correct that wording (not in this task's allowed path)        |
+| OQ10 | Document inconsistency to fix outside this task: `docs/product/04-post-mvp-track.md` §4 item 1 says "opt-in stance per ADR 0025" while ADR 0037/D2a are **opt-out** | Orchestrator should correct that wording (not in this task's allowed path)        |
 
 **ADR note.** No `docs/adr/0042-*.md` was drafted. Every hard commitment here
 (opt-out, exclusions, self-hosted minimal collector, metadata-only allowlist) is already

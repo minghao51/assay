@@ -12,7 +12,7 @@
  * `quotedIdentifier`/`sqlStringLiteral` conventions; the code is deliberately
  * in-package because `@assay/validation` must not depend on an engine
  * implementation (lint-enforced purity, docs/engineering/
- * 05-repository-structure.md §3).
+ * 03-repository-structure.md §3).
  *
  * ## The contract, for the m5-2 executor
  *

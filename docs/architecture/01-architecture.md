@@ -457,7 +457,7 @@ docs/
   adr/
 ```
 
-Package scope: all workspace packages use the `@assay/*` npm scope; the repository/directory name is `assay`; the display name is "Assay" (ADR 0039). See `05-repository-structure.md` for the authoritative layout.
+Package scope: all workspace packages use the `@assay/*` npm scope; the repository/directory name is `assay`; the display name is "Assay" (ADR 0039). See `03-repository-structure.md` for the authoritative layout.
 
 ---
 
@@ -504,4 +504,4 @@ SQL is the canonical target for relational transformations. The Pipeline IR addi
 
 Transformation DAG semantics remain separate from scheduling/orchestration.
 
-See `09-pipeline-dag-etl.md` and ADRs 0029-0035.
+See `02-pipeline-dag-etl.md` and ADRs 0029-0035.

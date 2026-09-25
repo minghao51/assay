@@ -24,7 +24,7 @@ export function manifestDifferences(
   }
 }
 
-describe('golden fixtures manifest (docs/engineering/06-testing-security-quality.md §3)', () => {
+describe('golden fixtures manifest (docs/engineering/04-testing-security-quality.md §3)', () => {
   it('defines every fixture category from the repository structure', () => {
     for (const category of categories) {
       expect(existsSync(fixturePath(category)), `fixtures/${category}`).toBe(true)

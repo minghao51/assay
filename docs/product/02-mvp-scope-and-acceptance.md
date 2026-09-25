@@ -1,8 +1,8 @@
 # Data Workbench MVP Scope and Acceptance Criteria
 
 > **2026-09-21 (post-MVP note):** the MVP shipped as **M0–M6** (web + CLI surfaces; see
-> `10-execution-roadmap.md` §4). By maintainer decision D11 the VS Code surface moved to the
-> **post-MVP track** (`11-post-mvp-track.md` §5) — this document keeps its original wording;
+> `03-execution-roadmap.md` §4). By maintainer decision D11 the VS Code surface moved to the
+> **post-MVP track** (`04-post-mvp-track.md` §5) — this document keeps its original wording;
 > the VS Code inclusion below and scenario 11 are now PT-V acceptance criteria, not MVP gaps.
 > Historical name note: documents written before 2026-09-14 say "Data Workbench" — same
 > product (ADR 0039, now **Assay**).

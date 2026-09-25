@@ -1,6 +1,6 @@
 /**
  * The BrowserFileSource adapter for the data-source behavior suite in
- * `@assay/testing` (task T3; docs/engineering/05-repository-structure.md §4).
+ * `@assay/testing` (task T3; docs/engineering/03-repository-structure.md §4).
  *
  * Dependency direction: implementations import the testing package — never
  * the reverse — so the suite stays implementation-agnostic and a future

@@ -9,7 +9,7 @@ making changes. Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md).
 repair, transform, govern Parquet/JSONL/JSON/CSV/Arrow). **MVP complete
 (M0–M6, 2026-09-21); post-MVP track underway** (PT-0 launch readiness to G0;
 VS Code/pipeline/hardening tracks — see
-[docs/product/11-post-mvp-track.md](docs/product/11-post-mvp-track.md)).
+[docs/product/04-post-mvp-track.md](docs/product/04-post-mvp-track.md)).
 TypeScript + DuckDB-WASM + Arrow; browser-native; **data never leaves the
 user's machine by default**.
 
@@ -29,14 +29,14 @@ implement and approve the same change.
 1. `docs/process/handoff.md` — current state, decision ledger, environment
    quirks, and the concrete next tasks (active queues live in
    `docs/process/handoff/<yyyymmdd>-*.md`). Start here.
-2. `docs/product/10-execution-roadmap.md` — what to build next, gates, risks,
+2. `docs/product/03-execution-roadmap.md` — what to build next, gates, risks,
    and the **decision backlog (§7)**: never re-decide something recorded there
    or in an ADR.
 3. `docs/adr/README.md` — architecture decisions. If a doc and an ADR
    conflict, the ADR wins; update the doc in the same PR.
-4. `docs/engineering/05-repository-structure.md` — package layout and
+4. `docs/engineering/03-repository-structure.md` — package layout and
    dependency rules.
-5. `docs/product/07-mvp-scope-and-acceptance.md` — in/out of MVP scope.
+5. `docs/product/02-mvp-scope-and-acceptance.md` — in/out of MVP scope.
 
 ## Commands
 

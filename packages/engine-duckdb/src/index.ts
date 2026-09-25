@@ -31,8 +31,8 @@
  * strings (`profile-classify.ts`, exotic types degrade gracefully), and
  * returned as plain JSON-able data — no Arrow transport needed.
  *
- * Ownership and dependency rules: docs/engineering/05-repository-structure.md.
- * Delivery sequencing: docs/product/10-execution-roadmap.md.
+ * Ownership and dependency rules: docs/engineering/03-repository-structure.md.
+ * Delivery sequencing: docs/product/03-execution-roadmap.md.
  */
 export {
   DuckDbEngineClient,

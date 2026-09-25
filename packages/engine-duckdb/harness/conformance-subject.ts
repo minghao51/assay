@@ -1,6 +1,6 @@
 /**
  * The engine-duckdb adapter for the data-engine conformance suite in
- * `@assay/testing` (T1; docs/engineering/05-repository-structure.md §4).
+ * `@assay/testing` (T1; docs/engineering/03-repository-structure.md §4).
  *
  * Dependency direction: implementations import the testing package — never
  * the reverse — so the suite stays engine-agnostic and a later engine

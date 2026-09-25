@@ -3,7 +3,7 @@
  *
  * The grid is a view, never the dataset (ADR 0003/0022). It communicates with
  * any data backend through `GridDataProvider` and must never materialize the
- * full dataset in UI state (docs/architecture/02-architecture.md §8): the
+ * full dataset in UI state (docs/architecture/01-architecture.md §8): the
  * provider serves schema, the total row count, and visible-window sized row
  * pages — nothing more.
  *
