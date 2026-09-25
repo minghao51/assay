@@ -29,6 +29,8 @@ claim (orchestrator assigns, marks in-progress)
 
 ### 7.3 Reviewer checklist (per task)
 
+**Sync note:** [`AGENTS.md`](../../../AGENTS.md) "Hard rules" is authoritative; this checklist paraphrases it — update both together.
+
 - [ ] All gates green with pasted command evidence (`lint/typecheck/test/build`; e2e if web-visible).
 - [ ] Conventional Commit; changeset present if any package changed.
 - [ ] No new `any` without an explanatory comment; `pnpm format:check` clean.
@@ -64,19 +66,18 @@ exercised for M2 (7 tasks) and M3 (6 tasks) with 4 request-changes loops, 3 prov
 interruptions, and zero lost work.
 
 **Agents** (user scope, `~/.pi/agent/agents/`): `worker`, `reviewer` (also `planner`/`scout`,
-unused so far). **Model roster (pinned in frontmatter, 2026-09-19):** `worker` = `zai/glm-5.3-flash`;
-`reviewer` = `openai-codex/gpt-5.6-sol` (thinking medium; adversarial requirements-over-implementation
-prompt; bash is verification-only — gates + temporary mutants, clean tree required). Maintainer
-direction; the originally requested `gpt-5.3-sol`/`gpt-5.3-codex` variants are not supported on the
-ChatGPT Codex lane (`-sol` exists only as 5.6; `spark` is plan-gated). Fallback for agents without a
-`model:` = `zai/glm-5.3-flash`. Cross-model independence restored (different providers for worker
-and reviewer). Known provider limits: zai 5-hour 429 windows; OpenAI credit exhaustion —
-check availability before dispatching. Dispatch one subagent at a time (provider rate limits);
-parallel _tasks_ run in separate git worktrees instead.
-**Update 2026-09-19 (m5-2):** Codex lane hit a usage-limit block mid-milestone; maintainer
-instruction — reviews run on `zai/glm-5.3-flash` too (fresh session, same adversarial
-verification-only protocol). Provider diversity suspended; session-level independence (fresh
-context, never the implementing session) remains mandatory and carried the m5-2 approval.
+unused so far). **Current roster (re-pinned 2026-09-20):** `worker` = `opencode-go/deepseek-v4.1-flash`
+(OpenCode Go lane); `reviewer` = `zai/glm-5.3-flash` (fresh session, adversarial
+requirements-over-implementation prompt; bash is verification-only — gates + temporary mutants,
+clean tree required; never the implementing session). **Fallback for agents without a `model:` pin
+= `zai/glm-5.3-flash`.** Known provider limits: zai 5-hour 429 windows; OpenAI credit exhaustion;
+OpenCode Go lane limits — check availability before dispatching. Dispatch one subagent at a time
+(provider rate limits); parallel _tasks_ run in separate git worktrees instead.
+**Roster history:** GLM → `openai-codex/gpt-5.6-sol` → GLM (provider-diversity suspended 2026-09-19
+after a Codex usage-limit block) → deepseek-v4.1-flash worker switch 2026-09-20; per-episode
+rosters are recorded in this file's git history.
+
+**Queue format (canonical):** queue files use the 3-column shape `| task | scope/done-when | status/narrative |` (the AR and doc queues); the M4–M6-era 4-column shape is historical.
 
 **Per-task artifact set** (written by the orchestrator before dispatch, in `/tmp`):
 `/tmp/mX-N-worker-brief.md` → on request-changes: `/tmp/mX-N-fix-brief.md` (exact reviewer
@@ -109,11 +110,6 @@ product-narrative changes) → remove worktree + branch → tree clean.
 **Interrupted-session adoption** (429s hit mid-worker): successor worker is told exactly which
 uncommitted artifacts exist; it verifies prior-session work itself (never blindly trusts or
 discards), fixes defects, and proceeds; the reviewer audits the adoption explicitly.
-
-**Update 2026-09-20 (m6-1):** maintainer instruction — worker = `opencode-go/deepseek-v4.1-flash`
-(OpenCode Go lane), reviewer = `zai/glm-5.3-flash`; both agents re-pinned in frontmatter. m6-1
-straddled the switch: its worker and round-1 reviewer ran zai GLM; the fix worker ran
-deepseek-v4.1-flash and the fresh re-reviewer GLM — cross-provider independence restored.
 
 **Baseline before any queue execution**: six gates green on `main` from a clean tree; counts
 recorded so every round's merged deltas are accounted (M3 close: 484 unit / 71 e2e + 1 skip / 74

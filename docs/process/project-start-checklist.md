@@ -1,26 +1,13 @@
-# Project Start Checklist
+# Project Start Checklist — ADR-gate map
 
-Updated 2026-09-14 after the repository bootstrap (see `../reviews/2026-09-14-documentation-and-setup-review.md`). Checked items are complete; remaining items are next actions.
+**Purpose:** the evergreen map of ADR review gates. Before implementing editing, validation,
+hosted collaboration, enterprise data access, or pipeline work, review the ADRs listed below —
+they prevent re-litigating settled decisions in code. The bootstrap "Before First Feature PR"
+checklist (all items completed during M1) was pruned when this file became the gate map; process
+history lives in the [handoff changelog](handoff/archive/changelog-202609.md). Referenced by
+[contributing.md](contributing.md) as "the ADR-gate map".
 
-## Before First Feature PR
-
-- [x] Create pnpm/Turborepo monorepo.
-- [x] Create `apps/web`, `apps/vscode`, `apps/cli`.
-- [x] Create core packages from `../engineering/03-repository-structure.md`.
-- [x] Add TypeScript project references/path aliases. _(Source-export packages with `moduleResolution: bundler`; revisit as buildable packages when needed.)_
-- [x] Add ESLint/formatter policy.
-- [x] Add Vitest.
-- [x] Add Playwright.
-- [x] Add GitHub Actions for typecheck, lint, unit tests, build.
-- [x] Add ADR link in root README.
-- [x] Add fixture directory.
-- [x] Define `DataSource`, `DataEngine`, and `GridDataProvider` interfaces.
-- [ ] Implement one browser file source.
-- [ ] Spike DuckDB-WASM worker initialization.
-- [ ] Return first Arrow batch.
-- [ ] Render first virtualized grid.
-- [ ] Measure time-to-first-row and memory.
-- [ ] Confirm no source file data leaves browser.
+**Last updated:** 2026-09-23 (pruned to the ADR-gate map; bootstrap section dropped).
 
 ## First Architecture Review
 

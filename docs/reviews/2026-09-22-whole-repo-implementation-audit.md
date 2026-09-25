@@ -2,8 +2,8 @@
 
 > **Point-in-time record, pinned at `main` = `0bd01de`.** Findings with `AR-*` IDs were
 > remediated by the AR queue — all six tasks merged 2026-09-23 (handoff §6 closed table +
-> archived queue); known omissions in the §11 ownership map get an errata banner when the doc
-> queue's dr-3 lands. Read as history; current state: `docs/process/handoff.md`.
+> archived queue); known omissions in the §11 ownership map are recorded in the §11 errata block
+> (2026-09-23, dr-3). Read as history; current state: `docs/process/handoff.md`.
 
 **Scope:** every package, app, fixture set, and the repo infrastructure at `main` = `0bd01de`
 (post-MVP; M0–M6 complete, PT-0 partially done: pt0-0…pt0-2 merged, pt0-3/pt0-4 queued).
@@ -222,3 +222,9 @@ and the engine's core boundaries (quoting helpers, type-expression validation, p
 | AR-R2, R3, R4, R7, R9(lint/tsconfig half)                                                                                  | **ar-6** (CI + automation + lint/tsconfig hardening)                                    | any time after ar-1           |
 | AR-E10, W7, W10, W12, AR-C6, C7, C8, AR-F4, F6, AR-D9, theme/a11y polish                                                   | post-MVP **PT-Q** track (§7 of the post-MVP doc) — the separate QoL/performance thread  | independent agent can pick up |
 | AR-D7 (+ stub-package fate)                                                                                                | **maintainer decision D13** (open-decisions table, post-MVP §9)                         | not agent-queueable           |
+
+**Errata (2026-09-23, dr-3):** the ownership map above is corrected as follows — the findings themselves stay as recorded:
+
+- **AR-E5/E6/E7** were orphaned by this map (no owner row); now parked as PT-Q **q-10/q-11/q-12** ([post-MVP §7](../product/04-post-mvp-track.md)).
+- **AR-R7** was mapped to **ar-6** above but fell outside ar-6's spec; now parked as PT-Q **q-13**.
+- **AR-C2** was unlisted here but landed via **ar-5** round 2 (the divergent-pin fix).
