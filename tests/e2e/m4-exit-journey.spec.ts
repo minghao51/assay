@@ -4,7 +4,15 @@ import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Download, Page } from '@playwright/test'
 import { openFixture } from './support/fixtures'
-import { castColumn, cell, editCell, headerCell, openEditor, renameColumn, row } from './support/grid'
+import {
+  castColumn,
+  cell,
+  editCell,
+  headerCell,
+  openEditor,
+  renameColumn,
+  row,
+} from './support/grid'
 import { sha256File } from './support/hash'
 
 // Task m4-6 (handoff §6): the M4 exit-criterion journey — one continuous,
