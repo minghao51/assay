@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-/* eslint-disable no-console -- targeted allowlist: this boundary is the app's final diagnostic sink; its fallback UI stays value-free (ADR 0025). */
 
 import { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
@@ -63,7 +62,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
     // Diagnosis only — never dataset contents (ADR 0025). The fallback UI
-    // renders none of this.
+    // renders none of this. This boundary is the app's final diagnostic sink;
+    // its fallback UI stays value-free.
+    // eslint-disable-next-line no-console -- targeted allowlist for the single final diagnostic sink (ADR 0025).
     console.error(`[assay] ${this.props.scope} render error`, error, info.componentStack)
   }
 

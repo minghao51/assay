@@ -54,7 +54,7 @@ export default tseslint.config(
             {
               group: ['**/apps/*'],
               message:
-                'Packages must not import applications (docs/engineering/05-repository-structure.md §3).',
+                'Packages must not import applications (docs/engineering/03-repository-structure.md §3).',
             },
           ],
         },
@@ -122,17 +122,22 @@ export default tseslint.config(
         'error',
         {
           paths: [
-            { name: 'react', message: 'The validation package must stay UI-free (docs 05 §3).' },
+            {
+              name: 'react',
+              message:
+                'The validation package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
             {
               name: 'react-dom',
-              message: 'The validation package must stay UI-free (docs 05 §3).',
+              message:
+                'The validation package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
             },
           ],
           patterns: [
             {
               group: ['@assay/ui', '@assay/grid', '@assay/engine-*', '@assay/web', '@assay/cli'],
               message:
-                'The validation package is pure: no UI/engine/app dependencies (docs/engineering/05-repository-structure.md §3, ADR 0026).',
+                'The validation package is pure: no UI/engine/app dependencies (docs/engineering/03-repository-structure.md §3, ADR 0026).',
             },
           ],
         },
@@ -146,14 +151,22 @@ export default tseslint.config(
         'error',
         {
           paths: [
-            { name: 'react', message: 'The contracts package must stay UI-free (docs 05 §3).' },
-            { name: 'react-dom', message: 'The contracts package must stay UI-free (docs 05 §3).' },
+            {
+              name: 'react',
+              message:
+                'The contracts package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
+            {
+              name: 'react-dom',
+              message:
+                'The contracts package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
           ],
           patterns: [
             {
               group: ['@assay/*'],
               message:
-                'The contracts package is a pure leaf: no @assay dependencies (docs/engineering/05-repository-structure.md §3, ADR 0013).',
+                'The contracts package is a pure leaf: no @assay dependencies (docs/engineering/03-repository-structure.md §3, ADR 0013).',
             },
           ],
         },
@@ -167,8 +180,16 @@ export default tseslint.config(
         'error',
         {
           paths: [
-            { name: 'react', message: 'The diff package must stay UI-free (docs 05 §3).' },
-            { name: 'react-dom', message: 'The diff package must stay UI-free (docs 05 §3).' },
+            {
+              name: 'react',
+              message:
+                'The diff package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
+            {
+              name: 'react-dom',
+              message:
+                'The diff package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
           ],
           patterns: [
             {
@@ -188,7 +209,7 @@ export default tseslint.config(
                 '@assay/cli',
               ],
               message:
-                'The diff package is pure: no UI/engine/app dependencies (docs/engineering/05-repository-structure.md §3). Allowed @assay deps: contracts, domain, validation (M6 queue, handoff §6 m6-0).',
+                'The diff package is pure: no UI/engine/app dependencies (docs/engineering/03-repository-structure.md §3). Allowed @assay deps: contracts, domain, validation (M6 queue, handoff §6 m6-0).',
             },
           ],
         },
@@ -197,7 +218,7 @@ export default tseslint.config(
   },
   {
     // q-7: domain is the portability floor — no React, no UI/engine packages,
-    // no browser-only globals, no Node builtins (docs 05 §3).
+    // no browser-only globals, no Node builtins (docs/engineering/03-repository-structure.md §3).
     files: ['packages/domain/**/*.ts'],
     rules: {
       'import/no-nodejs-modules': 'error',
@@ -205,14 +226,22 @@ export default tseslint.config(
         'error',
         {
           paths: [
-            { name: 'react', message: 'The domain package must stay UI-free (docs 05 §3).' },
-            { name: 'react-dom', message: 'The domain package must stay UI-free (docs 05 §3).' },
+            {
+              name: 'react',
+              message:
+                'The domain package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
+            {
+              name: 'react-dom',
+              message:
+                'The domain package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
           ],
           patterns: [
             {
               group: ['@assay/ui', '@assay/grid', '@assay/engine-*'],
               message:
-                'The domain package must not depend on UI or engine implementations (docs 05 §3).',
+                'The domain package must not depend on UI or engine implementations (docs/engineering/03-repository-structure.md §3).',
             },
           ],
         },
@@ -222,7 +251,7 @@ export default tseslint.config(
         ...BROWSER_ONLY_GLOBALS.map((name) => ({
           name,
           message:
-            'The domain package must stay environment-neutral — browser APIs are banned (docs 05 §3).',
+            'The domain package must stay environment-neutral — browser APIs are banned (docs/engineering/03-repository-structure.md §3).',
         })),
       ],
     },
@@ -236,14 +265,22 @@ export default tseslint.config(
         'error',
         {
           paths: [
-            { name: 'react', message: 'The grid package must stay UI-free (docs 05 §3).' },
-            { name: 'react-dom', message: 'The grid package must stay UI-free (docs 05 §3).' },
+            {
+              name: 'react',
+              message:
+                'The grid package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
+            {
+              name: 'react-dom',
+              message:
+                'The grid package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
           ],
           patterns: [
             {
               group: ['@assay/ui', '@assay/grid', '@assay/engine-*'],
               message:
-                'The grid package must not depend on UI or engine implementations (docs 05 §3).',
+                'The grid package must not depend on UI or engine implementations (docs/engineering/03-repository-structure.md §3).',
             },
           ],
         },
@@ -252,23 +289,25 @@ export default tseslint.config(
         'error',
         ...BROWSER_ONLY_GLOBALS.map((name) => ({
           name,
-          message: 'The grid package must stay headless — browser APIs are banned (docs 05 §3).',
+          message:
+            'The grid package must stay headless — browser APIs are banned (docs/engineering/03-repository-structure.md §3).',
         })),
       ],
     },
   },
   {
     // q-7: core is orchestration and stays portable like domain — no Node
-    // builtins and no direct `fetch`.
+    // builtins and no browser-only globals (parity with domain/grid).
     files: ['packages/core/**/*.ts'],
     rules: {
       'import/no-nodejs-modules': 'error',
       'no-restricted-globals': [
         'error',
-        {
-          name: 'fetch',
-          message: 'The core package must stay environment-neutral — fetch is banned (docs 05 §3).',
-        },
+        ...BROWSER_ONLY_GLOBALS.map((name) => ({
+          name,
+          message:
+            'The core package must stay environment-neutral — browser APIs are banned (docs/engineering/03-repository-structure.md §3).',
+        })),
       ],
     },
   },
@@ -283,7 +322,7 @@ export default tseslint.config(
         {
           name: 'fetch',
           message:
-            'The ui package must not fetch directly — route through core/data-sources (docs 05 §3).',
+            'The ui package must not fetch directly — route through core/data-sources (docs/engineering/03-repository-structure.md §3).',
         },
       ],
     },
