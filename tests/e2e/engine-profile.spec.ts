@@ -60,7 +60,11 @@ async function clickAndGetJson(
 }
 
 /** Open a fixture via the harness and wait until the engine reports it. */
-async function openFixture(page: Page, key: 'flat' | 'nested', tableId: string): Promise<void> {
+async function openHarnessFixture(
+  page: Page,
+  key: 'flat' | 'nested',
+  tableId: string,
+): Promise<void> {
   await page.goto(HARNESS_URL)
   // Laziness: loading the harness must not boot the engine.
   await expect(page.getByTestId('engine-status')).toHaveText('idle')
@@ -72,7 +76,7 @@ async function openFixture(page: Page, key: 'flat' | 'nested', tableId: string):
 test('profile of the flat fixture returns the exact pinned stats (numeric, top-k ties, nulls, dates)', async ({
   page,
 }) => {
-  await openFixture(page, 'flat', 't1')
+  await openHarnessFixture(page, 'flat', 't1')
   const evidence = await clickAndGetJson(
     page,
     'Profile flat fixture via engine',
@@ -149,7 +153,7 @@ test('profile of the flat fixture returns the exact pinned stats (numeric, top-k
 test('profile of the nested fixture degrades gracefully on STRUCT (kind other, no payloads)', async ({
   page,
 }) => {
-  await openFixture(page, 'nested', 't1')
+  await openHarnessFixture(page, 'nested', 't1')
   const evidence = await clickAndGetJson(
     page,
     'Profile nested fixture via engine',
@@ -189,7 +193,7 @@ test('profile of the nested fixture degrades gracefully on STRUCT (kind other, n
 test('profile of an unknown handle rejects with an engine error and the engine stays reusable', async ({
   page,
 }) => {
-  await openFixture(page, 'flat', 't1')
+  await openHarnessFixture(page, 'flat', 't1')
   const evidence = await clickAndGetJson(
     page,
     'Profile unknown handle, then flat fixture again',

@@ -1,7 +1,8 @@
-import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import type { Locator, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { readGridStats } from './support/grid-stats'
+import { openCustomersFixture } from './support/fixtures'
+import { cell, openEditor, row, waitForReadyRow } from './support/grid'
 
 // Task m4-3 proof (handoff §6): real cell editing + row ops + dirty state over
 // the m4-1 domain overlay and the m4-2 engine surface. The app under test is
@@ -34,8 +35,6 @@ import { readGridStats } from './support/grid-stats'
 // Privacy (ADR 0025): the picked file name and the opaque row anchors are
 // never rendered; values are asserted as text only.
 
-const FIXTURE = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
-
 test.beforeEach(async ({ page }) => {
   // Take the hidden-<input type="file"> fallback (m1-5 pattern).
   await page.addInitScript(() => {
@@ -47,26 +46,6 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-async function openCustomersFixture(page: Page): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(FIXTURE)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
-  await expect(page.getByTestId('table-info')).not.toContainText('customers.parquet')
-}
-
-function row(page: Page, index: number): Locator {
-  return page.locator(`[data-testid="grid-row"][data-row-index="${String(index)}"]`)
-}
-
-function cell(page: Page, rowIndex: number, columnIndex: number): Locator {
-  return row(page, rowIndex).getByTestId('grid-cell').nth(columnIndex)
-}
-
 /** Ids (customer_id, column 0) of every READY row, in row order. */
 function expectCustomerOrder(page: Page, ids: string[]): Promise<void> {
   return expect(
@@ -74,18 +53,6 @@ function expectCustomerOrder(page: Page, ids: string[]): Promise<void> {
       '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(1)',
     ),
   ).toHaveText(ids)
-}
-
-/** Wait until a rendered row has its data (the window fetch landed). */
-async function waitForReadyRow(page: Page, rowIndex: number): Promise<void> {
-  await expect(row(page, rowIndex)).toHaveAttribute('data-status', 'ready')
-}
-
-/** Double-click a ready cell and wait for its inline editor. */
-async function openEditor(page: Page, rowIndex: number, columnIndex: number): Promise<void> {
-  await waitForReadyRow(page, rowIndex)
-  await cell(page, rowIndex, columnIndex).dblclick()
-  await expect(page.getByTestId('grid-cell-editor')).toBeVisible()
 }
 
 test('edit → visibility → undo → redo → undo → clean (the exit pin)', async ({ page }) => {

@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { openFixture } from './support/fixtures'
 
 // Task M1-6 proof (handoff §6 #6): the schema panel renders a navigable type
 // tree for the committed nested fixture, and flat fixtures render as plain
@@ -32,18 +33,6 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-async function openFixture(page: Page, fixturePath: string): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(fixturePath)
-  // Engine boot + open + schema + count: the ready phase is fully loaded.
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
-  await expect(page.getByTestId('schema-panel')).toBeVisible()
-}
-
 /** A struct toggle button, addressed by role + accessible name (`<name> STRUCT`). */
 function structToggle(scope: ReturnType<Page['getByTestId']>, name: string) {
   return scope.getByRole('button', { name: `${name} STRUCT` })
@@ -52,7 +41,7 @@ function structToggle(scope: ReturnType<Page['getByTestId']>, name: string) {
 test('renders the nested schema tree for nested.parquet with expandable structs', async ({
   page,
 }) => {
-  await openFixture(page, NESTED_FIXTURE)
+  await openFixture(page, NESTED_FIXTURE, { requireSchemaPanel: true })
 
   // Column count surfaced (id + payload), matching the engine's schema().
   await expect(page.getByTestId('schema-column-count')).toHaveText('2 columns')
@@ -123,7 +112,7 @@ test('renders the nested schema tree for nested.parquet with expandable structs'
 test('renders flat columns as type badges with no struct toggles for customers.parquet', async ({
   page,
 }) => {
-  await openFixture(page, FLAT_FIXTURE)
+  await openFixture(page, FLAT_FIXTURE, { requireSchemaPanel: true })
 
   await expect(page.getByTestId('schema-column-count')).toHaveText('4 columns')
   const columns = page.getByTestId('schema-column')
@@ -148,7 +137,7 @@ test('renders flat columns as type badges with no struct toggles for customers.p
 test('the panel toggle hides and shows the schema without losing expansion state', async ({
   page,
 }) => {
-  await openFixture(page, NESTED_FIXTURE)
+  await openFixture(page, NESTED_FIXTURE, { requireSchemaPanel: true })
 
   const toggle = page.getByTestId('schema-toggle')
   const panel = page.getByTestId('schema-panel')

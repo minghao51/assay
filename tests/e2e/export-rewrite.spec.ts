@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import type { Download, Locator, Page } from '@playwright/test'
+import type { Download, Page } from '@playwright/test'
+import { openFixture } from './support/fixtures'
+import { cell, editCell, row } from './support/grid'
 
 // Task m4-5 proof (handoff §6): the export/rewrite UX over the m4-2 export op.
 // The app under test is the real composition root served at '/' by the first
@@ -67,35 +69,6 @@ test.beforeEach(async ({ page }) => {
     }
   })
 })
-
-async function openFixture(page: Page, fixturePath: string): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(fixturePath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
-}
-
-function row(page: Page, index: number): Locator {
-  return page.locator(`[data-testid="grid-row"][data-row-index="${String(index)}"]`)
-}
-
-function cell(page: Page, rowIndex: number, columnIndex: number): Locator {
-  return row(page, rowIndex).getByTestId('grid-cell').nth(columnIndex)
-}
-
-/** Double-click a ready cell, wait for its inline editor, commit `value`. */
-async function editCell(page: Page, rowIndex: number, columnIndex: number, value: string) {
-  await expect(row(page, rowIndex)).toHaveAttribute('data-status', 'ready')
-  await cell(page, rowIndex, columnIndex).dblclick()
-  const editor = page.getByTestId('grid-editor-input')
-  await expect(editor).toBeVisible()
-  await editor.fill(value)
-  await editor.press('Enter')
-  await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
-}
 
 /** Export through the dialog, capturing the download the fallback triggers. */
 async function exportFormat(page: Page, format: string): Promise<Download> {

@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { openFixture } from './support/fixtures'
 
 // Task m2-6 proof (handoff §6): the profile panel + distribution charts over
 // the full stack — trigger → engineClient.profile() (the m2-5 `engine/profile`
@@ -53,16 +54,6 @@ test.beforeEach(async ({ page }) => {
     }
   })
 })
-
-async function openFixture(page: Page, fixturePath: string): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(fixturePath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
-}
 
 /**
  * Open a second file in the SAME page session (no reload): the re-open spec

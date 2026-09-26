@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { openFixtureAndGetTableId } from './support/fixtures'
 
 // Task m2-4 proof (handoff §6): the SQL editor + result pane over the full
 // stack — editor → web-side LIMIT/OFFSET wrap (the engine `query()` op has no
@@ -41,21 +42,6 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-async function openFixture(page: Page, fixturePath: string): Promise<string> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(fixturePath)
-  // Engine boot + open + schema + count: the ready phase is fully loaded.
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
-  // Privacy (ADR 0025): the pane must never contain the file's name.
-  await expect(page.getByTestId('sql-panel')).not.toContainText(fixturePath)
-  // The engine-generated table id (safe to show; the pane's hint echoes it).
-  return page.getByTestId('open-table-id').innerText()
-}
-
 /** Type a statement into the editor and press Run. */
 async function runSql(page: Page, sql: string): Promise<void> {
   await page.getByTestId('sql-input').fill(sql)
@@ -84,7 +70,7 @@ function firstPageCell(page: Page, columnIndex: number) {
 test('runs a query against the opened fixture and renders its contents as data', async ({
   page,
 }) => {
-  const tableId = await openFixture(page, CUSTOMERS_FIXTURE)
+  const tableId = await openFixtureAndGetTableId(page, CUSTOMERS_FIXTURE)
   // The hint points the user at both names: the id and its SQL-facing view.
   await expect(page.getByTestId('sql-table-id')).toHaveText(tableId)
   await expect(page.getByTestId('sql-table-name')).toHaveText(`"${sqlTable(tableId)}"`)
@@ -119,7 +105,7 @@ test('runs a query against the opened fixture and renders its contents as data',
 })
 
 test('pages forward through wide.parquet and back restores the earlier page', async ({ page }) => {
-  const tableId = await openFixture(page, WIDE_FIXTURE)
+  const tableId = await openFixtureAndGetTableId(page, WIDE_FIXTURE)
   // wide.parquet stores id 0..999 in generator order; the explicit ORDER BY
   // pins the page contents (row n of page p is id 50p + n).
   await runSql(page, `SELECT id, label FROM "${sqlTable(tableId)}" ORDER BY id`)
@@ -159,7 +145,7 @@ test('pages forward through wide.parquet and back restores the earlier page', as
 test('a partial final page shows the exhausted indicator and an empty result shows the empty state', async ({
   page,
 }) => {
-  const tableId = await openFixture(page, WIDE_FIXTURE)
+  const tableId = await openFixtureAndGetTableId(page, WIDE_FIXTURE)
 
   // 60 matching rows = one full page (50) + a partial final page (10).
   await runSql(page, `SELECT id FROM "${sqlTable(tableId)}" WHERE id < 60 ORDER BY id`)
@@ -195,7 +181,7 @@ test('cancels a running slow query (abandonment) and a follow-up query still wor
   page,
 }) => {
   test.setTimeout(120_000)
-  await openFixture(page, CUSTOMERS_FIXTURE)
+  await openFixtureAndGetTableId(page, CUSTOMERS_FIXTURE)
 
   // A deliberately slow aggregate: a 400M-pair product summed per pair.
   // Measured in this browser build while authoring: ~2.8 s end-to-end (native
@@ -208,7 +194,11 @@ test('cancels a running slow query (abandonment) and a follow-up query still wor
   await expect(page.getByTestId('sql-panel')).toHaveAttribute('data-state', 'running')
   await expect(page.getByTestId('sql-cancel')).toBeEnabled()
 
-  await page.waitForTimeout(300) // the query is demonstrably in flight (~2.8 s)
+  // q-5: the pane's own `running` state (asserted just above; the engine op is
+  // dispatched synchronously before that state renders) is the observable that
+  // the query is in flight, so the fixed 300 ms settle is gone. Cancel still
+  // lands while the ~2.8 s aggregate computes, and the `cancelled` assertion
+  // below fails if it did not.
   await page.getByTestId('sql-cancel').click()
 
   // Cancelled is a first-class pane state — with the honest semantics note:
@@ -235,7 +225,7 @@ test('cancels a running slow query (abandonment) and a follow-up query still wor
 test('invalid SQL surfaces a readable engine error and the pane (and engine) stay usable', async ({
   page,
 }) => {
-  const tableId = await openFixture(page, CUSTOMERS_FIXTURE)
+  const tableId = await openFixtureAndGetTableId(page, CUSTOMERS_FIXTURE)
 
   // A binder error: the engine's own message text surfaces in the alert.
   // (Message quality is the duckdb-wasm mvp bundle's emscripten-layer yield

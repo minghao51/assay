@@ -1,7 +1,7 @@
-import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readGridStats } from './support/grid-stats'
+import { openCustomersFixture } from './support/fixtures'
 
 // Task m2-3 proof (handoff §6): the web filter/sort UI over the full stack —
 // header sort toggle → GridViewportModel.setSort → DuckDbGridProvider → the
@@ -29,9 +29,6 @@ import { readGridStats } from './support/grid-stats'
 // filechooser event carries. Privacy (ADR 0025): the picked file name is
 // never rendered.
 
-const FIXTURES_DIR = path.join(process.cwd(), 'fixtures', 'parquet')
-const FIXTURE = path.join(FIXTURES_DIR, 'customers.parquet')
-
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
@@ -43,21 +40,6 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-async function openCustomersFixture(page: Page): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(FIXTURE)
-  // Engine boot + open + schema + count: the ready phase is fully loaded.
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
-  // Privacy (ADR 0025): the picked file name is never rendered.
-  await expect(page.getByTestId('table-info')).not.toContainText('customers.parquet')
-}
-
-/** Click the header sort toggle of one column. */
 async function clickSort(page: Page, column: string): Promise<void> {
   await page.locator(`[data-testid="grid-sort-toggle"][data-col-name="${column}"]`).click()
 }

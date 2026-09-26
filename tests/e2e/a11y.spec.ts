@@ -9,6 +9,7 @@ import {
 } from './support/a11y'
 import { writeValidationDatasetA } from './support/validation-datasets'
 import { writeDiffDatasetPair } from './support/diff-datasets'
+import { openFixture } from './support/fixtures'
 
 // pt0-4 (O3): real axe-core scans of the four load-bearing surfaces — grid
 // with a fixture open, the schema tree expanded, the validation report, and
@@ -46,17 +47,6 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-/** Open a single fixture through the app's real picker path and wait ready. */
-async function openFixture(page: Page, fixturePath: string): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  await (await chooserPromise).setFiles(fixturePath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
-  await expect(page.getByTestId('table-info')).not.toContainText(path.basename(fixturePath))
-}
-
 /** Run axe over the whole page, log all impacts, and gate on critical/serious. */
 async function scanAndGate(page: Page, target: string): Promise<void> {
   const results = await scanA11y(page)
@@ -68,7 +58,7 @@ test('grid with a fixture open has no unallowlisted critical/serious violations'
   page,
 }) => {
   test.setTimeout(120_000)
-  await openFixture(page, CSV_FIXTURE)
+  await openFixture(page, CSV_FIXTURE, { assertFileNameHidden: true })
 
   // Non-vacuity: the grid is populated before we scan it.
   await expect(page.getByTestId('grid')).toBeVisible()
@@ -80,7 +70,7 @@ test('grid with a fixture open has no unallowlisted critical/serious violations'
 
 test('expanded schema tree has no unallowlisted critical/serious violations', async ({ page }) => {
   test.setTimeout(120_000)
-  await openFixture(page, NESTED_FIXTURE)
+  await openFixture(page, NESTED_FIXTURE, { assertFileNameHidden: true })
 
   // Non-vacuity: the nested struct subtree is actually expanded before scanning.
   await expect(page.getByTestId('schema-panel')).toBeVisible()
@@ -98,7 +88,7 @@ test('populated validation report has no unallowlisted critical/serious violatio
 }) => {
   test.setTimeout(240_000)
   const dataset = writeValidationDatasetA()
-  await openFixture(page, dataset.dataPath)
+  await openFixture(page, dataset.dataPath, { assertFileNameHidden: true })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
 
   // Import the contract and run the real validation op.
@@ -121,7 +111,7 @@ test('populated validation report has no unallowlisted critical/serious violatio
 test('completed diff report has no unallowlisted critical/serious violations', async ({ page }) => {
   test.setTimeout(240_000)
   const pair = writeDiffDatasetPair()
-  await openFixture(page, pair.aPath)
+  await openFixture(page, pair.aPath, { assertFileNameHidden: true })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
   // Stage side B, confirm the inferred key (default: id), and run the diff.

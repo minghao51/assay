@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import { runScenario } from './support/conformance'
 
 // Task m4-2 (handoff §6): the edit-overlay engine surface — overlay-aware
 // windows/counts/effective schema composed over the base view + overlay ops
@@ -36,14 +36,6 @@ import type { Page } from '@playwright/test'
 // (default 4179).
 const HARNESS_URL = `http://localhost:${process.env['ASSAY_E2E_PORT_ENGINE'] ?? 4179}/`
 
-/** Structural mirror of @assay/testing's ConformanceScenarioResult. */
-interface ScenarioResult {
-  name: string
-  passed: boolean
-  detail: string
-  facts: Record<string, string | number | boolean>
-}
-
 const SCENARIOS = [
   'overlay-window-fidelity',
   'overlay-insert-edits',
@@ -61,24 +53,14 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
 }
 
-/** Click a scenario button and wait for its JSON result to render. */
-async function runScenario(page: Page, name: string): Promise<ScenarioResult> {
-  await page.goto(HARNESS_URL)
-  // Laziness at page level: loading the harness must not boot the engine.
-  await expect(page.getByTestId('engine-status')).toHaveText('idle')
-  await page
-    .getByRole('button', { name: BUTTON_LABELS[name as keyof typeof BUTTON_LABELS] })
-    .click()
-  const element = page.getByTestId(`conformance-result-${name}`)
-  await expect(element).not.toHaveText('not run', { timeout: 60_000 })
-  const text = await element.textContent()
-  expect(text, `result of ${name} renders as JSON`).toBeTruthy()
-  return JSON.parse(text!) as ScenarioResult
-}
-
 for (const name of SCENARIOS) {
   test(`m4-2 overlay: ${name} passes against the real DuckDB-WASM client`, async ({ page }) => {
-    const result = await runScenario(page, name)
+    const result = await runScenario(page, {
+      url: HARNESS_URL,
+      buttonLabel: BUTTON_LABELS[name],
+      resultTestId: `conformance-result-${name}`,
+      timeoutMs: 60_000,
+    })
     expect(result.name).toBe(name)
     expect(result.passed, `scenario ${name}: ${result.detail}`).toBe(true)
 

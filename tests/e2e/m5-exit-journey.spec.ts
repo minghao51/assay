@@ -5,6 +5,7 @@ import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Download, Locator, Page } from '@playwright/test'
 import { writeValidationDatasetA } from './support/validation-datasets'
+import { row } from './support/grid'
 
 // Task m5-6 (handoff §6) — the M5 EXIT JOURNEY: the two validation surfaces
 // must agree EXACTLY on the same inputs, then the fix-to-clean loop must
@@ -226,19 +227,21 @@ async function exportReportJson(page: Page, tag: string): Promise<string> {
  * Edit one cell through the real M4 inline editor (the row is located by
  * effective index — base rows without deletes/inserts keep their ordinals).
  * `initialValue` proves the editor opened on the OFFENDING cell with the
- * offending value (NULL opens empty) before the fix is typed.
+ * offending value (NULL opens empty) before the fix is typed. Distinct from
+ * the shared `editCell` (q-5): this variant scrolls the row into view and
+ * asserts the pre-edit value, so it stays its own helper.
  */
-async function editCell(
+async function editCellWithInitialValue(
   page: Page,
   rowIndex: number,
   cellIndex: number,
   initialValue: string,
   value: string,
 ): Promise<void> {
-  const row = page.locator(`[data-testid="grid-row"][data-row-index="${String(rowIndex)}"]`)
-  await row.scrollIntoViewIfNeeded()
-  await expect(row).toHaveAttribute('data-status', 'ready')
-  await row.getByTestId('grid-cell').nth(cellIndex).dblclick()
+  const target = row(page, rowIndex)
+  await target.scrollIntoViewIfNeeded()
+  await expect(target).toHaveAttribute('data-status', 'ready')
+  await target.getByTestId('grid-cell').nth(cellIndex).dblclick()
   const editor = page.getByTestId('grid-editor-input')
   await expect(editor).toHaveValue(initialValue)
   await editor.fill(value)
@@ -263,9 +266,9 @@ async function jumpToSample(
     .filter({ hasText: new RegExp(`(^|\\s)${displayKey}(\\s|$)`) })
     .getByTestId('validation-sample-jump')
     .click()
-  const row = page.locator(`[data-testid="grid-row"][data-row-index="${String(rowIndex)}"]`)
-  await expect(row).toHaveAttribute('data-status', 'ready')
-  await expect(row).toBeInViewport()
+  const target = row(page, rowIndex)
+  await expect(target).toHaveAttribute('data-status', 'ready')
+  await expect(target).toBeInViewport()
 }
 
 /**
@@ -436,16 +439,16 @@ test('M5 exit journey: same contract + same dirty file agree EXACTLY across web 
   // ------------------------------------------------------------------
   // columns[0].unique: base #5 carries the duplicate 1001 → 1006.
   await jumpToSample(page, 'columns[0].unique', 'base #5', 5)
-  await editCell(page, 5, 0, '1001', '1006')
+  await editCellWithInitialValue(page, 5, 0, '1001', '1006')
   // columns[0].required: base #6 is the NULL order_id → 1009.
   await jumpToSample(page, 'columns[0].required', 'base #6', 6)
-  await editCell(page, 6, 0, '', '1009')
+  await editCellWithInitialValue(page, 6, 0, '', '1009')
   // columns[1].allowed-values: base #2 is 'emea' → 'EMEA'.
   await jumpToSample(page, 'columns[1].allowed-values', 'base #2', 2)
-  await editCell(page, 2, 1, 'emea', 'EMEA')
+  await editCellWithInitialValue(page, 2, 1, 'emea', 'EMEA')
   // columns[2].max: base #1 is 999 → 450.
   await jumpToSample(page, 'columns[2].max', 'base #1', 1)
-  await editCell(page, 1, 2, '999', '450')
+  await editCellWithInitialValue(page, 1, 2, '999', '450')
 
   // Every edit staled the verdict; the stale report stays viewable.
   await expect(page.getByTestId('validation-stale')).toBeVisible()

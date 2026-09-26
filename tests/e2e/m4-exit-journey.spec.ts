@@ -1,9 +1,11 @@
-import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import type { Download, Locator, Page } from '@playwright/test'
+import type { Download, Page } from '@playwright/test'
+import { openFixture } from './support/fixtures'
+import { castColumn, cell, editCell, headerCell, openEditor, renameColumn, row } from './support/grid'
+import { sha256File } from './support/hash'
 
 // Task m4-6 (handoff §6): the M4 exit-criterion journey — one continuous,
 // adversarially-honest walk of the whole M4 promise over the real composition
@@ -105,33 +107,6 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-/** Node-side sha256 of a file — the source's immutable identity for the journey. */
-function sha256(filePath: string): string {
-  return createHash('sha256').update(readFileSync(filePath)).digest('hex')
-}
-
-async function openFixture(page: Page, fixturePath: string): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(fixturePath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
-}
-
-function row(page: Page, index: number): Locator {
-  return page.locator(`[data-testid="grid-row"][data-row-index="${String(index)}"]`)
-}
-
-function cell(page: Page, rowIndex: number, columnIndex: number): Locator {
-  return row(page, rowIndex).getByTestId('grid-cell').nth(columnIndex)
-}
-
-function headerCell(page: Page, name: string): Locator {
-  return page.locator(`[data-testid="grid-header-cell"][data-col-name="${name}"]`)
-}
-
 /** Wait until every visible row has its data (the window fetch landed). */
 async function settleGrid(page: Page, totalRows: number): Promise<void> {
   await expect(page.getByTestId('grid-total-rows')).toHaveText(String(totalRows))
@@ -140,49 +115,11 @@ async function settleGrid(page: Page, totalRows: number): Promise<void> {
   await expect(page.locator('[data-testid="grid-row"][data-status="error"]')).toHaveCount(0)
 }
 
-/** Double-click a ready cell and wait for its inline editor. */
-async function openEditor(page: Page, rowIndex: number, columnIndex: number): Promise<void> {
-  await expect(row(page, rowIndex)).toHaveAttribute('data-status', 'ready')
-  await cell(page, rowIndex, columnIndex).dblclick()
-  await expect(page.getByTestId('grid-cell-editor')).toBeVisible()
-}
-
-/** Commit a typed value into a cell through the inline editor. */
-async function editCell(
-  page: Page,
-  rowIndex: number,
-  columnIndex: number,
-  value: string,
-): Promise<void> {
-  await openEditor(page, rowIndex, columnIndex)
-  const editor = page.getByTestId('grid-editor-input')
-  await editor.fill(value)
-  await editor.press('Enter')
-  await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
-}
-
 /** Commit NULL into a cell through the dedicated affordance (never '' or unset). */
 async function setCellNull(page: Page, rowIndex: number, columnIndex: number): Promise<void> {
   await openEditor(page, rowIndex, columnIndex)
   await page.getByTestId('grid-editor-null').click()
   await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
-}
-
-/** Rename a column through the schema panel. */
-async function renameColumn(page: Page, from: string, to: string): Promise<void> {
-  const panel = page.getByTestId('schema-panel')
-  await panel.locator(`[data-testid="column-rename-open"][data-col-name="${from}"]`).click()
-  const input = panel.locator('[data-testid="column-rename-input"]')
-  await input.fill(to)
-  await input.press('Enter')
-}
-
-/** Cast a column through the schema panel's target select. */
-async function castColumn(page: Page, column: string, target: string): Promise<void> {
-  const panel = page.getByTestId('schema-panel')
-  await panel.locator(`[data-testid="column-cast-open"][data-col-name="${column}"]`).click()
-  await panel.locator('[data-testid="column-cast-select"]').selectOption(target)
-  await panel.locator('[data-testid="column-cast-commit"]').click()
 }
 
 // --- The byte-identical baseline ------------------------------------------------
@@ -422,7 +359,7 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(page.locator('main')).not.toContainText('customers.parquet')
 
   // Node side: the source's checksum, captured before ANY interaction.
-  const sourceShaBefore = sha256(FIXTURE)
+  const sourceShaBefore = sha256File(FIXTURE)
 
   // Full pre-edit baseline (every cell, header, marker, count).
   await settleGrid(page, 5)
@@ -672,7 +609,7 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   expect(readFileSync(csvPath, 'utf8')).toBe(EXPECTED_CSV_BYTES)
 
   // --- 7. The source was never touched by any edit, undo, or export. ---
-  expect(sha256(FIXTURE)).toBe(sourceShaBefore)
+  expect(sha256File(FIXTURE)).toBe(sourceShaBefore)
 
   // --- 8. Re-open the Parquet export through the normal open flow. ---
   await openFixture(page, parquetPath)

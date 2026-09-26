@@ -1,18 +1,12 @@
-import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import {
-  closeSync,
-  existsSync,
-  fstatSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  readSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { sha256File } from './hash'
+
+// q-5: the chunked sha256 file hash now lives in ./hash (one definition);
+// re-exported here so the hermetic reuse spec's existing import path works.
+export { sha256File }
 
 /**
  * On-demand ~1 GiB Parquet fixture for the m1-7 time-to-first-row / memory
@@ -143,36 +137,6 @@ export function bigFixtureSql(rows: number, destination: string): string {
     `(FORMAT PARQUET, ROW_GROUP_SIZE ${String(ROW_GROUP_SIZE)}, COMPRESSION ZSTD);`,
     '',
   ].join('\n')
-}
-
-/**
- * sha256 of a file, hashed through a fixed 1 MiB read window (G1-R: the
- * whole file must be verified, but at multi-GB sizes a whole-file
- * `readFileSync` allocates the entire fixture in RAM — ~10 GiB against a
- * ~30 GiB machine — before hashing a byte). Chunked hashing keeps memory
- * constant and produces the identical digest.
- *
- * Synchronous on purpose: the reuse decision in `ensureBigFixture` is sync,
- * and the hermetic reuse spec (`tests/e2e/big-fixture-reuse.spec.ts`) calls
- * this from a synchronous test.
- */
-export function sha256File(filePath: string): string {
-  const hash = createHash('sha256')
-  const fd = openSync(filePath, 'r')
-  try {
-    const size = fstatSync(fd).size
-    const chunk = Buffer.alloc(1024 * 1024)
-    let position = 0
-    while (position < size) {
-      const read = readSync(fd, chunk, 0, chunk.length, position)
-      if (read <= 0) break // EOF before size: file truncated under us — hash what we got
-      hash.update(chunk.subarray(0, read))
-      position += read
-    }
-  } finally {
-    closeSync(fd)
-  }
-  return hash.digest('hex')
 }
 
 /**

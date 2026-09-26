@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { CDPSession, Page } from '@playwright/test'
 import { bigFixturePath, BIG_ROW_COUNT, ensureBigFixture } from './support/big-fixture'
+import { median, percentile } from './support/stats'
 import os from 'node:os'
 
 // Task M1-7 benchmark (handoff §6 #7, roadmap G1 evidence): time-to-first-row
@@ -179,21 +180,6 @@ async function clickBenchStep(
 ): Promise<void> {
   await page.getByRole('button', { name: step }).click()
   await expectBenchPhase(page, phase, timeoutMs)
-}
-
-function median(values: number[]): number {
-  expect(values.length).toBeGreaterThan(0)
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 1
-    ? (sorted[mid] as number)
-    : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2
-}
-
-function percentile(values: number[], p: number): number {
-  const sorted = [...values].sort((a, b) => a - b)
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1))
-  return sorted[index] as number
 }
 
 function heapMb(sample: HeapSample): number {

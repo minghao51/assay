@@ -7,6 +7,8 @@ import {
   millionFixturePath,
 } from './support/million-fixture'
 import { readGridStats } from './support/grid-stats'
+import { row } from './support/grid'
+import { percentile } from './support/stats'
 
 // Task M1-5 proof (handoff §6 #5): a 1M-row dataset scrolls smoothly in a
 // virtualized DOM grid, and the grid never materializes the dataset. The app
@@ -95,9 +97,9 @@ async function scrollToRow(page: Page, rowIndex: number): Promise<void> {
 
 async function expectKnownRow(page: Page, rowIndex: number): Promise<void> {
   const expected = expectedMillionRow(rowIndex)
-  const row = page.locator(`[data-testid="grid-row"][data-row-index="${String(rowIndex)}"]`)
-  await expect(row).toHaveAttribute('data-status', 'ready')
-  await expect(row.getByTestId('grid-cell')).toHaveText([
+  const target = row(page, rowIndex)
+  await expect(target).toHaveAttribute('data-status', 'ready')
+  await expect(target.getByTestId('grid-cell')).toHaveText([
     expected.id,
     expected.bucket,
     expected.label,
@@ -161,7 +163,9 @@ test('DOM rows stay bounded, fetching stays windowed, and scroll frames stay smo
     await scrollToRow(page, stop)
     const domRows = await page.locator('[data-testid="grid-row"]').count()
     expect(domRows).toBeLessThan(MAX_DOM_ROWS)
-    await page.waitForTimeout(90)
+    // q-5: wait on the observable — the scrolled-to row has rendered — rather
+    // than a fixed 90 ms settle between stops.
+    await expect(row(page, stop)).toBeAttached()
   }
   await scrollToRow(page, 600_000)
   await page.getByTestId('grid-viewport').scrollIntoViewIfNeeded()
@@ -170,22 +174,24 @@ test('DOM rows stay bounded, fetching stays windowed, and scroll frames stay smo
   // the outer page (last positioned by the open-button click) and the bursts
   // would scroll window.scrollY while the grid's scrollTop never moves.
   await page.getByTestId('grid-viewport').hover()
-  const scrollTopBeforeBursts = await page
-    .getByTestId('grid-viewport')
-    .evaluate((el) => el.scrollTop)
+  const viewport = page.getByTestId('grid-viewport')
+  const scrollTopBeforeBursts = await viewport.evaluate((el) => el.scrollTop)
   const fetchesBeforeBursts = await readGridStats(page)
   for (let burst = 0; burst < 20; burst++) {
+    const scrollTopBeforeWheel = await viewport.evaluate((el) => el.scrollTop)
     await page.mouse.wheel(0, 8000)
-    await page.waitForTimeout(35)
+    // q-5: wait on the observable — the wheel advanced the grid viewport —
+    // rather than a fixed 35 ms settle.
+    await expect
+      .poll(() => viewport.evaluate((el) => el.scrollTop))
+      .toBeGreaterThan(scrollTopBeforeWheel)
     const domRows = await page.locator('[data-testid="grid-row"]').count()
     expect(domRows).toBeLessThan(MAX_DOM_ROWS)
   }
   // Effectiveness guard: the bursts must provably drive the grid viewport —
   // scrollTop actually moved and the newly uncovered range issued real
   // windowed fetches (a no-op burst loop would fail both assertions).
-  const scrollTopAfterBursts = await page
-    .getByTestId('grid-viewport')
-    .evaluate((el) => el.scrollTop)
+  const scrollTopAfterBursts = await viewport.evaluate((el) => el.scrollTop)
   expect(scrollTopAfterBursts).toBeGreaterThan(scrollTopBeforeBursts)
   const stats = await readGridStats(page)
   expect(stats.fetches).toBeGreaterThan(fetchesBeforeBursts.fetches)
@@ -222,12 +228,8 @@ test('DOM rows stay bounded, fetching stays windowed, and scroll frames stay smo
   })
   expect(deltas.length).toBeGreaterThan(100)
   const sorted = [...deltas].sort((a, b) => a - b)
-  const percentile = (p: number): number => {
-    const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1))
-    return sorted[index]
-  }
-  const median = percentile(50)
-  const p95 = percentile(95)
+  const median = percentile(deltas, 50)
+  const p95 = percentile(deltas, 95)
   const observed = `[m1-5 frame timing] frames=${String(deltas.length)} median=${median.toFixed(1)}ms p95=${p95.toFixed(1)}ms max=${sorted[sorted.length - 1]?.toFixed(1) ?? String(Number.NaN)}ms`
   console.log(observed)
   expect(median, `median frame delta ${median.toFixed(1)}ms (${observed})`).toBeLessThan(33)

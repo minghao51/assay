@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import path from 'node:path'
+import { row } from './support/grid'
 
 // Task m3-3 (handoff §6): the record inspector — a row-level panel showing the
 // ENTIRE record as a JSON disclosure tree, at every depth. The grid cell
@@ -56,11 +57,11 @@ async function openNestedFixture(page: Page): Promise<void> {
 
 /** Opens the inspector for a grid row via the click affordance. */
 async function openRow(page: Page, rowIndex: number): Promise<Locator> {
-  const row = page.locator(`[data-testid="grid-row"][data-row-index="${String(rowIndex)}"]`)
+  const target = row(page, rowIndex)
   // Only a `ready` row opens the inspector (loading rows no-op by design) —
   // pin the row's readiness first so the gesture is never a silent race.
-  await expect(row).toHaveAttribute('data-status', 'ready')
-  await row.click()
+  await expect(target).toHaveAttribute('data-status', 'ready')
+  await target.click()
   const panel = page.getByTestId('record-inspector')
   await expect(panel).toBeVisible()
   await expect(panel).toHaveAttribute('data-row-index', String(rowIndex))

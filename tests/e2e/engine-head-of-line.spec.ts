@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { median, percentile } from './support/stats'
 
 // Task m2-7 (handoff §6): FIFO head-of-line latency revisit. This spec is the
 // measurement instrument: with the flat fixture open, it runs the m2-4-
@@ -44,16 +45,9 @@ interface HeadOfLineEvidence {
   fatal?: string
 }
 
-/** Median (middle element; n is odd). */
-function median(samples: number[]): number {
-  const sorted = [...samples].sort((a, b) => a - b)
-  return sorted[Math.floor(sorted.length / 2)] ?? Number.NaN
-}
-
 /** Nearest-rank p95 — with n=5 this is the max, which is stated as such. */
 function p95(samples: number[]): number {
-  const sorted = [...samples].sort((a, b) => a - b)
-  return sorted[Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)] ?? Number.NaN
+  return percentile(samples, 95)
 }
 
 function summarize(evidence: HeadOfLineEvidence): Record<string, number> {

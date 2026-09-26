@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
+import { sha256Bytes } from './support/hash'
 
 // Task M1-2 proof (handoff §6 #2): `query()` returns the first Apache Arrow
 // record batch to the main thread (ADR 0020) over the typed postMessage
@@ -27,10 +27,6 @@ function fixtureBytes(relativePath: string): Buffer {
   return FIXTURE_BYTES[relativePath]
 }
 
-function sha256(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
-}
-
 test('harness fixture copies are byte-identical to the golden fixtures (manifest checksums)', async () => {
   // Copies live in the harness public dir so the page can stage real handles.
   // They must never drift from fixtures/parquet + manifest.json.
@@ -42,7 +38,7 @@ test('harness fixture copies are byte-identical to the golden fixtures (manifest
     const copy = fixtureBytes(`packages/engine-duckdb/harness/public/fixtures/${name}`)
     const manifestEntry = manifest.files.find((file) => file.name === name)
     expect(manifestEntry, `${name} is listed in the manifest`).toBeTruthy()
-    expect(sha256(golden), `fixtures/parquet/${name} matches manifest.json`).toBe(
+    expect(sha256Bytes(golden), `fixtures/parquet/${name} matches manifest.json`).toBe(
       manifestEntry!.sha256,
     )
     expect(copy.equals(golden), `harness copy of ${name} is byte-identical`).toBe(true)

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import { runScenario } from './support/conformance'
+import type { RunAllReport } from './support/conformance'
 
 // Task T3 (handoff §6): the data-source behavior suite lives in @assay/testing
 // (docs/engineering/03-repository-structure.md §4) and is parameterized over a
@@ -18,20 +19,6 @@ import type { Page } from '@playwright/test'
 // playwright.config.ts; port env-overridable for parallel worktree batches
 // (default 4180 — this task runs on the DEFAULT ports, no overrides).
 const HARNESS_URL = `http://localhost:${process.env['ASSAY_E2E_PORT_DS'] ?? 4180}/`
-
-/** Structural mirror of @assay/testing's DataSourceBehaviorScenarioResult. */
-interface ScenarioResult {
-  name: string
-  passed: boolean
-  detail: string
-  facts: Record<string, string | number | boolean>
-}
-
-interface RunAllReport {
-  subject: string
-  results: ScenarioResult[]
-  allPassed: boolean
-}
 
 const SCENARIOS = [
   'identity-idempotency',
@@ -52,24 +39,17 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'fallback-order': 'Behavior: fallback order',
 }
 
-/** Click a scenario button and wait for its JSON result to render. */
-async function runScenario(page: Page, name: string): Promise<ScenarioResult> {
-  await page.goto(HARNESS_URL)
-  await page
-    .getByRole('button', { name: BUTTON_LABELS[name as (typeof SCENARIOS)[number]] })
-    .click()
-  const element = page.getByTestId(`behavior-result-${name}`)
-  await expect(element).not.toHaveText('not run', { timeout: 30_000 })
-  const text = await element.textContent()
-  expect(text, `result of ${name} renders as JSON`).toBeTruthy()
-  return JSON.parse(text!) as ScenarioResult
-}
-
 for (const name of SCENARIOS) {
   test(`data-source behavior: ${name} passes against the real BrowserFileSource`, async ({
     page,
   }) => {
-    const result = await runScenario(page, name)
+    const result = await runScenario(page, {
+      url: HARNESS_URL,
+      buttonLabel: BUTTON_LABELS[name],
+      resultTestId: `behavior-result-${name}`,
+      timeoutMs: 30_000,
+      assertEngineIdle: false,
+    })
     expect(result.name).toBe(name)
     expect(result.passed, `scenario ${name}: ${result.detail}`).toBe(true)
 
