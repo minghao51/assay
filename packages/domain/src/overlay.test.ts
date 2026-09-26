@@ -23,6 +23,12 @@ import {
   makeTestRng,
 } from './property-testing'
 
+// Vitest 4 no longer leaks Node's ambient globals into test files (this pure
+// package's lib is ES2022-only and it has no `@types/node`), so the platform
+// `structuredClone` the immutability pins use needs a local ambient
+// declaration. Type-only: the runtime global still comes from Node.
+declare function structuredClone<T>(value: T): T
+
 /** Fixture base: 3 columns, 5 base rows, fixed anchors. */
 function makeBase(overrides: Partial<OverlayBase> = {}): OverlayBase {
   return {

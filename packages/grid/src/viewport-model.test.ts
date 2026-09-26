@@ -11,6 +11,12 @@ import type {
 } from './contracts'
 import { GridViewportModel } from './viewport-model'
 
+// Vitest 4 no longer leaks Node's ambient globals into test files (this pure
+// package's lib is ES2022-only and it has no `@types/node`), so the platform
+// timer the macrotask-flush helper uses needs a local ambient declaration.
+// Type-only: the runtime global still comes from Node.
+declare function setTimeout(handler: () => void, timeout?: number): unknown
+
 /**
  * In-memory fake provider: deterministic rows (`[i, "cell-${i}"]`), an
  * optional failure set, and a manual mode that holds fetches until released —
@@ -214,7 +220,7 @@ class FakeProvider implements GridDataProvider {
 
 /** Flush microtasks queued by promise continuations (macrotask boundary). */
 function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0))
+  return new Promise((resolve) => setTimeout(() => resolve(), 0))
 }
 
 describe('GridViewportModel — load()', () => {
