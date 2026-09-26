@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { compileRowDiffPlan } from '@assay/diff'
 import {
+  ENGINE_REQUEST_TYPES,
   OVERLAY_REQUEST_TYPES,
   parseEngineRequest,
   parseEngineRequestEnvelope,
   parseEngineResponse,
 } from './protocol'
+import type { EngineRequestType } from './protocol'
 import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire'
 
 describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
@@ -891,15 +893,46 @@ describe('m4-2: overlay + export protocol', () => {
         }),
       ).toEqual({
         status: 'malformed',
-        malformed: { requestId: 77, requestType: 'engine/overlay-schema' },
+        malformed: {
+          requestId: 77,
+          requestType: 'engine/overlay-schema',
+          field: 'overlay-schema.overlay',
+        },
       })
     })
 
     it('covers every recognised overlay/export request type', () => {
+      const expectedField: Record<(typeof OVERLAY_REQUEST_TYPES)[number], string> = {
+        'engine/overlay-schema': 'overlay-schema.tableId',
+        'engine/overlay-row-count': 'overlay-row-count.tableId',
+        'engine/overlay-range': 'overlay-range.tableId',
+        'engine/overlay-cast-check': 'overlay-cast-check.tableId',
+        'engine/export': 'export.tableId',
+        'engine/validate': 'validate.tableId',
+        'engine/diff-stage': 'diff-stage.name',
+        'engine/diff': 'diff.tableId',
+      }
       for (const requestType of OVERLAY_REQUEST_TYPES) {
         expect(parseEngineRequestEnvelope({ type: requestType, requestId: 9 })).toEqual({
           status: 'malformed',
-          malformed: { requestId: 9, requestType },
+          malformed: { requestId: 9, requestType, field: expectedField[requestType] },
+        })
+      }
+    })
+
+    it('q-10: covers every recognised non-overlay request type too', () => {
+      const expectedField = {
+        'engine/query': 'query.sql',
+        'engine/open': 'open.name',
+        'engine/schema': 'schema.tableId',
+        'engine/range': 'range.tableId',
+        'engine/row-count': 'row-count.tableId',
+        'engine/profile': 'profile.tableId',
+      } as const
+      for (const [requestType, field] of Object.entries(expectedField)) {
+        expect(parseEngineRequestEnvelope({ type: requestType, requestId: 9 })).toEqual({
+          status: 'malformed',
+          malformed: { requestId: 9, requestType, field },
         })
       }
     })
@@ -914,6 +947,356 @@ describe('m4-2: overlay + export protocol', () => {
         null,
       ]) {
         expect(parseEngineRequestEnvelope(data)).toEqual({ status: 'ignored' })
+      }
+    })
+  })
+
+  // ───────────────────────────────────────────────────────────────────────
+  // q-10: malformed-envelope rejection coverage. Before q-10 only the
+  // OVERLAY_REQUEST_TYPES subset got a typed rejection; a malformed
+  // range/row-count/schema/open/query envelope was silently dropped (a hang
+  // risk for the caller). Now every recognised request kind is rejected at
+  // the seam with a value-free field path.
+  // ───────────────────────────────────────────────────────────────────────
+  describe('q-10: every request kind rejects a malformed envelope at the seam', () => {
+    interface MalformedCase {
+      readonly label: string
+      readonly type: EngineRequestType
+      readonly payload: Record<string, unknown>
+      readonly field: string
+    }
+
+    const requestId = 42
+    const file = new File([new Uint8Array([1, 2, 3])], 'flat.parquet')
+    // Minimal structurally valid overlay payload (base + empty op list), so
+    // each case isolates exactly one malformed field.
+    const overlay = {
+      base: {
+        baseAnchor: 'a',
+        overlayAnchor: 'o',
+        baseRowCount: 1,
+        columns: [{ name: 'id', type: 'BIGINT' }],
+      },
+      ops: [],
+    }
+    const badOverlay = { base: 'nope' }
+
+    const cases: MalformedCase[] = [
+      // engine/query
+      { label: 'engine/query missing sql', type: 'engine/query', payload: {}, field: 'query.sql' },
+      {
+        label: 'engine/query wrong-typed sql',
+        type: 'engine/query',
+        payload: { sql: 42 },
+        field: 'query.sql',
+      },
+      // engine/open
+      {
+        label: 'engine/open missing name',
+        type: 'engine/open',
+        payload: { file },
+        field: 'open.name',
+      },
+      {
+        label: 'engine/open wrong-typed name',
+        type: 'engine/open',
+        payload: { name: 42, file },
+        field: 'open.name',
+      },
+      {
+        label: 'engine/open missing file',
+        type: 'engine/open',
+        payload: { name: 'flat.parquet' },
+        field: 'open.file',
+      },
+      {
+        label: 'engine/open wrong-typed file',
+        type: 'engine/open',
+        payload: { name: 'flat.parquet', file: 'not-a-file' },
+        field: 'open.file',
+      },
+      // engine/schema
+      {
+        label: 'engine/schema missing tableId',
+        type: 'engine/schema',
+        payload: {},
+        field: 'schema.tableId',
+      },
+      {
+        label: 'engine/schema wrong-typed tableId',
+        type: 'engine/schema',
+        payload: { tableId: 1 },
+        field: 'schema.tableId',
+      },
+      // engine/range
+      {
+        label: 'engine/range missing tableId',
+        type: 'engine/range',
+        payload: { startRow: 0, endRow: 5 },
+        field: 'range.tableId',
+      },
+      {
+        label: 'engine/range wrong-typed tableId',
+        type: 'engine/range',
+        payload: { tableId: 1, startRow: 0, endRow: 5 },
+        field: 'range.tableId',
+      },
+      {
+        label: 'engine/range missing startRow',
+        type: 'engine/range',
+        payload: { tableId: 't1', endRow: 5 },
+        field: 'range.startRow',
+      },
+      {
+        label: 'engine/range wrong-typed startRow',
+        type: 'engine/range',
+        payload: { tableId: 't1', startRow: '0', endRow: 5 },
+        field: 'range.startRow',
+      },
+      {
+        label: 'engine/range missing endRow',
+        type: 'engine/range',
+        payload: { tableId: 't1', startRow: 0 },
+        field: 'range.endRow',
+      },
+      {
+        label: 'engine/range wrong-typed endRow',
+        type: 'engine/range',
+        payload: { tableId: 't1', startRow: 0, endRow: '5' },
+        field: 'range.endRow',
+      },
+      {
+        label: 'engine/range malformed columns',
+        type: 'engine/range',
+        payload: { tableId: 't1', startRow: 0, endRow: 5, columns: [] },
+        field: 'range.columns',
+      },
+      {
+        label: 'engine/range malformed filters',
+        type: 'engine/range',
+        payload: { tableId: 't1', startRow: 0, endRow: 5, filters: 'x' },
+        field: 'range.filters',
+      },
+      {
+        label: 'engine/range malformed sort',
+        type: 'engine/range',
+        payload: { tableId: 't1', startRow: 0, endRow: 5, sort: [{ column: 'a' }] },
+        field: 'range.sort',
+      },
+      // engine/row-count
+      {
+        label: 'engine/row-count missing tableId',
+        type: 'engine/row-count',
+        payload: {},
+        field: 'row-count.tableId',
+      },
+      {
+        label: 'engine/row-count wrong-typed tableId',
+        type: 'engine/row-count',
+        payload: { tableId: 1 },
+        field: 'row-count.tableId',
+      },
+      {
+        label: 'engine/row-count malformed filters',
+        type: 'engine/row-count',
+        payload: { tableId: 't1', filters: 7 },
+        field: 'row-count.filters',
+      },
+      // engine/profile
+      {
+        label: 'engine/profile missing tableId',
+        type: 'engine/profile',
+        payload: {},
+        field: 'profile.tableId',
+      },
+      {
+        label: 'engine/profile wrong-typed tableId',
+        type: 'engine/profile',
+        payload: { tableId: 1 },
+        field: 'profile.tableId',
+      },
+      // overlay group
+      {
+        label: 'engine/overlay-schema missing tableId',
+        type: 'engine/overlay-schema',
+        payload: { overlay },
+        field: 'overlay-schema.tableId',
+      },
+      {
+        label: 'engine/overlay-schema missing overlay',
+        type: 'engine/overlay-schema',
+        payload: { tableId: 't1' },
+        field: 'overlay-schema.overlay',
+      },
+      {
+        label: 'engine/overlay-schema malformed overlay',
+        type: 'engine/overlay-schema',
+        payload: { tableId: 't1', overlay: badOverlay },
+        field: 'overlay-schema.overlay',
+      },
+      {
+        label: 'engine/overlay-row-count missing overlay',
+        type: 'engine/overlay-row-count',
+        payload: { tableId: 't1' },
+        field: 'overlay-row-count.overlay',
+      },
+      {
+        label: 'engine/overlay-row-count malformed filters',
+        type: 'engine/overlay-row-count',
+        payload: { tableId: 't1', overlay, filters: 7 },
+        field: 'overlay-row-count.filters',
+      },
+      {
+        label: 'engine/overlay-range missing overlay',
+        type: 'engine/overlay-range',
+        payload: { tableId: 't1', startRow: 0, endRow: 5 },
+        field: 'overlay-range.overlay',
+      },
+      {
+        label: 'engine/overlay-range malformed columns',
+        type: 'engine/overlay-range',
+        payload: { tableId: 't1', overlay, startRow: 0, endRow: 5, columns: [] },
+        field: 'overlay-range.columns',
+      },
+      {
+        label: 'engine/overlay-range malformed sort',
+        type: 'engine/overlay-range',
+        payload: { tableId: 't1', overlay, startRow: 0, endRow: 5, sort: 'asc' },
+        field: 'overlay-range.sort',
+      },
+      {
+        label: 'engine/overlay-range malformed includeRowIds',
+        type: 'engine/overlay-range',
+        payload: { tableId: 't1', overlay, startRow: 0, endRow: 5, includeRowIds: 'yes' },
+        field: 'overlay-range.includeRowIds',
+      },
+      {
+        label: 'engine/overlay-range missing endRow',
+        type: 'engine/overlay-range',
+        payload: { tableId: 't1', overlay, startRow: 0 },
+        field: 'overlay-range.endRow',
+      },
+      {
+        label: 'engine/overlay-cast-check missing column',
+        type: 'engine/overlay-cast-check',
+        payload: { tableId: 't1', overlay, targetType: 'BIGINT' },
+        field: 'overlay-cast-check.column',
+      },
+      {
+        label: 'engine/overlay-cast-check malformed targetType',
+        type: 'engine/overlay-cast-check',
+        payload: { tableId: 't1', overlay, column: 'id', targetType: 'VARCHAR()' },
+        field: 'overlay-cast-check.targetType',
+      },
+      {
+        label: 'engine/export missing tableId',
+        type: 'engine/export',
+        payload: { format: 'csv' },
+        field: 'export.tableId',
+      },
+      {
+        label: 'engine/export missing format',
+        type: 'engine/export',
+        payload: { tableId: 't1' },
+        field: 'export.format',
+      },
+      {
+        label: 'engine/export wrong-typed format',
+        type: 'engine/export',
+        payload: { tableId: 't1', format: 'xlsx' },
+        field: 'export.format',
+      },
+      {
+        label: 'engine/export malformed overlay',
+        type: 'engine/export',
+        payload: { tableId: 't1', format: 'csv', overlay: badOverlay },
+        field: 'export.overlay',
+      },
+      {
+        label: 'engine/validate missing plan',
+        type: 'engine/validate',
+        payload: { tableId: 't1' },
+        field: 'validate.plan',
+      },
+      {
+        label: 'engine/validate malformed plan',
+        type: 'engine/validate',
+        payload: { tableId: 't1', plan: { planKind: 'wrong' } },
+        field: 'validate.plan',
+      },
+      {
+        label: 'engine/validate malformed overlay',
+        type: 'engine/validate',
+        payload: { tableId: 't1', plan: wirePlan(), overlay: badOverlay },
+        field: 'validate.overlay',
+      },
+      {
+        label: 'engine/diff-stage missing name',
+        type: 'engine/diff-stage',
+        payload: { file },
+        field: 'diff-stage.name',
+      },
+      {
+        label: 'engine/diff-stage wrong-typed file',
+        type: 'engine/diff-stage',
+        payload: { name: 'cmp.parquet', file: 'not-a-file' },
+        field: 'diff-stage.file',
+      },
+      {
+        label: 'engine/diff missing comparisonId',
+        type: 'engine/diff',
+        payload: { tableId: 't1', plan: wireRowDiffPlan() },
+        field: 'diff.comparisonId',
+      },
+      {
+        label: 'engine/diff malformed plan',
+        type: 'engine/diff',
+        payload: { tableId: 't1', comparisonId: 'd1', plan: { planKind: 'wrong' } },
+        field: 'diff.plan',
+      },
+      {
+        label: 'engine/diff malformed overlay',
+        type: 'engine/diff',
+        payload: {
+          tableId: 't1',
+          comparisonId: 'd1',
+          plan: wireRowDiffPlan(),
+          overlay: badOverlay,
+        },
+        field: 'diff.overlay',
+      },
+    ]
+
+    it.each(cases)('$label', ({ type, payload, field }) => {
+      const message = { type, requestId, ...payload }
+      // The strict shape-only parser keeps its documented null contract...
+      expect(parseEngineRequest(message)).toBeNull()
+      // ...and the envelope recognises the request and answers it with the
+      // request class plus the value-free field path (never a silent drop).
+      expect(parseEngineRequestEnvelope(message)).toEqual({
+        status: 'malformed',
+        malformed: { requestId, requestType: type, field },
+      })
+    })
+
+    it('lists exactly the 16 request types and covers every one', () => {
+      expect(ENGINE_REQUEST_TYPES).toHaveLength(16)
+      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(16)
+      const covered = new Set(cases.map((entry) => entry.type))
+      // init and dispose have no required fields (nothing can be malformed),
+      // so every other request type must appear in the malformed matrix.
+      for (const type of ENGINE_REQUEST_TYPES) {
+        if (type === 'engine/init' || type === 'engine/dispose') continue
+        expect(covered, `${type} must have a malformed-envelope case`).toContain(type)
+      }
+    })
+
+    it('accepts engine/init and engine/dispose (no malformed dimension)', () => {
+      for (const type of ['engine/init', 'engine/dispose'] as const) {
+        expect(parseEngineRequestEnvelope({ type, requestId })).toEqual({
+          status: 'request',
+          request: { type, requestId },
+        })
       }
     })
   })
@@ -1134,7 +1517,7 @@ describe('m5-2: engine/validate protocol', () => {
     })
     expect(envelope).toEqual({
       status: 'malformed',
-      malformed: { requestId: 9, requestType: 'engine/validate' },
+      malformed: { requestId: 9, requestType: 'engine/validate', field: 'validate.plan' },
     })
   })
 
@@ -1378,13 +1761,13 @@ describe('m6-2: engine/diff-stage + engine/diff protocol', () => {
       parseEngineRequestEnvelope({ type: 'engine/diff-stage', requestId: 9, name: 'x' }),
     ).toEqual({
       status: 'malformed',
-      malformed: { requestId: 9, requestType: 'engine/diff-stage' },
+      malformed: { requestId: 9, requestType: 'engine/diff-stage', field: 'diff-stage.file' },
     })
     expect(
       parseEngineRequestEnvelope({ type: 'engine/diff', requestId: 10, tableId: 't1' }),
     ).toEqual({
       status: 'malformed',
-      malformed: { requestId: 10, requestType: 'engine/diff' },
+      malformed: { requestId: 10, requestType: 'engine/diff', field: 'diff.comparisonId' },
     })
     expect(OVERLAY_REQUEST_TYPES).toContain('engine/diff-stage')
     expect(OVERLAY_REQUEST_TYPES).toContain('engine/diff')

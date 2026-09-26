@@ -900,10 +900,14 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
     expectNoCollisions(deps)
   })
 
-  it('silently drops requests whose filters/sort arrive malformed (no reply, no send)', async () => {
+  it('q-10: rejects a malformed range envelope with one typed error (was silently dropped)', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)
 
+    // Before q-10 this exact message was silently dropped: the strict parser
+    // returned null and `accept` returned without a reply, so a caller
+    // holding pending request 2 would hang. It now surfaces as one typed
+    // engine/error naming the request class + value-free field path.
     executor.accept(
       filteredRangeRequest(2, {
         startRow: 0,
@@ -914,14 +918,42 @@ describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
     )
     await flush()
     expect(deps.conn.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
-    expect(deps.postedResponses.find((response) => response.requestId === 2)).toBeUndefined()
+    expect(await awaitPosted(deps, 2)).toEqual({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'malformed envelope: range.filters',
+    })
 
-    // The lane was never occupied by the dropped message: a follow-up query
-    // runs on the query lane.
+    // The rejection never occupied a lane: a follow-up query still runs on
+    // the query lane and the malformed message touched no connection.
     executor.accept(queryRequest(3, 'SELECT 42 AS value'))
     await awaitSends(deps.queryConn, 1)
     deps.queryConn.resolveSend(0, intTable([42]))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it('q-10: rejects malformed query/schema/open/row-count envelopes without touching a connection', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept({ type: 'engine/query', requestId: 20 }) // missing sql
+    executor.accept({ type: 'engine/schema', requestId: 21, tableId: 7 }) // wrong-typed id
+    executor.accept({ type: 'engine/open', requestId: 22, name: 42 }) // missing File
+    executor.accept({ type: 'engine/row-count', requestId: 23, filters: 'x' }) // missing id + bad filters
+    await flush()
+
+    expect(await awaitPosted(deps, 20)).toMatchObject({ message: 'malformed envelope: query.sql' })
+    expect(await awaitPosted(deps, 21)).toMatchObject({
+      message: 'malformed envelope: schema.tableId',
+    })
+    expect(await awaitPosted(deps, 22)).toMatchObject({ message: 'malformed envelope: open.name' })
+    expect(await awaitPosted(deps, 23)).toMatchObject({
+      message: 'malformed envelope: row-count.tableId',
+    })
+    // Nothing was dispatched: only the open's CREATE VIEW ran.
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
     expectNoCollisions(deps)
   })
 })
@@ -1601,27 +1633,27 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
     expect(await awaitPosted(deps, 77)).toMatchObject({
       type: 'engine/error',
       requestId: 77,
-      message: 'malformed engine/overlay-schema request',
+      message: 'malformed envelope: overlay-schema.overlay',
     })
     expect(await awaitPosted(deps, 78)).toMatchObject({
       type: 'engine/error',
       requestId: 78,
-      message: 'malformed engine/export request',
+      message: 'malformed envelope: export.format',
     })
     expect(await awaitPosted(deps, 79)).toMatchObject({
       type: 'engine/error',
       requestId: 79,
-      message: 'malformed engine/overlay-range request',
+      message: 'malformed envelope: overlay-range.columns',
     })
     expect(await awaitPosted(deps, 80)).toMatchObject({
       type: 'engine/error',
       requestId: 80,
-      message: 'malformed engine/overlay-cast-check request',
+      message: 'malformed envelope: overlay-cast-check.targetType',
     })
     expect(await awaitPosted(deps, 81)).toMatchObject({
       type: 'engine/error',
       requestId: 81,
-      message: 'malformed engine/overlay-cast-check request',
+      message: 'malformed envelope: overlay-cast-check.column',
     })
     // Nothing touched a connection: no SQL was composed for any of them.
     expect(deps.conn.sentSqls).toHaveLength(1) // only the open's CREATE VIEW
@@ -2169,7 +2201,7 @@ describe('EngineOpExecutor validation execution (m5-2; query lane)', () => {
       const posted = await awaitPosted(deps, 2)
       expect(posted).toMatchObject({ type: 'engine/error' })
       if (posted.type === 'engine/error') {
-        expect(posted.message).toBe('malformed engine/validate request')
+        expect(posted.message).toBe('malformed envelope: validate.plan')
       }
       // Not a single statement ran for the hostile plan (and the engine is
       // immediately reusable).
@@ -2868,7 +2900,7 @@ describe('EngineOpExecutor row-diff execution (m6-2; query lane)', () => {
       plan: { not: 'a plan' },
     })
     const posted = await awaitPosted(deps, 2)
-    expect(posted).toMatchObject({ type: 'engine/error', message: 'malformed engine/diff request' })
+    expect(posted).toMatchObject({ type: 'engine/error', message: 'malformed envelope: diff.plan' })
     expect(deps.queryConn.sentSqls).toEqual([])
   })
 

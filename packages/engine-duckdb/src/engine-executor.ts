@@ -224,13 +224,15 @@ export class EngineOpExecutor {
    * arrival so the enqueue order matches message order (FIFO per lane).
    *
    * A well-formed request routes to its op class's lane and serializes there.
-   * A **malformed but recognised** overlay/export message (a numeric
-   * `requestId` plus an `engine/overlay-*`/`engine/export` type whose payload
-   * failed structural validation) is answered immediately with exactly one
-   * typed `engine/error` — it never touches a connection, and it can never be
-   * silently dropped and hang the caller (m4-2 fix round 2). Truly
-   * unrecognised messages (unknown `type`, or no correlatable `requestId`)
-   * are still ignored, exactly as before: there is nothing to answer them to.
+   * A **malformed but recognised** request (a numeric `requestId` plus a
+   * known request `type` whose payload failed structural validation) is
+   * answered immediately with exactly one typed `engine/error` — it never
+   * touches a connection, and it can never be silently dropped and hang the
+   * caller. The message names the request class and the value-free field path
+   * only (`malformed envelope: range.startRow`) — never payload content
+   * (ADR 0025). Truly unrecognised messages (unknown `type`, or no
+   * correlatable `requestId`) are still ignored: there is nothing to answer
+   * them to.
    */
   accept(data: unknown): void {
     const envelope = parseEngineRequestEnvelope(data)
@@ -240,11 +242,12 @@ export class EngineOpExecutor {
     if (envelope.status === 'malformed') {
       // No connection work, so this is posted directly (never queued behind a
       // lane): the caller gets its typed rejection as soon as the message is
-      // parsed. The message names the request type only — never the payload.
+      // parsed. The message names the request class and field path only —
+      // never the payload.
       this.post({
         type: 'engine/error',
         requestId: envelope.malformed.requestId,
-        message: `malformed ${envelope.malformed.requestType} request`,
+        message: `malformed envelope: ${envelope.malformed.field}`,
       })
       return
     }

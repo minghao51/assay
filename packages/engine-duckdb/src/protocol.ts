@@ -614,34 +614,72 @@ export type EngineSuccessResponse =
 
 /**
  * Parse a main-thread request. Returns `null` for anything that is not a
- * well-formed `EngineRequest` (the worker then ignores the message).
+ * well-formed `EngineRequest`; `parseEngineRequestEnvelope` additionally
+ * distinguishes a *recognised* request whose payload is malformed (which the
+ * worker answers with a typed `engine/error`) from a truly unrecognised
+ * message (which is ignored).
+ *
+ * The detailed parser records a value-free **field path** naming the first
+ * malformed or missing field (e.g. `range.startRow`) so every rejection can
+ * name the offending field class without ever echoing payload content
+ * (ADR 0025).
  */
 export function parseEngineRequest(data: unknown): EngineRequest | null {
-  if (!isRecord(data)) return null
+  const parsed = parseEngineRequestDetailed(data)
+  return parsed.ok ? parsed.request : null
+}
+
+/** Detailed parse result: the request, or the value-free field path that failed. */
+type DetailedEngineRequest =
+  | { readonly ok: true; readonly request: EngineRequest }
+  | { readonly ok: false; readonly reason: string }
+
+function malformedField(field: string): DetailedEngineRequest {
+  return { ok: false, reason: field }
+}
+
+/**
+ * Strict shape-only request parser with a field-path reason. Every recognised
+ * request type validates **all** of its required fields here — a malformed
+ * envelope is rejected at this seam, never silently dropped or partially
+ * defaulted (q-10). Semantic validation (integer/non-negative/ordered/capped
+ * windows, plan bindings, …) stays where it is handled today: this function
+ * only decides well-formedness.
+ */
+function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
+  if (!isRecord(data)) return malformedField('envelope')
   const { type, requestId } = data
-  if (typeof requestId !== 'number') return null
-  if (type === 'engine/init') return { type, requestId }
-  if (type === 'engine/query' && typeof data.sql === 'string') {
-    return { type, requestId, sql: data.sql }
+  if (typeof requestId !== 'number') return malformedField('requestId')
+  if (type === 'engine/init') return { ok: true, request: { type, requestId } }
+  if (type === 'engine/query') {
+    if (typeof data.sql !== 'string') return malformedField('query.sql')
+    return { ok: true, request: { type, requestId, sql: data.sql } }
   }
-  if (type === 'engine/open' && typeof data.name === 'string' && isFile(data.file)) {
-    return { type, requestId, name: data.name, file: data.file }
+  if (type === 'engine/open') {
+    if (typeof data.name !== 'string') return malformedField('open.name')
+    if (!isFile(data.file)) return malformedField('open.file')
+    return { ok: true, request: { type, requestId, name: data.name, file: data.file } }
   }
-  if (type === 'engine/schema' && typeof data.tableId === 'string') {
-    return { type, requestId, tableId: data.tableId }
+  if (type === 'engine/schema') {
+    if (typeof data.tableId !== 'string') return malformedField('schema.tableId')
+    return { ok: true, request: { type, requestId, tableId: data.tableId } }
   }
-  if (type === 'engine/range' && typeof data.tableId === 'string') {
+  if (type === 'engine/range') {
+    if (typeof data.tableId !== 'string') return malformedField('range.tableId')
     const columns = parseOptionalColumns(data.columns)
-    if (columns === null) return null
+    if (columns === null) return malformedField('range.columns')
     const filters = parseOptionalFilters(data.filters)
-    if (filters === null) return null
+    if (filters === null) return malformedField('range.filters')
     const sort = parseOptionalSorts(data.sort)
-    if (sort === null) return null
+    if (sort === null) return malformedField('range.sort')
     // Well-formedness only: the bounds must be numbers. Semantic validation
     // (integer, non-negative, ordered, capped) happens in `runRange` via
     // `validateRowWindow` so bad windows get an error *reply*, not silence.
-    if (typeof data.startRow === 'number' && typeof data.endRow === 'number') {
-      return {
+    if (typeof data.startRow !== 'number') return malformedField('range.startRow')
+    if (typeof data.endRow !== 'number') return malformedField('range.endRow')
+    return {
+      ok: true,
+      request: {
         type,
         requestId,
         tableId: data.tableId,
@@ -650,151 +688,219 @@ export function parseEngineRequest(data: unknown): EngineRequest | null {
         ...(columns === undefined ? {} : { columns }),
         ...(filters === undefined ? {} : { filters }),
         ...(sort === undefined ? {} : { sort }),
-      }
+      },
     }
-    return null
   }
-  if (type === 'engine/row-count' && typeof data.tableId === 'string') {
+  if (type === 'engine/row-count') {
+    if (typeof data.tableId !== 'string') return malformedField('row-count.tableId')
     const filters = parseOptionalFilters(data.filters)
-    if (filters === null) return null
-    return filters === undefined
-      ? { type, requestId, tableId: data.tableId }
-      : { type, requestId, tableId: data.tableId, filters }
+    if (filters === null) return malformedField('row-count.filters')
+    return {
+      ok: true,
+      request:
+        filters === undefined
+          ? { type, requestId, tableId: data.tableId }
+          : { type, requestId, tableId: data.tableId, filters },
+    }
   }
-  if (type === 'engine/profile' && typeof data.tableId === 'string') {
-    return { type, requestId, tableId: data.tableId }
+  if (type === 'engine/profile') {
+    if (typeof data.tableId !== 'string') return malformedField('profile.tableId')
+    return { ok: true, request: { type, requestId, tableId: data.tableId } }
   }
-  if (
-    (type === 'engine/overlay-schema' ||
-      type === 'engine/overlay-row-count' ||
-      type === 'engine/overlay-range' ||
-      type === 'engine/overlay-cast-check' ||
-      type === 'engine/export') &&
-    typeof data.tableId === 'string'
-  ) {
+  if (type === 'engine/overlay-schema') {
+    if (typeof data.tableId !== 'string') return malformedField('overlay-schema.tableId')
     const overlay = parseOverlayPayload(data.overlay)
-    // engine/export allows an absent overlay (plain base-view export);
-    // the four overlay query ops require it. A present-but-malformed
-    // payload rejects the request in both cases (never silently ignored).
-    if (overlay === null && !(type === 'engine/export' && data.overlay === undefined)) {
-      return null
-    }
-    if (type === 'engine/overlay-schema' && overlay !== null) {
-      return { type, requestId, tableId: data.tableId, overlay }
-    }
-    if (type === 'engine/overlay-row-count' && overlay !== null) {
-      const filters = parseOptionalFilters(data.filters)
-      if (filters === null) return null
-      return {
+    // The four overlay query ops require the payload; absent or malformed is
+    // a rejected envelope (never a silent base-view default).
+    if (overlay === null) return malformedField('overlay-schema.overlay')
+    return { ok: true, request: { type, requestId, tableId: data.tableId, overlay } }
+  }
+  if (type === 'engine/overlay-row-count') {
+    if (typeof data.tableId !== 'string') return malformedField('overlay-row-count.tableId')
+    const overlay = parseOverlayPayload(data.overlay)
+    if (overlay === null) return malformedField('overlay-row-count.overlay')
+    const filters = parseOptionalFilters(data.filters)
+    if (filters === null) return malformedField('overlay-row-count.filters')
+    return {
+      ok: true,
+      request: {
         type,
         requestId,
         tableId: data.tableId,
         overlay,
         ...(filters === undefined ? {} : { filters }),
-      }
+      },
     }
-    if (type === 'engine/overlay-range' && overlay !== null) {
-      const columns = parseOptionalColumns(data.columns)
-      if (columns === null) return null
-      const filters = parseOptionalFilters(data.filters)
-      if (filters === null) return null
-      const sort = parseOptionalSorts(data.sort)
-      if (sort === null) return null
-      const includeRowIds = parseOptionalFlag(data.includeRowIds)
-      if (includeRowIds === null) return null
-      if (typeof data.startRow === 'number' && typeof data.endRow === 'number') {
-        return {
-          type,
-          requestId,
-          tableId: data.tableId,
-          overlay,
-          startRow: data.startRow,
-          endRow: data.endRow,
-          ...(columns === undefined ? {} : { columns }),
-          ...(filters === undefined ? {} : { filters }),
-          ...(sort === undefined ? {} : { sort }),
-          ...(includeRowIds === undefined ? {} : { includeRowIds }),
-        }
-      }
-      return null
+  }
+  if (type === 'engine/overlay-range') {
+    if (typeof data.tableId !== 'string') return malformedField('overlay-range.tableId')
+    const overlay = parseOverlayPayload(data.overlay)
+    if (overlay === null) return malformedField('overlay-range.overlay')
+    const columns = parseOptionalColumns(data.columns)
+    if (columns === null) return malformedField('overlay-range.columns')
+    const filters = parseOptionalFilters(data.filters)
+    if (filters === null) return malformedField('overlay-range.filters')
+    const sort = parseOptionalSorts(data.sort)
+    if (sort === null) return malformedField('overlay-range.sort')
+    const includeRowIds = parseOptionalFlag(data.includeRowIds)
+    if (includeRowIds === null) return malformedField('overlay-range.includeRowIds')
+    if (typeof data.startRow !== 'number') return malformedField('overlay-range.startRow')
+    if (typeof data.endRow !== 'number') return malformedField('overlay-range.endRow')
+    return {
+      ok: true,
+      request: {
+        type,
+        requestId,
+        tableId: data.tableId,
+        overlay,
+        startRow: data.startRow,
+        endRow: data.endRow,
+        ...(columns === undefined ? {} : { columns }),
+        ...(filters === undefined ? {} : { filters }),
+        ...(sort === undefined ? {} : { sort }),
+        ...(includeRowIds === undefined ? {} : { includeRowIds }),
+      },
     }
-    if (type === 'engine/overlay-cast-check' && overlay !== null) {
-      // The standalone target type is untrusted input for a SQL type
-      // position: reject a malformed spelling at the boundary (the client
-      // already validated it; a hostile sender is answered, never dropped).
-      if (typeof data.column !== 'string' || typeof data.targetType !== 'string') return null
-      if (!isEngineTypeExpression(data.targetType)) return null
-      return {
+  }
+  if (type === 'engine/overlay-cast-check') {
+    if (typeof data.tableId !== 'string') return malformedField('overlay-cast-check.tableId')
+    const overlay = parseOverlayPayload(data.overlay)
+    if (overlay === null) return malformedField('overlay-cast-check.overlay')
+    // The standalone target type is untrusted input for a SQL type position:
+    // reject a malformed spelling at the boundary (the client already
+    // validated it; a hostile sender is answered, never dropped).
+    if (typeof data.column !== 'string') return malformedField('overlay-cast-check.column')
+    if (typeof data.targetType !== 'string') return malformedField('overlay-cast-check.targetType')
+    if (!isEngineTypeExpression(data.targetType)) {
+      return malformedField('overlay-cast-check.targetType')
+    }
+    return {
+      ok: true,
+      request: {
         type,
         requestId,
         tableId: data.tableId,
         overlay,
         column: data.column,
         targetType: data.targetType,
-      }
+      },
     }
-    if (type === 'engine/export' && isExportFormat(data.format)) {
-      const overlayPayload = overlay ?? undefined
-      return {
+  }
+  if (type === 'engine/export') {
+    if (typeof data.tableId !== 'string') return malformedField('export.tableId')
+    const overlay = parseOverlayPayload(data.overlay)
+    // engine/export allows an absent overlay (plain base-view export); a
+    // present-but-malformed payload rejects the request in both cases (never
+    // silently ignored or defaulted away).
+    if (data.overlay !== undefined && overlay === null) return malformedField('export.overlay')
+    if (!isExportFormat(data.format)) return malformedField('export.format')
+    const overlayPayload = overlay ?? undefined
+    return {
+      ok: true,
+      request: {
         type,
         requestId,
         tableId: data.tableId,
         format: data.format,
         ...(overlayPayload === undefined ? {} : { overlay: overlayPayload }),
-      }
+      },
     }
-    return null
   }
-  if (type === 'engine/validate' && typeof data.tableId === 'string') {
+  if (type === 'engine/validate') {
+    if (typeof data.tableId !== 'string') return malformedField('validate.tableId')
     // The plan is the request's complex payload: strictly shape-checked at
     // the boundary (validate-plan-wire.ts). `overlay` follows the export
     // convention — absent = the plain base view; a present-but-malformed
     // payload rejects the request.
     const plan = parseValidationPlan(data.plan)
-    if (plan === null) return null
+    if (plan === null) return malformedField('validate.plan')
     const overlay = parseOverlayPayload(data.overlay)
-    if (data.overlay !== undefined && overlay === null) return null
+    if (data.overlay !== undefined && overlay === null) return malformedField('validate.overlay')
     return {
-      type,
-      requestId,
-      tableId: data.tableId,
-      plan,
-      ...(overlay === null ? {} : { overlay }),
+      ok: true,
+      request: {
+        type,
+        requestId,
+        tableId: data.tableId,
+        plan,
+        ...(overlay === null ? {} : { overlay }),
+      },
     }
   }
-  if (type === 'engine/diff-stage' && typeof data.name === 'string' && isFile(data.file)) {
-    return { type, requestId, name: data.name, file: data.file }
+  if (type === 'engine/diff-stage') {
+    if (typeof data.name !== 'string') return malformedField('diff-stage.name')
+    if (!isFile(data.file)) return malformedField('diff-stage.file')
+    return { ok: true, request: { type, requestId, name: data.name, file: data.file } }
   }
-  if (type === 'engine/diff' && typeof data.tableId === 'string') {
+  if (type === 'engine/diff') {
+    if (typeof data.tableId !== 'string') return malformedField('diff.tableId')
     // The plan is the request's complex payload: strictly shape-checked at
     // the boundary (diff-plan-wire.ts). `overlay` follows the validate
     // convention — absent = the plain base view; a present-but-malformed
     // payload rejects the request.
-    if (typeof data.comparisonId !== 'string') return null
+    if (typeof data.comparisonId !== 'string') return malformedField('diff.comparisonId')
     const plan = parseRowDiffPlan(data.plan)
-    if (plan === null) return null
+    if (plan === null) return malformedField('diff.plan')
     const overlay = parseOverlayPayload(data.overlay)
-    if (data.overlay !== undefined && overlay === null) return null
+    if (data.overlay !== undefined && overlay === null) return malformedField('diff.overlay')
     return {
-      type,
-      requestId,
-      tableId: data.tableId,
-      comparisonId: data.comparisonId,
-      plan,
-      ...(overlay === null ? {} : { overlay }),
+      ok: true,
+      request: {
+        type,
+        requestId,
+        tableId: data.tableId,
+        comparisonId: data.comparisonId,
+        plan,
+        ...(overlay === null ? {} : { overlay }),
+      },
     }
   }
-  if (type === 'engine/dispose') return { type, requestId }
-  return null
+  if (type === 'engine/dispose') return { ok: true, request: { type, requestId } }
+  // Unrecognised `type`: not part of the protocol (the envelope ignores it).
+  return malformedField('type')
 }
 
 /**
- * The m4-2/m5-2 request types whose complex host-supplied payloads (overlay
- * lists, compiled validation plans) get the typed-rejection treatment. These
- * carry enough structure that a malformed message is both plausible and —
- * because the client always holds a pending promise for its `requestId` — a
- * hang risk if the worker silently dropped it. Their envelope identity is
- * therefore preserved through parsing.
+ * Every request `type` the protocol recognises (drives the malformed-envelope
+ * rejection below). A message carrying one of these types plus a numeric
+ * `requestId` is *recognised*: its payload must validate, or the worker
+ * answers it with exactly one typed `engine/error` rather than silently
+ * dropping it (q-10). Because the client always holds a pending promise for
+ * its `requestId`, a silent drop is a hang risk regardless of which request
+ * type it was.
+ */
+export const ENGINE_REQUEST_TYPES = [
+  'engine/init',
+  'engine/query',
+  'engine/open',
+  'engine/schema',
+  'engine/range',
+  'engine/row-count',
+  'engine/profile',
+  'engine/overlay-schema',
+  'engine/overlay-row-count',
+  'engine/overlay-range',
+  'engine/overlay-cast-check',
+  'engine/validate',
+  'engine/diff-stage',
+  'engine/diff',
+  'engine/export',
+  'engine/dispose',
+] as const
+
+export type EngineRequestType = (typeof ENGINE_REQUEST_TYPES)[number]
+
+function isEngineRequestType(value: unknown): value is EngineRequestType {
+  return (ENGINE_REQUEST_TYPES as readonly unknown[]).includes(value)
+}
+
+/**
+ * The m4-2/m5-2 subset whose complex host-supplied payloads (overlay lists,
+ * compiled validation plans) first motivated the typed-rejection treatment.
+ * Since q-10 every recognised request type gets that treatment (see
+ * `ENGINE_REQUEST_TYPES`); this list is retained for the subset-specific
+ * regression coverage and as the historical record of where the gap was
+ * closed.
  */
 export const OVERLAY_REQUEST_TYPES = [
   'engine/overlay-schema',
@@ -809,26 +915,27 @@ export const OVERLAY_REQUEST_TYPES = [
 
 export type OverlayRequestType = (typeof OVERLAY_REQUEST_TYPES)[number]
 
-function isOverlayRequestType(value: unknown): value is OverlayRequestType {
-  return (OVERLAY_REQUEST_TYPES as readonly unknown[]).includes(value)
-}
-
-/** A recognisably overlay/export request whose payload failed validation. */
+/** A recognised request whose payload failed structural validation. */
 export interface MalformedEngineRequest {
   readonly requestId: number
-  readonly requestType: OverlayRequestType
+  readonly requestType: EngineRequestType
+  /**
+   * Value-free field path of the first malformed/missing field (e.g.
+   * `range.startRow`). Never payload content, never raw SQL (ADR 0025).
+   */
+  readonly field: string
 }
 
 /**
- * The three-way result of parsing a raw worker message (m4-2 fix round 2):
+ * The three-way result of parsing a raw worker message:
  *
  * - `request` — a well-formed `EngineRequest`;
- * - `malformed` — a message that is recognisably an overlay/export request
- *   (a numeric `requestId` plus a known `engine/overlay-*`/`engine/export`
- *   type) but whose payload is structurally invalid. The worker must answer it
- *   with exactly one typed `engine/error` so the caller cannot hang; the
- *   envelope identity (`requestId`, request `type`) survives parsing for that
- *   purpose.
+ * - `malformed` — a message that is recognisably a protocol request (a
+ *   numeric `requestId` plus a known request `type`) but whose payload is
+ *   structurally invalid. The worker must answer it with exactly one typed
+ *   `engine/error` so the caller cannot hang; the envelope identity
+ *   (`requestId`, request `type`) and the value-free `field` path survive
+ *   parsing for that purpose.
  * - `ignored` — anything else (unknown `type`, no correlatable `requestId`,
  *   or a non-object): the pre-existing contract, unchanged. A message with no
  *   usable `requestId` cannot be answered at all, and an unrecognised `type`
@@ -843,15 +950,18 @@ export type EngineRequestEnvelope =
  * Parse a raw worker message into a request, a typed rejection, or an ignore
  * (see `EngineRequestEnvelope`). `parseEngineRequest` remains the strict
  * shape-only parser; this wrapper adds the envelope identity a malformed but
- * recognised overlay/export message needs to be answered instead of dropped.
+ * recognised request needs to be answered instead of dropped.
  */
 export function parseEngineRequestEnvelope(data: unknown): EngineRequestEnvelope {
-  const request = parseEngineRequest(data)
-  if (request !== null) return { status: 'request', request }
+  const parsed = parseEngineRequestDetailed(data)
+  if (parsed.ok) return { status: 'request', request: parsed.request }
   if (isRecord(data)) {
     const { type, requestId } = data
-    if (typeof requestId === 'number' && isOverlayRequestType(type)) {
-      return { status: 'malformed', malformed: { requestId, requestType: type } }
+    if (typeof requestId === 'number' && isEngineRequestType(type)) {
+      return {
+        status: 'malformed',
+        malformed: { requestId, requestType: type, field: parsed.reason },
+      }
     }
   }
   return { status: 'ignored' }
