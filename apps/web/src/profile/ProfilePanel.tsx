@@ -360,12 +360,16 @@ export function ProfilePanel({ handle }: ProfilePanelProps) {
         Profile
       </button>
       {open && (
+        /* q-3 (pt0-4 residue): the outer `<section aria-label="Column profile">`
+           is the panel landmark; this inner results region must have a distinct
+           name or axe `landmark-unique` fires (two regions with the same
+           role/name). */
         <div
           id="profile-panel"
           className="profile-panel"
           data-testid="profile-panel"
           role="region"
-          aria-label="Column profile"
+          aria-label="Column profile results"
         >
           {state.kind === 'idle' && (
             <>

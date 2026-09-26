@@ -164,6 +164,14 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await expect(alert).not.toContainText('not-a-date')
   await expect(alert).not.toContainText("'; DROP TABLE x --")
 
+  // q-3: the engine rejection is ALSO announced through the single polite
+  // live region, and the announcement is the same value-free class (the raw
+  // engine text and the hostile typed draft never leak, ADR 0025).
+  const live = page.getByTestId('edit-live-region')
+  await expect(live).toContainText('the edited view could not be materialized')
+  await expect(live).not.toContainText('not-a-date')
+  await expect(live).not.toContainText("'; DROP TABLE x --")
+
   // Recoverable: the previous effective view is restored — every row ready,
   // nothing left perpetually loading, and the edit is not in the history.
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')

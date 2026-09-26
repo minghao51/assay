@@ -259,6 +259,36 @@ export function App() {
   const [overlayRevision, setOverlayRevision] = useState(0)
   const [editError, setEditError] = useState<string | null>(null)
   /**
+   * q-3: the single `aria-live="polite"` announcement for grid edit commit
+   * and rejection. The region is persistent; a monotonic `seq` replaces its
+   * text node so a repeated identical announcement (two commits in a row)
+   * still fires. Announced text is always value-free: the engine rejection
+   * class (q-8) or a client validation reason (typed-input), never a cell
+   * value (ADR 0025).
+   */
+  const [editAnnouncement, setEditAnnouncement] = useState<{
+    readonly text: string
+    readonly seq: number
+  } | null>(null)
+  const editAnnouncementSeq = useRef(0)
+  const announceEdit = useCallback((text: string) => {
+    editAnnouncementSeq.current += 1
+    setEditAnnouncement({ text, seq: editAnnouncementSeq.current })
+  }, [])
+  /**
+   * Set the visible edit error and mirror every non-null message into the
+   * polite live region. Used for engine rejections, cast refusals, and
+   * non-applied outcomes; the grid reports its client-side rejections
+   * through `announceEdit` directly (it keeps its own visible text).
+   */
+  const showEditError = useCallback(
+    (message: string | null) => {
+      setEditError(message)
+      if (message !== null) announceEdit(message)
+    },
+    [announceEdit],
+  )
+  /**
    * m4-4 carry-over: true only when a commit was rejected *and* restoring the
    * previous view also failed. It renders a retry affordance so an engine
    * outage cannot leave an unattributed alert over a half-loaded grid.
@@ -462,10 +492,15 @@ export function App() {
       })
       // An honest non-applied outcome (a no-op entry) must survive a
       // successful commit; an engine rejection message wins if present.
-      setEditError(result.message ?? outcomeMessage)
+      showEditError(result.message ?? outcomeMessage)
       setViewError(result.restoreFailed)
+      // q-3: announce a clean commit. `showEditError` already announced any
+      // rejection/no-op message; only a fully applied edit reaches here silent.
+      if (result.message === null && outcomeMessage === null) {
+        announceEdit('Edit committed.')
+      }
     },
-    [phase, activateHistory],
+    [phase, activateHistory, showEditError, announceEdit],
   )
 
   const applyOp = useCallback(
@@ -482,10 +517,10 @@ export function App() {
       if (result.entry !== null) {
         void commitHistory(result.history, current, outcomeMessage)
       } else {
-        setEditError(outcomeMessage)
+        showEditError(outcomeMessage)
       }
     },
-    [phase, commitHistory],
+    [phase, commitHistory, showEditError],
   )
 
   const handleUndo = useCallback(() => {
@@ -578,7 +613,7 @@ export function App() {
                 targetType,
               })
             } catch (error) {
-              if (sessionToken.current === session) setEditError(engineRejectionMessage(error))
+              if (sessionToken.current === session) showEditError(engineRejectionMessage(error))
               return
             }
             // A table switch while the check was in flight invalidates the intent.
@@ -589,7 +624,7 @@ export function App() {
             // state rather than appending a stale result.
             if (historyRevision.current !== revision) continue
             if (check.hasNonConvertibleValues) {
-              setEditError(castRefusalMessage(column, targetType))
+              showEditError(castRefusalMessage(column, targetType))
               return
             }
             applyOp({ kind: 'column-cast', column, targetType })
@@ -598,14 +633,14 @@ export function App() {
           // Every attempt was invalidated by a concurrent change; refuse
           // honestly rather than append a result we could never trust.
           if (sessionToken.current === session) {
-            setEditError(castRacedMessage(column, targetType))
+            showEditError(castRacedMessage(column, targetType))
           }
         } finally {
           setCastPendingColumn((pending) => (pending === column ? null : pending))
         }
       })()
     },
-    [phase, applyOp],
+    [phase, applyOp, showEditError],
   )
 
   /**
@@ -1009,9 +1044,9 @@ export function App() {
       setViewError(false)
       setEditError(null)
     } catch (error) {
-      setEditError(engineRejectionMessage(error))
+      showEditError(engineRejectionMessage(error))
     }
-  }, [phase])
+  }, [phase, showEditError])
 
   const openDataFile = useCallback(async () => {
     // AR-W13: generation guard. Bump the session token up front and capture
@@ -1186,6 +1221,24 @@ export function App() {
             pendingSummary={pendingChangesSummary(activeOps(history))}
             error={editError}
           />
+          {/*
+           * q-3: the ONE polite live region for grid edit outcomes. Commit
+           * success and every value-free rejection (client validation reason
+           * or the q-8 engine materialization class) announce here; the
+           * visible `edit-error`/`grid-edit-error` text is not itself a live
+           * region. `seq` remounts the text node so repeated announcements
+           * still fire. Never carries a cell value (ADR 0025).
+           */}
+          <span
+            className="visually-hidden"
+            aria-live="polite"
+            aria-atomic="true"
+            data-testid="edit-live-region"
+          >
+            {editAnnouncement === null ? null : (
+              <span key={editAnnouncement.seq}>{editAnnouncement.text}</span>
+            )}
+          </span>
           <section className="export-actions" aria-label="Export">
             <button
               type="button"
@@ -1288,6 +1341,7 @@ export function App() {
               scrollRequest={scrollRequest}
               onCommitCell={handleCommitCell}
               onDeleteRow={handleDeleteRow}
+              onEditAnnounce={announceEdit}
               onOpenRecord={(rowIndex) => {
                 setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
               }}

@@ -48,6 +48,13 @@ interface DataGridProps {
   /** m4-3 row-delete affordance; emits the row's logical id. */
   onDeleteRow?: (rowId: RowId) => void
   /**
+   * q-3: report a client-side edit rejection to the app's single polite
+   * live region. The grid keeps its own visible `grid-edit-error` text; the
+   * callback mirrors the (value-free) reason into one `aria-live="polite"`
+   * region so commit success and rejection share the documented contract.
+   */
+  onEditAnnounce?: (message: string) => void
+  /**
    * m5-3 jump-to-row request: scroll this effective row index into view
    * (align `start`, so the target position is deterministic). `seq` makes
    * repeated requests for the SAME row re-fire; `null` is idle. The request
@@ -127,6 +134,7 @@ export function DataGrid({
   overlayState = null,
   onCommitCell,
   onDeleteRow,
+  onEditAnnounce,
   scrollRequest = null,
 }: DataGridProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
@@ -194,7 +202,9 @@ export function DataGrid({
     if (parsedType === undefined) return
     const kind = cellEditorKind(parsedType)
     if (kind === 'unsupported') {
-      setEditError(`Column "${column.name}" is not editable (nested type).`)
+      const message = `Column "${column.name}" is not editable (nested type).`
+      setEditError(message)
+      onEditAnnounce?.(message)
       return
     }
     const slot = model.getRow(rowIndex)
@@ -254,8 +264,11 @@ export function DataGrid({
     const parsed = validateCellInput(parsedType, editing.draft)
     if (!parsed.ok) {
       // Readable rejection; overlay state is untouched and the editor stays
-      // open so the user can correct the value.
+      // open so the user can correct the value. The reason is a value-free
+      // class (justify: typed-input.test.ts), so it is also safe to announce
+      // through the app's polite live region (q-3, ADR 0025).
       setEditError(parsed.reason)
+      onEditAnnounce?.(parsed.reason)
       return
     }
     commitEditValue(parsed.value)
@@ -324,7 +337,7 @@ export function DataGrid({
   }
 
   return (
-    <section
+    <div
       className="grid"
       data-testid="grid"
       role="grid"
@@ -396,7 +409,15 @@ export function DataGrid({
               role="columnheader"
               data-testid="grid-actions-header"
               aria-label="Row actions"
-            />
+            >
+              {/*
+               * pt0-4 residue (q-3): a `columnheader` needs inner text that
+               * is visible to screen readers — `aria-label` alone does not
+               * satisfy axe `empty-table-header`. The visible header stays
+               * blank; the screen-reader text names the actions column.
+               */}
+              <span className="visually-hidden">Row actions</span>
+            </div>
           )}
         </div>
       </div>
@@ -659,9 +680,10 @@ export function DataGrid({
           {`fetches=${String(stats.fetchCalls)} requested=${String(stats.rowsRequested)} received=${String(stats.rowsReceived)} maxSpan=${String(stats.maxSpanRows)} cached=${String(stats.cachedRows)}`}
         </span>
         {editError !== null && (
-          <span role="alert" data-testid="grid-edit-error">
-            {editError}
-          </span>
+          // q-3: the visible rejection text is not itself a live region; the
+          // app's single `aria-live="polite"` region announces it (value-free)
+          // so commit success and rejection share one contract.
+          <span data-testid="grid-edit-error">{editError}</span>
         )}
         {commandError !== null && (
           <span role="alert" data-testid="grid-command-error">
@@ -674,6 +696,6 @@ export function DataGrid({
           </button>
         )}
       </footer>
-    </section>
+    </div>
   )
 }

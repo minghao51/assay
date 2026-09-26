@@ -16,7 +16,7 @@
  * or native dialog. Text-only rendering; no dataset content is rendered beyond
  * the engine's counts (ADR 0025).
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { EngineExportFormat, EngineExportResult } from '@assay/engine-duckdb'
 import { EXPORT_FORMATS, exportFormatInfo } from './formats'
 import {
@@ -88,8 +88,88 @@ export function ExportDialog({
 }: ExportDialogProps) {
   const [selectedFormat, setSelectedFormat] = useState<EngineExportFormat>('parquet')
   const [phase, setPhase] = useState<ExportPhase>({ kind: 'idle' })
+  const dialogRef = useRef<HTMLElement | null>(null)
+  /**
+   * Latest `onClose` in a ref so the mount effect below (initial focus, focus
+   * trap, Escape) never re-runs just because the parent passed a fresh inline
+   * callback — re-running it would re-focus the dialog and restore focus
+   * prematurely.
+   */
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  /**
+   * AR-W10 dialog semantics: initial focus into the dialog, a Tab/Shift+Tab
+   * trap that cycles inside while open, Escape-to-close, and focus restored
+   * to the trigger on unmount (the dialog is conditionally rendered, so the
+   * trigger survives). Hand-rolled against the native `keydown` event — no
+   * new dependency.
+   */
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (dialog === null) return
+    const opener = document.activeElement
+    const focusable = (): HTMLElement[] =>
+      Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      )
+    // Initial focus: the first real control. In the `working` phase every
+    // control is disabled, so the focused dialog itself still holds focus
+    // inside the trap.
+    ;(focusable()[0] ?? dialog).focus()
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (items.length === 0) {
+        event.preventDefault()
+        dialog.focus()
+        return
+      }
+      const firstItem = items[0]
+      const lastItem = items[items.length - 1]
+      const current = document.activeElement
+      // A disabled control loses focus to `<body>`, and the modal must still
+      // trap it: treat "focus outside the dialog" as both the first and the
+      // last position so the next Tab lands back inside.
+      const outside = !dialog.contains(current)
+      if (event.shiftKey && (outside || current === firstItem || current === dialog)) {
+        event.preventDefault()
+        lastItem.focus()
+      } else if (!event.shiftKey && (outside || current === lastItem)) {
+        event.preventDefault()
+        firstItem.focus()
+      }
+    }
+    // A document-level listener (not the dialog node): while the dialog is
+    // open, Escape and the Tab trap must work even when focus has fallen to
+    // `<body>` (every control is momentarily disabled during the export).
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      // Return focus to the element that opened the dialog (Escape/Close path)
+      // only when it is still in the document.
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus()
+    }
+  }, [])
 
   const working = phase.kind === 'working'
+  // The export starts by disabling every control; if that dropped focus to
+  // `<body>`, pull it back to the dialog so the modal keeps an active element.
+  useEffect(() => {
+    if (!working) return
+    const dialog = dialogRef.current
+    if (dialog !== null && !dialog.contains(document.activeElement)) dialog.focus()
+  }, [working])
   const selectedInfo = exportFormatInfo(selectedFormat)
   // Honest per-state wording (m4-5 fix round 2): filtering and sorting are
   // described separately; `null` adds no note when the grid is unmodified.
@@ -124,10 +204,13 @@ export function ExportDialog({
 
   return (
     <section
+      ref={dialogRef}
       className="export-dialog"
       role="dialog"
+      aria-modal="true"
       aria-labelledby="export-dialog-title"
       data-testid="export-dialog"
+      tabIndex={-1}
     >
       <h2 id="export-dialog-title">Export a copy</h2>
       <p className="export-copy-notice" data-testid="export-copy-notice">

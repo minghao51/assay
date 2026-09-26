@@ -68,7 +68,11 @@ export function EditToolbar({
         {pendingSummary}
       </span>
       {error !== null && (
-        <p className="edit-error" role="alert" data-testid="edit-error">
+        // q-3: the visible edit error is not itself a live region. The app's
+        // single `aria-live="polite"` region (`edit-live-region`) announces
+        // every edit outcome — commit success and the value-free rejection
+        // class — so there is exactly one edit live region (ADR 0025).
+        <p className="edit-error" data-testid="edit-error">
           {error}
         </p>
       )}

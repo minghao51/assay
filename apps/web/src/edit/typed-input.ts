@@ -196,7 +196,10 @@ export function validateCellInput(type: DuckDbType, text: string): CellInputResu
         return { ok: false, reason: 'Enter a number, or use the NULL button to set NULL.' }
       }
       if (!NUMERIC_INPUT.test(trimmed)) {
-        return { ok: false, reason: `"${text}" is not a number.` }
+        // q-3 (ADR 0025): the rejection class is value-free — the draft the
+        // user typed is never echoed back, so the same reason can be announced
+        // through the polite live region without carrying a cell value.
+        return { ok: false, reason: 'That is not a number.' }
       }
       const base = type.kind === 'primitive' ? primitiveBase(type.label) : ''
       // Wide numerics never round-trip through a JS number (m4-1 `text` kind).
