@@ -605,7 +605,11 @@ export function DataGrid({
                       </div>
                     ))}
                 {rowActionsEnabled && status === 'ready' && rowId !== null && (
-                  <div className="grid-row-actions" data-testid="grid-row-actions">
+                  // pt0-4 round-2: the per-row delete control is the grid's
+                  // trailing actions column. aria-colcount already includes it
+                  // (schema.length + 1 above), so the cell only needs the
+                  // gridchild role for role="row" to be conforming.
+                  <div className="grid-row-actions" role="gridcell" data-testid="grid-row-actions">
                     <button
                       type="button"
                       className="grid-row-delete"

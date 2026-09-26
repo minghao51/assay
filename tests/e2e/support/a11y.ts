@@ -55,31 +55,15 @@ export interface DeferredA11yEntry {
 }
 
 /**
- * Deferred critical/serious violations. Non-empty entries are real findings
- * surfaced by the pt0-4 scans and deliberately deferred to the owning
- * post-MVP track (app-source fixes are out of scope for this test-only task).
- * Each entry carries a concrete reason + tracking pointer, and
+ * Deferred critical/serious violations. Currently EMPTY: the pt0-4 scans found
+ * two real findings (a row-actions `aria-required-children` critical and a
+ * `.filter-empty` `color-contrast` serious), both fixed at the root in app
+ * source, so no deferral is warranted. The mechanism stays for future
+ * deferrals: every entry MUST carry a concrete reason + tracking pointer, and
  * `assertNoCriticalOrSerious` fails if an entry stops firing so a fixed
  * violation cannot hide behind a stale line.
  */
-export const DEFERRED_A11Y: readonly DeferredA11yEntry[] = [
-  {
-    id: 'aria-required-children',
-    impact: 'critical',
-    reason:
-      'Grid data rows use role="row" but the per-row delete control renders in a plain <div class="grid-row-actions">, not a role="gridcell", so axe flags each row for a disallowed child. Fixing needs an app DOM change (wrap the row-actions control in a gridcell or reconsider the row semantics) — out of scope for this test-only task.',
-    tracking: 'PT-Q §7 q-3 a11y polish pack (docs/product/04-post-mvp-track.md); found by pt0-4',
-    selectors: ['aria-rowindex'],
-  },
-  {
-    id: 'color-contrast',
-    impact: 'serious',
-    reason:
-      'The FilterBar empty-state hint (.filter-empty, "No active filters") renders #777 on #fafafa = 4.29:1, just under the 4.5:1 AA threshold for its font size. Needs a CSS colour-token change — out of scope for this test-only task.',
-    tracking: 'PT-Q §7 q-3 a11y polish pack (docs/product/04-post-mvp-track.md); found by pt0-4',
-    selectors: ['.filter-empty'],
-  },
-]
+export const DEFERRED_A11Y: readonly DeferredA11yEntry[] = []
 
 /** Run axe on `page` (whole page by default; scope with include/exclude). */
 export async function scanA11y(page: Page, options: A11yScanOptions = {}): Promise<A11yResults> {

@@ -482,7 +482,9 @@ h1 {
 
 .filter-empty {
   margin: 0;
-  color: #777;
+  /* pt0-4 round-2: #555 (the adjacent .filter-hint colour) is 7.14:1 on the
+     #fafafa filter-bar background, clearing AA; #777 measured only 4.29:1. */
+  color: #555;
   font-size: 0.85rem;
 }
 
