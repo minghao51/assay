@@ -6,9 +6,11 @@ import type { Page } from '@playwright/test'
  * Shared axe-core a11y scanning for the e2e suite (pt0-4, O3).
  *
  * Scans run fully local: `@axe-core/playwright` injects the bundled
- * `axe-core` script into the page and evaluates it in-browser — no network
- * calls, no data leaves the machine (same local-first posture as the rest of
- * the suite; axe-core does not phone home).
+ * `axe-core` script into the page and evaluates it in-browser — no data
+ * leaves the machine (same local-first posture as the rest of the suite;
+ * axe-core does not phone home). axe-core CAN fetch cross-origin stylesheets
+ * when pointed at pages that have them; this app has none (CSS is bundled
+ * same-origin), so no network calls happen here (reviewer pt0-4).
  *
  * The suite asserts the bar from the pt0-4 task row: **zero critical/serious
  * violations** on each real surface, with a documented, honest allowlist for

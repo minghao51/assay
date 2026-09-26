@@ -12,6 +12,14 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Fixed — post-MVP PT-0 (2026-09-24)
+
+- Two real accessibility defects caught by the new axe-core e2e scans and fixed at the root: the
+  grid's per-row actions container is now a conforming gridcell (critical
+  `aria-required-children` on every scanned surface), and the filter bar's "No active filters"
+  text was raised from 4.29:1 to 7.14:1 contrast (serious `color-contrast`). The scans gate CI
+  with an empty deferred-findings allowlist plus a non-vacuity canary (e2e 131 → 136).
+
 ### Docs — post-MVP PT-0 (2026-09-24)
 
 - README front door completed (pt0-3): explicit not-on-npm install truth (npm org claim M1

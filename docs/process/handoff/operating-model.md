@@ -98,7 +98,10 @@ reviewers default ports. `DUCKDB=/tmp/duckdb` (CLI v1.5.5) for pin derivation.
 `VERDICT: request-changes` (numbered items); reviewer must re-run all six gates itself; at
 least one mutation drill per load-bearing claim (apply mutant → paste failing output → revert →
 tree clean); re-derive any measured/CLI-pinned numbers independently; scope grep (allowed paths
-only); hygiene grep (`innerHTML`, telemetry, changeset format, commit discipline).
+only); hygiene grep (`innerHTML`, telemetry, changeset format, commit discipline). **Drills that
+mutate app source under e2e must `pnpm build` before re-running** — the e2e runner serves the
+built `dist`, so a source-only mutation false-passes (proven and corrected in the pt0-4 review,
+2026-09-24).
 
 **Loop protocol**: worker report → reviewer (fresh session) → `request-changes` → orchestrator
 writes fix brief quoting the items verbatim → NEW worker dispatch (may be a new session) →
