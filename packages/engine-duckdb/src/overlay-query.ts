@@ -68,6 +68,49 @@
  *   the pinned v1 combination surface: overlay windows support the same
  *   filter/sort grammar over the *effective* view.
  *
+ * ## Session-bounded costs (PT-Q q-6, audit AR-E10)
+ *
+ * Every cost below is bounded by *session activity* (the folded op list),
+ * never by dataset size — with the dataset-shaped caveats called out:
+ *
+ * - **Per-insert `UNION ALL` branches.** The composed relation has one branch
+ *   per *live* inserted row, so branch count grows with the session's live
+ *   inserts. Measured on the pinned DuckDB CLI 1.5.5 over a 100k-row base with
+ *   trivial constant branches (window probe `LIMIT 100 OFFSET 0`): ~4 ms at
+ *   0–1 branches, 21 ms at 500, 39 ms at 1 000, 611 ms at 10 000 — roughly
+ *   linear in branch count once the base scan is amortized. In the shipped
+ *   DuckDB-WASM 1.32.0 `mvp` bundle (the bundle `worker.ts` selects) the same
+ *   probe measures ~85 ms at 250 branches, ~180 ms at 500, ~320 ms at 900, and
+ *   **≥1000 branches abort the wasm module** (`_setThrew is not defined`, wasm
+ *   stack exhaustion during planning). The composer therefore caps live-insert
+ *   branches at {@link MAX_OVERLAY_LIVE_INSERT_BRANCHES} (500): half the
+ *   observed hard-failure boundary, far above any realistic manual-insert
+ *   session, and enforced by a typed value-free error carrying the remedy.
+ * - **Base-edit grouping.** The pre-q-6 composer re-walked the whole edit map
+ *   once per effective column — O(columns × edited rows) `parseRowId` calls per
+ *   request. Base edits are now grouped by effective column once per compose,
+ *   so the scan is O(edited rows) and each column is a map lookup. A Node
+ *   micro-probe (200 columns × 5 000 edited cells) measured a replicated
+ *   per-column scan at ~121 ms vs ~4 ms for the shipped composer (which also
+ *   builds the SQL); behavior-identical, including ordinal order and the
+ *   tombstone/foreign-anchor filtering (pinned by the composer byte tests).
+ * - **`insertSortKeys` path sharing.** The insert-graph walk keeps one shared
+ *   path stack and copies it only when a node's key is retained, instead of
+ *   copying the accumulated prefix at every edge. Retained keys are still the
+ *   output's own size — a degenerate chain of N inserts produces arrays of
+ *   total length O(N²) — but bushy graphs no longer pay a full-prefix copy per
+ *   edge. JS-only; never called at dataset scale.
+ * - **Effective order is a sort, but only with live inserts.** When at least one
+ *   live insert exists the window appends `ORDER BY "assay_key"`, which orders
+ *   the *whole* effective relation on every request (live inserts change the
+ *   order of base rows too). Measured in the `mvp` bundle with one constant
+ *   insert: 12 ms on a 100k-row base, 45 ms at 1M, 200 ms at 5M, versus a
+ *   ~2–4 ms row-group-skipped base window with no inserts and no `ORDER BY`.
+ *   The insert count is session-bounded but this sort is dataset-shaped: a
+ *   large session with even one insert sorts the entire effective view per
+ *   window. Without live inserts no `ORDER BY` is composed, and the plain base
+ *   window's deep-offset cost is documented in `window-query.ts`.
+ *
  * Security invariants (mirroring `window-query.ts`): only engine-generated
  * view names and quoted identifiers enter identifier positions; cell values
  * reach SQL only as typed literals via `cellLiteralSql` (single-quote
@@ -116,6 +159,32 @@ export const OVERLAY_SORT_KEY_COLUMN = 'assay_key'
 
 /** The base-ordinal alias inside the base branch (never projected). */
 const ORDINAL_COLUMN = 'assay_overlay_ord'
+
+/**
+ * Upper bound on live-insert `UNION ALL` branches in one composed relation
+ * (PT-Q q-6 cap). Chosen from the measured DuckDB-WASM `mvp` window probe:
+ * ~180 ms at 500 branches, ~320 ms at 900, and a wasm-module abort at ≥1000
+ * (see the module header). 500 is half the observed hard-failure boundary and
+ * far above any realistic manual-insert session.
+ */
+export const MAX_OVERLAY_LIVE_INSERT_BRANCHES = 500
+
+/**
+ * The folded overlay carries more live inserted rows than the composer's
+ * per-request branch budget. **Value-free** (ADR 0025): the message names only
+ * the engine's own branch cap — engine structure, not dataset content — and no
+ * table name, SQL, cell value, or user row count. The remedy is the honest
+ * session-bounded one: materialize the edits into a new base (export/rewrite)
+ * and re-open it.
+ */
+export class OverlayLiveInsertLimitError extends Error {
+  constructor() {
+    super(
+      `the edited view has more live inserts than the engine composes in one window (limit ${MAX_OVERLAY_LIVE_INSERT_BRANCHES} live-insert branches); export the edits to a new file and re-open it to continue`,
+    )
+    this.name = 'OverlayLiveInsertLimitError'
+  }
+}
 
 /** Inputs every overlay composition shares: the registered view + the fold. */
 export interface OverlayComposition {
@@ -197,30 +266,38 @@ export function insertSortKeys(
   // Depth-first assignment mirroring `effectiveRowIds`' `emitChain`: the
   // visited-set guard (`keys.has`) makes degenerate chains and cycles
   // terminate; key order equals emission order (CLI-verified list
-  // comparison).
-  const visit = (path: readonly number[], record: InsertedRowRecord): void => {
+  // comparison). The walk keeps ONE shared path stack and copies it only when
+  // a node's key is retained (PT-Q q-6, AR-E10): recursion passes just the
+  // edge tail (`[branch, seq]`), so each edge no longer copies the whole
+  // accumulated prefix. The retained keys are unchanged — a chain still yields
+  // O(inserts × depth) total key length, which is the output's own size.
+  const path: number[] = []
+  const visit = (record: InsertedRowRecord, tail: readonly number[]): void => {
     if (keys.has(record.id)) return
+    const depth = path.length
+    path.push(...tail)
     keys.set(record.id, [...path, 1])
-    for (const child of beforeByAnchor.get(record.id) ?? []) visit([...path, 0, child.seq], child)
-    for (const child of afterByAnchor.get(record.id) ?? []) visit([...path, 1, child.seq], child)
+    for (const child of beforeByAnchor.get(record.id) ?? []) visit(child, [0, child.seq])
+    for (const child of afterByAnchor.get(record.id) ?? []) visit(child, [1, child.seq])
+    path.length = depth
   }
 
-  for (const record of start) visit([-1, record.seq], record)
+  for (const record of start) visit(record, [-1, record.seq])
   const anchorOrdinals = new Set<number>()
   for (const anchor of beforeByAnchor.keys()) collectBaseOrdinal(base, anchor, anchorOrdinals)
   for (const anchor of afterByAnchor.keys()) collectBaseOrdinal(base, anchor, anchorOrdinals)
   for (const ordinal of [...anchorOrdinals].sort((a, b) => a - b)) {
     if (ordinal >= base.baseRowCount || state.deletedBase.has(ordinal)) continue
     const id = baseRowId(base.baseAnchor, ordinal)
-    for (const child of beforeByAnchor.get(id) ?? []) visit([0, ordinal, 0, child.seq], child)
-    for (const child of afterByAnchor.get(id) ?? []) visit([0, ordinal, 1, child.seq], child)
+    for (const child of beforeByAnchor.get(id) ?? []) visit(child, [0, ordinal, 0, child.seq])
+    for (const child of afterByAnchor.get(id) ?? []) visit(child, [0, ordinal, 1, child.seq])
   }
-  for (const record of end) visit([1, record.seq], record)
+  for (const record of end) visit(record, [1, record.seq])
   const leftovers = [...state.inserts.values()]
     .filter((record) => record.live && !keys.has(record.id))
     .sort(bySeq)
   let visitIndex = 0
-  for (const record of leftovers) visit([2, visitIndex++], record)
+  for (const record of leftovers) visit(record, [2, visitIndex++])
   return keys
 }
 
@@ -417,42 +494,56 @@ function assertValidEffectiveTypes(state: OverlayState): void {
 }
 
 /**
- * The base-row edits that apply to an effective column, in ordinal order:
- * edits keyed by the effective (post-rename) name whose row id belongs to
- * this base anchor (foreign anchors are absorbed by the fold). Shared by the
- * effective projection (`cellLiteralSql` under the effective type) and the
- * m4-4b cast check (raw literals under its per-arm `TRY_CAST`), so the two
- * can never drift on *which* edits apply to a row.
+/** One base-row edit for an effective column: its ordinal and folded value. */
+interface BaseColumnEdit {
+  readonly ordinal: number
+  readonly value: CellValue
+}
+
+/**
+ * Base-row edits grouped by effective (post-rename) column name, in ordinal
+ * order. Composition calls this **once per compose** and every effective
+ * column then does one map lookup — the pre-q-6 composer re-walked the whole
+ * edit map per column (O(columns × edited rows) `parseRowId` calls; PT-Q q-6,
+ * audit AR-E10). The filtered set and order are unchanged:
  *
- * A **tombstoned** ordinal's edit is dead: the row is already excluded from
- * the effective view by the outer `WHERE … NOT IN (…)`, so its edit must not
- * contribute a `CASE … THEN <literal>` arm. The bundled DuckDB-WASM 1.4.3
- * projection evaluates an arm for a physically-present deleted row even
- * though the outer filter excludes it (native 1.5.5 filters first), so a
- * dead arm whose literal cannot convert to the pending cast target made the
- * committed cast throw while the tombstone-filtered cast check answered
- * `false` — a product-reachable check/commit disagreement (m4-4b round-4
- * finding). Skipping dead edits is **composition-only**: the fold still
- * retains them (m4-1), and a `row-restore` removes the ordinal from
- * `state.deletedBase`, so the arms return automatically.
+ * - only edits whose row id is a base ordinal of **this** base anchor apply
+ *   (foreign anchors are absorbed by the fold);
+ * - a **tombstoned** ordinal's edit is dead: the row is already excluded from
+ *   the effective view by the outer `WHERE … NOT IN (…)`, so its edit must not
+ *   contribute a `CASE … THEN <literal>` arm. The bundled DuckDB-WASM 1.4.3
+ *   projection evaluates an arm for a physically-present deleted row even
+ *   though the outer filter excludes it (native 1.5.5 filters first), so a
+ *   dead arm whose literal cannot convert to the pending cast target made the
+ *   committed cast throw while the tombstone-filtered cast check answered
+ *   `false` — a product-reachable check/commit disagreement (m4-4b round-4
+ *   finding). Skipping dead edits is **composition-only**: the fold still
+ *   retains them (m4-1), and a `row-restore` removes the ordinal from
+ *   `state.deletedBase`, so the arms return automatically;
+ * - each column's list is sorted ascending by ordinal.
+ *
+ * Shared by the effective projection (`cellLiteralSql` under the effective
+ * type) and the m4-4b cast check (raw literals under its per-arm
+ * `TRY_CAST`), so the two can never drift on *which* edits apply to a row.
  */
-function baseColumnEdits(
+function groupBaseColumnEdits(
   base: OverlayBase,
   state: OverlayState,
-  effectiveName: string,
-): { readonly ordinal: number; readonly value: CellValue }[] {
-  const edits: { ordinal: number; value: CellValue }[] = []
+): Map<string, BaseColumnEdit[]> {
+  const grouped = new Map<string, BaseColumnEdit[]>()
   for (const [rowId, rowEdits] of state.edits) {
     const parsed = parseRowId(rowId as RowId)
     if (parsed === null || parsed.origin !== 'base') continue
     if (parsed.anchor !== base.baseAnchor) continue // foreign anchor: absorbed by the fold
     if (state.deletedBase.has(parsed.ordinal)) continue // dead row: outer WHERE excludes it
-    const value = rowEdits.get(effectiveName)
-    if (value === undefined) continue
-    edits.push({ ordinal: parsed.ordinal, value })
+    for (const [effectiveName, value] of rowEdits) {
+      const edits = grouped.get(effectiveName)
+      if (edits === undefined) grouped.set(effectiveName, [{ ordinal: parsed.ordinal, value }])
+      else edits.push({ ordinal: parsed.ordinal, value })
+    }
   }
-  edits.sort((a, b) => a.ordinal - b.ordinal)
-  return edits
+  for (const edits of grouped.values()) edits.sort((a, b) => a.ordinal - b.ordinal)
+  return grouped
 }
 
 /**
@@ -479,15 +570,18 @@ function insertColumnValue(
  * the effective type when a cast applies, wrapped in a bounded CASE that
  * overlays this row's cell edits (edits are keyed by the effective
  * (post-rename) column name; the fold re-keys them). Tombstoned ordinals are
- * skipped by `baseColumnEdits`, so a deleted row never contributes a dead
+ * skipped by `groupBaseColumnEdits`, so a deleted row never contributes a dead
  * `CASE` arm. `ordinalRef` is the
- * computed base-ordinal reference visible at the branch's SELECT level.
+ * computed base-ordinal reference visible at the branch's SELECT level;
+ * `editIndex` is the per-compose grouping (so the edit map is scanned once per
+ * request, not once per column).
  */
 function baseColumnExpr(
   base: OverlayBase,
   state: OverlayState,
   effectiveIndex: number,
   ordinalRef: string,
+  editIndex: ReadonlyMap<string, readonly BaseColumnEdit[]>,
 ): string {
   const effective = state.columns[effectiveIndex]
   const baseColumn = base.columns[effectiveIndex]
@@ -499,7 +593,7 @@ function baseColumnExpr(
   const source = quotedIdentifier(baseColumn.name)
   const withCast =
     effective.type === baseColumn.type ? source : `CAST(${source} AS ${effective.type})`
-  const edits = baseColumnEdits(base, state, effective.name)
+  const edits = editIndex.get(effective.name) ?? []
   if (edits.length === 0) return withCast
   const arms = edits.map(
     (edit) =>
@@ -531,12 +625,13 @@ function baseBranchSql(
   options: RelationOptions,
 ): string {
   assertNoReservedNames(base, state)
+  const editIndex = groupBaseColumnEdits(base, state)
   const baseColumns = base.columns.map((column) => quotedIdentifier(column.name)).join(', ')
   const inner =
     `SELECT ${baseColumns}, (row_number() OVER () - 1) AS ${ORDINAL_COLUMN} ` +
     `FROM ${quotedIdentifier(viewName)}`
   const exprs = state.columns.map((column, index) => {
-    const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN)
+    const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN, editIndex)
     const guarded = options.sanitizeCsv ? csvSafeExpression(raw, column.type) : raw
     return `${guarded} AS ${quotedIdentifier(column.name)}`
   })
@@ -615,7 +710,8 @@ export function composeSourceSql(
 ): string {
   const { base, state, viewName } = composition
   assertValidEffectiveTypes(state)
-  const liveInserts = [...state.inserts.values()].filter((record) => record.live)
+  const liveInserts = liveInsertRecords(state)
+  assertLiveInsertBranchBudget(liveInserts.length)
   const withKey = options.withKey && liveInserts.length > 0
   const keys = withKey ? insertSortKeys(base, state) : undefined
   const relationOptions: RelationOptions = { ...options, withKey }
@@ -624,6 +720,26 @@ export function composeSourceSql(
     branches.push(insertBranchSql(state, record, keys?.get(record.id) ?? [], relationOptions))
   }
   return branches.join(' UNION ALL ')
+}
+
+/**
+ * The live inserted rows of a folded state (tombstoned inserts omitted), in
+ * the folded map's order. The single source of the composer's branch count.
+ */
+function liveInsertRecords(state: OverlayState): InsertedRowRecord[] {
+  return [...state.inserts.values()].filter((record) => record.live)
+}
+
+/**
+ * Enforce the per-request live-insert branch budget (PT-Q q-6, audit AR-E10).
+ * The count is the engine's own `UNION ALL` branch count — engine structure,
+ * not dataset content — and the value-free {@link OverlayLiveInsertLimitError}
+ * is thrown before any SQL is composed.
+ */
+function assertLiveInsertBranchBudget(liveInsertCount: number): void {
+  if (liveInsertCount > MAX_OVERLAY_LIVE_INSERT_BRANCHES) {
+    throw new OverlayLiveInsertLimitError()
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -643,8 +759,9 @@ export function composeOverlaySchemaSql(composition: OverlayComposition): string
   assertNoReservedNames(composition.base, composition.state)
   assertValidEffectiveTypes(composition.state)
   const { base, state, viewName } = composition
+  const editIndex = groupBaseColumnEdits(base, state)
   const exprs = state.columns.map((column, index) => {
-    const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN)
+    const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN, editIndex)
     return `${raw} AS ${quotedIdentifier(column.name)}`
   })
   const inner =
@@ -678,14 +795,14 @@ export function composeOverlaySchemaSql(composition: OverlayComposition): string
  * base column (`<ordinal> NOT IN (<edited>) AND <base> IS NOT NULL AND
  * TRY_CAST(<base> AS target) IS NULL`), tombstoned ordinals excluded. Each
  * live insert contributes a FROM-less arm over its raw merged value. A
- * tombstoned ordinal's edit is skipped by `baseColumnEdits`, exactly as in
+ * tombstoned ordinal's edit is skipped by `groupBaseColumnEdits`, exactly as in
  * the committed projection: the outer tombstone `WHERE` excludes the row, and
  * emitting the dead literal would give DuckDB-WASM 1.4.3 a value to evaluate
  * that the logical view never contains (m4-4b round-4 finding). No literal
  * is hard-cast to any type before its own `TRY_CAST`, so the check cannot
  * throw where the commit would succeed and cannot succeed where the commit
  * would throw. Edits, inserts, tombstones, renames, and prior casts are
- * handled via the same `baseColumnEdits`/`insertColumnValue`/rename-aware
+ * handled via the same `groupBaseColumnEdits`/`insertColumnValue`/rename-aware
  * keying the effective composers use.
  *
  * Shape: `… LIMIT 1` keeps the existence probe early-exit and at most one
@@ -720,6 +837,7 @@ export function composeOverlayCastCheckSql(
       `overlay base metadata is inconsistent: effective column ${column} has no base column`,
     )
   }
+  assertLiveInsertBranchBudget(liveInsertRecords(state).length)
 
   /** `<raw> IS NOT NULL AND TRY_CAST(<raw> AS target) IS NULL` — the raw
    *  value is non-NULL and the committed `CAST(<raw> AS target)` would throw. */
@@ -727,7 +845,7 @@ export function composeOverlayCastCheckSql(
     `${raw} IS NOT NULL AND TRY_CAST(${raw} AS ${targetType}) IS NULL`
   const ordinal = ORDINAL_COLUMN
   const baseRef = quotedIdentifier(baseColumn.name)
-  const edits = baseColumnEdits(base, state, column)
+  const edits = groupBaseColumnEdits(base, state).get(column) ?? []
   const editedOrdinals = edits.map((edit) => edit.ordinal)
 
   const arms = edits.map(
@@ -751,8 +869,7 @@ export function composeOverlayCastCheckSql(
     `SELECT 1 FROM (SELECT ${baseRef}, ${ordinal} FROM (${inner})${tombstoneFilter}) ` +
       `WHERE ${arms.join(' OR ')}`,
   ]
-  for (const record of state.inserts.values()) {
-    if (!record.live) continue
+  for (const record of liveInsertRecords(state)) {
     // The insert value is a constant, so the arm needs no relation.
     branches.push(
       `SELECT 1 WHERE ${conversionFails(cellLiteralRawSql(insertColumnValue(state, record, column)))}`,

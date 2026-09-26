@@ -158,8 +158,10 @@ export {
   exportFileExtension,
   formulaInjectionGuardSql,
   insertSortKeys,
+  MAX_OVERLAY_LIVE_INSERT_BRANCHES,
   OVERLAY_ROW_ID_COLUMN,
   OVERLAY_SORT_KEY_COLUMN,
+  OverlayLiveInsertLimitError,
   RESERVED_OVERLAY_COLUMN_NAMES,
 } from './overlay-query.js'
 export type { OverlayComposition, OverlayWindowQuery } from './overlay-query.js'

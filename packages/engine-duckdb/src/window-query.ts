@@ -26,6 +26,24 @@
  * - `limit`/`offset` are interpolated verbatim: callers must pass the output
  *   of `validateRowWindow` (safe non-negative integers, ≤ `MAX_RANGE_ROWS`),
  *   which both the client and the worker re-validate before composing.
+ *
+ * ## Session-bounded cost budgets (PT-Q q-6, audit AR-E10)
+ *
+ * - **Deep-offset windows.** Every window composes `LIMIT <count> OFFSET
+ *   <start>` with the offset taken from the validated scroll position, so a
+ *   window deep in the dataset names the rows to skip before it. DuckDB
+ *   classically advances those rows (O(offset) worst case); in practice the
+ *   vectorized scan skips whole row groups, so the measured cost is near-flat:
+ *   the G1-R round recorded deep-offset windows ≤ 0.47 s at 148.5M-row offsets
+ *   on 150M rows (~1.5× the offset-0 window, tracking row-group metadata
+ *   rather than bytes — `docs/engineering/05-m1-benchmarks.md`), and a 1M-row
+ *   DuckDB-WASM `mvp` probe measured ~5 ms at offset 999 000. There is no
+ *   per-offset cache: every scroll re-pays the skip, so the honest budget is
+ *   "row groups skipped", not "windows cached".
+ * - **Overlay windows pay a sort once inserts exist.** `composeOverlayWindowSql`
+ *   (`overlay-query.ts`) appends `ORDER BY "assay_key"` when the session has a
+ *   live insert — and only then — which orders the whole effective relation per
+ *   request; that cost is documented in the `overlay-query.ts` header.
  */
 import { quotedIdentifier } from './format-view.js'
 import type { EngineFilterSpec, EngineSortSpec } from './protocol.js'

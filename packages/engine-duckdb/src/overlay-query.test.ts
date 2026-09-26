@@ -41,6 +41,8 @@ import {
   exportFileExtension,
   formulaInjectionGuardSql,
   insertSortKeys,
+  MAX_OVERLAY_LIVE_INSERT_BRANCHES,
+  OverlayLiveInsertLimitError,
   OVERLAY_ROW_ID_COLUMN,
   RESERVED_OVERLAY_COLUMN_NAMES,
 } from './overlay-query'
@@ -471,6 +473,57 @@ describe('insertSortKeys — the effectiveRowIds key grammar', () => {
     expect(cycleKeys.get('ins:o1#5')).toEqual([2, 0, 1])
     // i6 is i5's after-child inside the leftover chain: [2, 0, 1, 6, 1].
     expect(cycleKeys.get('ins:o1#6')).toEqual([2, 0, 1, 6, 1])
+  })
+})
+
+describe('overlay composition — live-insert branch cap (PT-Q q-6)', () => {
+  const CAP = MAX_OVERLAY_LIVE_INSERT_BRANCHES
+  /** `count` live inserts anchored at the start, seq unique per row. */
+  function inserts(count: number): EditOp[] {
+    return Array.from({ length: count }, (_, index) => ({
+      kind: 'row-insert' as const,
+      rowId: rid(`ins:o1#${index}`),
+      position: { kind: 'start' as const },
+      values: new Map([
+        ['id', { kind: 'number' as const, value: index }],
+        ['label', { kind: 'string' as const, value: `SENTINEL_VALUE_${index}` }],
+      ]),
+    }))
+  }
+
+  it('composes exactly at the cap (the last admitted branch count)', () => {
+    const sql = composeSourceSql(compositionFor(inserts(CAP)), {
+      withRowIds: false,
+      sanitizeCsv: false,
+      withKey: true,
+    })
+    // One base branch + one branch per live insert.
+    expect(sql.split(' UNION ALL ')).toHaveLength(CAP + 1)
+  })
+
+  it('throws a typed, value-free error one branch over the cap (window)', () => {
+    const ops = inserts(CAP + 1)
+    let thrown: unknown
+    try {
+      composeOverlayWindowSql({ ...compositionFor(ops), limit: 10, offset: 0 })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(OverlayLiveInsertLimitError)
+    // The exact, value-free text: names only the engine's own branch cap and
+    // the remedy — no table name, SQL, cell value, or user row count.
+    expect((thrown as Error).message).toBe(
+      'the edited view has more live inserts than the engine composes in one window (limit 500 live-insert branches); export the edits to a new file and re-open it to continue',
+    )
+    for (const secret of ['SENTINEL_VALUE', 'assay_t1', BASE.baseAnchor]) {
+      expect((thrown as Error).message).not.toContain(secret)
+    }
+  })
+
+  it('enforces the same budget before composing the cast check', () => {
+    expect(() =>
+      composeOverlayCastCheckSql(compositionFor(inserts(CAP + 1)), 'id', 'VARCHAR'),
+    ).toThrowError(OverlayLiveInsertLimitError)
   })
 })
 
