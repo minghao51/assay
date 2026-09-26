@@ -20,7 +20,7 @@
  * until M4 editing surfaces a need — engines keep rendering them read-only.
  *
  * Purity: this module is types + total pure helpers only — no React, no
- * browser APIs, no engine imports (docs/engineering/05 §3, lint-enforced).
+ * browser APIs, no engine imports (docs/engineering/03 §3, lint-enforced).
  */
 import type { RowId } from './row-identity.js'
 
