@@ -15,6 +15,11 @@ import { openFixture } from './support/fixtures'
 // with a fixture open, the schema tree expanded, the validation report, and
 // the diff report — plus a non-vacuity canary proving the scanner is alive.
 //
+// q-2: every scan now runs in BOTH colour schemes. Contrast is checked per
+// scheme by axe, so the dark-mode tokens must clear AA independently of the
+// light values (a dark-mode contrast failure is a q-2 defect — fix the token,
+// never the scan). The same journeys and the same empty allowlist apply.
+//
 // Each scan first drives the existing journeys (reusing the same picker
 // path and dataset helpers as grid-filter-sort / schema-panel /
 // validation-panel / diff-panel) so the target panel is really open and
@@ -48,85 +53,113 @@ test.beforeEach(async ({ page }) => {
 })
 
 /** Run axe over the whole page, log all impacts, and gate on critical/serious. */
-async function scanAndGate(page: Page, target: string): Promise<void> {
+async function scanAndGate(page: Page, target: string, scheme: 'light' | 'dark'): Promise<void> {
+  // Non-vacuity for the dark pass: prove the emulated scheme really reached
+  // the page, so a dark scan cannot silently re-run the light one.
+  const prefersDark = await page.evaluate(
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
+  )
+  expect(prefersDark, `emulated colour scheme must be ${scheme}`).toBe(scheme === 'dark')
+
   const results = await scanA11y(page)
   console.log(`[a11y] ${target}\n${summarizeViolations(results.violations)}`)
   assertNoCriticalOrSerious(results.violations)
 }
 
-test('grid with a fixture open has no unallowlisted critical/serious violations', async ({
-  page,
-}) => {
-  test.setTimeout(120_000)
-  await openFixture(page, CSV_FIXTURE, { assertFileNameHidden: true })
+/**
+ * Register the four load-bearing scans for one colour scheme. Called once per
+ * `test.describe` so `test.use({ colorScheme })` scopes each run; the journey
+ * bodies are identical across schemes (only the resolved tokens differ).
+ */
+function defineScans(scheme: 'light' | 'dark'): void {
+  test(`[${scheme}] grid with a fixture open has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await openFixture(page, CSV_FIXTURE, { assertFileNameHidden: true })
 
-  // Non-vacuity: the grid is populated before we scan it.
-  await expect(page.getByTestId('grid')).toBeVisible()
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
-  await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
+    // Non-vacuity: the grid is populated before we scan it.
+    await expect(page.getByTestId('grid')).toBeVisible()
+    await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+    await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
 
-  await scanAndGate(page, 'grid (customers.csv)')
+    await scanAndGate(page, `grid (customers.csv, ${scheme})`, scheme)
+  })
+
+  test(`[${scheme}] expanded schema tree has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await openFixture(page, NESTED_FIXTURE, { assertFileNameHidden: true })
+
+    // Non-vacuity: the nested struct subtree is actually expanded before scanning.
+    await expect(page.getByTestId('schema-panel')).toBeVisible()
+    await expect(page.getByTestId('schema-column')).toHaveCount(2)
+    const payloadToggle = page.getByRole('button', { name: 'payload STRUCT' })
+    await payloadToggle.click()
+    await expect(payloadToggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByTestId('schema-field')).toHaveCount(4)
+
+    await scanAndGate(page, `schema tree (nested.parquet payload, ${scheme})`, scheme)
+  })
+
+  test(`[${scheme}] populated validation report has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(240_000)
+    const dataset = writeValidationDatasetA()
+    await openFixture(page, dataset.dataPath, { assertFileNameHidden: true })
+    await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
+
+    // Import the contract and run the real validation op.
+    const chooserPromise = page.waitForEvent('filechooser')
+    await page.getByTestId('validation-open-contract').click()
+    await (await chooserPromise).setFiles(dataset.contractPath)
+    await expect(page.getByTestId('validation-contract-name')).toHaveText('orders-basic')
+    await page.getByTestId('validation-run').click()
+    await expect(page.getByTestId('validation-verdict')).toHaveText(
+      '4 of 9 rules fail (7 rows checked).',
+    )
+
+    // Non-vacuity: the report is populated with failing rule rows before scanning.
+    await expect(page.getByTestId('validation-rule')).toHaveCount(9)
+    await expect(page.getByTestId('validation-sample').first()).toBeVisible()
+
+    await scanAndGate(page, `validation report (4/9 failing, ${scheme})`, scheme)
+  })
+
+  test(`[${scheme}] completed diff report has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(240_000)
+    const pair = writeDiffDatasetPair()
+    await openFixture(page, pair.aPath, { assertFileNameHidden: true })
+    await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+
+    // Stage side B, confirm the inferred key (default: id), and run the diff.
+    const chooserPromise = page.waitForEvent('filechooser')
+    await page.getByTestId('diff-open-comparison').click()
+    await (await chooserPromise).setFiles(pair.bPath)
+    await expect(page.getByTestId('diff-comparison-rows')).toHaveText('5 rows')
+    await page.getByTestId('diff-run').click()
+    await expect(page.getByTestId('diff-verdict')).toContainText('2 added, 2 removed, 2 changed')
+
+    // Non-vacuity: the report has populated aspects and samples before scanning.
+    await expect(page.getByTestId('diff-aspect')).toHaveCount(3)
+    await expect(page.getByTestId('diff-sample').first()).toBeVisible()
+
+    await scanAndGate(page, `diff report (2/2/2, ${scheme})`, scheme)
+  })
+}
+
+test.describe('axe scans — light scheme', () => {
+  test.use({ colorScheme: 'light' })
+  defineScans('light')
 })
 
-test('expanded schema tree has no unallowlisted critical/serious violations', async ({ page }) => {
-  test.setTimeout(120_000)
-  await openFixture(page, NESTED_FIXTURE, { assertFileNameHidden: true })
-
-  // Non-vacuity: the nested struct subtree is actually expanded before scanning.
-  await expect(page.getByTestId('schema-panel')).toBeVisible()
-  await expect(page.getByTestId('schema-column')).toHaveCount(2)
-  const payloadToggle = page.getByRole('button', { name: 'payload STRUCT' })
-  await payloadToggle.click()
-  await expect(payloadToggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByTestId('schema-field')).toHaveCount(4)
-
-  await scanAndGate(page, 'schema tree (nested.parquet payload)')
-})
-
-test('populated validation report has no unallowlisted critical/serious violations', async ({
-  page,
-}) => {
-  test.setTimeout(240_000)
-  const dataset = writeValidationDatasetA()
-  await openFixture(page, dataset.dataPath, { assertFileNameHidden: true })
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
-
-  // Import the contract and run the real validation op.
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('validation-open-contract').click()
-  await (await chooserPromise).setFiles(dataset.contractPath)
-  await expect(page.getByTestId('validation-contract-name')).toHaveText('orders-basic')
-  await page.getByTestId('validation-run').click()
-  await expect(page.getByTestId('validation-verdict')).toHaveText(
-    '4 of 9 rules fail (7 rows checked).',
-  )
-
-  // Non-vacuity: the report is populated with failing rule rows before scanning.
-  await expect(page.getByTestId('validation-rule')).toHaveCount(9)
-  await expect(page.getByTestId('validation-sample').first()).toBeVisible()
-
-  await scanAndGate(page, 'validation report (4/9 failing)')
-})
-
-test('completed diff report has no unallowlisted critical/serious violations', async ({ page }) => {
-  test.setTimeout(240_000)
-  const pair = writeDiffDatasetPair()
-  await openFixture(page, pair.aPath, { assertFileNameHidden: true })
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
-
-  // Stage side B, confirm the inferred key (default: id), and run the diff.
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('diff-open-comparison').click()
-  await (await chooserPromise).setFiles(pair.bPath)
-  await expect(page.getByTestId('diff-comparison-rows')).toHaveText('5 rows')
-  await page.getByTestId('diff-run').click()
-  await expect(page.getByTestId('diff-verdict')).toContainText('2 added, 2 removed, 2 changed')
-
-  // Non-vacuity: the report has populated aspects and samples before scanning.
-  await expect(page.getByTestId('diff-aspect')).toHaveCount(3)
-  await expect(page.getByTestId('diff-sample').first()).toBeVisible()
-
-  await scanAndGate(page, 'diff report (2/2/2)')
+test.describe('axe scans — dark scheme', () => {
+  test.use({ colorScheme: 'dark' })
+  defineScans('dark')
 })
 
 test('canary: axe reports an injected nameless button and the gate rejects it', async ({

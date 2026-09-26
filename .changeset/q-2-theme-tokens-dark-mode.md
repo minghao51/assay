@@ -1,0 +1,5 @@
+---
+'@assay/web': patch
+---
+
+feat(q-2): theme token layer + dark mode. Every colour in `apps/web/src/index.css` now resolves through a semantic custom property declared once in `:root` — surfaces, text, accent, status (ok/warn/error), borders, charts, dirty-cell markers — with no raw hex/rgb/hsl literals below the token block (the light values are the exact pre-refactor literals, so the light theme is value-identical). A `prefers-color-scheme: dark` block overrides the same names, `color-scheme` is declared in CSS and via an `index.html` `<meta>` so form controls, scrollbars, and the default canvas adapt, and every component follows automatically because they read the tokens (no component source changed). Proof: a new `tests/e2e/theme.spec.ts` opens the representative view (grid + populated profile panel + export dialog), captures light/dark screenshots as review artifacts, and deterministically asserts the computed background/text colours differ between schemes; the four `tests/e2e/a11y.spec.ts` axe scans now run in both light and dark with the deferred-findings allowlist still empty, so dark-mode contrast is a gated invariant rather than a hope.
