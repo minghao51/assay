@@ -21,6 +21,7 @@
  */
 import { PROFILE_TOP_K } from '@assay/engine-duckdb/node'
 import { DATASET_VIEW, openConnection, registerDataset } from './connection.js'
+import type { CommandContext } from './context.js'
 import { usageError } from './errors.js'
 import type { CliExitCode } from './errors.js'
 import { profileView } from './node-executor.js'
@@ -77,13 +78,15 @@ export function resolveProfileOptions(flags: {
  */
 export async function runProfileCommand(
   options: ProfileOptions,
-  out: (text: string) => void,
+  context: CommandContext,
 ): Promise<CliExitCode> {
+  context.progress.step('opening dataset')
   const conn = await openConnection()
   let meta: ProfileReportMeta
   let report: string
   try {
     const registered = await registerDataset(conn, options.datasetPath)
+    context.progress.step('profiling dataset')
     const profile = await profileView(conn, DATASET_VIEW, registered.schema)
     meta = {
       datasetName: datasetDisplayName(options.datasetPath),
@@ -103,6 +106,7 @@ export async function runProfileCommand(
       // best-effort
     }
   }
-  out(report)
+  context.progress.done()
+  context.out(report)
   return 0
 }

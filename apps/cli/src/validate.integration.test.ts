@@ -49,6 +49,11 @@ import {
 
 const CLI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
 
+/** The package's own version — the `--version` single source of truth (q-4). */
+const PACKAGE_VERSION = (
+  JSON.parse(readFileSync(join(CLI_DIR, 'package.json'), 'utf8')) as { version: string }
+).version
+
 interface CliRun {
   readonly exitCode: number
   readonly stdout: string
@@ -516,7 +521,9 @@ error: columns[1].min (column 'region'): [rule-not-applicable] min/max bounds re
   it('--help advertises the command and exits 0 (pinned opening bytes)', () => {
     const run = runCli(['--help'])
     expect(run.exitCode).toBe(0)
-    expect(run.stdout.startsWith('assay 0.0.0 — the local-first data workbench CLI')).toBe(true)
+    expect(
+      run.stdout.startsWith(`assay ${PACKAGE_VERSION} — the local-first data workbench CLI`),
+    ).toBe(true)
     expect(run.stdout).toContain('  validate          validate a dataset against an assay contract')
     expect(run.stdout).toContain(
       '  profile           profile a dataset (per-column null/distinct counts,',
@@ -536,7 +543,7 @@ describe('compiled entry (ADR 0042) — the shipped file runs under plain node',
       encoding: 'utf8',
     })
     expect(result.status).toBe(0)
-    expect(result.stdout).toBe('assay 0.0.0\n')
+    expect(result.stdout).toBe(`assay ${PACKAGE_VERSION}\n`)
     expect(result.stderr).toBe('')
     // The shebang survives tsc emit (the installed bin relies on it).
     const entry = readFileSync(join(CLI_DIR, 'dist', 'index.js'), 'utf8')

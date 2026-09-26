@@ -18,11 +18,15 @@
  */
 import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
+import { parseArgs } from './args.js'
+import type { CommandContext } from './context.js'
 import { CliError } from './errors.js'
 import type { CliExitCode } from './errors.js'
-import { parseArgs } from './args.js'
+import { createProgressReporter } from './progress.js'
+import { createReportStyle, shouldUseColor } from './style.js'
+import { readCliVersion } from './version.js'
 
-const VERSION = '0.0.0'
+const VERSION = readCliVersion()
 
 /** The help text (byte-pinned by integration tests — edit deliberately). */
 export function helpText(): string {
@@ -42,14 +46,20 @@ export function helpText(): string {
     '                    numeric stats and quantiles, categorical top-k)',
     '  help              show this help',
     '',
+    'global options:',
+    '  --quiet             suppress progress and hints on stderr; the report',
+    '                      on stdout (human or JSON) is unchanged. Progress is',
+    '                      written only when stderr is a terminal, so piped',
+    '                      runs are already quiet.',
+    '  --version           print the version (read from package.json)',
+    '  --help              show this help',
+    '',
     'validate options:',
     '  --contract <file>   contract YAML (the m5-0 format) — required',
     '  --format <fmt>      human (default) or json — the report format',
     '  --sample-limit <n>  per-rule sample bound K (default 20; the engine',
     '                      clamps the returned samples to at most 100 — the',
     '                      rule counts are always the FULL counts)',
-    '  --version           print the version',
-    '  --help              show this help',
     '',
     'validate opens parquet, csv, jsonl, and json files. It validates the RAW',
     'dataset file — the base view: a CLI run has no editing session, so the',
@@ -67,18 +77,22 @@ export function helpText(): string {
     '                      aspect counts are always the FULL counts)',
     '',
     'diff requires explicit keys (--key) or disclosed inference (--infer). It',
-    'reports schema drift, then per-column profile deltas, then the key-based',
-    'row diff (added / removed / changed rows) — in that aspect order.',
+    'reports schema drift, then per-column profile deltas (columns with a',
+    'non-zero signal), then the key-based row diff (added / removed / changed',
+    'rows) — in that aspect order — and lists any collected input issues.',
     '',
     'profile options:',
     '  --format <fmt>      human (default) or json — the report format',
-    '  --version           print the version',
-    '  --help              show this help',
     '',
     'profile opens the same parquet, csv, jsonl, and json files and reports',
     'the RAW file (base view only; no editing session). Categorical top-k',
     'lists at most 10 non-null values per column; numeric columns report',
     'min/max/mean/stddev and the p50/p90/p95/p99 quantiles.',
+    '',
+    'output:',
+    '  Human reports get ANSI color only when stdout is a terminal; NO_COLOR',
+    '  disables it and FORCE_COLOR re-enables it there. Piped output is never',
+    '  colored, and JSON is never colored.',
     '',
     'exit codes:',
     '  0   no differences found across the aspects that ran (validate: valid;',
@@ -90,16 +104,37 @@ export function helpText(): string {
   ].join('\n')
 }
 
+/** The process surfaces `main` writes through (injectable in tests). */
+export interface CliIo {
+  readonly stdout: { write(chunk: string): unknown; readonly isTTY?: boolean | undefined }
+  readonly stderr: { write(chunk: string): unknown; readonly isTTY?: boolean | undefined }
+  readonly env: NodeJS.ProcessEnv
+}
+
+/** The process-backed IO the shipped entry uses. */
+function processIo(): CliIo {
+  return { stdout: process.stdout, stderr: process.stderr, env: process.env }
+}
+
 /** The CLI main: dispatch, and map every failure to its exit code. */
-export async function main(argv: readonly string[]): Promise<CliExitCode> {
+export async function main(argv: readonly string[], io: CliIo = processIo()): Promise<CliExitCode> {
   const invocation = parseArgs(argv)
   if (invocation.flags.version) {
-    process.stdout.write(`assay ${VERSION}\n`)
+    io.stdout.write(`assay ${VERSION}\n`)
     return 0
   }
   if (invocation.flags.help || invocation.command === undefined || invocation.command === 'help') {
-    process.stdout.write(helpText())
+    io.stdout.write(helpText())
     return invocation.flags.help || invocation.command === 'help' ? 0 : 2
+  }
+  // One context per run: stdout is the byte-stable report sink, human
+  // styling follows the stdout TTY policy, and progress follows stderr/quiet.
+  const context: CommandContext = {
+    out: (text) => {
+      io.stdout.write(text)
+    },
+    style: createReportStyle(shouldUseColor({ isTTY: io.stdout.isTTY === true, env: io.env })),
+    progress: createProgressReporter({ stream: io.stderr, quiet: invocation.flags.quiet }),
   }
   if (invocation.command === 'validate') {
     const { runValidateCommand, resolveValidateOptions } = await import('./validate.js')
@@ -111,7 +146,7 @@ export async function main(argv: readonly string[]): Promise<CliExitCode> {
       infer: invocation.flags.infer,
       positionals: invocation.positionals,
     })
-    return runValidateCommand(options, (text) => process.stdout.write(text))
+    return runValidateCommand(options, context)
   }
   if (invocation.command === 'diff') {
     const { runDiffCommand, resolveDiffOptions } = await import('./diff.js')
@@ -123,7 +158,7 @@ export async function main(argv: readonly string[]): Promise<CliExitCode> {
       sampleLimit: invocation.flags.sampleLimit,
       positionals: invocation.positionals,
     })
-    return runDiffCommand(options, (text) => process.stdout.write(text))
+    return runDiffCommand(options, context)
   }
   if (invocation.command === 'profile') {
     const { runProfileCommand, resolveProfileOptions } = await import('./profile.js')
@@ -135,7 +170,7 @@ export async function main(argv: readonly string[]): Promise<CliExitCode> {
       infer: invocation.flags.infer,
       positionals: invocation.positionals,
     })
-    return runProfileCommand(options, (text) => process.stdout.write(text))
+    return runProfileCommand(options, context)
   }
   throw new CliError(2, `unknown command '${invocation.command}' (see --help)`)
 }

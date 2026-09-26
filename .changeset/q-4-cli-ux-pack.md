@@ -1,0 +1,5 @@
+---
+'@assay/cli': patch
+---
+
+feat(cli): q-4 UX pack (AR-C6). Adds a global `--quiet` (suppresses stderr progress/hints; the stdout report — human or JSON — is unchanged), TTY-aware ANSI color for the human reports only (status words `FAIL`/`PASS`/`VALID`/`INVALID`/`IDENTICAL`/`DIFFERENCES` and issue/delta counts; `NO_COLOR` disables and `FORCE_COLOR` re-enables on a terminal, while piped and JSON output stay byte-plain), and lightweight phase progress on stderr for the slow scan paths (interactive terminals only, suppressed by `--quiet`; stdout stays byte-stable). `--version` now reads the version from `package.json` instead of a hardcoded constant, and `--help` documents the global options. The human diff report now counts only the profile deltas with a non-zero signal (previously every compared column), lists collected input issues with the canonical renderer, and computes its identity verdict through one shared `diffReportIdentical`/`divergentColumnDeltas` helper; `validate` uses the `DATASET_VIEW` constant instead of the `'assay_t1'` literal. JSON outputs are byte-identical to before.

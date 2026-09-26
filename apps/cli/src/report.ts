@@ -54,6 +54,8 @@ import type {
   EngineRowDiffSample,
 } from '@assay/engine-duckdb/node'
 import { ROW_DIFF_SAMPLE_HARD_MAX, VALIDATION_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
+import { plainStyle } from './style.js'
+import type { ReportStyle } from './style.js'
 
 /** One per-rule report row, severity-ordered by {@link compareReportRules}. */
 export interface ValidationReportRow {
@@ -234,7 +236,11 @@ export interface ReportMeta {
  * truncation line names the clamp explicitly instead of pretending the list
  * is complete.
  */
-export function renderHumanReport(report: ValidationReport, meta: ReportMeta): string {
+export function renderHumanReport(
+  report: ValidationReport,
+  meta: ReportMeta,
+  style: ReportStyle = plainStyle,
+): string {
   const lines: string[] = []
   lines.push(
     `dataset: ${meta.datasetName} (${meta.format}) — base view only (the raw file; no edits)`,
@@ -246,8 +252,8 @@ export function renderHumanReport(report: ValidationReport, meta: ReportMeta): s
   for (const row of report.rows) {
     const what = row.column === null ? row.label : `${row.column} — ${row.label}`
     const head = row.failing
-      ? `FAIL ${row.ruleId} — ${what} — ${String(row.failCount)} of ${String(report.rowCount)} rows (${String(row.failPercent)}%)`
-      : `PASS ${row.ruleId} — ${what} — 0 violations`
+      ? `${style.fail('FAIL')} ${row.ruleId} — ${what} — ${style.count(`${String(row.failCount)} of ${String(report.rowCount)} rows (${String(row.failPercent)}%)`)}`
+      : `${style.pass('PASS')} ${row.ruleId} — ${what} — ${style.pass('0 violations')}`
     lines.push(head)
     for (const sample of row.samples) {
       lines.push(`     ${displayRowKey(sample.rowKey)} — ${sampleValueText(sample.value)}`)
@@ -258,8 +264,8 @@ export function renderHumanReport(report: ValidationReport, meta: ReportMeta): s
   }
   lines.push(
     report.valid
-      ? `verdict: VALID — 0 violations across ${String(report.rows.length)} rules (${String(report.rowCount)} rows)`
-      : `verdict: INVALID — ${String(failingCount)} of ${String(report.rows.length)} rules failing (${String(report.rowCount)} rows)`,
+      ? `verdict: ${style.pass('VALID')} — 0 violations across ${String(report.rows.length)} rules (${String(report.rowCount)} rows)`
+      : `verdict: ${style.fail('INVALID')} — ${style.count(`${String(failingCount)} of ${String(report.rows.length)} rules failing (${String(report.rowCount)} rows)`)}`,
   )
   return lines.join('\n') + '\n'
 }
@@ -608,6 +614,34 @@ function plural(count: number, singular: string): string {
   return count === 1 ? singular : `${singular}s`
 }
 
+/**
+ * The columns whose distribution delta carries a defined non-zero signal —
+ * the CLI's single "profile deltas" decision (q-4/AR-C6). The human count
+ * and list, the JSON `identical` verdict, and the exit code all read THIS
+ * list, so they cannot drift apart.
+ */
+export function divergentColumnDeltas(
+  deltas: readonly ColumnDistributionDelta[],
+): readonly ColumnDistributionDelta[] {
+  return deltas.filter(columnDeltaDiffers)
+}
+
+/**
+ * The one identity verdict over the aspects that ran — schema drift, any
+ * non-zero profile delta, and the three row-diff counts. Shared by the human
+ * and JSON verdicts and the exit code (q-4/AR-C6: previously computed
+ * independently in two places).
+ */
+export function diffReportIdentical(report: DiffCommandReport): boolean {
+  return (
+    report.diff.schemaDrift.length === 0 &&
+    divergentColumnDeltas(report.diff.columnDeltas).length === 0 &&
+    report.rowDiff.added.count === 0 &&
+    report.rowDiff.removed.count === 0 &&
+    report.rowDiff.changed.count === 0
+  )
+}
+
 /** One schema-drift finding as a human line (aspect order is the sort order). */
 export function schemaFindingLine(finding: SchemaDriftFinding): string {
   switch (finding.kind) {
@@ -673,11 +707,12 @@ function renderAspectLines(
   label: string,
   aspect: DiffAspectReport,
   meta: DiffReportMeta,
+  style: ReportStyle,
   notComparable = false,
 ): string[] {
   const lines: string[] = []
   const suffix = notComparable ? ' — no shared non-key columns to compare' : ''
-  lines.push(`  ${label} (${String(aspect.count)}${suffix}):`)
+  lines.push(`  ${label} (${style.count(String(aspect.count))}${suffix}):`)
   if (aspect.samples.length === 0) {
     lines.push('    none')
     return lines
@@ -698,12 +733,18 @@ function renderAspectLines(
 
 /**
  * The human diff report. Aspect order is schema drift → profile deltas → row
- * diff (docs-07). The identical-files case is explicit and honest about the
+ * diff (docs-07), then any collected input issues, then the verdict. The
+ * "profile deltas" count and list carry only columns with a non-zero signal
+ * (q-4/AR-C6), and the identical-files case is explicit and honest about the
  * scope of the identity claim: the row diff ran, so the identity holds at
  * row level too — and the verdict says exactly that (schema/profile identity
  * alone would not).
  */
-export function renderHumanDiffReport(report: DiffCommandReport, meta: DiffReportMeta): string {
+export function renderHumanDiffReport(
+  report: DiffCommandReport,
+  meta: DiffReportMeta,
+  style: ReportStyle = plainStyle,
+): string {
   const lines: string[] = []
   lines.push(`a: ${meta.nameA} (${meta.formatA})`)
   lines.push(`b: ${meta.nameB} (${meta.formatB})`)
@@ -720,36 +761,48 @@ export function renderHumanDiffReport(report: DiffCommandReport, meta: DiffRepor
   if (drift.length === 0) {
     lines.push('schema drift: none')
   } else {
-    lines.push(`schema drift: ${String(drift.length)} ${plural(drift.length, 'finding')}`)
+    lines.push(
+      `schema drift: ${style.count(String(drift.length))} ${plural(drift.length, 'finding')}`,
+    )
     for (const finding of drift) lines.push(`  ${schemaFindingLine(finding)}`)
   }
 
-  const deltas = report.diff.columnDeltas
-  if (deltas.length === 0) {
+  const divergent = divergentColumnDeltas(report.diff.columnDeltas)
+  if (divergent.length === 0) {
     lines.push('profile deltas: none')
   } else {
-    lines.push(`profile deltas: ${String(deltas.length)} ${plural(deltas.length, 'column')}`)
-    for (const delta of deltas) lines.push(`  ${columnDeltaLine(delta)}`)
+    lines.push(
+      `profile deltas: ${style.count(String(divergent.length))} ${plural(divergent.length, 'column')}`,
+    )
+    for (const delta of divergent) lines.push(`  ${columnDeltaLine(delta)}`)
   }
 
   const { added, removed, changed } = report.rowDiff
   lines.push(
-    `row diff: ${String(added.count)} added, ${String(removed.count)} removed, ${String(changed.count)} changed`,
+    `row diff: ${style.count(`${String(added.count)} added, ${String(removed.count)} removed, ${String(changed.count)} changed`)}`,
   )
-  lines.push(...renderAspectLines('added', added, meta))
-  lines.push(...renderAspectLines('removed', removed, meta))
-  lines.push(...renderAspectLines('changed', changed, meta, !report.rowDiff.changedComparable))
+  lines.push(...renderAspectLines('added', added, meta, style))
+  lines.push(...renderAspectLines('removed', removed, meta, style))
+  lines.push(
+    ...renderAspectLines('changed', changed, meta, style, !report.rowDiff.changedComparable),
+  )
+
+  const issues = report.diff.issues
+  if (issues.length > 0) {
+    lines.push(`issues: ${style.warn(String(issues.length))} ${plural(issues.length, 'issue')}`)
+    for (const issue of issues) lines.push(`  ${style.warn(describeIssueLine(issue))}`)
+  }
 
   const labels: string[] = []
   if (drift.length > 0) labels.push('schema drift')
-  if (deltas.some(columnDeltaDiffers)) labels.push('profile deltas')
+  if (divergent.length > 0) labels.push('profile deltas')
   if (added.count > 0 || removed.count > 0 || changed.count > 0) labels.push('row diff')
   if (labels.length === 0) {
     lines.push(
-      `verdict: IDENTICAL — no differences found (row diff ran on keys: ${meta.keys.join(', ')}; schema/profile-level identity alone would not prove row identity)`,
+      `verdict: ${style.pass('IDENTICAL')} — no differences found (row diff ran on keys: ${meta.keys.join(', ')}; schema/profile-level identity alone would not prove row identity)`,
     )
   } else {
-    lines.push(`verdict: DIFFERENCES — ${labels.join(', ')}`)
+    lines.push(`verdict: ${style.fail('DIFFERENCES')} — ${labels.join(', ')}`)
   }
   return lines.join('\n') + '\n'
 }
@@ -853,12 +906,7 @@ function aspectJson(aspect: DiffAspectReport): Record<string, unknown> {
  */
 export function renderJsonDiffReport(report: DiffCommandReport, meta: DiffReportMeta): string {
   const { added, removed, changed } = report.rowDiff
-  const identical =
-    report.diff.schemaDrift.length === 0 &&
-    !report.diff.columnDeltas.some(columnDeltaDiffers) &&
-    added.count === 0 &&
-    removed.count === 0 &&
-    changed.count === 0
+  const identical = diffReportIdentical(report)
   const payload = {
     report: 'assay-diff-report',
     baseViewOnly: true,

@@ -14,7 +14,9 @@ import {
   buildDiffRowDiffReport,
   columnDeltaDiffers,
   columnDeltaLine,
+  diffReportIdentical,
   displayDiffRowKey,
+  divergentColumnDeltas,
   exportDiffRowKey,
   renderHumanDiffReport,
   renderJsonDiffReport,
@@ -95,6 +97,45 @@ describe('diff report — pure helpers', () => {
       },
     }
     expect(columnDeltaDiffers(categorical)).toBe(true)
+  })
+
+  it('diffReportIdentical/divergentColumnDeltas are the single identity decision (q-4)', () => {
+    const zeroColumns = [numericDelta()]
+    expect(divergentColumnDeltas(zeroColumns)).toEqual([])
+    expect(
+      diffReportIdentical({
+        diff: { schemaDrift: [], columnDeltas: zeroColumns, issues: [] },
+        rowDiff: buildDiffRowDiffReport(zeroRowDiff, true),
+      }),
+    ).toBe(true)
+
+    const divergent = [numericDelta({ meanShiftStandardized: 0.5 })]
+    expect(divergentColumnDeltas(divergent)).toHaveLength(1)
+    expect(
+      diffReportIdentical({
+        diff: { schemaDrift: [], columnDeltas: divergent, issues: [] },
+        rowDiff: buildDiffRowDiffReport(zeroRowDiff, true),
+      }),
+    ).toBe(false)
+
+    // Any row-diff aspect count also flips the shared verdict.
+    expect(
+      diffReportIdentical({
+        diff: emptyDiff,
+        rowDiff: buildDiffRowDiffReport(
+          {
+            rowCountA: 3,
+            rowCountB: 4,
+            aspects: [
+              { aspect: 'added', count: 1, samples: [{ side: 'B', rowKey: 'b:3' }] },
+              { aspect: 'removed', count: 0, samples: [] },
+              { aspect: 'changed', count: 0, samples: [] },
+            ],
+          },
+          true,
+        ),
+      }),
+    ).toBe(false)
   })
 
   it('anchor-free row keys render the base and comparison forms', () => {

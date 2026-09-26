@@ -41,14 +41,15 @@ import type { KeyInferenceResult, RowDiffBindingError } from '@assay/diff'
 import { describeRowDiffBindingError } from '@assay/diff'
 import { ROW_DIFF_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
 import { DATASET_VIEW, openConnection, registerDatasetAs } from './connection.js'
+import type { CommandContext } from './context.js'
 import { CliError, usageError } from './errors.js'
 import type { CliExitCode } from './errors.js'
 import { prepareDiffPlan, profileView, runDiffPlan } from './node-executor.js'
 import {
   buildDiffRowDiffReport,
-  columnDeltaDiffers,
   datasetDisplayName,
   describeIssueLine,
+  diffReportIdentical,
   renderHumanDiffReport,
   renderJsonDiffReport,
 } from './report.js'
@@ -132,15 +133,18 @@ export function resolveDiffOptions(flags: {
  */
 export async function runDiffCommand(
   options: DiffOptions,
-  out: (text: string) => void,
+  context: CommandContext,
 ): Promise<CliExitCode> {
+  context.progress.step('opening datasets')
   const conn = await openConnection()
   let report: DiffCommandReport
   let meta: DiffReportMeta
   try {
     const a = await registerDatasetAs(conn, options.pathA, DATASET_VIEW)
     const b = await registerDatasetAs(conn, options.pathB, DIFF_COMPARISON_VIEW)
+    context.progress.step('profiling side A')
     const profileA = await profileView(conn, DATASET_VIEW, a.schema)
+    context.progress.step('profiling side B')
     const profileB = await profileView(conn, DIFF_COMPARISON_VIEW, b.schema)
     const diff = diffDatasets({
       schemaA: a.schema,
@@ -180,6 +184,7 @@ export async function runDiffCommand(
     }
     // The m6-2 two-belt wire gate: the CLI executes only plans the engine's
     // worker would accept, so every surface runs the same plans.
+    context.progress.step('executing row diff')
     const plan = prepareDiffPlan(compiled.plan, [DATASET_VIEW, DIFF_COMPARISON_VIEW])
     const result = await runDiffPlan(conn, plan, a.schema, DIFF_COMPARISON_VIEW)
     const rowDiff = buildDiffRowDiffReport(result, plan.sharedColumns.length > 0)
@@ -205,18 +210,13 @@ export async function runDiffCommand(
     }
   }
 
-  out(
+  context.progress.done()
+  context.out(
     options.format === 'json'
       ? renderJsonDiffReport(report, meta)
-      : renderHumanDiffReport(report, meta),
+      : renderHumanDiffReport(report, meta, context.style),
   )
-  const identical =
-    report.diff.schemaDrift.length === 0 &&
-    !report.diff.columnDeltas.some(columnDeltaDiffers) &&
-    report.rowDiff.added.count === 0 &&
-    report.rowDiff.removed.count === 0 &&
-    report.rowDiff.changed.count === 0
-  return identical ? 0 : 1
+  return diffReportIdentical(report) ? 0 : 1
 }
 
 /** All binding errors, one readable line each (the m6-1 canonical form). */

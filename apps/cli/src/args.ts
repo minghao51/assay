@@ -24,6 +24,8 @@ export interface CliFlags {
   readonly keys: readonly string[]
   /** `--infer` was passed (top-candidate inference with disclosure). */
   readonly infer: boolean
+  /** `--quiet` was passed: suppress progress/hints on stderr (reports stay). */
+  readonly quiet: boolean
   readonly help: boolean
   readonly version: boolean
 }
@@ -42,12 +44,13 @@ const KNOWN_FLAGS: ReadonlySet<string> = new Set([
   'sample-limit',
   'key',
   'infer',
+  'quiet',
   'help',
   'version',
 ])
 
 /** The boolean flags: `--name` alone, no value consumed. */
-const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['infer', 'help', 'version'])
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['infer', 'quiet', 'help', 'version'])
 
 /** Parse argv (without the node/script preamble) into command + flags. */
 export function parseArgs(argv: readonly string[]): CliInvocation {
@@ -58,6 +61,7 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
   let format: string | undefined
   let sampleLimit: string | undefined
   let infer = false
+  let quiet = false
   let help = false
   let version = false
   for (let index = 0; index < argv.length; index++) {
@@ -83,6 +87,7 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
           throw usageError(`option '--${name}' does not take a value (see --help)`)
         }
         if (name === 'infer') infer = true
+        else if (name === 'quiet') quiet = true
         else if (name === 'help') help = true
         else version = true
         continue
@@ -109,6 +114,6 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
   return {
     command,
     positionals,
-    flags: { contract, format, sampleLimit, keys, infer, help, version },
+    flags: { contract, format, sampleLimit, keys, infer, quiet, help, version },
   }
 }

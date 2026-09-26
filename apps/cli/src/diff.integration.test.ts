@@ -105,10 +105,7 @@ b: same-b.csv (csv)
 rows: 3 -> 3
 keys: id (explicit)
 schema drift: none
-profile deltas: 3 columns
-  id — numeric: mean shift 0, variance shift 0, p50 shift 0, p90 shift 0
-  amount — numeric: mean shift 0, variance shift 0, p50 shift 0, p90 shift 0
-  region — categorical: total variation 0, new: [], vanished: []
+profile deltas: none
 row diff: 0 added, 0 removed, 0 changed
   added (0):
     none
@@ -253,10 +250,7 @@ rows: 3 -> 3
 keys: id (explicit)
 schema drift: 1 finding
   column-added: score — B BIGINT
-profile deltas: 3 columns
-  id — numeric: mean shift 0, variance shift 0, p50 shift 0, p90 shift 0
-  amount — numeric: mean shift 0, variance shift 0, p50 shift 0, p90 shift 0
-  region — categorical: total variation 0, new: [], vanished: []
+profile deltas: none
 row diff: 0 added, 0 removed, 0 changed
   added (0):
     none

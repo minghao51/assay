@@ -26,7 +26,8 @@ import type { ContractError } from '@assay/contracts'
 import { compileContract, DEFAULT_SAMPLE_LIMIT, describeBindingError } from '@assay/validation'
 import type { BindingError } from '@assay/validation'
 import { VALIDATION_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
-import { openConnection, PLAN_RELATION, registerDataset } from './connection.js'
+import { DATASET_VIEW, openConnection, PLAN_RELATION, registerDataset } from './connection.js'
+import type { CommandContext } from './context.js'
 import { CliError, usageError } from './errors.js'
 import type { CliExitCode } from './errors.js'
 import { preparePlan, runValidationPlan } from './node-executor.js'
@@ -106,7 +107,7 @@ export function resolveValidateOptions(flags: {
  */
 export async function runValidateCommand(
   options: ValidateOptions,
-  out: (text: string) => void,
+  context: CommandContext,
 ): Promise<CliExitCode> {
   const contractText = readContractText(options.contractPath)
   const parsed = parseContract(contractText)
@@ -114,6 +115,7 @@ export async function runValidateCommand(
     throw contractParseError(parsed.errors)
   }
 
+  context.progress.step('opening dataset')
   const conn = await openConnection()
   let plan: EngineValidationPlan
   let result: EngineValidationResult
@@ -127,7 +129,8 @@ export async function runValidateCommand(
     if (!compiled.ok) {
       throw bindingError(compiled.errors)
     }
-    plan = preparePlan(compiled.plan, ['assay_t1'])
+    plan = preparePlan(compiled.plan, [DATASET_VIEW])
+    context.progress.step('running validation plan')
     result = await runValidationPlan(conn, plan, registered.schema)
     format = registered.format
   } finally {
@@ -149,7 +152,12 @@ export async function runValidateCommand(
     sampleLimitRequested: options.sampleLimit,
     sampleLimitEffective: Math.min(options.sampleLimit, VALIDATION_SAMPLE_HARD_MAX),
   }
-  out(options.format === 'json' ? renderJsonReport(report, meta) : renderHumanReport(report, meta))
+  context.progress.done()
+  context.out(
+    options.format === 'json'
+      ? renderJsonReport(report, meta)
+      : renderHumanReport(report, meta, context.style),
+  )
   return report.valid ? 0 : 1
 }
 
