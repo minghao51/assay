@@ -1698,6 +1698,78 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
     expect(deps.conn.sentSqls).toHaveLength(1)
     expect(deps.queryConn.sentSqls).toHaveLength(0)
   })
+
+  it('q-8: maps a hostile-value overlay window failure to the value-free class only', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlayRangeRequest(2))
+    await awaitSends(deps.conn, 2)
+    // A DuckDB conversion error embedding a quote-laden hostile value; the
+    // tail carries the composed statement. Neither may cross the boundary.
+    deps.conn.rejectSend(
+      1,
+      new Error(
+        "Conversion Error: Could not convert string ''; DROP TABLE x --' to BIGINT\n" +
+          "LINE 1: SELECT CAST(''; DROP TABLE x --' AS BIGINT) FROM \"assay_t1\"",
+      ),
+    )
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'the edited view could not be materialized',
+    })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).not.toContain('DROP TABLE')
+      expect(posted.message).not.toContain("'; DROP TABLE x --")
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('q-8: maps a hostile-value overlay schema failure to the value-free class only', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlaySchemaRequest(2))
+    await awaitSends(deps.conn, 2)
+    deps.conn.rejectSend(
+      1,
+      new Error('Catalog Error: Table with name "\'; DROP TABLE x --" does not exist'),
+    )
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'the edited view could not be materialized',
+    })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).not.toContain('DROP TABLE')
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('q-8: maps a hostile-value cast-check failure to the value-free class only (query lane)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(overlayCastCheckRequest(2))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.rejectSend(
+      0,
+      new Error('Binder Error: Referenced column "\'; DROP TABLE x --" not found in FROM clause'),
+    )
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'the edited view could not be materialized',
+    })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).not.toContain('DROP TABLE')
+    }
+    expectNoCollisions(deps)
+  })
 })
 
 describe('EngineOpExecutor export (m4-2; query lane)', () => {

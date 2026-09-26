@@ -159,6 +159,19 @@ describe('engineRejectionMessage — readable, text-only engine summary', () => 
     )
     expect(message).not.toContain('_setThrew')
   })
+
+  it('q-8: renders the engine value-free materialization class, never a value fragment', () => {
+    // The worker maps every overlay-materialization DuckDB error to this
+    // class before posting (`OVERLAY_MATERIALIZATION_FAILURE` in
+    // engine-executor), so the edit session renders the class and never
+    // forwards arbitrary engine text (ADR 0025).
+    const message = engineRejectionMessage(new Error('the edited view could not be materialized'))
+    expect(message).toBe(
+      'The engine rejected this edit: the edited view could not be materialized. ' +
+        'The previous view is unchanged.',
+    )
+    expect(message).not.toContain("'; DROP TABLE x --")
+  })
 })
 
 describe('castRefusalMessage — readable, text-only refusal for a doomed cast', () => {
@@ -232,6 +245,29 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(published).toEqual([next, previous])
     expect(refreshes).toBe(2)
     expect(result.message).toContain('Conversion Error')
+    expect(result.restoreFailed).toBe(false)
+  })
+
+  it('q-8: rolls back on a value-free engine class and renders no value fragment', async () => {
+    const published: TransformationHistory[] = []
+    let refreshes = 0
+    const result = await commitWithRollback(previous, next, {
+      setActive: (history) => published.push(history),
+      refresh: async () => {
+        refreshes += 1
+        if (refreshes === 1) {
+          throw new Error('the edited view could not be materialized')
+        }
+      },
+    })
+    // The failed overlay was published, then the previous one restored and
+    // re-materialized: setActive(next) → setActive(previous) → refresh twice.
+    expect(published).toEqual([next, previous])
+    expect(refreshes).toBe(2)
+    expect(result.message).toBe(
+      'The engine rejected this edit: the edited view could not be materialized. ' +
+        'The previous view is unchanged.',
+    )
     expect(result.restoreFailed).toBe(false)
   })
 

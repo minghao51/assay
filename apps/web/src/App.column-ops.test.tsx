@@ -44,6 +44,12 @@ const h = vi.hoisted(() => ({
   castCheckRefuseWhenNonEmpty: false,
   /** Ops count of each overlay the check was asked to validate. */
   castCheckOpCounts: [] as number[],
+  /**
+   * One-shot overlay-materialization failure (q-8): when set, the next
+   * overlay read rejects with this message and the flag clears, so the
+   * commit refresh fails but the rollback refresh succeeds.
+   */
+  overlayFailureOnce: null as string | null,
 }))
 
 const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
@@ -117,6 +123,14 @@ vi.mock('./lib/engine', () => {
   const unhealthy = (): never => {
     throw new Error('engine unavailable')
   }
+  /** One-shot q-8 overlay failure; clears so the restore refresh succeeds. */
+  const overlayRefusal = (): void => {
+    if (h.overlayFailureOnce !== null) {
+      const message = h.overlayFailureOnce
+      h.overlayFailureOnce = null
+      throw new Error(message)
+    }
+  }
   return {
     engineClient: {
       open: async () => FAKE_HANDLE,
@@ -126,9 +140,14 @@ vi.mock('./lib/engine', () => {
         batch: h.healthy ? fakeBaseBatch() : unhealthy(),
         hasMore: false,
       }),
-      overlaySchema: async (_handle: unknown, overlay: Overlay) =>
-        h.healthy ? effectiveSchema(overlay) : unhealthy(),
-      overlayRowCount: async () => (h.healthy ? 1 : unhealthy()),
+      overlaySchema: async (_handle: unknown, overlay: Overlay) => {
+        overlayRefusal()
+        return h.healthy ? effectiveSchema(overlay) : unhealthy()
+      },
+      overlayRowCount: async () => {
+        overlayRefusal()
+        return h.healthy ? 1 : unhealthy()
+      },
       overlayCastCheck: async (_handle: unknown, overlay: Overlay) => {
         const opCount = overlay.ops?.length ?? 0
         h.castCheckOpCounts.push(opCount)
@@ -139,10 +158,13 @@ vi.mock('./lib/engine', () => {
         }
         return { hasNonConvertibleValues: h.castCheck === 'refuse' }
       },
-      fetchOverlayRange: async (_handle: unknown, overlay: Overlay) => ({
-        batch: h.healthy ? fakeOverlayBatch(effectiveSchema(overlay).length) : unhealthy(),
-        hasMore: false,
-      }),
+      fetchOverlayRange: async (_handle: unknown, overlay: Overlay) => {
+        overlayRefusal()
+        return {
+          batch: h.healthy ? fakeOverlayBatch(effectiveSchema(overlay).length) : unhealthy(),
+          hasMore: false,
+        }
+      },
     },
   }
 })
@@ -157,6 +179,7 @@ afterEach(() => {
   h.castCheckGate = null
   h.castCheckRefuseWhenNonEmpty = false
   h.castCheckOpCounts = []
+  h.overlayFailureOnce = null
 })
 
 async function openFixture(): Promise<void> {
@@ -437,6 +460,44 @@ describe('double-failure honesty + recoverable grid (m4-3 carry-over b)', () => 
       fireEvent.click(retry)
     })
     expect(screen.queryByTestId('view-error')).toBeNull()
+    expect(screen.getByTestId('grid-total-rows').textContent).toBe('1')
+  })
+})
+
+describe('value-free edit rejection (q-8)', () => {
+  it('renders the engine materialization class, never a value/SQL fragment, and rolls back', async () => {
+    await openFixture()
+    const panel = within(screen.getByTestId('schema-panel'))
+
+    // The engine maps its raw DuckDB error to the value-free class before
+    // posting (engine-executor); the component test stands in for that
+    // protocol reply. The failure is one-shot, so the rollback refresh
+    // succeeds and the previous view is restored.
+    h.overlayFailureOnce = 'the edited view could not be materialized'
+    await act(async () => {
+      fireEvent.click(panel.getByRole('button', { name: 'Rename column country' }))
+    })
+    const input = panel.getByTestId('column-rename-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'nation' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    const alert = screen.getByTestId('edit-error')
+    expect(alert.textContent).toBe(
+      'The engine rejected this edit: the edited view could not be materialized. ' +
+        'The previous view is unchanged.',
+    )
+    // Class-only: no dataset value, SQL, or identifier fragment leaks.
+    expect(alert.textContent).not.toContain("'; DROP TABLE x --")
+    expect(alert.textContent).not.toContain('SELECT')
+
+    // Rolled back: header unchanged, no history entry, previous view intact.
+    const headers = screen
+      .getAllByTestId('grid-header-cell')
+      .map((el) => el.getAttribute('data-col-name'))
+    expect(headers).toEqual(['id', 'country', 'income'])
+    expect(screen.queryByTestId('history-description')).toBeNull()
     expect(screen.getByTestId('grid-total-rows').textContent).toBe('1')
   })
 })

@@ -128,6 +128,18 @@ import {
 import type { RowDiffSampleRow } from './diff-query.js'
 
 /**
+ * The single value-free failure class for every engine-touching step of the
+ * edit-overlay materialization path (m4-2 schema/row-count/window and the
+ * m4-4b cast check). DuckDB errors can embed offending cell values or the
+ * composed statement, so the raw engine text never leaves the worker (ADR
+ * 0025); the edit session renders this readable class instead of the raw
+ * error (PT-Q q-8). The class names the operation, never the data. The
+ * validate/diff paths keep their own per-step classes — this is the one
+ * class q-8 adds, shared by every overlay materialization op.
+ */
+const OVERLAY_MATERIALIZATION_FAILURE = 'the edited view could not be materialized'
+
+/**
  * Minimal structural view of an Apache Arrow record-batch stream reader —
  * the slice of `arrow.AsyncRecordBatchStreamReader` the executor consumes
  * (`next` resolves batches; `cancel` releases the connection-side result).
@@ -515,6 +527,12 @@ export class EngineOpExecutor {
 
   // -----------------------------------------------------------------------
   // Edit-overlay surface (m4-2) — stateless composition over the base view
+  //
+  // Every engine-touching step maps its DuckDB error through the shared
+  // value-free class ({@link OVERLAY_MATERIALIZATION_FAILURE}); raw engine
+  // text can embed cell values or composed SQL, so it never leaves the
+  // worker (ADR 0025). The per-op shape checks below are already fixed
+  // strings and pass through unchanged.
   // -----------------------------------------------------------------------
 
   /**
@@ -534,10 +552,10 @@ export class EngineOpExecutor {
   /**
    * Effective schema (m4-2): `DESCRIBE` over the composed projection —
    * post-rename names, post-cast DuckDB types. A cast to a type string the
-   * engine rejects fails here with a readable binder error (declared-type
-   * validation); the engine stays reusable (ordinary per-op error path).
-   * Registry lane: the grid reads the schema on every rename/cast —
-   * metadata-class traffic (ADR 0040).
+   * engine rejects fails here and is mapped to the value-free materialization
+   * class (declared-type validation); the engine stays reusable (ordinary
+   * per-op error path). Registry lane: the grid reads the schema on every
+   * rename/cast — metadata-class traffic (ADR 0040).
    */
   private async runOverlaySchema(
     requestId: number,
@@ -549,7 +567,9 @@ export class EngineOpExecutor {
     const conn = lane.connection(await this.deps.ensureSession())
     const { base, state } = this.compositionOf(overlay)
     const sql = composeOverlaySchemaSql({ base, state, viewName: entry.viewName })
-    const described = await conn.query(sql)
+    const described = await this.validationStep(OVERLAY_MATERIALIZATION_FAILURE, () =>
+      conn.query(sql),
+    )
     const names = (described.getChild('column_name')?.toArray() ?? []) as string[]
     const types = (described.getChild('column_type')?.toArray() ?? []) as string[]
     if (names.length === 0 || names.length !== types.length) {
@@ -579,9 +599,11 @@ export class EngineOpExecutor {
     const entry = this.requireTable(tableId)
     const conn = lane.connection(await this.deps.ensureSession())
     const { base, state } = this.compositionOf(overlay)
-    const { batchIpc } = await this.streamFirstBatch(
-      conn,
-      composeOverlayCountSql({ base, state, viewName: entry.viewName }, filters),
+    const { batchIpc } = await this.validationStep(OVERLAY_MATERIALIZATION_FAILURE, () =>
+      this.streamFirstBatch(
+        conn,
+        composeOverlayCountSql({ base, state, viewName: entry.viewName }, filters),
+      ),
     )
     const value = tableFromIPC(batchIpc).getChildAt(0)?.get(0)
     const rowCount = typeof value === 'bigint' ? Number(value) : value
@@ -617,7 +639,9 @@ export class EngineOpExecutor {
       offset: window.startRow,
       includeRowIds: request.includeRowIds,
     })
-    const { batchIpc, hasMore } = await this.streamFirstBatch(conn, sql)
+    const { batchIpc, hasMore } = await this.validationStep(OVERLAY_MATERIALIZATION_FAILURE, () =>
+      this.streamFirstBatch(conn, sql),
+    )
     this.post({
       type: 'engine/overlay-range-result',
       requestId: request.requestId,
@@ -652,7 +676,7 @@ export class EngineOpExecutor {
     )
     // `LIMIT 1` guarantees at most one row; anything else is an engine
     // deviation and fails this op loudly rather than reporting a guess.
-    const result = await conn.query(sql)
+    const result = await this.validationStep(OVERLAY_MATERIALIZATION_FAILURE, () => conn.query(sql))
     if (result.numRows > 1) {
       throw new Error('overlay cast check returned an unexpected shape')
     }
@@ -943,14 +967,17 @@ export class EngineOpExecutor {
   }
 
   /**
-   * Map one engine-touching step of the validate op to a privacy-safe
-   * failure class (review round 2, item 6): DuckDB conversion/binder errors
-   * can embed offending VALUES or plan text, and validation messages leave
-   * the worker, so the raw engine error is dropped (never attached as a
-   * cause) and replaced by the fixed, value-free class message. Errors
-   * thrown by this module's own shape checks are privacy-safe by
-   * construction (fixed strings plus rule ids) and pass through unchanged —
-   * they never originate inside a `conn.query` promise.
+   * Map one engine-touching step to a privacy-safe failure class (review
+   * round 2, item 6): DuckDB conversion/binder errors can embed offending
+   * VALUES or plan text, and error messages leave the worker, so the raw
+   * engine error is dropped (never attached as a cause) and replaced by the
+   * fixed, value-free class message. Shared discipline: validate and diff
+   * pass their per-step classes, and the edit-overlay materialization ops
+   * pass {@link OVERLAY_MATERIALIZATION_FAILURE} (PT-Q q-8). Errors thrown
+   * by this module's own shape checks are privacy-safe by construction
+   * (fixed strings plus rule ids) and pass through unchanged — they never
+   * originate inside a `conn.query` promise, so they stay outside the
+   * wrapped call in the overlay ops.
    */
   private async validationStep<T>(failureClass: string, run: () => Promise<T>): Promise<T> {
     try {

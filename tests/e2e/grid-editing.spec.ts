@@ -181,13 +181,15 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await editor.fill('not-a-date')
   await editor.press('Enter')
 
-  // Readable alert as text. The mvp bundle masks the underlying cast failure
-  // as an opaque `_setThrew` glue error; the app translates that (and any
-  // empty message) into a plain summary rather than showing glue.
+  // Readable, value-free alert. The mvp bundle masks the underlying cast
+  // failure as an opaque `_setThrew` glue error; the worker now maps that
+  // (and every other DuckDB error on the overlay-materialization path) to
+  // the value-free class before posting (q-8), so the alert carries the
+  // class and never the raw engine text or the typed value.
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('rejected')
-  await expect(alert).toContainText("the column's type rejected the value")
+  await expect(alert).toContainText('the edited view could not be materialized')
   await expect(alert).not.toContainText('_setThrew')
 
   // Recoverable: the previous effective view is restored — every row ready,

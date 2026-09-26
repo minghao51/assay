@@ -1790,13 +1790,20 @@ export function createDuckDbConformanceSubject(
         return false
       } catch (error) {
         // A DuckDB conversion failure surfaces as the typed operation/query
-        // category. The duckdb-wasm mvp bundle masks it as the opaque
-        // emscripten `_setThrew is not defined` glue error (the same signal
-        // m4-3's editing session translates into a readable rejection), so
-        // that counts too. Anything else is a harness bug and must propagate.
+        // category. Since q-8 the worker maps every overlay-materialization
+        // DuckDB error to the value-free class, so that class is the
+        // conversion-rejection signal; the older raw `conversion error` and
+        // opaque emscripten `_setThrew` signatures are still accepted so the
+        // probe stays robust if the mapping is ever narrowed. Anything else
+        // is a harness bug and must propagate. (A non-conversion engine error
+        // mapped to the same class cannot hide a check/commit divergence:
+        // the scenario still asserts the check's boolean equals this
+        // outcome, so a false `committedFails` disagreement fails loudly.)
         if (
           (error instanceof EngineOperationError || error instanceof EngineQueryError) &&
-          /conversion error|^_setThrew\b/i.test(error.message)
+          /conversion error|^_setThrew\b|^the edited view could not be materialized$/i.test(
+            error.message,
+          )
         ) {
           return true
         }
