@@ -21,6 +21,10 @@ environment setup (including quirks), and the concrete next tasks.
 
 ## Quickstart
 
+Assay is **not published to npm yet** — the `@assay` npm org claim is still
+pending (manual action M1), so the only install path today is a source checkout
+of this repository.
+
 ```bash
 pnpm install   # requires Node >= 22 (see .node-version); pnpm via corepack
 pnpm dev       # start the web app
@@ -30,6 +34,25 @@ Every other task is a root script: `pnpm build`, `pnpm typecheck`, `pnpm lint`, 
 (unit), `pnpm test:e2e` (Playwright), `pnpm format`, `pnpm changeset`, and
 `bash fixtures/parquet/generate.sh` (regenerate Parquet fixtures). The full command table with
 descriptions is the single source of truth at [AGENTS.md § Commands](AGENTS.md#commands).
+
+## Command-line interface
+
+The `assay` CLI shares the core packages with the browser app (ADR 0008) and runs
+against raw dataset files over the engine's `./node` seam. Build it from a source
+checkout, then run the compiled entry:
+
+```bash
+pnpm build
+cd apps/cli
+node --import tsx dist/index.js --help
+node --import tsx dist/index.js profile ../../fixtures/csv/customers.csv
+```
+
+The `--import tsx` loader is required from this source checkout: the workspace
+packages export their `src/*.ts` entry points, so plain Node cannot resolve the
+engine package the engine-backed commands import. Full command reference
+(options, report formats, exit codes) lives in
+[apps/cli/README.md](apps/cli/README.md).
 
 ## Documentation
 
