@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
+import { compileContract } from '@assay/validation'
+import type { ContractV1 } from '@assay/contracts'
 import {
   assertValidationPlanRelationBinding,
   parseValidationPlan,
@@ -8,6 +10,16 @@ import {
   VALIDATION_SAMPLE_HARD_MAX,
 } from './validate-plan-wire'
 import type { EngineValidationPlan, EngineValidationRule } from './validate-plan-wire'
+
+/**
+ * The m5-1 compiler's pinned rule-less summary (engine-side mirror pinned in
+ * `validate-plan-wire.ts`). The q-11 belt-1 tightening accepts a rule-less
+ * plan's summary only when it is EXACTLY this text.
+ */
+const EMPTY_SUMMARY_SQL =
+  'SELECT CAST(NULL AS VARCHAR) AS "rule_id", ' +
+  'CAST(NULL AS BIGINT) AS "total_rows", ' +
+  'CAST(NULL AS BIGINT) AS "fail_count" WHERE FALSE'
 
 /**
  * A shape-valid v1 plan shaped exactly like the m5-1 compiler's output (the
@@ -92,7 +104,7 @@ describe('parseValidationPlan (m5-2 wire boundary)', () => {
   it('accepts a rule-less plan (the compiler emits an empty summary for it)', () => {
     const plan = validPlan({
       rules: [],
-      summarySql: 'SELECT CAST(NULL AS VARCHAR) AS "rule_id" WHERE FALSE',
+      summarySql: EMPTY_SUMMARY_SQL,
     })
     expect(parseValidationPlan(plan)).toEqual(plan)
   })
@@ -227,7 +239,7 @@ describe('assertValidationPlanRelationBinding (executor-side semantic gate)', ()
     expect(() => assertValidationPlanRelationBinding(validPlan(), ['assay_t1'])).not.toThrow()
     const emptySummary = validPlan({
       rules: [],
-      summarySql: 'SELECT CAST(NULL AS VARCHAR) AS "rule_id" WHERE FALSE',
+      summarySql: EMPTY_SUMMARY_SQL,
     })
     expect(() => assertValidationPlanRelationBinding(emptySummary, [])).not.toThrow()
   })
@@ -353,9 +365,44 @@ describe('assertValidationPlanRelationBinding (executor-side semantic gate)', ()
     // one documented zero-occurrence shape) — and it is a single SELECT.
     const ruleLess = validPlan({
       rules: [],
-      summarySql: 'SELECT CAST(NULL AS VARCHAR) AS "rule_id" WHERE FALSE',
+      summarySql: EMPTY_SUMMARY_SQL,
     })
     expect(() => assertValidationPlanRelationBinding(ruleLess, [])).not.toThrow()
+  })
+
+  it('rejects a rule-less foreign plan smuggling relation-free SQL as its summary (q-11 belt 1)', () => {
+    // The old `rules.length === 0` exemption skipped the summary's
+    // relation-shape check for ANY single SELECT, so a foreign rule-less
+    // plan could run arbitrary relation-free SQL (here a table function)
+    // as its summary. The exemption is now pinned to the compiler's exact
+    // relation-free empty summary, so the smuggling probe is rejected at
+    // belt 1 — before any SQL reaches the engine.
+    const smuggled = validPlan({
+      rules: [],
+      summarySql: "SELECT * FROM read_csv_auto('/etc/passwd')",
+    })
+    expect(() => assertValidationPlanRelationBinding(smuggled, [])).toThrow(
+      /rule-less; its summary must be the compiler-shaped empty summary/,
+    )
+    // A relation-free-but-not-canonical SELECT is likewise rejected (the
+    // old gate accepted any zero-occurrence single SELECT).
+    const otherQuery = validPlan({ rules: [], summarySql: 'SELECT 1 AS "rule_id"' })
+    expect(() => assertValidationPlanRelationBinding(otherQuery, [])).toThrow(/rule-less/)
+    // The exact compiler output for an empty contract passes belt 1: the
+    // engine mirror cannot drift from m5-1 without this failing.
+    const contract: ContractV1 = {
+      format: 'v1',
+      metadata: { name: 'conf', version: 1 },
+      columns: [],
+    }
+    const compiled = compileContract(contract, [{ name: 'id', type: 'BIGINT' }], {
+      relation: 'assay_conf_validate_src',
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) throw new Error('empty-contract compile failed')
+    expect(compiled.plan.rules).toHaveLength(0)
+    expect(compiled.plan.summarySql).toBe(EMPTY_SUMMARY_SQL)
+    expect(() => assertValidationPlanRelationBinding(compiled.plan, [])).not.toThrow()
   })
 
   it('accepts a legit rule value whose literal contains a semicolon (quoted scan)', () => {

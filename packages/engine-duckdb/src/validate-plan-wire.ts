@@ -50,8 +50,10 @@
  *    and the quoted relation must occur at least once in one of the
  *    compiler's FROM positions (`FROM "<rel>" AS "src"` /
  *    `(SELECT count(*) FROM "<rel>")`) in every rule — and in the summary
- *    of any plan that HAS rules (a rule-less plan's compiler-emitted empty
- *    summary is the one documented zero-occurrence shape). The scan is
+ *    of any plan that HAS rules. A rule-less plan is the one documented
+ *    zero-occurrence shape, and it is held to the compiler's EXACT pinned
+ *    empty summary ({@link EMPTY_VALIDATION_SUMMARY_SQL}), never to
+ *    arbitrary relation-free SQL (q-11 belt-1 tightening). The scan is
  *    FULLY SQL-AWARE (m5-2 round-3 fix): line/block comments, single-quoted
  *    strings (with `''` doubling), double-quoted identifiers, and
  *    dollar-quoted/escape-string dialect forms are all lexed, and
@@ -107,6 +109,22 @@ const MAX_SQL_LENGTH = 100_000
 
 /** Maximum length of a column attribution name. */
 const MAX_COLUMN_LENGTH = 512
+
+/**
+ * The compiler's pinned rule-less summary (mirror of m5-1's private
+ * `EMPTY_SUMMARY_SQL` in `compile.ts`): a relation-free single `SELECT`
+ * that emits the `rule_id`/`total_rows`/`fail_count` result shape and zero
+ * rows. A rule-less plan's summary is held to EXACTLY this text — see
+ * {@link assertValidationPlanRelationBinding} — so a foreign plan cannot
+ * smuggle arbitrary relation-free SQL (a table function, another table by
+ * name, …) through the one documented zero-occurrence exemption. Drift
+ * between this mirror and the compiler is caught because the conformance
+ * scenario executes real compiler output through this boundary.
+ */
+const EMPTY_VALIDATION_SUMMARY_SQL =
+  'SELECT CAST(NULL AS VARCHAR) AS "rule_id", ' +
+  'CAST(NULL AS BIGINT) AS "total_rows", ' +
+  'CAST(NULL AS BIGINT) AS "fail_count" WHERE FALSE'
 
 /**
  * The engine-side hard max on the rows a rule query may RETURN. A plan's K
@@ -503,10 +521,11 @@ export function scanPlanSql(sql: string): PlanSqlScan {
  * in any other position — is not compiler output. Returns the number of
  * compiler-shaped occurrences: the caller enforces the minimum (≥ 1 for
  * every rule query and for the summary of any plan that has rules; the
- * rule-less plan's empty summary is the one documented zero-occurrence
- * shape — review round 2: a relation-free statement can carry arbitrary SQL
- * past an occurrence gate, so zero occurrences are only acceptable where
- * the compiler provably emits them). The input is the {@link scanPlanSql}
+ * rule-less plan's summary is the one documented zero-occurrence shape and
+ * is held instead to the compiler's exact pinned empty summary — review
+ * round 2: a relation-free statement can carry arbitrary SQL past an
+ * occurrence gate, so zero occurrences are only acceptable where the
+ * compiler provably emits them). The input is the {@link scanPlanSql}
  * result: the structural code view has literal AND identifier interiors
  * blanked, and the relation/alias tokens are matched from `identifiers`.
  * A column whose name merely *equals* or *contains* the relation token is
@@ -630,12 +649,21 @@ export function assertValidationPlanRelationBinding(
   if (!isSingleSelectStatement(scannedSummary.code)) {
     throw new Error('validation plan summary is not a single compiler-shaped SELECT query')
   }
-  // A rule-less plan's compiler-emitted empty summary is the one documented
-  // zero-occurrence shape (it reads no relation); anything else must bind.
-  if (
-    plan.rules.length > 0 &&
-    countCompilerShapedOccurrences(scannedSummary, plan.relation) === 0
-  ) {
+  // A rule-less plan's summary is the one documented zero-occurrence shape:
+  // the compiler's EXACT relation-free empty summary, so it is accepted only
+  // when byte-identical to the pinned mirror. The old `rules.length === 0`
+  // exemption skipped the summary's relation-shape check for ANY single
+  // `SELECT`, which let a foreign rule-less plan run arbitrary relation-free
+  // SQL (a table function, another table by name, …) as its summary straight
+  // past belt 1 (AR-E6 / q-11). A plan that HAS rules still must bind the
+  // relation in the compiler's FROM shape.
+  if (plan.rules.length === 0) {
+    if (plan.summarySql !== EMPTY_VALIDATION_SUMMARY_SQL) {
+      throw new Error(
+        'validation plan is rule-less; its summary must be the compiler-shaped empty summary',
+      )
+    }
+  } else if (countCompilerShapedOccurrences(scannedSummary, plan.relation) === 0) {
     throw new Error('validation plan summary does not bind its relation in the compiler FROM shape')
   }
 }
