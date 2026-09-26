@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Target-schema binding and the engine type-string classifier (m5-1).
  *

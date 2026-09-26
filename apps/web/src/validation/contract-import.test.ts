@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import { CONTRACT_TOO_LARGE_MESSAGE, MAX_CONTRACT_BYTES, readContractFile } from './contract-import'
 import { parseContract } from '@assay/contracts'

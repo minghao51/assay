@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Ambient declarations for the File System Access **save** entry point
  * (`showSaveFilePicker`) that TypeScript 5.9's `lib.dom.d.ts` does not ship

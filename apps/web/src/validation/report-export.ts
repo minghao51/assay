@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Failure-report export (m5-3) — the pure CSV/JSON report builders plus the
  * destination/delivery glue, mirroring the m4-5 export UX patterns and copy

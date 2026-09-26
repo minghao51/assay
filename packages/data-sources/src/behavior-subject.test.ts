@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Node-side wiring proof (task T3; done-when "BrowserFileSource passes — Node
  * unit + browser paths"): the REAL BrowserFileSource, pickDataFile, and

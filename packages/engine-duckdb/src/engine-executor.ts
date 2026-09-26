@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Worker-side engine operation executor (T2, two lanes since m2-7): owns every
  * operation the engine worker performs, serialized through TWO pending-query

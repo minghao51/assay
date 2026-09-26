@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * @assay/ai — AI provider abstractions and proposal schemas
  *

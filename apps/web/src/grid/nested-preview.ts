@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Honest v1 preview for nested cell values — structs and lists as they arrive
  * from the Arrow→rows projection (m3-2).

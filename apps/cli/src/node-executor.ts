@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The Node executor (m5-4): run a compiled m5-1 `ValidationPlan` against a
  * registered dataset view over a `@duckdb/node-api` connection, REUSING the

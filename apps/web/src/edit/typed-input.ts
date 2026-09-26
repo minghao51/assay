@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Typed cell-input constraints (m4-3) — the honest client-side bridge from a
  * raw editor string to a domain `CellValue`, derived from the parsed DuckDB

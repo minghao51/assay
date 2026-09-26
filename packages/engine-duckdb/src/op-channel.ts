@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Worker-side operation channel (T2, revisited by m2-7): the per-connection
  * FIFO lane that serializes engine operations through pending-query slots.

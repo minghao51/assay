@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * `assay profile <path>` (ar-5; closes the AR-C4 missing-command finding).
  *

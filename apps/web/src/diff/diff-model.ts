@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Diff panel model (m6-4) — the pure half of the web dataset-comparison
  * panel: the staging/run key-selection state shapes, the assembled report

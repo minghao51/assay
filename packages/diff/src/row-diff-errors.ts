@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Row-diff binding-error taxonomy (m6-1) — the m5-1 `BindingError`
  * discipline applied to the row-diff plan compiler.

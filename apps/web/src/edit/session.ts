@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Overlay-session helpers (m4-3/m4-4) — pure glue between the domain's
  * transformation history and the engine's stateless overlay protocol.

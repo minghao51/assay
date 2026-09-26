@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * RE2-subset pattern checker (m5-1) — **binding-time dialect honesty** for
  * `regex` rules.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * @assay/security — Policy types, classifications, masking metadata, future authorization adapters
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Pure query-state transitions for the m2-3 sort/filter UI — extracted from
  * the components so the state logic is unit-testable in Node (the repo's

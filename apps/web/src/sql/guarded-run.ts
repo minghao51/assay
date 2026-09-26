@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The guarded async tail of a SQL run (m2-4) — extracted from `SqlPanel`'s
  * `execute` as a pure helper (guard + promise + callbacks parameterized) so

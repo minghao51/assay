@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The validation plan payload (m5-1) — the compiled, **serializable** form
  * of a contract for one target dataset.

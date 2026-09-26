@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * CLI error taxonomy for m5-4 (`assay validate`).
  *

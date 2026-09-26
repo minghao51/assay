@@ -15,5 +15,12 @@
     "@assay/testing": "workspace:*",
     "typescript": "catalog:",
     "vite": "catalog:"
-  }
+  },
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/minghao51/assay.git"
+  },
+  "homepage": "https://github.com/minghao51/assay#readme",
+  "bugs": "https://github.com/minghao51/assay/issues"
 }

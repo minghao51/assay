@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Conservative RE2-subset pattern check for JSON Schema `pattern` conversion
  * (m5-5) — **conversion-time dialect honesty**, self-contained in this pure

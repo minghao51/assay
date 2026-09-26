@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * `assay diff <a> <b>` (m6-3) — the CLI row-diff command.
  *

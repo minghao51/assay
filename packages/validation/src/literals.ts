@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * SQL literal and identifier helpers (m5-1) — **the composition contract
  * with the engine**.

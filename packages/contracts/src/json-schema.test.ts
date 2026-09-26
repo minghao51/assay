@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import type { ContractV1 } from './ast'
 import type { JsonSchemaAdapterError, JsonSchemaAdapterResult } from './json-schema'

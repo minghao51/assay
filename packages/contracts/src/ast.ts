@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Canonical Contract AST (m5-0; ADR 0013/0026).
  *

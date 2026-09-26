@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * @assay/data-sources — adapters that produce data handles from
  * files, directories, and (later) remote systems.

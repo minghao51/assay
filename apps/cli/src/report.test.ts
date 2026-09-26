@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Unit tests for the m5-4 report model (pure half): the severity ordering
  * clauses, the canonical text renderings, the report builder's defensive

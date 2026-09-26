@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * `@assay/data-sources/browser` — the browser-flavored entry of this package
  * (M1-3): `BrowserFileSource`, file-system capability detection, format

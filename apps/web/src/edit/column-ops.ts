@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Column-operation client validation (m4-4) — the honest, testable boundary
  * between the column-affordance UI (rename/cast) and the domain's edit ops.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Per-column distribution deltas (checkpoint C1), computed purely from the
  * two profile summaries (the m2 `profile()` shape, mirrored in

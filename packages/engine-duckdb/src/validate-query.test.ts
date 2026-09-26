@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { tableFromArrays } from 'apache-arrow'
 import type { Table } from 'apache-arrow'
 import { describe, expect, it } from 'vitest'

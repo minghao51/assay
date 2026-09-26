@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Structural validation for overlay payloads crossing the worker boundary
  * (m4-2). The overlay request carries the host's base metadata plus its op

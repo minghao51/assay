@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Integration tests for `assay diff` (m6-3): every test SPAWNS the COMPILED
  * CLI (`node --import tsx dist/index.js …`, ADR 0042) against temp file pairs

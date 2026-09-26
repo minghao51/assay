@@ -44,5 +44,7 @@
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  }
+  },
+  "homepage": "https://github.com/minghao51/assay#readme",
+  "bugs": "https://github.com/minghao51/assay/issues"
 }

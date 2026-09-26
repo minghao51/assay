@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Cell formatting for DOM projection. Values arrive as plain JS values from
  * the Arrow→rows projection (numbers, strings, bigints, booleans, Dates,

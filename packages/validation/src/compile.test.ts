@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import type { ColumnRuleSet, ContractV1 } from '@assay/contracts'
 import { compileContract, DEFAULT_SAMPLE_LIMIT } from './compile'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * JSON Schema → contract adapter (m5-5): a documented **subset** of JSON
  * Schema draft 2020-12 → {@link ContractV1} (ADR 0013/0026 — adapters for

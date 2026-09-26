@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Input validation/normalization for the diff model (internal — never
  * re-exported from `index.ts`).

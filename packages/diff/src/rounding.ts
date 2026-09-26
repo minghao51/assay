@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The ONE documented report-rounding convention for this package: round
  * half away from zero to 6 fractional digits (`REPORT_DECIMALS`), normalize

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * assay — the Data Workbench CLI (D10 npm-only; compiled per ADR 0042).
  *

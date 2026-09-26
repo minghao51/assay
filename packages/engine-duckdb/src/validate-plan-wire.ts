@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Structural validation for validation plans crossing the worker boundary
  * (m5-2). The `engine/validate` request carries a compiled m5-1

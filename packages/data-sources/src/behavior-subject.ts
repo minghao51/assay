@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The BrowserFileSource adapter for the data-source behavior suite in
  * `@assay/testing` (task T3; docs/engineering/03-repository-structure.md §4).

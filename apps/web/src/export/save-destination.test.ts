@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it, vi } from 'vitest'
 import { detectSaveCapabilities, requestSaveDestination, writeExportCopy } from './save-destination'
 import type { SaveFileHandle, SourceIdentity } from './save-destination'

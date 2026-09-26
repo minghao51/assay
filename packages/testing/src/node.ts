@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Node-only helpers for tests and tooling (kept out of index.ts so the
  * package stays importable from browser test contexts later).

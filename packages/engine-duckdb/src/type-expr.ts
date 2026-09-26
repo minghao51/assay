@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Strict validation and canonical classification of DuckDB type expressions
  * (m4-2 fix round).

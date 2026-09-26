@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The diff model's front door (m6-0): `diffDatasets` turns two engine-shaped
  * schemas plus two profile summaries into one plain-data {@link DiffReport}

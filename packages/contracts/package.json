@@ -34,10 +34,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "yaml": "^2.9.1"
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "typescript": "catalog:",
     "vitest": "catalog:"
-  }
+  },
+  "homepage": "https://github.com/minghao51/assay#readme",
+  "bugs": "https://github.com/minghao51/assay/issues"
 }

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Engine worker entry — runs DuckDB-WASM off the main thread (ADR 0002/0021).
  *

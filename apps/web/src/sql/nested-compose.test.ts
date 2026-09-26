@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import { quotedIdentifier } from '@assay/engine-duckdb'
 import type { DuckDbType } from '../schema/parseType'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 export const APP_NAME = 'Assay' as const
 
 /** The descriptive tagline — "data workbench" is the category, Assay is the product (ADR 0039). */

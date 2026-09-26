@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * @assay/core — Application use cases and orchestration (open dataset, compare versions, run validation, apply transform, prepare DCR)
  *

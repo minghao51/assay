@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Unit tests for the m2-2 SQL composer (`window-query.ts`).
  *

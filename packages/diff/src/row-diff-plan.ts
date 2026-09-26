@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The row-diff plan payload (m6-1) — the compiled, **serializable** form of
  * a key-based row diff between two dataset versions, for the m6-2 engine op.

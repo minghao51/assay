@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Pure paging logic for the SQL editor + result pane (m2-4) — extracted from
  * the component so it is unit-testable in Node (the repo's testing

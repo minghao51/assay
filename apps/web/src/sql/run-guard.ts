@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Generation guard for SQL runs (m2-4) — the same pattern as the grid's
  * epoch guard, extracted as a pure class so it is unit-testable in Node.

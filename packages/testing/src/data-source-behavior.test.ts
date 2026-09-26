@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Node-side proof of the data-source behavior suite itself: the scenarios run
  * green against a *compliant in-memory fake source* (proving the suite is

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Unit tests for the overlay payload boundary validation
  * (`overlay-wire.ts`, m4-2). The worker re-validates everything crossing

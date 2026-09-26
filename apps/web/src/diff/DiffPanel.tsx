@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Diff panel (m6-4): stage a comparison dataset, disclose the diff in the
  * fixed order — schema drift → per-column distribution deltas → key-based row

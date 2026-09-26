@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * SQL composition for dataset profiles (m2-5) — sibling of `window-query.ts`
  * and bound by the same invariants: only engine-generated view names and

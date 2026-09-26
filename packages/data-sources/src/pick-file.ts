@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * `pickDataFile` — the package's picker entry point. It picks the right
  * strategy from detected capabilities (see `capabilities.ts` and the README

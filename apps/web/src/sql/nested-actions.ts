@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Intent-level nested-data actions (m3-5) — the wiring layer between the two
  * click surfaces (m1-6 schema tree, m1-5 grid headers) and m3-4's pure SQL

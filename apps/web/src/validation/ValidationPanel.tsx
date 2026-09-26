@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Validation panel (m5-3): contract import, run controls, per-rule report,
  * sample-failure list with jump-to-row, the honest filter-to-failures

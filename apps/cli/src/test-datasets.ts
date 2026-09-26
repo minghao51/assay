@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Integration-test dataset builders (m5-4) — runtime-built dirty files in
  * temp directories, NEVER committed (the m5-2 conformance discipline).

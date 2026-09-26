@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Record inspector lifecycle state machine + freshness policy (m3-3) — pure
  * and Node-tested, so the stale-record rule is pinned without a DOM (repo

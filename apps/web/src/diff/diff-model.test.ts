@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import type { ColumnDistributionDelta, DiffReport } from '@assay/diff'
 import type { EngineRowDiffResult } from '@assay/engine-duckdb'

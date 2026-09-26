@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Worker-side registry of staged comparison datasets (m6-2, checkpoint C3).
  *

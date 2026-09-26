@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Schema-drift classification over two engine-shaped schemas plus the
  * profile-derived nullability drift.

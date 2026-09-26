@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Contract import (m5-3) — the text-side half of bringing a data contract
  * into the app. A contract is a small, locally authored YAML **text** file:

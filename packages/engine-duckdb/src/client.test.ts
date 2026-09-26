@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { tableFromArrays, tableToIPC } from 'apache-arrow'
 import { describe, expect, it } from 'vitest'
 import { baseRowId } from '@assay/domain'

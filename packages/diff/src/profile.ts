@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Structural mirrors of the m2 `profile()` shape — `@assay/engine`'s
  * `DatasetProfile` / `ColumnProfile` family, as also mirrored verbatim in

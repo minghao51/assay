@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * @assay/diff — Schema/profile/distribution/row diff (pure domain layer).
  *

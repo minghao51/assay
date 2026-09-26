@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 

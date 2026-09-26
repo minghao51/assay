@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import { parseDuckDbType } from '../schema/parseType'
 import { cellEditDraft, cellEditorKind, validateCellInput } from './typed-input'

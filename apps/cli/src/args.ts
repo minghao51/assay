@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Argument parsing for the assay CLI (m5-4; extended by m6-3).
  *

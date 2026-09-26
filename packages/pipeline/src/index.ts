@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * @assay/pipeline — Pipeline IR, DAG validation, planning, materialization semantics, local runner abstractions, external execution adapter interfaces
  *

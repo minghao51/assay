@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Validation report model (m5-3) — the pure half of the web validation
  * panel: per-rule report rows, the documented severity ordering, the

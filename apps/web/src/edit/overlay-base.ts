@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Overlay base anchors (m4-3) — the host tokens the domain's `OverlayBase`
  * needs, derived in the composition root.

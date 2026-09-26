@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Pure SQL composition for the three nested-data operations (m3-4):
  *

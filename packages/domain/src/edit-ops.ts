@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Typed edit operations for the Assay edit overlay (m4-1; ADR 0012).
  *

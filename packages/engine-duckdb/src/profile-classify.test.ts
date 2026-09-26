@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Unit tests for the m2-5 profile column classifier: pure string → kind
  * decisions pinned against the DuckDB 1.5.5 DESCRIBE spellings (verified via

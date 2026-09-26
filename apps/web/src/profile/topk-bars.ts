@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Bar scaling for the categorical top-k chart (m2-6) — pure and Node-tested.
  *

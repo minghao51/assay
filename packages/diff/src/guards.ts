@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Total-input discipline helpers (the m5-0/m5-1 hostile-input precedent).
  *

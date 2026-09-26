@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import type { CellRange, ColumnSchema, FilterSpec, GridDataProvider } from '@assay/grid'
 import type { OverlayBase } from '@assay/domain'

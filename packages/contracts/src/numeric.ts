@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Exact numeric intent for rule values (m5-0 round 2).
  *

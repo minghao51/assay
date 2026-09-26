@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The diff input-issue taxonomy — m5-1's `BindingError` discipline applied
  * to diff inputs: plain data, a machine-readable `code`, an actionable

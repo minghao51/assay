@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Export dialog (m4-5): choose a format, write a **new file** from the current
  * edited view, and report the engine's honest result.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Export format vocabulary (m4-5) — the exact set the merged engine surface
  * (`EngineExportFormat`, m4-2) can materialize. This module is pure display

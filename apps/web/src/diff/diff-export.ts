@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Diff report export (m6-4) — the pure CSV/JSON report builders plus the
  * destination/delivery glue, mirroring the m5-3 failure-report export and the

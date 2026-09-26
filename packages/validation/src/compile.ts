@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The rule→plan compiler (m5-1; ADR 0013/0026).
  *

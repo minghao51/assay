@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Unit tests for the m2-5 profile SQL composer: the byte-exact aggregate SQL
  * (single-scan base query + per-column top-k), the quoted-identifier and

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * `assay validate <path> --contract <file>` (m5-4).
  *

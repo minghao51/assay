@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Unit tests for the strict engine type-expression validator
  * (`type-expr.ts`, m4-2 fix rounds). The validator is the m4-2 review's

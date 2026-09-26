@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Transformation-history model (m4-1; ADR 0012).
  *

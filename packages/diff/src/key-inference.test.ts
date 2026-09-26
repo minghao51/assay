@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import { inferRowDiffKeys } from './key-inference'
 import type { ColumnProfile, DatasetProfile } from './profile'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * SQL composition for filtered/sorted windows and filtered row counts (m2-2).
  *

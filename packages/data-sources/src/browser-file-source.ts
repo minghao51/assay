@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * BrowserFileSource — a `DataSource` for one local file in the browser
  * (task M1-3). Local-first by construction (ADR 0001): the source only ever

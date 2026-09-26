@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Adapter: `GridDataProvider` over the DuckDB engine client (m1-5; sort/filter
  * wiring m2-3; edit-overlay composition m4-3).

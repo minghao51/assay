@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The headless viewport model (ADR 0022): owns the mapping from "which rows
  * are on screen" to "which windows the provider must serve", plus the row

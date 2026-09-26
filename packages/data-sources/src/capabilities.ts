@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Capability detection for browser file-system APIs (roadmap risk R5: engines
  * diverge across browsers, so the package decides per capability instead of

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { useCallback, useState } from 'react'
 import type { ColumnSchema } from '@assay/grid'
 import { nestedActionLabel, nestedActionVerb } from '../sql/nested-actions'

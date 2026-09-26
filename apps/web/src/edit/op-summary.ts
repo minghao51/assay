@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Pending-change summary (m4-4) — the honest "what is staged?" line next to
  * the editing toolbar.

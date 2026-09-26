@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Profile column classification (m2-5): decide, from a DuckDB type string
  * (exactly what DESCRIBE / `schema()` report), how `engine/profile` should

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Structural validation for row-diff plans crossing the worker boundary
  * (m6-2). The `engine/diff` request carries a compiled m6-1 `RowDiffPlan`

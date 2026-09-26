@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * SQL composition for overlay-aware windows/counts/schema and COPY-based
  * exports (m4-2) — the engine side of the ADR 0012 edit overlay.

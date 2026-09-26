@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * `@assay/engine-duckdb/node` — the environment-neutral seam (m5-4).
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Deterministic generators for the m5-1 property tests (test support only —
  * NOT part of the public surface; `index.ts` never re-exports this module).

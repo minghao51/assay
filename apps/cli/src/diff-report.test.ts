@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Unit tests for the m6-3 diff report model (pure half): the aspect-order
  * renderers, the anchor-free row-key forms, the "differs" predicate the exit

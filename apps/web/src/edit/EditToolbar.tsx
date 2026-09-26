@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Editing toolbar (m4-3, extended m4-4): the session-level affordances around
  * the grid — insert a row, undo/redo the transformation history, and surface

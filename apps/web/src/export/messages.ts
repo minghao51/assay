@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * Honest, text-only export messaging (m4-5). Kept pure and Node-tested so the
  * wording — especially the ADR 0012 copy-vs-rewrite distinction — is pinned

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest'
 import { compileRowDiffPlan, keyTypesCompatible } from './row-diff-compile'
 import type { RowDiffBindingErrorCode } from './row-diff-errors'

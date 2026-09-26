@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * The record inspector's tree model (m3-3) — the full-value layer the grid's
  * capped previews deliberately are not (m3-2: "the full value is the m3-3
