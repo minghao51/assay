@@ -131,6 +131,18 @@ export function DataGrid({
 
   const schema = model.schema ?? []
   const totalRows = model.totalRows ?? 0
+  /**
+   * q-1: parse each column's DuckDB type once per schema, not once per cell
+   * per render. This array drives the header nested-actions, the editor kind
+   * for every rendered cell, typed input validation, and cell formatting
+   * (decimal/object paths) — all of which previously re-parsed `column.type`
+   * on every render. The parsed trees are readonly and shared with the
+   * memoized parser cache.
+   */
+  const parsedColumnTypes = useMemo(
+    () => schema.map((column) => parseDuckDbType(column.type)),
+    [schema],
+  )
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [commandError, setCommandError] = useState<string | null>(null)
   const [editing, setEditing] = useState<EditingCell | null>(null)
@@ -150,17 +162,20 @@ export function DataGrid({
 
   /**
    * m3-5: per-column one-click action, derived from the parsed DESCRIBE type
-   * (STRUCT → flatten, LIST → explode; primitives/maps get none).
+   * (STRUCT → flatten, LIST → explode; primitives/maps get none). Uses the
+   * per-schema parsed types computed above (q-1).
    */
   const headerActions = useMemo(() => {
     const actions = new Map<string, NestedAction>()
-    for (const column of schema) {
-      const kind = parseDuckDbType(column.type).kind
-      if (kind === 'struct') actions.set(column.name, { kind: 'flatten', column: column.name })
-      if (kind === 'list') actions.set(column.name, { kind: 'explode', column: column.name })
-    }
+    schema.forEach((column, index) => {
+      const parsed = parsedColumnTypes[index]
+      if (parsed === undefined) return
+      if (parsed.kind === 'struct')
+        actions.set(column.name, { kind: 'flatten', column: column.name })
+      if (parsed.kind === 'list') actions.set(column.name, { kind: 'explode', column: column.name })
+    })
     return actions
-  }, [schema])
+  }, [schema, parsedColumnTypes])
 
   const cycleSort = (columnName: string): void => {
     setCommandError(null)
@@ -173,7 +188,8 @@ export function DataGrid({
     if (!editingEnabled) return
     const column = schema[columnIndex]
     if (column === undefined) return
-    const parsedType = parseDuckDbType(column.type)
+    const parsedType = parsedColumnTypes[columnIndex]
+    if (parsedType === undefined) return
     const kind = cellEditorKind(parsedType)
     if (kind === 'unsupported') {
       setEditError(`Column "${column.name}" is not editable (nested type).`)
@@ -228,7 +244,12 @@ export function DataGrid({
       cancelEdit()
       return
     }
-    const parsed = validateCellInput(parseDuckDbType(column.type), editing.draft)
+    const parsedType = parsedColumnTypes[editing.columnIndex]
+    if (parsedType === undefined) {
+      cancelEdit()
+      return
+    }
+    const parsed = validateCellInput(parsedType, editing.draft)
     if (!parsed.ok) {
       // Readable rejection; overlay state is untouched and the editor stays
       // open so the user can correct the value.
@@ -451,10 +472,10 @@ export function DataGrid({
                         editing.columnIndex === columnIndex
                       const dirty = rowEdits?.has(column?.name ?? '') ?? false
                       const isNull = cell === null || cell === undefined
+                      const parsedType =
+                        column === undefined ? undefined : parsedColumnTypes[columnIndex]
                       const kind =
-                        column === undefined
-                          ? 'unsupported'
-                          : cellEditorKind(parseDuckDbType(column.type))
+                        parsedType === undefined ? 'unsupported' : cellEditorKind(parsedType)
                       return (
                         <div
                           key={columnIndex}
@@ -589,7 +610,7 @@ export function DataGrid({
                             // m3-2 title policy: cells deliberately carry NO
                             // `title` attribute (payload × cells; CSS overflow
                             // is the display concern; the inspector shows full values).
-                            formatCell(cell, column?.type)
+                            formatCell(cell, column?.type, parsedType ?? null)
                           )}
                         </div>
                       )

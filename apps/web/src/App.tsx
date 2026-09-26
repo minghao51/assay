@@ -18,6 +18,7 @@ import {
   undo as undoHistory,
 } from '@assay/domain'
 import { GridViewportModel } from '@assay/grid'
+import type { ColumnSchema, FilterSpec, SortSpec } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
 import { parseContract } from '@assay/contracts'
 import { compileContract } from '@assay/validation'
@@ -124,17 +125,65 @@ function LiveTableInfo({ model, tableId }: { model: GridViewportModel; tableId: 
   )
 }
 
+/**
+ * q-1: subscribe `App` to only the model slices it renders from, returning a
+ * cached snapshot whose identity changes only when one of those slice
+ * references does. Before this, `App` used the model's monotonically
+ * increasing `getVersion`, so every viewport fetch notification re-rendered
+ * the entire panel tree. The snapshot is cached (a fresh object per call
+ * would make `useSyncExternalStore` loop) and rebuilt whenever the active
+ * model changes (a new table open).
+ */
+function useModelSlice(model: GridViewportModel | null): ModelSlice {
+  const cache = useRef<{ model: GridViewportModel | null; slice: ModelSlice } | null>(null)
+  const getSnapshot = useCallback((): ModelSlice => {
+    const slice: ModelSlice = {
+      schema: model?.schema ?? null,
+      sort: model?.sort ?? null,
+      filters: model?.filters ?? NO_FILTERS,
+    }
+    const previous = cache.current
+    if (
+      previous !== null &&
+      previous.model === model &&
+      previous.slice.schema === slice.schema &&
+      previous.slice.sort === slice.sort &&
+      previous.slice.filters === slice.filters
+    ) {
+      return previous.slice
+    }
+    cache.current = { model, slice }
+    return slice
+  }, [model])
+  return useSyncExternalStore(model?.subscribe ?? NO_SUBSCRIPTION, getSnapshot)
+}
+
 /** Stable empty-schema constant for the pre-open phases (useMemo stability). */
 const NO_COLUMNS: readonly { readonly name: string; readonly type: string }[] = []
 
+/** Stable empty-filter list for the pre-open phases (snapshot stability). */
+const NO_FILTERS: readonly FilterSpec[] = []
+
 /**
- * Stable no-op model subscription/snapshot for the pre-open phases. `App`
- * must call `useSyncExternalStore` unconditionally (hook rules); these stand
- * in until a table is ready. Both are module constants so React never
- * re-subscribes between renders.
+ * The model slices `App` reads during render. Row data is deliberately not
+ * included: the panels that consume rows (`DataGrid`, `LiveTableInfo`,
+ * `FilterBar`) keep their own full-model subscriptions and update on every
+ * fetch notify. `App` itself re-renders only when the schema (rename/cast)
+ * or query state (shown in the export dialog) changes — q-1.
+ */
+interface ModelSlice {
+  readonly schema: readonly ColumnSchema[] | null
+  readonly sort: SortSpec | null
+  readonly filters: readonly FilterSpec[]
+}
+
+/**
+ * Stable no-op model subscription for the pre-open phases. `App` must call
+ * `useSyncExternalStore` unconditionally (hook rules); this stands in until a
+ * table is ready. A module constant so React never re-subscribes between
+ * renders.
  */
 const NO_SUBSCRIPTION = (): (() => void) => () => {}
-const NO_VERSION = (): number => 0
 
 /**
  * How many times the cast path re-runs the engine's pre-commit check when a
@@ -321,19 +370,18 @@ export function App() {
   }, [])
 
   /**
-   * Subscribe to the model so schema re-keys after a rename/cast re-render the
-   * panel (and the nested-action specs). `DataGrid`/`LiveTableInfo` already
-   * subscribe; `schemaColumns` is derived from `model.schema`, which
-   * `refresh()` replaces asynchronously, so without a subscription App never
-   * re-rendered and the panel kept the pre-rename names/types.
+   * Subscribe to the model slices App renders from so schema re-keys after a
+   * rename/cast re-render the panel (and the nested-action specs). `DataGrid`/
+   * `LiveTableInfo` already subscribe to the full model for row data;
+   * `schemaColumns` is derived from `model.schema`, which `refresh()` replaces
+   * asynchronously, so without a subscription App never re-rendered and the
+   * panel kept the pre-rename names/types. The slice snapshot (q-1) keeps App
+   * from re-rendering on every viewport fetch notify.
    */
   const activeModel = phase.kind === 'ready' ? phase.model : null
-  useSyncExternalStore(
-    activeModel?.subscribe ?? NO_SUBSCRIPTION,
-    activeModel?.getVersion ?? NO_VERSION,
-  )
+  const { schema: modelSchema, sort: modelSort, filters: modelFilters } = useModelSlice(activeModel)
 
-  const schemaColumns = activeModel?.schema ?? NO_COLUMNS
+  const schemaColumns = modelSchema ?? NO_COLUMNS
   const nestedSpecs = useMemo(
     () =>
       schemaColumns.map((column) => ({ name: column.name, type: parseDuckDbType(column.type) })),
@@ -1160,8 +1208,8 @@ export function App() {
                 // Filtering and sorting tracked separately (m4-5 fix
                 // round 2): a sort-only view must not claim a "filtered
                 // subset"; the dialog describes only the active state.
-                viewFiltered={phase.model.filters.length > 0}
-                viewSorted={phase.model.sort !== null}
+                viewFiltered={modelFilters.length > 0}
+                viewSorted={modelSort !== null}
                 runEngineExport={runExport}
                 requestDestination={requestExportDestination}
                 writeCopy={deliverExportCopy}

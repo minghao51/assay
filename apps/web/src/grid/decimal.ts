@@ -60,6 +60,25 @@ const HUGEINT_DECIMAL: DecimalSpec = { precision: 38, scale: 0 }
 const DECIMAL128_BYTE_LENGTH = 16
 
 /**
+ * Recognize a decimal-like label (the primitive label from the m1-6 tree).
+ * Label-only so callers that already hold the parsed tree (q-1) never pay a
+ * second parse.
+ */
+function decimalSpecForLabel(label: string): DecimalSpec | null {
+  const trimmed = label.trim()
+  const withModifiers = /^(?:DECIMAL|NUMERIC)\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$/i.exec(trimmed)
+  if (withModifiers !== null) {
+    const precision = Number(withModifiers[1])
+    const scale = Number(withModifiers[2])
+    if (Number.isFinite(precision) && Number.isFinite(scale)) return { precision, scale }
+    return null
+  }
+  if (/^(?:DECIMAL|NUMERIC)$/i.test(trimmed)) return DEFAULT_DECIMAL
+  if (/^HUGEINT$/i.test(trimmed)) return HUGEINT_DECIMAL
+  return null
+}
+
+/**
  * Recognize the column types whose Arrow value is a 128-bit decimal payload.
  * Uses the m1-6 parser so whitespace/quoting differences in the engine's
  * DESCRIBE string do not matter. Returns `null` for every other type.
@@ -67,17 +86,7 @@ const DECIMAL128_BYTE_LENGTH = 16
 export function decimalSpecForType(type: string): DecimalSpec | null {
   const parsed = parseDuckDbType(type)
   if (parsed.kind !== 'primitive') return null
-  const label = parsed.label.trim()
-  const withModifiers = /^(?:DECIMAL|NUMERIC)\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$/i.exec(label)
-  if (withModifiers !== null) {
-    const precision = Number(withModifiers[1])
-    const scale = Number(withModifiers[2])
-    if (Number.isFinite(precision) && Number.isFinite(scale)) return { precision, scale }
-    return null
-  }
-  if (/^(?:DECIMAL|NUMERIC)$/i.test(label)) return DEFAULT_DECIMAL
-  if (/^HUGEINT$/i.test(label)) return HUGEINT_DECIMAL
-  return null
+  return decimalSpecForLabel(parsed.label)
 }
 
 /**
@@ -105,7 +114,7 @@ export function formatUnscaledDecimal(unscaled: bigint, scale: number): string {
  */
 export function decimalSpecForParsedType(type: DuckDbType | null): DecimalSpec | null {
   if (type === null || type.kind !== 'primitive') return null
-  return decimalSpecForType(type.label)
+  return decimalSpecForLabel(type.label)
 }
 
 /**

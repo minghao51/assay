@@ -334,8 +334,30 @@ class TypeParser {
 /**
  * Parse a DuckDB DESCRIBE type string into a tree. Total: unknown or
  * malformed input degrades to `{ kind: 'unknown', raw }` — never throws.
+ *
+ * q-1: results are memoized by the raw type string. DuckDB type strings come
+ * from the schema (a bounded per-column vocabulary), but the parser is called
+ * on the hot render path — per cell per render via editor-kind, decimal, and
+ * nested-preview paths. The cache turns that O(cells × renders) work into
+ * O(distinct type strings). Returned trees are readonly and must never be
+ * mutated by callers; sharing one reference is therefore safe.
  */
+const PARSE_CACHE_LIMIT = 1024
+const parseCache = new Map<string, DuckDbType>()
+
 export function parseDuckDbType(raw: string): DuckDbType {
+  const cached = parseCache.get(raw)
+  if (cached !== undefined) return cached
+  const parsed = parseDuckDbTypeUncached(raw)
+  if (parseCache.size >= PARSE_CACHE_LIMIT) {
+    const oldest = parseCache.keys().next().value
+    if (oldest !== undefined) parseCache.delete(oldest)
+  }
+  parseCache.set(raw, parsed)
+  return parsed
+}
+
+function parseDuckDbTypeUncached(raw: string): DuckDbType {
   try {
     const trimmed = raw.trim()
     if (trimmed === '') return { kind: 'unknown', raw }

@@ -19,29 +19,34 @@
  * binary check missed it and the nested preview summarized it as
  * `<16 bytes>`. See `decimal.ts`.
  */
-import { formatDecimalValue } from './decimal'
+import { formatDecimalForParsedType } from './decimal'
 import { formatNestedPreview } from './nested-preview'
 import { parseDuckDbType } from '../schema/parseType'
+import type { DuckDbType } from '../schema/parseType'
 
 /**
  * Format one cell value for display. `type` is the column's DuckDB type
  * string (from the effective schema), optional so existing callers that only
  * have a value keep working; when present it enables decimal decoding —
- * top-level via `formatDecimalValue`, and nested struct/list decimal leaves
- * via the parsed type tree passed to the nested preview (m4-5).
+ * top-level and nested struct/list decimal leaves via the parsed type tree
+ * passed to the nested preview (m4-5).
+ *
+ * q-1: callers that already hold the column's parsed type tree (the grid
+ * precomputes one per column) may pass it as `parsedType`, which skips the
+ * per-cell `parseDuckDbType` on the decimal and object paths. When omitted,
+ * `type` is parsed as before.
  */
-export function formatCell(value: unknown, type?: string): string {
+export function formatCell(value: unknown, type?: string, parsedType?: DuckDbType | null): string {
   if (value === null || value === undefined) return ''
-  if (type !== undefined) {
-    const decimal = formatDecimalValue(value, type)
+  const parsed = parsedType ?? (type === undefined ? null : parseDuckDbType(type))
+  if (parsed !== null) {
+    const decimal = formatDecimalForParsedType(value, parsed)
     if (decimal !== null) return decimal
   }
   if (value instanceof Date) return value.toISOString()
   if (value instanceof Uint8Array) return `<${String(value.length)} bytes>`
   if (typeof value === 'object') {
-    return formatNestedPreview(value, {
-      columnType: type === undefined ? null : parseDuckDbType(type),
-    })
+    return formatNestedPreview(value, { columnType: parsed })
   }
   return String(value)
 }
