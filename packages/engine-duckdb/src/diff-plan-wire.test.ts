@@ -184,6 +184,54 @@ describe('assertRowDiffPlanBinding (m6-2 belt 1)', () => {
     ).toThrow()
   })
 
+  // ---- q-12 / AR-E7: the reserved-column check is identifier-aware --------
+
+  it('rejects a reserved column spoofed only by a string literal (q-12 gate, not mid-op)', () => {
+    const plan = compiledPlan()
+    // Gut the genuine `"assay_side"` output alias and offer the name only
+    // inside a string literal. The old raw `.includes('"assay_side"')`
+    // check saw the literal text and passed the plan, deferring the
+    // missing-column failure to a mid-op DuckDB shape error. Identifier-
+    // aware detection ignores literal interiors, so the gate rejects it now.
+    const spoofed = plan.addedSql
+      .split(`'B' AS "assay_side"`)
+      .join(`'B' AS "not_the_side"`)
+      .replace('SELECT', `SELECT 'x ''"assay_side"'' y' AS "noise",`)
+    expect(spoofed.includes('"assay_side"')).toBe(true)
+    expect(() => assertRowDiffPlanBinding({ ...plan, addedSql: spoofed }, REGISTERED)).toThrow(
+      /added query is missing its reserved result columns/,
+    )
+  })
+
+  it('accepts a genuine output identifier alongside a literal that quotes it (no false reject)', () => {
+    const plan = compiledPlan()
+    // The genuine `'B' AS "assay_side"` alias is still present; an extra
+    // string literal that quotes the name must not change the verdict. A
+    // raw `.includes` check also accepts here — this pins that tightening
+    // the check does not start false-rejecting legitimate compiler output.
+    const withLiteral = plan.addedSql.replace('SELECT', `SELECT 'x ''"assay_side"'' y' AS "noise",`)
+    expect(() =>
+      assertRowDiffPlanBinding({ ...plan, addedSql: withLiteral }, REGISTERED),
+    ).not.toThrow()
+  })
+
+  it('rejects a reserved name used only below the top-level projection (q-12 identifier position)', () => {
+    const plan = compiledPlan()
+    // A genuine `"assay_side"` identifier, but in a filter below the
+    // top-level FROM — not a projected output column. It would satisfy a
+    // naive identifier-presence check and a raw `.includes` check while
+    // leaving the reader without its column (mid-op failure). The gate's
+    // projection-position awareness rejects it here.
+    const hidden = plan.addedSql
+      .split(`'B' AS "assay_side"`)
+      .join(`'B' AS "not_the_side"`)
+      .replace('LIMIT', `WHERE "assay_side" IS NULL\nLIMIT`)
+    expect(hidden.includes('"assay_side"')).toBe(true)
+    expect(() => assertRowDiffPlanBinding({ ...plan, addedSql: hidden }, REGISTERED)).toThrow(
+      /added query is missing its reserved result columns/,
+    )
+  })
+
   // ---- AR-E2: the gate is identifier-aware --------------------------------
 
   it('accepts a compiler plan whose alias text contains UNION ALL (AR-E2)', () => {

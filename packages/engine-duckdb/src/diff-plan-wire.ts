@@ -61,13 +61,18 @@
  * The reserved-namespace spot checks pin the result columns the readers
  * expect (`assay_side` / `assay_row_ordinal` / `assay_changed` /
  * `assay_count` / `assay_aspect`) so a compiler-shape SQL whose SELECT list
- * was gutted fails the gate instead of producing a shape error mid-op.
+ * was gutted fails the gate instead of producing a shape error mid-op. The
+ * check is IDENTIFIER-AWARE (q-12 / AR-E7): a required name counts only when
+ * it is projected as a genuine quoted identifier — a string literal that
+ * merely quotes the name (the spoof probe) cannot satisfy it, and a name
+ * that occurs only below the top-level projection (a filter, a subquery
+ * body) is not an output column.
  *
  * Error messages name the failure class only — never plan content, relation
  * names, key names, or dataset contents (ADR 0025).
  */
 import { isSingleSelectStatement, scanPlanSql } from './validate-plan-wire.js'
-import type { PlanSqlScanOk } from './validate-plan-wire.js'
+import type { PlanSqlIdentifier, PlanSqlScanOk } from './validate-plan-wire.js'
 
 /** Discriminator carried by every v1 plan (mirror of the m6-1 constant). */
 const PLAN_KIND = 'assay-row-diff-plan'
@@ -269,6 +274,48 @@ function countCompilerFromOccurrences(
   return count
 }
 
+/**
+ * The identifier tokens that sit in the TOP-LEVEL SELECT projection of a
+ * query — the region between the leading `SELECT` and the first `FROM` at
+ * parenthesis depth zero. The input is the {@link scanPlanSql} result
+ * (position-preserving; literal AND quoted-identifier interiors blanked), so
+ * a `FROM` token inside either can never be mistaken for the clause
+ * boundary. This is the output-column position the readers bind from, so a
+ * name that appears only inside a string literal (the AR-E7 spoof) or only
+ * below the top-level FROM (a filter, a subquery body) is not an output
+ * column and cannot satisfy the reserved-column gate.
+ */
+function projectionIdentifiers(scan: PlanSqlScanOk): readonly PlanSqlIdentifier[] {
+  const { code, identifiers } = scan
+  const select = /^\s*select\b/i.exec(code)
+  if (select === null) return []
+  const start = select.index + select[0].length
+  let depth = 0
+  let from = -1
+  for (let index = start; index < code.length; index += 1) {
+    const character = code[index]
+    if (character === '(') {
+      depth += 1
+    } else if (character === ')') {
+      depth -= 1
+    } else if (
+      depth === 0 &&
+      (character === 'F' || character === 'f') &&
+      /^from\b/i.test(code.slice(index, index + 4))
+    ) {
+      from = index
+      break
+    }
+  }
+  if (from < 0) return []
+  return identifiers.filter((identifier) => identifier.start >= start && identifier.end <= from)
+}
+
+/** True when the scanned query projects `name` as a genuine output identifier. */
+function projectsIdentifier(scan: PlanSqlScanOk, name: string): boolean {
+  return projectionIdentifiers(scan).some((identifier) => identifier.value === name)
+}
+
 /** Split the compiler's totals query into its three `UNION ALL` arms. */
 function splitTotalsArms(original: string, code: string): PlanSqlScanOk[] | null {
   // The compiler emits exactly `\nUNION ALL\n` between arms. The split runs
@@ -319,23 +366,23 @@ export function assertRowDiffPlanBinding(
   const aspectQueries: readonly {
     readonly label: string
     readonly sql: string
-    /** Reserved result columns the reader of this aspect requires. */
+    /** Reserved result columns the reader of this aspect requires (bare names). */
     readonly requiredColumns: readonly string[]
   }[] = [
     {
       label: 'added',
       sql: plan.addedSql,
-      requiredColumns: ['"assay_side"', '"assay_row_ordinal"', '"assay_count"'],
+      requiredColumns: ['assay_side', 'assay_row_ordinal', 'assay_count'],
     },
     {
       label: 'removed',
       sql: plan.removedSql,
-      requiredColumns: ['"assay_side"', '"assay_row_ordinal"', '"assay_count"'],
+      requiredColumns: ['assay_side', 'assay_row_ordinal', 'assay_count'],
     },
     {
       label: 'changed',
       sql: plan.changedSql,
-      requiredColumns: ['"assay_side"', '"assay_row_ordinal"', '"assay_changed"', '"assay_count"'],
+      requiredColumns: ['assay_side', 'assay_row_ordinal', 'assay_changed', 'assay_count'],
     },
   ]
   for (const aspect of aspectQueries) {
@@ -360,15 +407,17 @@ export function assertRowDiffPlanBinding(
         `row-diff ${aspect.label} query does not bind side B in the compiler's FROM shape`,
       )
     }
-  }
-  // Reserved-namespace spot checks: the readers require these result columns
-  // in EVERY aspect, and `changed` additionally requires its changed-column
-  // list. The check is symmetric across the three aspect SQLs so a gutted
-  // `removed`/`changed` query fails THIS gate instead of surfacing a shape
-  // error mid-op (m6-2 review round 1).
-  for (const aspect of aspectQueries) {
+    // Reserved-namespace spot checks: the readers require these result
+    // columns in EVERY aspect, and `changed` additionally requires its
+    // changed-column list. Identifier-aware (q-12 / AR-E7): the name must be
+    // projected as a genuine quoted identifier — a string literal that
+    // quotes it cannot spoof the check, and a name used only below the
+    // top-level projection is not an output column. The check is symmetric
+    // across the three aspect SQLs so a gutted `removed`/`changed` query
+    // fails THIS gate instead of surfacing a shape error mid-op (m6-2
+    // review round 1).
     for (const column of aspect.requiredColumns) {
-      if (!aspect.sql.includes(column)) {
+      if (!projectsIdentifier(scanned, column)) {
         throw new Error(`row-diff ${aspect.label} query is missing its reserved result columns`)
       }
     }
