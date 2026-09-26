@@ -12,6 +12,14 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Docs — post-MVP PT-0 (2026-09-24)
+
+- README front door completed (pt0-3): explicit not-on-npm install truth (npm org claim M1
+  pending) and a from-source CLI invocation section (`pnpm build` → `node --import tsx
+dist/index.js` in `apps/cli`). Every command the README documents was execution-verified fresh
+  by two independent sessions (web dev server, full gates, e2e, fixture regeneration, CLI
+  `--help`/`profile`).
+
 ### Docs — documentation audit + remediation (doc queue dr-0…dr-4, 2026-09-23)
 
 - Six-lane documentation audit (~55k words, every claim verified against tree/git/CI); remediation
