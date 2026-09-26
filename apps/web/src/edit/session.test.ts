@@ -163,14 +163,21 @@ describe('engineRejectionMessage — readable, text-only engine summary', () => 
   it('q-8: renders the engine value-free materialization class, never a value fragment', () => {
     // The worker maps every overlay-materialization DuckDB error to this
     // class before posting (`OVERLAY_MATERIALIZATION_FAILURE` in
-    // engine-executor), so the edit session renders the class and never
-    // forwards arbitrary engine text (ADR 0025).
-    const message = engineRejectionMessage(new Error('the edited view could not be materialized'))
+    // engine-executor). A real DuckDB message still reflects the composed SQL
+    // on the lines below its summary, so `engineRejectionMessage` must keep
+    // only the summary and drop the value/SQL fragment tail (ADR 0025).
+    const message = engineRejectionMessage(
+      new Error(
+        'the edited view could not be materialized\n' +
+          "LINE 1: SELECT CAST('not-a-date''; DROP TABLE x --' AS DATE)",
+      ),
+    )
     expect(message).toBe(
       'The engine rejected this edit: the edited view could not be materialized. ' +
         'The previous view is unchanged.',
     )
     expect(message).not.toContain("'; DROP TABLE x --")
+    expect(message).not.toContain('SELECT')
   })
 })
 

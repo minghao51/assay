@@ -173,12 +173,15 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await openCustomersFixture(page)
 
   // Double-click the DATE column (signup_date, column 3). The client cannot
-  // know `not-a-date` is invalid (temporal values defer to the engine), so the
-  // engine's own message must surface and the commit must be recoverable.
+  // know the draft is invalid (temporal values defer to the engine), so the
+  // engine's own rejection must surface readably and the commit must be
+  // recoverable. The probe is a quote-laden, SQL-shaped value — the plain text
+  // field accepts it, and it is the most dangerous thing the alert could echo.
+  const hostileDraft = "not-a-date'; DROP TABLE x --"
   await openEditor(page, 0, 3)
   const editor = page.getByTestId('grid-editor-input')
   await expect(editor).toHaveValue('2025-01-04')
-  await editor.fill('not-a-date')
+  await editor.fill(hostileDraft)
   await editor.press('Enter')
 
   // Readable, value-free alert. The mvp bundle masks the underlying cast
@@ -191,6 +194,8 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await expect(alert).toContainText('rejected')
   await expect(alert).toContainText('the edited view could not be materialized')
   await expect(alert).not.toContainText('_setThrew')
+  await expect(alert).not.toContainText('not-a-date')
+  await expect(alert).not.toContainText("'; DROP TABLE x --")
 
   // Recoverable: the previous effective view is restored — every row ready,
   // nothing left perpetually loading, and the edit is not in the history.

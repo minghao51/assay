@@ -472,8 +472,12 @@ describe('value-free edit rejection (q-8)', () => {
     // The engine maps its raw DuckDB error to the value-free class before
     // posting (engine-executor); the component test stands in for that
     // protocol reply. The failure is one-shot, so the rollback refresh
-    // succeeds and the previous view is restored.
-    h.overlayFailureOnce = 'the edited view could not be materialized'
+    // succeeds and the previous view is restored. The reply's summary line is
+    // the class, but the reflected SQL tail below it carries the typed value
+    // — `errorSummary` keeps only the first line, so the tail must not leak.
+    h.overlayFailureOnce =
+      'the edited view could not be materialized\n' +
+      "LINE 1: SELECT CAST('not-a-date''; DROP TABLE x --' AS DATE)"
     await act(async () => {
       fireEvent.click(panel.getByRole('button', { name: 'Rename column country' }))
     })
@@ -488,7 +492,8 @@ describe('value-free edit rejection (q-8)', () => {
       'The engine rejected this edit: the edited view could not be materialized. ' +
         'The previous view is unchanged.',
     )
-    // Class-only: no dataset value, SQL, or identifier fragment leaks.
+    // Class-only: the reply carried a value/SQL fragment on its second line,
+    // yet the rendered alert holds only the class.
     expect(alert.textContent).not.toContain("'; DROP TABLE x --")
     expect(alert.textContent).not.toContain('SELECT')
 
