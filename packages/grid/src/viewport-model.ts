@@ -572,8 +572,8 @@ export class GridViewportModel {
           `provider returned ${String(page.rowKeys.length)} row keys for a ${String(spanRows)}-row span`,
         )
       }
-      for (let index = 0; index < page.rows.length; index++) {
-        this.cache.set(start + index, page.rows[index])
+      for (const [index, row] of page.rows.entries()) {
+        this.cache.set(start + index, row)
         const key = page.rowKeys?.[index]
         // Keep the identity map aligned with the cache: a page without the
         // key channel leaves the row without an identity (the host's edit

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+/* eslint-disable no-console -- targeted allowlist: this boundary is the app's final diagnostic sink; its fallback UI stays value-free (ADR 0025). */
 
 import { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'

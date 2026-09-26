@@ -135,7 +135,7 @@ export function undo(history: TransformationHistory): CursorStep {
   if (history.cursor === 0) return { history, entry: null }
   return {
     history: { ...history, cursor: history.cursor - 1 },
-    entry: history.entries[history.cursor - 1],
+    entry: history.entries[history.cursor - 1] ?? null,
   }
 }
 
@@ -144,7 +144,7 @@ export function redo(history: TransformationHistory): CursorStep {
   if (history.cursor >= history.entries.length) return { history, entry: null }
   return {
     history: { ...history, cursor: history.cursor + 1 },
-    entry: history.entries[history.cursor],
+    entry: history.entries[history.cursor] ?? null,
   }
 }
 
