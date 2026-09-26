@@ -2,9 +2,8 @@
 
 > **PICKUP MAP — authored 2026-09-26** after closing the **PT-0 launch-readiness queue**
 > (pt0-0…pt0-4 all ✅: pt0-3 `77a89d8`, changeset-tooling fix `c0d1600`, pt0-4 `ffa844b`+`e137d41`,
-> integration + paperwork `8c07d45`/`e02b4ff`). Baseline `main` = `e02b4ff`: six gates green locally
-> AND **remote CI green (run `36212977450`)** — typecheck 18, vitest 1772, build 9, e2e
-> **136 + 1 skip** (`DUCKDB=/tmp/duckdb`), fixture regen clean, ADRs 42 (35 accepted / 7 proposed),
+> integration + paperwork `8c07d45`/`e02b4ff`; **2026-09-26 session: Dependabot triage complete, q-1/q-9/q-10 landed, publish cut dry-run validated**). Baseline `main` = `9469426` (+ the session paperwork on top): six gates green locally, remote CI green
+> (2026-09-26 runs) — typecheck 18, vitest **1822**, build 9, e2e **136 + 1 skip** (`DUCKDB=/tmp/duckdb`), fixture regen clean, ADRs 42 (35 accepted / 7 proposed),
 > `pnpm changeset status` green (78 pending changesets; tooling validated 2026-09-24, see the
 > changesets row below). Roster + dispatch runbook: [operating-model §7.6](operating-model.md).
 >
@@ -16,35 +15,38 @@
 
 ## 1. Recommended pickup order (next session)
 
-1. **Dependabot triage** (agent-doable, ~half a day): merge the routine groups (#2 actions,
-   #7 npm minor-patch), then a verification pass per major (#4 vite 8, #5 typescript 6,
-   #6 @types/node 26) — full gates + e2e on each PR branch; expect small code fixes under
-   ts 6 / vite 8. PR merges are GitHub actions on `minghao51/assay` — run the passes, merge
-   with maintainer visibility. Candidate rider: ar-6 n1 (root typecheck coverage for
-   `playwright.config.ts`) touches the same CI surface.
-2. **PT-Q lanes** (agent-doable, self-serve): q-1 first (**re-check its row against ar-2's
-   `DataGrid.tsx`/`App.tsx` changes** — the row predates them), then any order; q-10…q-13 are the
-   parked audit findings (engine + vitest advisories). q-3 now also carries pt0-4's report-only
-   a11y residue, and its done-when can lean on the pt0-4 axe scans.
+1. ~~**Dependabot triage**~~ **✅ DONE 2026-09-26**: #2 (actions) and #7 (npm minor-patch) merged on green
+   branch CI; #6 (@types/node 26) and #4 (vite 8) merged after full local gate+e2e verification passes;
+   #5 (typescript 6) needed one code fix — `packages/engine` tsconfig `types: ["node"]` (TS 6 dropped
+   ambient @types inclusion; the type-only-import alternative was proven non-viable via TS2591) —
+   worker `d133a8b`, reviewer-approved ×2. All five PRs merged; zero open.
+2. **PT-Q lanes** (agent-doable, self-serve): ~~q-1~~ ✅ `8ce6d21` — ~~q-10~~ ✅ `61336e9` —
+   ~~q-9~~ ✅ `9469426` (orchestrator-owned config lane). **Next:** q-11/q-12 (wire-gate hardening,
+   small) or q-4 (CLI UX pack); q-2/q-5/q-6/q-7 are the bigger lanes. q-1 re-check found the row
+   substance intact (only ar-2-adjacent line shapes moved); q-10's line cites were stale (pre-ar-1),
+   substance intact. Carry-overs from landed lanes live in the product/04 rows (2 on q-1, 1 on q-10).
 3. **Maintainer rulings** (minutes each, unblock the most — humans only): **C-pt0-1**
    telemetry-design approval → **D12** first post-MVP engineering track (PT-V vs PT-P) →
    **D13** `DataEngine`/scaffold fate.
-4. **Publish-readiness day** (rides manual **M1**): ar-5 publish-day carry-overs +
-   `pnpm version-packages` (78 pending changesets ride it).
+4. **Publish-readiness day** (rides manual **M1**): ar-5 publish-day carry-overs + `pnpm version-packages`.
+   **Dry-run validated 2026-09-26:** `pnpm changeset version` in a throwaway worktree consumed all
+   pending changesets cleanly (valid semver everywhere, well-formed CHANGELOGs, `workspace:*` ranges
+   untouched, `.changeset/` left clean); nothing published, worktree discarded. The cut is mechanical
+   once M1 lands.
 
 ## 2. Open threads (authoritative pointers)
 
-| Thread                            | Authoritative home                                                                                                                            | Next concrete step                                                                                                                                                                                                   | Blocked on                              |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Dependabot PRs #2, #4, #5, #6, #7 | GitHub (repo `minghao51/assay`) — #3 closed/superseded by #7                                                                                  | merge routine groups (#2, #7); verification passes for the three majors (#4, #5, #6) — full gates + e2e on the PR branch, small code fixes expected under ts 6 / vite 8                                              | nothing (merges are maintainer-visible) |
-| PT-Q q-1…q-13                     | [product/04 §7](../../product/04-post-mvp-track.md) (self-serve pickup protocol there)                                                        | q-1 after the post-ar-2 re-check; q-2…q-13 any order; q-3's axe-scan residue note added 2026-09-24                                                                                                                   | nothing                                 |
-| Telemetry design approval         | [product/04 §4 item 1](../../product/04-post-mvp-track.md) + [`engineering/06-telemetry-design.md`](../../engineering/06-telemetry-design.md) | maintainer approves → implementation task becomes queueable (pre-G0; no code exists until then); **OQ9** (ADR for the typed-schema privacy mechanism) is the one flagged durable candidate (next free ADR: 0043)     | **C-pt0-1** (maintainer)                |
-| D12 / D13 engineering-track calls | [roadmap §7](../../product/03-execution-roadmap.md) (decision backlog) / [arch-01 §7](../../architecture/01-architecture.md)                  | maintainer call; PT-V vs PT-P sequencing and the `DataEngine`/scaffold fate — never re-decided by agents                                                                                                             | maintainer                              |
-| ar-5 publish-day carry-overs      | [archived AR queue](archive/20260922-ar-queue.md) row ar-5                                                                                    | phantom `@duckdb/node-api` optional-peer story (ADR 0042 addendum checklist); CLI standalone-on-npm behind M1 registry versions; harness subpath leg; friendlier pack error; profile src-level determinism pin       | manual **M1** (npm org)                 |
-| Unreleased changesets             | `.changeset/` (78 pending: full MVP/AR-era set + dr-4 six)                                                                                    | `pnpm version-packages` at the first release cut — tooling validated 2026-09-24 (`privatePackages.version` in config, `c0d1600`; was failing invalid-tree before)                                                    | manual **M1**                           |
-| ar-4 / ar-6 / ar-2 carry-overs    | [archived AR queue](archive/20260922-ar-queue.md) rows ar-4 / ar-6 / ar-2                                                                     | ar-6 n1: root typecheck task covering `playwright.config.ts` (small, worth a task — natural rider on Dependabot CI touches); ar-6 n2/n3 + ar-4 w1/w2/s3/s4 opportunistic; ar-2 B-side per-open engine release → PT-H | opportunistic / PT-H                    |
-| dr-2 reviewer suggestions         | [archived doc queue](archive/20260923-doc-queue.md) row dr-2                                                                                  | arch-02 §2 could also cite ADR 0035; product/04 §4 hyperlink the §5 pointer; docs/README principle sentence stays full (honest minimum — noted, likely wontfix)                                                      | opportunistic (fold into any doc touch) |
-| Demo dataset (O5)                 | [manual-actions.md](../manual-actions.md) row O5                                                                                              | approach decided (hybrid); curation not started — needs the maintainer's source pick, then an agent-doable curation task can be queued                                                                               | maintainer source pick                  |
+| Thread                            | Authoritative home                                                                                                           | Next concrete step                                                                                                                                                                                                   | Blocked on                              |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| ~~Dependabot PRs~~                | ✅ **CLOSED 2026-09-24/26** — all five merged (#2, #7 routine; #6, #4 verified; #5 + one tsconfig fix, reviewer-approved)    | none — re-opened by future dependabot rounds land the same way                                                                                                                                                       | —                                       |
+| Dependabot PRs #2, #4, #5, #6, #7 | GitHub (repo `minghao51/assay`) — #3 closed/superseded by #7                                                                 | merge routine groups (#2, #7); verification passes for the three majors (#4, #5, #6) — full gates + e2e on the PR branch, small code fixes expected under ts 6 / vite 8                                              | nothing (merges are maintainer-visible) |
+| PT-Q q-2–q-8, q-11–q-13           | [product/04 §7](../../product/04-post-mvp-track.md) (self-serve pickup protocol there)                                       | q-1 ✅, q-9 ✅, q-10 ✅ (2026-09-26, rows carry done-notes + carry-overs); next: q-11/q-12 wire-gate hardening or q-4 CLI UX                                                                                         | nothing                                 |     | Telemetry design approval | [product/04 §4 item 1](../../product/04-post-mvp-track.md) + [`engineering/06-telemetry-design.md`](../../engineering/06-telemetry-design.md) | maintainer approves → implementation task becomes queueable (pre-G0; no code exists until then); **OQ9** (ADR for the typed-schema privacy mechanism) is the one flagged durable candidate (next free ADR: 0043) | **C-pt0-1** (maintainer) |
+| D12 / D13 engineering-track calls | [roadmap §7](../../product/03-execution-roadmap.md) (decision backlog) / [arch-01 §7](../../architecture/01-architecture.md) | maintainer call; PT-V vs PT-P sequencing and the `DataEngine`/scaffold fate — never re-decided by agents                                                                                                             | maintainer                              |
+| ar-5 publish-day carry-overs      | [archived AR queue](archive/20260922-ar-queue.md) row ar-5                                                                   | phantom `@duckdb/node-api` optional-peer story (ADR 0042 addendum checklist); CLI standalone-on-npm behind M1 registry versions; harness subpath leg; friendlier pack error; profile src-level determinism pin       | manual **M1** (npm org)                 |
+| Unreleased changesets             | `.changeset/` (80 pending: full MVP/AR-era set + dr-4 six + q-1 + q-9)                                                       | `pnpm version-packages` at the first release cut — tooling validated 2026-09-24 (`privatePackages.version` in config, `c0d1600`; was failing invalid-tree before)                                                    | manual **M1**                           |
+| ar-4 / ar-6 / ar-2 carry-overs    | [archived AR queue](archive/20260922-ar-queue.md) rows ar-4 / ar-6 / ar-2                                                    | ar-6 n1: root typecheck task covering `playwright.config.ts` (small, worth a task — natural rider on Dependabot CI touches); ar-6 n2/n3 + ar-4 w1/w2/s3/s4 opportunistic; ar-2 B-side per-open engine release → PT-H | opportunistic / PT-H                    |
+| dr-2 reviewer suggestions         | [archived doc queue](archive/20260923-doc-queue.md) row dr-2                                                                 | arch-02 §2 could also cite ADR 0035; product/04 §4 hyperlink the §5 pointer; docs/README principle sentence stays full (honest minimum — noted, likely wontfix)                                                      | opportunistic (fold into any doc touch) |
+| Demo dataset (O5)                 | [manual-actions.md](../manual-actions.md) row O5                                                                             | approach decided (hybrid); curation not started — needs the maintainer's source pick, then an agent-doable curation task can be queued                                                                               | maintainer source pick                  |
 
 ## 3. Maintainer checkpoints & manual actions (humans only)
 
@@ -72,6 +74,8 @@
   a source-only mutation false-passes (recorded in operating-model §7.6 after the pt0-4 review).
 - Changeset tooling validated (`privatePackages.version`): contributors' `pnpm changeset` works;
   `pnpm version-packages` stays reserved for the first release cut (M1).
+- Reviewer reports MUST end with the literal verdict line; a missing line = no verdict —
+  re-dispatch a focused confirmation rather than inferring (exercised on the TS-6 lane, 2026-09-26).
 - Worker/reviewer loop: briefs to `/tmp` per §7.6; workers on shifted ports; reviewers
   verify-only and fresh per dispatch; approve-with-carry-overs is the norm; round-2 briefs may
   expand a worker's boundary when the root cause is out of round-1 scope (exercised in pt0-4).
