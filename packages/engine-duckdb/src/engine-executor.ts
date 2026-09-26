@@ -599,11 +599,12 @@ export class EngineOpExecutor {
     const entry = this.requireTable(tableId)
     const conn = lane.connection(await this.deps.ensureSession())
     const { base, state } = this.compositionOf(overlay)
+    // Compose OUTSIDE the value-free wrap (like schema/window/export): a
+    // crossed live-insert cap is the composer's typed, value-free remedy and
+    // must reach the wire unchanged, not collapse into the generic class.
+    const sql = composeOverlayCountSql({ base, state, viewName: entry.viewName }, filters)
     const { batchIpc } = await this.validationStep(OVERLAY_MATERIALIZATION_FAILURE, () =>
-      this.streamFirstBatch(
-        conn,
-        composeOverlayCountSql({ base, state, viewName: entry.viewName }, filters),
-      ),
+      this.streamFirstBatch(conn, sql),
     )
     const value = tableFromIPC(batchIpc).getChildAt(0)?.get(0)
     const rowCount = typeof value === 'bigint' ? Number(value) : value

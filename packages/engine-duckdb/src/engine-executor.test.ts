@@ -23,6 +23,7 @@ import type {
 import type { EngineRequest, EngineResponse } from './protocol'
 import { compileRowDiffPlan } from '@assay/diff'
 import type { EngineRowDiffPlan } from './diff-plan-wire'
+import { MAX_OVERLAY_LIVE_INSERT_BRANCHES, OverlayLiveInsertLimitError } from './overlay-query'
 
 /**
  * T2 worker-side concurrency tests, two lanes since m2-7: interleaved
@@ -1505,6 +1506,50 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
       type: 'engine/overlay-row-count-result',
       rowCount: 2,
     })
+    expectNoCollisions(deps)
+  })
+
+  it('delivers the typed live-insert cap remedy on the row-count lane (PT-Q q-6)', async () => {
+    // The registry lane hits `overlay-row-count` first after a crossed cap
+    // (refresh → rowCount). The composer's typed, value-free error must cross
+    // the wire intact here just as it does for schema/window/export — NOT the
+    // generic materialization class the value-free wrap would substitute.
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    const overCapOps: EditOp[] = Array.from(
+      { length: MAX_OVERLAY_LIVE_INSERT_BRANCHES + 1 },
+      (_, index) => ({
+        kind: 'row-insert' as const,
+        rowId: insertRowId('o1', index),
+        position: { kind: 'start' as const },
+        values: new Map([['id', { kind: 'number' as const, value: index }]]),
+      }),
+    )
+    executor.accept({
+      type: 'engine/overlay-row-count',
+      requestId: 2,
+      tableId: 't1',
+      overlay: { ...overlayPayload(), ops: overCapOps },
+    })
+
+    // The cap is hit at compose time — before any SQL reaches the connection.
+    const posted = await awaitPosted(deps, 2)
+    expect(posted.type).toBe('engine/error')
+    if (posted.type !== 'engine/error') throw new Error(`expected engine/error, got ${posted.type}`)
+    expect(posted).toEqual({
+      type: 'engine/error',
+      requestId: 2,
+      message: new OverlayLiveInsertLimitError().message,
+    })
+    // The exact typed cap text (with remedy), never the generic class.
+    expect(posted.message).toBe(
+      'the edited view has more live inserts than the engine composes in one window ' +
+        `(limit ${MAX_OVERLAY_LIVE_INSERT_BRANCHES} live-insert branches); ` +
+        'export the edits to a new file and re-open it to continue',
+    )
+    // The cap is hit at compose time — the only SQL is the open's CREATE VIEW.
+    expect(deps.conn.sentSqls).toHaveLength(1)
     expectNoCollisions(deps)
   })
 
