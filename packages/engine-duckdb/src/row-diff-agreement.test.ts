@@ -261,4 +261,54 @@ describe.skipIf(!hasDuckDbCli)('row-diff execution vs DuckDB 1.5.5 (pinned CLI)'
     expect(Number(removed[0]?.['assay_count'])).toBe(5)
     expect(counts(plan)).toEqual({ added: 130, removed: 5, changed: 0 })
   })
+
+  it('refuses a drifted compared column the engine cannot compare (VARCHAR vs INTEGER) before execution', () => {
+    // The C2 case: a shared NON-key column drifts VARCHAR → INTEGER. The
+    // pre-au3-2 compiler emitted `ok:true` for this pair, and DuckDB then
+    // threw a value-bearing conversion error at execution. The compiler now
+    // refuses with a value-free typed error BEFORE any query is composed.
+    exec('CREATE OR REPLACE TABLE ds_a (id BIGINT, val VARCHAR);')
+    exec('CREATE OR REPLACE TABLE ds_b (id BIGINT, val INTEGER);')
+    exec("INSERT INTO ds_a VALUES (1, 'x');")
+    exec('INSERT INTO ds_b VALUES (1, 7);')
+
+    const refused = compileRowDiffPlan(
+      [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'val', type: 'VARCHAR' },
+      ],
+      [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'val', type: 'INTEGER' },
+      ],
+      ['id'],
+      { relationA: 'ds_a', relationB: 'ds_b', sampleLimit: 3 },
+    )
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.errors.map((error) => error.code)).toEqual(['shared-column-type-mismatch'])
+    expect(refused.errors[0]?.column).toBe('val')
+    // value-free: the refusal message never carries the cell text the engine
+    // would have leaked had the plan executed.
+    expect(refused.errors[0]?.message).not.toContain("'x'")
+
+    // Agreement: the exact comparison the refused plan would have run DOES
+    // fail on the pinned engine — so the compile-time refusal is not
+    // over-conservative, it is the value-free projection of a real failure.
+    // (`stdio: 'pipe'` keeps the engine's value-bearing stderr out of the
+    // test log; the assertion is only that the statement throws.)
+    expect(() =>
+      execFileSync(
+        DUCKDB_CLI,
+        [
+          DB_PATH,
+          '-json',
+          '-noheader',
+          '-c',
+          'SELECT 1 FROM ds_a AS a JOIN ds_b AS b ON a.id = b.id WHERE a.val IS DISTINCT FROM b.val;',
+        ],
+        { stdio: 'pipe' },
+      ),
+    ).toThrow()
+  })
 })

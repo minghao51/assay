@@ -33,7 +33,8 @@
  *   plan JSON: no clocks, no randomness, no map-iteration-order leak;
  *   documented orderings everywhere (errors: options → schema A → schema
  *   B → key-set shape → no-shared-columns → per-key existence (A side
- *   before B side, key order) → per-key type compatibility (key order);
+ *   before B side, key order) → per-key type compatibility (key order) →
+ *   per-shared-column type compatibility (schema-A order);
  *   queries: aspect order added → removed → changed; changed-column lists:
  *   shared non-key columns in schema-A order; ON/anti-join conditions: key
  *   order). Golden pins freeze the bytes.
@@ -74,6 +75,21 @@
  * - **different flat families are refused** — no implicit cross-family key
  *   match (`INTEGER` key vs `VARCHAR` key is almost certainly a key
  *   accident; refusing is the visible, actionable outcome).
+ *
+ * ## Compared-column compatibility (au3-2)
+ *
+ * The change-comparable **shared non-key** columns are gated by the SAME
+ * policy function, applied to every column in schema-A order: both sides
+ * are classified and an incompatible pair is refused as
+ * `shared-column-type-mismatch`. A cross-family compared pair
+ * (`VARCHAR` vs `INTEGER`) is the critical case — both sides are probed
+ * with `IS DISTINCT FROM`, and the engine's implicit cast fails at
+ * execution with a value-bearing `Conversion Error`; refusing at compile
+ * time keeps the plan value-free. The policy is {@link keyTypesCompatible}
+ * verbatim (never a second predicate), so same-family numeric widening
+ * (`INTEGER` vs `BIGINT`) still compiles and JSON is refused on either
+ * side. The `shared-column-type-mismatch` message mirrors the key shape:
+ * exact spellings, both families, and the policy reason.
  *
  * Purity: no React, no browser APIs, no engine imports —
  * `@assay/validation` helpers only (lint-enforced).
@@ -671,7 +687,30 @@ export function compileRowDiffPlan(
   // Shared NON-key columns: the change-comparable set, in schema-A order
   // (keys can never differ on a matched pair — they define the match).
   const keySet = new Set(validatedKeySet)
-  const shared = sharedAll.map((column) => column.name).filter((name) => !keySet.has(name))
+  const sharedColumns = sharedAll.filter((column) => !keySet.has(column.name))
+  const shared = sharedColumns.map((column) => column.name)
+
+  // Compared-column type policy (au3-2): every shared non-key column is
+  // probed with IS DISTINCT FROM, so an incompatible pair has no honest
+  // comparison — the SAME `keyTypesCompatible` policy gates it (never a
+  // second predicate). Cross-family (VARCHAR vs INTEGER) and mismatched
+  // 'other' spellings are refused here instead of failing at execution with
+  // a value-bearing conversion error; JSON is refused on either side. Same-
+  // family widening (INTEGER vs BIGINT) stays allowed — no behavior change
+  // for same-family pairs. Errors are attributed by column only (there is
+  // no single offending side).
+  for (const column of sharedColumns) {
+    const inB = validatedB.byName.get(column.name)
+    if (inB !== undefined && !keyTypesCompatible(column.type, inB.type)) {
+      pushError(
+        ctx,
+        'shared-column-type-mismatch',
+        sharedColumnMismatchMessage(column.name, column.type, inB.type),
+        { column: column.name },
+      )
+    }
+  }
+  if (ctx.errors.length > 0) return { ok: false, errors: ctx.errors }
 
   const added = antiJoinSource(ctx, validatedKeySet, 'b')
   const removed = antiJoinSource(ctx, validatedKeySet, 'a')
@@ -709,4 +748,23 @@ function keyMismatchMessage(key: string, typeA: string, typeB: string): string {
     return `${spelled}; nested or unknown type spellings bind as keys only when both sides carry the byte-identical spelling`
   }
   return `${spelled}; the classified families differ and no implicit cross-family key match is performed (a cross-family key is almost certainly a key accident)`
+}
+
+/**
+ * The shared-column-type-mismatch message: the same shape as
+ * {@link keyMismatchMessage} (exact spellings, both families, the policy
+ * reason, value-free) for a **compared** non-key column gated by the
+ * identical {@link keyTypesCompatible} policy.
+ */
+function sharedColumnMismatchMessage(column: string, typeA: string, typeB: string): string {
+  const familyA = classifyColumnType(typeA)
+  const familyB = classifyColumnType(typeB)
+  const spelled = `compared column '${column}' has engine type '${typeA}' on side A (family '${familyA}') and '${typeB}' on side B (family '${familyB}')`
+  if (familyA === 'json' || familyB === 'json') {
+    return `${spelled}; JSON values are refused as compared columns because JSON equality is textual, which would make change detection approximate (the m5-1 unique-rule honesty precedent)`
+  }
+  if (familyA === 'other' || familyB === 'other') {
+    return `${spelled}; nested or unknown type spellings compare only when both sides carry the byte-identical spelling`
+  }
+  return `${spelled}; the classified families differ and no implicit cross-family comparison is performed (cast or compare the column so both sides share a type family)`
 }

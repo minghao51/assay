@@ -686,10 +686,15 @@ describe('row-diff plan — key-type compatibility policy (documented, pinned)',
       { name: 'k', type: 'BIGINT' },
       { name: 'j', type: 'JSON' },
     ]
-    const ok = compileRowDiffPlan(schemaA, schemaB, ['k'], {
-      relationA: 'a',
-      relationB: 'b',
-    })
+    // `k` is the key here: no compared columns, so the same-family numeric
+    // widening is the only decision and it compiles. (The JSON column `j`
+    // would itself be refused if it were compared — see the au3-2 suite.)
+    const ok = compileRowDiffPlan(
+      [{ name: 'k', type: 'INTEGER' }],
+      [{ name: 'k', type: 'BIGINT' }],
+      ['k'],
+      { relationA: 'a', relationB: 'b' },
+    )
     expect(ok.ok).toBe(true)
 
     const json = compileRowDiffPlan(schemaA, schemaB, ['j'], { relationA: 'a', relationB: 'b' })
@@ -711,6 +716,113 @@ describe('row-diff plan — key-type compatibility policy (documented, pinned)',
     expect(cross.errors.map((e) => e.code)).toEqual(['key-type-mismatch'])
     expect(cross.errors[0]?.message).toContain("'INTEGER' on side A (family 'numeric')")
     expect(cross.errors[0]?.message).toContain("'VARCHAR' on side B (family 'textual')")
+  })
+})
+
+describe('row-diff plan — compared-column type policy (au3-2)', () => {
+  // Minimal golden fixture pair: `id` is the key on both sides (BIGINT),
+  // `val` is a shared NON-key compared column whose type drifts across the
+  // pair. A cross-family drift has no honest IS DISTINCT FROM comparison;
+  // the compile must refuse it with a value-free typed error instead of
+  // producing an ok:true plan that DuckDB fails to execute with a
+  // value-bearing 'Conversion Error'.
+  const compare = (typeA: string, typeB: string): ReturnType<typeof compileRowDiffPlan> =>
+    compileRowDiffPlan(
+      [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'val', type: typeA },
+      ],
+      [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'val', type: typeB },
+      ],
+      ['id'],
+      { relationA: 'ds_a', relationB: 'scratch_ds_b' },
+    )
+
+  it('refuses a cross-family compared column (VARCHAR vs INTEGER) byte-exact, attributed by column only', () => {
+    const result = compare('VARCHAR', 'INTEGER')
+    expect(result).toEqual({
+      ok: false,
+      errors: [
+        {
+          code: 'shared-column-type-mismatch',
+          message:
+            "compared column 'val' has engine type 'VARCHAR' on side A (family 'textual') and 'INTEGER' on side B (family 'numeric'); the classified families differ and no implicit cross-family comparison is performed (cast or compare the column so both sides share a type family)",
+          column: 'val',
+        },
+      ],
+    })
+    // attribution: a shared column has no single offending side
+    if (!result.ok) expect(result.errors[0]?.side).toBeUndefined()
+    // value-free: the message names types and policy only, never a cell value
+    if (!result.ok) expect(result.errors[0]?.message).not.toContain('Conversion Error')
+  })
+
+  it("refuses an 'other'-spelling mismatch (foo vs foo[]) because only byte-identical spellings compare", () => {
+    const result = compare('foo', 'foo[]')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.map((error) => error.code)).toEqual(['shared-column-type-mismatch'])
+    expect(result.errors[0]?.column).toBe('val')
+    expect(result.errors[0]?.message).toContain("'foo' on side A (family 'other')")
+    expect(result.errors[0]?.message).toContain("'foo[]' on side B (family 'other')")
+    expect(result.errors[0]?.message).toContain('byte-identical spelling')
+  })
+
+  it('refuses same-spelling JSON on both sides (textual equality would approximate change detection)', () => {
+    const result = compare('JSON', 'JSON')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.map((error) => error.code)).toEqual(['shared-column-type-mismatch'])
+    expect(result.errors[0]?.message).toContain('JSON values are refused as compared columns')
+  })
+
+  it('accepts same-family numeric widening (INTEGER vs BIGINT) — the policy is shared, not a second one', () => {
+    const result = compare('INTEGER', 'BIGINT')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // the widening column is still compared and listed, byte-identically to
+    // the same-spelling case (no policy-shaped SQL change)
+    expect(result.plan.sharedColumns).toEqual(['val'])
+    expect(result.plan.changedSql).toContain(
+      'CASE WHEN "ai"."assay_col_0" IS DISTINCT FROM "bi"."assay_col_0" THEN [\'val\'] ELSE [] END',
+    )
+  })
+
+  it('accepts an unchanged same-spelling compared column (no behavior change outside refusal)', () => {
+    const result = compare('VARCHAR', 'VARCHAR')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.plan.sharedColumns).toEqual(['val'])
+  })
+
+  it('collects the mismatch across multiple compared columns in schema-A order and is deterministic', () => {
+    const schemaA = [
+      { name: 'id', type: 'BIGINT' },
+      { name: 'a', type: 'VARCHAR' },
+      { name: 'b', type: 'DATE' },
+    ]
+    const schemaB = [
+      { name: 'id', type: 'BIGINT' },
+      { name: 'a', type: 'INTEGER' },
+      { name: 'b', type: 'VARCHAR' },
+    ]
+    const first = compileRowDiffPlan(schemaA, schemaB, ['id'], {
+      relationA: 'a',
+      relationB: 'b',
+    })
+    const second = compileRowDiffPlan(schemaA, schemaB, ['id'], {
+      relationA: 'a',
+      relationB: 'b',
+    })
+    expect(first.ok).toBe(false)
+    if (first.ok) return
+    expect(first.errors.map((error) => [error.code, error.column])).toEqual([
+      ['shared-column-type-mismatch', 'a'],
+      ['shared-column-type-mismatch', 'b'],
+    ])
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first))
   })
 })
 

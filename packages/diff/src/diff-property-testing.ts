@@ -650,7 +650,7 @@ export interface RowDiffFeatureCounts {
   hostileNameDraws: number
   /** Draws where side B carries a column side A lacks (unshared extra). */
   unsharedExtraDraws: number
-  /** Draws containing a JSON-typed column on both sides (the refused key family). */
+  /** Draws containing a JSON-typed shared column on both sides (refused as a key OR as a compared column). */
   jsonColumnDraws: number
   /** Draws with an explicit (non-default) sampleLimit. */
   limitedDraws: number

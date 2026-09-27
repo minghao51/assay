@@ -53,6 +53,7 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<RowDiffBindingErrorCode>([
   'no-shared-columns',
   'missing-key-column',
   'key-type-mismatch',
+  'shared-column-type-mismatch',
 ])
 
 /**
@@ -79,8 +80,8 @@ const EXPECTED_FEATURE_TOTALS: Readonly<RowDiffFeatureCounts> & {
   unsharedExtraDraws: 235,
   jsonColumnDraws: 86,
   limitedDraws: 272,
-  accepted: 251,
-  rejected: 149,
+  accepted: 128,
+  rejected: 272,
 }
 
 /**
@@ -305,6 +306,71 @@ describe('property — totality over hostile shapes (compile: schemas × keys ×
     expect(totals.throwingGetters).toBe(EXPECTED_COMPILE_SHAPE_TOTALS.throwingGetters)
     expect(totals.unstringifiable).toBe(EXPECTED_COMPILE_SHAPE_TOTALS.unstringifiable)
     expect(rejectedDraws + acceptedDraws).toBe(TOTALITY_SEEDS.length * TOTALITY_CASES)
+  })
+})
+
+describe('property — compared-column type policy (au3-2): drift never binds', () => {
+  /** Every classifier family plus the unclassifiable 'other' spellings. */
+  const SPELLINGS = [
+    'BIGINT',
+    'INTEGER',
+    'DOUBLE',
+    'DECIMAL(10,2)',
+    'VARCHAR',
+    'VARCHAR(3)',
+    'BOOLEAN',
+    'DATE',
+    'TIMESTAMP',
+    'UUID',
+    'JSON',
+    'BLOB',
+    'INTEGER[]',
+    'STRUCT(a INTEGER)',
+    'WEIRD_TYPE',
+  ]
+
+  it('exhaustive spelling pairs on a shared NON-key column: incompatible pairs are NEVER ok:true', () => {
+    // A compared column drifts across every ordered spelling pair: the
+    // SAME policy that gates keys (`keyTypesCompatible`) decides. Incompatible
+    // pairs (cross-family, mismatched 'other', JSON on either side) must be a
+    // typed refusal — never an ok:true plan whose changed query the engine
+    // cannot execute. Compatible pairs still compile (non-vacuity).
+    let refused = 0
+    let accepted = 0
+    for (const typeA of SPELLINGS) {
+      for (const typeB of SPELLINGS) {
+        const result = compileRowDiffPlan(
+          [
+            { name: 'id', type: 'BIGINT' },
+            { name: 'v', type: typeA },
+          ],
+          [
+            { name: 'id', type: 'BIGINT' },
+            { name: 'v', type: typeB },
+          ],
+          ['id'],
+          { relationA: 'a', relationB: 'b' },
+        )
+        if (keyTypesCompatible(typeA, typeB)) {
+          expect(result.ok, `expected '${typeA}' vs '${typeB}' to compile`).toBe(true)
+          accepted += 1
+        } else {
+          expect(result.ok, `expected '${typeA}' vs '${typeB}' to be refused`).toBe(false)
+          if (!result.ok) {
+            expect(result.errors.map((error) => error.code)).toContain(
+              'shared-column-type-mismatch',
+            )
+            expect(result.errors.some((error) => error.column === 'v')).toBe(true)
+          }
+          refused += 1
+        }
+      }
+    }
+    // exact non-vacuity: both outcomes occur over the 15×15 spelling grid
+    // (numeric 4² + textual 2² + boolean 1 + temporal 2² + uuid 1 + blob 1 =
+    // 27 same-family pairs, plus the 3 byte-identical 'other' diagonals = 30)
+    expect(accepted).toBe(30)
+    expect(refused).toBe(SPELLINGS.length * SPELLINGS.length - 30)
   })
 })
 

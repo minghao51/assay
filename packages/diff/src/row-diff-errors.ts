@@ -49,6 +49,17 @@ export type RowDiffBindingErrorCode =
    * approximate; the m5-1 `unique`-on-JSON honesty precedent).
    */
   | 'key-type-mismatch'
+  /**
+   * A shared **non-key** (change-compared) column exists on both sides but
+   * the type spellings are not compatible under the SAME documented policy
+   * (`keyTypesCompatible`, reused verbatim): a cross-family pair, a differing
+   * `'other'` spelling, or JSON on either side. Both sides are probed with
+   * `IS DISTINCT FROM`, so an incompatible pair has no honest comparison —
+   * the engine would attempt an implicit cast and (for e.g. `VARCHAR` vs
+   * `INTEGER`) fail at execution with a value-bearing conversion error.
+   * Refusing at compile time is the visible, value-free outcome.
+   */
+  | 'shared-column-type-mismatch'
 
 /** One row-diff binding failure. Plain data; never a throw (see module doc). */
 export interface RowDiffBindingError {
