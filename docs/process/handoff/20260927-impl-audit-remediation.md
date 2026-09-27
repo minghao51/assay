@@ -110,7 +110,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
 
 ### P1 — hardening
 
-#### au3-4 — `client.send()` postMessage hardening (S3) · worker+reviewer · 30–45 m + tests
+#### au3-4 — `client.send()` postMessage hardening (S3) · **LANDED 2026-09-27, `60f130d`** (worker → reviewer request-changes → fix round → **approve**). Reviewer taxonomy ruling adopted: all three new throws are `EngineOperationError` (main-thread request defect; wire-parity with the worker-side malformed-envelope path; matches the six sibling pre-send validations) — `EngineProtocolError` stays response-side-only. Pins mutation-proven (try/catch removed → pin fails; guard removed → posted+pending assertions fail)
 
 - **Problem.** `pending.set(requestId, …)` then unguarded `worker.postMessage(request)`
   (`client.ts:918-927`). Drill: `open()` with an uncloneable `file` (fake worker throws from
@@ -122,7 +122,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
   throwing-worker unit test pinning rejection type + `pending.size === 0` after; AR-E3 comment
   updated. Changeset (patch, engine-duckdb).
 
-#### au3-5 — DOM-id injective encoding + unambiguous tree paths (S4) · worker+reviewer · ~2 h
+#### au3-5 — DOM-id injective encoding + unambiguous tree paths (S4) · **LANDED 2026-09-27, `4635f16`** (worker → reviewer request-changes → fix round → **approve**). Shared `lib/dom-id.ts` (AR-W11 hex grammar, FilterBar unified); both grammars reviewer-proven injective. The reviewer's blocker — SchemaPanel expansion keys were still raw concat (`x/y` column vs child `y` of `x` state bleed, drill-proven) — fixed via `encodePath(segments)` mirroring RecordInspector; the new pin was mutation-proven to discriminate (raw keys → pin fails on the exact symptom). E2E grepped clean (no spec depends on the old id/path grammar)
 
 - **Problem.** `pathId` (`SchemaPanel.tsx:364`) and `nodePathId` (`RecordInspector.tsx:92`)
   map through the lossy `[^A-Za-z0-9_-]→-` filter — `f('a.b') === f('a-b')` (verified) →
@@ -224,7 +224,7 @@ object to primitive value`, the exact hazard `compile.ts` documents and guards e
 - **Schema-side QoL (lane 3):** case-variant duplicate column-name guard in
   `diff/input-validation.ts:63-118` (cheap `toLowerCase` uniqueness).
 
-#### au3-13 — lone-surrogate well-formedness guard at the cell-literal boundary · worker+reviewer · ~2–4 h (P1)
+#### au3-13 — lone-surrogate well-formedness guard at the cell-literal boundary · **LANDED 2026-09-27, `64b89cb`** (worker → reviewer **approve** first pass). All four risks honored; scan algorithm survived a 16-case adversarial drill (incl. the high+high trap); DEFECT pins flipped per the file's documented protocol; mutation drill: guard removed → 4 pins fail
 
 - **Problem.** From the au3-1 boundary probe (verified by two independent workers + reviewer): a
   `cell-set` whose value contains an unpaired surrogate (`\uD800`) silently materializes AND
@@ -256,7 +256,7 @@ hand-copied by the oracle.
   f-1 (different files). Everything else interleaves freely.
 - P0 (au3-1…au3-3) is self-serve — no maintainer ruling blocks it. The CSV BOM question
   (au3-12) is the only new mini-ruling; C-pt0-1/D12/D13 remain the standing human queue.
-- Suggested order: ~~au3-1 → au3-2 → au3-3 (+ boundary probe)~~ (landed; probe closed, spawned
-  au3-13) → au3-4/au3-5/au3-13 (small, parallel-safe — au3-4 and au3-13 both touch
-  engine-duckdb but disjoint files: client.ts vs overlay-query.ts) → au3-6/au3-7 → P2 by
-  appetite. Unit baseline after au3-1/2/3 + probe: **1893** (was 1866); e2e 144+1 unchanged.
+- Suggested order: ~~au3-1 → au3-2 → au3-3 (+ boundary probe) → au3-4/au3-5/au3-13~~ (all
+  landed) → **au3-6/au3-7 next** (parallel-safe: CLI smoke vs validation/contracts RE2 — but
+  both may touch the 50-pattern agreement pool; sequence if they collide) → P2 by appetite.
+  Unit baseline after au3-1/2/3/4/5/13 + probe: **1910** (was 1866); e2e 144+1 unchanged.
