@@ -3,7 +3,7 @@
 > **Arc record (2026-09-27).** A four-lane audit (docs / tooling-CI / apps / packages, parallel
 > scouts + orchestrator verification of every critical and gate state) followed by remediation
 > tasks au2-1…au2-4. This file stays as the record + the follow-up backlog; the
-> [open-threads map](20260926-open-threads.md) and [handoff §6](handoff.md) point here.
+> [open-threads map](20260926-open-threads.md) and [handoff §6](../handoff.md) point here.
 > Baseline at arc start: `c924acd`, six gates green (1865 unit / 144+1 e2e). At close: 236+
 > commits, 1866 unit / 144+1 e2e.
 
@@ -37,6 +37,7 @@
 | f-7  | **Vitest `test.projects`**: replace per-file `@vitest-environment happy-dom` docblocks with environment-by-glob projects (kills the "forgot the docblock" failure mode).                                                                                                                                                                                                                                                 | `vitest.config.ts`                                                   |
 | f-8  | **Type-aware linting** (`no-floating-promises` et al.) in the async-heavy engine codebase — needs `parserOptions.project` scoping to stay fast; evaluate cost first.                                                                                                                                                                                                                                                     | `eslint.config.js`                                                   |
 | f-9  | **Row-key display grammar unification**: `displayRowKey`/`exportRowKey` duplicated CLI (`report.ts`) vs web (`diff-model.ts`, `report-model.ts`) — hoist the formatting to `@assay/domain` beside `parseRowId` (~30 ln, one grammar).                                                                                                                                                                                    | `domain` + both apps — worker + reviewer (domain is purity-guarded)  |
+| f-11 | **Doc-link CI rider**: a relative-md-link checker (resolve every relative link in `docs/**` + root md to disk) as a cheap verify-job step or an `adr:index`-style script — would have caught au2-4's four bad links mechanically.                                                                                                                                                                                        | root/scripts                                                         |
 | f-10 | **QoL residue**: turbo `test` task decision (document why the CLI pre-build stays outside the graph, or wire it); `engines >=22` vs `.node-version` 24 alignment; `generate.sh` python3 removal; `data-sources` `build` script rename; Playwright `globalTimeout`; engines/harness note for `engine-duckdb` README (missing); stale `test-results/` local dir cleanup.                                                   | small chores, batchable solo                                         |
 
 ## 3. Standing notes
@@ -46,5 +47,7 @@
   a guard belongs with f-8/f-4 tooling work.
 - Citation-discipline nit (cosmetic, needs a one-word rule decision): handoff §9(cc) cites
   changeset-rider hashes where product/04 §7 cites code commits — prefer code commits.
+- `sideEffects: false` nuance (au2-1 reviewer note): `engine-duckdb/src/validate-query.ts:81` has a load-time `throw` guard — both entry graphs retain the module so the flag is accurate in practice, but if a future entry tree-shakes the module away the guard goes with it; fold into a function or document the exception when touch
+
 - ADR 0043 is **Proposed** — it lands as Accepted only with the maintainer's confirmation
   (naturally alongside the publish-runbook M1 work).
