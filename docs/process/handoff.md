@@ -116,12 +116,16 @@ it whenever a queue opens/closes, and splice its outcome rows here only as one-l
 
 ### Active
 
-**None.** PT-Q closed 2026-09-26 (all 13 lanes reviewer-approved; unit 1772–>**1865**, e2e 136+1–>**144+1**).
-Audit round 2 (AU-2) closed 2026-09-27 (au2-1…au2-4) — follow-ups live in
-[`handoff/20260927-audit-remediation.md`](handoff/20260927-audit-remediation.md).
-Next work per the [open-threads map](handoff/20260926-open-threads.md): maintainer rulings (C-pt0-1/D12/D13, human)
-– publish-readiness day (rides manual M1; the version cut was dry-run-validated 2026-09-26). Residue rows q-14 /
-q-7 slice 2 / q-5b are queued in [product/04 §7](../product/04-post-mvp-track.md).
+**AU-3 — implementation-audit remediation** (opened 2026-09-27): two verified criticals
+(C1 CSV header formula-injection bypass; C2 row-diff compared-column type drift) + should-fixes,
+fully specced pick-up-cold in
+[`handoff/20260927-impl-audit-remediation.md`](handoff/20260927-impl-audit-remediation.md)
+(au3-1…au3-12; start at au3-1). AU-2 closed 2026-09-27 (au2-1…au2-4) — its follow-ups
+(f-1…f-11) live in [`handoff/20260927-audit-remediation.md`](handoff/20260927-audit-remediation.md).
+Standing human queue per the [open-threads map](handoff/20260926-open-threads.md): maintainer
+rulings (C-pt0-1/D12/D13) – publish-readiness day (rides manual M1; the version cut was
+dry-run-validated 2026-09-26). Residue rows q-14 / q-7 slice 2 / q-5b are queued in
+[product/04 §7](../product/04-post-mvp-track.md).
 
 Non-queue work tracks (not dispatched from here): **PT-Q** QoL/performance items live in
 [`../product/04-post-mvp-track.md`](../product/04-post-mvp-track.md) §7 (q-1…q-9, pickup-ready);
@@ -164,6 +168,7 @@ approve`/`request-changes` with mutation drills.
 
 One line per entry. **The authoritative task narratives are the queue files' status cells and the review docs — this section never re-records them.** Entry codes are append-only, globally sequential, and never reused; cite them as `§9(x)`, and resolve older codes in [`handoff/archive/changelog-202609.md`](handoff/archive/changelog-202609.md), which holds the full text. **Splice trigger (DM-5a): when a queue closes — or §9 exceeds 25 entries — splice the older one-liners into the archive; §9 keeps the codes since the most recent queue closure.**
 
+- 2026-09-27 (cf) — **implementation audit round 3 (AU-3) executed; remediation queue opened**: four reviewer lanes (engine / web / validation+contracts+diff / CLI+testing) with adversarial drills, orchestrator re-verified every critical/should-fix — 2 criticals (CSV header formula-injection bypass; row-diff compared-column type drift), 9 should-fixes, systemic metadata-adversarial-fixtures convention. No code changed; queue au3-1…au3-12 specced pick-up-cold in the [AU-3 queue](handoff/20260927-impl-audit-remediation.md).
 - 2026-09-27 (ce) — **audit round 2 (AU-2) closed**: four-lane audit (docs/tooling/apps/packages + orchestrator verification) → au2-1 CI wiring (format:check + adr:index:check + ar-5 pack-consumer smoke now gated; playwright forbidOnly + CI html reporter; DuckDB-install composite action; sideEffects:false ×6; `e4c5086`) · au2-2 D13 interim type pin (positive + honest negative pins; engine deps hygiene; pack dry-run library-only — disproved the audit's harness-shipping claim) `2c3091b` · au2-3 eslint-plugin-react-hooks + scoped app-import ban incl. domain/grid flat-config shadowing fix `07c2d99` · au2-4 docs truth pass (D10 resolved, handoff/product-04 staleness, broken links, docs-NN legend, process index, CHANGELOG) + ADR 0043 Proposed (changesets intake ledger) + this AU-2 queue. Audit false positives corrected on the record: conformance harness WAS already wired via e2e run-all; engine-duckdb files glob was already library-only. Follow-ups: AU-2 queue.
 - 2026-09-26 (cd) — crafted the two deferred-arc handoffs: [`20260926-maintainer-rulings.md`](handoff/20260926-maintainer-rulings.md) (C-pt0-1/D12/D13 — inputs, unblocks, recording conventions) and [`20260926-publish-runbook.md`](handoff/20260926-publish-runbook.md) (M1-gated cut sequence, dry-run-validated); open-threads map §1/§2 repointed to them.
 - 2026-09-26 (cc) — PT-Q closed, second wave: q-11/q-12 `f46cf3b` (wire-gate hardening) · q-13 `d266313` (vitest 4.1.11, audit clean) · q-8 `724498a` (value-free edit errors + strengthened pins) · q-4 `565c22f` (CLI UX pack, JSON byte-identical) · q-5 `3760882` (e2e helpers consolidated, zero waitForTimeout; its one prettier miss fixed in `cb14a10` — format:check is CI-blind, added to reviewer checklists) · q-3 `43508a4` (dialog modal semantics, single live region, residue root fixes) · q-7 `21686c4` slice 1 (lint strictness, cycles, purity, pure-pkg tsconfig flags) · q-6 `e2732aa` (measured 500-branch live-insert cap + row-count remedy fix, compose pregrouping, sort-key path sharing) · q-2 `f1f74af` (52 theme tokens, byte-exact light identity, dark mode with dual-scheme axe gates). Residue rows: q-14 (UNION-arm check), q-7 slice 2 (testing flags), q-5b (leftover helpers); lane carry-overs recorded on the product/04 rows.
