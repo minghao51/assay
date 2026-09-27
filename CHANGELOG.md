@@ -12,6 +12,27 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed — audit round 2, AU-2 (2026-09-27)
+
+- **CI now gates what was honor-system:** `format:check` and `adr:index:check`
+  run in the verify job; the ar-5 pack-consumer smoke (packed-tarball install +
+  plain-node CLI run) runs after build; the DuckDB CLI installer is a shared
+  sha256-pinned composite action; Playwright gains `forbidOnly` in CI and an
+  HTML reporter so failure artifacts carry a report.
+- **`@assay/engine` target-compat type pin (D13 interim):** engine-duckdb's
+  public types are compile-time-pinned against the `DataEngine` target
+  interface — the documented compat now fails CI on drift (positive pins plus
+  honest `@ts-expect-error` negatives recording the known divergences).
+- **Lint:** `eslint-plugin-react-hooks` (rules-of-hooks error,
+  exhaustive-deps warn) and a scoped `@assay/web`/`@assay/cli` app-import ban
+  that also fixes a flat-config shadowing hole (the relative-path ban was
+  silently inert for `domain`/`grid`).
+- **Packaging:** `sideEffects: false` on the six library packages.
+- **Docs truth pass:** D10 recorded resolved (roadmap §7), stale PT-0 queue row
+  fixed, post-MVP §2/§4/§9 staleness repaired, four broken links fixed, legacy
+  "docs NN" shorthand legend added, process index completed; ADR 0043
+  (changesets = intake ledger until first publish) proposed.
+
 ### Fixed — post-MVP PT-0 (2026-09-24)
 
 - Two real accessibility defects caught by the new axe-core e2e scans and fixed at the root: the
@@ -148,6 +169,8 @@ dist/index.js` in `apps/cli`). Every command the README documents was execution-
   `ASSAY_NO_TELEMETRY`. Historical docs keep "Data Workbench" wording per
   the naming-convention note in `docs/README.md`. Caveat: the unscoped npm
   name `assay` is taken; claim the `@assay` org before first publish.
+- Repository scaffold switched from an accidental Python skeleton to the
+  documented TypeScript monorepo (review finding C1).
 
 ### Added
 
@@ -241,8 +264,3 @@ dist/index.js` in `apps/cli`). Every command the README documents was execution-
 - Documentation reorganized into `docs/{product,architecture,engineering,process,reviews}`
   with a full index, contributing guide, ADR template, and the 2026-09-14
   documentation & setup review.
-
-### Changed
-
-- Repository scaffold switched from an accidental Python skeleton to the
-  documented TypeScript monorepo (review finding C1).

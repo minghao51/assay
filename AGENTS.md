@@ -60,7 +60,7 @@ implement and approve the same change.
 - **Security:** never invent cryptographic primitives (ADR 0007); treat
   dataset values as untrusted content (no HTML/script execution from cells,
   formula-injection-safe CSV export).
-- **Dependency direction (lint-enforced):** `apps → ui/core → domain`;
+- **Dependency direction (partially lint-enforced — encoding completed by an AU-2 follow-up):** `apps → ui/core → domain`;
   `domain` must never import React, browser APIs, or engines. Packages must
   not import apps. `packages/pipeline` must not depend on dbt/SQLMesh/Dagster
   runtimes (ADR 0031/0032).

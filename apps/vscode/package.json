@@ -2,7 +2,7 @@
   "name": "@assay/vscode",
   "version": "0.0.0",
   "private": true,
-  "description": "Assay VS Code extension \u2014 placeholder until milestone M7",
+  "description": "Assay VS Code extension \u2014 placeholder until the PT-V post-MVP track (D11)",
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",

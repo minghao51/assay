@@ -63,7 +63,7 @@ Start at [`docs/README.md`](docs/README.md). Highlights:
 - [MVP scope and acceptance criteria](docs/product/02-mvp-scope-and-acceptance.md)
 - [Architecture](docs/architecture/01-architecture.md) · [Pipeline/DAG/ETL](docs/architecture/02-pipeline-dag-etl.md)
 - [Tech stack](docs/engineering/01-tech-stack.md) · [Repository structure](docs/engineering/03-repository-structure.md)
-- [ADRs](docs/adr/README.md) (42 records: 35 accepted, 7 proposed)
+- [ADRs](docs/adr/README.md) (43 records: 35 accepted, 8 proposed)
 - [Documentation & setup review (2026-09-14)](docs/reviews/2026-09-14-documentation-and-setup-review.md)
 
 ## Repository layout

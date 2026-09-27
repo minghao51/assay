@@ -34,12 +34,18 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### Process (`process/`)
 
-| Doc                                                                                    | Contents                                                                                                                                                                                                                                                                                                                                                                                 |
-| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`process/handoff.md`](process/handoff.md)                                             | **Start here when picking up the project**: current state, decision ledger, environment quirks, definition of done, active-queue index, recent changelog. Active task queues live in dated files under [`process/handoff/`](process/handoff/) (completed queues archived there); the multi-agent protocol is [`process/handoff/operating-model.md`](process/handoff/operating-model.md). |
-| [`process/handoff/20260926-open-threads.md`](process/handoff/20260926-open-threads.md) | **Open-threads pickup map** — post-PT-0 continuation: Dependabot triage, PT-Q lanes, maintainer rulings, publish-day + carry-overs, all as pointers to authoritative rows.                                                                                                                                                                                                               |
-| [`process/project-start-checklist.md`](process/project-start-checklist.md)             | Pre-implementation checklist and architecture-review gates.                                                                                                                                                                                                                                                                                                                              |
-| [`process/contributing.md`](process/contributing.md)                                   | Developer setup, commands, conventions, ADR process, dependency rules, release conventions.                                                                                                                                                                                                                                                                                              |
+| Doc                                                                                                | Contents                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`process/handoff.md`](process/handoff.md)                                                         | **Start here when picking up the project**: current state, decision ledger, environment quirks, definition of done, active-queue index, recent changelog. Active task queues live in dated files under [`process/handoff/`](process/handoff/) (completed queues archived there). |
+| [`process/handoff/operating-model.md`](process/handoff/operating-model.md)                         | The multi-agent protocol: roles, task state machine, reviewer checklist (§7.3), parallelism/conflict rules, dispatch runbook.                                                                                                                                                    |
+| [`process/handoff/20260926-open-threads.md`](process/handoff/20260926-open-threads.md)             | **Open-threads pickup map** — post-PT-0 continuation: Dependabot triage, PT-Q lanes, maintainer rulings, publish-day + carry-overs, all as pointers to authoritative rows.                                                                                                       |
+| [`process/handoff/20260927-audit-remediation.md`](process/handoff/20260927-audit-remediation.md)   | **Audit round 2 (AU-2) queue** — 2026-09-27 four-lane audit findings (incl. corrected false positives), what landed (au2-1…au2-4), and the prioritized follow-up backlog.                                                                                                        |
+| [`process/handoff/20260926-maintainer-rulings.md`](process/handoff/20260926-maintainer-rulings.md) | **ACTIVE — maintainer queue**: C-pt0-1 telemetry approval → D12 first post-MVP track → D13 `DataEngine` fate.                                                                                                                                                                    |
+| [`process/handoff/20260926-publish-runbook.md`](process/handoff/20260926-publish-runbook.md)       | **ACTIVE — publish-readiness runbook**: preconditions (M1), validated cut sequence, consumer smoke, tag/release, abort policy.                                                                                                                                                   |
+| [`process/manual-actions.md`](process/manual-actions.md)                                           | Human-only track: git hosting/org transfer, npm org claim (M1), telemetry stance, demo dataset (O5), trademark/domain clearance.                                                                                                                                                 |
+| [`process/handoff/20260926-open-threads.md`](process/handoff/20260926-open-threads.md)             | **Open-threads pickup map** — post-PT-0 continuation: Dependabot triage, PT-Q lanes, maintainer rulings, publish-day + carry-overs, all as pointers to authoritative rows.                                                                                                       |
+| [`process/project-start-checklist.md`](process/project-start-checklist.md)                         | Pre-implementation checklist and architecture-review gates.                                                                                                                                                                                                                      |
+| [`process/contributing.md`](process/contributing.md)                                               | Developer setup, commands, conventions, ADR process, dependency rules, release conventions.                                                                                                                                                                                      |
 
 ### Reviews (`reviews/`)
 
@@ -51,8 +57,8 @@ This documentation set is intended to be sufficient to start implementation whil
 
 ### ADRs (`adr/`)
 
-See [`adr/README.md`](adr/README.md). The ADR series (0001–0042 — 35 accepted, 7 proposed) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, two-op-lane engine wiring, the Node CLI backend, the product name (Assay), tsc
-project-reference library builds (ADR 0042), and future Rust/DataFusion/Tauri directions. New ADRs use [`adr/template.md`](adr/template.md).
+See [`adr/README.md`](adr/README.md). The ADR series (0001–0043 — 35 accepted, 8 proposed) covers local-first execution, DuckDB-WASM, dataset identity, Arrow interchange, worker architecture, grid ownership, edit overlays, contracts, validation compilation, dataset change requests, connectors, enterprise policy, authentication/authorization, encryption/KMS, telemetry, hosted control plane, pipeline IR and DAG semantics, two-op-lane engine wiring, the Node CLI backend, the product name (Assay), tsc
+project-reference library builds (ADR 0042), the changesets-as-intake-ledger stance until first publish (ADR 0043), and future Rust/DataFusion/Tauri directions. New ADRs use [`adr/template.md`](adr/template.md).
 
 ## Reading Orders
 
@@ -149,6 +155,15 @@ collisions. On 2026-09-23 all numbered docs were renumbered **within their categ
 reading order** (`product/` keeps `00` as its entry point; `process/` drops numbers — its
 files are unnumbered). Immutable records — accepted ADRs, archived queues, dated review
 snapshots — intentionally still cite the legacy paths; resolve them here:
+
+**Legacy "docs NN" shorthand.** Docs and code comments written before the 2026-09-23 renumber
+also cite files by old bare numbers ("docs 03 §17", "docs 06 §5"). Map the number, not the
+current file that happens to carry it: docs 00/01 vision+principles, docs 02 data model,
+docs 03 architecture, docs 04 MVP scope, docs 05 repository structure → `engineering/03`,
+docs 06 testing/security/quality → `engineering/04`, docs 07 implementation plan →
+`engineering/02`, docs 08 tech stack → `engineering/01`, docs 09 execution roadmap →
+`product/03`, docs 10 pipeline → `architecture/02`, docs 11 post-MVP → `product/04`,
+docs 12 telemetry → `engineering/06`.
 
 | Legacy path (cited in ADRs/archives/reviews ≤ 2026-09-23) | Current path                                 |
 | --------------------------------------------------------- | -------------------------------------------- |

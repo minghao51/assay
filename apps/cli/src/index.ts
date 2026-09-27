@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * assay — the Data Workbench CLI (D10 npm-only; compiled per ADR 0042).
+ * assay — the CLI for the Assay data workbench (D10 npm-only; compiled per ADR 0042).
  *
  * Commands (docs/product/02-mvp-scope-and-acceptance.md §2):
  *   assay validate <path> --contract <file>   (m5-4)

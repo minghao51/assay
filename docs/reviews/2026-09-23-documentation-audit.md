@@ -1,7 +1,7 @@
 # Documentation Audit — whole doc set (2026-09-23)
 
 > **Point-in-time snapshot at `main = 2e5945a`.** Read-only audit; the remediation queue is
-> [`../process/handoff/20260923-doc-queue.md`](../process/handoff/20260923-doc-queue.md) (finding
+> [`../process/handoff/archive/20260923-doc-queue.md`](../process/handoff/archive/20260923-doc-queue.md) (finding
 > IDs below resolve into its task specs). Reviews are dated snapshots, not living documents —
 > current state lives in the [handoff](../process/handoff.md).
 
