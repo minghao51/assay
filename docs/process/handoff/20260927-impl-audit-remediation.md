@@ -96,7 +96,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
 - **Guardrails.** Error attribution fields follow the existing taxonomy (side/column refs);
   no behavior change for same-family pairs (existing goldens must stay byte-identical).
 
-#### au3-3 — export error value-free wrapping (S2) · worker+reviewer · 1–2 h (rides au3-1/au3-2 session)
+#### au3-3 — export error value-free wrapping (S2) · **LANDED 2026-09-27, `eb094c1`** (worker → reviewer request-changes → fix round → **approve**). All four engine-touching steps (arrow drain, COPY, fallback count, wasm byte read) collapse to the fixed value-free `EXPORT_MATERIALIZATION_FAILURE`; composers stay OUTSIDE the wrap (typed errors reach the wire unchanged — the reviewer's one blocker, fixed in-round); `{cause}` deliberately NOT attached, matching the validationStep idiom's ADR 0025 policy (the brief's 'cause preserved' wording was wrong — the idiom wins). Hostile pins proven non-vacuous by reviewer mutation drill
 
 - **Problem.** Every other overlay op wraps `conn.*` in
   `validationStep(OVERLAY_MATERIALIZATION_FAILURE)`; `runExport`'s `drainAllBatches`,
@@ -224,6 +224,23 @@ object to primitive value`, the exact hazard `compile.ts` documents and guards e
 - **Schema-side QoL (lane 3):** case-variant duplicate column-name guard in
   `diff/input-validation.ts:63-118` (cheap `toLowerCase` uniqueness).
 
+#### au3-13 — lone-surrogate well-formedness guard at the cell-literal boundary · worker+reviewer · ~2–4 h (P1)
+
+- **Problem.** From the au3-1 boundary probe (verified by two independent workers + reviewer): a
+  `cell-set` whose value contains an unpaired surrogate (`\uD800`) silently materializes AND
+  exports as U+FFFD — silent data corruption, violating lossless-or-loud and the NUL precedent
+  (same root-cause shape: the composer emits SQL the engine cannot faithfully take).
+- **Done-when.** Reject unpaired surrogates **loudly and value-free** at the cell-literal entry
+  (guard in `cellLiteralSql`/`cellLiteralRawSql` territory in `overlay-query.ts`, mirroring the
+  existing non-finite-number guard ~:349 — NOT blanket inside `sqlStringLiteral`, which also
+  encodes engine-generated destinations). Four reviewer-specified risks to honor:
+  (1) guard **only user-entered literal values** — base-data passthrough stays unguarded (a
+  U+FFFD already in a file is a legitimate character; the base-source NUL pin is the precedent);
+  (2) the message names the defect, never echoes the cell text; (3) update the
+  `export-boundary.test.ts` DEFECT pin in the same change (that file documents the protocol);
+  (4) loud-and-actionable is the desired UX for surrogates pasted from broken sources — not a
+  regression. Changeset (patch, engine-duckdb).
+
 ## 3. Systemic recommendation (adopt as convention)
 
 **Adversarial fixtures must attack metadata, not just values.** C1 (column _names_ bypass the
@@ -239,6 +256,7 @@ hand-copied by the oracle.
   f-1 (different files). Everything else interleaves freely.
 - P0 (au3-1…au3-3) is self-serve — no maintainer ruling blocks it. The CSV BOM question
   (au3-12) is the only new mini-ruling; C-pt0-1/D12/D13 remain the standing human queue.
-- Suggested order: ~~au3-1 → au3-2~~ (landed) → au3-3 (+ the au3-1 boundary probe) →
-  au3-4/au3-5 (small, parallel-safe) → au3-6/au3-7 → P2 by appetite. Unit baseline after
-  au3-1/au3-2: **1879** (was 1866); e2e 144+1 unchanged.
+- Suggested order: ~~au3-1 → au3-2 → au3-3 (+ boundary probe)~~ (landed; probe closed, spawned
+  au3-13) → au3-4/au3-5/au3-13 (small, parallel-safe — au3-4 and au3-13 both touch
+  engine-duckdb but disjoint files: client.ts vs overlay-query.ts) → au3-6/au3-7 → P2 by
+  appetite. Unit baseline after au3-1/2/3 + probe: **1893** (was 1866); e2e 144+1 unchanged.
