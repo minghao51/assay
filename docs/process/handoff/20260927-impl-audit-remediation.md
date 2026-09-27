@@ -46,7 +46,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
 
 ### P0 — security/correctness closure
 
-#### au3-1 — CSV export guard closure (C1 + S1) · worker+reviewer · 0.5–1 d
+#### au3-1 — CSV export guard closure (C1 + S1) · **LANDED 2026-09-27, `9728666`** (worker → independent reviewer **approve**; live-DuckDB drills: all 7 trigger headers guarded through real COPY, benign CSV/jsonl byte-identical, rename-to-hostile + insert covered; conformance leg non-vacuous via `skipsCsvHeaderGuard` mutation). Rider docs: guarded-alias collision + read_csv CR/LF-header corner recorded in `csvHeaderGuardName` docs. Conformance leg covers the 4 leading triggers (read_csv cannot re-open CR/LF/tab headers — sniffer); all 7 pinned at composed-SQL level
 
 - **Problem.** `formulaInjectionGuardSql` (`overlay-query.ts:427`) wraps cell _expressions_
   only; the CSV COPY projection (`composeOverlayExportSql` ~`:987`, `HEADER true`) writes
@@ -72,11 +72,11 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
 - **Guardrails.** Don't alter cell-value semantics beyond LF; no new trigger vocabulary;
   aliasing must round-trip nothing (names are display-only in CSV); keep Arrow stream path
   untouched (it has no header row).
-- **Boundary probe (fold in or follow-up).** NUL-in-string, 4-byte emoji, lone surrogate
+- **Boundary probe — OPEN follow-up (pick up with au3-3).** NUL-in-string, 4-byte emoji, lone surrogate
   through edit→materialize→export against the real wasm bundle (speculative lane-1 finding:
   `sqlStringLiteral` cannot escape `\u0000` — expected to fail loudly, verify it does).
 
-#### au3-2 — row-diff compared-column type policy (C2) · worker+reviewer · 0.5–1 d
+#### au3-2 — row-diff compared-column type policy (C2) · **LANDED 2026-09-27, `d531658`** (worker → independent reviewer **approve**). Reviewer-verified judgment call: the JSON-compared-column tightening (from verbatim `keyTypesCompatible` reuse) is **accepted** — no surface ever offered JSON compared columns, and a live engine probe showed textual JSON equality yields false "changed" rows (`{"x":1,"y":2}` IS DISTINCT FROM `{"y":2,"x":1}` → true), so refusing is safer than the old silent behavior. Property pins recomputed 251/149 → 128/272, still non-vacuous both directions
 
 - **Problem.** Keys get `keyTypesCompatible` (`row-diff-compile.ts:663`); shared non-key
   columns (:683) go straight to `changedSource` → `IS DISTINCT FROM` (:505,:532). Drill: side A
@@ -239,5 +239,6 @@ hand-copied by the oracle.
   f-1 (different files). Everything else interleaves freely.
 - P0 (au3-1…au3-3) is self-serve — no maintainer ruling blocks it. The CSV BOM question
   (au3-12) is the only new mini-ruling; C-pt0-1/D12/D13 remain the standing human queue.
-- Suggested order: au3-1 → au3-2 (+au3-3 riding) → au3-4/au3-5 (small, parallel-safe) →
-  au3-6/au3-7 → P2 by appetite.
+- Suggested order: ~~au3-1 → au3-2~~ (landed) → au3-3 (+ the au3-1 boundary probe) →
+  au3-4/au3-5 (small, parallel-safe) → au3-6/au3-7 → P2 by appetite. Unit baseline after
+  au3-1/au3-2: **1879** (was 1866); e2e 144+1 unchanged.
