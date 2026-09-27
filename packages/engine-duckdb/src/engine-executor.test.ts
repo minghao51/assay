@@ -1871,17 +1871,101 @@ describe('EngineOpExecutor export (m4-2; query lane)', () => {
       rowCount: 2,
     })
 
-    // A byte-read failure errors the export but still drops the wasm copy.
-    deps.copyExportBytesError = new Error('wasm fs read failed')
+    // A byte-read failure (an engine-FS step) maps to the value-free export
+    // class but still drops the wasm copy; the raw FS text never crosses.
+    deps.copyExportBytesError = new Error('wasm fs read failed: assay-export-2')
     executor.accept(exportRequest(3, 'csv'))
     await awaitSends(deps.queryConn, 3)
     deps.queryConn.resolveSend(2, copyCountTable(2n))
-    expect(await awaitPosted(deps, 3)).toMatchObject({
+    const readFailure = await awaitPosted(deps, 3)
+    expect(readFailure).toMatchObject({
       type: 'engine/error',
       requestId: 3,
-      message: 'wasm fs read failed',
+      message: 'the view could not be exported',
     })
+    if (readFailure.type === 'engine/error') {
+      expect(readFailure.message).not.toContain('wasm fs read failed')
+    }
     expect(deps.droppedFiles.filter((name) => name === 'assay-export-2')).toHaveLength(1)
+    expectNoCollisions(deps)
+  })
+
+  it('au3-3: maps a hostile-value COPY failure to the value-free export class only (query lane)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(exportRequest(2, 'csv'))
+    await awaitSends(deps.queryConn, 1)
+    // A DuckDB conversion error embedding a quote-laden cell value; the
+    // composed COPY statement is in the tail. Neither may cross the boundary.
+    deps.queryConn.rejectSend(
+      0,
+      new Error(
+        "Conversion Error: Could not convert string ''; DROP TABLE x --' to INT32\n" +
+          "LINE 1: COPY (SELECT CAST(''; DROP TABLE x --' AS INTEGER) AS \"id\" FROM \"assay_t1\") TO 'assay-export-1'",
+      ),
+    )
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'the view could not be exported',
+    })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).not.toContain('DROP TABLE')
+      expect(posted.message).not.toContain("'; DROP TABLE x --")
+      expect(posted.message).not.toContain('Could not convert string')
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('au3-3: maps a hostile-value arrow-drain failure to the value-free export class only', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(exportRequest(2, 'arrow'))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.rejectSend(
+      0,
+      new Error(
+        "Conversion Error: Could not convert string 'secret-cell-value' to INT32\n" +
+          'LINE 1: SELECT CAST(\'secret-cell-value\' AS INTEGER) FROM "assay_t1"',
+      ),
+    )
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'the view could not be exported',
+    })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).not.toContain('secret-cell-value')
+      expect(posted.message).not.toContain('Could not convert string')
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('au3-3: maps a hostile-value fallback-count failure to the value-free export class only', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(exportRequest(2, 'csv'))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, intTable([1, 2])) // not the count relation
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.rejectSend(
+      1,
+      new Error("Catalog Error: Table with name 'secret-cell-value' does not exist"),
+    )
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      requestId: 2,
+      message: 'the view could not be exported',
+    })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).not.toContain('secret-cell-value')
+    }
     expectNoCollisions(deps)
   })
 

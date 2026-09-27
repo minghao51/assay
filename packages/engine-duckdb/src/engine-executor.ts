@@ -140,6 +140,17 @@ import type { RowDiffSampleRow } from './diff-query.js'
 const OVERLAY_MATERIALIZATION_FAILURE = 'the edited view could not be materialized'
 
 /**
+ * The value-free failure class for every engine-touching step of the
+ * export/rewrite path (m4-2): the composed SELECT drain (arrow), the COPY
+ * statement, the defensive fallback count, and the wasm-side byte read. Same
+ * q-8 discipline as {@link OVERLAY_MATERIALIZATION_FAILURE} — DuckDB
+ * conversion/binder errors can embed offending cell values or the composed
+ * statement, so the raw engine text never leaves the worker (ADR 0025). The
+ * class names the operation, never the data.
+ */
+const EXPORT_MATERIALIZATION_FAILURE = 'the view could not be exported'
+
+/**
  * Minimal structural view of an Apache Arrow record-batch stream reader —
  * the slice of `arrow.AsyncRecordBatchStreamReader` the executor consumes
  * (`next` resolves batches; `cancel` releases the connection-side result).
@@ -974,7 +985,8 @@ export class EngineOpExecutor {
    * engine error is dropped (never attached as a cause) and replaced by the
    * fixed, value-free class message. Shared discipline: validate and diff
    * pass their per-step classes, and the edit-overlay materialization ops
-   * pass {@link OVERLAY_MATERIALIZATION_FAILURE} (PT-Q q-8). Errors thrown
+   * pass {@link OVERLAY_MATERIALIZATION_FAILURE} (PT-Q q-8), and the
+   * export/rewrite op passes {@link EXPORT_MATERIALIZATION_FAILURE}. Errors thrown
    * by this module's own shape checks are privacy-safe by construction
    * (fixed strings plus rule ids) and pass through unchanged — they never
    * originate inside a `conn.query` promise, so they stay outside the
@@ -1309,6 +1321,12 @@ export class EngineOpExecutor {
    * The reported rowCount comes from the COPY's count relation, with an
    * explicit count fallback (honest numbers over shape-guessing), or the
    * streamed batch total for arrow.
+   *
+   * Every engine-touching step (the arrow drain, the COPY, the fallback
+   * count, and the wasm-side byte read) maps its raw DuckDB/FS error to
+   * {@link EXPORT_MATERIALIZATION_FAILURE} — a failing projected cast must
+   * never surface the offending cell text across the worker boundary (S2,
+   * ADR 0025). Composer output stays outside the wrap.
    */
   private async runExport(request: EngineExportRequest, lane: OpLane): Promise<void> {
     const entry = this.requireTable(request.tableId)
@@ -1327,9 +1345,13 @@ export class EngineOpExecutor {
     let bytes: Uint8Array
     let rowCount: number
     if (request.format === 'arrow') {
-      const drained = await this.drainAllBatches(
-        conn,
-        composeOverlayExportSelectSql(composition, 'arrow'),
+      // Compose OUTSIDE the value-free wrap (like schema/window/cast-check
+      // and the COPY branch below): the composer's typed errors are
+      // value-free by construction and must reach the wire unchanged.
+      // Everything below touches the engine.
+      const selectSql = composeOverlayExportSelectSql(composition, 'arrow')
+      const drained = await this.validationStep(EXPORT_MATERIALIZATION_FAILURE, () =>
+        this.drainAllBatches(conn, selectSql),
       )
       rowCount = drained.rowCount
       bytes = tableToIPC(new Table(drained.batches))
@@ -1338,14 +1360,20 @@ export class EngineOpExecutor {
       if (copySql === null) {
         throw new Error(`unsupported export format: ${request.format}`)
       }
-      const copyResult = await conn.query(copySql)
+      const copyResult = await this.validationStep(EXPORT_MATERIALIZATION_FAILURE, () =>
+        conn.query(copySql),
+      )
       const copyCount = readCopyRowCount(copyResult)
       if (copyCount !== null) {
         rowCount = copyCount
       } else {
         // Defensive fallback: an explicit count over the same select —
         // never guess a total from an unexpected COPY result shape.
-        const counted = await conn.query(composeOverlayCountSql(composition))
+        // Composed outside the wrap for the same reason as above.
+        const countSql = composeOverlayCountSql(composition)
+        const counted = await this.validationStep(EXPORT_MATERIALIZATION_FAILURE, () =>
+          conn.query(countSql),
+        )
         const value = counted.getChildAt(0)?.get(0)
         const n = typeof value === 'bigint' ? Number(value) : value
         if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
@@ -1354,7 +1382,11 @@ export class EngineOpExecutor {
         rowCount = n
       }
       try {
-        bytes = await this.deps.copyExportBytes(stem)
+        // The wasm-side byte read touches DuckDB's virtual filesystem, so a
+        // failed read is an engine-step failure like the COPY itself.
+        bytes = await this.validationStep(EXPORT_MATERIALIZATION_FAILURE, () =>
+          this.deps.copyExportBytes(stem),
+        )
       } finally {
         await this.deps.dropFile(stem).catch(() => undefined)
       }
