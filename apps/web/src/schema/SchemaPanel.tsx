@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import type { ColumnSchema } from '@assay/grid'
+import { domId, encodePath } from '../lib/dom-id'
 import { nestedActionLabel, nestedActionVerb } from '../sql/nested-actions'
 import type { NestedAction } from '../sql/nested-actions'
 import {
@@ -360,9 +361,13 @@ interface TypeNodeProps {
   readonly onAction: (action: NestedAction) => void
 }
 
-/** DOM-id-safe form of a node path (column names can contain any characters). */
+/**
+ * DOM-id-safe, injective form of a node path (column/field names can contain
+ * any characters; AR-W11 grammar via `lib/dom-id.ts` — the old lossy
+ * `[^A-Za-z0-9_-] → -` filter made `a.b` and `a-b` collide).
+ */
 function pathId(path: string): string {
-  return `schema-fields-${path.replaceAll(/[^A-Za-z0-9_-]/g, '-')}`
+  return domId('schema-fields', path)
 }
 
 /** Type badge — also the leaf rendering for opaque/unparsed types. */
@@ -448,7 +453,10 @@ function TypeNode({
       )
     case 'struct':
     case 'union': {
-      const open = expanded.has(path)
+      // The expansion key is `encodePath(segments)` (S4/au3-5): a column
+      // literally named `x/y` must never share expansion state with child `y`
+      // of column `x`. The raw `path` stays for ids/actions.
+      const open = expanded.has(encodePath(segments))
       const keyword = node.kind === 'struct' ? 'STRUCT' : 'UNION'
       const detailId = pathId(path)
       return (
@@ -460,7 +468,7 @@ function TypeNode({
             aria-expanded={open}
             aria-controls={detailId}
             onClick={() => {
-              onToggle(path)
+              onToggle(encodePath(segments))
             }}
           >
             <span className="schema-struct-marker" aria-hidden="true">

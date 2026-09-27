@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { GridViewportModel } from '@assay/grid'
+import { domId, encodePath } from '../lib/dom-id'
 import { RunGuard } from '../sql/run-guard'
 import {
   recordContextNeedsReload,
@@ -88,21 +89,30 @@ interface RecordInspectorProps {
 /** Expansion state: a set of node paths (`deep/a/b`); collapsed by default. */
 type ExpandedPaths = ReadonlySet<string>
 
-/** DOM-id-safe form of a node path (keys can contain any characters). */
+/**
+ * DOM-id-safe, injective form of a node path (record keys can contain any
+ * characters; AR-W11 grammar via `lib/dom-id.ts` — the old lossy
+ * `[^A-Za-z0-9_-] → -` filter made `a.b` and `a-b` collide).
+ */
 function nodePathId(path: string): string {
-  return `record-node-${path.replaceAll(/[^A-Za-z0-9_-]/g, '-')}`
+  return domId('record-node', path)
 }
 
 interface NodeViewProps {
   readonly node: RecordTreeNode
-  /** Path from the inspected row's root, used as expansion key and DOM id seed. */
-  readonly path: string
+  /**
+   * Field-key segments from the inspected row's root. The expansion key is
+   * `encodePath(segments)`: each segment is encoded so a key containing `/`
+   * cannot be confused with nesting (`x/y` vs child `y` of `x`).
+   */
+  readonly segments: readonly string[]
   readonly expanded: ExpandedPaths
   readonly onToggle: (path: string) => void
 }
 
 /** One branch node: toggle button + bounded summary + (when open) children. */
-function BranchNode({ node, path, expanded, onToggle }: NodeViewProps) {
+function BranchNode({ node, segments, expanded, onToggle }: NodeViewProps) {
+  const path = encodePath(segments)
   const open = expanded.has(path)
   const detailId = nodePathId(path)
   return (
@@ -159,7 +169,7 @@ function BranchNode({ node, path, expanded, onToggle }: NodeViewProps) {
             >
               <NodeView
                 node={child}
-                path={`${path}/${child.key}`}
+                segments={[...segments, child.key]}
                 expanded={expanded}
                 onToggle={onToggle}
               />
@@ -483,7 +493,7 @@ export function RecordInspector({
               data-node-kind={child.kind}
               data-node-key={child.key}
             >
-              <NodeView node={child} path={child.key} expanded={expanded} onToggle={toggle} />
+              <NodeView node={child} segments={[child.key]} expanded={expanded} onToggle={toggle} />
             </li>
           ))}
         </ul>

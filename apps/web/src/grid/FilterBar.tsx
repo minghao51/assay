@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from 'react'
 import type { FilterSpec, GridViewportModel } from '@assay/grid'
+import { domId } from '../lib/dom-id'
 import { replaceColumnFilter } from './query-state'
 
 interface FilterBarProps {
@@ -14,17 +15,13 @@ function errorMessage(error: unknown): string {
 
 /**
  * Collision-safe DOM id for a column's filter input (AR-W11). Column names
- * can contain any characters, and the previous `[^A-Za-z0-9_-] → -` mapping
- * made distinct names collide (`a.b` and `a-b` both became `a-b`), so a label
- * could point at another column's input. Encoding every code point as hex is
- * injective (the `-` join cannot appear inside a hex run) and stable across
- * renders; the ids are intentionally opaque.
+ * can contain any characters and the old `[^A-Za-z0-9_-] → -` mapping made
+ * distinct names collide (`a.b` and `a-b` both became `a-b`), so a label
+ * could point at another column's input. Delegates to the shared injective
+ * id grammar in `lib/dom-id.ts` (one grammar app-wide).
  */
 export function filterInputId(columnName: string): string {
-  const encoded = Array.from(columnName, (char) => (char.codePointAt(0) ?? 0).toString(16)).join(
-    '-',
-  )
-  return `filter-input-${encoded}`
+  return domId('filter-input', columnName)
 }
 
 /**

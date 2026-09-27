@@ -35,6 +35,7 @@
  * strings for React text nodes — nothing here is ever interpreted as
  * markup, and nothing about dataset contents is logged (ADR 0025).
  */
+import { encodePathSegment } from '../lib/dom-id'
 import { formatNestedPreview, isListLike } from '../grid/nested-preview'
 
 /** One grid row: schema column names + the row's cells, positional. */
@@ -265,17 +266,19 @@ export function buildRecordTree(
 
 /**
  * Paths of every expandable (object/array) descendant, in render order, using
- * the component's path scheme (`key`, then `parent/key`). Powers the panel's
- * expand-all affordance; collapse-all is the empty set. Keys are joined
- * verbatim (SchemaPanel's path precedent) — a key containing `/` could
- * collide with nesting; expansion state stays coherent either way because
- * paths are only ever compared, never parsed.
+ * the component's encoded-segment path scheme (`key`, then `parent/key`).
+ * Powers the panel's expand-all affordance; collapse-all is the empty set.
+ * Each segment goes through the shared injective encoder (AR-W11 grammar):
+ * safe keys pass through, others become `~`+hex, so a key containing `/`
+ * cannot collide with nesting (the component's `encodePath` builds the same
+ * strings).
  */
 export function collectBranchPaths(root: RecordTreeNode): readonly string[] {
   const paths: string[] = []
   const walk = (node: RecordTreeNode, path: string): void => {
     for (const child of node.children) {
-      const childPath = path === '' ? child.key : `${path}/${child.key}`
+      const segment = encodePathSegment(child.key)
+      const childPath = path === '' ? segment : `${path}/${segment}`
       if (child.kind === 'object' || child.kind === 'array') {
         paths.push(childPath)
         walk(child, childPath)
