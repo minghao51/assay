@@ -23,7 +23,7 @@
  * - **CSV** (`text/csv`): one row per rule with the same fields; the two
  *   sample columns hold JSON-array TEXT (`["base:4","base:9"]`), and every
  *   STRING sample value is formula-injection-sanitized BEFORE embedding
- *   (leading `=`/`+`/`-`/`@`, or any tab/CR — the exact scalar trigger set
+ *   (leading `=`/`+`/`-`/`@`, or any tab/LF/CR — the exact scalar trigger set
  *   of the engine's `formulaInjectionGuardSql`, mirrored here because the
  *   report is built client-side, not engine-side). The composed array cell
  *   always begins with `[`, which no spreadsheet evaluates as a formula
@@ -120,13 +120,18 @@ export function buildReportExportRows(report: ValidationReport): readonly Report
 /**
  * Formula-injection sanitization for scalar TEXT in the CSV report — the
  * client-side mirror of the engine's `formulaInjectionGuardSql` trigger set
- * (leading `=`, `+`, `-`, `@`, or any tab/CR ⇒ prefix an apostrophe). A
+ * (leading `=`, `+`, `-`, `@`, or any tab/LF/CR ⇒ prefix an apostrophe). A
  * legitimate value that merely starts with `-` gains the prefix too — the
  * documented, accepted trade-off of the engine-side guard.
  */
 export function csvFormulaSanitize(text: string): string {
   const triggers = ['=', '+', '-', '@']
-  if (triggers.includes(text.charAt(0)) || text.includes('\t') || text.includes('\r')) {
+  if (
+    triggers.includes(text.charAt(0)) ||
+    text.includes('\t') ||
+    text.includes('\n') ||
+    text.includes('\r')
+  ) {
     return `'${text}`
   }
   return text

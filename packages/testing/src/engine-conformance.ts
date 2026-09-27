@@ -2968,11 +2968,53 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
         arrowVerified += 1
       }
     }
+    // C1/S1 bait-metadata leg (extends the sanitization non-vacuity check to
+    // HEADERS): a CSV column name is row 1 of a spreadsheet, so it must be
+    // apostrophe-guarded exactly like a value. Rename the leading effective
+    // columns to the documented trigger forms, export CSV, re-open through the
+    // engine's ordinary path, and assert every guarded name appears in the
+    // re-opened header while no raw trigger name does. The rename ops are
+    // synthetic probe data, so the assertion is self-contained and
+    // non-vacuous: a subject that writes names verbatim fails the raw-name
+    // absence pin even when its value sanitization is correct.
+    const hostileHeaderNames = ['=SUM(A2:A3)', '+x', '-x', '@x'] as const
+    const headerRenameCount = Math.min(hostileHeaderNames.length, dataset.effectiveSchema.length)
+    expectCondition(
+      headerRenameCount > 0,
+      'subject misconfiguration: the csv header-guard leg needs at least one effective column',
+    )
+    const headerGuardOps: readonly ConformanceEditOp[] = [
+      ...(dataset.ops ?? []),
+      ...hostileHeaderNames.slice(0, headerRenameCount).map((to, index) => ({
+        kind: 'column-rename' as const,
+        from: dataset.effectiveSchema[index]!.name,
+        to,
+      })),
+    ]
+    const headerOverlay: ConformanceOverlay = { base: dataset.base, ops: headerGuardOps }
+    const headerResult = await client.exportView(handle, { format: 'csv', overlay: headerOverlay })
+    const headerHandle = await client.open(await subject.exportedSource(headerResult))
+    const headerWindow = await client.fetchRange(headerHandle, {
+      startRow: 0,
+      endRow: headerResult.rowCount,
+    })
+    const headerFields = headerWindow.batch.schema.fields.map((field) => field.name)
+    for (const raw of hostileHeaderNames.slice(0, headerRenameCount)) {
+      expectCondition(
+        headerFields.includes(`'${raw}`),
+        'csv header formula-injection guard missing for a trigger column name',
+      )
+      expectCondition(
+        !headerFields.includes(raw),
+        'csv header emitted a raw trigger column name (row 1 is a formula surface)',
+      )
+    }
     return {
       formats: dataset.exports.length,
       engineReopens,
       arrowVerified,
       csvSanitizationProbed: csvDiffers,
+      csvHeaderGuarded: true,
     }
   },
 

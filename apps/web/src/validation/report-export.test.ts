@@ -230,6 +230,10 @@ describe('CSV report content', () => {
     expect(csvFormulaSanitize('@x')).toBe("'@x")
     expect(csvFormulaSanitize('a\tb')).toBe("'a\tb")
     expect(csvFormulaSanitize('a\rb')).toBe("'a\rb")
+    // S1: LF is a documented trigger (OWASP) — a leading-LF `=cmd` must be
+    // prefixed exactly like its tab/CR twins, and an embedded LF anywhere too.
+    expect(csvFormulaSanitize('a\nb')).toBe("'a\nb")
+    expect(csvFormulaSanitize('\n=cmd')).toBe("'\n=cmd")
     expect(csvFormulaSanitize('plain')).toBe('plain')
     expect(csvFormulaSanitize('EMEA')).toBe('EMEA')
   })

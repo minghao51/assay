@@ -47,6 +47,7 @@ import {
   RESERVED_OVERLAY_COLUMN_NAMES,
 } from './overlay-query'
 import { EngineTypeError } from './type-expr'
+import { quotedIdentifier, sqlStringLiteral } from './format-view'
 
 const BASE: OverlayBase = {
   baseAnchor: 'b1',
@@ -557,13 +558,13 @@ describe('cellLiteralSql and the formula-injection guard', () => {
     expect(() => cellLiteralRawSql({ kind: 'number', value: Number.NaN })).toThrow(/materialized/)
   })
 
-  it('guards leading =, +, -, @ and embedded tab/CR, passing NULL through', () => {
+  it('guards leading =, +, -, @ and embedded tab/LF/CR, passing NULL through', () => {
     const guard = formulaInjectionGuardSql('"c"')
     // The exact composed bytes (CLI-verified semantics against DuckDB 1.5.5).
     expect(guard).toBe(
       'CASE WHEN "c" IS NULL THEN NULL ' +
-        'WHEN contains("c", chr(9)) OR contains("c", chr(13)) ' +
-        "OR left(\"c\", 1) IN ('=', '+', '-', '@', chr(9), chr(13)) " +
+        'WHEN contains("c", chr(9)) OR contains("c", chr(10)) OR contains("c", chr(13)) ' +
+        "OR left(\"c\", 1) IN ('=', '+', '-', '@', chr(9), chr(10), chr(13)) " +
         'THEN chr(39) || "c" ELSE "c" END',
     )
   })
@@ -1081,6 +1082,93 @@ describe('composeOverlayExportSql — deterministic COPY options', () => {
     expect(exportFileExtension('parquet')).toBe('parquet')
     expect(exportFileExtension('jsonl')).toBe('jsonl')
     expect(exportFileExtension('arrow')).toBe('arrow')
+  })
+})
+
+describe('CSV export header guard (C1/S1)', () => {
+  /** The documented trigger forms: leading =/+/−/@ and embedded tab/LF/CR. */
+  const HOSTILE_NAMES = ['=SUM(A2:A3)', '+x', '-x', '@x', '\t=x', '\r=x', '\n=x'] as const
+  /** The SQL alias a guarded header name must carry (`chr(39) || name`). */
+  const guardedAlias = (name: string): string => ` AS ${sqlStringLiteral(`'${name}`)}`
+
+  function hostileComposition(
+    names: readonly string[],
+    ops: EditOp[] = [],
+  ): { viewName: string; base: OverlayBase; state: ReturnType<typeof stateFor> } {
+    const base: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: names.map((name) => ({ name, type: 'VARCHAR' })),
+      baseRowCount: 1,
+    }
+    return { viewName: 'assay_t1', base, state: foldOverlay(base, ops).state }
+  }
+
+  it('apostrophe-guards every hostile CSV column name as the exported header alias', () => {
+    const composition = hostileComposition(HOSTILE_NAMES)
+    const csv = composeOverlayExportSelectSql(composition, 'csv')
+    for (const name of HOSTILE_NAMES) {
+      expect(csv, name).toContain(`${quotedIdentifier(name)}${guardedAlias(name)}`)
+    }
+  })
+
+  it('leaves every non-CSV format byte-identical (names are data keys, never aliased)', () => {
+    const composition = hostileComposition(HOSTILE_NAMES)
+    for (const format of ['parquet', 'jsonl', 'json', 'arrow'] as const) {
+      const sql = composeOverlayExportSelectSql(composition, format)
+      expect(sql.startsWith('SELECT "=SUM(A2:A3)", "+x", "-x", "@x",'), format).toBe(true)
+      expect(sql, format).not.toContain(guardedAlias('=SUM(A2:A3)'))
+      expect(sql, format).not.toContain(guardedAlias('\n=x'))
+    }
+    // A benign-named CSV projection still aliases (the guard is a no-op there).
+    const benign = hostileComposition(['id', 'label'])
+    expect(
+      composeOverlayExportSelectSql(benign, 'csv').startsWith(
+        `SELECT "id" AS 'id', "label" AS 'label' FROM (`,
+      ),
+    ).toBe(true)
+  })
+
+  it('guards a header renamed in by an overlay op and covers base + insert branches', () => {
+    // A live insert makes the source a base UNION ALL insert relation; the
+    // header alias sits in the outer projection above the union, so it
+    // applies to both branches positionally. The rename proves the effective
+    // (post-overlay) name is the one guarded, not the base spelling.
+    const composition = hostileComposition(
+      ['plain'],
+      [
+        { kind: 'column-rename', from: 'plain', to: '=SUM(A2:A3)' },
+        {
+          kind: 'row-insert',
+          rowId: rid('ins:o1#0'),
+          position: { kind: 'start' },
+          values: new Map(),
+        },
+      ],
+    )
+    const csv = composeOverlayExportSelectSql(composition, 'csv')
+    expect(csv).toContain(`"=SUM(A2:A3)"${guardedAlias('=SUM(A2:A3)')}`)
+    expect(csv).toContain('UNION ALL')
+  })
+
+  it('keeps value guarding at tab/LF/CR (the S1 LF addition) in the composed source', () => {
+    const composition = hostileComposition(
+      ['label'],
+      [
+        {
+          kind: 'cell-set',
+          rowId: rid('base:b1#0'),
+          column: 'label',
+          value: { kind: 'string', value: '\n=cmd' },
+        },
+      ],
+    )
+    const csv = composeOverlayExportSelectSql(composition, 'csv')
+    // The value guard still wraps the expression (contains chr(10) now).
+    expect(csv).toContain('contains(')
+    expect(csv).toContain('chr(10)')
+    // The header alias: benign name -> unchanged; only the value is guarded.
+    expect(csv).toContain(`"label" AS 'label'`)
   })
 })
 

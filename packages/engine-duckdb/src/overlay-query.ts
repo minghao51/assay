@@ -396,9 +396,11 @@ export function cellLiteralRawSql(value: CellValue): string {
  * could initiate a formula in a spreadsheet app is neutralized with the
  * **apostrophe-prefix convention** — a leading `'` marks the cell as text.
  * Documented trigger set (probed by the conformance suite): the rendered
- * text starts with `=`, `+`, `-`, `@`, TAB (0x09) or CR (0x0D), **or
- * contains TAB/CR anywhere** (embedded control characters can obfuscate a
- * leading initiator in spreadsheet parsers). NULL passes through as NULL.
+ * text starts with `=`, `+`, `-`, `@`, TAB (0x09), LF (0x0A) or CR (0x0D),
+ * **or contains TAB/LF/CR anywhere** (embedded control characters can
+ * obfuscate a leading initiator in spreadsheet parsers; OWASP's mitigation
+ * list includes LF alongside TAB/CR — the S1 audit finding). NULL passes
+ * through as NULL.
  *
  * This runs **pre-export, inside the SELECT the COPY consumes** — not as a
  * post-COPY byte rewrite — because (1) rewriting CSV bytes would require
@@ -425,10 +427,10 @@ export function cellLiteralRawSql(value: CellValue): string {
  * the prefix too.
  */
 export function formulaInjectionGuardSql(expr: string): string {
-  const triggers = `'=', '+', '-', '@', chr(9), chr(13)`
+  const triggers = `'=', '+', '-', '@', chr(9), chr(10), chr(13)`
   return (
     `CASE WHEN ${expr} IS NULL THEN NULL ` +
-    `WHEN contains(${expr}, chr(9)) OR contains(${expr}, chr(13)) ` +
+    `WHEN contains(${expr}, chr(9)) OR contains(${expr}, chr(10)) OR contains(${expr}, chr(13)) ` +
     `OR left(${expr}, 1) IN (${triggers}) THEN chr(39) || ${expr} ` +
     `ELSE ${expr} END`
   )
@@ -456,6 +458,32 @@ function csvSafeExpression(expr: string, type: string): string {
   if (isBlobLikeEngineType(type)) return `hex(${expr})`
   if (isStringLikeEngineType(type)) return formulaInjectionGuardSql(expr)
   return expr
+}
+
+/**
+ * The CSV **header** form of one column name — the header is row 1 of any
+ * spreadsheet, so a hostile column name (`=SUM(A2:A3)`, `+x`, `-x`, `@x`, or
+ * a name carrying TAB/LF/CR anywhere) is a live formula unless guarded. The
+ * policy is the identifier twin of {@link formulaInjectionGuardSql}: prefix
+ * the apostrophe (SQL `chr(39) || name`) when the name triggers. Because the
+ * name is a known composition-time string, the prefix is applied directly
+ * and the guarded name interpolated as a string-literal SELECT alias.
+ * Non-CSV exports never call this: there the name is a data key, not a
+ * formula, and must stay byte-identical.
+ *
+ * Known, accepted corners: (1) guarding is not injective — `=cmd` and
+ * `'=cmd` both guard to `'=cmd`, and DuckDB dedupes the colliding COPY
+ * header to `'=cmd_1` silently (no error, no data loss) — the identifier
+ * twin of the value-guard prefix collision; (2) `read_csv` cannot re-open
+ * a CSV whose *header* carries quoted CR/LF (the auto-sniffer refuses the
+ * file), so those guarded forms are pinned at the composed-SQL level, not
+ * via a round-trip — pre-existing sniffer behavior, out of our control.
+ */
+function csvHeaderGuardName(name: string): string {
+  const startsWithTrigger =
+    name.startsWith('=') || name.startsWith('+') || name.startsWith('-') || name.startsWith('@')
+  const containsControl = name.includes('\t') || name.includes('\n') || name.includes('\r')
+  return startsWithTrigger || containsControl ? `'${name}` : name
 }
 
 // ---------------------------------------------------------------------------
@@ -991,6 +1019,14 @@ export function composeOverlayExportSql(
  * feather-file MIME); the SELECT is byte-
  * identical to the COPY path's input, keeping the two formats honest
  * siblings).
+ *
+ * The projection is the **outer** SELECT above `composeSourceSql`'s
+ * `UNION ALL` branches, so a CSV header alias applies uniformly to the base
+ * and every insert branch (the branches already agree on raw column names,
+ * and the alias is positional). For `csv` only, each projected column is
+ * aliased to its apostrophe-guarded name (row 1 is a spreadsheet surface);
+ * every other format projects the raw name verbatim so json/jsonl/parquet/
+ * arrow bytes are unchanged — there a name is a data key, not a formula.
  */
 export function composeOverlayExportSelectSql(
   composition: OverlayComposition,
@@ -1002,7 +1038,11 @@ export function composeOverlayExportSelectSql(
     withKey: true,
   })
   const projection = composition.state.columns
-    .map((column) => quotedIdentifier(column.name))
+    .map((column) => {
+      const reference = quotedIdentifier(column.name)
+      if (format !== 'csv') return reference
+      return `${reference} AS ${sqlStringLiteral(csvHeaderGuardName(column.name))}`
+    })
     .join(', ')
   let sql = `SELECT ${projection} FROM (${source})`
   if ([...composition.state.inserts.values()].some((record) => record.live)) {

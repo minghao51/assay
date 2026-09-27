@@ -178,6 +178,7 @@ for (const name of SCENARIOS) {
         expect(result.facts['engineReopens']).toBe(4)
         expect(result.facts['arrowVerified']).toBe(1)
         expect(result.facts['csvSanitizationProbed']).toBe(true)
+        expect(result.facts['csvHeaderGuarded']).toBe(true)
         break
       case 'blob-csv-export-sanitized':
         // AR-E1: both the overlay (cast-to-BLOB + BLOB insert) and the

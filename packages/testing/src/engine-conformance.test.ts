@@ -132,6 +132,8 @@ interface FakeMutations {
   liesAboutOverlayRowCount?: boolean
   /** m4-2: CSV exports skip the formula-injection sanitization. */
   skipsCsvSanitization?: boolean
+  /** C1/S1: CSV exports sanitize values but write column NAMES verbatim. */
+  skipsCsvHeaderGuard?: boolean
   /** m4-2: the export result's row count is inflated by one. */
   liesAboutExportRowCount?: boolean
   /** m4-2: exporting rewrites the staged source file (breaks byte-identity). */
@@ -2351,7 +2353,7 @@ function fakeOverlayRows(
 
 /**
  * The CSV formula-injection guard in miniature (the composed guard's exact
- * documented trigger set): leading `=`, `+`, `-`, `@`, or tab/CR anywhere
+ * documented trigger set): leading `=`, `+`, `-`, `@`, or tab/LF/CR anywhere
  * gains the apostrophe prefix. `skip` is the m4-2 sanitization mutation.
  */
 function fakeSanitizeCsvCell(value: string | null, skip: boolean): string | null {
@@ -2359,11 +2361,31 @@ function fakeSanitizeCsvCell(value: string | null, skip: boolean): string | null
   if (
     ['=', '+', '-', '@'].includes(value.charAt(0)) ||
     value.includes('\t') ||
+    value.includes('\n') ||
     value.includes('\r')
   ) {
     return `'${value}`
   }
   return value
+}
+
+/**
+ * The CSV **header** guard in miniature (C1/S1): a column name is row 1 of a
+ * spreadsheet, so it takes the same trigger policy as a value. Mirrors the
+ * engine's `csvHeaderGuardName` (apostrophe prefix on trigger-leading names
+ * and names carrying tab/LF/CR anywhere). Benign names are unchanged, so
+ * existing benign-named export pins stay byte-identical.
+ */
+function fakeGuardCsvHeader(name: string): string {
+  if (
+    ['=', '+', '-', '@'].includes(name.charAt(0)) ||
+    name.includes('\t') ||
+    name.includes('\n') ||
+    name.includes('\r')
+  ) {
+    return `'${name}`
+  }
+  return name
 }
 
 /** The DuckDB BLOB aliases whose CSV rendering is hex-encoded (AR-E1). */
@@ -3024,6 +3046,7 @@ class FakeEngineClient implements ConformanceEngineClient {
     const seq = this.nextExportSeq++
     const name = `fake-export-${String(seq)}.${request.format}`
     const sanitize = request.format === 'csv' && !this.mutations.skipsCsvSanitization
+    const guardHeader = sanitize && this.mutations.skipsCsvHeaderGuard !== true
     let columns: readonly string[]
     let types: readonly string[]
     let materialized: Record<string, string | null>[]
@@ -3034,13 +3057,13 @@ class FakeEngineClient implements ConformanceEngineClient {
       if (source === null) {
         throw new FakeQueryError('fake overlay-free exports require a reopened export')
       }
-      columns = source.columns
+      columns = guardHeader ? source.columns.map(fakeGuardCsvHeader) : source.columns
       types = source.types
       materialized = source.rows.map((row) => {
         const record: Record<string, string | null> = {}
-        columns.forEach((column, index) => {
+        source.columns.forEach((column, index) => {
           const value = row[column] ?? null
-          record[column] = sanitize ? fakeCsvCell(value, types[index]!, false) : value
+          record[columns[index]!] = sanitize ? fakeCsvCell(value, types[index]!, false) : value
         })
         return record
       })
@@ -3052,14 +3075,20 @@ class FakeEngineClient implements ConformanceEngineClient {
         fakeBaseRowsFor(request.overlay.base),
         this.mutations.misordersOverlayInserts === true,
       )
-      columns = state.columns.map((column) => column.name)
+      // C1/S1: the CSV header is a spreadsheet surface too — a hostile column
+      // NAME takes the apostrophe guard exactly like a hostile value. Benign
+      // names are unchanged, so existing benign-named export pins stay
+      // byte-identical.
+      columns = guardHeader
+        ? state.columns.map((column) => fakeGuardCsvHeader(column.name))
+        : state.columns.map((column) => column.name)
       types = state.columns.map((column) => column.type)
       materialized = rows.map((row) => {
         const record: Record<string, string | null> = {}
-        for (const column of state.columns) {
+        state.columns.forEach((column, index) => {
           const value = row.cells.get(column.name) ?? null
-          record[column.name] = sanitize ? fakeCsvCell(value, column.type, false) : value
-        }
+          record[columns[index]!] = sanitize ? fakeCsvCell(value, column.type, false) : value
+        })
         return record
       })
     }
@@ -3968,6 +3997,12 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     const { passed, detail } = await runOne({ skipsCsvSanitization: true }, 'export-round-trip')
     expect(passed).toBe(false)
     expect(detail).toContain('[csv export] round-trip')
+  })
+
+  it('export-round-trip: detects CSV value sanitization with raw header NAMES (C1)', async () => {
+    const { passed, detail } = await runOne({ skipsCsvHeaderGuard: true }, 'export-round-trip')
+    expect(passed).toBe(false)
+    expect(detail).toContain('csv header formula-injection guard missing')
   })
 
   it('export-round-trip: detects a lying export row count', async () => {
