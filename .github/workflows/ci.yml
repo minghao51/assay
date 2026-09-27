@@ -33,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v4 # reads packageManager from package.json
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 # reads packageManager from package.json
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -55,15 +55,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # Pinned to the generator version recorded in fixtures/parquet/manifest.json
-      # (v1.5.5); official release asset, checksum-verified (R13 verified download).
+      # (v1.5.5); official release asset, checksum-verified (R13 verified
+      # download). Shared by both lanes via the local composite action (au2-1)
+      # so the pinned URL/checksum cannot drift between jobs.
       - name: Install DuckDB CLI v1.5.5 (sha256-pinned)
-        run: |
-          curl -sSfL -o /tmp/duckdb_cli.zip \
-            "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip"
-          echo "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05  /tmp/duckdb_cli.zip" | sha256sum --check -
-          unzip -o /tmp/duckdb_cli.zip -d /tmp/duckdb_cli
-          sudo install -m 0755 /tmp/duckdb_cli/duckdb /usr/local/bin/duckdb
-          duckdb --version
+        uses: ./.github/actions/install-duckdb
 
       # Committed fixtures must reproduce bit-identically under the pinned CLI
       # (ADR 0038); drift means fixtures changed without a deliberate manifest update.
@@ -75,11 +71,24 @@ jobs:
 
       - run: pnpm lint
 
+      # au2-1: both checks pass today but were honor-system — wire them so a
+      # missed prettier pass (q-5 lesson) or an ADR-index edit fails CI instead
+      # of waiting for a human to run the `:*:check` scripts.
+      - run: pnpm format:check
+
+      - run: pnpm adr:index:check
+
       - run: pnpm typecheck
 
       - run: pnpm test
 
       - run: pnpm build
+
+      # ar-5's done-when "enforcement" leg — previously manual-only (audit
+      # au2-1): proves the publishable tsc artifacts and the CLI bin install
+      # and run from packed tarballs under plain node (~8 s locally).
+      - name: Publish-consumer smoke (ar-5)
+        run: node apps/cli/scripts/pack-consumer-smoke.mjs
 
   e2e:
     name: playwright e2e
@@ -126,16 +135,11 @@ jobs:
 
       - run: pnpm exec playwright install --with-deps chromium
 
-      # Same pinned CLI as the verify job; available to e2e steps that generate
-      # large on-demand fixtures (never committed — ADR 0038).
+      # Same pinned CLI as the verify job, via the shared composite action
+      # (au2-1); available to e2e steps that generate large on-demand fixtures
+      # (never committed — ADR 0038).
       - name: Install DuckDB CLI v1.5.5 (sha256-pinned)
-        run: |
-          curl -sSfL -o /tmp/duckdb_cli.zip \
-            "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip"
-          echo "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05  /tmp/duckdb_cli.zip" | sha256sum --check -
-          unzip -o /tmp/duckdb_cli.zip -d /tmp/duckdb_cli
-          sudo install -m 0755 /tmp/duckdb_cli/duckdb /usr/local/bin/duckdb
-          duckdb --version
+        uses: ./.github/actions/install-duckdb
 
       - run: pnpm test:e2e
 

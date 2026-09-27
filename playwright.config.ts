@@ -9,7 +9,11 @@ const PORT_DS = Number(process.env['ASSAY_E2E_PORT_DS'] ?? 4180)
 
 export default defineConfig({
   testDir: './tests/e2e',
-  reporter: 'list',
+  // au2-1: a committed `.only` must never silently shrink the CI e2e gate.
+  forbidOnly: !!process.env['CI'],
+  // CI emits the HTML report too so the failure-artifact upload of
+  // `playwright-report/` has content (the list reporter stays in both lanes).
+  reporter: process.env['CI'] ? [['list'], ['html', { open: 'never' }]] : 'list',
   // CI gets a small retry budget (audit AR-R4, AR-R4b); local runs stay at 0
   // so flakes surface immediately instead of being papered over.
   retries: process.env['CI'] ? 2 : 0,
