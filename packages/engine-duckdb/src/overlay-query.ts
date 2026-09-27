@@ -323,6 +323,47 @@ function bucketByAnchor(
 // ---------------------------------------------------------------------------
 
 /**
+ * Reject a user-entered literal string carrying an **unpaired UTF-16
+ * surrogate** (`\uD800`–`\uDFFF` with no valid pair). The engine wire encoder
+ * (`TextEncoder` in the duckdb-wasm worker; N-API UTF-8 elsewhere) cannot
+ * represent a lone surrogate and silently replaces it with U+FFFD, so the
+ * edit would materialize — and export — a *different* value (the au3-13
+ * defect, the same lossless-or-loud shape as the NUL path). Rejecting at
+ * compose time keeps the failure loud and before any SQL reaches the engine.
+ *
+ * Only user-entered cell literals pass through this check; base-data
+ * passthrough is deliberately untouched (a U+FFFD already in a source file is
+ * a legitimate character and never reaches a literal builder). The thrown
+ * message is **value-free** (ADR 0025): it names the defect and the remedy,
+ * never the cell text.
+ */
+function assertWellFormedCellText(text: string): void {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      // A low surrogate is only valid immediately after its high surrogate
+      // (consumed below); reaching one here means it is unpaired.
+      throw unpairedSurrogateError()
+    }
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const paired = text.charCodeAt(index + 1)
+      if (paired >= 0xdc00 && paired <= 0xdfff) {
+        index += 1 // a well-formed surrogate pair: skip its low half
+      } else {
+        throw unpairedSurrogateError()
+      }
+    }
+  }
+}
+
+/** The value-free unpaired-surrogate rejection (see `assertWellFormedCellText`). */
+function unpairedSurrogateError(): Error {
+  return new Error(
+    'cell text contains an unpaired surrogate and cannot be materialized losslessly; replace it with a valid character',
+  )
+}
+
+/**
  * One `CellValue` as a typed SQL literal, cast under the column's *effective*
  * type so each UNION branch keeps the column's declared type exactly (a bare
  * literal could widen the branch type — e.g. a DOUBLE literal would silently
@@ -330,7 +371,9 @@ function bucketByAnchor(
  * emitted as text and cast under the column's type, so a bad literal
  * surfaces as a readable engine conversion error at materialization (never
  * silent corruption). Boolean/number values landing on textual columns render
- * through the engine's own cast (documented v1 behavior).
+ * through the engine's own cast (documented v1 behavior). String/text values
+ * are checked for well-formed UTF-16 first ({@link assertWellFormedCellText}):
+ * an unpaired surrogate has no lossless representation on the wire.
  */
 export function cellLiteralSql(value: CellValue, effectiveType: string): string {
   // The type string reaches SQL verbatim; validate it here as the last line
@@ -354,8 +397,10 @@ export function cellLiteralSql(value: CellValue, effectiveType: string): string 
       return `CAST(${String(value.value)} AS ${effectiveType})`
     }
     case 'string':
+      assertWellFormedCellText(value.value)
       return `CAST(${sqlStringLiteral(value.value)} AS ${effectiveType})`
     case 'text':
+      assertWellFormedCellText(value.text)
       return `CAST(${sqlStringLiteral(value.text)} AS ${effectiveType})`
   }
 }
@@ -369,7 +414,10 @@ export function cellLiteralSql(value: CellValue, effectiveType: string): string 
  * *before* the check's `TRY_CAST` — e.g. `CAST('hello' AS DOUBLE)` for a
  * string edit on a DOUBLE base — a check/commit disagreement (m4-4b round-3
  * finding). `number` values use the same `String()` round-trip form as
- * `cellLiteralSql`; strings stay single-quote escaped.
+ * `cellLiteralSql`; strings stay single-quote escaped. String/text values take
+ * the same well-formedness guard as `cellLiteralSql`
+ * ({@link assertWellFormedCellText}), so the cast check cannot silently pass a
+ * value the commit would corrupt.
  */
 export function cellLiteralRawSql(value: CellValue): string {
   switch (value.kind) {
@@ -384,8 +432,10 @@ export function cellLiteralRawSql(value: CellValue): string {
       return String(value.value)
     }
     case 'string':
+      assertWellFormedCellText(value.value)
       return sqlStringLiteral(value.value)
     case 'text':
+      assertWellFormedCellText(value.text)
       return sqlStringLiteral(value.text)
   }
 }

@@ -788,6 +788,85 @@ describe('cellLiteralSql and the formula-injection guard', () => {
   })
 })
 
+describe('cell text well-formedness guard (au3-13)', () => {
+  const LONE_HIGH = '\uD800'
+  const LONE_LOW = '\uDC00'
+  const PAIR = '\u{1F600}'
+  /** A distinctive marker to detect value-bearing error messages. */
+  const SENTINEL = 'AU3SECRET'
+
+  it('rejects an unpaired surrogate in a string cell-set, value-free', () => {
+    const composition = compositionFor([
+      {
+        kind: 'cell-set',
+        rowId: rid('base:b1#0'),
+        column: 'label',
+        value: { kind: 'string', value: `${SENTINEL}${LONE_HIGH}payload` },
+      },
+    ])
+    expect(() => composeOverlayWindowSql({ ...composition, limit: 10, offset: 0 })).toThrow(
+      /unpaired surrogate/,
+    )
+    expect(() => composeOverlayExportSelectSql(composition, 'csv')).toThrow(/unpaired surrogate/)
+    // The cast check shares the guard, so a bad edit cannot pass validation.
+    expect(() => composeOverlayCastCheckSql(composition, 'label', 'VARCHAR')).toThrow(
+      /unpaired surrogate/,
+    )
+
+    // Value-free (ADR 0025): the message names the defect, never the cell text.
+    let message = ''
+    try {
+      composeOverlayWindowSql({ ...composition, limit: 10, offset: 0 })
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    expect(message).not.toContain(LONE_HIGH)
+    expect(message).not.toContain(SENTINEL)
+    expect(message).not.toContain('payload')
+  })
+
+  it('rejects a lone low surrogate and an unpaired high surrogate at the end', () => {
+    expect(() => cellLiteralSql({ kind: 'string', value: `x${LONE_LOW}` }, 'VARCHAR')).toThrow(
+      /unpaired surrogate/,
+    )
+    expect(() => cellLiteralSql({ kind: 'string', value: `x${LONE_HIGH}` }, 'VARCHAR')).toThrow(
+      /unpaired surrogate/,
+    )
+    // The raw literal builder used by the cast check is guarded identically.
+    expect(() => cellLiteralRawSql({ kind: 'text', text: `x${LONE_LOW}` })).toThrow(
+      /unpaired surrogate/,
+    )
+  })
+
+  it('composes well-formed astral pairs and BMP strings unchanged (byte-stability)', () => {
+    expect(cellLiteralSql({ kind: 'string', value: PAIR }, 'VARCHAR')).toBe(
+      `CAST('${PAIR}' AS VARCHAR)`,
+    )
+    expect(cellLiteralSql({ kind: 'string', value: 'plain \u00e9 BMP' }, 'VARCHAR')).toBe(
+      "CAST('plain \u00e9 BMP' AS VARCHAR)",
+    )
+    expect(cellLiteralRawSql({ kind: 'string', value: `a${PAIR}b` })).toBe(`'a${PAIR}b'`)
+    // The pair survives the root-cause channel byte-for-byte.
+    expect([...new TextEncoder().encode(PAIR)]).toEqual([0xf0, 0x9f, 0x98, 0x80])
+  })
+
+  it('leaves base-data passthrough untouched: a composition with no edits composes fine', () => {
+    // The guard lives only in the user-value literal builders; a composition
+    // projecting base columns directly never invokes it (a U+FFFD already in
+    // source data is legitimate and never reaches the composer).
+    expect(
+      composeSourceSql(compositionFor([]), {
+        withRowIds: false,
+        sanitizeCsv: false,
+        withKey: false,
+      }),
+    ).toBe(
+      'SELECT "id" AS "id", "label" AS "label" FROM ' +
+        '(SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1")',
+    )
+  })
+})
+
 describe('composeOverlayCastCheckSql — the m4-4b validate-before-commit check', () => {
   it('composes the early-exit existence shape over the raw base column', () => {
     expect(composeOverlayCastCheckSql(compositionFor([]), 'label', 'BIGINT')).toBe(

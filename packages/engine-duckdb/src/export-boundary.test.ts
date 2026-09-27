@@ -10,7 +10,7 @@
  * | ---------------- | ------------------------------------ | ------------------------------------ |
  * | NUL `\u0000`     | rejected, value-free `Parser Error`  | rejected, value-free `Parser Error`  |
  * | emoji 😀 U+1F600  | round-trips byte-for-byte            | round-trips byte-for-byte            |
- * | lone `\uD800`    | silently becomes U+FFFD (DEFECT)     | silently becomes U+FFFD (DEFECT)     |
+ * | lone `\uD800`    | rejected, value-free (au3-13 guard)  | rejected, value-free (au3-13 guard)  |
  *
  * Why each outcome:
  * - `sqlStringLiteral` (used by `cellLiteralSql`/`cellLiteralRawSql`) escapes
@@ -23,13 +23,16 @@
  *   value-free.
  * - A 4-byte emoji is a well-formed UTF-8 scalar value; every composed path
  *   round-trips it exactly.
- * - A JS string can carry an *unpaired* surrogate, but the engine wire encoder
+ * - A JS string can carry an *unpaired* surrogate. The engine wire encoder
  *   (`TextEncoder` inside the duckdb-wasm worker; `Buffer.from(s, 'utf8')` in
- *   this suite) replaces it with U+FFFD before DuckDB ever sees it. DuckDB
- *   cannot represent a lone surrogate (`chr(0xD800)` → "Invalid UTF8
- *   Codepoint"), so the edit silently materializes as a different value. This
- *   is the reported defect: the root cause is the wire encoding, not the
- *   composer, so it is deliberately **not** fixed here.
+ *   this suite) replaces it with U+FFFD, and DuckDB cannot represent a lone
+ *   surrogate (`chr(0xD800)` → "Invalid UTF8 Codepoint"), so before the au3-13
+ *   guard the edit silently materialized as a *different* value. The composer
+ *   now rejects an unpaired surrogate loudly and value-free at the cell-literal
+ *   boundary (`assertWellFormedCellText`, au3-13) before any SQL reaches the
+ *   wire, so the root-cause encoding can never corrupt an accepted value.
+ *   Base-data passthrough is untouched: a U+FFFD already in a source file is a
+ *   legitimate character and never passes through a literal builder.
  *
  * The composed statements come from the real exported composers — never
  * hand-written. The pinned DuckDB CLI (`/tmp/duckdb`, overridable with
@@ -158,14 +161,26 @@ describe('AU-3 boundary probe — composed string literals', () => {
     )
   })
 
-  it('composes a lone surrogate verbatim (the wire encoding replaces it later)', () => {
-    expect(cellLiteralSql({ kind: 'string', value: LONE_SURROGATE }, 'VARCHAR')).toBe(
-      `CAST('${LONE_SURROGATE}' AS VARCHAR)`,
+  it('rejects a lone surrogate value-free at the cell-literal boundary (au3-13)', () => {
+    // Both user-literal kinds are rejected before any SQL is composed.
+    expect(() => cellLiteralSql({ kind: 'string', value: LONE_SURROGATE }, 'VARCHAR')).toThrow(
+      /unpaired surrogate/,
     )
-    // `text` (the engine-parseable literal kind) is the same channel.
-    expect(cellLiteralSql({ kind: 'text', text: LONE_SURROGATE }, 'VARCHAR')).toBe(
-      `CAST('${LONE_SURROGATE}' AS VARCHAR)`,
+    expect(() => cellLiteralSql({ kind: 'text', text: LONE_SURROGATE }, 'VARCHAR')).toThrow(
+      /unpaired surrogate/,
     )
+    expect(() => cellLiteralRawSql({ kind: 'string', value: LONE_SURROGATE })).toThrow(
+      /unpaired surrogate/,
+    )
+
+    // Value-free: the message names the defect, never the cell text.
+    let message = ''
+    try {
+      cellLiteralSql({ kind: 'string', value: LONE_SURROGATE }, 'VARCHAR')
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    expect(message).not.toContain(LONE_SURROGATE)
   })
 
   it('the engine wire encoder replaces a lone surrogate with U+FFFD', () => {
@@ -284,35 +299,27 @@ describe.skipIf(!hasDuckDbCli)('AU-3 boundary probe vs DuckDB 1.5.5 (pinned CLI)
     })
   })
 
-  it('DEFECT (reported, not fixed): a lone-surrogate edit silently materializes as U+FFFD', () => {
-    const composition = editComposition({ kind: 'string', value: `a${LONE_SURROGATE}b` })
-    const materialize = composeOverlayWindowSql({ ...composition, limit: 10, offset: 0 })
-    // The composed JS string carries the lone surrogate ...
-    expect(materialize).toContain(LONE_SURROGATE)
+  it('lone-surrogate edit is rejected value-free at compose time (au3-13 guard)', () => {
+    // The composer rejects before it produces any SQL: nothing reaches DuckDB,
+    // so the wire encoder never gets the chance to substitute U+FFFD.
+    const composition = editComposition({ kind: 'string', value: `AU3SECRET${LONE_SURROGATE}b` })
+    expect(() => composeOverlayWindowSql({ ...composition, limit: 10, offset: 0 })).toThrow(
+      /unpaired surrogate/,
+    )
+    expect(() => composeOverlayExportSql(composition, 'csv', 'out.csv')).toThrow(
+      /unpaired surrogate/,
+    )
 
-    const materialized = withDir((dir) => runStatements(dir, [...SETUP, materialize]))
-    // ... but the engine accepts it and the value has changed.
-    expect(materialized.ok).toBe(true)
-    expect(materialized.stdout).toContain('\uFFFD')
-    expect(materialized.stdout).not.toContain(LONE_SURROGATE)
-
-    withDir((dir) => {
-      const result = runStatements(dir, [
-        ...SETUP,
-        composeOverlayExportSql(composition, 'csv', 'out.csv')!,
-      ])
-      expect(result.ok).toBe(true)
-      expect(readFileSync(join(dir, 'out.csv'), 'utf8')).toContain('\uFFFD')
-    })
-
-    withDir((dir) => {
-      const result = runStatements(dir, [
-        ...SETUP,
-        composeOverlayExportSql(composition, 'json', 'out.json')!,
-      ])
-      expect(result.ok).toBe(true)
-      expect(readFileSync(join(dir, 'out.json'), 'utf8')).toContain('\uFFFD')
-    })
+    // Value-free (ADR 0025): the message names the defect, never the cell text
+    // or a neighbouring value.
+    let message = ''
+    try {
+      composeOverlayWindowSql({ ...composition, limit: 10, offset: 0 })
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    expect(message).not.toContain(LONE_SURROGATE)
+    expect(message).not.toContain('AU3SECRET')
   })
 
   it('supplementary: a NUL already in base data exports raw (data preservation)', () => {
@@ -359,6 +366,31 @@ describe.skipIf(!hasDuckDbCli)('AU-3 boundary probe vs DuckDB 1.5.5 (pinned CLI)
       expect(result.ok).toBe(true)
       const bytes = readFileSync(join(dir, 'out.csv'))
       expect(bytes.includes(0x00)).toBe(true)
+    })
+  })
+
+  it('supplementary: a U+FFFD already in base data exports raw (au3-13 data preservation)', () => {
+    // The cell-literal guard applies only to user-entered edit values; a
+    // U+FFFD read from the source file is legitimate data and must survive.
+    withDir((dir) => {
+      const source = join(dir, 'source.csv')
+      writeFileSync(source, 'id,label\n1,"a\uFFFDb"\n', 'utf8')
+      const base: OverlayBase = {
+        ...BASE,
+        baseRowCount: 1,
+      }
+      const composition = {
+        viewName: 'assay_t1',
+        base,
+        state: foldOverlay(base, []).state,
+      }
+      const result = runStatements(dir, [
+        `CREATE VIEW assay_t1 AS SELECT * FROM read_csv('${source}');`,
+        composeOverlayExportSql(composition, 'csv', 'out.csv')!,
+      ])
+      expect(result.ok).toBe(true)
+      const bytes = readFileSync(join(dir, 'out.csv'))
+      expect(bytes.includes(Buffer.from('\uFFFD', 'utf8'))).toBe(true)
     })
   })
 })
