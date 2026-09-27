@@ -20,6 +20,7 @@
       }
     }
   },
+  "//": "dist/ is shared by two builds (see vite.config.ts): the vite e2e harness emits index.html + assets/ + fixtures/ into dist/, while tsc emits the library at the dist root. The flat (non-recursive) files globs below are deliberate: they match only the library's top-level emit and exclude the harness's nested output, so the packed tarball stays library-only.",
   "files": [
     "dist/*.js",
     "dist/*.js.map",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@assay/contracts": "workspace:*",
     "@assay/diff": "workspace:*",
+    "@assay/engine": "workspace:*",
     "@assay/testing": "workspace:*",
     "@assay/validation": "workspace:*",
     "typescript": "catalog:",

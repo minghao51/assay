@@ -9,10 +9,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@assay/data-sources": "workspace:*"
-  },
   "devDependencies": {
+    "@assay/data-sources": "workspace:*",
     "typescript": "catalog:"
   },
   "license": "AGPL-3.0-or-later",
