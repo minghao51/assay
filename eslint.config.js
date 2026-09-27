@@ -1,5 +1,6 @@
 import js from '@eslint/js'
 import importX from 'eslint-plugin-import-x'
+import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 
 // q-7: browser-only globals banned in the environment-neutral packages
@@ -32,6 +33,19 @@ const BROWSER_ONLY_GLOBALS = [
   'ResizeObserver',
 ]
 
+// au2-3: packages must never import applications. The relative `**/apps/*`
+// form catches path imports; the scoped package names catch the workspace
+// app packages (`@assay/web`, `@assay/cli`) that the relative pattern alone
+// misses. The `@assay/web/*` / `@assay/cli/*` entries close the
+// subpath-import loophole. Kept as one shared object so the shared block and
+// each package block that overrides `no-restricted-imports` (domain, grid)
+// read identically.
+const APP_IMPORT_BAN = {
+  group: ['**/apps/*', '@assay/web', '@assay/cli', '@assay/web/*', '@assay/cli/*'],
+  message:
+    'Packages must not import applications (docs/engineering/03-repository-structure.md §3).',
+}
+
 export default tseslint.config(
   {
     ignores: [
@@ -46,17 +60,26 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // au2-3: React Hooks rules across TS/TSX sources. Only the two classic
+    // hook rules are enabled — NOT the plugin's `recommended` preset, which
+    // also switches on the React Compiler rule family (static-components,
+    // immutability, refs, set-state-in-effect, …); adopting that set is a
+    // separate queued task. `rules-of-hooks` is an error (a violation is a
+    // real bug); `exhaustive-deps` is a warning so existing dependency arrays
+    // are surfaced without a mass rewrite.
+    files: ['**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
+  },
+  {
     rules: {
       'no-restricted-imports': [
         'error',
         {
-          patterns: [
-            {
-              group: ['**/apps/*'],
-              message:
-                'Packages must not import applications (docs/engineering/03-repository-structure.md §3).',
-            },
-          ],
+          patterns: [APP_IMPORT_BAN],
         },
       ],
     },
@@ -243,6 +266,10 @@ export default tseslint.config(
               message:
                 'The domain package must not depend on UI or engine implementations (docs/engineering/03-repository-structure.md §3).',
             },
+            // au2-3: this block's `no-restricted-imports` replaces the shared
+            // one for `packages/domain` (flat config: last matching rule options
+            // win), so the app-import ban must be repeated here to apply.
+            APP_IMPORT_BAN,
           ],
         },
       ],
@@ -282,6 +309,10 @@ export default tseslint.config(
               message:
                 'The grid package must not depend on UI or engine implementations (docs/engineering/03-repository-structure.md §3).',
             },
+            // au2-3: this block's `no-restricted-imports` replaces the shared
+            // one for `packages/grid` (flat config: last matching rule options
+            // win), so the app-import ban must be repeated here to apply.
+            APP_IMPORT_BAN,
           ],
         },
       ],
