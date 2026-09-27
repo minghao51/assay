@@ -1,0 +1,5 @@
+---
+'@assay/engine-duckdb': patch
+---
+
+fix(au3-4): harden `DuckDbEngineClient.send()` against a synchronously-throwing `postMessage`. The pending entry is inserted before the post (so a racing reply is never dropped), but the post is now guarded: if structured clone rejects the payload (an uncloneable `File`, a hostile getter/proxy), the entry is deleted immediately and the op rejects with the typed, value-free `EngineOperationError` instead of the raw clone `TypeError` — a failed post can no longer leave a stale pending entry for an unrelated `crash()`/`dispose()` sweep to collect. `open()` and `stageComparison()` now mirror the worker-side `isFile` contract client-side: a source whose `getFile()` does not resolve to a `File` rejects with `EngineOperationError` before anything crosses the boundary, so a non-File smuggled by a host integration surfaces as a typed protocol error rather than an opaque clone failure. The AR-E3 lifecycle comment documents the insert-before-post/clear-on-failure ordering. No protocol shape, wire message, or happy-path behavior changes.

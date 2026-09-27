@@ -287,6 +287,17 @@ function engineErrorFor(requestType: EngineRequest['type'], message: string): Er
   return new EngineOperationError(message)
 }
 
+/**
+ * Structured-clone-safe `File` guard mirroring `protocol.ts`'s worker-side
+ * `isFile` contract, so `open()`/`stageComparison()` can reject a non-File
+ * source on this side of the boundary before the post. Node ≥ 20 (unit tests)
+ * and worker realms alike provide the global, so this is an honest
+ * `instanceof` rather than duck typing.
+ */
+function isFile(value: unknown): value is File {
+  return typeof File === 'function' && value instanceof File
+}
+
 /** Creates the real engine worker: this package's TS worker entry (bundled by Vite). */
 function defaultWorkerFactory(): EngineWorkerLike {
   return new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
@@ -348,11 +359,17 @@ export class DuckDbEngineClient {
    * Open a picked local file in the worker and register it with DuckDB.
    * Resolves an opaque table handle; `source.getFile()` failures (e.g. the
    * handle's file was moved/deleted) propagate from the source unchanged.
+   * A source whose `getFile()` does not resolve to a `File` rejects with
+   * `EngineOperationError` before anything crosses the boundary (the
+   * worker-side `isFile` contract mirrored client-side, au3-4).
    * Unsupported formats reject with `EngineOperationError`.
    */
   async open(source: EngineFileSource): Promise<EngineTableHandle> {
     await this.ensureReady()
     const file = await source.getFile()
+    if (!isFile(file)) {
+      throw new EngineOperationError('engine/open requires a File source')
+    }
     const response = await this.send({
       type: 'engine/open',
       requestId: this.takeRequestId(),
@@ -770,11 +787,16 @@ export class DuckDbEngineClient {
    * comparison handle; a later {@link diff} binds it as the plan's side B.
    * Only one comparison is staged at a time — re-staging replaces the
    * previous one, so repeated staging cannot leak views or registrations.
+   * A source whose `getFile()` does not resolve to a `File` rejects with
+   * `EngineOperationError` before anything crosses the boundary (au3-4).
    * Unsupported extensions reject with `EngineOperationError`.
    */
   async stageComparison(source: EngineFileSource): Promise<EngineComparisonHandle> {
     await this.ensureReady()
     const file = await source.getFile()
+    if (!isFile(file)) {
+      throw new EngineOperationError('engine/diff-stage requires a File source')
+    }
     const response = await this.send({
       type: 'engine/diff-stage',
       requestId: this.takeRequestId(),
@@ -917,12 +939,29 @@ export class DuckDbEngineClient {
       return Promise.reject(new EngineWorkerError('engine worker is not running'))
     }
     return new Promise<EngineSuccessResponse>((resolve, reject) => {
+      // AR-E3 (au3-4): the pending entry is inserted before the post so a reply
+      // that somehow races the post is never dropped, but the post is guarded:
+      // if `postMessage` rejects the payload (structured clone, e.g. an
+      // uncloneable `File`), the entry is deleted immediately and the op
+      // rejects with a typed, value-free operation error. A failed post must
+      // never leave a stale pending entry for an unrelated crash()/dispose()
+      // sweep to collect, and the raw clone TypeError (which may name payload
+      // content) never crosses the boundary.
       this.pending.set(request.requestId, {
         requestType: request.type,
         resolve,
         reject,
       })
-      worker.postMessage(request)
+      try {
+        worker.postMessage(request)
+      } catch {
+        this.pending.delete(request.requestId)
+        reject(
+          new EngineOperationError(
+            `engine request ${request.type} could not be posted to the worker`,
+          ),
+        )
+      }
     })
   }
 

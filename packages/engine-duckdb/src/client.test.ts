@@ -1445,3 +1445,101 @@ describe('DuckDbEngineClient stageComparison/diff (m6-2)', () => {
     await expect(followUp).resolves.toBe(5)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// au3-4 (S3): send() postMessage hardening + client-side File guards
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('DuckDbEngineClient send() hardening (au3-4 S3)', () => {
+  const fixtureFile = new File([new Uint8Array([1, 2, 3])], 'flat.parquet')
+  const source = { name: 'flat.parquet', getFile: () => Promise.resolve(fixtureFile) }
+
+  /** Direct observation of the client's private pending map (no public accessor exists). */
+  function pendingSize(client: DuckDbEngineClient): number {
+    return (client as unknown as { pending: Map<number, unknown> }).pending.size
+  }
+
+  function openResultResponse(requestId: number): EngineResponse {
+    return { type: 'engine/open-result', requestId, tableId: 't1', format: 'parquet' }
+  }
+
+  it('rejects with EngineOperationError and clears the pending entry when postMessage throws', async () => {
+    // Simulate the audited clone failure: the fake worker's `postMessage`
+    // throws synchronously for the open request (an uncloneable File).
+    class ThrowingWorker extends FakeWorker {
+      override postMessage(request: EngineRequest): void {
+        if (request.type === 'engine/open') {
+          throw new TypeError('could not be cloned')
+        }
+        super.postMessage(request)
+      }
+    }
+    FakeWorker.instances.length = 0
+    const factory: EngineWorkerFactory = () => new ThrowingWorker()
+    const client = new DuckDbEngineClient({ workerFactory: factory })
+    const pending = client.open(source)
+    // Attach the rejection handler before the boot reply flushes, so the
+    // deliberately-failed post is never an unhandled rejection.
+    const rejection = expect(pending).rejects.toBeInstanceOf(EngineOperationError)
+    const worker = FakeWorker.instances[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    await rejection
+
+    await expect(pending).rejects.toThrow(/could not be posted/)
+    // The raw clone TypeError must not be the rejection surface.
+    await expect(pending).rejects.not.toBeInstanceOf(TypeError)
+    // The op never crossed the boundary, and the audited stale entry is gone.
+    expect(worker.postedRequests.map((request) => request.type)).toEqual(['engine/init'])
+    expect(pendingSize(client)).toBe(0)
+    // Operational failure, not a crash: the client stays usable and clean.
+    expect(client.status).toBe('ready')
+    const retry = client.query('SELECT 1 AS value')
+    await flush()
+    worker.respond(queryResultResponse(worker.requestAt(1).requestId, [1]))
+    expectArrowValue(await retry, [1])
+    expect(pendingSize(client)).toBe(0)
+  })
+
+  it('open() rejects a non-File source with EngineOperationError before posting', async () => {
+    const { client, workers } = makeClient()
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await boot
+
+    const notAFile = { name: 'flat.parquet', size: 3 } as unknown as File
+    const guarded = client.open({ name: 'flat.parquet', getFile: () => Promise.resolve(notAFile) })
+    await expect(guarded).rejects.toBeInstanceOf(EngineOperationError)
+    await expect(guarded).rejects.toThrow(/requires a File source/)
+    // Only boot crossed the boundary — the non-File never posted.
+    expect(worker.postedRequests.map((request) => request.type)).toEqual(['engine/init'])
+    expect(pendingSize(client)).toBe(0)
+    expect(client.status).toBe('ready')
+  })
+
+  it('stageComparison() rejects a non-File source with EngineOperationError before posting', async () => {
+    const { client, workers } = makeClient()
+    const pendingOpen = client.open(source)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond(openResultResponse(worker.requestAt(1).requestId))
+    await pendingOpen
+
+    const notAFile = 'not-a-file' as unknown as File
+    const pending = client.stageComparison({
+      name: 'comparison.parquet',
+      getFile: () => Promise.resolve(notAFile),
+    })
+    await expect(pending).rejects.toBeInstanceOf(EngineOperationError)
+    await expect(pending).rejects.toThrow(/requires a File source/)
+    // Only boot + open crossed the boundary.
+    expect(worker.postedRequests.map((request) => request.type)).toEqual([
+      'engine/init',
+      'engine/open',
+    ])
+    expect(pendingSize(client)).toBe(0)
+    expect(client.status).toBe('ready')
+  })
+})
