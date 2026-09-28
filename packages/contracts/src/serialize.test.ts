@@ -264,4 +264,63 @@ describe('serializeContract — defensive reads (typed input, total function)', 
     } as unknown as ContractV1
     expect(serializeContract(contract)).toBe('format: v1\nname: c\nversion: 1\n')
   })
+
+  /**
+   * The shapes that falsify the old `String(value)` renderer (S8): each one
+   * makes JS's ToPrimitive throw, so the serializer must never route an
+   * unknown `name` through it. The object renderer is the fixed plain text
+   * `an object (no safe string form)` — deterministic, and the throwing
+   * getter's message must not surface anywhere in the output.
+   */
+  const HOSTILE_OBJECT_TEXT = 'an object (no safe string form)'
+
+  it('never throws and renders a safe placeholder for the three hostile name shapes', () => {
+    const nullPrototype: unknown = Object.create(null)
+    const hostileGetter = {
+      get toString() {
+        throw new Error('getter-message-must-not-leak')
+      },
+    }
+    const toPrimitiveBomb = {
+      get [Symbol.toPrimitive]() {
+        throw new Error('to-primitive-message-must-not-leak')
+      },
+    }
+    const noToString = { toString: null }
+
+    for (const value of [nullPrototype, hostileGetter, toPrimitiveBomb, noToString]) {
+      const contract = {
+        format: 'v1',
+        metadata: { name: value, version: 1 },
+        columns: [],
+      } as unknown as ContractV1
+      const first = serializeContract(contract)
+      const second = serializeContract(contract)
+      expect(first).toBe(second)
+      expect(first).toBe(`format: v1\nname: ${HOSTILE_OBJECT_TEXT}\nversion: 1\n`)
+      expect(first).not.toContain('getter-message')
+      expect(first).not.toContain('to-primitive-message')
+    }
+  })
+
+  it('renders a safe placeholder for a hostile column name too (the same asText path)', () => {
+    const hostileGetter = {
+      get toString() {
+        throw new Error('column-getter-message-must-not-leak')
+      },
+    }
+    const contract = {
+      format: 'v1',
+      metadata: { name: 'c', version: 1 },
+      columns: [
+        { name: hostileGetter, type: 'BIGINT' },
+        { name: Object.create(null), required: true },
+      ],
+    } as unknown as ContractV1
+    const text = serializeContract(contract)
+    expect(text).toBe(
+      `format: v1\nname: c\nversion: 1\ncolumns:\n  - name: ${HOSTILE_OBJECT_TEXT}\n    type: BIGINT\n  - name: ${HOSTILE_OBJECT_TEXT}\n    required: true\n`,
+    )
+    expect(text).not.toContain('column-getter-message')
+  })
 })

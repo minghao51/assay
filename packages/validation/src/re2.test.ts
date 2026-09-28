@@ -13,11 +13,12 @@ import { checkRe2Pattern } from './re2'
  * policy is strict: where a spelling's RE2 acceptance is uncertain, the
  * checker refuses (see the module doc for the asymmetric cost).
  *
- * The pool's size is itself pinned (50 unique patterns after the m5-1
- * re-review round 2 — which added the three claimed accepted-edge flag
- * patterns and removed an accidental `(?i)abc` duplicate; see the
- * "accepted pool is the claim" describe), and every entry is executed
- * against the pinned DuckDB CLI in the gated suite below.
+ * The pool's size is itself pinned (71 unique patterns: the m5-1 re-review
+ * round 2 pool of 70 — which added the three claimed accepted-edge flag
+ * patterns and removed an accidental `(?i)abc` duplicate — plus au3-10's
+ * astral class range `[😀-😄]`; see the "accepted pool is the claim"
+ * describe), and every entry is executed against the pinned DuckDB CLI in
+ * the gated suite below.
  */
 
 const ACCEPTED = [
@@ -45,6 +46,7 @@ const ACCEPTED = [
   '\\n\\t\\r\\f\\a',
   '\\x41\\x7A',
   '\\x{1F600}',
+  '[😀-😄]', // astral class range: U+1F600–U+1F604 (code-point bounds, not UTF-16 units)
   '\\.\\*\\+\\?\\(\\)\\[\\]\\{\\}\\|\\^\\$\\\\', // escaped punctuation
   "it's", // raw quote is a literal
   'a*',
@@ -123,8 +125,8 @@ describe('checkRe2Pattern — accepted subset', () => {
 })
 
 describe('checkRe2Pattern — the accepted pool is the claim (m5-1 re-review round 2)', () => {
-  it('the accepted pool has its exact size and uniqueness pinned — 70 unique patterns, all DuckDB-executed', () => {
-    expect(ACCEPTED).toHaveLength(70)
+  it('the accepted pool has its exact size and uniqueness pinned — 71 unique patterns, all DuckDB-executed', () => {
+    expect(ACCEPTED).toHaveLength(71)
     expect(new Set(ACCEPTED).size).toBe(ACCEPTED.length)
   })
 
@@ -318,6 +320,36 @@ describe('checkRe2Pattern — nested-repetition product bound (S7, DuckDB 1.5.5-
   })
 })
 
+describe('checkRe2Pattern — class ranges are code-point-aware (au3-10)', () => {
+  // The class walk is code-unit based, but range *endpoints* must be decoded,
+  // otherwise `[😀-😄]` (U+1F600–U+1F604) compares 😀's low surrogate
+  // (U+DE00) against 😄's high surrogate (U+D83D) and is wrongly refused as
+  // reversed — fail-closed, but with a factually wrong reason (S8/au3-10).
+
+  it('accepts an astral range that code-unit math would call reversed', () => {
+    expect(checkRe2Pattern('[😀-😄]')).toEqual({ valid: true })
+  })
+
+  it('refuses a genuinely reversed astral range with the right (code-point) reason', () => {
+    const check = checkRe2Pattern('[😄-😀]')
+    expect(check.valid).toBe(false)
+    if (!check.valid) {
+      expect(check.reason).toContain('is reversed')
+      // The reason names the real code points, not surrogate fragments.
+      expect(check.reason).toContain('😄-😀')
+    }
+  })
+
+  it('keeps BMP range behavior byte-stable', () => {
+    expect(checkRe2Pattern('[a-z]')).toEqual({ valid: true })
+    expect(checkRe2Pattern('[A-Za-z0-9_]')).toEqual({ valid: true })
+    expect(checkRe2Pattern('[z-a]')).toEqual({
+      valid: false,
+      reason: expect.stringContaining('is reversed'),
+    })
+  })
+})
+
 /**
  * Real-DuckDB agreement pins (env-gated). The checker's promise is that
  * everything it ACCEPTS is valid DuckDB RE2 — the m5-2 engine work
@@ -361,6 +393,14 @@ describe.skipIf(!hasDuckDbCli)('checkRe2Pattern — real DuckDB agreement (pinne
     for (const pattern of ['(?i-)abc', '(?i--s)abc', '\\é', '\\😀']) {
       expect(duckdbAcceptsRegex(pattern), `pattern ${JSON.stringify(pattern)}`).toBe(false)
     }
+  })
+
+  it('astral class ranges agree with DuckDB in both directions (au3-10)', () => {
+    expect(duckdbAcceptsRegex('[😀-😄]')).toBe(true)
+    expect(checkRe2Pattern('[😀-😄]')).toEqual({ valid: true })
+    // DuckDB: "Invalid Input Error: invalid character class range: 😄-😀".
+    expect(duckdbAcceptsRegex('[😄-😀]')).toBe(false)
+    expect(checkRe2Pattern('[😄-😀]').valid).toBe(false)
   })
 
   it('AR-V1 — the previously-refused pool members are DuckDB-accepted and the checker now agrees', () => {

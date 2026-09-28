@@ -150,6 +150,28 @@ function refuse(reason: string): never {
   throw new PatternRefused(reason)
 }
 
+/**
+ * Consume one full Unicode **code point** at the cursor: a well-formed
+ * surrogate pair counts as one unit, an unpaired surrogate as the single code
+ * unit it is. Class ranges compare code points, so `[😀-😄]`
+ * (U+1F600–U+1F604) is an ascending range — code-unit measurement would
+ * compare the first emoji's low surrogate against the second's high surrogate
+ * and wrongly refuse it as reversed. Used only at range-endpoint reads;
+ * mirrors the binding-time checker in `@assay/validation`.
+ */
+function consumeCodePoint(cursor: Cursor): string {
+  const first = (cursor.src[cursor.at] as string | undefined) ?? ''
+  cursor.at += 1
+  const high = first.charCodeAt(0)
+  if (high < 0xd800 || high > 0xdbff) return first
+  const second = cursor.src[cursor.at]
+  if (second === undefined) return first
+  const low = second.charCodeAt(0)
+  if (low < 0xdc00 || low > 0xdfff) return first
+  cursor.at += 1
+  return first + second
+}
+
 /** Parser cursor over UTF-16 code units. */
 interface Cursor {
   readonly src: string
@@ -499,8 +521,7 @@ function scanClass(cursor: Cursor): void {
         }
         upper = resolution.kind === 'char' ? (resolution.value.codePointAt(0) ?? 0) : 0
       } else {
-        upper = (cursor.src[cursor.at] as string).codePointAt(0) ?? 0
-        cursor.at += 1
+        upper = consumeCodePoint(cursor).codePointAt(0) ?? 0
       }
       if (lower > upper) {
         refuse(
@@ -511,9 +532,8 @@ function scanClass(cursor: Cursor): void {
       prevChar = null
       continue
     }
-    cursor.at += 1
+    prevChar = consumeCodePoint(cursor)
     items += 1
-    prevChar = ch
   }
 }
 

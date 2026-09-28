@@ -32,6 +32,10 @@
  * known fields with defensive reads, so a caller bug (a non-conforming value
  * behind a cast) degrades to deterministic, plain output rather than a raw
  * throw; such output is not guaranteed to re-parse as a *valid* contract.
+ * Object-valued `name` fields in particular never route through `String()`:
+ * they render as the fixed `an object (no safe string form)` text, because a
+ * hostile object's coercion (`Object.create(null)`, a throwing `toString`
+ * getter, `{ toString: null }`) is itself a throw (see {@link asText}).
  */
 import { Document, stringify } from 'yaml'
 import { CONTRACT_FORMAT } from './ast.js'
@@ -136,8 +140,32 @@ function isContractScalar(value: unknown): value is ContractScalar {
   return typeof value === 'string' || typeof value === 'boolean' || isFiniteNumber(value)
 }
 
+/**
+ * Total text renderer for the two fields that must be strings
+ * (`metadata.name`, `columns[].name`). Total over every value: primitives use
+ * their normal short form, but **objects are never stringified** —
+ * `String(Object.create(null))` is a TypeError ("Cannot convert object to
+ * primitive value") and an object's `toString`/`Symbol.toPrimitive` can be a
+ * hostile getter that throws (leaking its message) or is absent
+ * (`{ toString: null }`). This mirrors `describeOptionValue` in
+ * `@assay/validation`'s compiler (the same guard class); the serializer's
+ * documented totality depends on it.
+ */
 function asText(value: unknown): string {
-  return typeof value === 'string' ? value : String(value)
+  switch (typeof value) {
+    case 'string':
+      return value
+    case 'number':
+    case 'bigint':
+    case 'boolean':
+      return String(value)
+    case 'undefined':
+      return 'undefined'
+    case 'object':
+      return value === null ? 'null' : 'an object (no safe string form)'
+    default:
+      return `a ${typeof value} value` // function or symbol
+  }
 }
 
 function asPositiveInt(value: unknown, fallback: number): number {

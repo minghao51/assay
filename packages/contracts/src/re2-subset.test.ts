@@ -91,6 +91,9 @@ describe('accepted: the documented conservative subset', () => {
     accept('[]a]') // leading ] is a literal member in both dialects (AR-V1)
     accept('[]]')
     accept('[^]a]')
+    // au3-10: range endpoints are code points, so an astral range
+    // (U+1F600–U+1F604) is ascending — code-unit math would call it reversed.
+    accept('[😀-😄]')
   })
 
   it('accepts the escape whitelist', () => {
@@ -178,6 +181,7 @@ describe('refused: constructs RE2 cannot express (dialect honesty)', () => {
     reject('[]', 'unterminated character class')
     reject('[^]', 'unterminated character class')
     reject('[z-a]', 'reversed')
+    reject('[😄-😀]', 'reversed') // au3-10: genuinely reversed astral range, code-point reason
     reject('[a-\\d]', 'not a single character')
     reject('[a-[b]]', 'POSIX') // '[' as a range endpoint
     reject('a**', 'nothing to repeat')
@@ -212,6 +216,24 @@ describe('refused: constructs RE2 cannot express (dialect honesty)', () => {
     reject('\\é', 'invalid escape')
     reject('\\😀', 'invalid escape')
     reject(`(${'('.repeat(101)}a${')'.repeat(101)})`, 'nesting bound')
+  })
+})
+
+describe('astral class ranges are code-point-aware (au3-10)', () => {
+  it('accepts an ascending astral range and refuses a reversed one by code point', () => {
+    expect(checkRe2SubsetPattern('[😀-😄]')).toEqual({ valid: true })
+    const reversed = checkRe2SubsetPattern('[😄-😀]')
+    expect(reversed.valid).toBe(false)
+    if (!reversed.valid) {
+      expect(reversed.reason).toContain('is reversed')
+      expect(reversed.reason).toContain('😄-😀')
+    }
+  })
+
+  it('keeps BMP range behavior byte-stable', () => {
+    expect(checkRe2SubsetPattern('[a-z]')).toEqual({ valid: true })
+    expect(checkRe2SubsetPattern('[A-Za-z0-9_]')).toEqual({ valid: true })
+    expect(checkRe2SubsetPattern('[z-a]').valid).toBe(false)
   })
 })
 

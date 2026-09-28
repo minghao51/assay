@@ -189,6 +189,28 @@ function consume(cursor: Cursor): string {
   return ch
 }
 
+/**
+ * Consume one full Unicode **code point** from the class parser: a well-formed
+ * surrogate pair counts as one unit, an unpaired surrogate as the single code
+ * unit it is. Class ranges compare code points, so `[😀-😄]`
+ * (U+1F600–U+1F604) is an ascending range — measuring the range in code units
+ * would compare the emoji's low surrogate against the next emoji's high
+ * surrogate and wrongly report a reversed range. Used only where a range
+ * endpoint is read; the ordinary atom/class walk stays code-unit based like
+ * the rest of the checker.
+ */
+function consumeCodePoint(cursor: Cursor): string {
+  const first = consume(cursor)
+  const high = first.charCodeAt(0)
+  if (high < 0xd800 || high > 0xdbff) return first
+  const second = cursor.src[cursor.at]
+  if (second === undefined) return first
+  const low = second.charCodeAt(0)
+  if (low < 0xdc00 || low > 0xdfff) return first
+  cursor.at += 1
+  return first + second
+}
+
 function atEnd(cursor: Cursor): boolean {
   return cursor.at >= cursor.src.length
 }
@@ -600,7 +622,7 @@ function parseClass(cursor: Cursor): void {
       } else if (peek(cursor) === '[') {
         reject('invalid character class range (upper bound is a POSIX class)')
       } else {
-        upper = consume(cursor).codePointAt(0) ?? 0
+        upper = consumeCodePoint(cursor).codePointAt(0) ?? 0
       }
       if (lower > upper) {
         reject(
@@ -611,9 +633,8 @@ function parseClass(cursor: Cursor): void {
       prevChar = null
       continue
     }
-    consume(cursor)
+    prevChar = consumeCodePoint(cursor)
     items += 1
-    prevChar = ch
   }
 }
 
