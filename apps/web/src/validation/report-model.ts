@@ -52,7 +52,7 @@
  */
 import type { ColumnRuleSet, ContractError, ContractV1 } from '@assay/contracts'
 import type { OverlayBase, OverlayState, RowId } from '@assay/domain'
-import { effectiveRowIds, parseRowId } from '@assay/domain'
+import { displayRowKey, effectiveRowIds, exportRowKey, parseRowId } from '@assay/domain'
 import type { EngineValidationPlan, EngineValidationResult } from '@assay/engine-duckdb'
 import { quoteIdentifier, sqlNumberLiteral, sqlStringLiteral } from '@assay/validation'
 
@@ -164,30 +164,13 @@ export function sampleValueText(value: string | number | boolean | null): string
 /**
  * Anchor-free display form of a logical row key. The anchor token inside a
  * row key is a host-derived file-version fingerprint and is never rendered
- * (m4-3 discipline); the ordinal/sequence is the part a human needs.
- * Unparsable keys cannot occur from the engine (it guarantees resolvable
- * keys) and degrade to `unknown row` rather than echo the raw token.
+ * (m4-3 discipline); the ordinal/sequence is the part a human needs. The
+ * grammar is single-sourced from `@assay/domain` (AU-2 f-9) and re-exported
+ * here so this module's public surface is unchanged: `base #12` /
+ * `insert #3`; unparsable keys degrade to `unknown row` rather than echo the
+ * raw token.
  */
-export function displayRowKey(rowKey: string): string {
-  const parsed = parseRowId(rowKey as RowId)
-  if (parsed === null) return 'unknown row'
-  return parsed.origin === 'base'
-    ? `base #${String(parsed.ordinal)}`
-    : `insert #${String(parsed.seq)}`
-}
-
-/**
- * Anchor-free export form of a logical row key (`base:<ordinal>` /
- * `insert:<seq>`); stable enough to join back against the source data
- * without carrying the anchor fingerprint into an exported file.
- */
-export function exportRowKey(rowKey: string): string {
-  const parsed = parseRowId(rowKey as RowId)
-  if (parsed === null) return 'unknown'
-  return parsed.origin === 'base'
-    ? `base:${String(parsed.ordinal)}`
-    : `insert:${String(parsed.seq)}`
-}
+export { displayRowKey, exportRowKey }
 
 /** The severity ordering — the module doc's four clauses, as one compare. */
 export function compareReportRules(a: ValidationReportRow, b: ValidationReportRow): number {

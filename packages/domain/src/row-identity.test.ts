@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
-import { baseRowId, insertRowId, parseRowId } from './row-identity'
+import { baseRowId, displayRowKey, exportRowKey, insertRowId, parseRowId } from './row-identity'
 import type { RowId } from './row-identity'
 import { genAnchor, makeTestRng } from './property-testing'
 
@@ -71,6 +71,62 @@ describe('row identity — derivation shape', () => {
     // Non-string garbage is unrepresentable in the RowId type; parse still
     // returns null rather than throwing for a cast value.
     expect(parseRowId('nonsense' as RowId)).toBeNull()
+  })
+})
+
+describe('row identity — display/export grammar (the shared, anchor-free forms)', () => {
+  it('renders base and insert keys in the canonical display/export spellings', () => {
+    expect(displayRowKey('base:file-v1#0')).toBe('base #0')
+    expect(displayRowKey('base:file-v1#12345')).toBe('base #12345')
+    expect(displayRowKey('ins:session-1#7')).toBe('insert #7')
+    expect(exportRowKey('base:file-v1#0')).toBe('base:0')
+    expect(exportRowKey('base:file-v1#12345')).toBe('base:12345')
+    expect(exportRowKey('ins:session-1#7')).toBe('insert:7')
+  })
+
+  it('drops the anchor token entirely from both forms', () => {
+    // The anchor is a host-derived fingerprint; neither form may leak it.
+    expect(displayRowKey('base:super-secret-anchor#5')).toBe('base #5')
+    expect(exportRowKey('base:super-secret-anchor#5')).toBe('base:5')
+    expect(displayRowKey('ins:overlay-token#5')).toBe('insert #5')
+    expect(exportRowKey('ins:overlay-token#5')).toBe('insert:5')
+  })
+
+  it('degrades unparsable keys honestly — `unknown row` / `unknown`', () => {
+    for (const text of ['', 'not-a-key', 'other:a#1', 'base:a#007', 'base:a#-1', 'base:a']) {
+      expect(displayRowKey(text)).toBe('unknown row')
+      expect(exportRowKey(text)).toBe('unknown')
+    }
+  })
+
+  it('is the parse/derive identity: deriving then formatting round-trips', () => {
+    const anchor = 'file-v1#with#hashes'
+    for (const ordinal of [0, 1, 42, 9999]) {
+      const id = baseRowId(anchor, ordinal)
+      expect(displayRowKey(id)).toBe(`base #${String(ordinal)}`)
+      expect(exportRowKey(id)).toBe(`base:${String(ordinal)}`)
+      // Same inputs through parseRowId give the same anchor-free text.
+      const parsed = parseRowId(id)
+      expect(parsed).toEqual({ origin: 'base', anchor, ordinal })
+      if (parsed === null || parsed.origin !== 'base') throw new Error('unreachable')
+      expect(displayRowKey(id)).toBe(`base #${String(parsed.ordinal)}`)
+    }
+    const insertId = insertRowId('overlay#x#y', 3)
+    expect(displayRowKey(insertId)).toBe('insert #3')
+    expect(exportRowKey(insertId)).toBe('insert:3')
+  })
+
+  it('splits an anchor containing `#` at the last separator (the grammar is unambiguous)', () => {
+    // Last-`#` split: the anchor `a#b` keeps its internal hash, so the
+    // rendered ordinal/seq is the true tail, never the embedded `#b` part.
+    expect(displayRowKey(baseRowId('a#b', 9))).toBe('base #9')
+    expect(exportRowKey(baseRowId('a#b', 9))).toBe('base:9')
+    expect(displayRowKey(insertRowId('#', 4))).toBe('insert #4')
+    expect(exportRowKey(insertRowId('#', 4))).toBe('insert:4')
+    // And a malformed key whose tail is not a canonical integer still
+    // degrades rather than formatting an anchor fragment as an ordinal.
+    expect(displayRowKey('base:a#b#c')).toBe('unknown row')
+    expect(exportRowKey('base:a#b#c')).toBe('unknown')
   })
 })
 

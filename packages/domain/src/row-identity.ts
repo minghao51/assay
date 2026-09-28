@@ -111,6 +111,37 @@ export function parseRowId(id: RowId): ParsedRowId | null {
   return null
 }
 
+/**
+ * Anchor-free display form of a logical row key. The anchor token is
+ * host-derived (a file-version/session fingerprint) and is never rendered;
+ * the ordinal/sequence is the part a human needs. The wording is the shared
+ * grammar of every surface (CLI reports, the web validation/diff panels):
+ * `base #12` / `insert #3`. Unparsable keys cannot occur from the executor
+ * (it guarantees resolvable keys) and degrade to `unknown row` rather than
+ * echo the raw token.
+ */
+export function displayRowKey(rowKey: string): string {
+  const parsed = parseRowId(rowKey as RowId)
+  if (parsed === null) return 'unknown row'
+  return parsed.origin === 'base'
+    ? `base #${String(parsed.ordinal)}`
+    : `insert #${String(parsed.seq)}`
+}
+
+/**
+ * Anchor-free export form of a logical row key (`base:<ordinal>` /
+ * `insert:<seq>`) — stable enough to join back against the source data
+ * without carrying the anchor fingerprint into an exported file. Unparsable
+ * keys degrade to `unknown` rather than echo the raw token.
+ */
+export function exportRowKey(rowKey: string): string {
+  const parsed = parseRowId(rowKey as RowId)
+  if (parsed === null) return 'unknown'
+  return parsed.origin === 'base'
+    ? `base:${String(parsed.ordinal)}`
+    : `insert:${String(parsed.seq)}`
+}
+
 function parseTail(tail: string, origin: 'base' | 'insert'): ParsedRowId | null {
   const hash = tail.lastIndexOf('#')
   // No separator at all, or nothing after it (empty ordinal) → malformed.

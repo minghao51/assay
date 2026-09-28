@@ -7,14 +7,12 @@
  * `report-diff`) share exactly the concerns that must not drift between
  * surfaces: the single `reportVersion` stamp every `--format json` envelope
  * carries (`REPORT_VERSION`, the CLI's own package version — q-4/au3-12), the
- * anchor-free row-key grammar (`displayRowKey`/`exportRowKey`, used by both
- * the validation and diff renderers), and the basename-only dataset display
- * helper. Keeping them in one small module keeps those contract-visible
- * values single-sourced.
+ * anchor-free row-key grammar (`displayRowKey`/`exportRowKey`, single-sourced
+ * from `@assay/domain` beside `parseRowId` and re-exported here), and the
+ * basename-only dataset display helper. Keeping them in one small module
+ * keeps those contract-visible values single-sourced.
  */
 import { basename } from 'node:path'
-import { parseRowId } from '@assay/domain'
-import type { RowId } from '@assay/domain'
 import { readCliVersion } from './version.js'
 
 /**
@@ -28,29 +26,12 @@ import { readCliVersion } from './version.js'
 export const REPORT_VERSION = readCliVersion()
 
 /**
- * Anchor-free display form of a row key (the anchor token is host-derived and
- * never rendered). Unparsable keys cannot occur from the executor (it
- * guarantees resolvable keys) and degrade to `unknown row`.
+ * Anchor-free row-key grammar, single-sourced from `@assay/domain` (AU-2
+ * f-9): `displayRowKey` renders `base #12` / `insert #3` / `unknown row`,
+ * `exportRowKey` renders `base:12` / `insert:3` / `unknown`. The re-export
+ * keeps `./report-shared.js`'s historical public surface unchanged.
  */
-export function displayRowKey(rowKey: string): string {
-  const parsed = parseRowId(rowKey as RowId)
-  if (parsed === null) return 'unknown row'
-  return parsed.origin === 'base'
-    ? `base #${String(parsed.ordinal)}`
-    : `insert #${String(parsed.seq)}`
-}
-
-/**
- * Anchor-free export form (`base:<ordinal>` / `insert:<seq>`) — stable enough
- * to join against the source data without carrying the anchor fingerprint.
- */
-export function exportRowKey(rowKey: string): string {
-  const parsed = parseRowId(rowKey as RowId)
-  if (parsed === null) return 'unknown'
-  return parsed.origin === 'base'
-    ? `base:${String(parsed.ordinal)}`
-    : `insert:${String(parsed.seq)}`
-}
+export { displayRowKey, exportRowKey } from '@assay/domain'
 
 /** The dataset's basename for the report meta (paths stay out of stdout). */
 export function datasetDisplayName(datasetPath: string): string {
