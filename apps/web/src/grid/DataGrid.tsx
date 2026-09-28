@@ -303,11 +303,38 @@ export function DataGrid({
     commitEditValue(parsed.value)
   }
 
+  /**
+   * Measured height of the pinned header. The header now lives inside the
+   * scroll element so header and body share ONE horizontal scroll context,
+   * which means the virtualizer must offset for it: `scrollMargin` keeps the
+   * range math and `scrollToIndex` offsets in content coordinates, and
+   * `scrollPaddingStart` keeps an aligned row just below the pinned header.
+   * Measuring keeps this correct across themes, zoom, and font metrics rather
+   * than hardcoding a row height (ADR 0022: the renderer stays replaceable).
+   */
+  const headerRef = useRef<HTMLDivElement | null>(null)
+  const [headerHeight, setHeaderHeight] = useState(0)
+  useEffect(() => {
+    const element = headerRef.current
+    if (element === null) return
+    const measure = (): void => {
+      setHeaderHeight(element.getBoundingClientRect().height)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
+
   const virtualizer = useVirtualizer({
     count: totalRows,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => GRID_ROW_HEIGHT_PX,
     overscan: VIRTUALIZER_OVERSCAN_ROWS,
+    scrollMargin: headerHeight,
+    scrollPaddingStart: headerHeight,
   })
   const virtualItems = virtualizer.getVirtualItems()
   /**
@@ -417,9 +444,20 @@ export function DataGrid({
     schema.length > 0
       ? `repeat(${String(schema.length)}, minmax(9rem, 1fr))${rowActionsEnabled ? ' 5rem' : ''}`
       : '1fr'
+  /**
+   * Deterministic track floor shared by the header row and every body row: a
+   * wide container stretches the `1fr` tracks equally, and a narrow container
+   * pans exact 9rem tracks inside the scroll element — never clipping. Both
+   * regimes use the identical floor, so header and cells stay aligned.
+   */
+  const gridMinWidth =
+    schema.length > 0
+      ? `calc(${String(schema.length)} * 9rem${rowActionsEnabled ? ' + 5rem' : ''})`
+      : undefined
   const rowStyle: CSSProperties = {
     display: 'grid',
     gridTemplateColumns,
+    minWidth: gridMinWidth,
     position: 'absolute',
     top: 0,
     left: 0,
@@ -434,84 +472,88 @@ export function DataGrid({
       aria-rowcount={totalRows + 1}
       aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0)}
     >
-      <div className="grid-header" role="rowgroup">
-        <div className="grid-header-row" role="row" style={{ gridTemplateColumns }}>
-          {schema.map((column) => {
-            const sortDirection = model.sort?.column === column.name ? model.sort.direction : null
-            const sortLabel =
-              sortDirection === null
-                ? `Sort by ${column.name}`
-                : `Sort by ${column.name} (currently ${sortDirection === 'asc' ? 'ascending' : 'descending'})`
-            const headerAction = headerActions.get(column.name)
-            const headerActionLabel =
-              headerAction === undefined ? '' : nestedActionLabel(headerAction)
-            return (
-              <div
-                key={column.name}
-                className="grid-header-cell"
-                role="columnheader"
-                data-testid="grid-header-cell"
-                data-col-name={column.name}
-                data-col-type={column.type}
-                title={`${column.name}: ${column.type}`}
-              >
-                <span className="grid-header-name" data-testid="grid-header-name">
-                  {column.name}
-                </span>
-                <button
-                  type="button"
-                  className="grid-sort-toggle"
-                  data-testid="grid-sort-toggle"
+      <div className="grid-viewport" data-testid="grid-viewport" ref={scrollRef}>
+        <div className="grid-header" role="rowgroup" ref={headerRef}>
+          <div
+            className="grid-header-row"
+            role="row"
+            style={{ gridTemplateColumns, minWidth: gridMinWidth }}
+          >
+            {schema.map((column) => {
+              const sortDirection = model.sort?.column === column.name ? model.sort.direction : null
+              const sortLabel =
+                sortDirection === null
+                  ? `Sort by ${column.name}`
+                  : `Sort by ${column.name} (currently ${sortDirection === 'asc' ? 'ascending' : 'descending'})`
+              const headerAction = headerActions.get(column.name)
+              const headerActionLabel =
+                headerAction === undefined ? '' : nestedActionLabel(headerAction)
+              return (
+                <div
+                  key={column.name}
+                  className="grid-header-cell"
+                  role="columnheader"
+                  data-testid="grid-header-cell"
                   data-col-name={column.name}
-                  data-sort={sortDirection ?? 'none'}
-                  aria-label={sortLabel}
-                  title={sortLabel}
-                  onClick={() => {
-                    cycleSort(column.name)
-                  }}
+                  data-col-type={column.type}
+                  title={`${column.name}: ${column.type}`}
                 >
-                  <span aria-hidden="true">
-                    {sortDirection === 'asc' ? '▲' : sortDirection === 'desc' ? '▼' : '↕'}
+                  <span className="grid-header-name" data-testid="grid-header-name">
+                    {column.name}
                   </span>
-                </button>
-                {headerAction !== undefined && (
                   <button
                     type="button"
-                    className="grid-nested-action"
-                    data-testid="grid-header-nested-action"
+                    className="grid-sort-toggle"
+                    data-testid="grid-sort-toggle"
                     data-col-name={column.name}
-                    data-grid-action={headerAction.kind}
-                    aria-label={headerActionLabel}
-                    title={headerActionLabel}
+                    data-sort={sortDirection ?? 'none'}
+                    aria-label={sortLabel}
+                    title={sortLabel}
                     onClick={() => {
-                      onNestedAction(headerAction)
+                      cycleSort(column.name)
                     }}
                   >
-                    {nestedActionVerb(headerAction)}
+                    <span aria-hidden="true">
+                      {sortDirection === 'asc' ? '▲' : sortDirection === 'desc' ? '▼' : '↕'}
+                    </span>
                   </button>
-                )}
+                  {headerAction !== undefined && (
+                    <button
+                      type="button"
+                      className="grid-nested-action"
+                      data-testid="grid-header-nested-action"
+                      data-col-name={column.name}
+                      data-grid-action={headerAction.kind}
+                      aria-label={headerActionLabel}
+                      title={headerActionLabel}
+                      onClick={() => {
+                        onNestedAction(headerAction)
+                      }}
+                    >
+                      {nestedActionVerb(headerAction)}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+            {rowActionsEnabled && (
+              <div
+                className="grid-header-cell grid-actions-header"
+                role="columnheader"
+                data-testid="grid-actions-header"
+                aria-label="Row actions"
+              >
+                {/*
+                 * pt0-4 residue (q-3): a `columnheader` needs inner text that
+                 * is visible to screen readers — `aria-label` alone does not
+                 * satisfy axe `empty-table-header`. The visible header stays
+                 * blank; the screen-reader text names the actions column.
+                 */}
+                <span className="visually-hidden">Row actions</span>
               </div>
-            )
-          })}
-          {rowActionsEnabled && (
-            <div
-              className="grid-header-cell grid-actions-header"
-              role="columnheader"
-              data-testid="grid-actions-header"
-              aria-label="Row actions"
-            >
-              {/*
-               * pt0-4 residue (q-3): a `columnheader` needs inner text that
-               * is visible to screen readers — `aria-label` alone does not
-               * satisfy axe `empty-table-header`. The visible header stays
-               * blank; the screen-reader text names the actions column.
-               */}
-              <span className="visually-hidden">Row actions</span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
-      <div className="grid-viewport" data-testid="grid-viewport" ref={scrollRef}>
         <div
           role="rowgroup"
           style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}
@@ -617,7 +659,7 @@ export function DataGrid({
                 style={{
                   ...rowStyle,
                   height: item.size,
-                  transform: `translateY(${String(item.start)}px)`,
+                  transform: `translateY(${String(item.start - headerHeight)}px)`,
                 }}
               >
                 {status === 'ready'

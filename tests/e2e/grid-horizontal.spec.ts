@@ -1,0 +1,119 @@
+import path from 'node:path'
+import { expect, test } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
+import { cell, headerCell, openEditor } from './support/grid'
+import { openFixture } from './support/fixtures'
+
+// ux-1 regression (audit UX-1, P1): wide datasets must be horizontally
+// reachable. Before the fix the grid sized columns `repeat(N, minmax(9rem,
+// 1fr))` under `overflow-x: hidden` with the header as a sibling of the
+// virtualized body, so everything past ~8-10 columns rendered clipped and
+// unreachable — no scroll, no keyboard path, no editing path. The fix puts the
+// header inside the scroll element (shared horizontal scroll context, header
+// `position: sticky`) and gives header and body the same deterministic track
+// floor (`calc(N * 9rem [+ 5rem])`) so neither regime clips and both stay
+// aligned.
+//
+// The fixture is synthetic (fixtures/csv/wide.csv, 20 columns × 3 rows). The
+// picker path is the usual hidden-`<input type="file">` fallback.
+
+const WIDE_FIXTURE = path.join(process.cwd(), 'fixtures', 'csv', 'wide.csv')
+const WIDE_COLUMNS = 20
+const LAST_COLUMN = 'note'
+const LAST_COLUMN_INDEX = WIDE_COLUMNS - 1
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      delete (window as { showOpenFilePicker?: unknown }).showOpenFilePicker
+    } catch {
+      // Non-configurable global would be a Chromium change; fail loudly later.
+    }
+  })
+})
+
+/** The element's box must sit fully inside the scroll container's visible box. */
+async function expectWithinBox(element: Locator, container: Locator): Promise<void> {
+  const box = await element.boundingBox()
+  const containerBox = await container.boundingBox()
+  if (box === null || containerBox === null) throw new Error('missing bounding box')
+  expect(box.x).toBeGreaterThanOrEqual(containerBox.x - 1)
+  expect(box.y).toBeGreaterThanOrEqual(containerBox.y - 1)
+  expect(box.x + box.width).toBeLessThanOrEqual(containerBox.x + containerBox.width + 1)
+  expect(box.y + box.height).toBeLessThanOrEqual(containerBox.y + containerBox.height + 1)
+}
+
+/** Pan the grid to the far right with real wheel gestures (never scripted). */
+async function panToFarRight(page: Page): Promise<void> {
+  const viewport = page.getByTestId('grid-viewport')
+  await viewport.hover()
+  for (let i = 0; i < 12; i++) {
+    await page.mouse.wheel(1000, 0)
+  }
+}
+
+test('wide grid: last column is reachable by pan, keyboard, and edit', async ({ page }) => {
+  await openFixture(page, WIDE_FIXTURE)
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+  await expect(page.getByTestId('grid-header-cell')).toHaveCount(WIDE_COLUMNS)
+
+  const viewport = page.getByTestId('grid-viewport')
+  const lastHeader = headerCell(page, LAST_COLUMN)
+  const lastCell = cell(page, 0, LAST_COLUMN_INDEX)
+  await expect(lastCell).toHaveText('alpha')
+
+  // (b) scroll reachability — a genuine horizontal wheel must move the shared
+  // scroller, and the last header + last cell end up inside the visible box.
+  await panToFarRight(page)
+  const scrollLeft = await viewport.evaluate((el) => el.scrollLeft)
+  expect(scrollLeft).toBeGreaterThan(0)
+  await expectWithinBox(lastHeader, viewport)
+  await expectWithinBox(lastCell, viewport)
+
+  // Shared-context + deterministic sizing: the header's last column and the
+  // body's last column land on the same x coordinate (they must never be a
+  // content-sized mismatch).
+  const headerBox = await lastHeader.boundingBox()
+  const cellBox = await lastCell.boundingBox()
+  if (headerBox === null || cellBox === null) throw new Error('missing bounding box')
+  expect(Math.abs(headerBox.x - cellBox.x)).toBeLessThanOrEqual(2)
+
+  // (b) keyboard reachability — from the first cell, End jumps to the last
+  // column and the focus-reveal auto-scrolls it into view.
+  await viewport.evaluate((el) => {
+    el.scrollLeft = 0
+  })
+  await cell(page, 0, 0).focus()
+  await page.keyboard.press('End')
+  await expect(lastCell).toBeFocused()
+  await expect.poll(() => viewport.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+  await expectWithinBox(lastCell, viewport)
+
+  // (b) editing reachability — commit an edit in the last column.
+  await openEditor(page, 0, LAST_COLUMN_INDEX)
+  const editor = page.getByTestId('grid-editor-input')
+  await editor.fill('delta')
+  await editor.press('Enter')
+  await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
+  await expect(lastCell).toHaveText('delta')
+  await expect(lastCell).toHaveAttribute('data-dirty', 'true')
+})
+
+test('wide grid at 900px scrolls, never clips', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 })
+  await openFixture(page, WIDE_FIXTURE)
+  await expect(page.getByTestId('grid-header-cell')).toHaveCount(WIDE_COLUMNS)
+
+  const viewport = page.getByTestId('grid-viewport')
+  const { scrollWidth, clientWidth } = await viewport.evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  }))
+  expect(scrollWidth).toBeGreaterThan(clientWidth)
+
+  // A real wheel pans to the end; the last header is then fully visible.
+  await panToFarRight(page)
+  await expect.poll(() => viewport.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+  await expectWithinBox(headerCell(page, LAST_COLUMN), viewport)
+  await expectWithinBox(cell(page, 0, LAST_COLUMN_INDEX), viewport)
+})

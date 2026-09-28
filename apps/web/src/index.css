@@ -213,6 +213,17 @@ h1 {
   gap: 0.25rem;
 }
 
+/* The header lives inside `.grid-viewport` so it shares the body's single
+   horizontal scroll context; `sticky` keeps it pinned while the virtualized
+   rows scroll vertically underneath. The opaque background + z-index stop
+   rows painting over it. */
+.grid-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface-subtle);
+}
+
 .grid-header-row {
   display: grid;
   font-weight: 600;
@@ -229,8 +240,10 @@ h1 {
 
 .grid-viewport {
   height: 480px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* One scroll context owns both axes: wide column tracks pan here (the
+     header, now a child, pans with the rows); vertical virtualization keeps
+     working because this remains the virtualizer's scroll element. */
+  overflow: auto;
   border: 1px solid var(--color-border);
   position: relative;
 }
