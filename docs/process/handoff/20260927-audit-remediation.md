@@ -26,9 +26,11 @@
 
 ## 2. Follow-up queue (prioritized; pick up per the operating model)
 
-> **Pick-up note for the next agent (updated 2026-09-28, HEAD `1538e7b`).** f-1…f-9 and f-11 are
-> done (rows below marked LANDED); **only f-10 remains — solo chores + the carried hardening items
-> in §3.**
+> **Pick-up note (updated 2026-09-28, HEAD `6381637`).** **All f-1…f-11 are LANDED — the AU-2
+> f-queue is complete and closed.** Remaining §3 carry-overs are explicitly deferred (not f-queue
+> work): the f-7 vitest catch-all/count-pin and the f-11 balanced-paren/nested-paren forms are
+> de-scoped (the checker header now lists them); the `apps/vscode` tsconfig belongs to PT-V; the
+> load-dependent unit-timeout flake folds into future gate hardening.
 > Working conventions this
 > arc proved: worker → independent reviewer → orchestrator integration
 > ([operating model](operating-model.md)); e2e needs `DUCKDB=/tmp/duckdb pnpm test:e2e`;
@@ -48,7 +50,7 @@
 | f-7  | **LANDED 2026-09-28, `509bb35`** (reviewer **approve**): two disjoint `test.projects` (`web` happy-dom / `node`) replace 15 per-file docblocks; probe-proven environment-per-path (DOM probe passes in `web`, throws in `node`); totals unchanged 116/1962 (web 45/454 + node 71/1508). Warning carried (forward silent-drop risk for a new app dir or package `*.test.tsx`) → §3.                                                                                                                                                                                                                                                                                                                                                                         | `vitest.config.ts`                                                  |
 | f-8  | **LANDED 2026-09-28, `1538e7b`** (reviewer **approve**; evaluate-first done by the orchestrator, then worker + reviewer probes). Added a type-aware async-safety block (`projectService: true` scoped to `packages/*/src/**` + `apps/*/src/**`) with exactly `no-floating-promises`/`await-thenable`/`no-misused-promises`; independent probes (web + package + test sources) fire all three, a rule-off mutant kills exactly one, and **zero** violations exist in the tree. Measured cost ≈1.8× (lint ≈9→16.3 s; machine-dependent). No changeset (root config only). Carry-overs → §3.                                                                                                                                                                  | `eslint.config.js`                                                  |
 | f-9  | **LANDED 2026-09-28, `3e3d7ec`** (reviewer **approve**; copy-exact diff vs both deleted app copies + the required shared-consumption drill — a single domain mutant (`unknown row`→`unknown ROW`) failed BOTH CLI and web suites, proving no divergent copies remain). One grammar now in `@assay/domain` beside `parseRowId` (zero new imports; purity/lint clean); CLI `report-shared.ts` + web `report-model.ts` re-export domain, public surfaces and `diff-model.ts` import path intact; +5 domain tests, unit 1962→**1967**, changeset added.                                                                                                                                                                                                        | `domain` + both apps — worker + reviewer (domain is purity-guarded) |
-| f-10 | **QoL residue**: turbo `test` task decision (document why the CLI pre-build stays outside the graph, or wire it); `engines >=22` vs `.node-version` 24 alignment; `generate.sh` python3 removal; `data-sources` `build` script rename; Playwright `globalTimeout`; engines/harness note for `engine-duckdb` README (missing); stale `test-results/` local dir cleanup.                                                                                                                                                                                                                                                                                                                                                                                     | small chores, batchable solo                                        |
+| f-10 | **LANDED 2026-09-28, `87b598e` + fix `c1906ba` + orchestrator doc `68b5bcf`/`6381637`** (reviewer **request-changes → fix → approve**): turbo-`test` rationale documented in `contributing.md`; engines `>=22` now declared by all 9 buildable packages (incl. `apps/web`); Playwright `globalTimeout` 45 min; `engine-duckdb` README added (harness-vs-library outputs + files-glob rationale); `generate.sh` manifest generation ported python3→Node with byte-identical `manifest.json` (zero drift vs DuckDB 1.5.5); data-sources `build` kept with an in-file harness note; two §3 riders (f-11 footnote skip, f-8 comment); changeset. `test-results/` cleaned locally.                                                                              | small chores, batchable solo                                        |
 | f-11 | **LANDED 2026-09-28, `eff370e` + fix `6ff4872`** (reviewer **request-changes → fix → approve**): `scripts/check-doc-links.mjs` resolves relative inline + reference-definition targets in `docs/**` + root md (skips fences/inline code/external/anchors), wires `docs:links:check` into CI beside `adr:index:check`; passes 85 files, `docs/**` untouched. Fix round added CommonMark title/angle parsing + reference defs after the first-pass drill proved valid title-form links were reported broken. Edge-case carry-overs (footnote-def false positive, balanced-paren dest, nested-paren title silent miss) → §3.                                                                                                                                  | root/scripts                                                        |
 
 - **E2e flake watch (2026-09-28, f-1/f-3 reviews):** one unreproduced failure in
@@ -56,12 +58,13 @@
   (6/6 targeted + full 145+1 re-runs). Not attributed to any landed change; carry to f-10's
   Playwright hardening item — if it recurs, capture the trace before any fix.
 - **f-tooling carry-overs (2026-09-28, f-6/f-7/f-11 reviewers):** (f-7) the two project include
-  globs silently drop a future `apps/vscode/src/**` or `packages/*/src/**/*.test.tsx` — add a
-  catch-all or a test-count pin; (f-11) `check-doc-links.mjs` false-positives on GFM footnote
-  definitions (`[^1]: text`) and balanced-paren destinations, and silently misses a `(…)` title
-  containing parens — harden or extend the de-scope list; (f-6/f-7) pre-existing unit timeouts
-  under CPU load in `cli/{profile,ux}.integration.test.ts` + `contracts/round-trip.test.ts` — fold
-  into f-10 gate hardening and capture traces if they recur.
+  globs silently drop a future `apps/vscode/src/**` or `packages/*/src/**/*.test.tsx` — **descoped
+  beyond AU-2** (the `apps/vscode` tsconfig belongs to PT-V; a catch-all/count-pin is a future PT-H
+  item); (f-11) balanced-paren bare destinations and a `(…)` title containing parens remain
+  unsupported — **explicitly de-scoped in the checker header** (the GFM footnote false-positive was
+  fixed in f-10); (f-6/f-7) pre-existing unit timeouts under CPU load in
+  `cli/{profile,ux}.integration.test.ts` + `contracts/round-trip.test.ts` — fold into future gate
+  hardening and capture traces if they recur.
 - **f-8 carry-overs (2026-09-28, reviewer suggestions):** the config comment "not scripts/config/tests
   outside a tsconfig" reads as if tests are excluded — the 116 `src` test files are in fact matched;
   reword to "tests outside the tsconfig programs (e.g. `tests/**`)" when next touched. Future gap:
