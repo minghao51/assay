@@ -63,7 +63,7 @@ DUCKDB_VERSION="$DUCKDB_VERSION" node --input-type=module <<'JS'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 
-const duckdbVersion = process.env.DUCKDB_VERSION.split(/\s+/)[0]
+const duckdbVersion = process.env.DUCKDB_VERSION.trim().split(/\s+/)[0]
 const descriptions = {
   'customers.parquet': 'Typed CSV import incl. NULL income value',
   'nested.parquet': 'Nested structs/lists with nullable inner fields (50 rows)',

@@ -15,6 +15,9 @@
  * Deliberately NOT covered (do not widen this claim without implementing it):
  *   - multi-line link text, i.e. a `]` on one line and its `(` opening on a
  *     later line (this checker scans line by line);
+ *   - bare destinations containing unescaped balanced parentheses, e.g.
+ *     `./file(1).md` (the bare-destination scan stops at the first `)`);
+ *   - a `(…)` CommonMark title whose contents themselves contain parentheses;
  *   - indented code blocks (fenced code blocks are skipped).
  *
  * Skipped targets: absolute URLs (`http(s)://`), `mailto:`/`tel:`, any other

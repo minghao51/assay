@@ -80,7 +80,7 @@ export default tseslint.config(
     // f-8: type-aware async-safety rules over package/app source. `projectService`
     // uses the nearest tsconfig per file (the repo has one per package/app), so no
     // explicit `project` globbing and no per-directory blocks. Scoped to source
-    // (not scripts/config or tests outside the tsconfig programs, e.g. `tests/**`)
+    // (not scripts, config, or tests outside the tsconfig programs, e.g. `tests/**`)
     // to keep the type program small.
     // Measured cost: lint ≈9.6s → ≈17.7s (+~8s, ~1.8×); zero existing violations.
     files: ['packages/*/src/**/*.{ts,tsx}', 'apps/*/src/**/*.{ts,tsx}'],

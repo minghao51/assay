@@ -5,8 +5,8 @@
 
 chore(au2-f10): QoL residue batch.
 
-- Both packages now declare the `node: ">=22"` engines floor every other
-  buildable package already declares (AGENTS.md support floor; `.node-version`
+- `@assay/engine-duckdb`, `@assay/data-sources`, and `@assay/web` now declare
+  the `node: ">=22"` engines floor (AGENTS.md support floor; `.node-version`
   `24` stays the dev/CI pin within that range).
 - `@assay/engine-duckdb` gains a package `README.md` documenting the
   DuckDB-WASM worker engine (ADR 0002/0020/0021), the two `dist/` build

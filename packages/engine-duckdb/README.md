@@ -37,10 +37,12 @@ stays swappable).
 - `tsc --build tsconfig.build.json` emits the library at the `dist/` root.
 
 The `files` globs in [`package.json`](package.json) are flat (non-recursive)
-deliberately: they match only the library's top-level emit and exclude the
-harness's nested output (e.g. `assets/`), so a packed tarball stays
-library-only (au2-2 pack finding). During development the library surface is
-consumed directly as TypeScript source via `exports`.
+deliberately: they match only the library's top-level emit by extension
+(`dist/*.js`, `*.d.ts`, and their maps), so the harness's non-library output is
+excluded — both its nested `assets/` and its top-level `index.html` and
+`fixtures/` — and a packed tarball stays library-only (au2-2 pack finding).
+During development the library surface is consumed directly as TypeScript
+source via `exports`.
 
 ## Harness (M1 e2e + conformance)
 
