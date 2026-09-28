@@ -40,6 +40,11 @@
 | f-10 | **QoL residue**: turbo `test` task decision (document why the CLI pre-build stays outside the graph, or wire it); `engines >=22` vs `.node-version` 24 alignment; `generate.sh` python3 removal; `data-sources` `build` script rename; Playwright `globalTimeout`; engines/harness note for `engine-duckdb` README (missing); stale `test-results/` local dir cleanup.                                                   | small chores, batchable solo                                         |
 | f-11 | **Doc-link CI rider**: a relative-md-link checker (resolve every relative link in `docs/**` + root md to disk) as a cheap verify-job step or an `adr:index`-style script — would have caught au2-4's four bad links mechanically.                                                                                                                                                                                        | root/scripts                                                         |
 
+- **E2e flake watch (2026-09-28, f-1/f-3 reviews):** one unreproduced failure in
+  `tests/e2e/a11y-keyboard.spec.ts` (edit-commit path, :75/:160) across otherwise-green runs
+  (6/6 targeted + full 145+1 re-runs). Not attributed to any landed change; carry to f-10's
+  Playwright hardening item — if it recurs, capture the trace before any fix.
+
 ## 3. Standing notes
 
 - The reviewer "consider" from au2-2: the type pin is enforced by `pnpm typecheck`, not vitest
