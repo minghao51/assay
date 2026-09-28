@@ -78,6 +78,10 @@ jobs:
 
       - run: pnpm adr:index:check
 
+      # f-11: a broken relative doc link (au2-4's four) fails CI here instead
+      # of waiting for a reader to notice the dead target.
+      - run: pnpm docs:links:check
+
       - run: pnpm typecheck
 
       - run: pnpm test
