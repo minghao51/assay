@@ -100,16 +100,21 @@ describe('shouldUseColor — pipe contract, then FORCE_COLOR/NO_COLOR on a TTY',
     expect(shouldUseColor({ isTTY: false, env: { FORCE_COLOR: '' } })).toBe(false)
   })
 
-  it('NO_COLOR (non-empty) disables on a TTY; an empty value is ignored', () => {
+  it('NO_COLOR disables on a TTY for ANY value, including the empty string', () => {
     expect(shouldUseColor({ isTTY: true, env: { NO_COLOR: '1' } })).toBe(false)
     expect(shouldUseColor({ isTTY: true, env: { NO_COLOR: 'anything' } })).toBe(false)
-    expect(shouldUseColor({ isTTY: true, env: { NO_COLOR: '' } })).toBe(true)
+    expect(shouldUseColor({ isTTY: true, env: { NO_COLOR: '' } })).toBe(false)
   })
 
-  it('FORCE_COLOR=0/false disables a TTY; truthy FORCE_COLOR beats NO_COLOR', () => {
+  it('FORCE_COLOR=0/false/empty disables a TTY; any other FORCE_COLOR beats NO_COLOR', () => {
     expect(shouldUseColor({ isTTY: true, env: { FORCE_COLOR: '0' } })).toBe(false)
     expect(shouldUseColor({ isTTY: true, env: { FORCE_COLOR: 'false' } })).toBe(false)
+    // An empty FORCE_COLOR is an explicit off, not "unset".
+    expect(shouldUseColor({ isTTY: true, env: { FORCE_COLOR: '' } })).toBe(false)
+    expect(shouldUseColor({ isTTY: true, env: { FORCE_COLOR: '', NO_COLOR: '1' } })).toBe(false)
+    // Any other explicit value wins over NO_COLOR (force-color precedence).
     expect(shouldUseColor({ isTTY: true, env: { FORCE_COLOR: '1', NO_COLOR: '1' } })).toBe(true)
+    expect(shouldUseColor({ isTTY: true, env: { FORCE_COLOR: '3' } })).toBe(true)
   })
 })
 

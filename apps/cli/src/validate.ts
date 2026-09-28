@@ -85,6 +85,11 @@ export function resolveValidateOptions(flags: {
   if (datasetPath === undefined) {
     throw usageError('validate requires a dataset path (see --help)')
   }
+  if (flags.positionals.length > 1) {
+    throw usageError(
+      `validate takes exactly one dataset path (got ${String(flags.positionals.length)})`,
+    )
+  }
   const contractPath = flags.contract
   if (contractPath === undefined) {
     throw usageError('validate requires --contract <file> (see --help)')

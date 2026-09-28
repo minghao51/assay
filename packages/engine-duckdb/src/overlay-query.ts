@@ -392,6 +392,10 @@ export function cellLiteralSql(value: CellValue, effectiveType: string): string 
       if (!Number.isFinite(value.value)) {
         throw new Error(`cell number ${String(value.value)} cannot be materialized`)
       }
+      // `String(-0)` is `'0'`, so a user-entered `-0` normalizes to `+0` at
+      // this literal boundary — the single normalization point (`JSON`/
+      // `JSONL`/`CSV` all read the materialized value, and JSON.stringify(-0)
+      // is `'0'` too), so every export agrees; pinned in overlay-query.test.ts.
       // String() of a JS number is its shortest round-trip form; DuckDB
       // parses integer and scientific-decimal literals exactly.
       return `CAST(${String(value.value)} AS ${effectiveType})`
@@ -528,6 +532,11 @@ function csvSafeExpression(expr: string, type: string): string {
  * a CSV whose *header* carries quoted CR/LF (the auto-sniffer refuses the
  * file), so those guarded forms are pinned at the composed-SQL level, not
  * via a round-trip — pre-existing sniffer behavior, out of our control.
+ *
+ * Deliberate **no-BOM** policy: the exported CSV carries no UTF-8 BOM
+ * (`\uFEFF`). Byte-stable golden/conformance fixtures and programmatic
+ * consumers win over Excel's double-click encoding heuristic; a BOM is a
+ * documented non-goal of this data-interchange format, never emitted.
  */
 function csvHeaderGuardName(name: string): string {
   const startsWithTrigger =

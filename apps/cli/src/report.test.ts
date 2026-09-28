@@ -18,6 +18,7 @@ import {
   sampleValueText,
 } from './report.js'
 import type { ReportMeta, ValidationReportRow } from './report.js'
+import { readCliVersion } from './version.js'
 import type { EngineValidationPlan, EngineValidationResult } from '@assay/engine-duckdb/node'
 
 /** A report row with only the ordering-relevant fields set. */
@@ -286,6 +287,10 @@ describe('renderer determinism', () => {
     const json = renderJsonReport(report, META)
     expect(json.indexOf('"report"')).toBeLessThan(json.indexOf('"baseViewOnly"'))
     expect(json.indexOf('"baseViewOnly"')).toBeLessThan(json.indexOf('"contract"'))
+    // The producer build is stamped from the single CLI-version source.
+    expect(json.indexOf('"report"')).toBeLessThan(json.indexOf('"reportVersion"'))
+    expect(json.indexOf('"reportVersion"')).toBeLessThan(json.indexOf('"baseViewOnly"'))
+    expect((JSON.parse(json) as { reportVersion: string }).reportVersion).toBe(readCliVersion())
     // Trailing newline, no timestamps, no paths anywhere in the payload.
     expect(json.endsWith('\n')).toBe(true)
     expect(json).not.toContain(META.datasetName)

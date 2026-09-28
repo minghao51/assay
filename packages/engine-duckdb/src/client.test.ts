@@ -681,6 +681,46 @@ describe('DuckDbEngineClient file lifecycle (M1-4)', () => {
     // …and it never reached the worker at all.
     expect(worker.postedRequests.some((request) => request.type === 'engine/query')).toBe(false)
   })
+
+  it('dispose() during in-flight boot fails subsequent ops first; the boot settles harmlessly', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 20 })
+    const boot = client.ensureReady() // `engine/init` is now in flight
+    const worker = workers[0]!
+    expect(client.status).toBe('booting')
+
+    const disposePromise = client.dispose()
+    // Post-dispose ops fail-first with the typed error and never re-boot.
+    await expect(client.query('SELECT 1')).rejects.toThrow(EngineDisposedError)
+    // The in-flight boot resolves to the same typed rejection, not `undefined`.
+    await expect(boot).rejects.toThrow(EngineDisposedError)
+    await disposePromise
+
+    expect(client.status).toBe('disposed')
+    expect(worker.terminated).toBe(true)
+    // No resurrecting re-boot: still exactly one worker, no extra `engine/init`.
+    expect(workers).toHaveLength(1)
+    expect(worker.postedRequests.map((request) => request.type)).toEqual([
+      'engine/init',
+      'engine/dispose',
+    ])
+  })
+
+  it('a boot reply racing dispose() cannot resurrect the client to ready', async () => {
+    // Deliver `engine/ready`, then call dispose() before the boot continuation
+    // runs. Without the permanent disposal sentinel the continuation would set
+    // `currentStatus = 'ready'` after disposal, and a later call would re-boot.
+    const { client, workers } = makeClient({ disposeTimeoutMs: 20 })
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    const disposePromise = client.dispose()
+
+    await expect(boot).rejects.toThrow(EngineDisposedError)
+    await disposePromise
+    expect(client.status).toBe('disposed')
+    await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
+    expect(workers).toHaveLength(1)
+  })
 })
 
 describe('DuckDbEngineClient row count (M1-5)', () => {

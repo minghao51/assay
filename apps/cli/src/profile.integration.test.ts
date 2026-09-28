@@ -10,7 +10,7 @@
  * entry is the compiled artifact.
  */
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +19,11 @@ import { DATASET_VIEW, openConnection, registerDataset } from './connection.js'
 import { profileView } from './node-executor.js'
 
 const CLI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+/** The package's own version — the `reportVersion` single source of truth (q-4). */
+const PACKAGE_VERSION = (
+  JSON.parse(readFileSync(join(CLI_DIR, 'package.json'), 'utf8')) as { version: string }
+).version
 
 interface CliRun {
   readonly exitCode: number
@@ -74,6 +79,7 @@ column region (VARCHAR) — categorical — nulls 1, distinct 2
     expect(run.stderr).toBe('')
     expect(run.stdout).toBe(`{
   "report": "assay-profile-report",
+  "reportVersion": "${PACKAGE_VERSION}",
   "baseViewOnly": true,
   "dataset": {
     "name": "profile-sm.csv",

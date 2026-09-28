@@ -86,6 +86,8 @@ function countTable(count: bigint): Table {
 class FakeStream {
   /** Index into the batch sequence whose `next()` call rejects. */
   failNextAt = -1
+  /** When non-null, `cancel()` rejects with this (after releasing the slot). */
+  cancelError: unknown = null
   readonly failure = new Error('assay fake mid-stream failure')
   constructor(
     readonly schema: Table['schema'],
@@ -130,6 +132,7 @@ class FakeReader implements EngineResultReaderLike {
     // Cancelling (or fully draining) is what frees the connection's single
     // pending-query slot.
     this.release()
+    if (this.stream.cancelError !== null) throw this.stream.cancelError
   }
 }
 
@@ -147,6 +150,8 @@ class FakeConnection implements EngineConnectionLike {
   /** The T2 guard: any entry here means two ops overlapped on the connection. */
   readonly collisions: string[] = []
   cancelSentCalls = 0
+  /** When non-null, `cancelSent()` rejects with this. */
+  cancelSentError: unknown = null
 
   async send(sql: string): Promise<EngineResultReaderLike> {
     this.sentSqls.push(sql)
@@ -193,6 +198,7 @@ class FakeConnection implements EngineConnectionLike {
 
   async cancelSent(): Promise<unknown> {
     this.cancelSentCalls += 1
+    if (this.cancelSentError !== null) throw this.cancelSentError
     return true
   }
 
@@ -524,6 +530,55 @@ describe('EngineOpExecutor two-lane concurrency (T2 guarantees, m2-7 lanes)', ()
       expect(firstColumnValues(single.batchIpc)).toEqual([9])
     }
     // Single-batch result: nothing to free beyond the reader — no cancelSent.
+    expect(deps.queryConn.cancelSentCalls).toBe(1)
+    expectNoCollisions(deps)
+  })
+
+  it('a failed reader.cancel() after the first batch is swallowed: the result and the lane survive', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(queryRequest(2, 'SELECT i FROM range(5000)'))
+    await awaitSends(deps.queryConn, 1)
+    const first = intTable([1, 2, 3]).batches[0]!
+    const second = intTable([4, 5, 6]).batches[0]!
+    const stream = new FakeStream(first.schema, [first, second])
+    stream.cancelError = new Error('assay fake cancel failure')
+    deps.queryConn.sendAt(0).gate.resolve(stream)
+
+    // The successful first batch is reported; the cleanup failure is not the
+    // op's rejection surface.
+    const response = await awaitPosted(deps, 2)
+    expect(response.type).toBe('engine/query-result')
+    if (response.type === 'engine/query-result') {
+      expect(response.hasMore).toBe(true)
+      expect(firstColumnValues(response.batchIpc)).toEqual([1, 2, 3])
+    }
+    // The lane is free, so the next op runs normally (no collision).
+    executor.accept(queryRequest(3, 'SELECT 9 AS value'))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, intTable([9]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/query-result' })
+    expectNoCollisions(deps)
+  })
+
+  it('a failed cancelSent() is swallowed too: the discarded-tail hasMore report stands', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    deps.queryConn.cancelSentError = new Error('assay fake cancelSent failure')
+    executor.accept(queryRequest(2, 'SELECT i FROM range(5000)'))
+    await awaitSends(deps.queryConn, 1)
+    const first = intTable([1, 2, 3]).batches[0]!
+    const second = intTable([4, 5, 6]).batches[0]!
+    deps.queryConn.sendAt(0).gate.resolve(new FakeStream(first.schema, [first, second]))
+
+    const response = await awaitPosted(deps, 2)
+    expect(response.type).toBe('engine/query-result')
+    if (response.type === 'engine/query-result') {
+      expect(response.hasMore).toBe(true)
+      expect(firstColumnValues(response.batchIpc)).toEqual([1, 2, 3])
+    }
     expect(deps.queryConn.cancelSentCalls).toBe(1)
     expectNoCollisions(deps)
   })

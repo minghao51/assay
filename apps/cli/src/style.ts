@@ -12,9 +12,10 @@
  *      contract is absolute, so `FORCE_COLOR=1` (which test runners such as
  *      Playwright set for their OWN output and which a spawned child
  *      inherits) cannot make a pipe non-byte-stable;
- *   2. then `FORCE_COLOR` `0`/`false` disables, and an explicit truthy
- *      `FORCE_COLOR` beats `NO_COLOR` on a terminal (Node's precedence);
- *   3. else `NO_COLOR` (present, non-empty) disables;
+ *   2. then `FORCE_COLOR` disables when it is `''`, `0` (or `false`), and any
+ *      other `FORCE_COLOR` value beats `NO_COLOR` on a terminal;
+ *   3. else `NO_COLOR` (present, any value including the empty string)
+ *      disables;
  *   4. else a TTY is colored.
  *
  * The colored set is deliberately small (the brief: status words + issue
@@ -86,21 +87,27 @@ export function createReportStyle(enabled: boolean): ReportStyle {
  * A non-TTY destination is always plain — the piped-output contract wins over
  * every environment variable (this is what keeps a spawned CLI in a test
  * runner plain even though Playwright exports `FORCE_COLOR=1`). On a
- * terminal, `FORCE_COLOR=0`/`false` disables and an explicit truthy
- * `FORCE_COLOR` beats `NO_COLOR` (Node's documented order); otherwise
- * `NO_COLOR` (non-empty) disables; otherwise the terminal is colored.
+ * terminal, `FORCE_COLOR` `''`/`0`/`false` disables and any other
+ * `FORCE_COLOR` value beats `NO_COLOR` (Node's documented order); otherwise
+ * `NO_COLOR` (present, ANY value — including the empty string, matching the
+ * ecosystem's common reading) disables; otherwise the terminal is colored.
  */
 export function shouldUseColor(options: {
   readonly isTTY: boolean
   readonly env: NodeJS.ProcessEnv
 }): boolean {
   const force = options.env.FORCE_COLOR
-  const forceOff = force !== undefined && (force === '0' || force.toLowerCase() === 'false')
-  if (forceOff) return false
+  // `FORCE_COLOR=''` is an explicit "off" (not "unset"): the ecosystem treats
+  // an empty value as disabling, and the previous `force !== undefined` check
+  // mistakenly let it force color on. `0`/`false` disable too.
+  const forceOff =
+    force !== undefined && (force === '' || force === '0' || force.toLowerCase() === 'false')
   if (!options.isTTY) return false
-  const noColor = options.env.NO_COLOR
-  if (noColor !== undefined && noColor !== '') {
-    return force !== undefined
-  }
+  if (forceOff) return false
+  // Any other explicit FORCE_COLOR value wins over NO_COLOR (force-color
+  // convention: FORCE_COLOR takes precedence when both are set).
+  if (force !== undefined) return true
+  // NO_COLOR disables regardless of value — including the empty string.
+  if (options.env.NO_COLOR !== undefined) return false
   return true
 }

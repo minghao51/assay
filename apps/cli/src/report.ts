@@ -56,6 +56,17 @@ import type {
 import { ROW_DIFF_SAMPLE_HARD_MAX, VALIDATION_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
 import { plainStyle } from './style.js'
 import type { ReportStyle } from './style.js'
+import { readCliVersion } from './version.js'
+
+/**
+ * The report-format version stamped into every `--format json` envelope: the
+ * CLI's own package version — the same single source `--version` prints (q-4)
+ * — so a machine consumer can attribute a report to its producer build. This
+ * is deliberately NOT a wire-schema version; the `report` marker names the
+ * shape. Read once at module load; the value is byte-stable for a released
+ * build.
+ */
+const REPORT_VERSION = readCliVersion()
 
 /** One per-rule report row, severity-ordered by {@link compareReportRules}. */
 export interface ValidationReportRow {
@@ -285,6 +296,7 @@ function truncationLine(failCount: number, returned: number, meta: ReportMeta): 
  * fields documented in `--help`:
  *
  *     report:         'assay-validation-report' (the format marker)
+ *     reportVersion:  the CLI package version that produced the report
  *     baseViewOnly:   true — the CLI validated the RAW file, never an overlay
  *     contract:       { name, version }
  *     valid:          the total verdict
@@ -301,6 +313,7 @@ function truncationLine(failCount: number, returned: number, meta: ReportMeta): 
 export function renderJsonReport(report: ValidationReport, meta: ReportMeta): string {
   const payload = {
     report: 'assay-validation-report',
+    reportVersion: REPORT_VERSION,
     baseViewOnly: true,
     contract: { name: meta.contractName, version: meta.contractVersion },
     valid: report.valid,
@@ -405,6 +418,7 @@ export function renderHumanProfile(profile: DatasetProfile, meta: ProfileReportM
  * The `--format json` profile envelope (byte-stable reference shape):
  *
  *     report:        'assay-profile-report' (the format marker)
+ *     reportVersion: the CLI package version that produced the report
  *     baseViewOnly:  true — the CLI profiled the RAW file (no overlay)
  *     dataset:       { name (basename), format }
  *     rows:          the profiled row count
@@ -418,6 +432,7 @@ export function renderHumanProfile(profile: DatasetProfile, meta: ProfileReportM
 export function renderJsonProfile(profile: DatasetProfile, meta: ProfileReportMeta): string {
   const payload = {
     report: 'assay-profile-report',
+    reportVersion: REPORT_VERSION,
     baseViewOnly: true,
     dataset: { name: meta.datasetName, format: meta.format },
     rows: profile.rowCount,
@@ -891,6 +906,7 @@ function aspectJson(aspect: DiffAspectReport): Record<string, unknown> {
  * cross-surface agreement:
  *
  *     report:               'assay-diff-report' (the format marker)
+ *     reportVersion:        the CLI package version that produced the report
  *     baseViewOnly:         true — the CLI diffed the RAW file (no overlay)
  *     a / b:                { name (basename), format }
  *     keys / keySource:     the resolved key set and how it was chosen
@@ -909,6 +925,7 @@ export function renderJsonDiffReport(report: DiffCommandReport, meta: DiffReport
   const identical = diffReportIdentical(report)
   const payload = {
     report: 'assay-diff-report',
+    reportVersion: REPORT_VERSION,
     baseViewOnly: true,
     a: { name: meta.nameA, format: meta.formatA },
     b: { name: meta.nameB, format: meta.formatB },

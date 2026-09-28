@@ -23,6 +23,7 @@ import {
   schemaFindingLine,
 } from './report.js'
 import type { DiffCommandReport, DiffReportMeta } from './report.js'
+import { readCliVersion } from './version.js'
 
 // AR-C2 divergent-constant pin: force the `./node` seam's DIFF clamp and
 // VALIDATION clamp apart for this file. Both are 100 in production, so a pin
@@ -266,8 +267,14 @@ describe('diff report — pure helpers', () => {
     const jsonFirst = renderJsonDiffReport(report, META)
     const jsonSecond = renderJsonDiffReport(report, META)
     expect(jsonSecond).toBe(jsonFirst)
-    const payload = JSON.parse(jsonFirst) as { report: string; identical: boolean; keys: string[] }
+    const payload = JSON.parse(jsonFirst) as {
+      report: string
+      reportVersion: string
+      identical: boolean
+      keys: string[]
+    }
     expect(payload.report).toBe('assay-diff-report')
+    expect(payload.reportVersion).toBe(readCliVersion())
     expect(payload.identical).toBe(true)
     expect(payload.keys).toEqual(['id'])
   })

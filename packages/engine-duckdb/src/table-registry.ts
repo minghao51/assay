@@ -40,8 +40,8 @@ export class TableRegistry {
 
   /**
    * Reserve the next table id. Called *before* file/view creation so the
-   * caller can name things; pair with `confirm()` on success or `remove()` on
-   * failure so a failed open cannot leave a phantom entry.
+   * caller can name things; pair with `remove()` on failure so a failed open
+   * cannot leave a phantom entry.
    */
   reserve(format: NonNullable<RegisteredTable['format']>): RegisteredTable {
     const tableId = `t${this.nextSequence++}`

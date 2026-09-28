@@ -53,7 +53,14 @@ export const NULL_VALUE: CellValue = { kind: 'null' }
  * `NaN` equals `NaN` (one canonical NaN per engine), `0` and `-0` differ
  * (they can serialize differently), kinds must match (`'text'` never equals
  * `'string'`). Used by the fold's no-op detection — see `overlay.ts`.
- */
+ *
+ * Note (au3-12): a user-entered `-0` over a `0` base is therefore a real
+ * edit here, but the engine's SQL number-literal renderer normalizes it to
+ * `+0` at the single documented boundary (overlay-query.ts) — the edit
+ * materializes and exports as `0` in every format (JSON.stringify(-0) is
+ * also `'0'`). Genuine base-data `-0.0` round-trips untouched; only
+ * user-entered literals normalize. */
+
 export function cellValueEqual(a: CellValue, b: CellValue): boolean {
   if (a.kind !== b.kind) return false
   switch (a.kind) {

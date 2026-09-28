@@ -139,6 +139,7 @@ verdict: INVALID — 3 of 8 rules failing (6 rows)
     expect(run.stderr).toBe('')
     expect(run.stdout).toBe(`{
   "report": "assay-validation-report",
+  "reportVersion": "${PACKAGE_VERSION}",
   "baseViewOnly": true,
   "contract": {
     "name": "small-dirty",
@@ -508,6 +509,16 @@ error: columns[1].min (column 'region'): [rule-not-applicable] min/max bounds re
     const noPath = runCli(['validate', '--contract', files.smallContract])
     expect(noPath.exitCode).toBe(2)
     expect(noPath.stderr).toBe('validate requires a dataset path (see --help)\n')
+
+    const tooMany = runCli([
+      'validate',
+      files.small,
+      files.small,
+      '--contract',
+      files.smallContract,
+    ])
+    expect(tooMany.exitCode).toBe(2)
+    expect(tooMany.stderr).toBe('validate takes exactly one dataset path (got 2)\n')
 
     const unknownCommand = runCli(['frobnicate', files.small])
     expect(unknownCommand.exitCode).toBe(2)

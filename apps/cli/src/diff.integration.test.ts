@@ -19,7 +19,7 @@
  * shared engine machinery (the m5-4/m6-5 discipline, rebuilt on demand).
  */
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,6 +29,12 @@ import { DATASET_VIEW, openConnection, registerDatasetAs } from './connection.js
 import { prepareDiffPlan, runDiffPlan } from './node-executor.js'
 
 const CLI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+/** The package's own version — the `reportVersion` single source of truth (q-4). */
+const PACKAGE_VERSION = (
+  JSON.parse(readFileSync(join(CLI_DIR, 'package.json'), 'utf8')) as { version: string }
+).version
+
 const COMPARISON_VIEW = 'assay_t2'
 
 interface CliRun {
@@ -124,6 +130,7 @@ verdict: IDENTICAL — no differences found (row diff ran on keys: id; schema/pr
     expect(run.stderr).toBe('')
     expect(run.stdout).toBe(`{
   "report": "assay-diff-report",
+  "reportVersion": "${PACKAGE_VERSION}",
   "baseViewOnly": true,
   "a": {
     "name": "same-a.csv",

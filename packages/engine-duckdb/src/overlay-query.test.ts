@@ -546,6 +546,14 @@ describe('cellLiteralSql and the formula-injection guard', () => {
     )
   })
 
+  it('normalizes a user-entered -0 to +0 at the single literal boundary (-0 QoL)', () => {
+    // `String(-0)` is `'0'`, so the SQL literal, the raw cast-check literal,
+    // and every export format (all read the materialized engine value) agree
+    // on +0. This is the ONE normalization point; no per-format divergence.
+    expect(cellLiteralSql({ kind: 'number', value: -0 }, 'DOUBLE')).toBe('CAST(0 AS DOUBLE)')
+    expect(cellLiteralRawSql({ kind: 'number', value: -0 })).toBe('0')
+  })
+
   it('renders a raw value literal with no type wrapper for the cast check (m4-4b round 3)', () => {
     // The check applies `TRY_CAST(<raw literal> AS target)`; a wrapper cast to
     // the base column type (`CAST('hello' AS DOUBLE)`) could throw before the

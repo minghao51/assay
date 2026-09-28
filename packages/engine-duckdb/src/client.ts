@@ -307,6 +307,15 @@ const DEFAULT_DISPOSE_TIMEOUT_MS = 5_000
 
 export class DuckDbEngineClient {
   private currentStatus: EngineStatus = 'idle'
+  /**
+   * Permanent disposal sentinel: set the instant `dispose()` begins and never
+   * cleared. `currentStatus` alone is not enough — a boot whose `engine/init`
+   * reply races disposal could otherwise overwrite `'disposed'` with `'ready'`
+   * and resurrect the client. Every entry point checks this first, so
+   * post-dispose calls fail-first with the typed disposal error instead of
+   * racing a stale boot or re-booting a disposed instance.
+   */
+  private disposed = false
   private worker: EngineWorkerLike | null = null
   private readonly pending = new Map<number, PendingRequest>()
   private nextRequestId = 1
@@ -331,7 +340,7 @@ export class DuckDbEngineClient {
    * a fresh worker.
    */
   async ensureReady(): Promise<EngineReadyInfo> {
-    if (this.currentStatus === 'disposed') throw new EngineDisposedError()
+    if (this.disposed || this.currentStatus === 'disposed') throw new EngineDisposedError()
     this.ready ??= this.boot()
     return this.ready
   }
@@ -863,7 +872,7 @@ export class DuckDbEngineClient {
    * idempotent; safe before the first boot.
    */
   async dispose(): Promise<void> {
-    if (this.currentStatus === 'disposed') return
+    if (this.disposed || this.currentStatus === 'disposed') return
     this.disposal ??= this.runDisposal()
     await this.disposal
   }
@@ -871,6 +880,9 @@ export class DuckDbEngineClient {
   private async runDisposal(): Promise<void> {
     // Terminal immediately: in-flight and new main-thread calls reject with
     // `EngineDisposedError` while the worker finishes its graceful cleanup.
+    // The sentinel is set first and never cleared, so a boot that races this
+    // call cannot flip the client back to `'ready'` (see `boot`).
+    this.disposed = true
     this.currentStatus = 'disposed'
     this.failAllPending(new EngineDisposedError())
     const worker = this.worker
@@ -908,15 +920,27 @@ export class DuckDbEngineClient {
       if (response.type !== 'engine/ready') {
         throw new EngineProtocolError(`unexpected ${response.type} response for engine/init`)
       }
+      // Fail-first: if `dispose()` began while `engine/init` was in flight, the
+      // client is permanently disposed — never advance to `'ready'` (that was
+      // the dispose-racing-boot resurrection bug). The boot settles with the
+      // typed disposal error instead.
+      if (this.disposed) throw new EngineDisposedError()
       this.currentStatus = 'ready'
       return { duckdbVersion: response.duckdbVersion }
     } catch (error) {
-      // Boot failed: tear down so the next call attempts a fresh boot.
       this.failAllPending(new EngineWorkerError('engine boot failed', { cause: error }))
-      this.worker?.terminate()
-      this.worker = null
-      this.ready = null
-      if (this.currentStatus !== 'disposed') this.currentStatus = 'failed'
+      if (this.disposed) {
+        // `dispose()` owns the worker now: it will terminate after its own
+        // graceful handshake, so do not tear down here (an early terminate
+        // would abort that handshake and force the disposal timeout).
+        this.ready = null
+      } else {
+        // Boot failed on its own: tear down so the next call boots afresh.
+        this.worker?.terminate()
+        this.worker = null
+        this.ready = null
+        this.currentStatus = 'failed'
+      }
       throw error
     }
   }
@@ -931,7 +955,7 @@ export class DuckDbEngineClient {
     // would add a fresh pending entry and post to a terminated worker, never
     // to settle. The internal graceful-dispose send passes `workerOverride`
     // and is deliberately allowed through.
-    if (workerOverride === undefined && this.currentStatus === 'disposed') {
+    if (workerOverride === undefined && (this.disposed || this.currentStatus === 'disposed')) {
       return Promise.reject(new EngineDisposedError())
     }
     const worker = workerOverride ?? this.worker
@@ -1031,7 +1055,7 @@ export class DuckDbEngineClient {
     this.worker?.terminate()
     this.worker = null
     this.ready = null
-    if (this.currentStatus !== 'disposed') this.currentStatus = 'failed'
+    if (!this.disposed) this.currentStatus = 'failed'
   }
 
   private failAllPending(reason: Error): void {

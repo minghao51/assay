@@ -128,9 +128,11 @@ interface DiffInference {
   }
 }
 
-/** The shared report envelope (web export ≡ CLI `--format json` ± two fields). */
+/** The shared report envelope (web export ≡ CLI `--format json` ± three fields). */
 interface DiffEnvelope {
   readonly report: string
+  /** CLI-only (au3-12): the producing `@assay/cli` package version. */
+  readonly reportVersion?: string
   readonly baseViewOnly: boolean
   /** CLI-only. */
   readonly a?: { readonly name: string; readonly format: string }
@@ -519,14 +521,16 @@ async function isBefore(page: Page, firstTestId: string, secondTestId: string): 
 }
 
 /**
- * The surface-neutral slice of an envelope: exactly the two documented
- * surface differences are removed — the CLI's `a`/`b` basenames and the web's
- * `stale` flag. Everything else must be identical.
+ * The surface-neutral slice of an envelope: exactly the documented surface
+ * differences are removed — the CLI's `a`/`b` basenames, the CLI's
+ * `reportVersion` (the CLI package version, au3-12), and the web's `stale`
+ * flag. Everything else must be identical.
  */
 function comparable(envelope: DiffEnvelope): Record<string, unknown> {
   const copy: Record<string, unknown> = { ...envelope }
   delete copy['a']
   delete copy['b']
+  delete copy['reportVersion']
   delete copy['stale']
   return copy
 }
@@ -684,6 +688,8 @@ test('M6 exit journey: same two files agree EXACTLY across web and CLI (schema d
   const webPath = await exportReportJson(page)
   const web = JSON.parse(readFileSync(webPath, 'utf8')) as DiffEnvelope
   expect(web.report).toBe('assay-diff-report')
+  // CLI-only by design (au3-12): the web export must never carry it.
+  expect(web).not.toHaveProperty('reportVersion')
   expect(web.stale).toBe(false)
   expect(web.baseViewOnly).toBe(true)
   // The web export omits the file names by construction (privacy).

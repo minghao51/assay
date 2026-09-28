@@ -1631,8 +1631,13 @@ export class EngineOpExecutor {
       hasMore = !peek.done
       return { batchIpc: tableToIPC(new Table(first.value)), hasMore }
     } finally {
-      // The cancel promises are awaited (with the error swallowed and noted):
-      // a cancel failure must not mask the original error or the result.
+      // Cancel-failure policy (deliberate, pinned in engine-executor.test.ts):
+      // cleanup is best-effort and never changes this op's outcome. The first
+      // batch was already read (or the original error already thrown), so
+      // `reader.cancel()` and `cancelSent()` are awaited to free the
+      // connection, and a failure is swallowed so it cannot mask the result or
+      // the original error with a second, unrelated failure. The discarded
+      // tail is still reported honestly through `hasMore`.
       await reader.cancel().catch(() => undefined)
       if (hasMore) {
         // Free the connection; the discarded tail is reported via `hasMore`.
