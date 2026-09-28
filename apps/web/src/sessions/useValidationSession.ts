@@ -101,6 +101,15 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
   /** Jump/filter feedback for the panel (readable, value-free). */
   const [jumpError, setJumpError] = useState<string | null>(null)
   const [filterToFailuresError, setFilterToFailuresError] = useState<string | null>(null)
+  /**
+   * f-2: latest overlay revision without making `handleValidate` depend on
+   * it. The handler records the revision a verdict ran against; reading a
+   * ref at click time keeps that value current while leaving the callback
+   * identity stable across edit commits, so the memoized validation panel is
+   * not forced to re-render by an ordinary cell edit.
+   */
+  const overlayRevisionRef = useRef(overlayRevision)
+  overlayRevisionRef.current = overlayRevision
 
   /**
    * Freshness: a verdict (or binding-error report) stores the overlay
@@ -153,7 +162,7 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
     if (phase.kind !== 'ready' || contractState.kind !== 'loaded') return
     const sessionId = session.tokenRef.current
     const seq = ++validationSeq.current
-    const revision = overlayRevision
+    const revision = overlayRevisionRef.current
     const { base, handle } = phase
     const contract = contractState.contract
     setValidationRun({ kind: 'running' })
@@ -190,7 +199,7 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
         setValidationRun({ kind: 'failed', message: engineRejectionMessage(error) })
       }
     })()
-  }, [phase, contractState, overlayRevision, session, historyRef, overlayRef])
+  }, [phase, contractState, session, historyRef, overlayRef])
 
   const handleCancelValidate = useCallback(() => {
     validationSeq.current += 1

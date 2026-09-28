@@ -1,0 +1,5 @@
+---
+'@assay/web': patch
+---
+
+perf(au2-f2): memoize the Schema/Validation/Diff/Inspector panel boundaries so App-local state changes stop re-rendering the whole ready-phase tree. `App.tsx` memoizes the schema panel and the record inspector at the composition root; `lib/bottom-panels.ts` memoizes the lazily-imported validation and diff panels at the chunk seam (the resolved promise is now cached so the wrappers keep one identity per app lifetime). Two instabilities that would have defeated the boundaries are fixed: `useStableColumns` reuses the effective-schema array when a `model.refresh()` re-projects identical columns, and the validation/diff session handlers read the latest `overlayRevision` through a ref so their callback identities stay stable across an ordinary edit. The inspector's inline `onClosed` closure is replaced with a `useCallback`. **No behavior change**: all existing unit/e2e tests pass unchanged, and a new render-count probe pins that an edit commit re-renders only the inspector (which consumes `overlayRevision` for freshness) and that an unrelated export-dialog toggle re-renders no panel.

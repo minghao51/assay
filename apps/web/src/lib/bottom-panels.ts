@@ -21,11 +21,20 @@
  * f-1: lifted verbatim from `App.tsx`; the module-state pattern is the pinned
  * property, not its file location.
  */
+import { memo } from 'react'
+import type { ComponentProps, ComponentType } from 'react'
+
 export interface BottomPanelModules {
-  readonly ValidationPanel: (typeof import('../validation/ValidationPanel'))['ValidationPanel']
-  readonly DiffPanel: (typeof import('../diff/DiffPanel'))['DiffPanel']
-  readonly SqlPanel: (typeof import('../sql/SqlPanel'))['SqlPanel']
-  readonly ProfilePanel: (typeof import('../profile/ProfilePanel'))['ProfilePanel']
+  readonly ValidationPanel: ComponentType<
+    ComponentProps<(typeof import('../validation/ValidationPanel'))['ValidationPanel']>
+  >
+  readonly DiffPanel: ComponentType<
+    ComponentProps<(typeof import('../diff/DiffPanel'))['DiffPanel']>
+  >
+  readonly SqlPanel: ComponentType<ComponentProps<(typeof import('../sql/SqlPanel'))['SqlPanel']>>
+  readonly ProfilePanel: ComponentType<
+    ComponentProps<(typeof import('../profile/ProfilePanel'))['ProfilePanel']>
+  >
 }
 
 let validationPanelImport: Promise<typeof import('../validation/ValidationPanel')> | null = null
@@ -42,21 +51,32 @@ const loadSqlPanel = (): Promise<typeof import('../sql/SqlPanel')> =>
 const loadProfilePanel = (): Promise<typeof import('../profile/ProfilePanel')> =>
   (profilePanelImport ??= import('../profile/ProfilePanel'))
 
+let panelsPromise: Promise<BottomPanelModules> | null = null
+
 /**
  * Load every below-fold chunk (see above). Resolves to the panel components
  * the open flow publishes as state before `ready`, so the composed grid and
  * panels mount in one synchronous render.
+ *
+ * f-2: Validation and Diff are wrapped in `React.memo` here at the
+ * lazy-module seam — the chunk-resolution point owns the component identity,
+ * so a memoized wrapper is the honest boundary. The props App passes are
+ * `useCallback`/module-stable and neither panel consumes the edit session's
+ * state, so an ordinary edit commit leaves them untouched. The resolved
+ * promise (and therefore the memo wrappers) is cached at module scope:
+ * creating a fresh wrapper per call would change the component type and
+ * remount the panels on every open.
  */
 export function preloadBottomPanels(): Promise<BottomPanelModules> {
-  return Promise.all([
+  return (panelsPromise ??= Promise.all([
     loadValidationPanel(),
     loadDiffPanel(),
     loadSqlPanel(),
     loadProfilePanel(),
   ]).then(([validation, diff, sql, profile]) => ({
-    ValidationPanel: validation.ValidationPanel,
-    DiffPanel: diff.DiffPanel,
+    ValidationPanel: memo(validation.ValidationPanel),
+    DiffPanel: memo(diff.DiffPanel),
     SqlPanel: sql.SqlPanel,
     ProfilePanel: profile.ProfilePanel,
-  }))
+  })))
 }

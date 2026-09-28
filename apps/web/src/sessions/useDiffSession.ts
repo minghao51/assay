@@ -85,6 +85,15 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
   const comparisonSeq = useRef(0)
   const diffSeq = useRef(0)
   const comparisonRef = useRef<EngineComparisonHandle | null>(null)
+  /**
+   * f-2: latest overlay revision without making `handleRunDiff` depend on
+   * it. The diff result records the revision it ran against; reading a ref
+   * at click time keeps that value current while leaving the callback
+   * identity stable across edit commits, so the memoized diff panel is not
+   * forced to re-render by an ordinary cell edit.
+   */
+  const overlayRevisionRef = useRef(overlayRevision)
+  overlayRevisionRef.current = overlayRevision
 
   /**
    * m6-4 freshness: a row diff (or binding-error report) computed before the
@@ -171,7 +180,7 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
       if (comparison === null) return
       const sessionId = session.tokenRef.current
       const seq = ++diffSeq.current
-      const revision = overlayRevision
+      const revision = overlayRevisionRef.current
       const { diff, schemaB } = comparisonState
       setDiffRun({ kind: 'running' })
       void (async () => {
@@ -211,7 +220,7 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
         }
       })()
     },
-    [phase, comparisonState, overlayRevision, session, historyRef, overlayRef],
+    [phase, comparisonState, session, historyRef, overlayRef],
   )
 
   const handleCancelDiff = useCallback(() => {

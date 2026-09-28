@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { viewNameForTableId } from '@assay/engine-duckdb'
 import type { OverlayBase } from '@assay/domain'
 import { emptyHistory, liveRowCount, stateAtCursor } from '@assay/domain'
 import { GridViewportModel } from '@assay/grid'
+import type { ColumnSchema } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
 import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
@@ -52,6 +61,44 @@ function LiveTableInfo({ model, tableId }: { model: GridViewportModel; tableId: 
     </p>
   )
 }
+
+/**
+ * f-2: reuse the previous effective-schema array when its content is
+ * unchanged. `model.refresh()` re-reads the schema on every edit commit and
+ * `DuckDbGridProvider.schema()` projects a fresh array each time even when
+ * the columns are identical, which would make the `columns` prop unstable
+ * across an edit and defeat `React.memo` on the schema panel. Rename/cast
+ * are the only edits that change the schema, and they change this signature
+ * (name/type/nullable), so the reused reference is always the current
+ * schema. Ref-in-render is the q-1 `use-model-slice` cache pattern (not a
+ * side effect the panels can observe).
+ */
+function useStableColumns(columns: readonly ColumnSchema[]): readonly ColumnSchema[] {
+  const ref = useRef(columns)
+  const signature = columns
+    .map((column) => `${column.name}\t${column.type}\t${String(column.nullable)}`)
+    .join('\u0000')
+  const signatureRef = useRef(signature)
+  if (signatureRef.current !== signature) {
+    signatureRef.current = signature
+    ref.current = columns
+  }
+  return ref.current
+}
+
+/**
+ * f-2: memoized panel boundaries for the ready phase. App re-renders on
+ * every editing-session state change (history, overlay revision, announced
+ * outcome) and on every `model.refresh()` notification; the schema panel and
+ * the record inspector receive only references that are stable across those
+ * changes (the value-stable schema slice above plus `useCallback` handlers),
+ * so `memo` lets React skip their subtrees. The record inspector deliberately
+ * consumes `overlayRevision` and therefore does re-render on an edit — that
+ * is the freshness signal, not a leak. Validation/Diff are memoized at their
+ * lazy-module seam in `lib/bottom-panels.ts` (the chunk-resolution point).
+ */
+const MemoSchemaPanel = memo(SchemaPanel)
+const MemoRecordInspector = memo(RecordInspector)
 
 export function App() {
   /**
@@ -241,7 +288,7 @@ export function App() {
   const activeModel = phase.kind === 'ready' ? phase.model : null
   const { schema: modelSchema, sort: modelSort, filters: modelFilters } = useModelSlice(activeModel)
 
-  const schemaColumns = modelSchema ?? NO_COLUMNS
+  const schemaColumns = useStableColumns(modelSchema ?? NO_COLUMNS)
   const nestedSpecs = useMemo(
     () =>
       schemaColumns.map((column) => ({ name: column.name, type: parseDuckDbType(column.type) })),
@@ -261,6 +308,10 @@ export function App() {
     },
     [phase, nestedSpecs],
   )
+
+  const handleRecordClosed = useCallback(() => {
+    setRecordRequest(null)
+  }, [])
 
   const openDataFile = useCallback(async () => {
     // AR-W13: generation guard. `beginSession` bumps the shared session token
@@ -407,7 +458,7 @@ export function App() {
               {actionError}
             </p>
           )}
-          <SchemaPanel
+          <MemoSchemaPanel
             columns={schemaColumns}
             onAction={runNestedAction}
             onRenameColumn={handleRenameColumn}
@@ -559,13 +610,11 @@ export function App() {
            * composes single-column, full-width disclosure sections (schema →
            * editing → filters → grid → record → SQL → profile).
            */}
-          <RecordInspector
+          <MemoRecordInspector
             model={phase.model}
             request={recordRequest}
             overlayRevision={overlayRevision}
-            onClosed={() => {
-              setRecordRequest(null)
-            }}
+            onClosed={handleRecordClosed}
           />
           {panelModules === null ? null : (
             <panelModules.SqlPanel tableId={phase.tableId} runRequest={sqlRequest} />
