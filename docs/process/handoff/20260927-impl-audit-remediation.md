@@ -169,7 +169,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
   DataGrid rendering — land this first, or one session owns both).
   Changeset (patch, web).
 
-#### au3-9 — ExportDialog working-state escape (S6) · solo-eligible · 1–2 h
+#### au3-9 — ExportDialog working-state escape (S6) · **LANDED 2026-09-28, `335e401`** (worker → reviewer **approve**; ref currency drilled under worst-case synthetic event ordering; pins mutation-proven both directions — close-always/close-never/close-only-when-idle all discriminated)
 
 - **Problem.** Document-level Escape closes (unmounts) the dialog during `working`
   (`ExportDialog.tsx:126-135`) while Close/Export buttons are disabled (:225,:235) — the
@@ -177,7 +177,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
 - **Done-when.** Escape ignored while `working` (or dialog stays mounted until settlement);
   pin: Escape during working → export completes + result line visible. Changeset (patch, web).
 
-#### au3-10 — serializeContract totality + surrogate ranges (S8 + QoL) · worker+reviewer · 0.25 d
+#### au3-10 — serializeContract totality + surrogate ranges (S8 + QoL) · **LANDED 2026-09-28, `3f5aadd`** (worker → reviewer **approve**). Total renderer mirrors compile.ts describeOptionValue; reviewer's zero-trap Proxy drill proved totality; REAL code-point fix (not reason-text fallback): `[😀-😄]` accepted, reversed ranges get true code-point reasons, lone-surrogate endpoints fail closed, cross-validated vs pinned DuckDB on six extra patterns; -0 note correctly skipped (docs already accurate)
 
 - **Problem.** Module doc promises "degrades to deterministic plain output rather than a raw
   throw" — falsified by `metadata.name = Object.create(null)` (→ `TypeError: Cannot convert
@@ -256,8 +256,8 @@ hand-copied by the oracle.
   f-1 (different files). Everything else interleaves freely.
 - P0 (au3-1…au3-3) is self-serve — no maintainer ruling blocks it. The CSV BOM question
   (au3-12) is the only new mini-ruling; C-pt0-1/D12/D13 remain the standing human queue.
-- Suggested order: ~~au3-1 → au3-2 → au3-3 (+ boundary probe) → au3-4/au3-5/au3-13 →
-  au3-6/au3-7~~ (all landed; P0 + P1 complete) → **P2 by appetite**: au3-8 (grid keyboard,
-  sequence with f-2), au3-9 (solo), au3-10, au3-11 (oracle de-hardening), au3-12 (QoL batch).
-  Unit baseline after au3-1…7/13 + probe: **1929** (was 1866); e2e 144+1 unchanged; pack
-  smoke now covers validate/--format json/exit-1/exit-2 through the installed bin.
+- Remaining: **au3-8** (grid keyboard — sequence with the f-2 DataGrid session, do not start
+  solo) and **au3-12** (QoL residue batch — fold in au3-11's residual hand-copy follow-up).
+  Landed: au3-1…7, au3-9/10/11, au3-13 + boundary probe (2026-09-27/28; P0+P1 complete,
+  P2 3/5). Unit baseline: **1941** (was 1866); e2e 144+1 unchanged; pack smoke covers
+  validate/--format json/exit-1/exit-2 through the installed bin.
