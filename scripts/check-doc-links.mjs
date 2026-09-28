@@ -4,7 +4,19 @@
  * `docs/**\/*.md` and the root-level `*.md` files resolves to a real path on
  * disk.
  *
- * Only the inline forms `[text](target)` and `![alt](target)` are checked.
+ * Covered forms:
+ *   - inline links `[text](target)` and images `![alt](target)` written on a
+ *     single line, including CommonMark titles (`"…"`, `'…'`, `(…)`) and
+ *     `<…>` destinations, with escaped `\)`/`\(` handled;
+ *   - reference-definition targets `[ref]: target` (the definition line is
+ *     resolved; reference *uses* are therefore checked through their
+ *     definition).
+ *
+ * Deliberately NOT covered (do not widen this claim without implementing it):
+ *   - multi-line link text, i.e. a `]` on one line and its `(` opening on a
+ *     later line (this checker scans line by line);
+ *   - indented code blocks (fenced code blocks are skipped).
+ *
  * Skipped targets: absolute URLs (`http(s)://`), `mailto:`/`tel:`, any other
  * `scheme:` prefix, protocol-relative `//`, and pure `#anchor` links. Fenced
  * code blocks (``` / ~~~) and inline code spans are ignored so examples and
@@ -46,11 +58,19 @@ export function markdownFiles() {
 
 const FENCE = /^\s*(```|~~~)/
 const CODE_SPAN = /(`+)([^`]*?)\1/g
-const LINK = /!?\[[^\]]*\]\(([^)]+)\)/g
+// `[ref]: target`, where target is `<…>` (may contain spaces) or a bare token.
+const REFERENCE_DEFINITION = /^\s{0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/
 
 /** Remove inline code spans so backticked examples are not scanned as links. */
 function stripCodeSpans(line) {
   return line.replace(CODE_SPAN, '')
+}
+
+/** Strip a single layer of `<…>` and any `#fragment`/`?query` suffix. */
+function normalizeDestination(raw) {
+  let dest = raw.trim()
+  if (dest.startsWith('<') && dest.endsWith('>')) dest = dest.slice(1, -1)
+  return dest.split(/[#?]/, 1)[0]
 }
 
 /** True for links that are not relative filesystem paths. */
@@ -67,6 +87,112 @@ function isExternal(target) {
   )
 }
 
+/**
+ * Extract the destinations of every inline `[text](dest "title")` / image link
+ * on one line. Understands `<…>` destinations, CommonMark titles in `"…"`,
+ * `'…'`, or `(…)` form, and backslash-escaped punctuation in the destination.
+ */
+export function inlineDestinations(line) {
+  const destinations = []
+  let i = 0
+  while (i < line.length) {
+    const open = line.indexOf('](', i)
+    if (open === -1) break
+    let j = open + 2
+    while (j < line.length && /\s/.test(line[j])) j += 1
+    if (j >= line.length) break
+
+    let dest
+    if (line[j] === '<') {
+      // Angle-bracket destination: runs to the next unescaped `>`.
+      j += 1
+      let buffer = ''
+      let closed = false
+      while (j < line.length) {
+        if (line[j] === '\\' && j + 1 < line.length) {
+          buffer += line[j + 1]
+          j += 2
+          continue
+        }
+        if (line[j] === '>') {
+          closed = true
+          j += 1
+          break
+        }
+        buffer += line[j]
+        j += 1
+      }
+      if (!closed) {
+        i = open + 2
+        continue
+      }
+      dest = buffer
+    } else {
+      // Bare destination: runs to unescaped whitespace or `)`.
+      let buffer = ''
+      while (j < line.length) {
+        const ch = line[j]
+        if (ch === '\\' && j + 1 < line.length) {
+          buffer += line[j + 1]
+          j += 2
+          continue
+        }
+        if (ch === ')' || /\s/.test(ch)) break
+        buffer += ch
+        j += 1
+      }
+      dest = buffer
+    }
+
+    // Optional whitespace + a CommonMark title ("…", '…', or (…)).
+    let k = j
+    while (k < line.length && /\s/.test(line[k])) k += 1
+    if (k < line.length && (line[k] === '"' || line[k] === "'" || line[k] === '(')) {
+      const closer = line[k] === '(' ? ')' : line[k]
+      k += 1
+      while (k < line.length) {
+        if (line[k] === '\\' && k + 1 < line.length) {
+          k += 2
+          continue
+        }
+        if (line[k] === closer) {
+          k += 1
+          break
+        }
+        k += 1
+      }
+    }
+
+    if (k < line.length && line[k] === ')') {
+      destinations.push(dest)
+      i = k + 1
+      continue
+    }
+    // Not actually a well-formed inline link; keep scanning after `](`.
+    i = open + 2
+  }
+  return destinations
+}
+
+/** Extract the target of a reference-style definition `[ref]: target`. */
+export function referenceDestination(line) {
+  const match = REFERENCE_DEFINITION.exec(line)
+  return match ? match[1] : null
+}
+
+/** Resolve one raw destination against `filePath`; return it if broken. */
+function brokenTarget(filePath, raw) {
+  const dest = normalizeDestination(raw)
+  if (dest === '' || isExternal(dest)) return null
+  let target = dest
+  try {
+    target = decodeURIComponent(dest)
+  } catch {
+    // A malformed escape is not a valid relative path either; fall back.
+  }
+  return existsSync(resolve(dirname(filePath), target)) ? null : raw
+}
+
 /** Extract every broken relative link from one file's contents. */
 export function checkFile(filePath) {
   const broken = []
@@ -81,21 +207,12 @@ export function checkFile(filePath) {
     if (inFence) continue
 
     const scanned = stripCodeSpans(line)
-    for (const match of scanned.matchAll(LINK)) {
-      const raw = match[1].trim().replace(/^<|>$/g, '')
-      if (isExternal(raw)) continue
-      const withoutQuery = raw.split(/[#?]/, 1)[0]
-      if (withoutQuery === '') continue
-      let target = withoutQuery
-      try {
-        target = decodeURIComponent(withoutQuery)
-      } catch {
-        // A malformed escape is not a valid relative path either; fall back.
-      }
-      const resolved = resolve(dirname(filePath), target)
-      if (!existsSync(resolved)) {
-        broken.push({ line: i + 1, target: raw })
-      }
+    const candidates = inlineDestinations(scanned)
+    const reference = referenceDestination(scanned)
+    if (reference !== null) candidates.push(reference)
+
+    for (const raw of candidates) {
+      if (brokenTarget(filePath, raw) !== null) broken.push({ line: i + 1, target: raw })
     }
   }
   return broken
