@@ -15,14 +15,15 @@ fixture regeneration) is owned by [AGENTS.md § Commands](../../AGENTS.md#comman
 
 ### Why `pnpm test` builds the CLI first (and stays outside the Turborepo graph)
 
-The root `test` script is `tsc --build apps/cli/tsconfig.build.json && vitest run`. The CLI
+The root `test` script is `pnpm exec tsc --build apps/cli/tsconfig.build.json && vitest run`. The CLI
 integration tests spawn the **compiled** CLI (`apps/cli/dist/index.js`), so the build must complete
 before vitest starts. This pre-build deliberately stays in the root script rather than becoming a
 Turborepo `test` task: there is no per-package test script — vitest runs **once** at the repo root
 over all workspace packages — so wiring a `turbo run test` graph would add per-package `test`
 scripts and a task for a single root invocation, with no caching or parallelism benefit. The e2e
-lane builds the CLI via `pnpm build` instead. Keep the pre-build in the root script; if the CLI ever
-gains per-package tests, revisit this decision.
+specs run the CLI from source (`node --import tsx src/index.ts`); `pnpm build` compiles the bin for
+the verify lane regardless. Keep the pre-build in the root script; if the CLI ever gains
+per-package tests, revisit this decision.
 
 ## Repository layout
 
