@@ -99,6 +99,17 @@ export function ExportDialog({
   useEffect(() => {
     onCloseRef.current = onClose
   }, [onClose])
+  /**
+   * Latest `working` flag in a ref, for the same reason as `onCloseRef`: the
+   * mount effect below owns the Escape handler and must not re-run when the
+   * phase changes (re-running would re-focus the dialog and restore focus
+   * prematurely). Escape is ignored while an export is in flight so the
+   * dialog cannot be unmounted out from under a running `run()` — the write
+   * would still complete with no visible result line. This mirrors the
+   * disabled Close/Export affordance; the existing `role="status"` progress
+   * line keeps announcing the busy state.
+   */
+  const workingRef = useRef(false)
 
   /**
    * AR-W10 dialog semantics: initial focus into the dialog, a Tab/Shift+Tab
@@ -125,6 +136,11 @@ export function ExportDialog({
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
+        // Ignore Escape while an export is in flight (au3-9/S6): closing here
+        // would unmount the dialog while `run()` keeps writing, leaving the
+        // user with no result line. Wait for settlement — the same affordance
+        // as the disabled Close/Export buttons.
+        if (workingRef.current) return
         onCloseRef.current()
         return
       }
@@ -163,6 +179,10 @@ export function ExportDialog({
   }, [])
 
   const working = phase.kind === 'working'
+  // Keep the Escape handler's view of the phase current (see `workingRef`).
+  useEffect(() => {
+    workingRef.current = working
+  }, [working])
   // The export starts by disabling every control; if that dropped focus to
   // `<body>`, pull it back to the dialog so the modal keeps an active element.
   useEffect(() => {

@@ -2,7 +2,8 @@
 
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { EngineExportResult } from '@assay/engine-duckdb'
 import { ExportDialog } from './ExportDialog'
 import type { ExportDialogProps } from './ExportDialog'
 
@@ -213,6 +214,54 @@ describe('ExportDialog — closing', () => {
   it('invokes onClose', () => {
     const props = renderDialog()
     fireEvent.click(screen.getByTestId('export-close'))
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ExportDialog — Escape during an in-flight export (au3-9/S6)', () => {
+  it('ignores Escape while working, lets the export finish, and shows the result line', async () => {
+    // Deferred engine call: the dialog stays in `working` while Escape is
+    // pressed, exactly the audit drill (Escape used to unmount the dialog
+    // while the in-flight run() kept writing the export).
+    let settleExport: (result: EngineExportResult) => void = () => {}
+    const runEngineExport = vi.fn(
+      () =>
+        new Promise<EngineExportResult>((resolve) => {
+          settleExport = resolve
+        }),
+    )
+    const props = renderDialog({ runEngineExport })
+
+    fireEvent.click(screen.getByTestId('export-confirm'))
+    // Wait until the engine call is actually in flight (past the save picker).
+    await waitFor(() => {
+      expect(runEngineExport).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.getByTestId('export-progress')).toBeTruthy()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    // Escape was ignored: the dialog is still mounted and was not closed.
+    expect(props.onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('export-dialog')).toBeTruthy()
+
+    // The in-flight export still settles, the byte write still runs, and the
+    // result line becomes visible.
+    settleExport({
+      path: 'assay-exports/assay-export-1.parquet',
+      format: 'parquet',
+      rowCount: 6,
+      bytes: 1536,
+    })
+    const result = await screen.findByTestId('export-result')
+    expect(result.textContent).toContain('Exported 6 rows as Parquet')
+    expect(props.writeCopy).toHaveBeenCalledTimes(1)
+    expect(props.onClose).not.toHaveBeenCalled()
+  })
+
+  it('still closes immediately on Escape when no export is running', () => {
+    const props = renderDialog()
+    fireEvent.keyDown(document, { key: 'Escape' })
     expect(props.onClose).toHaveBeenCalledTimes(1)
   })
 })
