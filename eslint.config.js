@@ -141,7 +141,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/validation/**/*.ts'],
+    files: ['packages/validation/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -176,7 +176,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/contracts/**/*.ts'],
+    files: ['packages/contracts/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -209,7 +209,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/diff/**/*.ts'],
+    files: ['packages/diff/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -258,7 +258,7 @@ export default tseslint.config(
   {
     // q-7: domain is the portability floor — no React, no UI/engine packages,
     // no browser-only globals, no Node builtins (docs/engineering/03-repository-structure.md §3).
-    files: ['packages/domain/**/*.ts'],
+    files: ['packages/domain/**/*.{ts,tsx}'],
     rules: {
       'import/no-nodejs-modules': 'error',
       'no-restricted-imports': [
@@ -312,7 +312,7 @@ export default tseslint.config(
     // they legitimately import vitest. (Negation in `files` is avoided: a
     // leading `!` entry is applied as its own matcher, which matched the
     // whole repo in ESLint 10.)
-    files: ['packages/domain/src/**/*.ts'],
+    files: ['packages/domain/src/**/*.{ts,tsx}'],
     plugins: { import: importX },
     rules: {
       'import/no-extraneous-dependencies': [
@@ -323,7 +323,7 @@ export default tseslint.config(
   },
   {
     // f-4: tests are the deliberate exception to the dependency-free zone.
-    files: ['packages/domain/src/**/*.test.ts'],
+    files: ['packages/domain/src/**/*.test.{ts,tsx}'],
     plugins: { import: importX },
     rules: {
       'import/no-extraneous-dependencies': 'off',
@@ -331,7 +331,7 @@ export default tseslint.config(
   },
   {
     // q-7: grid is a headless model — mirror domain's bans exactly.
-    files: ['packages/grid/**/*.ts'],
+    files: ['packages/grid/**/*.{ts,tsx}'],
     rules: {
       'import/no-nodejs-modules': 'error',
       'no-restricted-imports': [
@@ -378,7 +378,7 @@ export default tseslint.config(
     // f-4: import restrictions were missing entirely; core now carries the
     // same UI/engine/app bans as domain and grid so the layering is encoded,
     // not just documented.
-    files: ['packages/core/**/*.ts'],
+    files: ['packages/core/**/*.{ts,tsx}'],
     rules: {
       'import/no-nodejs-modules': 'error',
       'no-restricted-imports': [
