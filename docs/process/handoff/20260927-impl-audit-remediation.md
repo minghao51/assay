@@ -159,7 +159,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
 
 ### P2 — quality backlog
 
-#### au3-8 — grid keyboard conformance (S5) · worker+reviewer · 0.5–1 d
+#### au3-8 — grid keyboard conformance (S5) · **LANDED 2026-09-28, `ae7a6f2`** (worker → reviewer **approve**; fix-round riders applied: AR-W2 bounds guard on parked focus requests + two pins, both mutation-proven — the surviving "never clears" mutant now dies). Roving row tabindex (single tab stop), ArrowUp/Down/Left/Right, Home/End/Ctrl-corners, virtualizer park-and-complete, edit-mode arrow immunity with Enter/Escape byte-unchanged; e2e keyboard pin + axe scans clean
 
 - **Problem.** `role="grid"` rows are the only tab stops; cells `tabIndex={-1}`; no
   Arrow/Home/End navigation, no roving tabindex (`DataGrid.tsx:453,461`) — fails the WAI-ARIA
@@ -204,7 +204,7 @@ object to primitive value`, the exact hazard `compile.ts` documents and guards e
   (b) e2e asserts against `engineConformanceScenarioNames` dynamically. Changeset (patch,
   testing + e2e).
 
-#### au3-12 — QoL residue batch · mixed solo/worker · 0.5–1 d, split freely
+#### au3-12 — QoL residue batch · **LANDED 2026-09-28, `4d28fb9` (web/diff) + `8a1c4c7` (engine/cli/domain)** (two workers → two reviewers **approve**; riders applied). Bundle: main 742→**681 kB min / 192 kB gzip** via dynamic imports — landed as a **module-state preload** (modules resolved before the `ready` render), NOT React.lazy: the lazy one-tick suspension raced the first cell double-click after load (real e2e failures, orchestrator-diagnosed on the integrated tree — Suspense fallback-swap re-render landed mid-gesture and the editor never opened; eliminated structurally, 3× stable). BOM: **no-BOM documented non-goal** (overlay-query.ts). -0: already consistent end-to-end; single-boundary doc + domain note + pins. dispose-racing-boot: permanent sentinel, boot cannot resurrect to ready (mutation-proven). CLI: reportVersion in all JSON envelopes (m6 e2e strips it as CLI-only + negative web assertion), validate positional rejection, FORCE_COLOR/NO_COLOR aligned. Misc: undo/redo ref alignment, inspector focus restore, injective DiffPanel keys, case-variant duplicate-column guard. Residual (non-blocking, future appetite): `.grid-cell:focus-visible` brand styling, error-row placeholder Enter UX, tall-fixture park e2e, RecordInspector structural-shift close paths, data-source-behavior.spec.ts hand-copy (au3-11 fold-in candidate)
 
 - **Bundle:** dynamic-`import()` the below-fold panels (Validation/Diff/Profile/SQL);
   measure before/after (baseline: main 740 kB min / 207 kB gzip; engine/DuckDB workers already
@@ -256,8 +256,9 @@ hand-copied by the oracle.
   f-1 (different files). Everything else interleaves freely.
 - P0 (au3-1…au3-3) is self-serve — no maintainer ruling blocks it. The CSV BOM question
   (au3-12) is the only new mini-ruling; C-pt0-1/D12/D13 remain the standing human queue.
-- Remaining: **au3-8** (grid keyboard — sequence with the f-2 DataGrid session, do not start
-  solo) and **au3-12** (QoL residue batch — fold in au3-11's residual hand-copy follow-up).
-  Landed: au3-1…7, au3-9/10/11, au3-13 + boundary probe (2026-09-27/28; P0+P1 complete,
-  P2 3/5). Unit baseline: **1941** (was 1866); e2e 144+1 unchanged; pack smoke covers
-  validate/--format json/exit-1/exit-2 through the installed bin.
+- **COMPLETE (2026-09-28): all 13 tasks + the boundary probe landed.** au3-1…13 in 13
+  code/test commits, every one independently reviewed (10 first-pass approves, 3
+  fix-round→approve), all pins mutation-proven non-vacuous. Final: unit 1866→**1959**
+  (+93), e2e 144+1→**145+1** (new keyboard pin), pack smoke through the installed bin,
+  main bundle −61 kB min. Residual non-blocking suggestions live in the au3-8/au3-12
+  entries above + §1's follow-up notes — future-appetite, not owed work.
