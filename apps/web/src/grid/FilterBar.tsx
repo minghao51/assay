@@ -98,6 +98,7 @@ export function FilterBar({ model }: FilterBarProps) {
 
   return (
     <section className="filter-bar" data-testid="filter-bar" aria-label="Filters">
+      <h2 className="visually-hidden">Filters</h2>
       <p className="filter-hint" data-testid="filter-hint">
         Filters are SQL fragments applied to one column as <code>{'("column" <predicate>)'}</code> —
         e.g. <code>{'> 50000'}</code>, <code>{"= 'US'"}</code>, <code>IS NOT NULL</code>. Leave an

@@ -4,10 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { MISSING_STAT, formatStat, quantileStripLabel, topKChartLabel } from './format-stats'
 
 /**
- * Pins for the profile panel's text layer (m2-6): null statistics render as
- * '—' (never faked as a value), numbers render as their exact double text
- * (honest, locale-free, e2e-stable), and the chart accessible names carry
- * the complete data as a text alternative.
+ * Pins for the profile panel's text layer (m2-6 + ux-3): null statistics
+ * render as '—' (never faked as a value), numbers render display-rounded to
+ * six significant digits (pure, locale-free, e2e-stable) while the exact
+ * double stays in the JSON/CLI envelopes, and the chart accessible names
+ * carry the complete data as a text alternative.
  */
 describe('formatStat', () => {
   it('renders null and undefined as the missing-stat dash', () => {
@@ -15,13 +16,23 @@ describe('formatStat', () => {
     expect(formatStat(undefined)).toBe('—')
   })
 
-  it('renders numbers as exact, locale-free text', () => {
+  it('renders numbers display-rounded to six significant digits, locale-free', () => {
     expect(formatStat(0)).toBe('0')
+    expect(formatStat(-0)).toBe('0')
     expect(formatStat(48000)).toBe('48000')
     expect(formatStat(4.6)).toBe('4.6')
-    // Full double precision — no silent rounding of, e.g., a sample stddev.
-    expect(formatStat(1.5811388300841898)).toBe('1.5811388300841898')
+    // The audit's raw-float offenders (UX-5): rounded to six significant
+    // digits, never the full double text.
+    expect(formatStat(1.5811388300841898)).toBe('1.58114')
+    expect(formatStat(1.6329931618554474)).toBe('1.63299')
+    expect(formatStat(955.0500000000002)).toBe('955.05')
+    expect(formatStat(11972.189997378648)).toBe('11972.2')
     expect(formatStat(-12.5)).toBe('-12.5')
+  })
+
+  it('keeps the rounding rule total: non-finite values pass through', () => {
+    expect(formatStat(Number.POSITIVE_INFINITY)).toBe('Infinity')
+    expect(formatStat(Number.NaN)).toBe('NaN')
   })
 })
 

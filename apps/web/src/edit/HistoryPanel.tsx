@@ -19,6 +19,10 @@
  * tail + a note, rather than silently dropping steps.
  *
  * Text-only (ADR 0007 spirit): descriptions render as text, never HTML.
+ *
+ * ux-3 (UX-6): this panel owns the app's SINGLE Undo/Redo pair — the editing
+ * toolbar's duplicate was removed, since time travel is a property of the
+ * history (the cursor and the selective jumps live here).
  */
 import type { HistoryEntry } from '@assay/domain'
 import { describeOp } from '@assay/domain'
@@ -58,6 +62,7 @@ export function HistoryPanel({
   const redoCount = entries.length - cursor
   return (
     <section className="history" data-testid="history-panel" aria-label="Transformation history">
+      <h2 className="visually-hidden">History</h2>
       <div className="history-controls">
         <button
           type="button"

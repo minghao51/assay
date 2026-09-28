@@ -513,10 +513,6 @@ export function App() {
             castPendingColumn={castPendingColumn}
           />
           <EditToolbar
-            canUndo={history.cursor > 0}
-            canRedo={history.cursor < history.entries.length}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
             onInsertRow={handleInsertRow}
             pendingSummary={pendingChangesSummary(activeOps(history))}
             error={editError}
@@ -540,6 +536,7 @@ export function App() {
             )}
           </span>
           <section className="export-actions" aria-label="Export">
+            <h2 className="visually-hidden">Export</h2>
             <button
               type="button"
               className="export-open"

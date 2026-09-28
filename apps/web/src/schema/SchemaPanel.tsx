@@ -544,6 +544,7 @@ export function SchemaPanel({
 
   return (
     <section className="schema" data-testid="schema-section">
+      <h2 className="visually-hidden">Schema</h2>
       <button
         type="button"
         className="schema-panel-toggle"

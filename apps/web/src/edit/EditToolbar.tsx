@@ -2,24 +2,25 @@
 
 /**
  * Editing toolbar (m4-3, extended m4-4): the session-level affordances around
- * the grid — insert a row, undo/redo the transformation history, and surface
- * non-applied op outcomes as a readable alert. m4-4 adds the honest
- * "pending changes" summary (counts by op kind over the active history
- * prefix): the overlay *is* the preview (ADR 0012 staged changes), so there
- * is no separate pre-commit staging step to show — this line is what makes
- * the staged set legible at a glance.
+ * the grid — insert a row and surface non-applied op outcomes as a readable
+ * alert. m4-4 adds the honest "pending changes" summary (counts by op kind
+ * over the active history prefix): the overlay *is* the preview (ADR 0012
+ * staged changes), so there is no separate pre-commit staging step to show —
+ * this line is what makes the staged set legible at a glance.
+ *
+ * ux-3 (UX-6): the toolbar no longer renders its own Undo/Redo pair. Time
+ * travel is a property of the transformation history, so the `HistoryPanel`
+ * owns the single Undo/Redo pair (plus selective cursor jumps); a second pair
+ * here was a duplicate control surface with identical disabled logic. The
+ * toolbar keeps Insert row + the pending summary.
  *
  * Deliberately thin (repo convention: thin components over tested pure
- * modules): it owns no state, only the disabled logic (`canUndo`/`canRedo`
- * come straight from the history cursor) and the render. Text-only; the
- * alert echoes domain-generated reasons, never dataset content (ADR 0025)
- * and the summary carries only op kinds/counts.
+ * modules): it owns no state, only the render. The section carries its own
+ * h2 (the app's complete heading map, UX-7). Text-only; the alert echoes
+ * domain-generated reasons, never dataset content (ADR 0025) and the summary
+ * carries only op kinds/counts.
  */
 interface EditToolbarProps {
-  readonly canUndo: boolean
-  readonly canRedo: boolean
-  readonly onUndo: () => void
-  readonly onRedo: () => void
   readonly onInsertRow: () => void
   /** Pure `pendingChangesSummary` of the active history prefix (m4-4). */
   readonly pendingSummary: string
@@ -27,17 +28,10 @@ interface EditToolbarProps {
   readonly error: string | null
 }
 
-export function EditToolbar({
-  canUndo,
-  canRedo,
-  onUndo,
-  onRedo,
-  onInsertRow,
-  pendingSummary,
-  error,
-}: EditToolbarProps) {
+export function EditToolbar({ onInsertRow, pendingSummary, error }: EditToolbarProps) {
   return (
     <section className="edit-toolbar" data-testid="edit-toolbar" aria-label="Editing">
+      <h2 className="visually-hidden">Editing</h2>
       <button
         type="button"
         className="edit-insert-row"
@@ -45,24 +39,6 @@ export function EditToolbar({
         onClick={onInsertRow}
       >
         Insert row
-      </button>{' '}
-      <button
-        type="button"
-        className="edit-undo"
-        data-testid="edit-undo"
-        disabled={!canUndo}
-        onClick={onUndo}
-      >
-        Undo
-      </button>{' '}
-      <button
-        type="button"
-        className="edit-redo"
-        data-testid="edit-redo"
-        disabled={!canRedo}
-        onClick={onRedo}
-      >
-        Redo
       </button>{' '}
       <span className="edit-pending" data-testid="pending-changes">
         {pendingSummary}

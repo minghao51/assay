@@ -126,7 +126,7 @@ test('numeric filter narrows the visible rows and the total row count, refetched
 
   await applyFilter(page, 'income', '> 50000')
   await expect(page.getByTestId('grid-total-rows')).toHaveText('3') // model re-read the filtered total
-  await expect(page.getByTestId('grid')).toHaveAttribute('aria-rowcount', '4') // + header row
+  await expect(page.getByRole('grid')).toHaveAttribute('aria-rowcount', '4') // + header row
   await expectCustomerOrder(page, ['1', '2', '5'])
   await expect(page.locator('[data-testid="filter-chip"] code')).toHaveText(['income > 50000'])
   await expect(

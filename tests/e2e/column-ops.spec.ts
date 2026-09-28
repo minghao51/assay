@@ -33,7 +33,8 @@ import { castColumn, cell, editCell, headerCell, openEditor, renameColumn } from
 //   7. selective undo (cursor move) leaves a consistent grid (values + dirty
 //      state) and redo moves forward; a rewind's redo tail is surfaced before
 //      truncation and a new op truncates it;
-//   8. panel undo/redo drives exactly the same history as the toolbar buttons.
+//   8. the history panel's single undo/redo pair drives the same history
+//      cursor (the toolbar pair was removed in ux-3).
 //
 // Privacy (ADR 0025): only schema/value text is asserted; the picked file name
 // and opaque row anchors are never rendered.
@@ -77,16 +78,16 @@ test('column rename round-trips through the grid and re-keys edits; undo restore
   await expect(cell(page, 0, 1)).toHaveAttribute('data-dirty', 'true')
 
   // Undo the rename: the old name is back, the edit is intact.
-  await page.getByTestId('edit-undo').click()
+  await page.getByTestId('history-undo').click()
   await expect(headerCell(page, 'country')).toBeVisible()
   await expect(cell(page, 0, 1)).toHaveText('ZZ')
   await expect(cell(page, 0, 1)).toHaveAttribute('data-dirty', 'true')
 
   // Undo the edit → fully clean.
-  await page.getByTestId('edit-undo').click()
+  await page.getByTestId('history-undo').click()
   await expect(cell(page, 0, 1)).toHaveText('SG')
   await expect(cell(page, 0, 1)).toHaveAttribute('data-dirty', 'false')
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
 })
 
 test('a colliding rename is surfaced readably and leaves the schema unchanged', async ({
@@ -103,7 +104,7 @@ test('a colliding rename is surfaced readably and leaves the schema unchanged', 
   await expect(headerCell(page, 'country')).toBeVisible()
   await expect(headerCell(page, 'income')).toBeVisible()
   await expect(page.getByTestId('history-empty')).toBeVisible()
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
 })
 
 test('column cast round-trips (values re-typed) and undo restores', async ({ page }) => {
@@ -120,10 +121,10 @@ test('column cast round-trips (values re-typed) and undo restores', async ({ pag
   await expect(cell(page, 0, 3)).toHaveText('2025-01-04')
 
   // Undo restores the declared type and the epoch rendering.
-  await page.getByTestId('edit-undo').click()
+  await page.getByTestId('history-undo').click()
   await expect(headerCell(page, 'signup_date')).toHaveAttribute('data-col-type', 'DATE')
   await expect(cell(page, 0, 3)).toHaveText('1735948800000')
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
 })
 
 test('the schema panel re-keys after rename; cast-after-rename works through the panel', async ({
@@ -181,7 +182,7 @@ test('an invalid cast spelling is refused before composing an op', async ({ page
   await expect(page.getByTestId('column-op-error')).toContainText('not a valid column type')
   await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'BIGINT')
   await expect(page.getByTestId('history-empty')).toBeVisible()
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
 })
 
 test('a structurally valid but engine-unknown cast rolls back and alerts recoverably', async ({
@@ -201,7 +202,7 @@ test('a structurally valid but engine-unknown cast rolls back and alerts recover
   // every row ready (never stuck loading).
   await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'BIGINT')
   await expect(page.getByTestId('history-empty')).toBeVisible()
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
   await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
   await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
   await expect(cell(page, 0, 2)).toHaveText('52000')
@@ -269,7 +270,7 @@ test('casting to DECIMAL(10,2) renders readable decimals, not <16 bytes> (m4-4 w
   await expect(page.getByTestId('grid-cell').filter({ hasText: 'bytes' })).toHaveCount(0)
 
   // Undo restores the BIGINT rendering exactly.
-  await page.getByTestId('edit-undo').click()
+  await page.getByTestId('history-undo').click()
   await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'BIGINT')
   await expect(cell(page, 0, 2)).toHaveText('52000')
 })
@@ -290,7 +291,7 @@ test('a legal cast whose values cannot convert rolls back and alerts recoverably
   await expect(alert).toContainText('No cast was applied')
   await expect(headerCell(page, 'country')).toHaveAttribute('data-col-type', 'VARCHAR')
   await expect(page.getByTestId('history-empty')).toBeVisible()
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
   await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
   await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
   await expect(cell(page, 0, 1)).toHaveText('SG')
@@ -363,32 +364,29 @@ test('a rewind surfaces its redo tail before a new op truncates it', async ({ pa
   await expect(page.getByTestId('history-redo')).toBeDisabled()
 })
 
-test('panel undo/redo drives the same history as the toolbar buttons', async ({ page }) => {
+test('history-panel undo/redo drive the transformation history', async ({ page }) => {
   await openCustomersFixture(page)
 
   await editCell(page, 0, 2, '11111')
-  await expect(page.getByTestId('edit-undo')).toBeEnabled()
   await expect(page.getByTestId('history-undo')).toBeEnabled()
 
-  // Panel undo == toolbar undo (same cursor step).
+  // Undo moves the cursor back one step.
   await page.getByTestId('history-undo').click()
   await expect(cell(page, 0, 2)).toHaveText('52000')
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
   await expect(page.getByTestId('history-undo')).toBeDisabled()
-  await expect(page.getByTestId('edit-redo')).toBeEnabled()
   await expect(page.getByTestId('history-redo')).toBeEnabled()
 
-  // Toolbar redo moves the same cursor forward.
-  await page.getByTestId('edit-redo').click()
+  // Redo moves the same cursor forward.
+  await page.getByTestId('history-redo').click()
   await expect(cell(page, 0, 2)).toHaveText('11111')
   await expect(page.getByTestId('history-redo')).toBeDisabled()
   await expect(page.getByTestId('history-undo')).toBeEnabled()
 
-  // And panel redo matches the toolbar's disabled state at the end.
+  // A fresh undo-then-redo round trip lands on the same state.
   await page.getByTestId('history-undo').click()
   await page.getByTestId('history-redo').click()
   await expect(cell(page, 0, 2)).toHaveText('11111')
-  await expect(page.getByTestId('edit-redo')).toBeDisabled()
+  await expect(page.getByTestId('history-redo')).toBeDisabled()
 })
 
 test('temporal Enter-unchanged is a cancel, not a spurious dirty edit (m4-3 carry-over a)', async ({
@@ -406,6 +404,6 @@ test('temporal Enter-unchanged is a cancel, not a spurious dirty edit (m4-3 carr
   // The cell is NOT dirty and no step was logged: open+Enter cancelled.
   await expect(cell(page, 0, 3)).toHaveAttribute('data-dirty', 'false')
   await expect(page.getByTestId('pending-changes')).toHaveText('No pending changes.')
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
   await expect(page.getByTestId('history-empty')).toBeVisible()
 })

@@ -6,6 +6,13 @@ import type { Page } from '@playwright/test'
  * model's request counters as `fetches=N requested=N received=N maxSpan=N
  * cached=N` (DataGrid footer), the observable form of the "never
  * materializes the dataset" guarantee (ADR 0003).
+ *
+ * ux-3: the counters now live inside a collapsed-by-default `<details>`
+ * disclosure (UX-9). The read uses `textContent()`, not `innerText()`:
+ * `innerText` reflects rendered visibility, so a closed disclosure would
+ * return an empty string; `textContent` is independent of the open state, so
+ * readers never have to mutate the UI (open the details) just to observe a
+ * counter. The five-counter parse contract is unchanged.
  */
 
 /** The full counter snapshot parsed from one `grid-stats` line. */
@@ -23,7 +30,7 @@ export interface GridStatsSnapshot {
  * never reached its ready render — fail loudly, never assert on a partial).
  */
 export async function readGridStats(page: Page): Promise<GridStatsSnapshot> {
-  const text = await page.getByTestId('grid-stats').innerText()
+  const text = (await page.getByTestId('grid-stats').textContent()) ?? ''
   const field = (key: string): number => {
     const match = text.match(new RegExp(`${key}=(\\d+)`))
     if (match === null) throw new Error(`grid stats missing "${key}": ${text}`)

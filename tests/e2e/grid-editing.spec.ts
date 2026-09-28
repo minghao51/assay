@@ -75,20 +75,20 @@ test('edit → visibility → undo → redo → undo → clean (the exit pin)', 
 
   // Undo → the base value stands again and the grid is clean (the pure fold
   // of the empty prefix is the initial state).
-  await page.getByTestId('edit-undo').click()
+  await page.getByTestId('history-undo').click()
   await expect(income).toHaveText('52000')
   await expect(income).toHaveAttribute('data-dirty', 'false')
   await expect(row(page, 0)).toHaveAttribute('data-dirty', 'false')
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
 
   // Redo re-applies the logged op; undo again returns to clean.
-  await page.getByTestId('edit-redo').click()
+  await page.getByTestId('history-redo').click()
   await expect(income).toHaveText('99999')
   await expect(income).toHaveAttribute('data-dirty', 'true')
-  await page.getByTestId('edit-undo').click()
+  await page.getByTestId('history-undo').click()
   await expect(income).toHaveText('52000')
   await expect(income).toHaveAttribute('data-dirty', 'false')
-  await expect(page.getByTestId('edit-redo')).toBeEnabled()
+  await expect(page.getByTestId('history-redo')).toBeEnabled()
 })
 
 test('typed constraints: a non-numeric input is rejected readably and leaves state unchanged', async ({
@@ -178,7 +178,7 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
   await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
   await expect(cell(page, 0, 3)).toHaveAttribute('data-dirty', 'false')
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
 
   // A subsequent valid edit still works and clears the alert.
   await openEditor(page, 0, 2)
@@ -227,7 +227,7 @@ test('NULL is a distinct affordance and rendering, never an empty string', async
   await expect(country).toHaveText('NULL')
 
   // Undo → the base string is back and the cell is not NULL.
-  await page.getByTestId('edit-undo').click()
+  await page.getByTestId('history-undo').click()
   await expect(country).toHaveText('SG')
   await expect(country).not.toHaveAttribute('data-null', 'true')
   await expect(country.getByTestId('grid-cell-null')).toHaveCount(0)
@@ -274,18 +274,18 @@ test('insert and delete row journeys are reversible', async ({ page }) => {
   await expectCustomerOrder(page, ['2', '3', '4', '5', 'NULL']) // id 1 gone; inserted row has NULL id
 
   // Undo the delete: the base row returns, in place.
-  await page.getByTestId('edit-undo').click()
+  await page.getByTestId('history-undo').click()
   await expect(page.getByTestId('grid-total-rows')).toHaveText('6')
   await expectCustomerOrder(page, ['1', '2', '3', '4', '5', 'NULL'])
 
   // Undo the edit, then the insert → fully clean again.
-  await page.getByTestId('edit-undo').click() // undo the ZZ edit
+  await page.getByTestId('history-undo').click() // undo the ZZ edit
   await expect(row(page, 5).getByTestId('grid-cell').nth(1)).toHaveText('NULL')
-  await page.getByTestId('edit-undo').click() // undo the insert
+  await page.getByTestId('history-undo').click() // undo the insert
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
   await expectCustomerOrder(page, ['1', '2', '3', '4', '5'])
   await expect(row(page, 0)).toHaveAttribute('data-dirty', 'false')
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
 })
 
 test('inspector freshness under edits: re-reads the same logical row, never a stale snapshot', async ({

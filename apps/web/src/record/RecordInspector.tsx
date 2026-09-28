@@ -476,6 +476,7 @@ export function RecordInspector({
       aria-label={`Record inspector — row ${String(state.rowIndex)}`}
       onKeyDown={onKeyDown}
     >
+      <h2 className="visually-hidden">Record</h2>
       <header className="record-header">
         <span className="record-title" data-testid="record-title">
           row <span data-testid="record-title-row">{state.rowIndex}</span> — full record

@@ -189,6 +189,7 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
       aria-label="SQL query"
       data-state={runState.kind}
     >
+      <h2 className="visually-hidden">SQL</h2>
       <p className="sql-hint" data-testid="sql-hint">
         Query the opened table by its SQL name{' '}
         <code data-testid="sql-table-name">"{sqlTable}"</code> (the engine view for table{' '}

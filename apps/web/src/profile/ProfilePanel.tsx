@@ -344,6 +344,7 @@ export function ProfilePanel({ handle }: ProfilePanelProps) {
       aria-label="Column profile"
       data-state={state.kind}
     >
+      <h2 className="visually-hidden">Profile</h2>
       <button
         type="button"
         className="profile-panel-toggle"

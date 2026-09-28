@@ -386,7 +386,7 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   expect(baseline).toContain('"name":"customer_id","type":"BIGINT"')
   expect(baseline).toContain('"name":"signup_date","type":"DATE"')
   expect(page.getByTestId('pending-changes')).toHaveText('No pending changes.')
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
   await expect(page.getByTestId('history-empty')).toBeVisible()
 
   // --- 3. Edit across the whole M4 surface (8 applied ops). ---
@@ -469,7 +469,7 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(headerCell(page, 'nation')).toHaveAttribute('data-col-type', 'VARCHAR')
   await expect(page.getByTestId('history-item')).toHaveCount(7)
   await expect(page.getByTestId('history-cursor')).toHaveText('Step 7 of 7 applied')
-  await expect(page.getByTestId('edit-undo')).toBeEnabled()
+  await expect(page.getByTestId('history-undo')).toBeEnabled()
   await expect(cell(page, 0, 1)).toHaveText('SG') // grid untouched by the refusal
   // …and byte-identical ACROSS the refusal (alert present, history count 7
   // above, and the full serialization unchanged).
@@ -486,7 +486,6 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(page.getByTestId('history-item')).toHaveCount(8)
   await expect(page.getByTestId('history-cursor')).toHaveText('Step 8 of 8 applied')
   await expect(page.getByTestId('history-redo')).toBeDisabled()
-  await expect(page.getByTestId('edit-redo')).toBeDisabled()
   await expect(page.getByTestId('pending-changes')).toHaveText(
     '8 pending changes: 4 cell edits, 1 row insert, 1 row delete, 1 column rename, 1 column cast.',
   )
@@ -502,14 +501,14 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   // Row counts after each undo (from cursor 8 down to 0), as each op reverses.
   const rowsAfterEachUndo = [5, 5, 5, 6, 6, 5, 5, 5]
   for (let expectedCursor = 7; expectedCursor >= 0; expectedCursor--) {
-    await page.getByTestId('edit-undo').click()
+    await page.getByTestId('history-undo').click()
     await expect(page.getByTestId('history-cursor')).toHaveText(
       `Step ${String(expectedCursor)} of 8 applied`,
     )
     await settleGrid(page, rowsAfterEachUndo[7 - expectedCursor])
   }
-  await expect(page.getByTestId('edit-undo')).toBeDisabled()
-  await expect(page.getByTestId('edit-redo')).toBeEnabled()
+  await expect(page.getByTestId('history-undo')).toBeDisabled()
+  await expect(page.getByTestId('history-redo')).toBeEnabled()
   // The FULL rendered truncation warning (review finding): the panel must
   // not just count the undone tail but warn that a new edit discards it.
   await expect(page.getByTestId('history-redo-tail')).toContainText(

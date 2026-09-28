@@ -465,14 +465,25 @@ export function DataGrid({
   }
 
   return (
-    <div
-      className="grid"
-      data-testid="grid"
-      role="grid"
-      aria-rowcount={totalRows + 1}
-      aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0)}
-    >
-      <div className="grid-viewport" data-testid="grid-viewport" ref={scrollRef}>
+    <div className="grid" data-testid="grid">
+      {/* ux-3 (UX-7): the Grid section's heading. It sits outside the role=grid
+          element, whose owned children must be rows/rowgroups. */}
+      <h2 className="visually-hidden">Grid</h2>
+      {/* ux-3 (UX-9): role=grid lives on the SCROLL VIEWPORT (the element that
+          actually owns the rowgroups), not on the outer `.grid` container.
+          The footer's `<details>` disclosure has ARIA role `group`, and axe's
+          `aria-required-children` treats any non-row/rowgroup owned descendant
+          of a grid as an unallowed child — so the footer must sit outside the
+          grid role. The grid semantics are unchanged: the viewport's children
+          are the header rowgroup + the body rowgroup. */}
+      <div
+        className="grid-viewport"
+        data-testid="grid-viewport"
+        ref={scrollRef}
+        role="grid"
+        aria-rowcount={totalRows + 1}
+        aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0)}
+      >
         <div className="grid-header" role="rowgroup" ref={headerRef}>
           <div
             className="grid-header-row"
@@ -864,9 +875,17 @@ export function DataGrid({
         </div>
       </div>
       <footer className="grid-footer">
-        <span data-testid="grid-stats">
-          {`fetches=${String(stats.fetchCalls)} requested=${String(stats.rowsRequested)} received=${String(stats.rowsReceived)} maxSpan=${String(stats.maxSpanRows)} cached=${String(stats.cachedRows)}`}
-        </span>
+        {/* ux-3 (UX-9): request counters are diagnostics, not user copy —
+            collapsed by default behind a native disclosure. Kept out of the
+            role=grid element (see the viewport comment above). The shared
+            `grid-stats` reader reads the span's `textContent`, which is
+            independent of the open state. */}
+        <details className="grid-diagnostics" data-testid="grid-diagnostics">
+          <summary>Diagnostics</summary>
+          <span data-testid="grid-stats">
+            {`fetches=${String(stats.fetchCalls)} requested=${String(stats.rowsRequested)} received=${String(stats.rowsReceived)} maxSpan=${String(stats.maxSpanRows)} cached=${String(stats.cachedRows)}`}
+          </span>
+        </details>
         {editError !== null && (
           // q-3: the visible rejection text is not itself a live region; the
           // app's single `aria-live="polite"` region announces it (value-free)

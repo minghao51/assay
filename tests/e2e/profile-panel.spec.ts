@@ -11,15 +11,18 @@ import { openFixture } from './support/fixtures'
 //
 // customers.parquet (5 rows) — expected profile pinned against DuckDB CLI
 // 1.5.5 (the same values as tests/e2e/engine-profile.spec.ts): customer_id
-// numeric (min 1, max 5, mean 3, stddev 1.5811388300841898, quantiles
-// 3/4.6/4.8/4.96), country categorical (SG 2, US 2, DE 1 — the SG/US tie
-// broken by value ascending), income numeric with one NULL (quantiles
-// 56500/70800/72900/74580), signup_date DATE-as-categorical.
+// numeric (min 1, max 5, mean 3, stddev 1.5811388300841898 → displayed
+// 1.58114, quantiles 3/4.6/4.8/4.96), country categorical (SG 2, US 2, DE 1 —
+// the SG/US tie broken by value ascending), income numeric with one NULL
+// (quantiles 56500/70800/72900/74580), signup_date DATE-as-categorical.
+//
+// ux-3: display rounding keeps six significant digits (format-stats.ts); the
+// engine/JSON values above stay exact, so the pins below are the ROUNDED text.
 //
 // nested.parquet (50 rows) — the payload STRUCT column must degrade to kind
 // 'other' (null/distinct only, no stats, no charts) while id stays numeric
-// (min 0, max 49, mean 24.5, stddev 14.577379737113251, quantiles
-// 24.5/44.1/46.55/48.51).
+// (min 0, max 49, mean 24.5, stddev 14.577379737113251 → displayed 14.5774,
+// quantiles 24.5/44.1/46.55/48.51).
 //
 // NOT asserted here: the profile error path. No cheap in-app error exists
 // (the panel only profiles a valid open handle), so the error/retry path is
@@ -104,7 +107,7 @@ test('profiles the customers fixture: exact numeric stats, quantile strip, categ
   await expect(stat(page, 'customer_id', 'profile-stat-min')).toHaveText('1')
   await expect(stat(page, 'customer_id', 'profile-stat-max')).toHaveText('5')
   await expect(stat(page, 'customer_id', 'profile-stat-mean')).toHaveText('3')
-  await expect(stat(page, 'customer_id', 'profile-stat-stddev')).toHaveText('1.5811388300841898')
+  await expect(stat(page, 'customer_id', 'profile-stat-stddev')).toHaveText('1.58114')
   await expect(stat(page, 'customer_id', 'profile-stat-p50')).toHaveText('3')
   await expect(stat(page, 'customer_id', 'profile-stat-p90')).toHaveText('4.6')
   await expect(stat(page, 'customer_id', 'profile-stat-p95')).toHaveText('4.8')
@@ -134,7 +137,7 @@ test('profiles the customers fixture: exact numeric stats, quantile strip, categ
   await expect(stat(page, 'income', 'profile-null-count')).toHaveText('1')
   await expect(stat(page, 'income', 'profile-distinct-count')).toHaveText('4')
   await expect(stat(page, 'income', 'profile-stat-min')).toHaveText('48000')
-  await expect(stat(page, 'income', 'profile-stat-stddev')).toHaveText('11972.189997378648')
+  await expect(stat(page, 'income', 'profile-stat-stddev')).toHaveText('11972.2')
   await expect(stat(page, 'income', 'profile-stat-p50')).toHaveText('56500')
   await expect(stat(page, 'income', 'profile-stat-p99')).toHaveText('74580')
   await expect(
@@ -255,7 +258,7 @@ test('degrades STRUCT columns to kind other (no stats, no charts) and pins the n
   await expect(stat(page, 'id', 'profile-stat-min')).toHaveText('0')
   await expect(stat(page, 'id', 'profile-stat-max')).toHaveText('49')
   await expect(stat(page, 'id', 'profile-stat-mean')).toHaveText('24.5')
-  await expect(stat(page, 'id', 'profile-stat-stddev')).toHaveText('14.577379737113251')
+  await expect(stat(page, 'id', 'profile-stat-stddev')).toHaveText('14.5774')
   await expect(stat(page, 'id', 'profile-stat-p50')).toHaveText('24.5')
   await expect(stat(page, 'id', 'profile-stat-p90')).toHaveText('44.1')
   await expect(stat(page, 'id', 'profile-stat-p95')).toHaveText('46.55')
