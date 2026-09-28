@@ -13,6 +13,17 @@ Install dependencies and start the dev server with the root scripts `pnpm instal
 `pnpm dev`. The full command table (install, dev, build, gates, e2e, format, changeset,
 fixture regeneration) is owned by [AGENTS.md § Commands](../../AGENTS.md#commands).
 
+### Why `pnpm test` builds the CLI first (and stays outside the Turborepo graph)
+
+The root `test` script is `tsc --build apps/cli/tsconfig.build.json && vitest run`. The CLI
+integration tests spawn the **compiled** CLI (`apps/cli/dist/index.js`), so the build must complete
+before vitest starts. This pre-build deliberately stays in the root script rather than becoming a
+Turborepo `test` task: there is no per-package test script — vitest runs **once** at the repo root
+over all workspace packages — so wiring a `turbo run test` graph would add per-package `test`
+scripts and a task for a single root invocation, with no caching or parallelism benefit. The e2e
+lane builds the CLI via `pnpm build` instead. Keep the pre-build in the root script; if the CLI ever
+gains per-package tests, revisit this decision.
+
 ## Repository layout
 
 See [`../engineering/03-repository-structure.md`](../engineering/03-repository-structure.md) for the authoritative layout and package responsibilities. In brief: `apps/` (web, cli, vscode placeholder), `packages/` (16 domain-to-testing packages), `fixtures/` (golden datasets, see `fixtures/README.md`), and `docs/`.
