@@ -22,9 +22,15 @@
  *          packed dist graph must be plain-Node-loadable;
  *        - run the installed `assay` bin under PLAIN `node` (no loader):
  *          `--version` / `--help` (the shipped entrypoint must not need tsx);
- *        - run one REAL command end-to-end from the installed bin:
- *          `assay profile <copy of fixtures/csv/customers.csv>` (human mode),
- *          asserting exit 0 and non-empty stdout.
+ *        - run REAL commands end-to-end from the installed bin:
+ *          `assay profile <copy of fixtures/csv/customers.csv>` (human mode,
+ *          exit 0, non-empty stdout);
+ *          `assay validate <dirty.csv> --contract <contract.yaml> --format
+ *          json` over an INLINE dirty fixture (written into the consumer temp
+ *          dir, never committed) — exit 1 with the `assay-validation-report`
+ *          marker + `"valid": false` on stdout;
+ *          `assay validate <dirty.csv>` with no `--contract` — exit 2 with the
+ *          authored usage error on stderr and nothing on stdout.
  *
  * Packaging honesty:
  *   - The CLI build script chmods the emitted `dist/index.js`. That bit is
@@ -42,7 +48,7 @@
  * scripts/pack-consumer-smoke.mjs` (or `node apps/cli/scripts/...` from the
  * repo root) to reproduce. Pass `--keep` to leave the temp dir in place.
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import {
   copyFileSync,
   existsSync,
@@ -93,6 +99,23 @@ function run(command, args, options = {}) {
 
 function pnpm(args, options = {}) {
   return run('corepack', ['pnpm', ...args], options)
+}
+
+/**
+ * Run a command whose NON-ZERO exit is the assertion (`execFileSync` throws on
+ * any non-zero status, so the expected-failure legs need spawn-based capture).
+ * Returns the status plus both streams; a spawn failure or a signal is a hard
+ * test failure, not a silent mismatch.
+ */
+function runExpectingNonZero(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    ...options,
+  })
+  assert.equal(result.error, undefined, `failed to spawn ${command}: ${String(result.error)}`)
+  assert.notEqual(result.status, null, `${command} was killed by ${String(result.signal)}`)
+  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
 }
 
 function tarballName(name, version) {
@@ -239,6 +262,90 @@ try {
   assert.ok(profileOut.includes('dataset: customers.csv'), 'profile report shape unexpected')
   process.stdout.write(
     '  ok installed bin: .bin/assay profile customers.csv (human, exit 0, non-empty)\n',
+  )
+
+  // Dirty-fixture validate leg: the packed validate pipeline AND `--format
+  // json` must run end-to-end through the installed bin. Violations are exit 1
+  // with the report on stdout (the stdout report IS the result). The fixture
+  // is written inline into the consumer temp dir — never committed (the
+  // runtime-dirty-dataset discipline the integration suites use).
+  const dirtyCsv = join(consumerDir, 'dirty.csv')
+  const dirtyContract = join(consumerDir, 'dirty-contract.yaml')
+  writeFileSync(
+    dirtyCsv,
+    [
+      'id,region,amount,note',
+      '1,SG,10,ok',
+      '2,XX,25,ok',
+      '3,SG,,it\'s "quoted"',
+      '1,SG,7,ok',
+      '5,SG,-3,fine',
+      '6,ZZ,12,ok',
+      '',
+    ].join('\n'),
+  )
+  writeFileSync(
+    dirtyContract,
+    [
+      'format: v1',
+      'name: small-dirty',
+      'version: 1',
+      'columns:',
+      '  - name: id',
+      '    required: true',
+      '    unique: true',
+      '  - name: region',
+      '    required: true',
+      '    allowed-values: [SG, US, DE]',
+      '  - name: amount',
+      '    min: 0',
+      '  - name: note',
+      '    required: true',
+      'dataset:',
+      '  min-rows: 3',
+      '  max-rows: 100',
+      '',
+    ].join('\n'),
+  )
+  const validate = runExpectingNonZero(binPath, [
+    'validate',
+    dirtyCsv,
+    '--contract',
+    dirtyContract,
+    '--format',
+    'json',
+  ])
+  assert.equal(
+    validate.status,
+    1,
+    `validate over the dirty fixture exited ${validate.status}, expected 1 (violations) — the ` +
+      'marker/stderr assertions below distinguish a real report from a crash',
+  )
+  assert.ok(validate.stdout.trim().length > 0, 'validate printed no stdout report')
+  assert.ok(
+    validate.stdout.includes('"report": "assay-validation-report"'),
+    'validate stdout is missing the assay-validation-report marker',
+  )
+  assert.ok(validate.stdout.includes('"valid": false'), 'validate report is not INVALID')
+  assert.equal(validate.stderr, '', 'validate wrote to stderr on a violation report')
+  process.stdout.write(
+    '  ok installed bin: .bin/assay validate dirty.csv --contract … --format json ' +
+      '(exit 1, report marker, INVALID)\n',
+  )
+
+  // Usage-error leg: a missing REQUIRED argument must exit 2 through the
+  // installed bin with the authored stderr line and no report on stdout. This
+  // also proves a non-zero exit code propagates from the installed bin.
+  const usage = runExpectingNonZero(binPath, ['validate', dirtyCsv])
+  assert.equal(usage.status, 2, `validate with no --contract exited ${usage.status}, expected 2`)
+  assert.equal(usage.stdout, '', 'usage error wrote to stdout')
+  assert.equal(
+    usage.stderr,
+    'validate requires --contract <file> (see --help)\n',
+    `unexpected usage-error stderr: ${usage.stderr}`,
+  )
+  process.stdout.write(
+    '  ok installed bin: .bin/assay validate dirty.csv (missing --contract, exit 2, authored stderr)\n',
   )
 
   process.stdout.write('\nPACK CONSUMER SMOKE: PASS\n')
