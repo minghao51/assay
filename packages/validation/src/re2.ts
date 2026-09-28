@@ -28,7 +28,9 @@
  *   "invalid perl operator" and are refused — pinned against DuckDB
  *   1.5.5, see the regression pins in `re2.test.ts`)
  * - quantifiers `* + ? {n} {n,} {n,m}` with optional lazy `?`; RE2's
- *   documented limits hold (`n,m ≤ 1000`, `n ≤ m`). Quantifiers after a
+ *   documented limits hold (`n,m ≤ 1000`, `n ≤ m`, and the **product** of
+ *   nested repeat counts ≤ 1000 — see {@link MAX_REPEAT_PRODUCT}).
+ *   Quantifiers after a
  *   zero-width atom are accepted, matching DuckDB 1.5.5: anchors and word
  *   boundaries quantify (`^*`, `$+`, `\b{2}`, `\A?`, `\z{2}`), and a
  *   quantifier following a `(?flags)` directive binds to the atom before it
@@ -51,6 +53,10 @@
  *
  * ## Rejected (each with a stable reason string)
  *
+ * - a nested repeat whose accumulated product exceeds 1000 (`(a{32}){32}`
+ *   = 1024, `(a{1000}){1000}`): DuckDB 1.5.5 refuses these with
+ *   `invalid repetition size` even though every quantifier is ≤ 1000 — the
+ *   checker mirrors the real product bound (see {@link MAX_REPEAT_PRODUCT})
  * - decimal escapes `\0`–`\9`: refused outright as one class. DuckDB's
  *   actual behavior (verified against the pinned 1.5.5 CLI) is split:
  *   `\1`–`\9` are **rejected** ("invalid escape sequence: \1" — RE2 has
@@ -112,6 +118,21 @@ export type Re2PatternCheck =
 
 /** RE2's documented repeat-count limit (RE2 and Go's regexp both enforce 1000). */
 const MAX_REPEAT = 1000
+
+/**
+ * The same RE2 limit applies to the **product** of nested repeat counts, not
+ * just to each quantifier in isolation. Verified live against the pinned
+ * DuckDB 1.5.5 CLI (`re2.test.ts`): `(a{100}){10}` (=1000) runs, while
+ * `(a{32}){32}` (=1024) throws `Invalid Input Error: invalid repetition
+ * size: {32}` and `(a{1000}){1000}` throws. RE2 multiplies each enclosing
+ * repeat count and caps the product at 1000, so a contract/validation regex
+ * that passes the per-quantifier check could still throw at engine
+ * execution without this guard. The factor a quantifier contributes is its
+ * `max` for a bounded `{n,m}`; `n` for `{n}` and for an unbounded `{n,}`
+ * (DuckDB refuses `(a{400,600}){2,}`); `* + ?` contribute 1 (nested
+ * `((a*){1000}){1000}` still throws on the `{1000}` factors).
+ */
+const MAX_REPEAT_PRODUCT = MAX_REPEAT
 
 /**
  * The deepest group nesting the checker walks (see the module doc's
@@ -191,6 +212,21 @@ type EscapeResolution =
  * `'repeatable'`: DuckDB accepts `^*`, `$+`, `\b{2}`, `\A?`, `\z{2}`.
  */
 type AtomRepeat = 'repeatable' | 'not-repeatable' | 'transparent'
+
+/**
+ * One parsed atom plus its repeat-expansion budget. `expansion` is the
+ * largest, over the atoms inside this one, of the product of the enclosing
+ * repeat counts (see {@link MAX_REPEAT_PRODUCT}); a single literal is 1.
+ */
+interface ParsedAtom {
+  readonly repeat: AtomRepeat
+  readonly expansion: number
+}
+
+/** An atom that expands to exactly one copy. */
+function unitAtom(repeat: AtomRepeat): ParsedAtom {
+  return { repeat, expansion: 1 }
+}
 
 /**
  * Parse one escape sequence (the cursor sits on the character after the
@@ -303,19 +339,20 @@ function parseHexEscape(cursor: Cursor): string {
 
 /**
  * Whether the `{` at the cursor starts a valid quantifier shape
- * (`{n}`, `{n,}`, `{n,m}` — digits only, no spaces). Pure lookahead: the
- * cursor does not move. Non-shaped braces stay literal (RE2's own rule),
- * but well-shaped violations (`{1001}`, `{3,2}`) reject — RE2 rejects
- * those too.
+ * (`{n}`, `{n,}`, `{n,m}` — digits only, no spaces), returning its repeat
+ * factor — `max` for `{n,m}`, else `min` (see {@link applyRepeatFactor}).
+ * Pure lookahead: the cursor does not move. Non-shaped braces stay literal
+ * (RE2's own rule, `null` return), but well-shaped violations (`{1001}`,
+ * `{3,2}`) reject — RE2 rejects those too.
  */
-function quantifierShapeAt(cursor: Cursor): boolean {
+function quantifierFactorAt(cursor: Cursor): number | null {
   let i = cursor.at + 1
   let minDigits = ''
   while (i < cursor.src.length && cursor.src[i] >= '0' && cursor.src[i] <= '9') {
     minDigits += cursor.src[i]
     i += 1
   }
-  if (minDigits.length === 0) return false
+  if (minDigits.length === 0) return null
   let maxDigits: string | null = null
   if (cursor.src[i] === ',') {
     i += 1
@@ -325,7 +362,7 @@ function quantifierShapeAt(cursor: Cursor): boolean {
       i += 1
     }
   }
-  if (cursor.src[i] !== '}') return false
+  if (cursor.src[i] !== '}') return null
   const min = Number(minDigits)
   const max = maxDigits === null || maxDigits === '' ? null : Number(maxDigits)
   if (min > MAX_REPEAT) reject(`repetition count ${min} exceeds the RE2 limit of ${MAX_REPEAT}`)
@@ -333,7 +370,22 @@ function quantifierShapeAt(cursor: Cursor): boolean {
     if (max > MAX_REPEAT) reject(`repetition count ${max} exceeds the RE2 limit of ${MAX_REPEAT}`)
     if (max < min) reject(`repetition minimum ${min} exceeds maximum ${max}`)
   }
-  return true
+  // The quantum a repeat contributes to the nested-repeat product: the max
+  // for a bounded `{n,m}`, the min for `{n}` and for an unbounded `{n,}`.
+  return max ?? min
+}
+
+/**
+ * Multiply a pending atom's expansion by one repeat factor and refuse when
+ * the product passes DuckDB's real nested-repetition bound
+ * ({@link MAX_REPEAT_PRODUCT}).
+ */
+function applyRepeatFactor(expansion: number, factor: number): number {
+  const product = expansion * factor
+  if (product > MAX_REPEAT_PRODUCT) {
+    reject(`nested repetition product ${product} exceeds the RE2 limit of ${MAX_REPEAT_PRODUCT}`)
+  }
+  return product
 }
 
 /** Consume a quantifier character plus its optional lazy `?`. The caller
@@ -341,7 +393,7 @@ function quantifierShapeAt(cursor: Cursor): boolean {
  * quantifier shape is at the cursor. */
 function consumeQuantifier(cursor: Cursor): void {
   if (peek(cursor) === '{') {
-    // quantifierShapeAt already validated the closing '}' exists ahead.
+    // quantifierFactorAt already validated the closing '}' exists ahead.
     cursor.at = cursor.src.indexOf('}', cursor.at) + 1
   } else {
     consume(cursor)
@@ -351,41 +403,42 @@ function consumeQuantifier(cursor: Cursor): void {
 
 /**
  * Parse one atom starting at the cursor (anything but a quantifier
- * character, `|`, or a group close). Returns the atom's repeatability
- * (zero-width anchors are repeatable; a `(?flags)` directive is
- * transparent — see {@link AtomRepeat}).
+ * character, `|`, or a group close). Returns the atom's repeatability and
+ * its repeat-expansion budget (zero-width anchors are repeatable; a
+ * `(?flags)` directive is transparent — see {@link AtomRepeat}).
  */
-function parseAtom(cursor: Cursor): AtomRepeat {
+function parseAtom(cursor: Cursor): ParsedAtom {
   const ch = consume(cursor)
   switch (ch) {
     case '^':
     case '$':
-      // Zero-width anchors ARE quantifiable in RE2/DuckDB (`^*`, `$+`).
-      return 'repeatable'
+      // Zero-width anchors ARE quantifiable in RE2/DuckDB (`^*`, `$+`), and
+      // they count toward the nested-repeat product: DuckDB 1.5.5 refuses
+      // `(^{1000}){1000}`. A single anchor expands to one copy.
+      return unitAtom('repeatable')
     case '.':
-      return 'repeatable'
+      return unitAtom('repeatable')
     case '[':
       parseClass(cursor)
-      return 'repeatable'
+      return unitAtom('repeatable')
     case '(':
       return parseGroup(cursor)
     case '\\': {
-      const resolution = parseEscape(cursor, false)
       // A zero-width escape (`\b`, `\B`, `\A`, `\z`) is quantifiable too.
-      void resolution
-      return 'repeatable'
+      parseEscape(cursor, false)
+      return unitAtom('repeatable')
     }
     default:
-      return 'repeatable' // literal (including a non-quantifier `{`)
+      return unitAtom('repeatable') // literal (including a non-quantifier `{`)
   }
 }
 
 /**
- * Parse a `(...)`-group; returns whether it is quantifiable. The nesting
- * depth guard makes the recursive descent total: past the documented
+ * Parse a `(...)`-group; returns its repeatability and expansion. The
+ * nesting depth guard makes the recursive descent total: past the documented
  * bound the pattern is refused as data (never a stack-overflow throw).
  */
-function parseGroup(cursor: Cursor): AtomRepeat {
+function parseGroup(cursor: Cursor): ParsedAtom {
   cursor.depth += 1
   if (cursor.depth > MAX_NESTING_DEPTH) {
     reject(
@@ -400,20 +453,20 @@ function parseGroup(cursor: Cursor): AtomRepeat {
 }
 
 /** The `(...)`-group body (depth-guarded by {@link parseGroup}). */
-function parseGroupBody(cursor: Cursor): AtomRepeat {
+function parseGroupBody(cursor: Cursor): ParsedAtom {
   if (peek(cursor) !== '?') {
-    parseAlternation(cursor)
+    const expansion = parseAlternation(cursor)
     expectGroupClose(cursor)
-    return 'repeatable'
+    return { repeat: 'repeatable', expansion }
   }
   consume(cursor) // '?'
   if (atEnd(cursor)) reject('unbalanced parenthesis')
   const ch = peek(cursor)
   if (ch === ':') {
     consume(cursor)
-    parseAlternation(cursor)
+    const expansion = parseAlternation(cursor)
     expectGroupClose(cursor)
-    return 'repeatable'
+    return { repeat: 'repeatable', expansion }
   }
   if (ch === 'P') {
     consume(cursor)
@@ -422,9 +475,9 @@ function parseGroupBody(cursor: Cursor): AtomRepeat {
     parseGroupName(cursor)
     if (peek(cursor) !== '>') reject('unterminated (?P<name> group')
     consume(cursor)
-    parseAlternation(cursor)
+    const expansion = parseAlternation(cursor)
     expectGroupClose(cursor)
-    return 'repeatable'
+    return { repeat: 'repeatable', expansion }
   }
   if (ch === '=' || ch === '!') {
     reject('lookaround ((?=…), (?!…)) is not RE2')
@@ -462,13 +515,13 @@ function parseGroupBody(cursor: Cursor): AtomRepeat {
     // A flags directive matches nothing and is *transparent* for
     // repeatability: RE2 lets a following quantifier bind to the atom before
     // it (`a(?i)*` accepted, `(?i)*` rejected — DuckDB 1.5.5-verified).
-    return 'transparent'
+    return unitAtom('transparent')
   }
   if (peek(cursor) === ':') {
     consume(cursor)
-    parseAlternation(cursor)
+    const expansion = parseAlternation(cursor)
     expectGroupClose(cursor)
-    return 'repeatable'
+    return { repeat: 'repeatable', expansion }
   }
   reject(`unsupported group syntax (?…${peek(cursor)}`)
 }
@@ -587,13 +640,14 @@ function parsePosixClass(cursor: Cursor): void {
   consume(cursor)
 }
 
-/** Parse `branch ('|' branch)*` at one group level. */
-function parseAlternation(cursor: Cursor): void {
-  parseBranch(cursor)
+/** Parse `branch ('|' branch)*` at one group level; returns the max expansion. */
+function parseAlternation(cursor: Cursor): number {
+  let expansion = parseBranch(cursor)
   while (peek(cursor) === '|') {
     consume(cursor)
-    parseBranch(cursor)
+    expansion = Math.max(expansion, parseBranch(cursor))
   }
+  return expansion
 }
 
 /**
@@ -606,34 +660,53 @@ function parseAlternation(cursor: Cursor): void {
  * `lastWasAtom === false` is RE2's "missing argument to repetition
  * operator" error.
  */
-function parseBranch(cursor: Cursor): void {
+function parseBranch(cursor: Cursor): number {
   let lastWasAtom = false
+  // The pending atom's expansion and the max over already-finalized atoms.
+  // An atom is finalized when the *next* atom starts; a trailing quantifier
+  // multiplies the still-pending one first. This tracks the largest product
+  // of enclosing repeat counts along any one atom's path.
+  let lastExpansion = 1
+  let finalizedExpansion = 0
   for (;;) {
-    if (atEnd(cursor)) return
+    if (atEnd(cursor)) break
     const ch = peek(cursor)
-    if (ch === '|' || ch === ')') return
+    if (ch === '|' || ch === ')') break
     if (ch === '*' || ch === '+' || ch === '?') {
       if (!lastWasAtom) reject('repetition operator with nothing to repeat')
       consumeQuantifier(cursor)
       lastWasAtom = false
+      // `* + ?` repeat but do not multiply the expansion product.
       continue
     }
     if (ch === '{') {
-      if (quantifierShapeAt(cursor)) {
+      const factor = quantifierFactorAt(cursor)
+      if (factor !== null) {
         if (!lastWasAtom) reject('repetition operator with nothing to repeat')
         consumeQuantifier(cursor)
         lastWasAtom = false
+        lastExpansion = applyRepeatFactor(lastExpansion, factor)
       } else {
         consume(cursor) // literal `{`
+        finalizedExpansion = Math.max(finalizedExpansion, lastExpansion)
+        lastExpansion = 1
         lastWasAtom = true
       }
       continue
     }
-    const repeat = parseAtom(cursor)
-    if (repeat === 'repeatable') lastWasAtom = true
-    else if (repeat === 'not-repeatable') lastWasAtom = false
-    // 'transparent' leaves lastWasAtom unchanged (a flags directive).
+    const atom = parseAtom(cursor)
+    if (atom.repeat === 'transparent') {
+      // A `(?flags)` directive is zero-width and not an atom: the pending
+      // atom's expansion and quantifiability stay unchanged, because a
+      // following quantifier binds across it (`a{500}(?i){3}` is refused by
+      // DuckDB 1.5.5).
+      continue
+    }
+    finalizedExpansion = Math.max(finalizedExpansion, lastExpansion)
+    lastExpansion = atom.expansion
+    lastWasAtom = atom.repeat === 'repeatable'
   }
+  return Math.max(finalizedExpansion, lastExpansion)
 }
 
 /**

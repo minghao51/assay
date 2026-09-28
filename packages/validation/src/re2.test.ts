@@ -88,6 +88,14 @@ const ACCEPTED = [
   'a(?i)*', // a quantifier after a (?flags) directive binds to the atom before it
   '\\x{0000061}', // zero-padded hex escapes inside the Unicode range
   '\\x{00000000000000000000000000000000000000000000000000000000000000000061}',
+  // S7 nested-repetition boundary: products exactly at (or under) the real
+  // RE2 product bound of 1000 (DuckDB 1.5.5-verified; see the dedicated
+  // describe below and the module doc's MAX_REPEAT_PRODUCT).
+  '(a{40}){25}', // 40 × 25 = 1000
+  '((a{10}){10}){10}', // 10 × 10 × 10 = 1000, three levels deep
+  '(a{1000}){1}', // 1000 × 1 = 1000
+  '(a{31}){32}', // 31 × 32 = 992
+  '(a{100}){10,}', // unbounded max contributes its minimum 10 → 1000
 ]
 
 const ACCEPT_SHOULD_NOT_INCLUDE: readonly string[] = []
@@ -115,8 +123,8 @@ describe('checkRe2Pattern — accepted subset', () => {
 })
 
 describe('checkRe2Pattern — the accepted pool is the claim (m5-1 re-review round 2)', () => {
-  it('the accepted pool has its exact size and uniqueness pinned — 65 unique patterns, all DuckDB-executed', () => {
-    expect(ACCEPTED).toHaveLength(65)
+  it('the accepted pool has its exact size and uniqueness pinned — 70 unique patterns, all DuckDB-executed', () => {
+    expect(ACCEPTED).toHaveLength(70)
     expect(new Set(ACCEPTED).size).toBe(ACCEPTED.length)
   })
 
@@ -162,6 +170,16 @@ const REJECTED: readonly Rejection[] = [
   { pattern: 'a{1001}', reasonSubstance: 'exceeds the RE2 limit' },
   { pattern: 'a{2,1001}', reasonSubstance: 'exceeds the RE2 limit' },
   { pattern: 'a{3,2}', reasonSubstance: 'minimum 3 exceeds maximum 2' },
+  // S7 nested-repetition PRODUCT bound: each quantifier is ≤ 1000 but the
+  // accumulated product is not. DuckDB 1.5.5 throws `invalid repetition
+  // size` for every one of these (the audit's live finding).
+  { pattern: '(a{32}){32}', reasonSubstance: 'nested repetition product' }, // 1024
+  { pattern: '(a{31}){33}', reasonSubstance: 'nested repetition product' }, // 1023
+  { pattern: '(a{100}){11}', reasonSubstance: 'nested repetition product' }, // 1100
+  { pattern: '(a{1000}){1000}', reasonSubstance: 'nested repetition product' }, // the audit case
+  { pattern: '(((a{10}){10}){10}){10}', reasonSubstance: 'nested repetition product' }, // 10^4, deep
+  { pattern: '(a{100}){10,11}', reasonSubstance: 'nested repetition product' }, // bounded max 11
+  { pattern: '(a{400,600}){2,}', reasonSubstance: 'nested repetition product' }, // inner max 600 × outer min 2
   { pattern: '(unclosed', reasonSubstance: 'unbalanced parenthesis' },
   { pattern: 'a\\', reasonSubstance: 'trailing backslash' },
   { pattern: 'x)', reasonSubstance: 'unbalanced parenthesis' },
@@ -248,6 +266,55 @@ describe('checkRe2Pattern — the nesting bound is typed data, never a throw (m5
         expect(check.reason).toContain('100')
       }
     }
+  })
+})
+
+describe('checkRe2Pattern — nested-repetition product bound (S7, DuckDB 1.5.5-verified)', () => {
+  // The per-quantifier limit is not the whole story: DuckDB/RE2 multiply the
+  // enclosing repeat counts and cap the product at 1000. A contract or
+  // validation regex that passed the per-quantifier check could therefore
+  // still throw `Invalid Input Error: invalid repetition size` at engine
+  // execution. These are the /tmp/vc-audit drills made permanent.
+
+  it('accepts products exactly at the bound (1000)', () => {
+    for (const pattern of [
+      '(a{100}){10}',
+      '(a{40}){25}',
+      '(a{1000}){1}',
+      '((a{10}){10}){10}',
+      '(a{2}){500}',
+      '(a{31}){32}',
+      '(a{100}){10,}',
+    ]) {
+      expect(checkRe2Pattern(pattern), pattern).toEqual({ valid: true })
+    }
+  })
+
+  it('refuses products past the bound with a stable, value-free reason', () => {
+    for (const pattern of [
+      '(a{32}){32}', // 1024 — the audit's boundary probe
+      '(a{31}){33}', // 1023
+      '(a{100}){11}', // 1100
+      '(a{1000}){1000}', // the audit's checker-over-acceptance
+      '(((a{10}){10}){10}){10}', // 10^4, three levels of nesting
+      '(a{100}){10,11}', // bounded max exceeds
+      '(a{400,600}){2,}', // unbounded outer uses the inner max
+    ]) {
+      const check = checkRe2Pattern(pattern)
+      expect(check.valid, pattern).toBe(false)
+      if (!check.valid) {
+        expect(check.reason, pattern).toContain('nested repetition product')
+        expect(check.reason, pattern).toContain('1000')
+      }
+    }
+  })
+
+  it('the audit case (a{1000}){1000} is no longer checker-accepted', () => {
+    // Regression pin for the exact finding in S7.
+    expect(checkRe2Pattern('(a{1000}){1000}')).toEqual({
+      valid: false,
+      reason: expect.stringContaining('nested repetition product'),
+    })
   })
 })
 
@@ -352,3 +419,40 @@ describe.skipIf(!hasDuckDbCli)('checkRe2Pattern — real DuckDB agreement (pinne
     }
   })
 })
+
+describe.skipIf(!hasDuckDbCli)(
+  'checkRe2Pattern — nested-repetition product bound vs real DuckDB (S7, pinned CLI 1.5.5)',
+  () => {
+    const acceptedBoundary = [
+      '(a{100}){10}',
+      '(a{40}){25}',
+      '(a{1000}){1}',
+      '((a{10}){10}){10}',
+      '(a{2}){500}',
+      '(a{100}){10,}',
+    ]
+    const refusedOverBound = [
+      '(a{32}){32}',
+      '(a{31}){33}',
+      '(a{100}){11}',
+      '(a{1000}){1000}',
+      '(((a{10}){10}){10}){10}',
+      '(a{100}){10,11}',
+      '(a{400,600}){2,}',
+    ]
+
+    it('the checker-accepted boundary is DuckDB-accepted', () => {
+      for (const pattern of acceptedBoundary) {
+        expect(duckdbAcceptsRegex(pattern), `DuckDB accepts ${pattern}`).toBe(true)
+        expect(checkRe2Pattern(pattern), `checker accepts ${pattern}`).toEqual({ valid: true })
+      }
+    })
+
+    it('the checker-refused over-bound is DuckDB-thrown (closing the audit gap)', () => {
+      for (const pattern of refusedOverBound) {
+        expect(duckdbAcceptsRegex(pattern), `DuckDB rejects ${pattern}`).toBe(false)
+        expect(checkRe2Pattern(pattern).valid, `checker refuses ${pattern}`).toBe(false)
+      }
+    })
+  },
+)

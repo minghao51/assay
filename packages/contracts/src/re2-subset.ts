@@ -66,8 +66,9 @@
  *   filter accepts no negated flag forms; m5-1's stricter flag grammar is a
  *   superset)
  * - quantifiers `* + ? {n} {n,} {n,m}` with an optional lazy `?`; RE2's
- *   documented limits (`n,m ≤ 1000`, `n ≤ m`); only repeatable atoms
- *   quantify; possessive suffixes (`a*+`) are refused
+ *   documented limits (`n,m ≤ 1000`, `n ≤ m`, and the **product** of nested
+ *   repeat counts ≤ 1000 — see {@link MAX_REPEAT_PRODUCT}); only repeatable
+ *   atoms quantify; possessive suffixes (`a*+`) are refused
  * - character classes `[...]`/`[^...]`: ranges between single characters
  *   (escaped characters allowed as endpoints; class shorthands are not
  *   endpoints), negation, a literal `-` at the edges; a `]` as the first
@@ -80,6 +81,10 @@
  *
  * ## Refused (each with a stable, actionable reason)
  *
+ * - a nested repeat whose accumulated product exceeds 1000 (`(a{32}){32}`
+ *   = 1024, `(a{1000}){1000}`): DuckDB 1.5.5 refuses these with
+ *   `invalid repetition size` though every quantifier is ≤ 1000 — mirrors
+ *   the binding-time checker's product guard (see {@link MAX_REPEAT_PRODUCT})
  * - lookarounds `(?= (?!` and the whole `(?<` family (lookbehinds, and
  *   ECMA-style named groups — RE2 spells named groups `(?P<name>`) and
  *   atomic groups `(?>…)`; possessive quantifiers (`a*+`)
@@ -113,6 +118,19 @@ export type Re2SubsetCheck =
 
 /** RE2's documented repeat-count limit (RE2 and Go's regexp both enforce 1000). */
 const MAX_REPEAT = 1000
+
+/**
+ * The same RE2 limit applies to the **product** of nested repeat counts, not
+ * just to each quantifier in isolation. Verified against the pinned DuckDB
+ * 1.5.5 CLI (`@assay/validation`'s `re2.test.ts`): `(a{100}){10}` (=1000)
+ * runs, while `(a{32}){32}` (=1024) throws `Invalid Input Error: invalid
+ * repetition size`. The factor a quantifier contributes is its `max` for a
+ * bounded `{n,m}`; `n` for `{n}` and for an unbounded `{n,}`; `* + ?`
+ * contribute 1. This filter mirrors the binding-time checker's guard so an
+ * accepted JSON Schema `pattern` can never reach the engine as a pattern
+ * DuckDB would throw on.
+ */
+const MAX_REPEAT_PRODUCT = MAX_REPEAT
 
 /**
  * The deepest group nesting the filter walks (recursive descent over the JS
@@ -231,16 +249,18 @@ function scanEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
 
 /**
  * Does the `{` at the cursor start a valid quantifier shape (`{n}`, `{n,}`,
- * `{n,m}` — digits only)? Pure lookahead; enforces RE2's repeat limits.
+ * `{n,m}` — digits only)? Pure lookahead; enforces RE2's per-quantifier
+ * limits and returns the repeat factor (`max` for `{n,m}`, else `min`) for
+ * the nested-repeat product guard — `null` when the brace is a literal.
  */
-function quantifierShapeAt(cursor: Cursor): boolean {
+function quantifierFactorAt(cursor: Cursor): number | null {
   let i = cursor.at + 1
   let minDigits = ''
   while (i < cursor.src.length && cursor.src[i] >= '0' && cursor.src[i] <= '9') {
     minDigits += cursor.src[i]
     i += 1
   }
-  if (minDigits.length === 0) return false
+  if (minDigits.length === 0) return null
   let maxDigits: string | null = null
   if (cursor.src[i] === ',') {
     i += 1
@@ -250,7 +270,7 @@ function quantifierShapeAt(cursor: Cursor): boolean {
       i += 1
     }
   }
-  if (cursor.src[i] !== '}') return false
+  if (cursor.src[i] !== '}') return null
   const min = Number(minDigits)
   const max = maxDigits === null || maxDigits === '' ? null : Number(maxDigits)
   if (min > MAX_REPEAT) refuse(`repetition count ${min} exceeds the RE2 limit of ${MAX_REPEAT}`)
@@ -258,13 +278,24 @@ function quantifierShapeAt(cursor: Cursor): boolean {
     if (max > MAX_REPEAT) refuse(`repetition count ${max} exceeds the RE2 limit of ${MAX_REPEAT}`)
     if (max < min) refuse(`repetition minimum ${min} exceeds maximum ${max}`)
   }
-  return true
+  // The quantum a repeat contributes to the nested-repeat product: the max
+  // for a bounded `{n,m}`, the min for `{n}` and for an unbounded `{n,}`.
+  return max ?? min
+}
+
+/** Multiply a pending atom's expansion by one repeat factor, refusing past the product bound. */
+function applyRepeatFactor(expansion: number, factor: number): number {
+  const product = expansion * factor
+  if (product > MAX_REPEAT_PRODUCT) {
+    refuse(`nested repetition product ${product} exceeds the RE2 limit of ${MAX_REPEAT_PRODUCT}`)
+  }
+  return product
 }
 
 /** Consume a quantifier plus its optional lazy `?`, refusing possessive `+`. */
 function consumeQuantifier(cursor: Cursor, startsWithBrace: boolean): void {
   if (startsWithBrace) {
-    // quantifierShapeAt already validated a closing '}' exists ahead.
+    // quantifierFactorAt already validated a closing '}' exists ahead.
     cursor.at = cursor.src.indexOf('}', cursor.at) + 1
   } else {
     cursor.at += 1
@@ -275,27 +306,37 @@ function consumeQuantifier(cursor: Cursor, startsWithBrace: boolean): void {
   }
 }
 
-/** Parse one atom; returns whether it is quantifiable (anchors and flags directives are not). */
-function scanAtom(cursor: Cursor): boolean {
+/**
+ * One parsed atom plus its repeat-expansion budget. `expansion` is the
+ * largest, over the atoms inside this one, of the product of the enclosing
+ * repeat counts (see {@link MAX_REPEAT_PRODUCT}); a single literal is 1.
+ */
+interface ScannedAtom {
+  readonly repeatable: boolean
+  readonly expansion: number
+}
+
+/** Parse one atom; reports quantifiability (anchors and flags directives are not) and expansion. */
+function scanAtom(cursor: Cursor): ScannedAtom {
   const ch = cursor.src[cursor.at] as string
   cursor.at += 1
   switch (ch) {
     case '^':
     case '$':
-      return false
+      return { repeatable: false, expansion: 1 }
     case '.':
-      return true
+      return { repeatable: true, expansion: 1 }
     case '[':
       scanClass(cursor)
-      return true
+      return { repeatable: true, expansion: 1 }
     case '(':
       return scanGroup(cursor)
     case '\\': {
       const resolution = scanEscape(cursor, false)
-      return resolution.kind !== 'zero'
+      return { repeatable: resolution.kind !== 'zero', expansion: 1 }
     }
     default:
-      return true // literal (including `]`, `}`, and non-quantifier-shaped `{` is handled by the caller)
+      return { repeatable: true, expansion: 1 } // literal (including `]`, `}`, and non-quantifier-shaped `{` is handled by the caller)
   }
 }
 
@@ -304,7 +345,7 @@ function scanAtom(cursor: Cursor): boolean {
  * keeps the recursive descent total (past the bound the pattern is refused
  * as data, never a stack-overflow throw).
  */
-function scanGroup(cursor: Cursor): boolean {
+function scanGroup(cursor: Cursor): ScannedAtom {
   cursor.depth += 1
   if (cursor.depth > MAX_NESTING_DEPTH) {
     refuse(
@@ -315,18 +356,18 @@ function scanGroup(cursor: Cursor): boolean {
     const ch = cursor.src[cursor.at]
     if (ch === undefined) refuse('unbalanced parenthesis')
     if (ch !== '?') {
-      scanAlternation(cursor)
+      const expansion = scanAlternation(cursor)
       expectGroupClose(cursor)
-      return true
+      return { repeatable: true, expansion }
     }
     cursor.at += 1
     const kind = cursor.src[cursor.at]
     if (kind === undefined) refuse('unbalanced parenthesis')
     if (kind === ':') {
       cursor.at += 1
-      scanAlternation(cursor)
+      const expansion = scanAlternation(cursor)
       expectGroupClose(cursor)
-      return true
+      return { repeatable: true, expansion }
     }
     if (kind === 'P') {
       cursor.at += 1
@@ -335,9 +376,9 @@ function scanGroup(cursor: Cursor): boolean {
       scanGroupName(cursor)
       if (cursor.src[cursor.at] !== '>') refuse('unterminated (?P<name> group')
       cursor.at += 1
-      scanAlternation(cursor)
+      const expansion = scanAlternation(cursor)
       expectGroupClose(cursor)
-      return true
+      return { repeatable: true, expansion }
     }
     if (kind === '=' || kind === '!') {
       refuse('lookaround ((?=…), (?!…)) is not RE2')
@@ -368,13 +409,13 @@ function scanGroup(cursor: Cursor): boolean {
     }
     if (cursor.src[cursor.at] === ')') {
       cursor.at += 1
-      return false // a flags directive matches nothing
+      return { repeatable: false, expansion: 1 } // a flags directive matches nothing and cannot quantify
     }
     if (cursor.src[cursor.at] === ':') {
       cursor.at += 1
-      scanAlternation(cursor)
+      const expansion = scanAlternation(cursor)
       expectGroupClose(cursor)
-      return true
+      return { repeatable: true, expansion }
     }
     refuse(
       `unsupported group syntax (?…${cursor.src[cursor.at] ?? ''} — expected flag letters from i m s U, then ')' or ':'`,
@@ -476,13 +517,14 @@ function scanClass(cursor: Cursor): void {
   }
 }
 
-/** Parse `branch ('|' branch)*` at one group level. */
-function scanAlternation(cursor: Cursor): void {
-  scanBranch(cursor)
+/** Parse `branch ('|' branch)*` at one group level; returns the max expansion. */
+function scanAlternation(cursor: Cursor): number {
+  let expansion = scanBranch(cursor)
   while (cursor.src[cursor.at] === '|') {
     cursor.at += 1
-    scanBranch(cursor)
+    expansion = Math.max(expansion, scanBranch(cursor))
   }
+  return expansion
 }
 
 /**
@@ -491,30 +533,44 @@ function scanAlternation(cursor: Cursor): void {
  * quantifier directly after another quantifier, a zero-width token, or at a
  * branch start has nothing to repeat.
  */
-function scanBranch(cursor: Cursor): void {
+function scanBranch(cursor: Cursor): number {
   let lastWasAtom = false
+  // The pending atom's expansion and the max over already-finalized atoms.
+  // An atom is finalized when the next atom starts; a trailing quantifier
+  // multiplies the still-pending one first.
+  let lastExpansion = 1
+  let finalizedExpansion = 0
   for (;;) {
     const ch = cursor.src[cursor.at]
-    if (ch === undefined || ch === '|' || ch === ')') return
+    if (ch === undefined || ch === '|' || ch === ')') break
     if (ch === '*' || ch === '+' || ch === '?') {
       if (!lastWasAtom) refuse('repetition operator with nothing to repeat')
       consumeQuantifier(cursor, false)
       lastWasAtom = false
+      // `* + ?` repeat but do not multiply the expansion product.
       continue
     }
     if (ch === '{') {
-      if (quantifierShapeAt(cursor)) {
+      const factor = quantifierFactorAt(cursor)
+      if (factor !== null) {
         if (!lastWasAtom) refuse('repetition operator with nothing to repeat')
         consumeQuantifier(cursor, true)
         lastWasAtom = false
+        lastExpansion = applyRepeatFactor(lastExpansion, factor)
       } else {
         cursor.at += 1 // literal `{`
+        finalizedExpansion = Math.max(finalizedExpansion, lastExpansion)
+        lastExpansion = 1
         lastWasAtom = true
       }
       continue
     }
-    lastWasAtom = scanAtom(cursor)
+    const atom = scanAtom(cursor)
+    finalizedExpansion = Math.max(finalizedExpansion, lastExpansion)
+    lastExpansion = atom.expansion
+    lastWasAtom = atom.repeatable
   }
+  return Math.max(finalizedExpansion, lastExpansion)
 }
 
 /**

@@ -67,6 +67,12 @@ describe('accepted: the documented conservative subset', () => {
     accept('a{2,4}?')
     accept('a{0,1000}')
     accept('a{1000}')
+    // S7: the product of nested repeat counts is bounded at 1000 too.
+    accept('(a{40}){25}') // 40 × 25 = 1000
+    accept('((a{10}){10}){10}') // 10 × 10 × 10 = 1000
+    accept('(a{1000}){1}')
+    accept('(a{100}){10,}') // unbounded max contributes its minimum 10
+    accept('(a{2}){500}')
   })
 
   it('accepts character classes: ranges, negation, escaped items, edge dashes', () => {
@@ -181,6 +187,15 @@ describe('refused: constructs RE2 cannot express (dialect honesty)', () => {
     reject('a{1001}', 'exceeds the RE2 limit')
     reject('a{2,1001}', 'exceeds the RE2 limit')
     reject('a{3,2}', 'exceeds maximum')
+    // S7 nested-repetition product bound — each quantifier is ≤ 1000 but the
+    // product is not; DuckDB 1.5.5 refuses these with `invalid repetition size`.
+    reject('(a{32}){32}', 'nested repetition product') // 1024
+    reject('(a{31}){33}', 'nested repetition product') // 1023
+    reject('(a{100}){11}', 'nested repetition product') // 1100
+    reject('(a{1000}){1000}', 'nested repetition product')
+    reject('(((a{10}){10}){10}){10}', 'nested repetition product')
+    reject('(a{100}){10,11}', 'nested repetition product') // bounded max exceeds
+    reject('(a{400,600}){2,}', 'nested repetition product') // inner max × outer min = 1200
   })
 
   it('refuses flag-group forms beyond the accepted i m s U letters (no negation)', () => {
@@ -197,6 +212,31 @@ describe('refused: constructs RE2 cannot express (dialect honesty)', () => {
     reject('\\é', 'invalid escape')
     reject('\\😀', 'invalid escape')
     reject(`(${'('.repeat(101)}a${')'.repeat(101)})`, 'nesting bound')
+  })
+})
+
+describe('nested-repetition product bound (S7, mirrors the binding-time checker)', () => {
+  it('accepts products exactly at the bound and refuses products past it', () => {
+    for (const pattern of ['(a{100}){10}', '(a{40}){25}', '((a{10}){10}){10}', '(a{31}){32}']) {
+      expect(checkRe2SubsetPattern(pattern), pattern).toEqual({ valid: true })
+    }
+    for (const pattern of [
+      '(a{32}){32}',
+      '(a{31}){33}',
+      '(a{100}){11}',
+      '(a{1000}){1000}',
+      '(((a{10}){10}){10}){10}',
+    ]) {
+      const result = checkRe2SubsetPattern(pattern)
+      expect(result.valid, pattern).toBe(false)
+      if (!result.valid) expect(result.reason, pattern).toContain('nested repetition product')
+    }
+  })
+
+  it('unbounded `{n,}` contributes its minimum to the product', () => {
+    expect(checkRe2SubsetPattern('(a{100}){10,}')).toEqual({ valid: true })
+    expect(checkRe2SubsetPattern('(a{100}){11,}').valid).toBe(false)
+    expect(checkRe2SubsetPattern('(a{400,600}){2,}').valid).toBe(false)
   })
 })
 
