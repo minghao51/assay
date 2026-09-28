@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Download, Page } from '@playwright/test'
-import { openFixture } from './support/fixtures'
+import { openFixture, openFilterBar } from './support/fixtures'
 import { cell, editCell, row } from './support/grid'
 
 // Task m4-5 proof (handoff §6): the export/rewrite UX over the m4-2 export op.
@@ -80,6 +80,7 @@ async function exportFormat(page: Page, format: string): Promise<Download> {
 
 /** Apply one column predicate through the filter bar (m2-3 pattern). */
 async function filterBy(page: Page, column: string, predicate: string): Promise<void> {
+  await openFilterBar(page)
   await page.locator(`[data-testid="filter-input"][data-col-name="${column}"]`).fill(predicate)
   await page.locator(`[data-testid="filter-apply"][data-col-name="${column}"]`).click()
 }

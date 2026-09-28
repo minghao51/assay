@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readGridStats } from './support/grid-stats'
-import { openCustomersFixture } from './support/fixtures'
+import { openCustomersFixture, openFilterBar } from './support/fixtures'
 
 // Task m2-3 proof (handoff §6): the web filter/sort UI over the full stack —
 // header sort toggle → GridViewportModel.setSort → DuckDbGridProvider → the
@@ -67,6 +67,7 @@ function expectCustomerOrder(page: Page, ids: string[]): Promise<void> {
 
 /** Type a predicate into one column's filter input and press Apply. */
 async function applyFilter(page: Page, column: string, predicate: string): Promise<void> {
+  await openFilterBar(page)
   await page.locator(`[data-testid="filter-input"][data-col-name="${column}"]`).fill(predicate)
   await page.locator(`[data-testid="filter-apply"][data-col-name="${column}"]`).click()
 }
@@ -122,6 +123,7 @@ test('numeric filter narrows the visible rows and the total row count, refetched
   await openCustomersFixture(page)
 
   // The convention hint is part of the UI (v1 grammar documented in place).
+  await openFilterBar(page)
   await expect(page.getByTestId('filter-hint')).toContainText('("column" <predicate>)')
 
   await applyFilter(page, 'income', '> 50000')

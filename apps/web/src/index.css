@@ -604,6 +604,71 @@ h1 {
   gap: 0.5rem;
 }
 
+.filter-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0.2rem 0.35rem;
+  cursor: pointer;
+}
+
+.filter-toggle:hover {
+  background: var(--color-hover);
+}
+
+.filter-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-builder {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+}
+
+.filter-builder-column {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.filter-builder-operator,
+.filter-builder-value {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+}
+
+.filter-builder-value {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  min-width: 8rem;
+}
+
+.filter-builder-apply {
+  font: inherit;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+
+.filter-builder-error {
+  margin: 0;
+  color: var(--color-error-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .filter-hint {
   margin: 0;
   color: var(--color-text-secondary);

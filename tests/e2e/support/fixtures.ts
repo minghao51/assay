@@ -71,3 +71,17 @@ export async function openFixtureAndGetTableId(page: Page, fixturePath: string):
   await expect(page.getByTestId('sql-panel')).not.toContainText(fixturePath)
   return page.getByTestId('sql-table-id').innerText()
 }
+
+/**
+ * Open the collapsible filter bar (ux-4; collapsed by default). Idempotent:
+ * a programmatic `setFilters` (e.g. the validation panel's "Show only failing
+ * rows" bridge) auto-opens it, so a spec that only needs the SQL-fragment
+ * escape hatch or a built filter can call this unconditionally.
+ */
+export async function openFilterBar(page: Page): Promise<void> {
+  const toggle = page.getByTestId('filter-toggle')
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click()
+  }
+  await expect(page.getByTestId('filter-body')).toBeVisible()
+}

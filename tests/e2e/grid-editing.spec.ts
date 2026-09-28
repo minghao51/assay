@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readGridStats } from './support/grid-stats'
-import { openCustomersFixture } from './support/fixtures'
+import { openCustomersFixture, openFilterBar } from './support/fixtures'
 import { cell, openEditor, row, waitForReadyRow } from './support/grid'
 
 // Task m4-3 proof (handoff §6): real cell editing + row ops + dirty state over
@@ -330,6 +330,7 @@ test('rapid epoch changes settle consistently — no stale/in-flight window rend
   // discard any page still in flight from the previous one. The final state
   // must reflect ONLY the last query, with no lingering loading placeholders.
   await page.locator('[data-testid="grid-sort-toggle"][data-col-name="income"]').click()
+  await openFilterBar(page)
   await page.locator('[data-testid="filter-input"][data-col-name="country"]').fill("= 'US'")
   await page.locator('[data-testid="filter-apply"][data-col-name="country"]').click()
   await page.locator('[data-testid="grid-sort-toggle"][data-col-name="income"]').click() // desc
