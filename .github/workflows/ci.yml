@@ -82,6 +82,10 @@ jobs:
 
       - run: pnpm test
 
+      # f-6: coverage thresholds are enforced here, not honor-system (the
+      # au2-1 lesson). Kept as its own step so plain `pnpm test` stays fast.
+      - run: pnpm test:coverage
+
       - run: pnpm build
 
       # ar-5's done-when "enforcement" leg — previously manual-only (audit
