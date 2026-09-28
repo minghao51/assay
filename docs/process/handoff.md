@@ -122,14 +122,15 @@ pick-up-cold in [`handoff/20260927-audit-remediation.md`](handoff/20260927-audit
 memoized panels + render-count probe `763b326`; f-3 exhaustive-deps → error + a drill-caught
 real stale-ref bug `eb0f702`; f-4 layering encoding complete — domain is a lint-enforced
 dependency-free zone `6667f53`/`8ccddf5`; f-5 report.ts split, 12/12 hash-verified byte-stable
-`b04b9a9`). **f-6/f-7/f-9/f-11 landed 2026-09-28** (f-6 coverage tooling
-`c818c78`/`238d792`; f-7 vitest `test.projects` `509bb35`; f-9 row-key grammar hoisted to domain
-`3e3d7ec`; f-11 doc-link CI rider `eff370e`/`6ff4872`; all reviewer-approved after two
-request-changes loops). **Remaining: f-8 and f-10** (type-aware linting · QoL chores) — both
-self-serve; see the queue file's pick-up note for batching. Current baseline: unit **1967**
-(116 files), e2e **145+1** (`DUCKDB=/tmp/duckdb pnpm test:e2e`), lint **0 errors / 0 warnings**,
-coverage **88.04/81.82/85.59/89.28** (thresholds 83/76/80/84), 110 changesets pending. AU-2 proper
-(au2-1…au2-4) closed 2026-09-27.
+`b04b9a9`). **f-6/f-7/f-8/f-9/f-11 landed 2026-09-28** (f-6 coverage tooling
+`c818c78`/`238d792`; f-7 vitest `test.projects` `509bb35`; f-8 type-aware async-safety lint
+`1538e7b` (evaluate-first: ≈1.8× lint cost, zero existing violations); f-9 row-key grammar hoisted
+to domain `3e3d7ec`; f-11 doc-link CI rider `eff370e`/`6ff4872`; all reviewer-approved — f-6/f-11
+after request-changes loops). **Remaining: f-10** (QoL chores + §3 carried hardening) — solo,
+self-serve; see the queue file's pick-up note. Current baseline: unit **1967**
+(116 files), e2e **145+1** (`DUCKDB=/tmp/duckdb pnpm test:e2e`), lint **0 errors / 0 warnings**
+(now type-aware), coverage **88.04/81.82/85.59/89.28** (thresholds 83/76/80/84), 110 changesets
+pending. AU-2 proper (au2-1…au2-4) closed 2026-09-27.
 Standing human queue per the [open-threads map](handoff/20260926-open-threads.md): maintainer
 rulings (C-pt0-1/D12/D13) – publish-readiness day (rides manual M1; the version cut was
 dry-run-validated 2026-09-26). Residue rows q-14 / q-7 slice 2 / q-5b are queued in
@@ -177,6 +178,7 @@ approve`/`request-changes` with mutation drills.
 
 One line per entry. **The authoritative task narratives are the queue files' status cells and the review docs — this section never re-records them.** Entry codes are append-only, globally sequential, and never reused; cite them as `§9(x)`, and resolve older codes in [`handoff/archive/changelog-202609.md`](handoff/archive/changelog-202609.md), which holds the full text. **Splice trigger (DM-5a): when a queue closes — or §9 exceeds 25 entries — splice the older one-liners into the archive; §9 keeps the codes since the most recent queue closure.**
 
+- 2026-09-28 (cq) — **AU-2 f-8 landed (`1538e7b`, reviewer approve)**: type-aware async-safety lint (`projectService` scoped to package/app src) adds `no-floating-promises`/`await-thenable`/`no-misused-promises`; the evaluate-first measurement (≈1.8× lint cost, zero existing violations) was done by the orchestrator before the worker landed it, and reviewer probes proved all three fire (web + package + test sources) with a rule-off mutant killing exactly one. No changeset (root config). Baseline unit **1967**, e2e **145+1**, lint 0/0, 110 changesets. Remaining **f-10** only. See the [AU-2 queue](handoff/20260927-audit-remediation.md).
 - 2026-09-28 (cp) — **AU-2 f-9 landed (`3e3d7ec`, reviewer approve)**: the anchor-free row-key display/export grammar is now single-sourced in `@assay/domain` beside `parseRowId` (zero new imports, purity-zone clean); CLI `report-shared.ts` + web `report-model.ts` re-export it with public surfaces and the `diff-model.ts` import path intact. The shared-consumption mutation drill failed BOTH app suites off one domain mutant; +5 domain tests, unit **1962→1967**, changeset added. Baseline unit **1967**, e2e **145+1**, lint 0/0, 110 changesets. Remaining f-8, f-10. See the [AU-2 queue](handoff/20260927-audit-remediation.md).
 - 2026-09-28 (co) — **AU-2 f-tooling batch landed (f-6 `c818c78`+`238d792`, f-7 `509bb35`, f-11 `eff370e`+`6ff4872`; all reviewer-approved after two request-changes loops)**: V8 coverage with a broad guarded `coverage.include` (160-file strict denominator; thresholds 83/76/80/84 under 88.05/81.84/85.6/89.29) enforced as its own CI step; vitest environment-by-glob projects (15 docblocks removed, probe-proven, unit 1962 unchanged); relative doc-link checker wired to CI. Reviewer roster updated: reviewer → `opencode-go/mimo-v2.6-pro` (worker stays `opencode-go/deepseek-v4.1-flash`). Baseline unit **1962**, e2e **145+1**, lint 0/0, 109 changesets. Remaining f-8…f-10. See the [AU-2 queue](handoff/20260927-audit-remediation.md).
 - 2026-09-27 (cg) — **AU-3 P0 landed (au3-1, au3-2; `9728666`, `d531658`)**: CSV export headers formula-guarded + LF in the value/web trigger sets (C1/S1, hard-rule breach closed) and row-diff compared-column type drift refused value-free at compile (C2, JSON tightening accepted on engine evidence). Both independent-reviewer **approved** after live-DuckDB drills; unit 1866→**1879**, e2e **144+1**, gates green. See the [AU-3 queue](handoff/20260927-impl-audit-remediation.md).
