@@ -160,6 +160,21 @@ export function DataGrid({
   /** Column index of the last focused/clicked cell (Enter-to-edit target). */
   const [focusedColumn, setFocusedColumn] = useState<number | null>(null)
   /**
+   * S5 roving-tabindex anchor: the effective row index that owns the grid's
+   * single `tabIndex=0`. `null` means "not yet entered" and the first
+   * rendered row carries the tab stop, so Tab always has an entry point.
+   */
+  const [focusedRow, setFocusedRow] = useState<number | null>(null)
+  /**
+   * S5: a parked focus move for a row the virtualizer has not rendered yet.
+   * Arrow navigation can target a row outside the current window; the focus
+   * effect completes the move once that row exists and then clears this.
+   */
+  const [focusRequest, setFocusRequest] = useState<{
+    readonly rowIndex: number
+    readonly columnIndex: number | null
+  } | null>(null)
+  /**
    * AR-W2: the last `scrollRequest.seq` actually consumed. The jump effect
    * also re-runs on `totalRows` changes (filters/insert/delete); without this
    * guard a consumed request would re-scroll the grid to a now-stale index,
@@ -169,6 +184,13 @@ export function DataGrid({
 
   const editingEnabled = overlayState !== null && onCommitCell !== undefined
   const rowActionsEnabled = overlayState !== null && onDeleteRow !== undefined
+  /**
+   * S5: the grid is a keyboard surface when it has any interaction (record
+   * open and/or editing). Rows become the roving tab stops and cells become
+   * programmatically focusable (`tabIndex=-1`) only in that mode; a pure
+   * render surface stays out of the tab order.
+   */
+  const interactive = onOpenRecord !== undefined || editingEnabled
 
   /**
    * m3-5: per-column one-click action, derived from the parsed DESCRIBE type
@@ -281,6 +303,15 @@ export function DataGrid({
     overscan: VIRTUALIZER_OVERSCAN_ROWS,
   })
   const virtualItems = virtualizer.getVirtualItems()
+  /**
+   * S5: exactly one row carries `tabIndex=0`. Prefer the last focused row
+   * while it is rendered; otherwise the first rendered row keeps the grid
+   * Tab-reachable after a scroll unmounts the remembered row.
+   */
+  const tabbableRowIndex =
+    focusedRow !== null && virtualItems.some((item) => item.index === focusedRow)
+      ? focusedRow
+      : (virtualItems[0]?.index ?? 0)
 
   // m5-3 jump-to-row: a new scroll request scrolls the target row to the top
   // of the grid viewport AND brings it into the browser viewport (the grid
@@ -321,6 +352,58 @@ export function DataGrid({
       Number(rangeKey.slice(separator + 1)),
     )
   }, [model, rangeKey])
+
+  // S5: completes a roving-focus move once the target row is in the DOM.
+  // Arrow navigation can target a row the virtualizer has not rendered yet,
+  // so the request is retried on each `virtualItems` change and cleared after
+  // the focus lands (later renders never steal focus from the pointer).
+  // AR-W2 bounds discipline: if the dataset shrank past the parked index
+  // (filter/delete landing between park and render), the request is dropped —
+  // a positional index from a superseded row set must never steal focus when
+  // a later render re-exposes that index.
+  useEffect(() => {
+    if (focusRequest === null) return
+    if (focusRequest.rowIndex >= totalRows) {
+      setFocusRequest(null)
+      return
+    }
+    const container = scrollRef.current
+    if (container === null) return
+    const rowElement = container.querySelector<HTMLElement>(
+      `[data-row-index="${String(focusRequest.rowIndex)}"]`,
+    )
+    if (rowElement === null) return
+    let target: HTMLElement = rowElement
+    if (focusRequest.columnIndex !== null) {
+      const cells = rowElement.querySelectorAll<HTMLElement>('[data-testid="grid-cell"]')
+      target = cells[focusRequest.columnIndex] ?? rowElement
+    }
+    target.focus()
+    // `block/inline: nearest` keeps the move minimal and never jumps the page.
+    target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    setFocusRequest(null)
+  }, [focusRequest, virtualItems, totalRows])
+
+  /**
+   * S5 roving-focus movement. Only rendered rows can take DOM focus, so when
+   * the target row is outside the current virtual window the request is parked
+   * until the virtualizer renders it (the focus effect above re-runs on the
+   * next `virtualItems` change). Cells stay `tabIndex=-1`: the row remains the
+   * grid's single tab stop whether row focus or cell focus is active.
+   */
+  const moveGridFocus = (rowIndex: number, columnIndex: number | null): void => {
+    if (totalRows === 0) return
+    const targetRow = Math.max(0, Math.min(rowIndex, totalRows - 1))
+    const targetColumn =
+      columnIndex === null ? null : Math.max(0, Math.min(columnIndex, schema.length - 1))
+    setFocusedRow(targetRow)
+    setFocusedColumn(targetColumn)
+    if (!virtualItems.some((item) => item.index === targetRow)) {
+      // `auto` scrolls only when the target is outside the viewport.
+      virtualizer.scrollToIndex(targetRow, { align: 'auto' })
+    }
+    setFocusRequest({ rowIndex: targetRow, columnIndex: targetColumn })
+  }
 
   const stats = model.stats
   const gridTemplateColumns =
@@ -450,7 +533,7 @@ export function DataGrid({
                 data-dirty={rowDirty ? 'true' : 'false'}
                 data-inserted={inserted ? 'true' : undefined}
                 title={status === 'error' ? slot.message : undefined}
-                tabIndex={onOpenRecord === undefined && !editingEnabled ? undefined : 0}
+                tabIndex={interactive ? (item.index === tabbableRowIndex ? 0 : -1) : undefined}
                 onClick={
                   onOpenRecord === undefined
                     ? undefined
@@ -458,22 +541,70 @@ export function DataGrid({
                         onOpenRecord(item.index)
                       }
                 }
+                onFocus={(event) => {
+                  // Row-level focus (not a bubbled cell focus) is the roving
+                  // tab stop's resting position: remember the row and clear
+                  // the cell so Enter keeps opening the record inspector.
+                  if (event.target === event.currentTarget) {
+                    setFocusedRow(item.index)
+                    setFocusedColumn(null)
+                  }
+                }}
                 onKeyDown={(event) => {
-                  if (
-                    event.key !== 'Enter' ||
-                    event.shiftKey ||
-                    event.ctrlKey ||
-                    event.altKey ||
-                    event.metaKey
-                  ) {
+                  if (event.key === 'Enter') {
+                    if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+                      return
+                    }
+                    // Enter on a focused cell edits it; Enter on the row (no
+                    // cell focused) keeps the m3-3 inspector gesture.
+                    if (focusedColumn !== null && editingEnabled) {
+                      beginEdit(item.index, focusedColumn)
+                    } else if (onOpenRecord !== undefined) {
+                      onOpenRecord(item.index)
+                    }
                     return
                   }
-                  // Enter on a focused cell edits it; Enter on the row (no
-                  // cell focused) keeps the m3-3 inspector gesture.
-                  if (focusedColumn !== null && editingEnabled) {
-                    beginEdit(item.index, focusedColumn)
-                  } else if (onOpenRecord !== undefined) {
-                    onOpenRecord(item.index)
+                  // S5 navigation. An open editor consumes its own arrow/Home/
+                  // End keys (text caret, select options), so never steal focus
+                  // while editing — Enter/Escape semantics are untouched.
+                  if (editing !== null || !interactive || schema.length === 0) return
+                  const lastColumn = schema.length - 1
+                  switch (event.key) {
+                    case 'ArrowDown':
+                      event.preventDefault()
+                      moveGridFocus(Math.min(item.index + 1, totalRows - 1), focusedColumn)
+                      return
+                    case 'ArrowUp':
+                      event.preventDefault()
+                      moveGridFocus(Math.max(item.index - 1, 0), focusedColumn)
+                      return
+                    case 'ArrowRight':
+                      event.preventDefault()
+                      moveGridFocus(
+                        item.index,
+                        focusedColumn === null ? 0 : Math.min(focusedColumn + 1, lastColumn),
+                      )
+                      return
+                    case 'ArrowLeft':
+                      event.preventDefault()
+                      moveGridFocus(
+                        item.index,
+                        focusedColumn === null ? lastColumn : Math.max(focusedColumn - 1, 0),
+                      )
+                      return
+                    case 'Home':
+                      event.preventDefault()
+                      moveGridFocus(event.ctrlKey || event.metaKey ? 0 : item.index, 0)
+                      return
+                    case 'End':
+                      event.preventDefault()
+                      moveGridFocus(
+                        event.ctrlKey || event.metaKey ? totalRows - 1 : item.index,
+                        lastColumn,
+                      )
+                      return
+                    default:
+                      return
                   }
                 }}
                 style={{
@@ -510,9 +641,10 @@ export function DataGrid({
                           data-col-name={column?.name}
                           data-dirty={dirty ? 'true' : 'false'}
                           data-null={isNull ? 'true' : undefined}
-                          tabIndex={editingEnabled && !isEditing ? -1 : undefined}
+                          tabIndex={interactive && !isEditing ? -1 : undefined}
                           onFocus={(event) => {
-                            if (event.target === event.currentTarget && editingEnabled) {
+                            if (event.target === event.currentTarget && interactive) {
+                              setFocusedRow(item.index)
                               setFocusedColumn(columnIndex)
                             }
                           }}
@@ -644,6 +776,13 @@ export function DataGrid({
                         role="gridcell"
                         className="grid-cell"
                         data-testid="grid-cell"
+                        tabIndex={interactive ? -1 : undefined}
+                        onFocus={(event) => {
+                          if (event.target === event.currentTarget && interactive) {
+                            setFocusedRow(item.index)
+                            setFocusedColumn(columnIndex)
+                          }
+                        }}
                       >
                         {status === 'loading' ? '…' : '!'}
                       </div>

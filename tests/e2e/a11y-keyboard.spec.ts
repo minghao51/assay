@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import { cell } from './support/grid'
+import { cell, row } from './support/grid'
 
 // q-3 (PT-Q a11y polish pack, AR-W10): the keyboard and live-region contract
 // for the two interactive surfaces the audit flagged.
@@ -106,6 +106,55 @@ test('grid edit commit and rejection announce through one polite, value-free liv
   await expect(page.getByTestId('grid-edit-error')).toHaveText('That is not a number.')
   await expect(live).toHaveText('That is not a number.')
   await expect(live).not.toContainText('not-a-number')
+})
+
+test('grid roving tabindex: Tab enters/leaves at the row, arrows reach cells, one tab stop', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByTestId('open-button').click()
+  await (await chooserPromise).setFiles(FIXTURE)
+  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+
+  // The last header control is the tab stop immediately before the roving
+  // grid row; Tab enters the grid at the remembered row and Shift+Tab leaves
+  // it again from that same row.
+  const headerControls = page.locator('.grid-header-row button')
+  await headerControls.last().focus()
+  await page.keyboard.press('Tab')
+  await expect(row(page, 0)).toBeFocused()
+  await expect(page.locator('[data-testid="grid-row"][tabindex="0"]')).toHaveCount(1)
+  await page.keyboard.press('Shift+Tab')
+  await expect(headerControls.last()).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(row(page, 0)).toBeFocused()
+
+  // ArrowRight reaches the focused row's cells; the row stays the single tab
+  // stop (cells are tabindex=-1).
+  await page.keyboard.press('ArrowRight')
+  await expect(cell(page, 0, 0)).toBeFocused()
+  await expect(page.locator('[data-testid="grid-row"][tabindex="0"]')).toHaveCount(1)
+  await page.keyboard.press('ArrowRight')
+  await expect(cell(page, 0, 1)).toBeFocused()
+
+  // ArrowDown carries the focused column to the next row.
+  await page.keyboard.press('ArrowDown')
+  await expect(cell(page, 1, 1)).toBeFocused()
+  await expect(page.locator('[data-testid="grid-row"][tabindex="0"]')).toHaveCount(1)
+
+  // Home/End jump to the row's first/last cell; Ctrl+Home/Ctrl+End reach the
+  // grid corners.
+  await page.keyboard.press('Home')
+  await expect(cell(page, 1, 0)).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(cell(page, 1, 3)).toBeFocused()
+  await page.keyboard.press('Control+Home')
+  await expect(cell(page, 0, 0)).toBeFocused()
+  await page.keyboard.press('Control+End')
+  await expect(cell(page, 4, 3)).toBeFocused()
 })
 
 test('keyboard-only journey: open → edit → export', async ({ page }) => {

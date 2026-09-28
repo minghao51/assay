@@ -1,0 +1,5 @@
+---
+'@assay/web': patch
+---
+
+fix(au3-8): WAI-ARIA grid keyboard navigation (S5). The virtualized `role="grid"` used every interactive row as a tab stop with no arrow-key movement, so keyboard and screen-reader users could not reach individual cells. Rows now use a roving tabindex (exactly one row is `tabIndex=0` — the remembered row, else the first rendered row — and Tab/Shift+Tab enter and leave the grid at it), ArrowUp/ArrowDown move row focus, ArrowLeft/ArrowRight move cell focus within the focused row, Home/End jump to the row's first/last cell, and Ctrl/Meta+Home/End reach the grid corners. Cells stay `tabIndex=-1` (focusable but never a second tab stop); moves to a row outside the virtualized window are parked until it renders and scroll it into view (`block/inline: nearest`). While an inline editor is open it consumes its own keys — arrows never steal focus — and the existing Enter/Escape edit semantics are unchanged. Pinned by `DataGrid.keyboard.test.tsx` and an end-to-end keyboard-navigation spec.
