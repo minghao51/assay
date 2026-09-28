@@ -26,6 +26,19 @@
 
 ## 2. Follow-up queue (prioritized; pick up per the operating model)
 
+> **Pick-up note for the next agent (written 2026-09-28, HEAD `b6e881c`).** f-1…f-5 are done
+> (rows below marked LANDED); **f-6…f-11 remain, all self-serve.** Suggested batching:
+> one tooling worker for **f-6 + f-7 + f-11** (coverage + vitest projects + doc-link rider —
+> all root config/scripts, disjoint from packages); a second for **f-9** (domain + both apps;
+> domain src is now a lint-enforced dependency-free zone — the hoist must keep domain
+> dependency-free and purity-guarded, per AGENTS.md); **f-8** evaluate-first (report the
+> typecheck-lint cost before committing to it); **f-10** solo chores. Working conventions this
+> arc proved: worker → independent reviewer → orchestrator integration
+> ([operating model](operating-model.md)); e2e needs `DUCKDB=/tmp/duckdb pnpm test:e2e`;
+> pins should be mutation-drilled before landing; docs-table edits via the line-anchored edit
+> tool (multi-line replaces assert-fail after prettier reflow — bit this arc twice); the flake
+> ledger lives in §3 below. Baseline: unit 1962 / e2e 145+1 / lint 0-0 / 109 changesets.
+
 | #    | Item (done-when)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Scope / notes                                                       |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | f-1  | **LANDED 2026-09-28, `9685be9`** (reviewer **approve**; render JSX diffed byte-identical, all moved handlers copy-exact modulo stable deps; 6 mutation drills — token bump, cast re-check, historyRef all KILLED; App.tsx 1,462→**589** lines; all 4 App test files + e2e unchanged). Extraction: `sessions/useEditingSession`/`useValidationSession`/`useDiffSession` + `session-reset.ts` registry (token bumps before resets; `openDataFile`'s 14 hand-nulled slots → one `beginSession()`); `lib/bottom-panels.ts` + `lib/use-model-slice.ts` moved verbatim                                                                                                                                                                                           | `apps/web` — done                                                   |

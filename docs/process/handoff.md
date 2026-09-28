@@ -116,12 +116,17 @@ it whenever a queue opens/closes, and splice its outcome rows here only as one-l
 
 ### Active
 
-**AU-3 — implementation-audit remediation** (opened 2026-09-27): two verified criticals
-(C1 CSV header formula-injection bypass; C2 row-diff compared-column type drift) + should-fixes,
-fully specced pick-up-cold in
-[`handoff/20260927-impl-audit-remediation.md`](handoff/20260927-impl-audit-remediation.md)
-(au3-1…au3-12; au3-1 + au3-2 **landed 2026-09-27** with independent-reviewer approval — unit 1866→**1879**, e2e 144+1; au3-3 + the boundary probe landed same day — unit 1866→**1893**, e2e 144+1; probe closed after pinning one verified defect — lone-surrogate silent U+FFFD corruption — as new task au3-13; au3-4/au3-5/au3-13 landed same day (two reviewer request-changes loops fixed in-round) — unit 1866→**1910**, e2e 144+1; au3-6/au3-7 landed too — P0+P1 complete, unit 1866→**1929**, e2e 144+1; au3-8 + au3-12 landed 2026-09-28 — **AU-3 queue COMPLETE (13/13 + probe)**: unit 1866→**1959**, e2e **145+1**, main bundle −61 kB min). AU-2 closed 2026-09-27 (au2-1…au2-4); **f-1/f-3/f-5 landed 2026-09-28** (App.tsx 1,462→589 ln behavior-identical, exhaustive-deps now error, report.ts split byte-stable — unit 1959→**1960**, e2e 145+1) — f-2/f-4 landed 2026-09-28 too (memoized panels, 8/8 drills; layering encoding complete incl. domain dependency-free zone) — remaining f-queue: f-6…f-11 (coverage/vitest-projects/type-aware-lint/row-key-hoist/QoL/doc-link rider) — its follow-ups
-(f-1…f-11) live in [`handoff/20260927-audit-remediation.md`](handoff/20260927-audit-remediation.md).
+**AU-2 follow-ups — the f-queue** (audit round 2's backlog; AU-3 below is closed): specs live
+pick-up-cold in [`handoff/20260927-audit-remediation.md`](handoff/20260927-audit-remediation.md)
+§2. **f-1…f-5 landed 2026-09-28** (f-1 App.tsx 1,462→589 ln behavior-identical `9685be9`; f-2
+memoized panels + render-count probe `763b326`; f-3 exhaustive-deps → error + a drill-caught
+real stale-ref bug `eb0f702`; f-4 layering encoding complete — domain is a lint-enforced
+dependency-free zone `6667f53`/`8ccddf5`; f-5 report.ts split, 12/12 hash-verified byte-stable
+`b04b9a9`). **Remaining: f-6…f-11** (coverage tooling · vitest test.projects · type-aware
+linting · row-key grammar hoist · QoL chores · doc-link CI rider) — all self-serve, batchable;
+see the queue file's pick-up note for suggested batching. Current baseline: unit **1962**
+(116 files), e2e **145+1** (`DUCKDB=/tmp/duckdb pnpm test:e2e`), lint **0 errors / 0 warnings**,
+109 changesets pending. AU-2 proper (au2-1…au2-4) closed 2026-09-27.
 Standing human queue per the [open-threads map](handoff/20260926-open-threads.md): maintainer
 rulings (C-pt0-1/D12/D13) – publish-readiness day (rides manual M1; the version cut was
 dry-run-validated 2026-09-26). Residue rows q-14 / q-7 slice 2 / q-5b are queued in
@@ -133,14 +138,15 @@ Non-queue work tracks (not dispatched from here): **PT-Q** QoL/performance items
 
 ### Closed (archive)
 
-| Queue                                        | File                                                                             | Closed                                                         |
-| -------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| PT-0 — launch readiness (pt0-0…pt0-4)        | [`handoff/archive/20260921-pt0-queue.md`](handoff/archive/20260921-pt0-queue.md) | 2026-09-24 — all five ✅; **agent-side G0 checklist complete** |
-| DR — documentation remediation (dr-0…dr-4)   | [`handoff/archive/20260923-doc-queue.md`](handoff/archive/20260923-doc-queue.md) | 2026-09-23 — all five ✅                                       |
-| AR — audit remediation (ar-1…ar-6)           | [`handoff/archive/20260922-ar-queue.md`](handoff/archive/20260922-ar-queue.md)   | 2026-09-23 — all six ✅                                        |
-| M6 — dataset diff (m6-0…m6-5)                | [`handoff/archive/20260920-m6-queue.md`](handoff/archive/20260920-m6-queue.md)   | 2026-09-21 — MVP M0–M6 complete                                |
-| M5 — validation & contracts (m5-0…m5-6)      | [`handoff/archive/20260919-m5-queue.md`](handoff/archive/20260919-m5-queue.md)   | 2026-09-20                                                     |
-| M4 — editing & transforms (m4-0…m4-6, m4-2b) | [`handoff/archive/20260918-m4-queue.md`](handoff/archive/20260918-m4-queue.md)   | 2026-09-19                                                     |
+| Queue                                                      | File                                                                                       | Closed                                                                                                                          |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| PT-0 — launch readiness (pt0-0…pt0-4)                      | [`handoff/archive/20260921-pt0-queue.md`](handoff/archive/20260921-pt0-queue.md)           | 2026-09-24 — all five ✅; **agent-side G0 checklist complete**                                                                  |
+| DR — documentation remediation (dr-0…dr-4)                 | [`handoff/archive/20260923-doc-queue.md`](handoff/archive/20260923-doc-queue.md)           | 2026-09-23 — all five ✅                                                                                                        |
+| AR — audit remediation (ar-1…ar-6)                         | [`handoff/archive/20260922-ar-queue.md`](handoff/archive/20260922-ar-queue.md)             | 2026-09-23 — all six ✅                                                                                                         |
+| AU-3 — implementation-audit remediation (au3-1…13 + probe) | [`handoff/20260927-impl-audit-remediation.md`](handoff/20260927-impl-audit-remediation.md) | 2026-09-28 — all 13 ✅ (every task independently reviewed; unit 1866→1959, e2e 144+1→145+1; residual non-blocking notes inline) |
+| M6 — dataset diff (m6-0…m6-5)                              | [`handoff/archive/20260920-m6-queue.md`](handoff/archive/20260920-m6-queue.md)             | 2026-09-21 — MVP M0–M6 complete                                                                                                 |
+| M5 — validation & contracts (m5-0…m5-6)                    | [`handoff/archive/20260919-m5-queue.md`](handoff/archive/20260919-m5-queue.md)             | 2026-09-20                                                                                                                      |
+| M4 — editing & transforms (m4-0…m4-6, m4-2b)               | [`handoff/archive/20260918-m4-queue.md`](handoff/archive/20260918-m4-queue.md)             | 2026-09-19                                                                                                                      |
 
 M1–M3 predate the queue-file convention; their per-task records live in
 [`archive/changelog-202609.md`](handoff/archive/changelog-202609.md) and the roadmap §4 checkboxes.
