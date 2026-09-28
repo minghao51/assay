@@ -136,7 +136,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
   segments; collision pins mirroring `FilterBar.test.tsx` (`a.b` vs `a-b`, key `x/y` vs child
   `y` of `x`); `aria-controls` uniqueness asserted. Changeset (patch, web).
 
-#### au3-6 — pack-consumer-smoke coverage legs (S9) · solo-eligible (§7.5) · 2–4 h
+#### au3-6 — pack-consumer-smoke coverage legs (S9) · **LANDED 2026-09-27, `ec5dc83`** (worker → reviewer **approve**; assertions byte-pinned to validate.ts/report.ts source behavior; three mutation drills — sabotaged fixture, wrong marker, wrong stderr byte — all fail loudly; smoke 6.5 s « 30 s)
 
 - **Problem.** Smoke step 5/5 (`pack-consumer-smoke.mjs:217-227`) runs `--version`, `--help`,
   `profile` (exit 0 only). The flagship `validate`/`diff` pipelines, `--format json`, and every
@@ -144,7 +144,7 @@ CLI exit-code/stderr/ANSI discipline pinned; node-executor reuses engine SQL (no
 - **Done-when.** Add a `validate` leg over a dirty fixture (assert exit 1 + `report:` marker in
   stdout) and one exit-2 usage-error leg; smoke stays < 30 s in CI. No changeset (repo script).
 
-#### au3-7 — RE2 nested-repetition product bound (S7) · worker+reviewer · 0.5 d
+#### au3-7 — RE2 nested-repetition product bound (S7) · **LANDED 2026-09-27, `97e777f`** (worker → reviewer **approve**). The drilled real DuckDB 1.5.5 bound: **product of repeat factors along one atom's expansion path ≤ 1000** ({n,m}→max, {n}/{n,}→n, */+/?→1, empty group→1, alternation→max branch, anchors count) — NOT 1024 and NOT a sum across sequences (`a{600}b{600}` stays accepted; over-refusal trap drilled). Both mirrored checkers fixed with byte-identical reasons; agreement pool 65→70 (accepted run in the gated real-CLI leg); +19 tests
 
 - **Problem.** The checker enforces the per-quantifier limit (`{n},{n,m} ≤ 1000`) but DuckDB
   1.5.5 enforces the **product**: `(a{100}){10}` runs, `(a{32}){32}` (=1024) throws
@@ -256,7 +256,8 @@ hand-copied by the oracle.
   f-1 (different files). Everything else interleaves freely.
 - P0 (au3-1…au3-3) is self-serve — no maintainer ruling blocks it. The CSV BOM question
   (au3-12) is the only new mini-ruling; C-pt0-1/D12/D13 remain the standing human queue.
-- Suggested order: ~~au3-1 → au3-2 → au3-3 (+ boundary probe) → au3-4/au3-5/au3-13~~ (all
-  landed) → **au3-6/au3-7 next** (parallel-safe: CLI smoke vs validation/contracts RE2 — but
-  both may touch the 50-pattern agreement pool; sequence if they collide) → P2 by appetite.
-  Unit baseline after au3-1/2/3/4/5/13 + probe: **1910** (was 1866); e2e 144+1 unchanged.
+- Suggested order: ~~au3-1 → au3-2 → au3-3 (+ boundary probe) → au3-4/au3-5/au3-13 →
+  au3-6/au3-7~~ (all landed; P0 + P1 complete) → **P2 by appetite**: au3-8 (grid keyboard,
+  sequence with f-2), au3-9 (solo), au3-10, au3-11 (oracle de-hardening), au3-12 (QoL batch).
+  Unit baseline after au3-1…7/13 + probe: **1929** (was 1866); e2e 144+1 unchanged; pack
+  smoke now covers validate/--format json/exit-1/exit-2 through the installed bin.
