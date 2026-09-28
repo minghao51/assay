@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
 import type { DiffReport } from '@assay/diff'
 import type { EngineRowDiffResult } from '@assay/engine-duckdb'

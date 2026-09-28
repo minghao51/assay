@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
@@ -39,11 +38,11 @@ import type { ArrowTableLike } from './grid/provider'
  * killing the success-path `setActionError(null)` fails (2); replacing the
  * alert paragraph with a static element fails (2)/(3).
  *
- * Environment scoping: the root vitest config runs every unit test in a
- * plain Node environment, so the DOM environment is opted into per file via
- * the `@vitest-environment` docblock above — no config change, no impact on
- * the other 484 tests. Text-only assertions on `textContent` (ADR 0007
- * spirit: values render as text, nothing here executes or logs them).
+ * Environment scoping: the root vitest config routes `apps/web/src/**` tests
+ * into a dedicated `web` project with `environment: 'happy-dom'` (f-7), so the
+ * DOM environment is selected by path and no per-file opt-in can be forgotten.
+ * Text-only assertions on `textContent` (ADR 0007 spirit: values render as
+ * text, nothing here executes or logs them).
  */
 
 /** Fake open result: the engine's opaque handle shape (engine-generated id). */
