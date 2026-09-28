@@ -63,5 +63,6 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0027 | TypeScript and PostgreSQL for the Initial Hosted Control Plane |
 | 0028 | Tauri Is the Preferred Future Desktop Shell                    |
 | 0043 | Changesets Are the Change-Intake Ledger Until First Publish    |
+| 0044 | Grid-Centric Two-Pane Workbench Shell                          |
 
 <!-- adr-index:end -->

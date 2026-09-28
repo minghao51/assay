@@ -6,9 +6,11 @@ until they are called. Each ruling below states what is being decided, the exact
 what it unblocks, and where the ruling must be recorded once made.
 
 Conventions (binding): decisions are recorded where this file says — never re-decided elsewhere;
-durable/structural decisions get an ADR (copy `docs/adr/template.md`, next free number **0043**);
-when a ruling lands, splice its close into `handoff.md` §9 and flip the status cells in the
-authoritative rows linked below. ~15 minutes of maintainer time total.
+durable/structural decisions get an ADR (copy `docs/adr/template.md`, next free number **0045** —
+0043 landed 2026-09-27 as the changesets ledger, 0044 landed 2026-09-29 as the workbench-shell
+Proposed ADR below); when a ruling lands, splice its close into `handoff.md` §9 and flip the
+status cells in the authoritative rows linked below. ~15 minutes of maintainer time total
+(D14 added 2026-09-29 — still short).
 
 ## How to record a ruling (per item)
 
@@ -61,6 +63,27 @@ authoritative rows linked below. ~15 minutes of maintainer time total.
   ADR + task rows; handoff §9.
 - **Default if deferred:** harmless — the package sits private and orphaned; the conformance suite
   pins the real client regardless.
+
+## Ruling D14 — workbench-shell direction (ADR 0044) — added 2026-09-29 (ux-5)
+
+- **Decide:** accept (or amend/reject) the grid-centric **two-pane workbench shell** —
+  [ADR 0044](../../adr/0044-workbench-shell-two-pane.md) (Proposed). Folded into the same
+  ruling: pane side (spec recommends tools-left), record-inspector dock (spec: bottom of the
+  grid column), and the **1024×700 minimum supported viewport** (below it: single-column stack,
+  scroll-never-clip; no phone breakpoints — an explicit non-goal).
+- **Read:** the [workbench-shell spec](../../product/05-workbench-shell.md) (ux-5, 2026-09-29 —
+  evidence, slice plan, acceptance lists); [audit UX-3](../../reviews/2026-09-29-interface-ux-audit.md)
+  (the `[MEASURED]` finding); [ADR 0022](../../adr/0022-headless-grid-and-renderer-strategy.md) (rendering
+  replaceability constraint the spec respects).
+- **Unblocks:** **ux-6** (shell slice 1: collapsible sections + sticky nav + grid above the panel
+  stack — UX queue, spec §4 acceptance) and **PT-Q q-15** (slice 2: the two-pane split). Slice 1
+  is implementation-ready the moment the ruling lands; rejecting the two-pane direction leaves
+  slice 1 as the whole UX-3 remediation and drops q-15.
+- **Record:** flip ADR 0044 Proposed→Accepted (or record the rejection there — never renumber);
+  flip the [UX queue](20260929-ux-queue.md) ux-6 row + [post-MVP track §7 q-15 / §9
+  D14](../../product/04-post-mvp-track.md) rows; handoff §9.
+- **Default if deferred:** ux-6 and q-15 stay blocked; the single-column stack (post ux-1…ux-4)
+  remains workable but the audit's UX-3 stays open.
 
 ## Related human items (tracked in [manual-actions](../manual-actions.md), not re-listed here)
 
