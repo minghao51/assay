@@ -2,7 +2,7 @@
 
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GridViewportModel } from '@assay/grid'
 import { encodePathSegment } from '../lib/dom-id'
 import {
@@ -32,6 +32,24 @@ function fakeModel(
     getRow: () => ({ status: 'ready', row: cells, key: 'base:anchor#0' }),
   } as unknown as GridViewportModel
 }
+
+/**
+ * Delegating build counter (f-3): end-state assertions cannot discriminate a
+ * spurious freshness reload (the reload self-heals within the same act), so
+ * the open-after-edit pin below counts `buildRecordTree` invocations through
+ * this spy. Everything else keeps the real implementation.
+ */
+const buildCalls = vi.hoisted(() => ({ count: 0 }))
+vi.mock('./record-tree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./record-tree')>()
+  return {
+    ...actual,
+    buildRecordTree: (...args: Parameters<typeof actual.buildRecordTree>) => {
+      buildCalls.count += 1
+      return actual.buildRecordTree(...args)
+    },
+  }
+})
 
 afterEach(cleanup)
 
@@ -155,5 +173,56 @@ describe('RecordInspector DOM-id injectivity (S4)', () => {
     expect(slashToggle.getAttribute('aria-controls')).not.toBe(
       yToggle.getAttribute('aria-controls'),
     )
+  })
+})
+
+describe('RecordInspector open-after-edit freshness (f-3)', () => {
+  it('a new open gesture after an edit snapshots the current revision — no spurious reload', () => {
+    buildCalls.count = 0
+    const model = fakeModel([{ name: 'a', type: 'BIGINT' }], [1])
+    // Stable request identities (the real app keeps the request object in
+    // state; a fresh literal per render would re-fire the open effect).
+    const firstGesture = { rowIndex: 0, seq: 1 }
+    const { rerender } = render(
+      <RecordInspector
+        model={model}
+        request={firstGesture}
+        onClosed={() => {}}
+        overlayRevision={0}
+      />,
+    )
+    expect(screen.getByTestId('record-inspector')).toBeTruthy()
+    expect(buildCalls.count).toBe(1)
+
+    // An edit lands while the record is open (revision 0 → 1, same gesture):
+    // the reload effect legitimately rebuilds (its own freshness contract).
+    buildCalls.count = 0
+    rerender(
+      <RecordInspector
+        model={model}
+        request={firstGesture}
+        onClosed={() => {}}
+        overlayRevision={1}
+      />,
+    )
+    expect(buildCalls.count).toBe(1)
+
+    // THEN a new open gesture arrives at the SAME revision. The open effect
+    // must snapshot the CURRENT revision (latest-value ref), so the freshness
+    // check passes and the gesture builds exactly once. A ref frozen at the
+    // mount-time revision snapshots 0 ≠ 1 and rebuilds through the reload
+    // path — the regression this pins (count 2). The revision must change in
+    // an EARLIER render than the gesture: bundling both into one render makes
+    // the freshness check true regardless of the ref.
+    buildCalls.count = 0
+    rerender(
+      <RecordInspector
+        model={model}
+        request={{ rowIndex: 0, seq: 2 }}
+        onClosed={() => {}}
+        overlayRevision={1}
+      />,
+    )
+    expect(buildCalls.count).toBe(1)
   })
 })

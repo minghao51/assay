@@ -64,14 +64,16 @@ export default tseslint.config(
     // hook rules are enabled — NOT the plugin's `recommended` preset, which
     // also switches on the React Compiler rule family (static-components,
     // immutability, refs, set-state-in-effect, …); adopting that set is a
-    // separate queued task. `rules-of-hooks` is an error (a violation is a
-    // real bug); `exhaustive-deps` is a warning so existing dependency arrays
-    // are surfaced without a mass rewrite.
+    // separate queued task. Both rules are errors: `rules-of-hooks` (a
+    // violation is a real bug) and `exhaustive-deps`. f-3 closed the three
+    // warnings au2-3 surfaced (DataGrid schema fallback + RecordInspector
+    // latest overlay revision), so the binding rule can hold the line instead
+    // of reporting.
     files: ['**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
+      'react-hooks/exhaustive-deps': 'error',
     },
   },
   {

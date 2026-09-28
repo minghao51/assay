@@ -266,6 +266,23 @@ export function RecordInspector({
   const [fullValues, setFullValues] = useState(false)
   const fullValuesRef = useRef(false)
   fullValuesRef.current = fullValues
+  /**
+   * f-3: latest overlay revision, read by the open effect without becoming a
+   * dependency. A new edit must not re-run the open effect (that would reset
+   * the user's expansion state); it reloads the same snapshot through the
+   * reload effect below. But when a *new* open gesture arrives the snapshot's
+   * freshness baseline must be the current revision, so the effect reads the
+   * ref instead of a stale closure. Latest-value-ref (same shape as
+   * `fullValuesRef` above) — the cache invalidation stays correct and the
+   * dependency array holds no ignored variable.
+   */
+  const overlayRevisionRef = useRef(overlayRevision)
+  // Latest-value ref — assign every render (the `fullValuesRef` shape). This
+  // line is load-bearing: without it the ref freezes at the mount-time
+  // revision and every post-edit open gesture snapshots a stale baseline,
+  // triggering a spurious freshness reload (caught in f-3 review; pinned by
+  // the open-after-edit build-count test).
+  overlayRevisionRef.current = overlayRevision
   const onClosedRef = useRef(onClosed)
   useEffect(() => {
     onClosedRef.current = onClosed
@@ -324,12 +341,12 @@ export function RecordInspector({
         },
         options,
       ),
-      context: readRecordContext(model, overlayRevision, request.rowIndex),
+      context: readRecordContext(model, overlayRevisionRef.current, request.rowIndex),
     })
     // Deliberately NOT keyed on `overlayRevision`: a new edit must reload the
     // open snapshot (the reload effect below), not re-open and reset the
-    // user's expansion state. The latest render's `overlayRevision` is read
-    // when a new gesture arrives.
+    // user's expansion state. The ref above carries the latest value into
+    // this effect when a new gesture arrives.
   }, [model, request])
 
   const currentContext =

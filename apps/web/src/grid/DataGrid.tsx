@@ -139,7 +139,7 @@ export function DataGrid({
 }: DataGridProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
 
-  const schema = model.schema ?? []
+  const schema = useMemo(() => model.schema ?? [], [model.schema])
   const totalRows = model.totalRows ?? 0
   /**
    * q-1: parse each column's DuckDB type once per schema, not once per cell
@@ -148,6 +148,13 @@ export function DataGrid({
    * (decimal/object paths) — all of which previously re-parsed `column.type`
    * on every render. The parsed trees are readonly and shared with the
    * memoized parser cache.
+   *
+   * `schema` must have a stable identity for this memo (and `headerActions`)
+   * to hold: the raw `model.schema ?? []` allocated a fresh fallback array on
+   * every render while the model was still loading, invalidating both caches
+   * until the first load landed. `model.schema` is a stable readonly array
+   * between loads/epochs, so memoizing the null-coalesce fixes the churn
+   * without a behavior change (f-3).
    */
   const parsedColumnTypes = useMemo(
     () => schema.map((column) => parseDuckDbType(column.type)),
