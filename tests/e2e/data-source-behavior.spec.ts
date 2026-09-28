@@ -68,7 +68,9 @@ for (const name of SCENARIOS) {
         expect(result.facts['fallbackSnapshotExact']).toBe(true)
         break
       case 'metadata-contract':
-        expect(result.facts['casesProbed']).toBe(5)
+        // au3-11: casesProbed is derived from the subject's detect map — six
+        // shipped formats + one case-insensitive probe + unknown + fallback.
+        expect(result.facts['casesProbed']).toBe(9)
         expect(result.facts['keyCount']).toBe(2)
         expect(result.facts['engineFieldsUnset']).toBe(true)
         break

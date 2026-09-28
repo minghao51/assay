@@ -219,9 +219,13 @@ function fakeDetectCapabilities(
   return { filePicker: pickerIsFunction, dataTransferHandle: transferIsFunction }
 }
 
-function makeSubject(mutations: FakeMutations = {}): DataSourceBehaviorSubject {
+function makeSubject(
+  mutations: FakeMutations = {},
+  formatByExtension: Readonly<Record<string, string>> = FAKE_FORMATS,
+): DataSourceBehaviorSubject {
   return {
     name: 'fake-data-source',
+    formatByExtension,
     makeFile: (name, sizeBytes) => ({ name, size: sizeBytes }),
     makeHandle: async (file) => ({ name: file.name, getFile: async () => file }),
     createFallbackSource: (file) =>
@@ -235,8 +239,12 @@ function makeSubject(mutations: FakeMutations = {}): DataSourceBehaviorSubject {
 async function runOne(
   mutations: FakeMutations,
   name: DataSourceBehaviorScenarioName,
+  formatByExtension?: Readonly<Record<string, string>>,
 ): Promise<{ passed: boolean; detail: string }> {
-  const result = await runDataSourceBehaviorScenario(makeSubject(mutations), name)
+  const result = await runDataSourceBehaviorScenario(
+    makeSubject(mutations, formatByExtension),
+    name,
+  )
   return { passed: result.passed, detail: result.detail }
 }
 
@@ -261,7 +269,9 @@ describe('data-source behavior suite (compliant fake source)', () => {
     expect(oneShot.facts['fileSeam']).toBe('shared')
     expect(oneShot.facts['fallbackSnapshotExact']).toBe(true)
     const metadata = await runDataSourceBehaviorScenario(subject, 'metadata-contract')
-    expect(metadata.facts['casesProbed']).toBe(5)
+    // 6 subject-declared formats + one case-insensitive probe + unknown + the
+    // fallback = 9 (the count is derived from the adapter's detect map).
+    expect(metadata.facts['casesProbed']).toBe(9)
     expect(metadata.facts['keyCount']).toBe(2)
     const capabilities = await runDataSourceBehaviorScenario(subject, 'capability-matrix')
     expect(capabilities.facts['scopesProbed']).toBe(5)
@@ -306,6 +316,20 @@ describe('data-source behavior suite (detects non-compliant sources)', () => {
     const { passed, detail } = await runOne({ metadataLiesAboutSize: true }, 'metadata-contract')
     expect(passed).toBe(false)
     expect(detail).toContain('sizeBytes')
+  })
+
+  it('metadata-contract: fails loudly when a declared format has no behavior slot', async () => {
+    // au3-11 de-hardening: the probe set is derived from the subject's own
+    // detect map, so a format the adapter can detect can only escape the
+    // same-suite if the matrix gate misses it — this pin proves the gate
+    // bites (a subject declaring `avro` fails before any probe runs).
+    const { passed, detail } = await runOne({}, 'metadata-contract', {
+      ...FAKE_FORMATS,
+      avro: 'avro',
+    })
+    expect(passed).toBe(false)
+    expect(detail).toContain('no slot for it')
+    expect(detail).toContain('avro')
   })
 
   it('cancel-semantics: detects an AbortError surfaced as a rejection', async () => {

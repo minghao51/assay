@@ -14,7 +14,14 @@
 export type DatasetFileFormat =
   'parquet' | 'jsonl' | 'json' | 'csv' | 'arrow' | 'feather' | 'unknown'
 
-const FORMAT_BY_EXTENSION: Readonly<Record<string, DatasetFileFormat>> = {
+/**
+ * The shipped extension → format map, exported so the data-source behavior
+ * subject can declare exactly what this adapter detects (au3-11). The suite in
+ * `@assay/testing` derives its format probe matrix from that declaration
+ * instead of hand-copying the list, and a new extension here can no longer go
+ * unprobed by the mandated same-suite.
+ */
+export const FORMAT_BY_EXTENSION: Readonly<Record<string, DatasetFileFormat>> = {
   parquet: 'parquet',
   jsonl: 'jsonl',
   json: 'json',

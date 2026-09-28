@@ -1,6 +1,15 @@
 import { expect, test } from '@playwright/test'
 import { runScenario } from './support/conformance'
 import type { RunAllReport } from './support/conformance'
+// The scenario list is the suite package's single source of truth (au3-11).
+// The root e2e has no `@assay/testing` dependency to resolve the bare
+// specifier, so this imports the exported module node directly (the workspace
+// source path Playwright itself suggests); a hand-copied list must never
+// return.
+import {
+  engineConformanceScenarioNames,
+  type ConformanceScenarioName,
+} from '../../packages/testing/src/engine-conformance'
 
 // Task T1 (handoff §6): the data-engine conformance suite lives in
 // @assay/testing (docs/engineering/03-repository-structure.md §4) and is
@@ -19,33 +28,10 @@ import type { RunAllReport } from './support/conformance'
 // (default 4179).
 const HARNESS_URL = `http://localhost:${process.env['ASSAY_E2E_PORT_ENGINE'] ?? 4179}/`
 
-const SCENARIOS = [
-  'lazy-boot',
-  'file-lifecycle',
-  'error-classes',
-  'window-clamping',
-  'arrow-shape',
-  'corrupt-file-rollback',
-  'mid-stream-error-reuse',
-  'window-filter-sort',
-  'predicate-error-reuse',
-  'profile-semantics',
-  'nested-schema-fidelity',
-  'nested-window-fidelity',
-  'nested-window-clamp',
-  'overlay-window-fidelity',
-  'overlay-insert-edits',
-  'overlay-cast-check',
-  'export-round-trip',
-  'blob-csv-export-sanitized',
-  'source-immutability',
-  'overlay-hostile-types-rejected',
-  'validation-plan-execution',
-  'row-diff-plan-execution',
-] as const
+const SCENARIOS = engineConformanceScenarioNames
 
 /** Button labels as rendered by the harness (kept human-readable there). */
-const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
+const BUTTON_LABELS: Record<ConformanceScenarioName, string> = {
   'lazy-boot': 'Conformance: lazy boot',
   'file-lifecycle': 'Conformance: file lifecycle',
   'error-classes': 'Conformance: error classes',
@@ -68,6 +54,19 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
   'validation-plan-execution': 'Conformance: validation plan execution',
   'row-diff-plan-execution': 'Conformance: row-diff plan execution',
+}
+
+// Setup precondition (loud, never silent): every exported scenario needs an
+// e2e button label. A scenario added to the suite without one fails at
+// collection time instead of quietly never running. There are deliberately no
+// e2e-side skips — the e2e runs the full exported list.
+const scenariosMissingLabels = engineConformanceScenarioNames.filter(
+  (name) => typeof BUTTON_LABELS[name] !== 'string' || BUTTON_LABELS[name].length === 0,
+)
+if (scenariosMissingLabels.length > 0) {
+  throw new Error(
+    `e2e conformance setup: missing BUTTON_LABELS entry for exported scenario(s): ${scenariosMissingLabels.join(', ')} — add the harness label; the e2e must never silently skip a suite scenario`,
+  )
 }
 
 for (const name of SCENARIOS) {
@@ -264,7 +263,7 @@ for (const name of SCENARIOS) {
 test('conformance run-all: the whole suite passes in one page against engine-duckdb', async ({
   page,
 }) => {
-  test.setTimeout(300_000) // twenty scenarios, each with a fresh engine boot
+  test.setTimeout(300_000) // one fresh engine boot per scenario
   await page.goto(HARNESS_URL)
   await page.getByRole('button', { name: 'Conformance: run all scenarios' }).click()
   const element = page.getByTestId('conformance-run-all')

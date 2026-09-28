@@ -151,6 +151,15 @@ export interface BehaviorPickSteps {
 export interface DataSourceBehaviorSubject {
   /** Implementation identifier for reports (e.g. `browser-file-source`). */
   readonly name: string
+  /**
+   * The extension → format map this adapter's detection recognizes (the
+   * shipped map is `FORMAT_BY_EXTENSION`; the Node fake mirrors it). The
+   * `metadata-contract` scenario derives its probe matrix from this
+   * declaration — never a hand-copied list — and requires every detected
+   * format to have a `FORMAT_BEHAVIOR_MATRIX` slot, so a format added to the
+   * adapter cannot silently escape the mandated same-suite (au3-11).
+   */
+  readonly formatByExtension: Readonly<Record<string, string>>
   /** A file object with the given name and size (contents are irrelevant). */
   makeFile(name: string, sizeBytes: number): BehaviorFile
   /** A handle serving the given file (call counting is the suite's job). */
@@ -258,6 +267,27 @@ function expectMetadataKeysExactlyFormatAndSize(metadata: BehaviorMetadata, what
     keys === METADATA_KEYS,
     `${what}: metadata must report exactly {format, sizeBytes} — no engine-owned fields (rowCount/partitions), no content or file-name fields (ADR 0025 spirit); got ${keys}`,
   )
+}
+
+/**
+ * The metadata-contract behavior matrix: one slot per dataset format the suite
+ * knows how to probe. The probe cases are derived from the adapter's own
+ * `formatByExtension` declaration; this matrix is the suite's acknowledgement
+ * gate — every format the adapter can detect must have a slot here or the
+ * scenario fails loudly at setup (au3-11, the AU-3 §3 convention: oracle
+ * matrices are declared by the subject, not hand-copied by the oracle).
+ *
+ * Adding a format to `FORMAT_BY_EXTENSION` therefore forces a deliberate
+ * entry here (as `arrow`/`feather` have), rather than the same-suite quietly
+ * never proving it.
+ */
+const FORMAT_BEHAVIOR_MATRIX: Readonly<Partial<Record<string, { readonly sizeBytes: number }>>> = {
+  csv: { sizeBytes: 24 },
+  json: { sizeBytes: 72 },
+  jsonl: { sizeBytes: 56 },
+  parquet: { sizeBytes: 48 },
+  arrow: { sizeBytes: 64 },
+  feather: { sizeBytes: 80 },
 }
 
 // ---- Scenarios ----
@@ -421,12 +451,44 @@ const scenarios: Record<DataSourceBehaviorScenarioName, DataSourceBehaviorScenar
   'metadata-contract': async (subject) => {
     // Format detection is extension-based and case-insensitive; sizes are the
     // exact staged byte counts. Names here are synthetic suite fixtures.
-    const cases: readonly (readonly [name: string, sizeBytes: number, format: string])[] = [
-      ['assay-behavior-contract.csv', 24, 'csv'],
-      ['assay-behavior-contract.parquet', 48, 'parquet'],
-      ['assay-behavior-CONTRACT.JSONL', 56, 'jsonl'],
-      ['assay-behavior-contract.bin', 40, 'unknown'],
-    ]
+    //
+    // The probe set is derived from the adapter's own declaration (au3-11):
+    // the suite never hand-copies the list of formats, so a format the
+    // adapter adds lands in the matrix automatically and must be acknowledged
+    // in FORMAT_BEHAVIOR_MATRIX below.
+    const declaredFormats = Object.entries(subject.formatByExtension)
+    expectCondition(
+      declaredFormats.length > 0,
+      'subject misconfiguration: declare at least one detectable format in formatByExtension',
+    )
+    const formatBehaviorSlot = (format: string): { readonly sizeBytes: number } => {
+      const slot = FORMAT_BEHAVIOR_MATRIX[format]
+      if (slot === undefined) {
+        fail(
+          `subject misconfiguration: the adapter detects "${format}" but the metadata-contract behavior matrix has no slot for it — add one so the same-suite proves the format`,
+        )
+      }
+      return slot
+    }
+    const cases: (readonly [name: string, sizeBytes: number, format: string])[] = []
+    for (const [extension, format] of declaredFormats) {
+      cases.push([
+        `assay-behavior-contract.${extension}`,
+        formatBehaviorSlot(format).sizeBytes,
+        format,
+      ])
+    }
+    // Extension matching is case-insensitive: probe the first declared
+    // extension upper-cased (with a mixed-case base name) once.
+    const [firstExtension, firstFormat] = declaredFormats[0]!
+    cases.push([
+      `assay-behavior-CONTRACT.${firstExtension.toUpperCase()}`,
+      formatBehaviorSlot(firstFormat).sizeBytes,
+      firstFormat,
+    ])
+    // The not-recognized outcome is not an extension: probe it separately.
+    cases.push(['assay-behavior-contract.bin', 40, 'unknown'])
+
     let caseIndex = 0
     for (const [name, sizeBytes, format] of cases) {
       const source = subject.createHandleSource(

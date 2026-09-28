@@ -26,6 +26,7 @@
  */
 import { BrowserFileSource } from './browser-file-source'
 import { detectFileSystemCapabilities } from './capabilities'
+import { FORMAT_BY_EXTENSION } from './detect-format'
 import { pickDataFile } from './pick-file'
 import type {
   BehaviorCapabilityScope,
@@ -81,6 +82,10 @@ export function createBrowserFileSourceBehaviorSubject(
   const stageHandle = options.stageHandle ?? defaultStageHandle
   return {
     name: 'browser-file-source',
+    // Subject-declared detect map (au3-11): derived from the shipped
+    // `FORMAT_BY_EXTENSION`, so the same-suite probes exactly the formats this
+    // adapter can detect.
+    formatByExtension: FORMAT_BY_EXTENSION,
     makeFile: (name, sizeBytes) => new File([new Uint8Array(sizeBytes)], name),
     makeHandle: async (file) => stageHandle(asFile(file)),
     createFallbackSource: (file) => new BrowserFileSource({ file: asFile(file) }),
