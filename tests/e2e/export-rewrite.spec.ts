@@ -163,9 +163,13 @@ async function openFixtureViaFakeFsa(
   // No filechooser here: the fake `showOpenFilePicker` resolves directly, so
   // the app goes idle → ready without Playwright's file-chooser flow.
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
   await page.getByTestId('open-button').click()
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
 }
 
 /**

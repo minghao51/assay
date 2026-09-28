@@ -41,7 +41,9 @@ async function openDatasetB(page: Page): Promise<{ dataName: string; contractNam
   let chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   await (await chooserPromise).setFiles(dataset.dataPath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('120')
   chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('validation-open-contract').click()

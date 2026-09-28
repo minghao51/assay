@@ -187,7 +187,7 @@ async function openFixture(): Promise<void> {
     fireEvent.click(screen.getByTestId('open-button'))
   })
   await screen.findByTestId('schema-section')
-  expect(screen.getByTestId('open-status').textContent).toBe('ready')
+  expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
 }
 
 describe('column rename affordance (m4-4)', () => {

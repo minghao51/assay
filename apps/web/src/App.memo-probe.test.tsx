@@ -131,7 +131,7 @@ async function openReady(): Promise<void> {
     fireEvent.click(screen.getByTestId('open-button'))
   })
   await screen.findByTestId('edit-toolbar')
-  expect(screen.getByTestId('open-status').textContent).toBe('ready')
+  expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
 }
 
 describe('f-2 memoized panel boundaries', () => {

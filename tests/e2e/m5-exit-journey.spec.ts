@@ -300,11 +300,15 @@ test('M5 exit journey: same contract + same dirty file agree EXACTLY across web 
 
   // --- WEB: open the dataset through the real open flow. ---
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
   let chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   await (await chooserPromise).setFiles(dataset.dataPath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
 
   // --- WEB: import the contract through the panel's import control. ---

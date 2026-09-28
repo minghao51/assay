@@ -28,12 +28,16 @@ export async function openFixture(
   options: OpenFixtureOptions = {},
 ): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(fixturePath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
   if (options.requireSchemaPanel === true) {
     await expect(page.getByTestId('schema-panel')).toBeVisible()
   }
@@ -58,10 +62,12 @@ export async function openCustomersFixture(
 /**
  * Open a fixture and return the engine-generated table id (SQL pane). Pins
  * the pane's privacy contract too (ADR 0025): the SQL pane never renders the
- * picked file's path.
+ * picked file's path. The id is read from the SQL pane hint (`sql-table-id`)
+ * because the ux-2 info line no longer exposes the engine handle; the pane
+ * keeps rendering the `assay_t…` view name that SQL specs need.
  */
 export async function openFixtureAndGetTableId(page: Page, fixturePath: string): Promise<string> {
   await openFixture(page, fixturePath)
   await expect(page.getByTestId('sql-panel')).not.toContainText(fixturePath)
-  return page.getByTestId('open-table-id').innerText()
+  return page.getByTestId('sql-table-id').innerText()
 }

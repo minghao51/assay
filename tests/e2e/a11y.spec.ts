@@ -167,7 +167,9 @@ test('canary: axe reports an injected nameless button and the gate rejects it', 
 }) => {
   test.setTimeout(60_000)
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
 
   // Inject a deliberately inaccessible control into this test's own page
   // (fresh context per test — no cross-test pollution).

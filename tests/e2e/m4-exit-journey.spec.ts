@@ -356,7 +356,9 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
 
   // --- 1. Cold start: a fresh context with no prior state renders idle. ---
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
   await expect(page.getByTestId('edit-insert-row')).toHaveCount(0)
   await expect(page.getByTestId('history-empty')).toHaveCount(0)
 

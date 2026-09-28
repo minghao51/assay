@@ -32,12 +32,16 @@ test.beforeEach(async ({ page }) => {
 
 async function openDataset(page: Page, dataPath: string, contractPath: string): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
 
   let chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   await (await chooserPromise).setFiles(dataPath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
 
   chooserPromise = page.waitForEvent('filechooser')

@@ -36,11 +36,15 @@ test('ExportDialog is a modal dialog: initial focus, Tab trap, Escape, focus ret
   page,
 }) => {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   await (await chooserPromise).setFiles(FIXTURE)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
 
   const trigger = page.getByTestId('export-open')
   await trigger.focus()
@@ -76,11 +80,15 @@ test('grid edit commit and rejection announce through one polite, value-free liv
   page,
 }) => {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   await (await chooserPromise).setFiles(FIXTURE)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
   const live = page.getByTestId('edit-live-region')
@@ -112,11 +120,15 @@ test('grid roving tabindex: Tab enters/leaves at the row, arrows reach cells, on
   page,
 }) => {
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   await (await chooserPromise).setFiles(FIXTURE)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
   // The last header control is the tab stop immediately before the roving
@@ -162,12 +174,16 @@ test('keyboard-only journey: open → edit → export', async ({ page }) => {
 
   // Open by keyboard through the real picker path.
   await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').focus()
   await page.keyboard.press('Enter')
   await (await chooserPromise).setFiles(FIXTURE)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
   // Edit by keyboard: focus a cell, Enter opens the editor, select-all + type

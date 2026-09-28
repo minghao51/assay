@@ -34,7 +34,9 @@ async function openNested(page: Page): Promise<void> {
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(NESTED_FIXTURE)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('50')
 }
 

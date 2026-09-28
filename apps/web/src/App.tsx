@@ -26,7 +26,14 @@ import { HistoryPanel } from './edit/HistoryPanel'
 import { activeOps, overlaySnapshot } from './edit/session'
 import { pendingChangesSummary } from './edit/op-summary'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
-import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
+import {
+  APP_NAME,
+  NEXT_MILESTONE,
+  SCAFFOLD_STATUS,
+  TAGLINE,
+  openAnnouncementText,
+  openStatusCopy,
+} from './lib/app'
 import { preloadBottomPanels } from './lib/bottom-panels'
 import type { BottomPanelModules } from './lib/bottom-panels'
 import { engineClient } from './lib/engine'
@@ -51,12 +58,11 @@ import type { Phase, ScrollRequest } from './sessions/types'
  * is read from the model — which re-reads it from the provider after every
  * accepted filter change and every overlay epoch.
  */
-function LiveTableInfo({ model, tableId }: { model: GridViewportModel; tableId: string }) {
+function LiveTableInfo({ model }: { model: GridViewportModel }) {
   useSyncExternalStore(model.subscribe, model.getVersion)
   return (
     <p data-testid="table-info">
-      table <code data-testid="open-table-id">{tableId}</code> ·{' '}
-      <span data-testid="grid-total-rows">{model.totalRows ?? 0}</span> rows ·{' '}
+      Dataset · <span data-testid="grid-total-rows">{model.totalRows ?? 0}</span> rows ·{' '}
       <span data-testid="grid-column-count">{model.schema?.length ?? 0}</span> columns
     </p>
   )
@@ -110,6 +116,35 @@ export function App() {
   const datasetSession = useDatasetSession()
 
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  /**
+   * ux-2/UX-10: open-completion announcement + focus move. `phase` is a new
+   * object only on a real phase transition, so this effect runs once per open
+   * — not on the App re-renders driven by editing state or `model.refresh()`.
+   * On `ready` it announces through a polite `role="status"` region and moves
+   * focus off the Open button to the first ready panel (the schema disclosure
+   * toggle). The announcement carries only row/column counts (already public
+   * in the info line) — never a filename, path, cell value, or PII (ADR 0025).
+   * Errors keep their own `role="alert"` and do not steal focus.
+   */
+  const [openAnnouncement, setOpenAnnouncement] = useState<{ seq: number; text: string } | null>(
+    null,
+  )
+  const openAnnounceSeqRef = useRef(0)
+  useEffect(() => {
+    if (phase.kind !== 'ready') {
+      // Leaving ready clears any prior announcement so an in-flight or failed
+      // open never leaves a stale "Dataset opened" in the live region.
+      setOpenAnnouncement(null)
+      return
+    }
+    openAnnounceSeqRef.current += 1
+    setOpenAnnouncement({
+      seq: openAnnounceSeqRef.current,
+      text: openAnnouncementText(phase.model.totalRows ?? 0, phase.model.schema?.length ?? 0),
+    })
+    const firstPanel = document.querySelector<HTMLElement>('[data-testid="schema-toggle"]')
+    firstPanel?.focus()
+  }, [phase])
   /**
    * m3-3 record inspector open gesture. App holds it so a row open survives
    * the grid's re-renders; `seq` makes every gesture distinct so re-opening
@@ -442,13 +477,25 @@ export function App() {
         >
           Open a data file…
         </button>{' '}
-        <span data-testid="open-status">{phase.kind}</span>
+        <span data-testid="open-status" data-phase={phase.kind}>
+          {openStatusCopy(phase.kind)}
+        </span>
+        <span
+          className="visually-hidden"
+          role="status"
+          aria-atomic="true"
+          data-testid="open-live-region"
+        >
+          {openAnnouncement === null ? null : (
+            <span key={openAnnouncement.seq}>{openAnnouncement.text}</span>
+          )}
+        </span>
         {phase.kind === 'error' && (
           <p data-testid="open-error" role="alert">
             {phase.message}
           </p>
         )}
-        {phase.kind === 'ready' && <LiveTableInfo model={phase.model} tableId={phase.tableId} />}
+        {phase.kind === 'ready' && <LiveTableInfo model={phase.model} />}
       </section>
 
       {phase.kind === 'ready' ? (

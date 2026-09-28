@@ -171,13 +171,13 @@ describe('AR-W13 — openDataFile completion guard', () => {
       h.pickers[1]?.(source())
     })
     await screen.findByTestId('schema-section')
-    expect(screen.getByTestId('open-status').textContent).toBe('ready')
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
 
     // The older picker then resolves dismissed; it must not clobber ready.
     await act(async () => {
       h.pickers[0]?.(null)
     })
-    expect(screen.getByTestId('open-status').textContent).toBe('ready')
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
     expect(screen.getByTestId('schema-section')).toBeTruthy()
   })
 })

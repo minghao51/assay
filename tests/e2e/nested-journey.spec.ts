@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
+import { openFixtureAndGetTableId } from './support/fixtures'
 
 // Task m3-5 (handoff §6, FINAL M3 task): the exit-criterion journey. M3's exit
 // criterion (impl-plan §5) is: "JSONL with nested fields is materially easier
@@ -74,18 +75,11 @@ test.beforeEach(async ({ page }) => {
 
 /** Cold start → open the nested fixture → fully loaded ready phase. */
 async function openNestedFixture(page: Page): Promise<{ tableId: string; viewName: string }> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveText('idle', { timeout: 20_000 })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(FIXTURE_PATH)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  const tableId = await openFixtureAndGetTableId(page, FIXTURE_PATH)
   await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
   await expect(page.getByTestId('grid-column-count')).toHaveText('10')
   // Privacy (ADR 0025): the picked file name is never rendered anywhere.
   await expect(page.getByTestId('table-info')).not.toContainText('nested.jsonl')
-  const tableId = await page.getByTestId('open-table-id').innerText()
   return { tableId, viewName: `assay_${tableId}` }
 }
 

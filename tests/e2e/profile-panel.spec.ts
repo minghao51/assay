@@ -65,7 +65,9 @@ async function reopenFixture(page: Page, fixturePath: string): Promise<void> {
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
   await chooser.setFiles(fixturePath)
-  await expect(page.getByTestId('open-status')).toHaveText('ready', { timeout: 20_000 })
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
 }
 
 /** Column-scoped locator: the panel tags every per-column element. */
