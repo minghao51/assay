@@ -18,10 +18,12 @@
  * Hygiene policy (mirrors the m5-1 compiler's schema validation): names and
  * types must be non-empty strings without NUL; such strings never occur in
  * engine output, so accepting them would only ever serve hostile callers.
- * Duplicate names are issues with first-occurrence-wins — a documented
- * divergence from m5-1's all-or-nothing schema rejection, because diff
- * findings are per-column independent: one malformed column must not erase
- * the others, and the issue carries the attribution.
+ * Duplicate names are issues with first-occurrence-wins — exact duplicates and
+ * case-variant spellings (`Name` vs `name`, which collide for every
+ * case-insensitive engine purpose) alike — a documented divergence from
+ * m5-1's all-or-nothing schema rejection, because diff findings are per-column
+ * independent: one malformed column must not erase the others, and the issue
+ * carries the attribution.
  */
 
 import type { EngineSchemaColumn } from '@assay/validation'
@@ -74,6 +76,10 @@ export function validateSchema(
   }
   const columns: EngineSchemaColumn[] = []
   const byName = new Map<string, EngineSchemaColumn>()
+  // Engine identifiers are case-insensitive, so `Name` and `name` collide for
+  // every engine purpose; the folded map makes the second spelling a
+  // duplicate (first-occurrence-wins, same as the exact-name guard below).
+  const byFoldedName = new Map<string, EngineSchemaColumn>()
   entries.forEach((entry, index) => {
     const nameRead = readField(entry, 'name')
     const typeRead = readField(entry, 'type')
@@ -120,9 +126,23 @@ export function validateSchema(
       )
       return
     }
+    // Case-variant collision (`Name` vs `name`): rejected with the same issue
+    // idiom and shape as the exact duplicate above. The message names the
+    // collision class only — it never echoes the (untrusted) colliding names.
+    if (byFoldedName.has(name.toLowerCase())) {
+      issues.push(
+        makeIssue(
+          'duplicate-column-name',
+          'duplicate column name (case-insensitive); the first occurrence is kept and later ones are ignored',
+          { side, column: name },
+        ),
+      )
+      return
+    }
     const column = { name, type }
     columns.push(column)
     byName.set(name, column)
+    byFoldedName.set(name.toLowerCase(), column)
   })
   return { columns, byName }
 }

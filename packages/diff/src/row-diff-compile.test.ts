@@ -847,15 +847,15 @@ describe('row-diff plan — binding errors (typed, collected, attributed, never-
       expect(exact.errors[0]?.message).toContain("'id' is listed more than once")
       expect(exact.errors[0]?.column).toBe('id')
     }
+    // Case-insensitive key collision: a single canonical schema column is
+    // referenced by two spellings ('id' and the case-variant 'ID'). The
+    // schema itself is valid; the collision is in the key set (au3-12: the
+    // schema validator now refuses case-variant duplicate columns, so this
+    // scenario keeps the schema single-column to isolate the key-guard
+    // behavior).
     const ci = compileRowDiffPlan(
-      [
-        { name: 'id', type: 'BIGINT' },
-        { name: 'ID', type: 'BIGINT' },
-      ],
-      [
-        { name: 'id', type: 'BIGINT' },
-        { name: 'ID', type: 'BIGINT' },
-      ],
+      [{ name: 'id', type: 'BIGINT' }],
+      [{ name: 'id', type: 'BIGINT' }],
       ['id', 'ID'],
       healthyOptions,
     )

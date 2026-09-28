@@ -50,23 +50,19 @@ import { pendingChangesSummary } from './edit/op-summary'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
 import { APP_NAME, NEXT_MILESTONE, SCAFFOLD_STATUS, TAGLINE } from './lib/app'
 import { engineClient } from './lib/engine'
-import { ProfilePanel } from './profile/ProfilePanel'
 import { RecordInspector } from './record/RecordInspector'
 import type { RecordRequest } from './record/RecordInspector'
 import { parseDuckDbType } from './schema/parseType'
 import { SchemaPanel } from './schema/SchemaPanel'
 import { composeNestedAction } from './sql/nested-actions'
 import type { NestedAction } from './sql/nested-actions'
-import { SqlPanel } from './sql/SqlPanel'
 import type { SqlRunRequest } from './sql/SqlPanel'
-import { ValidationPanel } from './validation/ValidationPanel'
 import type { ContractState, ValidationRunState } from './validation/ValidationPanel'
 import { readContractFile } from './validation/contract-import'
 import { buildValidationReport, resolveRowKeyIndex } from './validation/report-model'
 import type { ValidationReportRow } from './validation/report-model'
 import { requestReportDestination, writeReportCopy } from './validation/report-export'
 import type { ReportExportFormat } from './validation/report-export'
-import { DiffPanel } from './diff/DiffPanel'
 import type { ComparisonState, DiffRunState } from './diff/DiffPanel'
 import {
   buildDiffPanelReport,
@@ -78,6 +74,64 @@ import {
 import type { DiffKeyDisclosure } from './diff/diff-model'
 import { requestDiffReportDestination, writeDiffReportCopy } from './diff/diff-export'
 import type { DiffReportFormat } from './diff/diff-export'
+
+/**
+ * Below-fold panels are dynamically imported (au3-12): each stays in its own
+ * chunk, out of the initial bundle, so the first paint carries the open flow,
+ * schema tree, editing toolbar and grid only. The props/state wiring is
+ * unchanged — only the import boundary moves — and each panel keeps its own
+ * intra-panel loading states.
+ *
+ * The loader promises are memoized so repeated opens share one chunk fetch.
+ * Instead of `React.lazy` + `Suspense`, the resolved components are held in
+ * state and published BEFORE the `ready` phase: `React.lazy` always suspends
+ * its first render one tick (fallback → swap) even with the module resident,
+ * and that post-`ready` re-render raced the first cell double-click
+ * (integration fix, 2026-09-28: the editor occasionally never opened because
+ * the swap landed mid-gesture). Awaiting the modules inside the open flow and
+ * rendering them synchronously from state removes that window entirely — no
+ * Suspense fallback cycle, no post-`ready` panel churn. A failed chunk load
+ * fails the open flow itself (honest: the chunks ship with the app).
+ */
+interface BottomPanelModules {
+  readonly ValidationPanel: (typeof import('./validation/ValidationPanel'))['ValidationPanel']
+  readonly DiffPanel: (typeof import('./diff/DiffPanel'))['DiffPanel']
+  readonly SqlPanel: (typeof import('./sql/SqlPanel'))['SqlPanel']
+  readonly ProfilePanel: (typeof import('./profile/ProfilePanel'))['ProfilePanel']
+}
+
+let validationPanelImport: Promise<typeof import('./validation/ValidationPanel')> | null = null
+let diffPanelImport: Promise<typeof import('./diff/DiffPanel')> | null = null
+let sqlPanelImport: Promise<typeof import('./sql/SqlPanel')> | null = null
+let profilePanelImport: Promise<typeof import('./profile/ProfilePanel')> | null = null
+
+const loadValidationPanel = (): Promise<typeof import('./validation/ValidationPanel')> =>
+  (validationPanelImport ??= import('./validation/ValidationPanel'))
+const loadDiffPanel = (): Promise<typeof import('./diff/DiffPanel')> =>
+  (diffPanelImport ??= import('./diff/DiffPanel'))
+const loadSqlPanel = (): Promise<typeof import('./sql/SqlPanel')> =>
+  (sqlPanelImport ??= import('./sql/SqlPanel'))
+const loadProfilePanel = (): Promise<typeof import('./profile/ProfilePanel')> =>
+  (profilePanelImport ??= import('./profile/ProfilePanel'))
+
+/**
+ * Load every below-fold chunk (see above). Resolves to the panel components
+ * the open flow publishes as state before `ready`, so the composed grid and
+ * panels mount in one synchronous render.
+ */
+function preloadBottomPanels(): Promise<BottomPanelModules> {
+  return Promise.all([
+    loadValidationPanel(),
+    loadDiffPanel(),
+    loadSqlPanel(),
+    loadProfilePanel(),
+  ]).then(([validation, diff, sql, profile]) => ({
+    ValidationPanel: validation.ValidationPanel,
+    DiffPanel: diff.DiffPanel,
+    SqlPanel: sql.SqlPanel,
+    ProfilePanel: profile.ProfilePanel,
+  }))
+}
 
 /**
  * App phases. `ready` holds the composed grid: adapter (engine client) →
@@ -341,6 +395,12 @@ export function App() {
   const [contractState, setContractState] = useState<ContractState>({ kind: 'none' })
   const [validationRun, setValidationRun] = useState<ValidationRunState>({ kind: 'idle' })
   /**
+   * au3-12: resolved below-fold panel components (see the module doc for why
+   * these live in state instead of `React.lazy`). `null` before the first
+   * open completes; published before the `ready` render.
+   */
+  const [panelModules, setPanelModules] = useState<BottomPanelModules | null>(null)
+  /**
    * Monotonic run token: the validate path captures it at request time and
    * drops a result that is no longer current (the m2-4 UI-level-cancellation
    * discipline — the engine op itself completes; cancellation abandons the
@@ -524,18 +584,21 @@ export function App() {
   )
 
   const handleUndo = useCallback(() => {
-    const step = undoHistory(history)
+    const current = historyRef.current
+    const step = undoHistory(current)
     if (step.entry === null) return
     setEditError(null)
-    void commitHistory(step.history, history)
-  }, [history, commitHistory])
+    void commitHistory(step.history, current)
+  }, [commitHistory])
 
   const handleRedo = useCallback(() => {
-    const step = redoHistory(history)
+    // Same ref pattern as undo (see handleUndo).
+    const current = historyRef.current
+    const step = redoHistory(current)
     if (step.entry === null) return
     setEditError(null)
-    void commitHistory(step.history, history)
-  }, [history, commitHistory])
+    void commitHistory(step.history, current)
+  }, [commitHistory])
 
   /**
    * Insert a row. v1 placement ruling: append at the end (`{'end'}`) — the
@@ -1053,6 +1116,11 @@ export function App() {
     // it; a picker/open chain that resolves after a newer open (or any newer
     // phase transition) is discarded rather than clobbering the newer phase.
     const session = ++sessionToken.current
+    // au3-12: warm the below-fold panel chunks in parallel with the open flow
+    // so they are resident by `ready` (see `preloadBottomPanels`).
+    // Swallow a warm-up rejection here: the awaited re-call below re-rejects
+    // from the same memoized promises and the open flow's catch handles it.
+    void preloadBottomPanels().catch(() => undefined)
     setPhase({ kind: 'opening' })
     setRecordRequest(null)
     setExportOpen(false)
@@ -1162,6 +1230,13 @@ export function App() {
       const model = new GridViewportModel(provider)
       await model.load()
       if (sessionToken.current !== session) return
+      // au3-12: the below-fold chunks were requested at the top of this flow;
+      // resolving them here publishes the panel components as state BEFORE the
+      // `ready` render, so the grid and panels mount in one synchronous render
+      // (no post-ready fallback cycle — see the module doc above).
+      const panels = await preloadBottomPanels()
+      if (sessionToken.current !== session) return
+      setPanelModules(panels)
       setPhase({ kind: 'ready', model, tableId: handle.id, handle, base, provider })
     } catch (error) {
       // A stale chain must not surface its failure over the newer phase.
@@ -1300,20 +1375,22 @@ export function App() {
            * surface and the grid — its sample lists and filter control drive
            * the grid below, and its verdicts track the editing above.
            */}
-          <ValidationPanel
-            contractState={contractState}
-            runState={validationRun}
-            stale={validationStale}
-            jumpError={jumpError}
-            filterError={filterToFailuresError}
-            onContractFile={handleContractFile}
-            onValidate={handleValidate}
-            onCancelValidate={handleCancelValidate}
-            onJumpToSample={handleJumpToSample}
-            onFilterToFailures={handleFilterToFailures}
-            requestReportDestination={requestReportDestinationForPanel}
-            deliverReportCopy={writeReportCopy}
-          />
+          {panelModules === null ? null : (
+            <panelModules.ValidationPanel
+              contractState={contractState}
+              runState={validationRun}
+              stale={validationStale}
+              jumpError={jumpError}
+              filterError={filterToFailuresError}
+              onContractFile={handleContractFile}
+              onValidate={handleValidate}
+              onCancelValidate={handleCancelValidate}
+              onJumpToSample={handleJumpToSample}
+              onFilterToFailures={handleFilterToFailures}
+              requestReportDestination={requestReportDestinationForPanel}
+              deliverReportCopy={writeReportCopy}
+            />
+          )}
           {/**
            * Placement (m6-4): the comparison panel sits beside the validation
            * panel — both drive the grid below (diff samples jump A-side rows)
@@ -1321,18 +1398,20 @@ export function App() {
            * and distribution deltas render before the key-selection control, so
            * a row diff can never run before the schema-level view is visible.
            */}
-          <DiffPanel
-            comparison={comparisonState}
-            runState={diffRun}
-            stale={diffStale}
-            jumpError={diffJumpError}
-            onComparisonFile={handleComparisonFile}
-            onRunDiff={handleRunDiff}
-            onCancelDiff={handleCancelDiff}
-            onJumpToSample={handleJumpToDiffSample}
-            requestReportDestination={requestDiffReportDestinationForPanel}
-            deliverReportCopy={writeDiffReportCopy}
-          />
+          {panelModules === null ? null : (
+            <panelModules.DiffPanel
+              comparison={comparisonState}
+              runState={diffRun}
+              stale={diffStale}
+              jumpError={diffJumpError}
+              onComparisonFile={handleComparisonFile}
+              onRunDiff={handleRunDiff}
+              onCancelDiff={handleCancelDiff}
+              onJumpToSample={handleJumpToDiffSample}
+              requestReportDestination={requestDiffReportDestinationForPanel}
+              deliverReportCopy={writeDiffReportCopy}
+            />
+          )}
           <FilterBar model={phase.model} />
           <ErrorBoundary scope="grid">
             <DataGrid
@@ -1361,8 +1440,10 @@ export function App() {
               setRecordRequest(null)
             }}
           />
-          <SqlPanel tableId={phase.tableId} runRequest={sqlRequest} />
-          <ProfilePanel handle={phase.handle} />
+          {panelModules === null ? null : (
+            <panelModules.SqlPanel tableId={phase.tableId} runRequest={sqlRequest} />
+          )}
+          {panelModules === null ? null : <panelModules.ProfilePanel handle={phase.handle} />}
         </>
       ) : (
         <>

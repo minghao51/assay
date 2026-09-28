@@ -248,6 +248,14 @@ export function RecordInspector({
   const modelVersion = useSyncExternalStore(model.subscribe, model.getVersion)
   const [state, dispatch] = useReducer(reduceRecordInspector, { kind: 'closed' as const })
   const guard = useRef(new RunGuard())
+  /**
+   * The element focused when the inspector opened (the grid row / jump
+   * control that triggered the gesture). `close()` returns focus there so
+   * Escape/Close never strands focus on `<body>` once the panel unmounts —
+   * the ExportDialog focus-restore pattern (capture the opener, restore on
+   * close when it is still connected).
+   */
+  const openerRef = useRef<HTMLElement | null>(null)
   const [expanded, setExpanded] = useState<ExpandedPaths>(() => new Set<string>())
   /**
    * AR-W8: the tree is capped (length + depth) so a large list cell cannot
@@ -266,6 +274,11 @@ export function RecordInspector({
   const close = useCallback(() => {
     guard.current.invalidate()
     dispatch({ type: 'closed' })
+    const opener = openerRef.current
+    openerRef.current = null
+    // The focused Close button is about to unmount; hand focus back to the
+    // element that opened the inspector when it is still in the document.
+    if (opener !== null && opener.isConnected) opener.focus()
     onClosedRef.current()
   }, [])
 
@@ -293,6 +306,8 @@ export function RecordInspector({
     const schema = model.schema
     if (schema === null) return
     const token = guard.current.begin()
+    openerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
     setExpanded(new Set<string>()) // every open starts collapsed — a fresh look
     // AR-W8: every open starts capped; the user can expand on request.
     fullValuesRef.current = false

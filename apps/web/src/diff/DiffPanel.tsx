@@ -561,7 +561,12 @@ export function DiffPanel({
               <ul className="diff-key-candidates" data-testid="diff-key-candidates">
                 {candidates.map((candidate, index) => (
                   <KeyCandidateOption
-                    key={candidate.evidence.column}
+                    // Injective over the rendered list: the evidence column
+                    // alone is not guaranteed unique (case-variant / duplicate
+                    // spellings can both be provable), so the position
+                    // discriminates — the same composite-key idiom this file
+                    // uses for schema findings.
+                    key={`${candidate.evidence.column}:${String(index)}`}
                     candidate={candidate}
                     checked={keyMode === 'candidate' && selectedCandidate === index}
                     onSelect={() => {

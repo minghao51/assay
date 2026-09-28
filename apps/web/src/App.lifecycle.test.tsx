@@ -123,7 +123,10 @@ describe('AR-W9 — contract import session guard', () => {
     })
     await screen.findByTestId('schema-section')
 
-    // Start a contract read that we can resolve later.
+    // Start a contract read that we can resolve later. The below-fold panels
+    // resolve as modules BEFORE the `ready` render (au3-12 module-state
+    // pattern — no React.lazy suspension), so synchronous presence is the
+    // pinned property: a regression back to a post-ready lazy swap fails here.
     const input = screen.getByTestId('validation-contract-input') as HTMLInputElement
     Object.defineProperty(input, 'files', {
       value: [new File(['format: v1\nname: c\nversion: 1\n'], 'contract.yaml')],
