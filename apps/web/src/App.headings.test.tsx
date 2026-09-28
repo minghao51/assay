@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
 import { App } from './App'
@@ -105,12 +105,39 @@ async function open(): Promise<void> {
   await screen.findByTestId('schema-section')
 }
 
+/**
+ * Explicit wait budget for the two environment transitions this pin crosses:
+ * the grid row's payload arriving (its current-epoch slot turning `ready`)
+ * and the row-click → record-inspector render. Both are microtask-driven
+ * fakes here, but the full unit run executes them under host load, where the
+ * suite-wide 1000 ms default proved too tight (reviewer: 2/12 full runs).
+ * Five seconds follows the repo's long-wait style (e2e uses 20–60 s) while
+ * staying inside Vitest's 5 s test budget — and the readiness precondition
+ * in `openRecord` below, not this budget, is what makes the gesture
+ * deterministic.
+ */
+const READY_WAIT_MS = 5_000
+
 /** Open the record inspector via the real grid row-click gesture. */
 async function openRecord(): Promise<void> {
+  const row = (): HTMLElement => screen.getByTestId('grid-row')
+  // Determinism by construction, not by a big timeout: RecordInspector's open
+  // effect only fires when the clicked row's **current-epoch** slot is
+  // `ready` (record/RecordInspector.tsx — a click while the grid is still
+  // fetching that epoch is a deliberate no-op, and the effect does NOT
+  // re-run when the slot later lands). Waiting for the rendered row to report
+  // `data-status="ready"` is therefore the exact precondition the app checks
+  // before the row click can open the inspector; only then do we click.
+  await waitFor(
+    () => {
+      expect(row().getAttribute('data-status')).toBe('ready')
+    },
+    { timeout: READY_WAIT_MS },
+  )
   await act(async () => {
-    fireEvent.click(screen.getByTestId('grid-row'))
+    fireEvent.click(row())
   })
-  await screen.findByTestId('record-inspector')
+  await screen.findByTestId('record-inspector', {}, { timeout: READY_WAIT_MS })
 }
 
 describe('ux-3 — complete heading map (UX-7)', () => {
