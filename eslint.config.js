@@ -164,6 +164,12 @@ export default tseslint.config(
               message:
                 'The validation package is pure: no UI/engine/app dependencies (docs/engineering/03-repository-structure.md §3, ADR 0026).',
             },
+            // f-4: this block replaces the shared `no-restricted-imports` for
+            // `packages/validation` (flat config: last matching options win),
+            // so the app-import ban must be repeated here — a relative
+            // `../../apps/*` import otherwise bypassed the scoped-name group
+            // above (reviewer-proven probe, au2-3/f-4).
+            APP_IMPORT_BAN,
           ],
         },
       ],
@@ -193,6 +199,10 @@ export default tseslint.config(
               message:
                 'The contracts package is a pure leaf: no @assay dependencies (docs/engineering/03-repository-structure.md §3, ADR 0013).',
             },
+            // f-4: repeated from the shared block — see the validation block's
+            // comment; the scoped group above does not catch relative
+            // `../../apps/*` specifiers.
+            APP_IMPORT_BAN,
           ],
         },
       ],
@@ -236,6 +246,10 @@ export default tseslint.config(
               message:
                 'The diff package is pure: no UI/engine/app dependencies (docs/engineering/03-repository-structure.md §3). Allowed @assay deps: contracts, domain, validation (M6 queue, handoff §6 m6-0).',
             },
+            // f-4: repeated from the shared block — see the validation block's
+            // comment; the scoped group above does not catch relative
+            // `../../apps/*` specifiers.
+            APP_IMPORT_BAN,
           ],
         },
       ],
@@ -286,6 +300,36 @@ export default tseslint.config(
     },
   },
   {
+    // f-4: domain src is a DEPENDENCY-FREE ZONE — today it imports nothing
+    // external at all (only relative modules; typescript + vitest are
+    // dev-only and used by tests). Scoping `no-extraneous-dependencies` to
+    // src with devDependencies disallowed encodes that policy: any future
+    // external import — runtime or dev — errors here, and the only way
+    // through is declaring it in package.json, which makes the dependency
+    // growth itself the visible, reviewable event. (pnpm's isolation already
+    // prevents phantom resolution; this rule is the durable encoding that
+    // survives any linker-config change.) Test files opt back out below —
+    // they legitimately import vitest. (Negation in `files` is avoided: a
+    // leading `!` entry is applied as its own matcher, which matched the
+    // whole repo in ESLint 10.)
+    files: ['packages/domain/src/**/*.ts'],
+    plugins: { import: importX },
+    rules: {
+      'import/no-extraneous-dependencies': [
+        'error',
+        { devDependencies: false, peerDependencies: false, optionalDependencies: false },
+      ],
+    },
+  },
+  {
+    // f-4: tests are the deliberate exception to the dependency-free zone.
+    files: ['packages/domain/src/**/*.test.ts'],
+    plugins: { import: importX },
+    rules: {
+      'import/no-extraneous-dependencies': 'off',
+    },
+  },
+  {
     // q-7: grid is a headless model — mirror domain's bans exactly.
     files: ['packages/grid/**/*.ts'],
     rules: {
@@ -331,9 +375,39 @@ export default tseslint.config(
   {
     // q-7: core is orchestration and stays portable like domain — no Node
     // builtins and no browser-only globals (parity with domain/grid).
+    // f-4: import restrictions were missing entirely; core now carries the
+    // same UI/engine/app bans as domain and grid so the layering is encoded,
+    // not just documented.
     files: ['packages/core/**/*.ts'],
     rules: {
       'import/no-nodejs-modules': 'error',
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react',
+              message:
+                'The core package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
+            {
+              name: 'react-dom',
+              message:
+                'The core package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@assay/ui', '@assay/grid', '@assay/engine-*'],
+              message:
+                'The core package must not depend on UI or engine implementations (docs/engineering/03-repository-structure.md §3).',
+            },
+            // f-4: repeated from the shared block — see the validation block's
+            // comment (block-level `no-restricted-imports` replaces it).
+            APP_IMPORT_BAN,
+          ],
+        },
+      ],
       'no-restricted-globals': [
         'error',
         ...BROWSER_ONLY_GLOBALS.map((name) => ({

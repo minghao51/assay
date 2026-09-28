@@ -60,9 +60,13 @@ implement and approve the same change.
 - **Security:** never invent cryptographic primitives (ADR 0007); treat
   dataset values as untrusted content (no HTML/script execution from cells,
   formula-injection-safe CSV export).
-- **Dependency direction (partially lint-enforced — encoding completed by an AU-2 follow-up):** `apps → ui/core → domain`;
-  `domain` must never import React, browser APIs, or engines. Packages must
-  not import apps. `packages/pipeline` must not depend on dbt/SQLMesh/Dagster
+- **Dependency direction (lint-enforced — encoding completed 2026-09-28 by AU-2 f-4):**
+  `apps → ui/core → domain`; `domain` must never import React, browser APIs, or engines —
+  and `packages/domain` src is a **dependency-free zone** (zero external imports, dev
+  deps included; enforced by `import/no-extraneous-dependencies`). Packages must not
+  import apps (enforced in **every** package block — relative `**/apps/*` specifiers
+  included, no shadowing); `core` carries the same UI/engine/app bans as
+  `domain`/`grid`. `packages/pipeline` must not depend on dbt/SQLMesh/Dagster
   runtimes (ADR 0031/0032).
 - **Editing model:** immutable formats (Parquet) are edited via overlay, never
   in-place mutation (ADR 0012). Row identity is logical (ADR 0011).
