@@ -59,7 +59,9 @@ export function markdownFiles() {
 const FENCE = /^\s*(```|~~~)/
 const CODE_SPAN = /(`+)([^`]*?)\1/g
 // `[ref]: target`, where target is `<…>` (may contain spaces) or a bare token.
-const REFERENCE_DEFINITION = /^\s{0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/
+// The `(?!\^)` negative lookahead skips GFM footnote labels (`[^1]: …`), which
+// are not link definitions and must be neither reported nor treated as targets.
+const REFERENCE_DEFINITION = /^\s{0,3}\[(?!\^)[^\]]+\]:\s*(<[^>]*>|\S+)/
 
 /** Remove inline code spans so backticked examples are not scanned as links. */
 function stripCodeSpans(line) {

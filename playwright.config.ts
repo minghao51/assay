@@ -9,6 +9,9 @@ const PORT_DS = Number(process.env['ASSAY_E2E_PORT_DS'] ?? 4180)
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // f-10: matches the CI job's 45-minute ceiling; a wedged local run cannot
+  // hang forever.
+  globalTimeout: 45 * 60 * 1000,
   // au2-1: a committed `.only` must never silently shrink the CI e2e gate.
   forbidOnly: !!process.env['CI'],
   // CI emits the HTML report too so the failure-artifact upload of

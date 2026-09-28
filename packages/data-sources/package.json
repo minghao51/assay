@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "//": "`build` bundles the M1-3 e2e harness (vite) into dist/, served by the root Playwright config on port 4180; the library surface is consumed as TypeScript source via `exports` and is not built here. The script name stays `build` because both `pnpm build` (turbo graph) and the Playwright preview webServer depend on it.",
   "exports": {
     ".": "./src/index.ts",
     "./browser": "./src/browser.ts"

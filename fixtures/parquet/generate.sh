@@ -59,29 +59,33 @@ SQL
 
 DUCKDB_VERSION="$("$DUCKDB" --version)"
 
-python3 - "$DUCKDB_VERSION" <<'PY'
-import hashlib, json, sys, pathlib
+DUCKDB_VERSION="$DUCKDB_VERSION" node --input-type=module <<'JS'
+import { createHash } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
 
-duckdb_version = sys.argv[1].split()[0]
-descriptions = {
-    "customers.parquet": "Typed CSV import incl. NULL income value",
-    "nested.parquet": "Nested structs/lists with nullable inner fields (50 rows)",
-    "llm.parquet": "LLM chat/eval records, list-of-structs, incl. missing system turn",
-    "wide.parquet": "Multi-row-group (10 x 100), nulls, low-cardinality bucket column",
+const duckdbVersion = process.env.DUCKDB_VERSION.split(/\s+/)[0]
+const descriptions = {
+  'customers.parquet': 'Typed CSV import incl. NULL income value',
+  'nested.parquet': 'Nested structs/lists with nullable inner fields (50 rows)',
+  'llm.parquet': 'LLM chat/eval records, list-of-structs, incl. missing system turn',
+  'wide.parquet': 'Multi-row-group (10 x 100), nulls, low-cardinality bucket column',
 }
-files = []
-for name, description in sorted(descriptions.items()):
-    digest = hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()
-    files.append({"name": name, "sha256": digest, "description": description})
+const files = Object.entries(descriptions)
+  .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  .map(([name, description]) => ({
+    name,
+    sha256: createHash('sha256').update(readFileSync(name)).digest('hex'),
+    description,
+  }))
 
-manifest = {
-    "generator": "fixtures/parquet/generate.sh (ADR 0038)",
-    "duckdb_version": duckdb_version,
-    "policy": "Small canonical fixtures are committed. Large performance fixtures are generated on demand and never committed. Regeneration changes checksums by design; commit the updated manifest deliberately.",
-    "files": files,
+const manifest = {
+  generator: 'fixtures/parquet/generate.sh (ADR 0038)',
+  duckdb_version: duckdbVersion,
+  policy: 'Small canonical fixtures are committed. Large performance fixtures are generated on demand and never committed. Regeneration changes checksums by design; commit the updated manifest deliberately.',
+  files,
 }
-pathlib.Path("manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-print("manifest.json written for", len(files), "fixtures")
-PY
+writeFileSync('manifest.json', JSON.stringify(manifest, null, 2) + '\n')
+console.log('manifest.json written for', files.length, 'fixtures')
+JS
 
 echo "done: $(ls *.parquet | wc -l) parquet fixtures + manifest.json"

@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./node": "./src/node.ts"
