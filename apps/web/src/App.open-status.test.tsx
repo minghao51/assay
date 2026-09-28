@@ -29,6 +29,16 @@ import type { ArrowTableLike } from './grid/provider'
 /** Fake open result: the engine's opaque handle shape (engine-generated id). */
 const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
 
+/**
+ * When `deferOpen` is set, `engineClient.open` parks on a promise that the test
+ * never resolves, so the app stays in the `opening` phase for the copy pin
+ * (reviewer item 1).
+ */
+const h = vi.hoisted(() => ({
+  deferOpen: false,
+  openResolvers: [] as Array<(value: unknown) => void>,
+}))
+
 /** DESCRIBE-shaped fake schema: three columns so the plural copy is exercised. */
 const FAKE_SCHEMA: readonly { name: string; type: string }[] = [
   { name: 'id', type: 'BIGINT' },
@@ -54,7 +64,12 @@ vi.mock('@assay/data-sources/browser', () => ({
 
 vi.mock('./lib/engine', () => ({
   engineClient: {
-    open: async () => FAKE_HANDLE,
+    open: async () => {
+      if (h.deferOpen) {
+        await new Promise<unknown>((resolve) => h.openResolvers.push(resolve))
+      }
+      return FAKE_HANDLE
+    },
     schema: async () => FAKE_SCHEMA,
     rowCount: async () => 1,
     fetchRange: async () => ({ batch: fakeBatch(), hasMore: false }),
@@ -67,7 +82,11 @@ vi.mock('./lib/engine', () => ({
 vi.mock('./sql/SqlPanel', () => ({ SqlPanel: () => null }))
 vi.mock('./profile/ProfilePanel', () => ({ ProfilePanel: () => null }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  h.deferOpen = false
+  h.openResolvers = []
+})
 
 /** Open the faked fixture through the real flow and wait for the ready UI. */
 async function open(): Promise<void> {
@@ -78,6 +97,25 @@ async function open(): Promise<void> {
 }
 
 describe('ux-2 — human open/status copy', () => {
+  it('pins the opening state: human copy + the raw phase token on data-phase only', async () => {
+    h.deferOpen = true
+    render(<App />)
+
+    const idle = screen.getByTestId('open-status')
+    expect(idle.getAttribute('data-phase')).toBe('idle')
+    expect(idle.textContent).toBe('No file open')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    // `open` never settles, so the app is parked in `opening`; the visible
+    // copy must be human, not the raw `phase.kind` token.
+    const opening = screen.getByTestId('open-status')
+    expect(opening.getAttribute('data-phase')).toBe('opening')
+    expect(opening.textContent).toBe('Opening…')
+  })
+
   it('renders human copy + a stable data-phase token, never the raw phase.kind', async () => {
     render(<App />)
 
@@ -92,7 +130,6 @@ describe('ux-2 — human open/status copy', () => {
     // The raw token must never reach visible copy (`ready` folds into the
     // info line below).
     expect(ready.textContent).toBe('')
-    expect(ready.textContent).not.toContain('ready')
 
     // The info line is human and drops the engine handle.
     expect(screen.getByTestId('table-info').textContent).toBe('Dataset · 1 rows · 3 columns')
