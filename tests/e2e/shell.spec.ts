@@ -124,4 +124,17 @@ test('slice-1 shell: sticky nav, collapsible sections, hoisted mounted grid', as
   // The re-expanded mounted grid still renders its virtualized rows (no
   // zero-measure stall from the display:none window).
   await expect(page.locator('[data-testid="grid-row"]').first()).toBeVisible()
+
+  // Collapsing keeps a visible name in the toggle row for every section
+  // (uniform affordance). Pin the two that previously rendered a bare
+  // chevron — Validation and Compare.
+  for (const [id, name] of [
+    ['validation', 'Validation'],
+    ['compare', 'Compare'],
+  ] as const) {
+    const toggle = page.getByTestId(`section-toggle-${id}`)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(toggle).toContainText(name)
+  }
 })

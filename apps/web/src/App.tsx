@@ -160,12 +160,6 @@ interface WorkbenchSectionProps {
    * wraps the content as the nav/scroll target.
    */
   readonly disclosure?: 'managed' | 'inner'
-  /**
-   * Hide the visible toggle text, keeping the chevron (used for Validation/
-   * Compare, whose panel already renders a visible h2 — avoids a duplicated
-   * label while the `aria-label` keeps the button named).
-   */
-  readonly hideLabel?: boolean
 }
 
 /**
@@ -176,12 +170,7 @@ interface WorkbenchSectionProps {
  * stable `section-<id>` anchor is the sticky nav's scroll target;
  * `scroll-margin-top` (index.css) keeps it clear of the pinned nav.
  */
-function WorkbenchSection({
-  id,
-  children,
-  disclosure = 'managed',
-  hideLabel = false,
-}: WorkbenchSectionProps) {
+function WorkbenchSection({ id, children, disclosure = 'managed' }: WorkbenchSectionProps) {
   const [open, setOpen] = useState(true)
   const title = WORKBENCH_SECTIONS.find((section) => section.id === id)?.title ?? id
   const contentId = `section-${id}-content`
@@ -204,7 +193,7 @@ function WorkbenchSection({
           <span className="workbench-section-marker" aria-hidden="true">
             {open ? '▾' : '▸'}
           </span>
-          {!hideLabel && <span className="workbench-section-label">{title}</span>}
+          <span className="workbench-section-label">{title}</span>
         </button>
       )}
       <div id={contentId} className="workbench-section-body" hidden={!open}>
@@ -760,7 +749,7 @@ export function App() {
            * editing before it. Slice 1 keeps it a collapsible section in the
            * stack.
            */}
-          <WorkbenchSection id="validation" hideLabel>
+          <WorkbenchSection id="validation">
             {panelModules === null ? null : (
               <panelModules.ValidationPanel
                 contractState={contractState}
@@ -786,7 +775,7 @@ export function App() {
            * control, so a row diff can never run before the schema-level view
            * is visible.
            */}
-          <WorkbenchSection id="compare" hideLabel>
+          <WorkbenchSection id="compare">
             {panelModules === null ? null : (
               <panelModules.DiffPanel
                 comparison={comparisonState}

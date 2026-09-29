@@ -26,6 +26,10 @@ import type { ArrowTableLike } from './grid/provider'
  *    real `section-<id>` anchor.
  * 4. **Grid hoisted.** The rendered section order is Schema → Grid → the rest
  *    (the grid is the first thing after the open section).
+ * 5. **Uniform collapsed affordance.** Collapsing any section leaves its
+ *    visible name in the toggle row — every one of the eleven sections,
+ *    including the two (Validation, Compare) that previously rendered a
+ *    bare chevron.
  */
 
 const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
@@ -91,6 +95,40 @@ const MANAGED_SECTIONS = [
   'sql',
 ] as const
 
+/** Visible section title, as it must appear in the collapsed toggle row. */
+const SECTION_TITLES: Record<(typeof SECTION_ORDER)[number], string> = {
+  schema: 'Schema',
+  grid: 'Grid',
+  editing: 'Editing',
+  export: 'Export',
+  history: 'History',
+  validation: 'Validation',
+  compare: 'Compare',
+  filters: 'Filters',
+  record: 'Record',
+  sql: 'SQL',
+  profile: 'Profile',
+}
+
+/**
+ * The disclosure control whose visible label names each section: the shared
+ * shell toggle for managed sections, the panel's own equivalent control for
+ * the three inner-disclosure sections.
+ */
+const SECTION_TOGGLE_TESTIDS: Record<(typeof SECTION_ORDER)[number], string> = {
+  schema: 'schema-toggle',
+  grid: 'section-toggle-grid',
+  editing: 'section-toggle-editing',
+  export: 'section-toggle-export',
+  history: 'section-toggle-history',
+  validation: 'section-toggle-validation',
+  compare: 'section-toggle-compare',
+  filters: 'filter-toggle',
+  record: 'section-toggle-record',
+  sql: 'section-toggle-sql',
+  profile: 'profile-toggle',
+}
+
 async function open(): Promise<void> {
   render(<App />)
   await act(async () => {
@@ -114,6 +152,25 @@ describe('ux-6 — workbench section shell', () => {
     expect(screen.queryByTestId('section-toggle-schema')).toBeNull()
     expect(screen.queryByTestId('section-toggle-filters')).toBeNull()
     expect(screen.queryByTestId('section-toggle-profile')).toBeNull()
+  })
+
+  it('names every section in its toggle row when collapsed (uniform affordance)', async () => {
+    await open()
+
+    for (const id of SECTION_ORDER) {
+      const toggle = screen.getByTestId(SECTION_TOGGLE_TESTIDS[id])
+      // Filters starts collapsed (its own disclosure default); every other
+      // section starts open. Collapse only what is open.
+      if (toggle.getAttribute('aria-expanded') === 'true') {
+        await act(async () => {
+          fireEvent.click(toggle)
+        })
+      }
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      // The visible name stays in the toggle row for ALL eleven sections —
+      // a collapsed Validation/Compare is no longer a bare chevron.
+      expect(toggle.textContent).toContain(SECTION_TITLES[id])
+    }
   })
 
   it('collapses and re-expands a managed section while keeping it mounted', async () => {
