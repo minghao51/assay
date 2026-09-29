@@ -85,6 +85,11 @@ function openBar(): void {
   fireEvent.click(screen.getByTestId('filter-toggle'))
 }
 
+/** Click the disclosure toggle (open when collapsed, collapse when open). */
+function toggleBar(): void {
+  fireEvent.click(screen.getByTestId('filter-toggle'))
+}
+
 afterEach(cleanup)
 
 describe('filterInputId (AR-W11)', () => {
@@ -152,6 +157,110 @@ describe('FilterBar disclosure (ux-4)', () => {
     expect(screen.getByTestId('filter-toggle').getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByTestId('filter-toggle').textContent).toBe('Filters · 1 active')
     expect(screen.getByTestId('filter-chip')).toBeTruthy()
+  })
+})
+
+describe('FilterBar auto-open identity (uxc-4)', () => {
+  it('re-opens a user-collapsed bar on a same-count programmatic replacement', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+
+    // Rule A lands programmatically and auto-opens.
+    await act(async () => {
+      await model.setFilters([{ column: 'country', predicate: "= 'US'" }])
+    })
+    const toggle = screen.getByTestId('filter-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+
+    // The user collapses over rule A.
+    toggleBar()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    // Rule B replaces rule A at the same active count (1). The predicate
+    // changed, so the bar must re-open instead of silently swapping under it.
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 50000' }])
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByTestId('filter-chip').getAttribute('data-col-name')).toBe('income')
+    expect(screen.getByTestId('filter-chip').querySelector('code')?.textContent).toBe(
+      'income > 50000',
+    )
+  })
+
+  it('keeps a user-collapsed bar collapsed across a same-identity re-set', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+
+    await act(async () => {
+      await model.setFilters([{ column: 'country', predicate: "= 'US'" }])
+    })
+    const toggle = screen.getByTestId('filter-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+
+    // The user collapses; the latch binds to this exact predicate.
+    toggleBar()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    // A routine programmatic re-set with the same identity (fresh array, same
+    // column:predicate) must not fight the latch.
+    await act(async () => {
+      await model.setFilters([{ column: 'country', predicate: "= 'US'" }])
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('auto-opens on the first filter when the bar starts empty (retained behavior)', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    expect(screen.getByTestId('filter-toggle').getAttribute('aria-expanded')).toBe('false')
+
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 50000' }])
+    })
+    expect(screen.getByTestId('filter-toggle').getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('honors a user collapse and a later user-driven re-open (no latch fight)', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+
+    await act(async () => {
+      await model.setFilters([{ column: 'country', predicate: "= 'US'" }])
+    })
+    const toggle = screen.getByTestId('filter-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+
+    toggleBar()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    toggleBar()
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('does not force-open when filters empty out, then auto-opens a fresh filter', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+
+    await act(async () => {
+      await model.setFilters([{ column: 'country', predicate: "= 'US'" }])
+    })
+    const toggle = screen.getByTestId('filter-toggle')
+    toggleBar()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    // Emptying retires the latch but never force-opens the bar.
+    await act(async () => {
+      await model.setFilters([])
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    // A fresh filter after the empty state auto-opens (the latch for the old
+    // set was retired, so this counts as a new set even if it repeats a
+    // predicate).
+    await act(async () => {
+      await model.setFilters([{ column: 'country', predicate: "= 'US'" }])
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
   })
 })
 

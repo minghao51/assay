@@ -1,0 +1,5 @@
+---
+'@assay/web': patch
+---
+
+fix(uxc-4): key the FilterBar auto-open on filter **identity** rather than the active count, honoring a user-collapse latch. The auto-open effect previously fired only when `model.filters.length` changed, so a programmatic same-count replacement — the validation panel's "Show only failing rows" for rule B replacing rule A — silently swapped the predicate under a bar the user had collapsed. The effect now keys on an injective serialization of the ordered `[column, predicate]` pairs (JSON, so delimiter-bearing column names or predicates cannot collide): a different non-empty set (including a same-count replacement) re-opens the bar, a same-identity re-set or routine re-render leaves a user collapse intact, emptying the filters never force-opens and retires the latch, and a fresh filter after empty auto-opens as before. No engine/model/`FilterSpec` grammar change; five new component pins cover the replacement, latch, empty→filter, toggle, and empty-reset paths.

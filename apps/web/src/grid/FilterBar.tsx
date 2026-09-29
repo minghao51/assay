@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { FilterSpec, GridViewportModel } from '@assay/grid'
 import { domId } from '../lib/dom-id'
 import { replaceColumnFilter } from './query-state'
@@ -24,6 +24,19 @@ interface BuilderDraft {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Injective, deterministic *identity* of the active filter list: `null` means
+ * "no filters" (distinct from any non-empty list), otherwise the ordered
+ * `[column, predicate]` pairs serialized as JSON. A `column:predicate` join
+ * would collide if either field contained the delimiter, and chip keys already
+ * rely on the same pair; order is part of identity because the model pushes the
+ * list to the provider in order. Changing any predicate changes the string.
+ */
+function filterListSignature(filters: readonly FilterSpec[]): string | null {
+  if (filters.length === 0) return null
+  return JSON.stringify(filters.map((filter) => [filter.column, filter.predicate]))
 }
 
 /**
@@ -93,13 +106,32 @@ export function FilterBar({ model }: FilterBarProps) {
 
   const profiles = new Map(schema.map((column) => [column.name, classifyColumnType(column.type)]))
 
-  // A programmatic filter change (e.g. the validation panel's
-  // "Show only failing rows") must be visible and clearable: open the bar
-  // whenever the active-filter count changes to non-zero. A user collapse
-  // while filters stay active is preserved (the dependency does not change).
+  // Filter *identity*, not just the active count (uxc-4): a programmatic
+  // replacement at the same count — e.g. the validation panel's "Show only
+  // failing rows" for rule B replacing rule A — must re-open a bar the user had
+  // collapsed over the old predicate, or the predicate silently swaps under a
+  // collapsed bar. `collapsedRef` is the user-collapse latch: it binds to the
+  // signature the user collapsed under (set below in the toggle).
+  const signature = filterListSignature(model.filters)
+  const collapsedRef = useRef<string | null>(null)
+
   useEffect(() => {
-    if (model.filters.length > 0) setOpen(true)
-  }, [model.filters.length])
+    if (signature === null) {
+      // Emptying the filters never force-opens. It also retires the latch
+      // (the collapsed set no longer exists), so the next fresh filter
+      // (empty → non-empty) auto-opens exactly as it did before uxc-4.
+      collapsedRef.current = null
+      return
+    }
+    // A user collapse is honored only for the exact set it was made under:
+    // routine re-renders and same-identity programmatic re-sets leave the
+    // signature unchanged (this effect does not re-run), and a re-set that
+    // happens to produce the same signature stays collapsed deliberately.
+    // Only a different, non-empty set — same count included — overrides it.
+    if (collapsedRef.current === signature) return
+    setOpen(true)
+    collapsedRef.current = null
+  }, [signature])
 
   /** Inputs mirror the accepted state after a successful change. */
   const syncDrafts = (filters: readonly FilterSpec[]): void => {
@@ -188,7 +220,11 @@ export function FilterBar({ model }: FilterBarProps) {
         aria-expanded={open}
         aria-controls="filter-body"
         onClick={() => {
-          setOpen((previous) => !previous)
+          const next = !open
+          setOpen(next)
+          // Collapsing latches onto the current filter set; opening clears it
+          // so a later programmatic change can re-open (uxc-4).
+          collapsedRef.current = next ? null : signature
         }}
       >
         {activeCount > 0 ? `Filters · ${String(activeCount)} active` : 'Filters'}
