@@ -501,6 +501,21 @@ describe('parsePipeline: reserved assay_* node ids (p-2)', () => {
     ])
   })
 
+  it('rejects the prefix after trimming surrounding whitespace (uniform policy)', () => {
+    // The check is applied to the trimmed id, so leading/trailing whitespace
+    // cannot smuggle a reserved name past the gate in either direction.
+    for (const id of [' assay_x', 'assay_x ', '  ASSAY_X  ']) {
+      const errors = errorsOf(
+        `${BASE}\n  ${JSON.stringify(id)}:\n    type: source\n    source: {kind: file}\n`,
+      )
+      expect(
+        errors.map((error) => error.code),
+        id,
+      ).toEqual(['reserved-identifier'])
+      expect(errors[0]?.message, id).toContain('assay_')
+    }
+  })
+
   it('keeps everything else permissive (similar prefixes, hostile text, __proto__)', () => {
     for (const id of ['assay', 'assayx', 'my_assay_x', '__proto__', 'weird "quoted" key']) {
       const pipeline = parseOk(

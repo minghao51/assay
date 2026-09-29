@@ -83,8 +83,11 @@ const READ_STATEMENT_KEYWORDS: ReadonlySet<string> = new Set([
  * `REPLACE` is deliberately absent: it is a common scalar function
  * (`replace(x, …)`) and a `REPLACE INTO` statement is already refused by the
  * leading-keyword allowlist.
+ *
+ * Exported so the test suite can iterate every entry (a parametrized pin over
+ * the whole set, so a future addition is automatically covered).
  */
-const FORBIDDEN_KEYWORDS: ReadonlySet<string> = new Set([
+export const FORBIDDEN_KEYWORDS: ReadonlySet<string> = new Set([
   'INSERT',
   'UPDATE',
   'DELETE',

@@ -1141,8 +1141,12 @@ function walkNodes(ctx: WalkContext, entry: Entry): PipelineNode[] {
     // references relations by node id — so compile-time renaming would break
     // verbatim SQL. The repo-wide reserved `assay_*` namespace (compiler
     // internals; cf. m6-1) is therefore rejected at parse. DuckDB folds
-    // identifier case even when quoted, so the check is case-insensitive.
-    if (id.toLowerCase().startsWith('assay_')) {
+    // identifier case even when quoted, so the check is case-insensitive. It
+    // is also applied to the whitespace-trimmed id: surrounding whitespace is
+    // not meaningful in a relation name, so `" assay_x"` / `"assay_x "` must
+    // not slip past the reserved-prefix gate by a spelling difference (uniform
+    // fail-closed reading; non-reserved hostile ids keep their whitespace).
+    if (id.trim().toLowerCase().startsWith('assay_')) {
       pushError(
         ctx,
         'reserved-identifier',

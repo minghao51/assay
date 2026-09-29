@@ -320,6 +320,35 @@ describe('compilePipeline: argument validation', () => {
       'unknown-operation',
     ])
   })
+
+  it('points each operation/filter/cast refusal at the sql-node escape hatch', () => {
+    const cases: readonly (readonly [string, PipelineNode[]])[] = [
+      ['unknown-operation', [source('raw'), transform('x', 'raw', 'join', { on: 'id' })]],
+      [
+        'invalid-operation-args',
+        [source('raw'), transform('s', 'raw', 'select-columns', { columns: [] })],
+      ],
+      [
+        'invalid-cast-type',
+        [source('raw'), transform('c', 'raw', 'cast', { columns: { a: 'STRIN' } })],
+      ],
+      [
+        'invalid-filter',
+        [
+          source('raw'),
+          transform('f', 'raw', 'filter', {
+            predicates: [{ column: 'a', operator: 'equals', value: null }],
+          }),
+        ],
+      ],
+    ]
+    for (const [code, nodes] of cases) {
+      const errors = errorsOf(pipeline(nodes))
+      expect(errors[0]?.code, code).toBe(code)
+      expect(errors[0]?.message, code).toContain('sql node')
+      expect(errors[0]?.message, code).toContain('verbatim SQL with declared inputs')
+    }
+  })
 })
 
 describe('compilePipeline: reserved and verbatim SQL', () => {

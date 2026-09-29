@@ -197,6 +197,17 @@ function pushError(
 }
 
 /**
+ * The documented escape hatch (module header): anything the structured P1
+ * vocabulary does not compile belongs in a `sql` node carrying verbatim SQL
+ * with declared inputs. It is appended to the operation/filter/cast refusals
+ * (and the unknown-operation refusal) so each points at the fallback. The
+ * verbatim-SQL classifier's own `invalid-sql` messages are exempt (a `sql`
+ * node is already that path), as are the defensive `invalid-node` shapes.
+ */
+const ESCAPE_HATCH_HINT =
+  '; express anything else as a sql node carrying verbatim SQL with declared inputs'
+
+/**
  * Compile a validated pipeline to deterministic SQL. Total: any input —
  * including a broken value behind a cast — yields a plan or typed errors.
  * Internally re-runs DAG validation so unresolved references or cycles are
@@ -301,7 +312,7 @@ function rejectUnknownArgs(
       'invalid-operation-args',
       relation,
       `${path}.${key}`,
-      `${path}.${key}: unexpected argument for this operation — the P1 vocabulary accepts: ${allowed.join(', ')}; use a sql node for anything else`,
+      `${path}.${key}: unexpected argument for this operation — the P1 vocabulary accepts: ${allowed.join(', ')}${ESCAPE_HATCH_HINT}`,
     )
   }
 }
@@ -343,7 +354,7 @@ function compileTransformNode(
       'invalid-operation-args',
       relation,
       `${path}.inputs`,
-      `${path}.inputs: the ${name} operation is unary and expects exactly one input`,
+      `${path}.inputs: the ${name} operation is unary and expects exactly one input${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -450,7 +461,7 @@ function compileSelectColumns(
       'invalid-operation-args',
       relation,
       `${opPath}.columns`,
-      `${opPath}.columns: select-columns expects a non-empty list of column names`,
+      `${opPath}.columns: select-columns expects a non-empty list of column names${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -465,7 +476,7 @@ function compileSelectColumns(
         'invalid-operation-args',
         relation,
         at,
-        `${at}: expected a non-empty column name`,
+        `${at}: expected a non-empty column name${ESCAPE_HATCH_HINT}`,
       )
       continue
     }
@@ -475,7 +486,7 @@ function compileSelectColumns(
         'invalid-operation-args',
         relation,
         at,
-        `${at}: duplicate column ${JSON.stringify(column)} — a projection may name each column at most once`,
+        `${at}: duplicate column ${JSON.stringify(column)} — a projection may name each column at most once${ESCAPE_HATCH_HINT}`,
       )
       continue
     }
@@ -508,7 +519,7 @@ function compileRename(
       'invalid-operation-args',
       relation,
       `${opPath}.columns`,
-      `${opPath}.columns: rename expects a non-empty mapping of existing column name to new column name`,
+      `${opPath}.columns: rename expects a non-empty mapping of existing column name to new column name${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -523,7 +534,7 @@ function compileRename(
         'invalid-operation-args',
         relation,
         at,
-        `${at}: the existing column name must be non-empty`,
+        `${at}: the existing column name must be non-empty${ESCAPE_HATCH_HINT}`,
       )
       continue
     }
@@ -533,7 +544,7 @@ function compileRename(
         'invalid-operation-args',
         relation,
         at,
-        `${at}: expected a non-empty new column name`,
+        `${at}: expected a non-empty new column name${ESCAPE_HATCH_HINT}`,
       )
       continue
     }
@@ -543,7 +554,7 @@ function compileRename(
         'invalid-operation-args',
         relation,
         at,
-        `${at}: two columns cannot both be renamed to ${JSON.stringify(to)} — a relation has one column per name`,
+        `${at}: two columns cannot both be renamed to ${JSON.stringify(to)} — a relation has one column per name${ESCAPE_HATCH_HINT}`,
       )
       continue
     }
@@ -579,7 +590,7 @@ function compileCast(
       'invalid-operation-args',
       relation,
       `${opPath}.columns`,
-      `${opPath}.columns: cast expects a non-empty mapping of column name to a declared type`,
+      `${opPath}.columns: cast expects a non-empty mapping of column name to a declared type${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -593,7 +604,7 @@ function compileCast(
         'invalid-operation-args',
         relation,
         at,
-        `${at}: the column name must be non-empty`,
+        `${at}: the column name must be non-empty${ESCAPE_HATCH_HINT}`,
       )
       continue
     }
@@ -603,7 +614,7 @@ function compileCast(
         'invalid-cast-type',
         relation,
         at,
-        `${at}: expected a declared type spelling (one of: ${CONTRACT_TYPE_VOCABULARY.join(', ')})`,
+        `${at}: expected a declared type spelling (one of: ${CONTRACT_TYPE_VOCABULARY.join(', ')})${ESCAPE_HATCH_HINT}`,
       )
       continue
     }
@@ -614,7 +625,7 @@ function compileCast(
         'invalid-cast-type',
         relation,
         at,
-        `${at}: unknown type ${JSON.stringify(spelling)} — the P1 cast vocabulary is the declared-type set: ${CONTRACT_TYPE_VOCABULARY.join(', ')}${hint === null ? '' : ` (did you mean ${hint}?)`}`,
+        `${at}: unknown type ${JSON.stringify(spelling)} — the P1 cast vocabulary is the declared-type set: ${CONTRACT_TYPE_VOCABULARY.join(', ')}${hint === null ? '' : ` (did you mean ${hint}?)`}${ESCAPE_HATCH_HINT}`,
       )
       continue
     }
@@ -646,7 +657,7 @@ function compileFilter(
       'invalid-operation-args',
       relation,
       `${opPath}.predicates`,
-      `${opPath}.predicates: filter expects a non-empty list of predicates`,
+      `${opPath}.predicates: filter expects a non-empty list of predicates${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -678,7 +689,7 @@ function renderPredicate(
       'invalid-filter',
       relation,
       path,
-      `${path}: expected a predicate mapping with column, operator, and value/values`,
+      `${path}: expected a predicate mapping with column, operator, and value/values${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -691,7 +702,7 @@ function renderPredicate(
       'invalid-filter',
       relation,
       `${path}.column`,
-      `${path}.column: expected a non-empty column name`,
+      `${path}.column: expected a non-empty column name${ESCAPE_HATCH_HINT}`,
     )
   }
   const operator = predicate.operator
@@ -701,7 +712,7 @@ function renderPredicate(
       'invalid-filter',
       relation,
       `${path}.operator`,
-      `${path}.operator: unknown filter operator ${typeof operator === 'string' ? JSON.stringify(operator) : ''} — expected one of: ${Object.keys(FILTER_OPERATORS).join(', ')}`,
+      `${path}.operator: unknown filter operator ${typeof operator === 'string' ? JSON.stringify(operator) : ''} — expected one of: ${Object.keys(FILTER_OPERATORS).join(', ')}${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -719,7 +730,7 @@ function renderPredicate(
         'invalid-filter',
         relation,
         path,
-        `${path}: the ${operator} operator takes no value`,
+        `${path}: the ${operator} operator takes no value${ESCAPE_HATCH_HINT}`,
       )
       return null
     }
@@ -733,7 +744,7 @@ function renderPredicate(
         'invalid-filter',
         relation,
         path,
-        `${path}: the ${operator} operator expects exactly one "value"`,
+        `${path}: the ${operator} operator expects exactly one "value"${ESCAPE_HATCH_HINT}`,
       )
       return null
     }
@@ -744,7 +755,7 @@ function renderPredicate(
         'invalid-filter',
         relation,
         `${path}.value`,
-        `${path}.value: expected a string, boolean, or finite number (use is-null for null)`,
+        `${path}.value: expected a string, boolean, or finite number (use is-null for null)${ESCAPE_HATCH_HINT}`,
       )
       return null
     }
@@ -758,7 +769,7 @@ function renderPredicate(
       'invalid-filter',
       relation,
       path,
-      `${path}: the ${operator} operator expects exactly one non-empty "values" list`,
+      `${path}: the ${operator} operator expects exactly one non-empty "values" list${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -769,7 +780,7 @@ function renderPredicate(
       'invalid-filter',
       relation,
       `${path}.values`,
-      `${path}.values: expected a non-empty list of literals`,
+      `${path}.values: expected a non-empty list of literals${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -782,7 +793,7 @@ function renderPredicate(
         'invalid-filter',
         relation,
         `${path}.values[${index}]`,
-        `${path}.values[${index}]: expected a string, boolean, or finite number`,
+        `${path}.values[${index}]: expected a string, boolean, or finite number${ESCAPE_HATCH_HINT}`,
       )
       return null
     }

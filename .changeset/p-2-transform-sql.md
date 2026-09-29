@@ -9,9 +9,10 @@ feat(p-2): transform compilation to SQL (pure module)
 executable node, in topological order — over relations named by node id and
 rendered through `quoteIdentifier` (no generated internal names, no
 materialization: p-3 owns execution). The P1 compiled transform vocabulary is
-`select-columns` / `rename` / `cast` / `filter`; every other operation and
-every refusal points at the documented escape hatch (a `sql` node carrying
-verbatim SQL with declared inputs). Verbatim SQL is validated by a pure,
+`select-columns` / `rename` / `cast` / `filter`; an unknown transform
+operation, and every operation/filter/cast argument-or-value refusal, points
+at the documented escape hatch (a `sql` node carrying verbatim SQL with
+declared inputs). Verbatim SQL is validated by a pure,
 conservative, string/identifier/comment/dollar-quote-aware single-statement
 classifier (`classifyVerbatimSql`) that refuses multi-statement text, trailing
 garbage, non-read statements, and side-effect/DDL/utility keywords. Filter
@@ -41,4 +42,4 @@ the `CanonicalDecimal` type for the reused numeric policy (exports only; no
 behaviour change). Fixtures: `hostile-names.yaml` no longer carries the
 reserved node, and a new negative `reserved-namespace-refusal.yaml` pins the
 `reserved-identifier` refusal (manifest checksums updated). Unit tests
-2317 → 2374 across 156 → 158 files.
+2317 → 2406 across 156 → 158 files.

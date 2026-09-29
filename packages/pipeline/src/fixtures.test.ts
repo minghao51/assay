@@ -51,7 +51,9 @@ describe('golden pipeline fixtures', () => {
       if (file.expect === 'refuses') {
         expect(parsed.ok).toBe(false)
         if (!parsed.ok) {
-          expect(parsed.errors.map((error) => error.code)).toContain(file.errorCode)
+          // Exact: the probe must yield exactly the pinned code — any
+          // unexpected additional error class fails the pin.
+          expect(parsed.errors.map((error) => error.code)).toEqual([file.errorCode])
         }
         return
       }

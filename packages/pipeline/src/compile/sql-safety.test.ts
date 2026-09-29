@@ -1,8 +1,49 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
-import { classifyVerbatimSql } from './sql-safety.js'
+import { FORBIDDEN_KEYWORDS, classifyVerbatimSql } from './sql-safety.js'
 import type { VerbatimSqlRefusal } from './sql-safety.js'
+
+/**
+ * The forbidden keywords this classifier has been reviewed to refuse. This is
+ * an explicit, committed list that is independent of the live
+ * `FORBIDDEN_KEYWORDS` set, so deleting an entry from the set fails a pin
+ * (the parametrized probe alone cannot: it iterates the live set, so a
+ * removed entry simply stops being probed). Additions do not require this
+ * list to change — the probe iterates the live set, so a new keyword is
+ * exercised automatically.
+ */
+const REVIEWED_FORBIDDEN_KEYWORDS = [
+  'INSERT',
+  'UPDATE',
+  'DELETE',
+  'CREATE',
+  'DROP',
+  'ALTER',
+  'COPY',
+  'ATTACH',
+  'DETACH',
+  'PRAGMA',
+  'SET',
+  'CALL',
+  'INSTALL',
+  'LOAD',
+  'EXPORT',
+  'IMPORT',
+  'BEGIN',
+  'COMMIT',
+  'ROLLBACK',
+  'TRUNCATE',
+  'MERGE',
+  'GRANT',
+  'REVOKE',
+  'VACUUM',
+  'CHECKPOINT',
+  'INTO',
+  'UNLOAD',
+  'USE',
+  'RESET',
+] as const
 
 function accepts(sql: string): boolean {
   return classifyVerbatimSql(sql).ok
@@ -99,6 +140,20 @@ describe('classifyVerbatimSql: refusals (fail closed)', () => {
     )
     expect(refusal('SELECT * INTO new_table FROM t')).toBe('forbidden-keyword')
     expect(refusal('SELECT 1 CALL f()')).toBe('forbidden-keyword')
+  })
+
+  it('retains every reviewed forbidden keyword (removal fails this pin)', () => {
+    for (const keyword of REVIEWED_FORBIDDEN_KEYWORDS) {
+      expect(FORBIDDEN_KEYWORDS.has(keyword), keyword).toBe(true)
+    }
+  })
+
+  it.each([...FORBIDDEN_KEYWORDS])('refuses the forbidden keyword %s', (keyword) => {
+    // The probe is a valid read statement whose only defect is the bare
+    // keyword; the leading WITH keeps the read-allowlist branch from
+    // shadowing the keyword branch. Iterating the exported set means a new
+    // keyword cannot be added without a covering pin.
+    expect(refusal(`WITH x AS (SELECT 1) ${keyword} z`)).toBe('forbidden-keyword')
   })
 
   it('refuses unterminated lexemes', () => {
