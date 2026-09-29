@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    // The Web-standard globals this environment-neutral package uses
+    // (`URL`, `TextEncoder`, `globalThis.crypto`) are declared by
+    // `@types/node`'s web-globals; `lib` stays ES2022-only (no DOM).
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

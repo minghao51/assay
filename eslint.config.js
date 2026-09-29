@@ -347,6 +347,75 @@ export default tseslint.config(
     },
   },
   {
+    // t-1: telemetry is a pure, environment-neutral core — mirror domain's
+    // portability floor (no React, no UI/engine packages, no browser-only
+    // globals, no Node builtins) so the design's zero-network/fs/child_process
+    // surface (R6/R12/R13) is encoded, not just documented.
+    files: ['packages/telemetry/**/*.{ts,tsx}'],
+    rules: {
+      'import/no-nodejs-modules': 'error',
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react',
+              message:
+                'The telemetry package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
+            {
+              name: 'react-dom',
+              message:
+                'The telemetry package must stay UI-free (docs/engineering/03-repository-structure.md §3).',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@assay/ui', '@assay/grid', '@assay/engine-*'],
+              message:
+                'The telemetry package must not depend on UI or engine implementations (docs/engineering/03-repository-structure.md §3).',
+            },
+            // f-4: this block's `no-restricted-imports` replaces the shared
+            // one for `packages/telemetry` (flat config: last matching rule
+            // options win), so the app-import ban must be repeated here.
+            APP_IMPORT_BAN,
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        ...BROWSER_ONLY_GLOBALS.map((name) => ({
+          name,
+          message:
+            'The telemetry package must stay environment-neutral — browser APIs are banned (docs/engineering/03-repository-structure.md §3).',
+        })),
+      ],
+    },
+  },
+  {
+    // t-1: telemetry src is a DEPENDENCY-FREE ZONE — the design's zero-network
+    // surface requires that no external module is imported at all (only
+    // relative modules; typescript + vitest are dev-only and used by tests).
+    // Declaring a dependency in package.json is the only way through, making
+    // dependency growth itself the visible, reviewable event.
+    files: ['packages/telemetry/src/**/*.{ts,tsx}'],
+    plugins: { import: importX },
+    rules: {
+      'import/no-extraneous-dependencies': [
+        'error',
+        { devDependencies: false, peerDependencies: false, optionalDependencies: false },
+      ],
+    },
+  },
+  {
+    // t-1: tests are the deliberate exception to the dependency-free zone.
+    files: ['packages/telemetry/src/**/*.test.{ts,tsx}'],
+    plugins: { import: importX },
+    rules: {
+      'import/no-extraneous-dependencies': 'off',
+    },
+  },
+  {
     // q-7: grid is a headless model — mirror domain's bans exactly.
     files: ['packages/grid/**/*.{ts,tsx}'],
     rules: {
