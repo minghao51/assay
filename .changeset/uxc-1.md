@@ -1,0 +1,5 @@
+---
+'@assay/web': patch
+---
+
+fix(uxc-1): make grid Enter-to-edit resolve against the keydown's committed DOM target. The row's `onKeyDown` read `focusedColumn` state captured by the render closure, so a keydown dispatched before the focus-triggered re-render committed could see a stale value and never open the editor. The handler now resolves the target column from the focused cell's `data-col-index` (a keydown is delivered to the element that actually owns DOM focus) while a synchronously updated ref preserves the carried column for arrow navigation; the unused `focusedColumn` state is gone and keyboard semantics are unchanged. The a11y spec also waits for the target row's window data before focusing, because Enter on a still-loading slot was a second, independent source of the same `grid-editor-input` timeout under load.

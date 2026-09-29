@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import { cell, row } from './support/grid'
+import { cell, row, waitForReadyRow } from './support/grid'
 
 // q-3 (PT-Q a11y polish pack, AR-W10): the keyboard and live-region contract
 // for the two interactive surfaces the audit flagged.
@@ -95,6 +95,11 @@ test('grid edit commit and rejection announce through one polite, value-free liv
   await expect(live).toHaveAttribute('aria-live', 'polite')
 
   // Commit path: a cell edit lands and the region announces it.
+  // uxc-1: wait for the row's window data before focusing — a row is rendered
+  // as a placeholder before its fetch lands, and an editor cannot open on a
+  // not-yet-ready slot. Without this the test raced the initial fetch under
+  // load and timed out waiting for `grid-editor-input`.
+  await waitForReadyRow(page, 0)
   await cell(page, 0, 2).focus()
   await page.keyboard.press('Enter')
   const editor = page.getByTestId('grid-editor-input')
@@ -106,6 +111,7 @@ test('grid edit commit and rejection announce through one polite, value-free liv
 
   // Reject path: a non-numeric draft keeps the editor open and announces the
   // value-free reason. The typed draft must never appear in the region.
+  await waitForReadyRow(page, 1)
   await cell(page, 1, 2).focus()
   await page.keyboard.press('Enter')
   const rejected = page.getByTestId('grid-editor-input')
@@ -188,6 +194,8 @@ test('keyboard-only journey: open → edit → export', async ({ page }) => {
 
   // Edit by keyboard: focus a cell, Enter opens the editor, select-all + type
   // + Enter commits. No pointer event in the whole journey.
+  // uxc-1: the row must be data-ready first (see the live-region test above).
+  await waitForReadyRow(page, 0)
   await cell(page, 0, 2).focus()
   await page.keyboard.press('Enter')
   const editor = page.getByTestId('grid-editor-input')

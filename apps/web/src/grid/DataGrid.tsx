@@ -164,8 +164,20 @@ export function DataGrid({
   const [commandError, setCommandError] = useState<string | null>(null)
   const [editing, setEditing] = useState<EditingCell | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
-  /** Column index of the last focused/clicked cell (Enter-to-edit target). */
-  const [focusedColumn, setFocusedColumn] = useState<number | null>(null)
+  /**
+   * Column index the keyboard navigation should carry (the last focused cell),
+   * mirrored into a ref because it is an imperative value with no render
+   * consumer. It is written synchronously wherever focus moves so an arrow
+   * sequence is not coupled to when React commits a focus-triggered render.
+   *
+   * uxc-1: `onKeyDown` must not rely on this ref alone for Enter. Under load
+   * the browser can apply DOM focus to a cell (and dispatch the next keydown)
+   * before React has processed the focus event that would write this ref, so
+   * Enter resolves its target column from the event's own DOM target instead
+   * (see the `onKeyDown` comment). The ref stays the synchronously committed
+   * keyboard intent for navigation.
+   */
+  const focusedColumnRef = useRef<number | null>(null)
   /**
    * S5 roving-tabindex anchor: the effective row index that owns the grid's
    * single `tabIndex=0`. `null` means "not yet entered" and the first
@@ -431,7 +443,7 @@ export function DataGrid({
     const targetColumn =
       columnIndex === null ? null : Math.max(0, Math.min(columnIndex, schema.length - 1))
     setFocusedRow(targetRow)
-    setFocusedColumn(targetColumn)
+    focusedColumnRef.current = targetColumn
     if (!virtualItems.some((item) => item.index === targetRow)) {
       // `auto` scrolls only when the target is outside the viewport.
       virtualizer.scrollToIndex(targetRow, { align: 'auto' })
@@ -603,22 +615,48 @@ export function DataGrid({
                 }
                 onFocus={(event) => {
                   // Row-level focus (not a bubbled cell focus) is the roving
-                  // tab stop's resting position: remember the row and clear
-                  // the cell so Enter keeps opening the record inspector.
+                  // tab stop's resting position: remember the row and drop the
+                  // carried cell column so Enter keeps opening the inspector.
                   if (event.target === event.currentTarget) {
                     setFocusedRow(item.index)
-                    setFocusedColumn(null)
+                    focusedColumnRef.current = null
                   }
                 }}
                 onKeyDown={(event) => {
+                  // uxc-1 root cause and fix. This handler used to read the
+                  // `focusedColumn` state captured by the render closure. A
+                  // cell's `.focus()` sets DOM focus synchronously, but the
+                  // `onFocus` state commit — and the re-render that produces a
+                  // fresh `onKeyDown` closure — can lag behind the very next
+                  // keydown under load. Enter then saw the previous value
+                  // (commonly `null`) and opened the record inspector instead
+                  // of the editor, so `grid-editor-input` never appeared (the
+                  // intermittent a11y-keyboard timeout). A keydown is always
+                  // delivered to the element that actually owns DOM focus, so
+                  // the event target is the committed truth: resolve the
+                  // target column from the focused cell's `data-col-index`, and
+                  // treat a row-targeted keydown as "no cell". This is
+                  // independent of React state/ref timing.
+                  const target = event.target
+                  const targetColumn =
+                    target instanceof HTMLElement &&
+                    target !== event.currentTarget &&
+                    target.dataset.colIndex !== undefined
+                      ? Number(target.dataset.colIndex)
+                      : null
+                  // Navigation keeps the synchronously mirrored keyboard
+                  // intent so a rapid arrow sequence does not depend on when
+                  // the focus effect lands; the DOM target is the fallback
+                  // when no focus has been mirrored yet.
+                  const arrowColumn = focusedColumnRef.current ?? targetColumn
                   if (event.key === 'Enter') {
                     if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
                       return
                     }
                     // Enter on a focused cell edits it; Enter on the row (no
                     // cell focused) keeps the m3-3 inspector gesture.
-                    if (focusedColumn !== null && editingEnabled) {
-                      beginEdit(item.index, focusedColumn)
+                    if (targetColumn !== null && editingEnabled) {
+                      beginEdit(item.index, targetColumn)
                     } else if (onOpenRecord !== undefined) {
                       onOpenRecord(item.index)
                     }
@@ -632,24 +670,24 @@ export function DataGrid({
                   switch (event.key) {
                     case 'ArrowDown':
                       event.preventDefault()
-                      moveGridFocus(Math.min(item.index + 1, totalRows - 1), focusedColumn)
+                      moveGridFocus(Math.min(item.index + 1, totalRows - 1), arrowColumn)
                       return
                     case 'ArrowUp':
                       event.preventDefault()
-                      moveGridFocus(Math.max(item.index - 1, 0), focusedColumn)
+                      moveGridFocus(Math.max(item.index - 1, 0), arrowColumn)
                       return
                     case 'ArrowRight':
                       event.preventDefault()
                       moveGridFocus(
                         item.index,
-                        focusedColumn === null ? 0 : Math.min(focusedColumn + 1, lastColumn),
+                        arrowColumn === null ? 0 : Math.min(arrowColumn + 1, lastColumn),
                       )
                       return
                     case 'ArrowLeft':
                       event.preventDefault()
                       moveGridFocus(
                         item.index,
-                        focusedColumn === null ? lastColumn : Math.max(focusedColumn - 1, 0),
+                        arrowColumn === null ? lastColumn : Math.max(arrowColumn - 1, 0),
                       )
                       return
                     case 'Home':
@@ -699,13 +737,14 @@ export function DataGrid({
                           }`}
                           data-testid="grid-cell"
                           data-col-name={column?.name}
+                          data-col-index={columnIndex}
                           data-dirty={dirty ? 'true' : 'false'}
                           data-null={isNull ? 'true' : undefined}
                           tabIndex={interactive && !isEditing ? -1 : undefined}
                           onFocus={(event) => {
                             if (event.target === event.currentTarget && interactive) {
                               setFocusedRow(item.index)
-                              setFocusedColumn(columnIndex)
+                              focusedColumnRef.current = columnIndex
                             }
                           }}
                           onDoubleClick={
@@ -836,11 +875,12 @@ export function DataGrid({
                         role="gridcell"
                         className="grid-cell"
                         data-testid="grid-cell"
+                        data-col-index={columnIndex}
                         tabIndex={interactive ? -1 : undefined}
                         onFocus={(event) => {
                           if (event.target === event.currentTarget && interactive) {
                             setFocusedRow(item.index)
-                            setFocusedColumn(columnIndex)
+                            focusedColumnRef.current = columnIndex
                           }
                         }}
                       >
