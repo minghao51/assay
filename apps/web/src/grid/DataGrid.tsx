@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties } from 'react'
 import type { GridViewportModel } from '@assay/grid'
 import type { CellValue, OverlayState, RowId } from '@assay/domain'
@@ -323,10 +323,17 @@ export function DataGrid({
    * `scrollPaddingStart` keeps an aligned row just below the pinned header.
    * Measuring keeps this correct across themes, zoom, and font metrics rather
    * than hardcoding a row height (ADR 0022: the renderer stays replaceable).
+   *
+   * uxc-5 (c): `useLayoutEffect` measures synchronously before the browser
+   * paints, so the first committed frame already carries the real
+   * `scrollMargin`/`scrollPaddingStart`. With `useEffect` the initial paint
+   * ran with both at 0, leaving a one-frame row-0-under-header window. The app
+   * is browser-only (no SSR in this composition root), so the layout-effect
+   * SSR warning does not apply.
    */
   const headerRef = useRef<HTMLDivElement | null>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = headerRef.current
     if (element === null) return
     const measure = (): void => {

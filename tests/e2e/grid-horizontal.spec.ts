@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
-import { cell, headerCell, openEditor } from './support/grid'
+import { cell, headerCell, openEditor, row } from './support/grid'
 import { openFixture } from './support/fixtures'
 
 // ux-1 regression (audit UX-1, P1): wide datasets must be horizontally
@@ -43,6 +43,35 @@ async function expectWithinBox(element: Locator, container: Locator): Promise<vo
   expect(box.y + box.height).toBeLessThanOrEqual(containerBox.y + containerBox.height + 1)
 }
 
+/**
+ * uxc-5 (a) occlusion pin. `expectWithinBox` only checks a cell's border box
+ * against the scroll viewport's box, so it stays green while the sticky header
+ * paints over that box (row 0 under the header is still "within" the
+ * viewport). Sample the point a user actually clicks — the cell's visual
+ * center — through hit-testing and require it to resolve to the cell (or one
+ * of its descendants), never to a header element. A body row whose track box
+ * is shifted up under the pinned header fails here; the mutant drill sets
+ * `scrollMargin` back to 0 in `DataGrid.tsx`.
+ */
+async function expectNotOccludedByHeader(target: Locator): Promise<void> {
+  const hit = await target.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    return {
+      inside: top === element || element.contains(top),
+      inHeader:
+        top instanceof Element &&
+        top.closest('.grid-header, [data-testid="grid-header-cell"]') !== null,
+      hitTestId: top instanceof HTMLElement ? (top.dataset.testid ?? null) : null,
+      hitClass: top instanceof Element ? top.className : String(top),
+    }
+  })
+  expect(
+    hit.inside && !hit.inHeader,
+    `cell center is occluded by ${String(hit.hitTestId ?? hit.hitClass)}`,
+  ).toBe(true)
+}
+
 /** Pan the grid to the far right with real wheel gestures (never scripted). */
 async function panToFarRight(page: Page): Promise<void> {
   const viewport = page.getByTestId('grid-viewport')
@@ -77,6 +106,12 @@ test('wide grid: last column is reachable by pan, keyboard, and edit', async ({ 
   const cellBox = await lastCell.boundingBox()
   if (headerBox === null || cellBox === null) throw new Error('missing bounding box')
   expect(Math.abs(headerBox.x - cellBox.x)).toBeLessThanOrEqual(2)
+
+  // (a) uxc-5 occlusion pin: after the pan, lastCell is row 0 — the row that
+  // sits immediately below the sticky header, i.e. exactly the row a
+  // scroll-offset regression pushes *under* the header. Containment above
+  // would still pass; hit-testing must not.
+  await expectNotOccludedByHeader(lastCell)
 
   // (b) keyboard reachability — from the first cell, End jumps to the last
   // column and the focus-reveal auto-scrolls it into view.
@@ -116,4 +151,20 @@ test('wide grid at 900px scrolls, never clips', async ({ page }) => {
   await expect.poll(() => viewport.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
   await expectWithinBox(headerCell(page, LAST_COLUMN), viewport)
   await expectWithinBox(cell(page, 0, LAST_COLUMN_INDEX), viewport)
+
+  // (b) uxc-5 pin: opening any fixture starts an overlay session, so the
+  // trailing row-actions track (`+ 5rem`) is present. The body row must carry
+  // the deterministic track floor (`calc(20 * 9rem + 5rem)`): its own track box
+  // has to cover the trailing action cell, not let the grid tracks overflow a
+  // 100%-wide row. Losing the body-row `minWidth` leaves the action cell (and
+  // the row chrome behind it) hanging outside the row — this assertion fails.
+  await expect(page.getByTestId('grid-actions-header')).toBeVisible()
+  const bodyRow = row(page, 0)
+  const rowActions = bodyRow.getByTestId('grid-row-actions')
+  await expect(rowActions).toBeVisible()
+  const rowBox = await bodyRow.boundingBox()
+  const actionsBox = await rowActions.boundingBox()
+  if (rowBox === null || actionsBox === null) throw new Error('missing bounding box')
+  expect(rowBox.x).toBeLessThanOrEqual(actionsBox.x + 1)
+  expect(rowBox.x + rowBox.width).toBeGreaterThanOrEqual(actionsBox.x + actionsBox.width - 1)
 })
