@@ -638,17 +638,31 @@ export function DataGrid({
                   // treat a row-targeted keydown as "no cell". This is
                   // independent of React state/ref timing.
                   const target = event.target
+                  // uxc-1 round 2 (reviewer): a keydown originating inside an
+                  // open editor belongs to that editor. The text input consumes
+                  // Enter/Escape itself, but the boolean `<select>` and the NULL
+                  // button let them bubble to this row handler; before this
+                  // guard a bubbled Enter fell through to the inspector gesture
+                  // below. Contain on the event target (an ancestor editor
+                  // wrapper) as well as on `editing`, so the check does not
+                  // depend on when the edit state commits.
+                  if (
+                    editing !== null ||
+                    (target instanceof HTMLElement && target.closest('.grid-cell-editor') !== null)
+                  ) {
+                    return
+                  }
                   const targetColumn =
                     target instanceof HTMLElement &&
                     target !== event.currentTarget &&
                     target.dataset.colIndex !== undefined
                       ? Number(target.dataset.colIndex)
                       : null
-                  // Navigation keeps the synchronously mirrored keyboard
-                  // intent so a rapid arrow sequence does not depend on when
-                  // the focus effect lands; the DOM target is the fallback
-                  // when no focus has been mirrored yet.
-                  const arrowColumn = focusedColumnRef.current ?? targetColumn
+                  // Navigation resolves the column the same committed-truth way
+                  // as Enter: the keydown's own DOM target first, then the
+                  // synchronously mirrored keyboard intent (so a rapid arrow
+                  // sequence does not depend on when the focus effect lands).
+                  const arrowColumn = targetColumn ?? focusedColumnRef.current
                   if (event.key === 'Enter') {
                     if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
                       return

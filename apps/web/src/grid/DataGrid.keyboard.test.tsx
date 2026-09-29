@@ -52,6 +52,11 @@ const SCHEMA: readonly { name: string; type: string }[] = [
   { name: 'score', type: 'BIGINT' },
 ]
 
+/** Single boolean column: exercises the `<select>` editor + NULL button. */
+const BOOLEAN_SCHEMA: readonly { name: string; type: string }[] = [
+  { name: 'flag', type: 'BOOLEAN' },
+]
+
 function setRenderedRows(indices: readonly number[]): void {
   h.rows = indices.map((index) => ({
     index,
@@ -83,6 +88,38 @@ function fakeModel(totalRows: number): GridViewportModel {
         ? {
             status: 'ready',
             row: [index, `name-${String(index)}`, index * 10],
+            key: `base:${String(index)}`,
+          }
+        : { status: 'loading' },
+    setSort: async () => {},
+    setFilters: async () => {},
+    observeViewport: () => {},
+    retry: () => {},
+  } as unknown as GridViewportModel
+}
+
+function fakeBooleanModel(totalRows: number): GridViewportModel {
+  return {
+    subscribe: () => () => {},
+    getVersion: () => 0,
+    schema: BOOLEAN_SCHEMA,
+    totalRows,
+    sort: null,
+    filters: [],
+    stats: {
+      fetchCalls: 0,
+      rowsRequested: 0,
+      rowsReceived: 0,
+      maxSpanRows: 0,
+      cachedRows: 0,
+      failedSpans: 0,
+      fatalError: null,
+    },
+    getRow: (index: number) =>
+      index >= 0 && index < totalRows
+        ? {
+            status: 'ready',
+            row: [index % 2 === 0],
             key: `base:${String(index)}`,
           }
         : { status: 'loading' },
@@ -336,5 +373,51 @@ describe('DataGrid edit-mode keyboard immunity (S5)', () => {
     // Escape still cancels and closes the editor (unchanged).
     press('Escape')
     expect(screen.queryByTestId('grid-editor-input')).toBeNull()
+  })
+
+  it('contains editor-internal Enter/Escape on the boolean editor and its NULL button', () => {
+    const onOpenRecord = vi.fn()
+    render(
+      <DataGrid
+        model={fakeBooleanModel(5)}
+        onNestedAction={() => {}}
+        onOpenRecord={onOpenRecord}
+        overlayState={fakeOverlay()}
+        onCommitCell={() => {}}
+      />,
+    )
+
+    // Enter on the focused boolean cell opens the `<select>` editor.
+    focusElement(cellEl(0, 0))
+    press('Enter')
+    const select = screen.getByTestId('grid-editor-boolean')
+    expect(document.activeElement).toBe(select)
+
+    // Enter inside the open editor must not reach the row's inspector gesture
+    // (round-1 regression: the boolean editor let Enter bubble, so it opened
+    // the record inspector instead of staying in the editor).
+    press('Enter')
+    expect(onOpenRecord).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('grid-editor-boolean')).not.toBeNull()
+
+    // Escape still cancels the boolean editor through its own handler.
+    press('Escape')
+    expect(screen.queryByTestId('grid-editor-boolean')).toBeNull()
+    expect(onOpenRecord).not.toHaveBeenCalled()
+
+    // The NULL button lives inside `.grid-cell-editor` too: a keydown delivered
+    // there is contained, never routed to the inspector.
+    focusElement(cellEl(0, 0))
+    press('Enter')
+    const nullButton = screen.getByTestId('grid-editor-null')
+    focusElement(nullButton)
+    press('Enter')
+    expect(onOpenRecord).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('grid-editor-boolean')).not.toBeNull()
+    press('Escape')
+    expect(onOpenRecord).not.toHaveBeenCalled()
+    // Escape on the NULL button is not the editor's cancel affordance; the
+    // editor stays open rather than the gesture leaking to the grid.
+    expect(screen.queryByTestId('grid-editor-boolean')).not.toBeNull()
   })
 })
