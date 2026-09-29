@@ -56,7 +56,11 @@ import type { RecordTreeBuildOptions, RecordTreeNode } from './record-tree'
  *   click (see `DataGrid`); only `ready` rows open (the model has no record
  *   to show otherwise — the grid shows `…`/`!` placeholders there). Each
  *   open reads the row synchronously from the model cache and rebuilds the
- *   tree, so re-opening/switching rows always shows the current record.
+ *   tree, so re-opening/switching rows always shows the current record. A
+ *   gesture made on a still-`loading` row is not dropped (uxc-2): the
+ *   pending gesture resolves when the slot lands — unless a structural epoch
+ *   shift intervened or the slot settled `error`, in which case it is dropped
+ *   rather than pointed at a different record.
  * - **Focus is not stolen on open** — grid keyboard navigation continues
  *   where it was; the Close button is a plain focusable button (Enter/Space),
  *   and Escape closes when focus is inside the panel.
@@ -287,6 +291,24 @@ export function RecordInspector({
   useEffect(() => {
     onClosedRef.current = onClosed
   }, [onClosed])
+  /**
+   * uxc-2: the request `seq` most recently opened OR dropped. `seq` is
+   * monotonic per gesture (App), so this both prevents a repeat notification
+   * from re-opening (which would churn the guard token and reset the user's
+   * expansion state) and records that a pending gesture has been resolved.
+   * Reset to null when the request clears, so the next gesture is always
+   * handled. `begin()` is only ever taken in the actual open below.
+   */
+  const handledSeqRef = useRef<number | null>(null)
+  /**
+   * uxc-2: the structural context captured when a gesture arrives on a
+   * still-loading row. If the dataset epoch shifts before the slot lands
+   * (accepted sort/filter, count/schema change), the same positional index no
+   * longer names the record the user clicked — the gesture is dropped rather
+   * than opening a different record (the pinned epoch-shift rule applied
+   * before the open).
+   */
+  const pendingContextRef = useRef<{ seq: number; context: RecordContext } | null>(null)
 
   const close = useCallback(() => {
     guard.current.invalidate()
@@ -316,12 +338,71 @@ export function RecordInspector({
   // emits open gestures for ANY rendered row, and HERE non-ready rows
   // (loading/error/out-of-range) deliberately do not open — there is no
   // record to show honestly; the grid marks them `…`/`!`.
+  //
+  // uxc-2 defect + edge policy: the effect is keyed on `modelVersion`, so a
+  // gesture made on a still-loading row resolves when the slot lands instead
+  // of being silently dropped (before, the guard early-returned and the
+  // effect never re-ran because `request` was unchanged). Edges:
+  //   - lands `ready`, no structural shift → open (below).
+  //   - lands `error` / is out-of-range → no record can ever appear at this
+  //     position: drop the gesture through the App's close callback (the
+  //     existing machinery for clearing the request) so it never hangs.
+  //   - a structural shift while still pending → drop, never open a
+  //     different record at the same positional index.
+  //   - repeated notifications for an already-open gesture → no-op, so the
+  //     guard token and the user's expansion state are not churned.
   useEffect(() => {
-    if (request === null) return
+    if (request === null) {
+      handledSeqRef.current = null
+      pendingContextRef.current = null
+      return
+    }
+    if (handledSeqRef.current === request.seq) return // already opened or dropped
     const slot = model.getRow(request.rowIndex)
-    if (slot.status !== 'ready') return
+    if (slot.status === 'error') {
+      // Out-of-range index or a failed span: the gesture can never be
+      // satisfied at this position, so drop it explicitly (via the same
+      // callback that clears the request on user close) instead of leaving
+      // it pending forever.
+      handledSeqRef.current = request.seq
+      pendingContextRef.current = null
+      onClosedRef.current()
+      return
+    }
+    if (slot.status !== 'ready') {
+      // Still loading: remember the structural context the user clicked
+      // under and wait for a later notification (this effect re-runs on
+      // every modelVersion bump).
+      if (pendingContextRef.current?.seq !== request.seq) {
+        pendingContextRef.current = {
+          seq: request.seq,
+          context: readRecordContext(model, overlayRevisionRef.current, request.rowIndex),
+        }
+      }
+      return
+    }
+    const context = readRecordContext(model, overlayRevisionRef.current, request.rowIndex)
+    const pending = pendingContextRef.current
+    if (
+      pending !== null &&
+      pending.seq === request.seq &&
+      recordContextShifted(pending.context, context)
+    ) {
+      // The epoch moved while the gesture waited — sort/filter/count/schema
+      // changed, so index N now names a different record. Opening it would
+      // present a stale-looking record as the one clicked. Drop it, exactly
+      // as the epoch-shift rule closes an already-open panel.
+      handledSeqRef.current = request.seq
+      pendingContextRef.current = null
+      onClosedRef.current()
+      return
+    }
     const schema = model.schema
     if (schema === null) return
+    // The actual open: only now is the guard token taken and the pending
+    // bookkeeping cleared (no token churn from repeat notifications).
+    handledSeqRef.current = request.seq
+    pendingContextRef.current = null
     const token = guard.current.begin()
     openerRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -341,13 +422,13 @@ export function RecordInspector({
         },
         options,
       ),
-      context: readRecordContext(model, overlayRevisionRef.current, request.rowIndex),
+      context,
     })
     // Deliberately NOT keyed on `overlayRevision`: a new edit must reload the
     // open snapshot (the reload effect below), not re-open and reset the
     // user's expansion state. The ref above carries the latest value into
     // this effect when a new gesture arrives.
-  }, [model, request])
+  }, [model, request, modelVersion])
 
   const currentContext =
     state.kind === 'open' ? readRecordContext(model, overlayRevision, state.rowIndex) : null

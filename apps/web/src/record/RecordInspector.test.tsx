@@ -33,6 +33,69 @@ function fakeModel(
 }
 
 /**
+ * uxc-2: a fake viewport model whose row slot and structural context can be
+ * advanced between renders, mirroring the real model's notify-on-change
+ * contract (`subscribe`/`getVersion`). Mutators only stage the change; the
+ * caller wraps `notify()` in `act()` so React flushes the store update.
+ */
+interface ControllableModel {
+  readonly model: GridViewportModel
+  setSlot(slot: unknown): void
+  setStructure(next: { sort?: unknown; filters?: unknown; totalRows?: number | null }): void
+  notify(): void
+}
+
+function controllableModel(
+  columns: readonly { name: string; type: string }[],
+  initialSlot: unknown,
+): ControllableModel {
+  let version = 0
+  let slot = initialSlot
+  const schema: readonly { name: string; type: string }[] | null = columns
+  let sort: unknown = null
+  let filters: unknown = []
+  let totalRows: number | null = 1
+  const listeners = new Set<() => void>()
+  const model = {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    getVersion: () => version,
+    get schema(): readonly { name: string; type: string }[] | null {
+      return schema
+    },
+    get totalRows(): number | null {
+      return totalRows
+    },
+    get sort(): unknown {
+      return sort
+    },
+    get filters(): unknown {
+      return filters
+    },
+    getRow: () => slot,
+  } as unknown as GridViewportModel
+  return {
+    model,
+    setSlot: (next) => {
+      slot = next
+    },
+    setStructure: (next) => {
+      if (next.sort !== undefined) sort = next.sort
+      if (next.filters !== undefined) filters = next.filters
+      if (next.totalRows !== undefined) totalRows = next.totalRows
+    },
+    notify: () => {
+      version += 1
+      for (const listener of listeners) listener()
+    },
+  }
+}
+
+/**
  * Delegating build counter (f-3): end-state assertions cannot discriminate a
  * spurious freshness reload (the reload self-heals within the same act), so
  * the open-after-edit pin below counts `buildRecordTree` invocations through
@@ -223,5 +286,130 @@ describe('RecordInspector open-after-edit freshness (f-3)', () => {
       />,
     )
     expect(buildCalls.count).toBe(1)
+  })
+})
+
+/**
+ * uxc-2 pins: a click/Enter gesture on a still-loading row (the grid emits it
+ * for every rendered row) must not be silently dropped. The gesture resolves
+ * when the slot lands `ready`; an `error`/out-of-range slot or a structural
+ * epoch shift while pending drops it instead of opening a different record.
+ */
+describe('RecordInspector click-while-fetching (uxc-2)', () => {
+  it('opens once a still-loading row lands ready', () => {
+    const pending = controllableModel([{ name: 'a', type: 'BIGINT' }], { status: 'loading' })
+    const onClosed = vi.fn()
+    render(
+      <RecordInspector
+        model={pending.model}
+        request={{ rowIndex: 0, seq: 1 }}
+        onClosed={onClosed}
+        overlayRevision={0}
+      />,
+    )
+    // The gesture is held pending, not dropped: no panel yet, no close.
+    expect(screen.queryByTestId('record-inspector')).toBeNull()
+    expect(onClosed).not.toHaveBeenCalled()
+
+    act(() => {
+      pending.setSlot({ status: 'ready', row: [42], key: 'base:anchor#0' })
+      pending.notify()
+    })
+    expect(screen.getByTestId('record-inspector')).toBeTruthy()
+    expect(screen.getByTestId('record-node-value').textContent).toBe('42')
+    expect(onClosed).not.toHaveBeenCalled()
+  })
+
+  it('drops a pending gesture when the slot settles error (out-of-range or failed span)', () => {
+    const pending = controllableModel([{ name: 'a', type: 'BIGINT' }], { status: 'loading' })
+    const onClosed = vi.fn()
+    render(
+      <RecordInspector
+        model={pending.model}
+        request={{ rowIndex: 0, seq: 1 }}
+        onClosed={onClosed}
+        overlayRevision={0}
+      />,
+    )
+    expect(onClosed).not.toHaveBeenCalled()
+
+    act(() => {
+      pending.setSlot({ status: 'error', message: 'row index 0 is outside the dataset' })
+      pending.notify()
+    })
+    // The gesture is cleared through the close callback: nothing opens and it
+    // cannot hang in App state forever.
+    expect(screen.queryByTestId('record-inspector')).toBeNull()
+    expect(onClosed).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops an out-of-range gesture immediately', () => {
+    const pending = controllableModel([{ name: 'a', type: 'BIGINT' }], {
+      status: 'error',
+      message: 'row index 99 is outside the dataset',
+    })
+    const onClosed = vi.fn()
+    render(
+      <RecordInspector
+        model={pending.model}
+        request={{ rowIndex: 99, seq: 1 }}
+        onClosed={onClosed}
+        overlayRevision={0}
+      />,
+    )
+    expect(screen.queryByTestId('record-inspector')).toBeNull()
+    expect(onClosed).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a pending gesture when the epoch structurally shifts before the row lands', () => {
+    const pending = controllableModel([{ name: 'a', type: 'BIGINT' }], { status: 'loading' })
+    const onClosed = vi.fn()
+    render(
+      <RecordInspector
+        model={pending.model}
+        request={{ rowIndex: 0, seq: 1 }}
+        onClosed={onClosed}
+        overlayRevision={0}
+      />,
+    )
+    // An accepted sort starts a fresh epoch while the gesture is pending: the
+    // same positional index now names a different record, so opening it would
+    // be dishonest — the epoch-shift close rule, applied before the open.
+    act(() => {
+      pending.setStructure({ sort: { column: 'a', direction: 'asc' } })
+      pending.setSlot({ status: 'ready', row: [42], key: 'base:anchor#0' })
+      pending.notify()
+    })
+    expect(screen.queryByTestId('record-inspector')).toBeNull()
+    expect(onClosed).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not re-open or churn the token on repeat notifications for one gesture', () => {
+    buildCalls.count = 0
+    const pending = controllableModel([{ name: 'a', type: 'BIGINT' }], {
+      status: 'ready',
+      row: [7],
+      key: 'base:anchor#0',
+    })
+    const request = { rowIndex: 0, seq: 1 }
+    render(
+      <RecordInspector
+        model={pending.model}
+        request={request}
+        onClosed={() => {}}
+        overlayRevision={0}
+      />,
+    )
+    expect(buildCalls.count).toBe(1)
+
+    // Unrelated model activity (e.g. another span landing) re-runs the open
+    // effect; the already-handled gesture must not open a second time and
+    // reset the user's tree.
+    buildCalls.count = 0
+    act(() => {
+      pending.notify()
+    })
+    expect(buildCalls.count).toBe(0)
+    expect(screen.getAllByTestId('record-inspector')).toHaveLength(1)
   })
 })

@@ -42,11 +42,15 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-async function openNestedFixture(page: Page): Promise<void> {
+async function openNestedFixture(
+  page: Page,
+  beforeOpen?: (page: Page) => Promise<void>,
+): Promise<void> {
   await page.goto('/')
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
     timeout: 20_000,
   })
+  if (beforeOpen !== undefined) await beforeOpen(page)
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
@@ -293,3 +297,56 @@ test(
     await expect(valueAt(reopened, ['label'])).toHaveText('"plain alpha row"')
   },
 )
+
+// uxc-2: a click on a still-loading row used to be silently dropped — the
+// open effect guarded on the slot being `ready` and did not re-run when the
+// fetch landed, so the gesture never resolved. Determinism: the grid's first
+// render after `load()` always commits rows in the `loading` state (the cache
+// is empty and the viewport fetch is issued from a passive effect *after* that
+// commit), so an in-page MutationObserver can click the first row to mount and
+// record the status at click time — no race against the engine worker.
+test('a click on a still-loading row opens the inspector once it is ready (uxc-2)', async ({
+  page,
+}) => {
+  await openNestedFixture(page, async (target) => {
+    await target.evaluate(() => {
+      interface ClickedRow {
+        index: number
+        status: string
+      }
+      type ClickedGlobal = typeof window & { __assayClickedLoadingRow?: ClickedRow }
+      const observer = new MutationObserver(() => {
+        const candidate = document.querySelector<HTMLElement>(
+          '[data-testid="grid-row"][data-status="loading"]',
+        )
+        if (candidate === null) return
+        observer.disconnect()
+        ;(window as ClickedGlobal).__assayClickedLoadingRow = {
+          index: Number(candidate.dataset['rowIndex']),
+          status: candidate.dataset['status'] ?? '',
+        }
+        candidate.click()
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
+  })
+
+  // The observed click provably landed on a loading row (not a ready one) —
+  // this is the state the dropped-gesture defect needed.
+  const clicked = await page.evaluate(() => {
+    type ClickedGlobal = typeof window & {
+      __assayClickedLoadingRow?: { index: number; status: string }
+    }
+    return (window as ClickedGlobal).__assayClickedLoadingRow ?? null
+  })
+  expect(clicked).not.toBeNull()
+  expect(clicked?.status).toBe('loading')
+  const clickedIndex = clicked?.index ?? -1
+
+  // The pending gesture resolves when the slot lands: the inspector opens on
+  // the clicked row, which is ready by then.
+  const panel = page.getByTestId('record-inspector')
+  await expect(panel).toBeVisible({ timeout: 20_000 })
+  await expect(panel).toHaveAttribute('data-row-index', String(clickedIndex))
+  await expect(row(page, clickedIndex)).toHaveAttribute('data-status', 'ready')
+})

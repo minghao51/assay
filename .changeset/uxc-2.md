@@ -1,0 +1,5 @@
+---
+'@assay/web': patch
+---
+
+fix(uxc-2): resolve a record-inspector open gesture made on a still-loading row. The grid emits the open gesture (click/Enter) for any rendered row, but the inspector's open effect early-returned unless the row's current-epoch slot was already `ready` and did not re-run when the slot later landed, so the click was silently dropped. The effect is now keyed on the model's version as well: a pending gesture waits for the slot, then opens it. Edge policy: a slot that settles `error` (including out-of-range) drops the gesture through the existing close callback so it cannot hang; a structural epoch shift while the gesture is pending (accepted sort/filter, count or schema change) also drops it — the same honesty rule as the pinned epoch-shift close, applied before the panel opens. Repeated model notifications for an already-open gesture are a no-op, so the guard token and the user's expansion state are never churned. The pinned freshness policy in `record-state.ts` is unchanged.
