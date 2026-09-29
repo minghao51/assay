@@ -1,21 +1,30 @@
 {
   "generator": "hand-authored canonical text fixtures (p-1)",
-  "policy": "Golden Pipeline IR documents backing the round-trip, totality, and DAG-validation pins. Synthetic only; regenerate the sha256 values deliberately with the fixture change.",
+  "policy": "Golden Pipeline IR documents backing the round-trip, totality, and DAG-validation pins. Every listed fixture is canonical text (text === serialize(parse(text))) except architecture-example.yaml, which is the architecture §5 literal and is pinned to canonicalize to customer_portfolio.yaml. Synthetic only; regenerate the sha256 values deliberately with the fixture change.",
   "files": [
     {
-      "name": "customer_portfolio.yaml",
+      "name": "architecture-example.yaml",
       "sha256": "608c63fbd02b5152ee0ae35557e7165df79e7597d60836fc5b4e4881fdb22d23",
-      "description": "Architecture §5 example verbatim: source/transform/sql plus the reserved validate/publish classes"
+      "canonical": false,
+      "description": "Architecture §5 example literal text (deliberate non-canonical spacing); parses cleanly and canonicalizes byte-for-byte to customer_portfolio.yaml"
+    },
+    {
+      "name": "customer_portfolio.yaml",
+      "sha256": "5e36e0b3abbc257776eeda08f94ce225a34b98e52bd614e1eaf90e0b6dd9a94d",
+      "canonical": true,
+      "description": "Canonical form of the architecture §5 example: source/transform/sql plus the reserved validate/publish classes"
     },
     {
       "name": "hostile-names.yaml",
-      "sha256": "56446f427c52193251cb1ba6f9865542575c00b41456cee203259066b16cb855",
-      "description": "Hostile node ids and config keys (quotes, spaces, unicode, __proto__, reserved assay_* namespace) through the quoteIdentifier rules"
+      "sha256": "ee5061d0caf09533910df7f2210cd110f731736378a9b728161d3bef7cdde61f",
+      "canonical": true,
+      "description": "Hostile node ids and config keys (quotes, spaces, unicode, __proto__, reserved assay_* namespace) through the quoteIdentifier rules; diff body spread at the node level"
     },
     {
       "name": "reserved-nodes.yaml",
-      "sha256": "2ec8bcb9af7c09e14b8d7adf9f10bd99b7cd9371dc0bcf0797c6843379f863fc",
-      "description": "Reserved validate/diff/publish surface; diff's body is opaque (architecture §5 does not settle it)"
+      "sha256": "18011f14235d0fcc715f3200c05383fb7bc82b72b2922adeff605caf511c3fe2",
+      "canonical": true,
+      "description": "Reserved validate/diff/publish surface; diff's body is opaque and spread at the node level (architecture §5 does not settle it)"
     }
   ]
 }

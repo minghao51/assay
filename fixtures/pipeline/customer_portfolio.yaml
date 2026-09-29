@@ -1,49 +1,43 @@
 version: 1
 pipeline: customer_portfolio
-
 nodes:
+  customer_policies:
+    type: transform
+    inputs: [ sg_customers, policies ]
+    operation:
+      join:
+        left: sg_customers
+        on:
+          - customer_id
+        right: policies
   customers:
     type: source
     source:
       kind: file
       path: ./customers.parquet
-
-  sg_customers:
-    type: transform
-    inputs: [customers]
-    operation:
-      filter:
-        expression: country = 'SG'
-
+  output:
+    type: publish
+    input: portfolio
+    requires: [ quality ]
   policies:
     type: source
     source:
       kind: file
       path: ./policies.parquet
-
-  customer_policies:
-    type: transform
-    inputs: [sg_customers, policies]
-    operation:
-      join:
-        left: sg_customers
-        right: policies
-        on: [customer_id]
-
   portfolio:
     type: sql
-    inputs: [customer_policies]
+    inputs: [ customer_policies ]
     sql: |
       SELECT customer_id, SUM(premium) AS total_premium
       FROM customer_policies
       GROUP BY customer_id
-
   quality:
     type: validate
     input: portfolio
     contract: contracts/portfolio.yaml
-
-  output:
-    type: publish
-    input: portfolio
-    requires: [quality]
+  sg_customers:
+    type: transform
+    inputs: [ customers ]
+    operation:
+      filter:
+        expression: country = 'SG'

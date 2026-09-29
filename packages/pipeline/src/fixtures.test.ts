@@ -12,7 +12,12 @@ import { validatePipeline } from './dag.js'
 const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures/pipeline')
 
 interface Manifest {
-  readonly files: readonly { readonly name: string; readonly sha256: string }[]
+  readonly files: readonly {
+    readonly name: string
+    readonly sha256: string
+    /** True when the file itself is canonical text (`text === serialize(parse(text))`). */
+    readonly canonical: boolean
+  }[]
 }
 
 const manifest = JSON.parse(readFileSync(join(FIXTURE_DIR, 'manifest.json'), 'utf8')) as Manifest
@@ -42,11 +47,42 @@ describe('golden pipeline fixtures', () => {
       expect(validated.ok).toBe(true)
 
       const canonical = serializePipeline(parsed.pipeline)
+      // Canonical fixtures are literally canonical text; the architecture §5
+      // example is deliberately non-canonical and is covered separately below.
+      if (file.canonical) expect(text).toBe(canonical)
       const reparsed = parsePipeline(canonical)
       expect(reparsed).toEqual({ ok: true, pipeline: parsed.pipeline })
       expect(serializePipeline(reparsed.ok ? reparsed.pipeline : parsed.pipeline)).toBe(canonical)
     })
   }
+
+  it('architecture-example.yaml is the §5 literal and canonicalizes to customer_portfolio.yaml', () => {
+    const literal = readFileSync(join(FIXTURE_DIR, 'architecture-example.yaml'), 'utf8')
+    const canonicalGolden = readFileSync(join(FIXTURE_DIR, 'customer_portfolio.yaml'), 'utf8')
+    const parsed = parsePipeline(literal)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(validatePipeline(parsed.pipeline).ok).toBe(true)
+    // The literal is deliberately not canonical (blank lines/flow spacing), so
+    // §5 is parse-verified rather than overclaimed as canonical text.
+    expect(literal).not.toBe(canonicalGolden)
+    expect(serializePipeline(parsed.pipeline)).toBe(canonicalGolden)
+  })
+
+  it('reserved-nodes.yaml carries the diff body spread at the node level (no config: wrapper)', () => {
+    const text = readFileSync(join(FIXTURE_DIR, 'reserved-nodes.yaml'), 'utf8')
+    const parsed = parsePipeline(text)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const compare = parsed.pipeline.nodes.find((node) => node.id === 'compare')
+    expect(compare).toEqual({
+      id: 'compare',
+      type: 'diff',
+      config: { input: 'clean', against: 'raw' },
+    })
+    if (compare?.type !== 'diff') throw new Error('expected the compare node to be a diff')
+    expect(Object.hasOwn(compare.config, 'config')).toBe(false)
+  })
 
   it('customer_portfolio.yaml is the architecture §5 example surface', () => {
     const text = readFileSync(join(FIXTURE_DIR, 'customer_portfolio.yaml'), 'utf8')

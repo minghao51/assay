@@ -69,7 +69,7 @@ nodes:
     expect(pipeline.nodes).toContainEqual({ id: 'out', type: 'publish', input: 'a' })
   })
 
-  it('carries a diff body opaquely', () => {
+  it('carries a diff body opaquely as a spread mapping (no config wrapper)', () => {
     const pipeline = parseOk(`${BASE}
   d:
     type: diff
@@ -77,11 +77,16 @@ nodes:
     nested:
       deep: [1, 2, 3]
 `)
-    expect(pipeline.nodes).toContainEqual({
+    const node = pipeline.nodes.find((candidate) => candidate.id === 'd')
+    expect(node).toEqual({
       id: 'd',
       type: 'diff',
       config: { against: 'a', nested: { deep: [1, 2, 3] } },
     })
+    // The body's keys live directly on the node's `config`, not under a
+    // nested `config:` key (the `config:` spelling is data, not structure).
+    if (node?.type !== 'diff') throw new Error('expected the d node to be a diff')
+    expect(Object.hasOwn(node.config, 'config')).toBe(false)
   })
 
   it('parses validate and publish (typed-but-reserved)', () => {
@@ -271,6 +276,75 @@ nodes:
     source: *a
 `)
     expect(errors.some((error) => error.code === 'yaml-syntax')).toBe(true)
+  })
+
+  it('rejects in-value alias cycles inside generic config (map/deep/seq)', () => {
+    const cases: Readonly<Record<string, string>> = {
+      'map self-cycle': `version: 1
+pipeline: demo
+nodes:
+  a:
+    type: source
+    source: &s
+      kind: file
+      self: *s
+`,
+      'deep map cycle': `version: 1
+pipeline: demo
+nodes:
+  a:
+    type: source
+    source: &s
+      kind: file
+      nested:
+        deep: *s
+`,
+      'seq-in-map cycle': `version: 1
+pipeline: demo
+nodes:
+  a:
+    type: source
+    source: &s
+      kind: file
+      list:
+        - *s
+`,
+    }
+    for (const [name, text] of Object.entries(cases)) {
+      let result: ReturnType<typeof parsePipeline> | undefined
+      // Total: an in-value alias cycle must become a typed error, never a
+      // stack-overflow throw from the generic-value walk.
+      expect(() => {
+        result = parsePipeline(text)
+      }, name).not.toThrow()
+      expect(result?.ok, name).toBe(false)
+      if (result !== undefined && !result.ok) {
+        expect(result.errors, name).toHaveLength(1)
+        expect(result.errors[0]?.code, name).toBe('yaml-syntax')
+      }
+    }
+  })
+
+  it('treats a YAML merge key as ordinary data (no merge is applied)', () => {
+    // YAML 1.2 core has no merge-key feature; `<<` is an ordinary mapping key
+    // and the format carries it verbatim. This pins the documented behavior
+    // so the parser comment cannot drift back to claiming merge keys are
+    // refused.
+    const pipeline = parseOk(`${BASE}
+  x:
+    type: source
+    source:
+      kind: file
+      <<: {path: ./merged.parquet}
+`)
+    const node = pipeline.nodes.find((candidate) => candidate.id === 'x')
+    expect(node?.type).toBe('source')
+    if (node?.type === 'source') {
+      expect(Object.hasOwn(node.source, '<<')).toBe(true)
+      expect(node.source['<<']).toEqual({ path: './merged.parquet' })
+      // No merge was applied: the would-be merged key is absent.
+      expect(Object.hasOwn(node.source, 'path')).toBe(false)
+    }
   })
 })
 

@@ -14,8 +14,10 @@
  *   duplicate keys survive to our own duplicate-key validation with precise
  *   positions instead of being silently overwritten.
  * - Library parse errors *and* warnings both become `yaml-syntax` errors — a
- *   warning means the library silently coerced something (an unresolved tag,
- *   a fixed merge key), which this format refuses.
+ *   warning means the library silently coerced something (an unresolved tag),
+ *   which this format refuses. There is no merge-key feature: this is a YAML
+ *   1.2-core document, where `<<` is an ordinary mapping key carried as data
+ *   (pinned in `parse.test.ts`).
  * - Anchors/aliases resolve to their values; canonical output is anchor-free.
  *   Alias cycles are rejected with a typed error rather than recursing.
  * - Error positions are visible-column aligned (a leading BOM is not counted).

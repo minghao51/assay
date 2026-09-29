@@ -24,7 +24,7 @@ import type { PipelineV1 } from './ast.js'
 
 /** Machine-readable failure classes (one switch-able vocabulary). */
 export type PipelineErrorCode =
-  /** Not parseable YAML, or a YAML corner the format refuses (unresolved tags, alias cycles, merge keys). */
+  /** Not parseable YAML, or a YAML corner the format refuses (unresolved tags, alias cycles). */
   | 'yaml-syntax'
   /** A `version` other than 1 — reported alone instead of guessing other versions' semantics. */
   | 'unsupported-version'

@@ -28,10 +28,14 @@ Makes `packages/pipeline` real per ADR 0030/0029/0031/0032 and architecture
   topological order; typed results, never throws.
 - **Shared identifier helper** (`identifiers.ts`) — reuses
   `@assay/validation`'s `quoteIdentifier` for port names; never hand-rolled.
-- Golden fixtures (`fixtures/pipeline/`) incl. the §5 example and hostile
-  names (`__proto__`, quotes, unicode, reserved `assay_*`), with a
-  checksum manifest; seeded round-trip, canonical-stability, totality, and
-  DAG-invariant property suites.
+- Golden fixtures (`fixtures/pipeline/`): canonical-text documents
+  (`text === serialize(parse(text))` pinned) plus `architecture-example.yaml`
+  holding the architecture §5 example verbatim, parse-verified to
+  canonicalize byte-for-byte to `customer_portfolio.yaml`; hostile names
+  (`__proto__`, quotes, unicode, reserved `assay_*`) and the reserved
+  validate/diff/publish surface, with a checksum manifest, `canonical` flag,
+  and seeded round-trip, canonical-stability, totality (incl. anchors/aliases),
+  and DAG-invariant property suites.
 
 Allowed deps only: `yaml` + `@assay/validation`; the purity ESLint block
 bans engine/UI/grid/core/transforms/apps and dbt/SQLMesh/Dagster runtimes

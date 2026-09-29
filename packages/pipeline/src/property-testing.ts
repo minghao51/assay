@@ -336,13 +336,13 @@ const GARBAGE = [
   'true',
 ]
 
-/** Apply 1–3 random text mutations (delete/insert/duplicate-line/splice). */
+/** Apply 1–3 random text mutations (delete/insert/duplicate-line/splice/alias-cycle). */
 export function mutateYaml(rng: TestRng, base: string): string {
   let text = base
   const operations = rng.int(1, 3)
   for (let i = 0; i < operations; i++) {
     const at = rng.int(0, text.length)
-    switch (rng.int(0, 4)) {
+    switch (rng.int(0, 5)) {
       case 0:
         text = text.slice(0, at) + text.slice(at + rng.int(1, 20))
         break
@@ -362,14 +362,41 @@ export function mutateYaml(rng: TestRng, base: string): string {
         text = lines.join('\n')
         break
       }
-      default: {
+      case 4: {
         const to = rng.int(0, text.length)
         const [from, end] = at <= to ? [at, to] : [to, at]
         text = text.slice(0, from) + text.slice(end)
         break
       }
+      default:
+        text = injectAnchorAlias(rng, text)
+        break
     }
     if (text.length > 20000) text = text.slice(0, 20000)
   }
   return text
+}
+
+/**
+ * Inject a YAML anchor declaration plus an alias that points back at it — an
+ * alias **cycle** — into an existing mapping. The totality suite therefore
+ * also exercises the parser's generic-value cycle guard (`walkValue`'s
+ * `seen` set): a future removal of that guard would recurse until the stack
+ * overflows and fail the never-throws assertion. Returns `text` unchanged
+ * when the document has no mapping-key line to anchor.
+ */
+function injectAnchorAlias(rng: TestRng, text: string): string {
+  const lines = text.split('\n')
+  const candidates: number[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s+\S.*:\s*$/.test(lines[i] as string)) candidates.push(i)
+  }
+  if (candidates.length === 0) return text
+  const at = rng.pick(candidates)
+  const line = lines[at] as string
+  const anchor = `fz${rng.int(0, 99)}`
+  const indent = `${line.match(/^\s*/)?.[0] ?? ''}  `
+  lines[at] = `${line} &${anchor}`
+  lines.splice(at + 1, 0, `${indent}self: *${anchor}`)
+  return lines.join('\n')
 }

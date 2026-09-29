@@ -78,7 +78,7 @@ describe('property: parsePipeline is total under fuzzing', () => {
       expect(serializePipeline(reparsed.ok ? reparsed.pipeline : result.pipeline)).toBe(once)
     }
     // Sanity: the mutations are not all fatal, so the fixpoint assertions
-    // above are not vacuous. Measured on the committed seed (243/2500).
+    // above are not vacuous. Measured on the committed seed (220/2500).
     expect(parsedCount).toBeGreaterThan(FUZZ_CASES / 20)
   }, 20_000)
 })
