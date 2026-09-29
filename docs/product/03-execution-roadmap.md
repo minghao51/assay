@@ -112,7 +112,7 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
 
 ### Later
 
-- **Post-MVP (per `../product/04-post-mvp-track.md`, D11):** PT-0 launch readiness to G0 (telemetry design tail, GitHub push + remote CI, npm org, demo dataset, a11y CI); then PT-V (VS Code, former M7) and/or PT-P (P1–P2 pipeline foundation — entry condition met) per D12; PT-H hardening fills lanes.
+- **Post-MVP (per `../product/04-post-mvp-track.md`, D11):** PT-0 launch readiness to G0 (telemetry design tail, GitHub push + remote CI, npm org, demo dataset, a11y CI); then **PT-P (P1–P2 pipeline foundation) first — D12 ruled 2026-09-29** ([PT-P queue](../process/handoff/20260929-ptp-queue.md)), PT-V (VS Code, former M7) after — R4 webview spike first when it starts; PT-H hardening fills lanes.
 - M8+ strictly per gates G2/G3.
 
 ---
@@ -163,7 +163,7 @@ Decisions required, with target gates. Add new rows here rather than deciding si
 | D7  | Authorization engine             | Cedar vs OpenFGA vs OPA (ADR 0018, 0006 — evaluate at G3/G4)                                                                                                                                                                                                                        | G3          |
 | D8  | Identity provider                | Keycloak vs WorkOS vs Auth0 (ADR 0024)                                                                                                                                                                                                                                              | G3          |
 | D9  | dbt vs SQLMesh adapter priority  | user-demand driven (ADR 0031)                                                                                                                                                                                                                                                       | P4          |
-| D12 | First post-MVP engineering track | (a) PT-V VS Code vs (b) PT-P pipeline P1 — after PT-0 launch-readiness items land; see `../product/04-post-mvp-track.md` §9                                                                                                                                                         | post-MVP    |
+| D12 | First post-MVP engineering track | ✅ **resolved 2026-09-29: PT-P (pipeline foundation P1–P2) first** — entry condition met; executes accepted ADRs 0029/0030/0032; queue authored ([PT-P queue](../process/handoff/20260929-ptp-queue.md)); PT-V follows (R4 webview spike first when it starts)                      | post-MVP    |
 
 ### Resolved
 

@@ -160,7 +160,15 @@ Implementations:
 
 ## 7. Data Engine Abstraction
 
-**Target shape — interface exists; runtime wiring is decision D13-pending.** The interface of
+**Decision (D13, ruled 2026-09-29): keep-as-target.** The interface stays the documented
+target shape — unimplemented and unimported — guarded by the au2-2 structural-compat pin
+(`@assay/engine` vs the `@assay/engine-duckdb` client; drift fails CI). Not wired (no
+speculative abstraction from a single implementation) and not deleted (the documented
+target + CI pin preserve the seam for a second engine, e.g. `engine-parquet` — at which
+point keep-and-wire vs retire is re-derived from two real implementations). The stub
+packages stay as track placeholders.
+
+**Target shape — interface exists (decision recorded above).** The interface of
 record is [`packages/engine/src/index.ts`](../../packages/engine/src/index.ts); nothing
 implements or imports it today (the real engine surface is the `@assay/engine-duckdb` client).
 The sketch below matches the code exactly:

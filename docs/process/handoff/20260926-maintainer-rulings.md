@@ -10,7 +10,9 @@ durable/structural decisions get an ADR (copy `docs/adr/template.md`, next free 
 0043 landed 2026-09-27 (changesets ledger), 0044 landed 2026-09-29 (workbench shell; Accepted
 same day via ruling D14), 0045 landed 2026-09-29 (telemetry design adopted, via ruling C-pt0-1)); when a ruling lands, splice its close into `handoff.md` §9 and flip the
 status cells in the authoritative rows linked below. ~15 minutes of maintainer time total
-(D14 added 2026-09-29 — still short).
+(D14 added 2026-09-29 — still short). **ALL FOUR RULED 2026-09-29 — this queue is CLOSED**
+(C-pt0-1: approved + ADR 0045; D12: PT-P first; D13: keep-as-target; D14: ADR 0044 accepted);
+records per the sections below; the [open-threads map](20260926-open-threads.md) is re-pointed.
 
 ## How to record a ruling (per item)
 
@@ -34,7 +36,7 @@ status cells in the authoritative rows linked below. ~15 minutes of maintainer t
   ADR 0043 (telemetry design adopted) since it binds the product's privacy posture; handoff §9.
 - **Default if deferred:** nothing breaks — telemetry stays unimplemented; G0 stays open.
 
-## Ruling D12 — first post-MVP engineering track: PT-V vs PT-P
+## Ruling D12 — first post-MVP engineering track: PT-V vs PT-P — ✅ RESOLVED 2026-09-29: **PT-P first** (queue authored: [PT-P queue](20260929-ptp-queue.md)); PT-V follows (R4 spike first).
 
 - **Decide:** which track gets engineering first — **(a) PT-V** (VS Code surface, former M7) or
   **(b) PT-P** (pipeline foundation, P1–P2).
@@ -48,7 +50,7 @@ status cells in the authoritative rows linked below. ~15 minutes of maintainer t
 - **Default if deferred:** no new milestone queue; residue rows (q-14, q-7 slice 2, q-5b — see
   [product/04 §7](../../product/04-post-mvp-track.md)) and hardening fills remain available.
 
-## Ruling D13 — fate of the `DataEngine` interface (`packages/engine`)
+## Ruling D13 — fate of the `DataEngine` interface (`packages/engine`) — ✅ RESOLVED 2026-09-29: **keep-as-target** (recorded in [arch-01 §7](../../architecture/01-architecture.md); no ADR — the convention reserves ADRs for retire/keep-and-wire).
 
 - **Decide:** keep-and-wire (someone implements `DataEngine` over `engine-duckdb`), keep-as-target
   (documented, unchanged), or retire (delete the orphaned package).
@@ -64,7 +66,7 @@ status cells in the authoritative rows linked below. ~15 minutes of maintainer t
 - **Default if deferred:** harmless — the package sits private and orphaned; the conformance suite
   pins the real client regardless.
 
-## Ruling D14 — workbench-shell direction (ADR 0044) — added 2026-09-29 (ux-5)
+## Ruling D14 — workbench-shell direction (ADR 0044) — added 2026-09-29 (ux-5) — ✅ RESOLVED 2026-09-29: **ADR 0044 Accepted as written**.
 
 - **Decide:** accept (or amend/reject) the grid-centric **two-pane workbench shell** —
   [ADR 0044](../../adr/0044-workbench-shell-two-pane.md) (Proposed). Folded into the same
