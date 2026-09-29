@@ -6,9 +6,9 @@ until they are called. Each ruling below states what is being decided, the exact
 what it unblocks, and where the ruling must be recorded once made.
 
 Conventions (binding): decisions are recorded where this file says — never re-decided elsewhere;
-durable/structural decisions get an ADR (copy `docs/adr/template.md`, next free number **0045** —
-0043 landed 2026-09-27 as the changesets ledger, 0044 landed 2026-09-29 as the workbench-shell
-Proposed ADR below); when a ruling lands, splice its close into `handoff.md` §9 and flip the
+durable/structural decisions get an ADR (copy `docs/adr/template.md`, next free number **0046** —
+0043 landed 2026-09-27 (changesets ledger), 0044 landed 2026-09-29 (workbench shell; Accepted
+same day via ruling D14), 0045 landed 2026-09-29 (telemetry design adopted, via ruling C-pt0-1)); when a ruling lands, splice its close into `handoff.md` §9 and flip the
 status cells in the authoritative rows linked below. ~15 minutes of maintainer time total
 (D14 added 2026-09-29 — still short).
 
@@ -20,7 +20,7 @@ status cells in the authoritative rows linked below. ~15 minutes of maintainer t
 4. If the ruling unblocks agent work: add/queue the task rows it names (product/04 §7 style,
    self-serve pickup protocol), then the orchestrator dispatches per the open-threads map.
 
-## Ruling C-pt0-1 — approve (or amend) the telemetry design
+## Ruling C-pt0-1 — approve (or amend) the telemetry design — ✅ RESOLVED 2026-09-29: approved with the §11 defaults; ADR 0045 written (the original "write ADR 0043" note was stale — 0043/0044 were taken); D2/roadmap/handoff rows flipped; implementation queued ([telemetry queue](20260929-telemetry-queue.md)).
 
 - **Decide:** approve the authored telemetry design for implementation.
 - **Read:** [`../../engineering/06-telemetry-design.md`](../../engineering/06-telemetry-design.md)

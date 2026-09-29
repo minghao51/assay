@@ -1,10 +1,11 @@
 # Telemetry Design (D2 tail)
 
-Status: **design-only — not implemented.** This document is the allowlisted telemetry
-design for gate G0 (roadmap §5) and closes the D2 design tail (roadmap §7). No
-telemetry code, dependency, collector, or network call exists in this repository. Per
-checkpoint C-pt0-1 (`docs/process/handoff.md` §6), **no implementation task may be
-queued until the maintainer approves this design.**
+Status: **approved 2026-09-29 (ruling C-pt0-1) — implementation queued, not yet
+implemented.** The §11 open-question defaults were accepted with the ruling; the
+typed-schema rule is elevated to [ADR 0045](../adr/0045-telemetry-design-adopted.md),
+which adopts this document as the contract. No telemetry code, dependency, collector, or
+network call exists in this repository yet — implementation tasks live in the
+[telemetry queue](../process/handoff/20260929-telemetry-queue.md) (pre-G0).
 
 Related sources of truth (this document does not re-decide them):
 
@@ -675,7 +676,9 @@ optional server-side delete-by-token is OQ5).
 
 ## 11. Open questions for the maintainer
 
-Defaults are proposed so these do not block; the orchestrator/maintainer may override.
+**Resolved 2026-09-29 (C-pt0-1):** the defaults below were accepted as proposed; OQ9 is
+resolved by elevation into ADR 0045; OQ10 was already closed. The table is retained as the
+record of the accepted defaults (they may still be tuned by a schema-version bump, §9).
 
 | #    | Question                                                                                                                                 | Proposed default                                                                  |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |

@@ -1,0 +1,55 @@
+# Telemetry Queue — implementation of the approved design (t-1…t-3)
+
+> **Arc record (opened 2026-09-29).** Spawned by ruling **C-pt0-1** (maintainer approved
+> [`docs/engineering/06-telemetry-design.md`](../../engineering/06-telemetry-design.md) with its §11
+> defaults; adoption recorded in [ADR 0045](../../adr/0045-telemetry-design-adopted.md)). The design
+> doc is **the contract** — this queue only implements it; any schema deviation is a
+> schema-version change per design §9, not a task-level decision. Pre-G0 work (PT-0 checklist
+> item 1).
+>
+> **Baseline at queue open:** `main` = `8df7c1c` lineage — unit **2021** (120 files), e2e
+> **149+1** (`DUCKDB=/tmp/duckdb pnpm test:e2e`), lint **0-0**, format/typecheck/build green,
+> **119 changesets**. **Queue-execution precondition:** re-verify all six gates on `main` from a
+> clean tree per [operating-model §7.6](operating-model.md) before the first claim.
+
+**Protocol:** unchanged — one task per worker dispatch; worker → independent reviewer (§7.3
+checklist, mutation drills, `pnpm build` before e2e after any source mutation) → orchestrator
+integration; worktree + shifted ports (4273/4279/4280) per the dispatch runbook. Changeset when a
+package changes.
+
+## 1. Queue
+
+| #   | Item (done-when)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Scope / notes                                                                                                                                                                                                                                                        | Status |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| t-1 | **Telemetry client core — typed schema + gates (pure module).** Implement the design §3 schema as a pure, dependency-free module: the common envelope + the nine event payloads (§3.1–3.10; `pipeline_run` reserved, rejected as unknown for schema v1), with **types that make ADR 0025 exclusions unrepresentable** (ADR 0045: closed enums / booleans / bounded integers / fixed-grammar tokens only — no free-form strings anywhere), field validators (clamps, exact grammars), CSPRNG token generation, client-side sampling per §5 (compiled-in per-mille rates, applied **before any event is constructed**), and the endpoint gate per §8 (no configured endpoint ⇒ nothing constructed, buffered, or sent — inert by default). Done-when: (a) schema/validator/sampling unit-pinned incl. hostile-field rejection (unknown fields/events dropped, never persisted); (b) the design's Appendix A leak drills encoded as tests; (c) §7 red-line assertions mechanical (every event object passes a "no free-form string" type/validator proof); (d) zero network surface in the module (no fetch — transport is t-3's contract, injected). | `packages/` new pure package (e.g. `@assay/telemetry`) or a pure module in an existing package — follow the repository-structure rules (`domain` stays dependency-free; new package needs ADR-0042-style build wiring + changeset). **Pick first; t-2 consumes it.** | open   |
+| t-2 | **Emission surfaces + opt-out/disclosure UX.** Wire the t-1 core into `apps/web` and `apps/cli`: emission points per §2 (app_boot, disclosure_shown, dataset_opened/_open_failed, validation_run, diff_run — both surfaces; profile_run/query_run/export_run — web), the first-run disclosure (exact §6.3 copy, revision 1), in-app toggle (localStorage) **and** build-time hard-off (OQ6: both), `ASSAY_NO_TELEMETRY` env + `--no-telemetry` CLI flag (OQ4) with §6.1 precedence, check-before-every-send (§6.4), mid-session opt-out (§6.5), clock-skew clamping (§6.6). Done-when: component/e2e pins for disclosure render, toggle, flag precedence, and no-emit-when-gated; sampling behavior pinned at the seam; failure-silence pinned (telemetry never blocks or surfaces app errors); no value-bearing copy anywhere (ADR 0025).                                                                                                                                                                                                                                                                                                         | `apps/web/src/` + `apps/cli/src/` + the t-1 module; changeset. **Serialize after t-1.** Disclosure copy is user-facing — keep it byte-exact to §6.3 (revision marker included).                                                                                      | open   |
+| t-3 | **Collector endpoint contract + operator docs.** Implement §8 client-side endpoint configuration/validation (sources, validation rules, transport shape sketch) and document the **self-hosted minimal collector service contract** for the operator (retention sketch §10, volume caps, schema-version rejection): an engineering note (or README section) a maintainer can deploy from. The collector service itself stays **out of this repo** (OQ5 default: no server-side delete endpoint in v1; any service code is a follow-up decision). Done-when: endpoint validation unit-pinned (malformed/unset endpoints ⇒ inert); transport shape documented; operator note landed; docs:links green.                                                                                                                                                                                                                                                                                                                                                                                                                                               | t-1 module's config surface + `docs/engineering/` note; changeset if a package changes. **Parallel-safe against t-2** (touches config/docs, not emission paths).                                                                                                     | open   |
+
+## 2. Ordering, parallelism & conflict rules
+
+1. **t-1 first** (everything consumes the schema). **t-2 after t-1** (serialized).
+2. **t-3 parallel-safe** against t-2 (disjoint paths: config surface + docs vs emission paths).
+3. Nothing here touches engine/`GridViewportModel`/FilterSpec contracts.
+
+## 3. Standing notes (invariants every task respects)
+
+- **The design doc is the contract** (ADR 0045). Schema changes = version bump (§9) + new
+  privacy-table rows — if a task believes the schema must change, STOP and report; that is a
+  maintainer decision, not a task fix.
+- **ADR 0025 exclusions are absolute** (never dataset contents, filenames-where-sensitive, raw
+  SQL results, cell values, PII); **ADR 0037 consent stance** (opt-out, first-run disclosure,
+  `ASSAY_NO_TELEMETRY`); **ADR 0045 typed-schema rule** (no free-form strings — reject in review
+  on sight).
+- **Telemetry is inert by default:** no configured endpoint ⇒ no construction, no buffering, no
+  send. Tests never hit the network (no real fetch in unit/e2e — inject/stub the transport).
+- **Failure-silent:** emission can never block, break, or surface errors in application paths.
+- **AGENTS.md hard rules** apply: no telemetry in tests beyond the schema's own fixtures; changesets
+  for package changes; Conventional Commits; fixtures rule n/a (no dataset-shape changes here).
+
+## 4. Closure
+
+When t-1…t-3 land: splice one-line outcomes into the §6 closed table in
+[`../handoff.md`](../handoff.md), annotate this file per convention, re-point the
+[open-threads map](20260926-open-threads.md), and update product/04 §4 item 1 to
+"implemented" — G0's telemetry prerequisite is then code-complete (collector deployment + public
+disclosure remain the maintainer's G0 tail).

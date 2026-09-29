@@ -51,6 +51,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0041 | CLI validation runs on @duckdb/node-api behind the engine's `./node` seam       |
 | 0042 | Library Builds Use tsc Project References                                       |
 | 0044 | Grid-Centric Two-Pane Workbench Shell                                           |
+| 0045 | Telemetry Design Adopted (Typed Allowlisted Schema, Self-Hosted Collector)      |
 
 ## Proposed
 
