@@ -58,17 +58,24 @@ async function expectNotOccludedByHeader(target: Locator): Promise<void> {
     const rect = element.getBoundingClientRect()
     const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
     return {
+      found: top !== null,
       inside: top === element || element.contains(top),
       inHeader:
         top instanceof Element &&
         top.closest('.grid-header, [data-testid="grid-header-cell"]') !== null,
       hitTestId: top instanceof HTMLElement ? (top.dataset.testid ?? null) : null,
-      hitClass: top instanceof Element ? top.className : String(top),
+      // `getAttribute` rather than `.className`: class is a plain string on
+      // HTML elements but an `SVGAnimatedString` on SVG ones, and the message
+      // below must never receive an object.
+      hitClass: top instanceof Element ? top.getAttribute('class') : null,
     }
   })
+  const label = hit.hitTestId ?? hit.hitClass ?? 'an unlabelled element'
   expect(
     hit.inside && !hit.inHeader,
-    `cell center is occluded by ${String(hit.hitTestId ?? hit.hitClass)}`,
+    hit.found
+      ? `cell center is occluded by ${label}`
+      : 'cell center hit no element (cell is offscreen or not hit-testable)',
   ).toBe(true)
 }
 

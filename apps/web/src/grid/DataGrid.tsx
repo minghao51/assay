@@ -326,10 +326,14 @@ export function DataGrid({
    *
    * uxc-5 (c): `useLayoutEffect` measures synchronously before the browser
    * paints, so the first committed frame already carries the real
-   * `scrollMargin`/`scrollPaddingStart`. With `useEffect` the initial paint
-   * ran with both at 0, leaving a one-frame row-0-under-header window. The app
-   * is browser-only (no SSR in this composition root), so the layout-effect
-   * SSR warning does not apply.
+   * `scrollMargin`/`scrollPaddingStart` — the virtualizer's range/scroll model
+   * is correct from that first frame, and the grid paints once rather than
+   * twice. It is deliberately not a paint-geometry fix: the row transform
+   * subtracts the same `headerHeight` that `item.start` folds in through
+   * `scrollMargin`, so the two terms cancel and rows paint in the same place
+   * before and after the measure (no row-0-under-header window ever existed).
+   * The app is browser-only (no SSR in this composition root), so the
+   * layout-effect SSR warning does not apply.
    */
   const headerRef = useRef<HTMLDivElement | null>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
