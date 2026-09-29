@@ -132,6 +132,33 @@ describe('createWebTelemetry — emission, disclosure gate, batching', () => {
     expect(transport.batches[0]?.map((event) => event.event)).toContain('app_boot')
   })
 
+  it('never sends on a direct flush() before the disclosure is marked shown (§6.3)', async () => {
+    const transport = capturingTransport()
+    const runtime = createWebTelemetry({
+      config: config(),
+      storage: fakeStorage(),
+      transport,
+      scheduleFlush: () => 1,
+      cancelFlush: () => undefined,
+    })
+    runtime.emit('app_boot', {
+      engine_family: 'duckdb_wasm',
+      os_family: 'linux',
+      build_channel: 'dev',
+    })
+    await settle()
+    // The pagehide path calls flush() directly; it must not beat the
+    // disclosure gate.
+    await runtime.flush()
+    expect(transport.calls).toBe(0)
+
+    // Once shown, the same buffered event flushes normally.
+    runtime.markDisclosureShown()
+    await runtime.flush()
+    expect(transport.calls).toBe(1)
+    expect(transport.batches[0]?.map((event) => event.event)).toContain('app_boot')
+  })
+
   it('emits a validated envelope with the build version + clamped client day', async () => {
     const transport = capturingTransport()
     const runtime = createWebTelemetry({
@@ -250,6 +277,50 @@ describe('createWebTelemetry — opt-out semantics (design §6.4/§6.5)', () => 
     expect(readPreference(storage)).toBe('off')
     expect(runtime.isEnabledNow()).toBe(false)
     expect(runtime.getPreference()).toBe('off')
+  })
+
+  it('clears the buffer synchronously on opt-out (drop, never flush, §6.5)', async () => {
+    const storage = fakeStorage({ 'assay.telemetry.disclosure': '1' })
+    const transport = capturingTransport()
+    const runtime = createWebTelemetry({ config: config(), storage, transport })
+    runtime.emit('app_boot', {
+      engine_family: 'duckdb_wasm',
+      os_family: 'linux',
+      build_channel: 'dev',
+    })
+    await settle()
+    runtime.setPreference('off')
+    expect(runtime.isEnabledNow()).toBe(false)
+    expect(runtime.getPreference()).toBe('off')
+    // Re-enable BEFORE flushing: if `setPreference('off')` had not cleared
+    // the buffer synchronously, the surviving event would now be sent.
+    runtime.setPreference('on')
+    await runtime.flush()
+    expect(transport.calls).toBe(0)
+  })
+
+  it('keeps a mid-session opt-out effective when storage writes throw (§6.5)', async () => {
+    const storage: StorageLike = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('quota exceeded')
+      },
+    }
+    const transport = capturingTransport()
+    const runtime = createWebTelemetry({ config: config(), storage, transport })
+    runtime.markDisclosureShown()
+    runtime.emit('app_boot', {
+      engine_family: 'duckdb_wasm',
+      os_family: 'linux',
+      build_channel: 'dev',
+    })
+    await settle()
+    runtime.setPreference('off')
+    expect(runtime.isEnabledNow()).toBe(false)
+    expect(runtime.getPreference()).toBe('off')
+    runtime.setPreference('on')
+    await runtime.flush()
+    expect(transport.calls).toBe(0)
   })
 
   it('marks the disclosure shown in storage', () => {

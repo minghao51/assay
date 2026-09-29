@@ -156,6 +156,19 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
   const session = createSessionTracker()
 
   let timer: unknown = null
+  /**
+   * §6.5 fallback: a mid-session `setPreference('off')` must stick even when
+   * `localStorage.setItem` throws. The in-memory preference is authoritative
+   * for this page once set; before that, storage is re-read on every send
+   * (§6.4).
+   */
+  let memoryPreference: TelemetryPreference | null = null
+  /**
+   * §6.3 fallback: the disclosure is considered shown for this page even when
+   * the persistence write fails, so a storage-less environment can still send
+   * after the user has actually seen it.
+   */
+  let disclosureShownInMemory = false
 
   const installToken = (): InstallToken => {
     const persisted = readInstallToken(storage)
@@ -188,11 +201,14 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
         ? createFetchTransport({ endpoint: config.endpoint, token: config.token })
         : null
 
+  /** §6.4: the in-memory preference (if set this page) wins over storage. */
+  const currentPreference = (): TelemetryPreference => memoryPreference ?? readPreference(storage)
+
   /** §6.4: re-read the preference every call; hard-off and endpoint first. */
   const isEnabledNow = (): boolean => {
     if (config.hardOff) return false
     if (!endpointValid) return false
-    return readPreference(storage) !== 'off'
+    return currentPreference() !== 'off'
   }
 
   /** Check-before-send with the §6.5 synchronous buffer clear on opt-out. */
@@ -224,6 +240,10 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
   const flush = async (): Promise<void> => {
     try {
       clearTimer()
+      // §6.3: no physical send before the first-run disclosure has been shown.
+      // Keep the buffer (do not clear) so a later `markDisclosureShown` in the
+      // same page can still flush it.
+      if (shouldShowDisclosure()) return
       if (!shouldSend()) {
         buffer.clear()
         return
@@ -243,7 +263,8 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
     }
   }
 
-  const shouldShowDisclosure = (): boolean => isEnabledNow() && !readDisclosureShown(storage)
+  const shouldShowDisclosure = (): boolean =>
+    isEnabledNow() && !disclosureShownInMemory && !readDisclosureShown(storage)
 
   const emit = <K extends EventName>(
     event: K,
@@ -294,14 +315,18 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
     endpointConfigured: endpointValid,
     emit,
     flush,
-    getPreference: () => readPreference(storage),
+    getPreference: () => currentPreference(),
     setPreference: (preference: TelemetryPreference): void => {
+      // §6.5: the in-memory preference is authoritative this page, so a
+      // storage write failure can never silently keep telemetry on.
+      memoryPreference = preference
       writePreference(storage, preference)
       if (preference === 'off') buffer.clear()
     },
     isEnabledNow,
     shouldShowDisclosure,
     markDisclosureShown: (): void => {
+      disclosureShownInMemory = true
       writeDisclosureShown(storage)
       // The disclosure is now shown; a pending buffer may flush.
       scheduleFlush()

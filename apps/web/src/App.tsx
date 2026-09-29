@@ -571,49 +571,14 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     })
   }, [diffRun, telemetry])
 
-  /**
-   * `query_run` for the grid's filter/sort paths (design §2/Appendix C). The
-   * grid model's filter/sort state is the app-level seam the grid internals
-   * expose; row counts come from the model and durations are the client
-   * settle time (the engine fetch completion is not observed here — a
-   * recorded t-2 carry-over). SQL/nested/paging `query_run` are emitted from
-   * the SQL pane where the run actually settles.
-   */
-  const queryObserverRef = useRef<{
-    readonly model: GridViewportModel | null
-    readonly filters: readonly unknown[]
-    readonly sort: unknown
-  }>({ model: null, filters: [], sort: null })
-  useEffect(() => {
-    if (activeModel === null) {
-      queryObserverRef.current = { model: null, filters: [], sort: null }
-      return
-    }
-    const previous = queryObserverRef.current
-    if (previous.model !== activeModel) {
-      queryObserverRef.current = { model: activeModel, filters: modelFilters, sort: modelSort }
-      return
-    }
-    if (modelFilters !== previous.filters) {
-      queryObserverRef.current = { model: activeModel, filters: modelFilters, sort: modelSort }
-      telemetry.emit('query_run', {
-        query_kind: 'filter',
-        row_count_bucket: bucketRowCount(activeModel.totalRows ?? 0),
-        duration_bucket: durationSince(Date.now()),
-        outcome: 'success',
-      })
-      return
-    }
-    if (modelSort !== previous.sort) {
-      queryObserverRef.current = { model: activeModel, filters: modelFilters, sort: modelSort }
-      telemetry.emit('query_run', {
-        query_kind: 'sort',
-        row_count_bucket: bucketRowCount(activeModel.totalRows ?? 0),
-        duration_bucket: durationSince(Date.now()),
-        outcome: 'success',
-      })
-    }
-  }, [activeModel, modelFilters, modelSort, telemetry])
+  // `query_run` for the grid's filter/sort paths is deliberately NOT emitted
+  // here: the app-level filter/sort seam only sees the request transition, so
+  // the previous emission fabricated `duration_bucket: lt_50ms` and
+  // `outcome: 'success'` at request time, not at settle. The grid model does
+  // not expose a genuine settle notification without re-subscribing to the
+  // full model version (q-1 forbids that), so honest absence beats false data
+  // until a settle seam exists (recorded t-2 carry-over). SQL/nested/paging
+  // `query_run` are emitted from the SQL pane where the run actually settles.
 
   const handleRecordClosed = useCallback(() => {
     setRecordRequest(null)

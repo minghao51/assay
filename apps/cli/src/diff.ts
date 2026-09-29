@@ -42,7 +42,7 @@ import type { KeyInferenceResult, RowDiffBindingError } from '@assay/diff'
 import { describeRowDiffBindingError } from '@assay/diff'
 import { bucketColumnCount, bucketRowCount, bucketSize } from '@assay/telemetry'
 import { ROW_DIFF_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
-import { DATASET_VIEW, openConnection, registerDatasetAs } from './connection.js'
+import { DATASET_VIEW, countViewRows, openConnection, registerDatasetAs } from './connection.js'
 import type { CommandContext } from './context.js'
 import { CliError, usageError } from './errors.js'
 import type { CliExitCode } from './errors.js'
@@ -143,19 +143,15 @@ export async function runDiffCommand(
   const conn = await openConnection()
   let report: DiffCommandReport
   let meta: DiffReportMeta
-  let sideARowCount = 0
-  let sideBRowCount = 0
-  let sideAColumns = 0
-  let sideBColumns = 0
-  let sideAFormat = 'unknown'
-  let sideBFormat = 'unknown'
+  let aOpened = false
+  let bOpened = false
   try {
     const a = await registerSide(conn, options.pathA, DATASET_VIEW, 'side_a', context)
+    await emitSideOpened(conn, context, 'side_a', a, options.pathA, DATASET_VIEW)
+    aOpened = true
     const b = await registerSide(conn, options.pathB, DIFF_COMPARISON_VIEW, 'side_b', context)
-    sideAColumns = a.schema.length
-    sideBColumns = b.schema.length
-    sideAFormat = a.format
-    sideBFormat = b.format
+    await emitSideOpened(conn, context, 'side_b', b, options.pathB, DIFF_COMPARISON_VIEW)
+    bOpened = true
     context.progress.step('profiling side A')
     const profileA = await profileView(conn, DATASET_VIEW, a.schema)
     context.progress.step('profiling side B')
@@ -202,8 +198,6 @@ export async function runDiffCommand(
     const plan = prepareDiffPlan(compiled.plan, [DATASET_VIEW, DIFF_COMPARISON_VIEW])
     const result = await runDiffPlan(conn, plan, a.schema, DIFF_COMPARISON_VIEW)
     const rowDiff = buildDiffRowDiffReport(result, plan.sharedColumns.length > 0)
-    sideARowCount = result.rowCountA
-    sideBRowCount = result.rowCountB
     report = { diff, rowDiff }
     meta = {
       nameA: datasetDisplayName(options.pathA),
@@ -216,6 +210,26 @@ export async function runDiffCommand(
       sampleLimitRequested: options.sampleLimit,
       sampleLimitEffective: Math.min(options.sampleLimit, ROW_DIFF_SAMPLE_HARD_MAX),
     }
+  } catch (error) {
+    // `diff_run` (design §2): once BOTH datasets are registered the run has a
+    // finish, so a binding/plan/engine failure emits with outcome `error`.
+    // `aborted` is genuinely unreachable from the CLI (no abort UX) and is
+    // never invented; a registration failure emits `dataset_open_failed` only
+    // (the run never started). There is no verdict, so the counts are the
+    // honest zero state.
+    if (aOpened && bOpened) {
+      context.telemetry?.emit(
+        'diff_run',
+        {
+          aspects_count: 0,
+          key_mode: 'none',
+          duration_bucket: durationSince(startedAt),
+          outcome: 'error',
+        },
+        'error',
+      )
+    }
+    throw error
   } finally {
     // The connection is per-run; a failed close cannot mask the outcome
     // (the instance dies with the process anyway).
@@ -227,22 +241,8 @@ export async function runDiffCommand(
   }
 
   context.progress.done()
-  // `dataset_opened` ×2 + `diff_run` (design §2/Appendix C): value-free
-  // buckets and the `key_mode` enum only — never key column names (R4).
-  context.telemetry?.emit('dataset_opened', {
-    dataset_role: 'side_a',
-    format_kind: formatKindFromEngineFormat(sideAFormat),
-    size_bucket: fileSizeBucket(options.pathA),
-    row_count_bucket: bucketRowCount(sideARowCount),
-    column_count_bucket: bucketColumnCount(sideAColumns),
-  })
-  context.telemetry?.emit('dataset_opened', {
-    dataset_role: 'side_b',
-    format_kind: formatKindFromEngineFormat(sideBFormat),
-    size_bucket: fileSizeBucket(options.pathB),
-    row_count_bucket: bucketRowCount(sideBRowCount),
-    column_count_bucket: bucketColumnCount(sideBColumns),
-  })
+  // `diff_run` (design §2/Appendix C): value-free buckets and the `key_mode`
+  // enum only — never key column names (R4).
   context.telemetry?.emit('diff_run', {
     aspects_count: 3,
     key_mode: options.infer ? 'inferred' : 'explicit',
@@ -255,6 +255,35 @@ export async function runDiffCommand(
       : renderHumanDiffReport(report, meta, context.style),
   )
   return diffReportIdentical(report) ? 0 : 1
+}
+
+/**
+ * Emit `dataset_opened` for a registered side with a best-effort real row
+ * count. Telemetry is best-effort: a failed count (or an inactive runtime)
+ * emits nothing rather than break the command (R9).
+ */
+async function emitSideOpened(
+  conn: Awaited<ReturnType<typeof openConnection>>,
+  context: CommandContext,
+  role: 'side_a' | 'side_b',
+  dataset: Awaited<ReturnType<typeof registerDatasetAs>>,
+  path: string,
+  viewName: string,
+): Promise<void> {
+  if (context.telemetry?.active !== true) return
+  let rowCount: number
+  try {
+    rowCount = await countViewRows(conn, viewName)
+  } catch {
+    return
+  }
+  context.telemetry.emit('dataset_opened', {
+    dataset_role: role,
+    format_kind: formatKindFromEngineFormat(dataset.format),
+    size_bucket: fileSizeBucket(path),
+    row_count_bucket: bucketRowCount(rowCount),
+    column_count_bucket: bucketColumnCount(dataset.schema.length),
+  })
 }
 
 /** Register one diff side, emitting `dataset_open_failed` on a typed failure. */

@@ -116,10 +116,28 @@ export interface CliTelemetry {
   reasonFromError(error: unknown): OpenFailureReason
 }
 
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
+/**
+ * Arm a cancelable budget timer. The handle is exposed so a flush that
+ * finishes early can clear it — otherwise the pending 750 ms timer would keep
+ * the Node process alive and delay exit by the full budget (R9).
+ */
+function budgetTimer(ms: number): {
+  readonly promise: Promise<void>
+  cancel(): void
+} {
+  let handle: ReturnType<typeof setTimeout> | null = null
+  const promise = new Promise<void>((resolve) => {
+    handle = setTimeout(resolve, ms)
   })
+  return {
+    promise,
+    cancel(): void {
+      if (handle !== null) {
+        clearTimeout(handle)
+        handle = null
+      }
+    },
+  }
 }
 
 /** Create the CLI runtime for one invocation. */
@@ -219,16 +237,21 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
 
   const flush = async (budgetMs: number = EXIT_FLUSH_BUDGET_MS): Promise<void> => {
     try {
-      await Promise.all(pending)
-      pending.length = 0
-      if (!shouldSend()) {
-        buffer.clear()
-        return
-      }
-      if (buffer.size === 0) return
-      const events = buffer.drain()
-      if (transport === null) return
-      const send = (async () => {
+      // The whole flush — draining the in-flight emit tails AND the transport
+      // sends — races the budget, so a hanging emit or transport cannot extend
+      // process exit beyond the bounded flush (R9). The budget timer is
+      // canceled on an early finish so a fast flush does not keep the process
+      // alive for the full budget.
+      const work = (async () => {
+        await Promise.all(pending)
+        pending.length = 0
+        if (!shouldSend()) {
+          buffer.clear()
+          return
+        }
+        if (buffer.size === 0) return
+        const events = buffer.drain()
+        if (transport === null) return
         for (const batch of splitIntoBatches(events)) {
           try {
             await transport.send(batch)
@@ -237,7 +260,12 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
           }
         }
       })()
-      await Promise.race([send, defaultSleep(budgetMs)])
+      const budget = budgetTimer(budgetMs)
+      try {
+        await Promise.race([work, budget.promise])
+      } finally {
+        budget.cancel()
+      }
     } catch {
       // R9: flush never throws.
     }

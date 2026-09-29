@@ -101,6 +101,23 @@ export async function registerDatasetAs(
 }
 
 /**
+ * Count the rows registered under a view (the `dataset_opened` scale bucket).
+ * Used only by the value-free telemetry path; a caller that cannot read the
+ * count must degrade to emitting nothing rather than surface an error.
+ */
+export async function countViewRows(conn: DuckDBConnection, viewName: string): Promise<number> {
+  const reader = await conn.runAndReadAll(
+    `SELECT count(*) AS row_count FROM ${quotedIdentifier(viewName)}`,
+  )
+  const value = reader.getRowObjects()[0]?.['row_count']
+  const count = typeof value === 'bigint' ? Number(value) : value
+  if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
+    throw usageError('the dataset row count could not be read')
+  }
+  return count
+}
+
+/**
  * DESCRIBE a view into `{ name, type }[]` — the same shape (and the same
  * all-VARCHAR assumption) as the engine's schema surface, so the compiler
  * sees byte-identical type spellings on both surfaces.

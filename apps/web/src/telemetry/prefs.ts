@@ -45,7 +45,9 @@ export function writePreference(
   try {
     storage?.setItem(TELEMETRY_PREF_KEY, preference)
   } catch {
-    // storage unavailable — the in-memory preference still applies this session
+    // storage unavailable — the runtime keeps the in-memory preference for
+    // this session (`createWebTelemetry`), so a failed write cannot keep
+    // telemetry on after `setPreference('off')` (§6.5)
   }
 }
 

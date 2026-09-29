@@ -3,7 +3,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TelemetryEvent } from '@assay/telemetry'
 import { CLI_DISCLOSURE_COPY } from '@assay/telemetry'
 import { readConfig, writeConfig } from './config'
@@ -216,6 +216,33 @@ describe('createCliTelemetry — emission, caps, failure silence', () => {
       build_channel: 'release',
     })
     await expect(runtime.flush(5)).resolves.toBeUndefined()
+  })
+
+  it('does not leave the flush budget timer pending on an early finish (R9)', async () => {
+    vi.useFakeTimers()
+    try {
+      const env = tempEnv({ ASSAY_TELEMETRY_ENDPOINT: 'https://collector.example' })
+      writeConfig(env, { disclosureShown: true })
+      const capture = transport()
+      const runtime = createCliTelemetry({
+        env,
+        flagNoTelemetry: false,
+        stderr: sink(),
+        transport: capture,
+      })
+      runtime.emit('app_boot', {
+        engine_family: 'duckdb_node',
+        os_family: 'linux',
+        build_channel: 'release',
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      await runtime.flush()
+      // A pending budget timer would keep the process alive for the full
+      // budget even though the flush finished (the R9 startup regression).
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('persists an install token across runs', async () => {

@@ -14,7 +14,9 @@ per-session tracker (monotonic seq, first-query exception, 50-per-session
 `dataset_opened` cap), and the byte-exact §6.3 disclosure copy. The web app
 emits `app_boot`, `disclosure_shown`, `dataset_opened`/`_failed`,
 `validation_run`, `diff_run`, `profile_run`, `query_run` (SQL/nested/paging
-from the SQL pane; filter/sort from the model seam) and `export_run`; it adds
+from the SQL pane; filter/sort `query_run` is deliberately deferred until a
+genuine settle seam exists — the request-time seam fabricated its duration and
+outcome) and `export_run`; it adds
 the first-run disclosure (modal, byte-exact §6.3 revision 1), a minimal
 Settings toggle persisted in `localStorage['assay.telemetry']`, and Vite
 build-time `define`s for `ASSAY_TELEMETRY_ENDPOINT`/`_TOKEN` and a hard off

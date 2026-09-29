@@ -27,7 +27,13 @@ import { compileContract, DEFAULT_SAMPLE_LIMIT, describeBindingError } from '@as
 import type { BindingError } from '@assay/validation'
 import { bucketColumnCount, bucketFindingCount, bucketRowCount, bucketSize } from '@assay/telemetry'
 import { VALIDATION_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
-import { DATASET_VIEW, openConnection, PLAN_RELATION, registerDataset } from './connection.js'
+import {
+  DATASET_VIEW,
+  countViewRows,
+  openConnection,
+  PLAN_RELATION,
+  registerDataset,
+} from './connection.js'
 import type { CommandContext } from './context.js'
 import { CliError, usageError } from './errors.js'
 import type { CliExitCode } from './errors.js'
@@ -129,6 +135,7 @@ export async function runValidateCommand(
   let result: EngineValidationResult
   let format: EngineFileFormat
   let registeredColumns = 0
+  let opened = false
   try {
     let registered
     try {
@@ -143,6 +150,16 @@ export async function runValidateCommand(
       throw error
     }
     registeredColumns = registered.schema.length
+    opened = true
+    // `dataset_opened` at registration success (design §2): emitted before the
+    // run so a later binding/plan/engine failure still records the open.
+    await emitDatasetOpened(
+      conn,
+      context,
+      registered.format,
+      registeredColumns,
+      options.datasetPath,
+    )
     const compiled = compileContract(parsed.contract, registered.schema, {
       relation: PLAN_RELATION,
       sampleLimit: options.sampleLimit,
@@ -154,6 +171,24 @@ export async function runValidateCommand(
     context.progress.step('running validation plan')
     result = await runValidationPlan(conn, plan, registered.schema)
     format = registered.format
+  } catch (error) {
+    // `validation_run` (design §2): a run that finishes with a binding/plan/
+    // engine error still emits, with outcome `error`. `aborted` is genuinely
+    // unreachable from the CLI (no abort UX) and is never invented. There is
+    // no verdict to bucket, so the counts are the honest zero state.
+    if (opened) {
+      context.telemetry?.emit(
+        'validation_run',
+        {
+          checks_run: 0,
+          finding_count_bucket: 'zero',
+          duration_bucket: durationSince(startedAt),
+          outcome: 'error',
+        },
+        'error',
+      )
+    }
+    throw error
   } finally {
     // The connection is per-run; a failed close cannot mask the outcome
     // (the instance dies with the process anyway).
@@ -173,15 +208,7 @@ export async function runValidateCommand(
     sampleLimitRequested: options.sampleLimit,
     sampleLimitEffective: Math.min(options.sampleLimit, VALIDATION_SAMPLE_HARD_MAX),
   }
-  // `dataset_opened` + `validation_run` (design §2/Appendix C): value-free
-  // buckets/counts only. Row count comes from the completed verdict.
-  context.telemetry?.emit('dataset_opened', {
-    dataset_role: 'primary',
-    format_kind: formatKindFromEngineFormat(format),
-    size_bucket: fileSizeBucket(options.datasetPath),
-    row_count_bucket: bucketRowCount(result.rowCount),
-    column_count_bucket: bucketColumnCount(registeredColumns),
-  })
+  // `validation_run` (design §2/Appendix C): value-free buckets/counts only.
   context.telemetry?.emit('validation_run', {
     checks_run: result.rules.length,
     finding_count_bucket: bucketFindingCount(
@@ -197,6 +224,34 @@ export async function runValidateCommand(
       : renderHumanReport(report, meta, context.style),
   )
   return report.valid ? 0 : 1
+}
+
+/**
+ * Emit `dataset_opened` for a registration that succeeded, with a best-effort
+ * real row count. Telemetry is best-effort: a failed count (or an inactive
+ * runtime) emits nothing rather than break the command (R9).
+ */
+async function emitDatasetOpened(
+  conn: Awaited<ReturnType<typeof openConnection>>,
+  context: CommandContext,
+  format: EngineFileFormat,
+  columns: number,
+  path: string,
+): Promise<void> {
+  if (context.telemetry?.active !== true) return
+  let rowCount: number
+  try {
+    rowCount = await countViewRows(conn, DATASET_VIEW)
+  } catch {
+    return
+  }
+  context.telemetry.emit('dataset_opened', {
+    dataset_role: 'primary',
+    format_kind: formatKindFromEngineFormat(format),
+    size_bucket: fileSizeBucket(path),
+    row_count_bucket: bucketRowCount(rowCount),
+    column_count_bucket: bucketColumnCount(columns),
+  })
 }
 
 /** Size bucket for a path; an unreadable size degrades to `empty`. */
