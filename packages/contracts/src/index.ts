@@ -28,3 +28,7 @@ export * from './parse.js'
 export * from './serialize.js'
 export * from './re2-subset.js'
 export * from './json-schema.js'
+// p-2: the exact-or-rejected numeric policy is reused by the Pipeline IR
+// parser (all IR numbers are gated before they can become SQL-bearing).
+export { canonicalDecimal, isExactDecimalLiteral } from './numeric.js'
+export type { CanonicalDecimal } from './numeric.js'

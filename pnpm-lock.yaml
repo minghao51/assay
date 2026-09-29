@@ -306,6 +306,9 @@ importers:
 
   packages/pipeline:
     dependencies:
+      '@assay/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@assay/validation':
         specifier: workspace:*
         version: link:../validation

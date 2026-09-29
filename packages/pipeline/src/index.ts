@@ -6,9 +6,16 @@
  * A pure package: the canonical, versioned Pipeline IR AST; a total
  * (never-throwing) YAML parser with typed line/column errors; a byte-stable
  * canonical serializer; DAG validation (single-writer, resolvable references,
- * port arity/type-shape, acyclicity); and the shared identifier helper for
- * rendering port names into SQL. No React, no browser APIs, no engine
- * implementation; no dbt/SQLMesh/Dagster runtime concepts (lint-enforced).
+ * port arity/type-shape, acyclicity); the transform → SQL compiler for the P1
+ * vocabulary (select-columns/rename/cast/filter plus validated verbatim-SQL
+ * nodes); and the shared identifier helper for rendering port names into SQL.
+ * No React, no browser APIs, no engine implementation; no
+ * dbt/SQLMesh/Dagster runtime concepts (lint-enforced).
+ *
+ * Compilation is pure and total, overlay-agnostic, and deliberately scoped to
+ * query text (p-3 owns materialization and execution). Anything outside the
+ * four compiled operations is expressible as a `sql` node — see the escape-
+ * hatch contract in `compile/compile.ts`.
  *
  * The three P1-executable classes are `source`, `transform`, `sql`; `validate`
  * and `publish` are typed to architecture §5's shapes but carry no execution
@@ -62,3 +69,16 @@ export { parsePipeline } from './parse.js'
 export { serializePipeline } from './serialize.js'
 export { validatePipeline } from './dag.js'
 export { quotePortIdentifier } from './identifiers.js'
+export {
+  COMPILED_TRANSFORM_OPERATIONS,
+  classifyVerbatimSql,
+  compilePipeline,
+} from './compile/index.js'
+export type {
+  CompiledNode,
+  CompiledTransformOperation,
+  PipelineCompilePlan,
+  PipelineCompileResult,
+  VerbatimSqlClassification,
+  VerbatimSqlRefusal,
+} from './compile/index.js'

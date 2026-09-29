@@ -66,8 +66,10 @@ export function makeTestRng(seed: number): TestRng {
 /**
  * Node-id / key pool deliberately mixes plain and hostile text: quotes, SQL
  * comment/quote syntax, whitespace, unicode, numeric-looking keys (`1`, `01`
- * exercise the Map-based canonical ordering), the reserved `assay_*`
- * namespace, and the prototype-pollution probe `__proto__`.
+ * exercise the Map-based canonical ordering), and the prototype-pollution
+ * probe `__proto__`. The reserved `assay_*` namespace is deliberately absent:
+ * p-2 rejects it at parse, so it belongs in the negative/fuzz corpus rather
+ * than the always-valid generator (see {@link GARBAGE}).
  */
 const ID_POOL = [
   'a',
@@ -80,7 +82,6 @@ const ID_POOL = [
   'a"b',
   "a'b",
   'ünï',
-  'assay_overlay_ord',
   '  spaced  ',
   'weird "quoted" key',
   'a.b',
@@ -334,6 +335,11 @@ const GARBAGE = [
   '*a',
   '&x',
   'true',
+  // p-2 format tightenings — injected so the fuzz corpus exercises the
+  // reserved-identifier and imprecise-number gates as parse failures (never
+  // throws), not just clean documents.
+  'assay_fuzz',
+  '9007199254740993',
 ]
 
 /** Apply 1–3 random text mutations (delete/insert/duplicate-line/splice/alias-cycle). */

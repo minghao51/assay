@@ -19,6 +19,14 @@
  * `@assay/contracts`). Messages are value-free where the value could be
  * sensitive: they name the *location* and the *kind* of problem, never a
  * dataset value (ADR 0025 discipline extends to pipeline diagnostics).
+ *
+ * p-2 adds two more surfaces to the same vocabulary: the parser gains two
+ * format tightenings (`reserved-identifier`, `imprecise-number`) and
+ * `compilePipeline` reports its refusals (`unknown-operation`,
+ * `invalid-operation-args`, `invalid-filter`, `invalid-cast-type`,
+ * `invalid-sql`, `reserved-node-class`, `invalid-node`) as the same
+ * {@link PipelineError} shape, so every surface renders through
+ * {@link describePipelineError} unchanged.
  */
 import type { PipelineV1 } from './ast.js'
 
@@ -54,6 +62,24 @@ export type PipelineErrorCode =
   | 'cycle'
   /** A reference appears twice within one node's port list. */
   | 'duplicate-reference'
+  /** p-2: a node id uses the repo-wide reserved `assay_*` namespace (relation naming). */
+  | 'reserved-identifier'
+  /** p-2: a written number would be silently altered by the YAML→number parse (exact-or-rejected). */
+  | 'imprecise-number'
+  /** p-2 compile: a transform operation outside the P1 compiled vocabulary (use a sql node). */
+  | 'unknown-operation'
+  /** p-2 compile: an operation's arguments are missing, mistyped, or have unexpected keys. */
+  | 'invalid-operation-args'
+  /** p-2 compile: a filter predicate is not a well-formed member of the filter grammar. */
+  | 'invalid-filter'
+  /** p-2 compile: a cast target spelling is outside the declared-type vocabulary. */
+  | 'invalid-cast-type'
+  /** p-2 compile: a verbatim sql node is not a single read-only statement (fail-closed classifier). */
+  | 'invalid-sql'
+  /** p-2 compile: a validate/diff/publish node is reserved until P2 and cannot be compiled. */
+  | 'reserved-node-class'
+  /** p-2 compile: a node's shape is not a compilable executable node (defensive; caller bug). */
+  | 'invalid-node'
 
 /**
  * One actionable failure. Plain data — render it however the surface wants

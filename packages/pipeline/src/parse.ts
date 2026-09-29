@@ -20,6 +20,11 @@
  *   (pinned in `parse.test.ts`).
  * - Anchors/aliases resolve to their values; canonical output is anchor-free.
  *   Alias cycles are rejected with a typed error rather than recursing.
+ * - Numbers are **exact or rejected** (p-2): every numeric literal is checked
+ *   against the reused `@assay/contracts` policy, so a written value is never
+ *   silently altered by the YAML→number parse; and node ids using the
+ *   reserved `assay_*` namespace are refused (`reserved-identifier`) because
+ *   a node id becomes a relation name (see `validate.ts`).
  * - Error positions are visible-column aligned (a leading BOM is not counted).
  * - No input-size or nesting limit is enforced here, deliberately: the parser
  *   stays total for any input; bounds belong to the surfaces that own file

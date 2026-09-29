@@ -16,7 +16,11 @@ interface Manifest {
     readonly name: string
     readonly sha256: string
     /** True when the file itself is canonical text (`text === serialize(parse(text))`). */
-    readonly canonical: boolean
+    readonly canonical?: boolean
+    /** `refuses` when the fixture is a deliberate negative probe (parse must fail). */
+    readonly expect?: 'parses' | 'refuses'
+    /** The error code a `refuses` fixture must report. */
+    readonly errorCode?: string
   }[]
 }
 
@@ -37,9 +41,20 @@ describe('golden pipeline fixtures', () => {
   })
 
   for (const file of manifest.files) {
-    it(`${file.name} parses, validates, and round-trips byte-stably`, () => {
+    const label =
+      file.expect === 'refuses'
+        ? 'is refused with the pinned error code'
+        : 'parses, validates, and round-trips byte-stably'
+    it(`${file.name} ${label}`, () => {
       const text = readFileSync(join(FIXTURE_DIR, file.name), 'utf8')
       const parsed = parsePipeline(text)
+      if (file.expect === 'refuses') {
+        expect(parsed.ok).toBe(false)
+        if (!parsed.ok) {
+          expect(parsed.errors.map((error) => error.code)).toContain(file.errorCode)
+        }
+        return
+      }
       expect(parsed.ok).toBe(true)
       if (!parsed.ok) return
 

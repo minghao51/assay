@@ -1,6 +1,6 @@
 {
-  "generator": "hand-authored canonical text fixtures (p-1)",
-  "policy": "Golden Pipeline IR documents backing the round-trip, totality, and DAG-validation pins. Every listed fixture is canonical text (text === serialize(parse(text))) except architecture-example.yaml, which is the architecture §5 literal and is pinned to canonicalize to customer_portfolio.yaml. Synthetic only; regenerate the sha256 values deliberately with the fixture change.",
+  "generator": "hand-authored canonical text fixtures (p-1; refusal probe added p-2)",
+  "policy": "Golden Pipeline IR documents backing the round-trip, totality, and DAG-validation pins. Every listed fixture is canonical text (text === serialize(parse(text))) except architecture-example.yaml, which is the architecture §5 literal and is pinned to canonicalize to customer_portfolio.yaml, and reserved-namespace-refusal.yaml, which is a deliberate negative probe (parse must fail). Synthetic only; regenerate the sha256 values deliberately with the fixture change.",
   "files": [
     {
       "name": "architecture-example.yaml",
@@ -16,9 +16,17 @@
     },
     {
       "name": "hostile-names.yaml",
-      "sha256": "ee5061d0caf09533910df7f2210cd110f731736378a9b728161d3bef7cdde61f",
+      "sha256": "54677e8f62c92118755157316b87e612f10e6b389e995f7f6df52a942ddd122f",
       "canonical": true,
-      "description": "Hostile node ids and config keys (quotes, spaces, unicode, __proto__, reserved assay_* namespace) through the quoteIdentifier rules; diff body spread at the node level"
+      "description": "Hostile node ids and config keys (quotes, spaces, unicode, __proto__) through the quoteIdentifier rules; diff body spread at the node level. The reserved assay_* node moved to reserved-namespace-refusal.yaml in p-2"
+    },
+    {
+      "name": "reserved-namespace-refusal.yaml",
+      "sha256": "1b064ce85aa41d596471181fb85ca3a91d5edcaec0162400eba389c2fafb4853",
+      "canonical": false,
+      "expect": "refuses",
+      "errorCode": "reserved-identifier",
+      "description": "Negative probe: an assay_-prefixed node id (which would collide with the repo-wide reserved namespace once node id = relation name) must be refused at parse"
     },
     {
       "name": "reserved-nodes.yaml",

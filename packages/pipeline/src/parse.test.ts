@@ -485,6 +485,80 @@ describe('parsePipeline: validate/publish nodes', () => {
   })
 })
 
+describe('parsePipeline: reserved assay_* node ids (p-2)', () => {
+  it('rejects an assay_-prefixed node id with reserved-identifier', () => {
+    const errors = errorsOf(
+      `${BASE}\n  assay_overlay_ord:\n    type: source\n    source: {kind: file}\n`,
+    )
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ code: 'reserved-identifier', path: 'nodes' })
+    expect(errors[0]?.message).toContain('assay_')
+  })
+
+  it('rejects the prefix case-insensitively (DuckDB folds identifier case)', () => {
+    expect(codesOf(`${BASE}\n  ASSAY_X:\n    type: source\n    source: {kind: file}\n`)).toEqual([
+      'reserved-identifier',
+    ])
+  })
+
+  it('keeps everything else permissive (similar prefixes, hostile text, __proto__)', () => {
+    for (const id of ['assay', 'assayx', 'my_assay_x', '__proto__', 'weird "quoted" key']) {
+      const pipeline = parseOk(
+        `${BASE}\n  ${JSON.stringify(id)}:\n    type: source\n    source: {kind: file}\n`,
+      )
+      expect(pipeline.nodes.map((node) => node.id)).toContain(id)
+    }
+  })
+})
+
+describe('parsePipeline: numbers are exact or rejected (p-2)', () => {
+  it('rejects a 17th-significant-digit generic number, naming the written literal', () => {
+    const errors = errorsOf(
+      `${BASE}\n  x:\n    type: source\n    source:\n      kind: file\n      limit: 9007199254740993\n`,
+    )
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ code: 'imprecise-number', path: 'nodes.x.source.limit' })
+    expect(errors[0]?.message).toContain('9007199254740993')
+    expect(errors[0]?.message).not.toContain('9007199254740992')
+  })
+
+  it('rejects an imprecise version with imprecise-number (reported alone)', () => {
+    expect(codesOf('version: 9007199254740993\npipeline: demo\nnodes: {}\n')).toEqual([
+      'imprecise-number',
+    ])
+  })
+
+  it('accepts exactly representable large numbers and keeps them exact', () => {
+    const pipeline = parseOk(
+      `${BASE}\n  x:\n    type: source\n    source: {kind: file, limit: 9007199254740992}\n`,
+    )
+    const node = pipeline.nodes.find((candidate) => candidate.id === 'x')
+    expect(node?.type).toBe('source')
+    if (node?.type === 'source') expect(node.source.limit).toBe(9007199254740992)
+  })
+
+  it('accepts exact exponential spellings and rejects inexact ones', () => {
+    const exact = parseOk(
+      `${BASE}\n  x:\n    type: source\n    source: {kind: file, limit: 9.007199254740992e15}\n`,
+    )
+    const node = exact.nodes.find((candidate) => candidate.id === 'x')
+    if (node?.type === 'source') expect(node.source.limit).toBe(9007199254740992)
+    expect(
+      codesOf(
+        `${BASE}\n  x:\n    type: source\n    source: {kind: file, limit: 9.007199254740993e15}\n`,
+      ),
+    ).toEqual(['imprecise-number'])
+  })
+
+  it('fails closed on spellings whose exact value cannot be verified (hex)', () => {
+    const errors = errorsOf(
+      `${BASE}\n  x:\n    type: source\n    source: {kind: file, mask: 0x1F}\n`,
+    )
+    expect(errors[0]?.code).toBe('imprecise-number')
+    expect(errors[0]?.message).toContain('0x1F')
+  })
+})
+
 describe('parsePipeline: golden fixtures', () => {
   it('parses the architecture §5 example structure', () => {
     const text = `version: 1

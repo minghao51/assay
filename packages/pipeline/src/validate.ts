@@ -23,6 +23,15 @@
  *   carry no execution semantics (P2);
  * - `diff`'s body is opaque (`config`) because §5 does not settle its shape.
  *
+ * Two p-2 format tightenings live here:
+ * - **exact-or-rejected numbers** — every number in the IR (generic configs
+ *   and `version`) passes the reused `@assay/contracts` gate, so a written
+ *   literal can never be silently altered before it becomes SQL-bearing;
+ * - **reserved namespace** — a node id prefixed `assay_` (case-insensitive;
+ *   DuckDB folds identifier case) is rejected because node ids become
+ *   relation names and `assay_*` is reserved repo-wide for compiler
+ *   internals, which verbatim SQL cannot rename around.
+ *
  * Not part of the public surface: positions come from YAML nodes, so
  * validation is exercised through `parsePipeline`.
  *
@@ -31,6 +40,7 @@
  */
 import { isAlias, isMap, isNode, isScalar, isSeq } from 'yaml'
 import type { Alias, Document, Scalar, YAMLMap, YAMLSeq } from 'yaml'
+import { canonicalDecimal, isExactDecimalLiteral } from '@assay/contracts'
 import { PIPELINE_IR_VERSION, canonicalNodeOrder, isPipelineNodeClass } from './ast.js'
 import type {
   DiffNode,
@@ -148,6 +158,52 @@ function pushError(
 function nodeOffset(node: YamlNode): number {
   const range = node?.range
   return typeof range?.[0] === 'number' ? range[0] : 0
+}
+
+/**
+ * The source text a scalar was written as (tags are excluded by the parser's
+ * node ranges). `null` when the node carries no range — the same degenerate
+ * default {@link nodeOffset} falls back to. Mirrors the `@assay/contracts`
+ * contract parser: the exactness gate judges the *content* literal, so a
+ * library-resolvable tag (`!!int 5`) is verified by its content.
+ */
+function rawScalarText(ctx: WalkContext, node: YamlNode): string | null {
+  const range = node?.range
+  return typeof range?.[0] === 'number' && typeof range?.[1] === 'number'
+    ? ctx.source.slice(range[0], range[1])
+    : null
+}
+
+/**
+ * The exact-or-rejected numeric gate for **every** number in the IR (p-2;
+ * reuses `@assay/contracts`' canonical policy — see `numeric.ts` there). A
+ * written literal is accepted only when the double it parses to denotes the
+ * same decimal the author wrote; otherwise the parse would silently alter
+ * the document (the live `9007199254740993` → `…992` rewrite), and
+ * operation numbers can become SQL-bearing in p-2's compiler. The message
+ * quotes the **raw source literal only** — never the rounded double the
+ * parse produced.
+ */
+function rejectImpreciseNumber(
+  ctx: WalkContext,
+  node: YamlNode,
+  value: number,
+  path: string,
+): boolean {
+  const raw = rawScalarText(ctx, node)
+  if (raw === null) return true // no literal to verify; nodeOffset's degenerate default
+  if (isExactDecimalLiteral(raw, value)) return true
+  const unverifiable = canonicalDecimal(raw) === null
+  pushError(
+    ctx,
+    'imprecise-number',
+    unverifiable
+      ? `${path}: cannot verify the exact value of ${JSON.stringify(raw)} — write pipeline numbers as plain decimal literals (e.g. 1.5)`
+      : `${path}: the written number ${raw} would be silently altered by the YAML→number parse — pipeline numbers must be exactly representable; write a plain decimal that survives the round-trip, e.g. integers within ±2^53`,
+    path,
+    node,
+  )
+  return false
 }
 
 /** Resolve aliases to their target node (positions then come from the anchor). */
@@ -306,6 +362,7 @@ function readFiniteNumber(ctx: WalkContext, resolved: YamlNode, path: string): n
     )
     return undefined
   }
+  if (!rejectImpreciseNumber(ctx, resolved, n, path)) return undefined
   // Canonical ±0 rule (mirrors m5-0): -0 and 0 are one value.
   return n === 0 ? 0 : n
 }
@@ -981,6 +1038,10 @@ function walkRoot(ctx: WalkContext, root: YamlNode): RootBuild | null {
         'version',
         valuePosition(versionEntry, resolved),
       )
+    } else if (!rejectImpreciseNumber(ctx, resolved, value as number, 'version')) {
+      // Imprecise version: the gate already reported it honestly; stop the
+      // walk like any other unsupported-version outcome.
+      return null
     } else if ((value as number) !== PIPELINE_IR_VERSION) {
       pushError(
         ctx,
@@ -1071,6 +1132,21 @@ function walkNodes(ctx: WalkContext, entry: Entry): PipelineNode[] {
         ctx,
         'out-of-range',
         'nodes: a node id must not contain a NUL character',
+        'nodes',
+        nodeEntry.keyNode,
+      )
+      continue
+    }
+    // p-2 (ruling 1): a node id is its output relation name, and verbatim SQL
+    // references relations by node id — so compile-time renaming would break
+    // verbatim SQL. The repo-wide reserved `assay_*` namespace (compiler
+    // internals; cf. m6-1) is therefore rejected at parse. DuckDB folds
+    // identifier case even when quoted, so the check is case-insensitive.
+    if (id.toLowerCase().startsWith('assay_')) {
+      pushError(
+        ctx,
+        'reserved-identifier',
+        `nodes: the node id ${JSON.stringify(id)} uses the reserved "assay_" namespace — node ids become relation names, and "assay_*" is reserved repo-wide for compiler-internal identifiers; choose another id`,
         'nodes',
         nodeEntry.keyNode,
       )

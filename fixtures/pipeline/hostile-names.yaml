@@ -14,10 +14,6 @@ nodes:
     source:
       kind: file
       path: ./a.parquet
-  assay_overlay_ord:
-    type: diff
-    against: ünï
-    note: reserved namespace probe
   weird "quoted" key:
     type: sql
     inputs: [ "1", __proto__ ]
