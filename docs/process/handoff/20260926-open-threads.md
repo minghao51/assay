@@ -53,7 +53,7 @@
 
 ## 3. Maintainer checkpoints & manual actions (humans only)
 
-- **Decisions: ALL RULED 2026-09-29** (the [rulings queue](20260926-maintainer-rulings.md) is closed): **C-pt0-1** ✅ telemetry design approved (ADR 0045; implementation = [telemetry queue](20260929-telemetry-queue.md)) · **D12** ✅ PT-P first ([PT-P queue](20260929-ptp-queue.md); PT-V after — R4 spike) · **D13** ✅ keep-as-target (arch-01 §7) · **D14** ✅ ADR 0044 Accepted as written — ux-6 **landed 2026-09-29** (UX queue closed), q-15 (slice 2) unblocked/pickup-ready.
+- **Decisions: ALL RULED 2026-09-29** (the [rulings queue](20260926-maintainer-rulings.md) is closed): **C-pt0-1** ✅ telemetry approved (ADR 0045; implementation **complete 2026-09-29** — t-1/t-2/t-3 in the [telemetry queue](20260929-telemetry-queue.md); collector deployment + public disclosure = G0 tail) · **D12** ✅ PT-P first ([PT-P queue](20260929-ptp-queue.md); PT-V after — R4 spike) · **D13** ✅ keep-as-target (arch-01 §7) · **D14** ✅ ADR 0044 Accepted as written — ux-6 **landed 2026-09-29** (UX queue closed), q-15 (slice 2) unblocked/pickup-ready.
 - **Manual actions open** ([manual-actions.md](../manual-actions.md)): **M1** npm org claim
   (gates first publish, D6 tail) · **M4** trademark/domain clearance (G0 tail) · org
   transfer + public flip (G0; the SECURITY.md private-reporting caveat resolves at flip).
