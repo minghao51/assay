@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { createHash } from 'node:crypto'
+import { readFileSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+import { parsePipeline } from './parse.js'
+import { serializePipeline } from './serialize.js'
+import { validatePipeline } from './dag.js'
+
+const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures/pipeline')
+
+interface Manifest {
+  readonly files: readonly { readonly name: string; readonly sha256: string }[]
+}
+
+const manifest = JSON.parse(readFileSync(join(FIXTURE_DIR, 'manifest.json'), 'utf8')) as Manifest
+
+describe('golden pipeline fixtures', () => {
+  it('lists every fixture with a matching sha256 (bidirectional)', () => {
+    const onDisk = readdirSync(FIXTURE_DIR)
+      .filter((name) => name.endsWith('.yaml'))
+      .sort()
+    expect(manifest.files.map((file) => file.name).sort()).toEqual(onDisk)
+    for (const file of manifest.files) {
+      const digest = createHash('sha256')
+        .update(readFileSync(join(FIXTURE_DIR, file.name)))
+        .digest('hex')
+      expect(digest).toBe(file.sha256)
+    }
+  })
+
+  for (const file of manifest.files) {
+    it(`${file.name} parses, validates, and round-trips byte-stably`, () => {
+      const text = readFileSync(join(FIXTURE_DIR, file.name), 'utf8')
+      const parsed = parsePipeline(text)
+      expect(parsed.ok).toBe(true)
+      if (!parsed.ok) return
+
+      const validated = validatePipeline(parsed.pipeline)
+      expect(validated.ok).toBe(true)
+
+      const canonical = serializePipeline(parsed.pipeline)
+      const reparsed = parsePipeline(canonical)
+      expect(reparsed).toEqual({ ok: true, pipeline: parsed.pipeline })
+      expect(serializePipeline(reparsed.ok ? reparsed.pipeline : parsed.pipeline)).toBe(canonical)
+    })
+  }
+
+  it('customer_portfolio.yaml is the architecture §5 example surface', () => {
+    const text = readFileSync(join(FIXTURE_DIR, 'customer_portfolio.yaml'), 'utf8')
+    const parsed = parsePipeline(text)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.pipeline.pipeline).toBe('customer_portfolio')
+    expect(parsed.pipeline.nodes.map((node) => `${node.id}:${node.type}`)).toEqual([
+      'customer_policies:transform',
+      'customers:source',
+      'output:publish',
+      'policies:source',
+      'portfolio:sql',
+      'quality:validate',
+      'sg_customers:transform',
+    ])
+  })
+
+  it('hostile-names.yaml preserves hostile ids and the __proto__ probe', () => {
+    const text = readFileSync(join(FIXTURE_DIR, 'hostile-names.yaml'), 'utf8')
+    const parsed = parsePipeline(text)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const ids = parsed.pipeline.nodes.map((node) => node.id)
+    expect(ids).toContain('__proto__')
+    expect(ids).toContain('weird "quoted" key')
+    expect(ids).toContain('ünï')
+    expect(Object.hasOwn(parsed.pipeline.nodes[0] ?? {}, 'id')).toBe(true)
+    // Prototype pollution probe: the generic `__proto__` key is an own property
+    // on the transform's operation args, not a prototype mutation.
+    const transform = parsed.pipeline.nodes.find((node) => node.id === '1')
+    expect(transform?.type).toBe('transform')
+    if (transform?.type === 'transform') {
+      expect(Object.hasOwn(transform.operation.args, '__proto__')).toBe(true)
+      expect(Object.getPrototypeOf(transform.operation.args)).toBe(Object.prototype)
+      expect(transform.operation.args['__proto__']).toEqual({ polluted: true })
+    }
+  })
+})

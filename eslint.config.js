@@ -505,6 +505,103 @@ export default tseslint.config(
     },
   },
   {
+    // p-1: pipeline is a pure, environment-neutral IR package — mirror
+    // domain/grid's portability floor (no React, no UI/engine/app packages,
+    // no browser-only globals, no Node builtins) and encode the ADR 0031/0032
+    // boundary: dbt/SQLMesh/Dagster are compatibility and execution adapters,
+    // never core runtime dependencies. Allowed @assay deps per
+    // docs/engineering/03-repository-structure.md §5: contracts, domain,
+    // validation; `yaml` is the one external runtime dep (contracts precedent).
+    files: ['packages/pipeline/**/*.{ts,tsx}'],
+    rules: {
+      'import/no-nodejs-modules': 'error',
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react',
+              message:
+                'The pipeline package must stay UI-free (docs/engineering/03-repository-structure.md §5).',
+            },
+            {
+              name: 'react-dom',
+              message:
+                'The pipeline package must stay UI-free (docs/engineering/03-repository-structure.md §5).',
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                '@assay/ui',
+                '@assay/grid',
+                '@assay/engine',
+                '@assay/engine-*',
+                '@assay/core',
+                '@assay/data-sources',
+                '@assay/security',
+                '@assay/transforms',
+                '@assay/ai',
+                '@assay/testing',
+              ],
+              message:
+                'The pipeline package is pure: no UI/engine/app dependencies (docs/engineering/03-repository-structure.md §5, ADR 0030). Allowed @assay deps: contracts, domain, validation.',
+            },
+            {
+              group: [
+                'dbt',
+                'dbt-*',
+                '@dbt/*',
+                'sqlmesh',
+                'sqlmesh-*',
+                '@sqlmesh/*',
+                'dagster',
+                'dagster-*',
+                '@dagster/*',
+              ],
+              message:
+                'dbt/SQLMesh/Dagster are compatibility and execution adapters, never core runtime dependencies (ADR 0031/0032).',
+            },
+            // Repeated from the shared block — block-level `no-restricted-imports`
+            // replaces it, so the app-import ban must be restated.
+            APP_IMPORT_BAN,
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        ...BROWSER_ONLY_GLOBALS.map((name) => ({
+          name,
+          message:
+            'The pipeline package must stay environment-neutral — browser APIs are banned (docs/engineering/03-repository-structure.md §5).',
+        })),
+      ],
+    },
+  },
+  {
+    // p-1: pipeline src declares only its real runtime deps (`yaml`,
+    // `@assay/validation`); any undeclared external import errors here (the
+    // domain/telemetry dependency-zone precedent).
+    files: ['packages/pipeline/src/**/*.{ts,tsx}'],
+    plugins: { import: importX },
+    rules: {
+      'import/no-extraneous-dependencies': [
+        'error',
+        { devDependencies: false, peerDependencies: false, optionalDependencies: false },
+      ],
+    },
+  },
+  {
+    // p-1: tests opt out of the dependency-free/node-builtin bans — they
+    // legitimately import vitest and read the golden fixtures with node:fs.
+    files: ['packages/pipeline/src/**/*.test.{ts,tsx}'],
+    plugins: { import: importX },
+    rules: {
+      'import/no-extraneous-dependencies': 'off',
+      'import/no-nodejs-modules': 'off',
+    },
+  },
+  {
     // q-7: ui is the React/DOM layer (React + DOM allowed) but must not couple
     // to Node builtins or the network directly.
     files: ['packages/ui/**/*.{ts,tsx}'],

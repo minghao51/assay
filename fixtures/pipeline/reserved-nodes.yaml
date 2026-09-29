@@ -1,0 +1,30 @@
+version: 1
+pipeline: reserved_surface
+
+nodes:
+  raw:
+    type: source
+    source:
+      kind: table
+      table: raw_input
+
+  clean:
+    type: sql
+    inputs: [raw]
+    sql: SELECT * FROM raw
+
+  gate:
+    type: validate
+    input: clean
+    contract: contracts/clean.yaml
+
+  compare:
+    type: diff
+    config:
+      input: clean
+      against: raw
+
+  out:
+    type: publish
+    input: clean
+    requires: [gate]
