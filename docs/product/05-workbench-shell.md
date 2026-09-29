@@ -1,8 +1,9 @@
 # Workbench Shell — Target Information Architecture (Ready State)
 
-**Status:** spec (ux-5, 2026-09-29) — the shell direction it recommends is queued for maintainer
-ruling as **D14** via [Proposed ADR 0044](../adr/0044-workbench-shell-two-pane.md); **ux-6
-(slice 1) is blocked until that ruling lands**. Driven by
+**Status:** spec (ux-5, 2026-09-29) — the shell direction it recommends is **Accepted** as
+[D14: ADR 0044](../adr/0044-workbench-shell-two-pane.md) (2026-09-29);
+**slice 1 (ux-6) landed 2026-09-29** (`267a45e`+`dc0b82a` → main `6a56175`/`c21e5a0`);
+slice 2 is **PT-Q q-15** ([post-MVP track §7](04-post-mvp-track.md)). Driven by
 [UX-3 of the interface audit](../reviews/2026-09-29-interface-ux-audit.md) (the IA buries the
 workbench's centerpiece). Companion queue: [UX queue](../process/handoff/20260929-ux-queue.md).
 
@@ -84,7 +85,11 @@ single-column, DOM-order + CSS only, and is the <1024px shape regardless of the 
 
 1. Every top-level section (schema, editing, export, history, validation, compare, filters,
    grid, record, sql, profile) collapsible via one shared pattern; `aria-expanded`; the h2 map
-   intact (headings wrap or precede toggles).
+   intact (headings wrap or precede toggles). **Slice-1 ruling (ux-6 review, 2026-09-29):** the
+   h2s are owned by the child panels, so managed-section toggles precede their h2 and a collapsed
+   section may drop its h2 from the a11y tree — uniform visible + aria-labeled toggles with the
+   h2 map intact in the open state is the accepted slice-1 arrangement; heading-wrapped toggles
+   across all sections are slice-2 (q-15) work.
 2. Sticky section nav listing the sections in DOM order; keyboard-reachable; does not obscure
    the focused section (scroll-margin).
 3. Grid renders immediately after the open section (above all other panels); grid first-paint
@@ -97,14 +102,14 @@ single-column, DOM-order + CSS only, and is the <1024px shape regardless of the 
 
 ## 5. Sequencing and ownership
 
-- **ux-6 (slice 1)** — blocked by: this spec (landed), **ADR 0044 ruling (D14)**, ux-1 (landed
-  2026-09-29). Implement in `apps/web/src/App.tsx` + `index.css` + `lib/bottom-panels.ts` per the
-  UX queue row.
-- **Slice 2 (two-pane split)** — queued as PT-Q q-15
+- **ux-6 (slice 1)** — **landed 2026-09-29** (`267a45e`+`dc0b82a` → main `6a56175`/`c21e5a0`,
+  reviewer request-changes → fix → approve; the UX queue is closed). Implemented in
+  `apps/web/src/App.tsx` + `index.css` per the UX queue row; `lib/bottom-panels.ts` untouched.
+- **Slice 2 (two-pane split)** — PT-Q q-15
   ([post-MVP track §7](04-post-mvp-track.md)) behind the same ruling; separate task, own review
   cycle.
-- The audit's UX-3 finding stays open until slice 1 lands; the two-pane direction closes it
-  fully at slice 2.
+- The audit's UX-3 finding is remediated by slice 1 (landed 2026-09-29); the two-pane direction
+  closes it fully at slice 2.
 
 ## 6. Open questions for the maintainer (folded into ruling D14)
 
