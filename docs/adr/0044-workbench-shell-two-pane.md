@@ -2,12 +2,13 @@
 
 ## Status
 
-Proposed
+Accepted (ruling D14, 2026-09-29 — accepted as written: two-pane direction, tools-left
+pane, record-inspector dock, 1024×700 minimum viewport)
 
 ## Date
 
-Proposed 2026-09-29 (queued for maintainer ruling as **D14** —
-[maintainer-rulings queue](../process/handoff/20260926-maintainer-rulings.md)).
+Proposed 2026-09-29 (ux-5); accepted same day by maintainer ruling **D14** —
+[maintainer-rulings queue](../process/handoff/20260926-maintainer-rulings.md).
 
 ## Deciders
 
