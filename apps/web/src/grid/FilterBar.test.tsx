@@ -74,6 +74,46 @@ function storeModel(
   }
 }
 
+/**
+ * A store model whose `setFilters` is held open until `flush()` is called, so a
+ * test can act while an apply is in flight (the uxc-4 collapse-during-apply
+ * race). Applies land in call order; `flush()` releases the oldest.
+ */
+function blockingModel(columns: readonly { name: string; type: string }[]): {
+  model: GridViewportModel
+  flush: () => void
+} {
+  let version = 0
+  const listeners = new Set<() => void>()
+  const releases: (() => void)[] = []
+  const model = {
+    schema: columns,
+    filters: [] as readonly FilterSpec[],
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    getVersion: () => version,
+    setFilters: (next: FilterSpec[] | null) =>
+      new Promise<void>((resolve) => {
+        releases.push(() => {
+          model.filters = next ?? []
+          version += 1
+          for (const listener of listeners) listener()
+          resolve()
+        })
+      }),
+  }
+  return {
+    model: model as unknown as GridViewportModel,
+    flush: () => {
+      releases.shift()?.()
+    },
+  }
+}
+
 /** A builder control scoped to one column (testids repeat per column). */
 function control(testId: string, column: string): HTMLElement {
   const element = document.querySelector(`[data-testid="${testId}"][data-col-name="${column}"]`)
@@ -85,10 +125,12 @@ function openBar(): void {
   fireEvent.click(screen.getByTestId('filter-toggle'))
 }
 
-/** Click the disclosure toggle (open when collapsed, collapse when open). */
-function toggleBar(): void {
-  fireEvent.click(screen.getByTestId('filter-toggle'))
-}
+/**
+ * Flip the disclosure (open when collapsed, collapse when open). The same
+ * action as `openBar`, named for the uxc-4 latch pins where the direction is
+ * the point under test.
+ */
+const toggleBar = openBar
 
 afterEach(cleanup)
 
@@ -161,7 +203,7 @@ describe('FilterBar disclosure (ux-4)', () => {
 })
 
 describe('FilterBar auto-open identity (uxc-4)', () => {
-  it('re-opens a user-collapsed bar on a same-count programmatic replacement', async () => {
+  it('re-opens a user-collapsed bar on a same-count programmatic replacement (identity, not count)', async () => {
     const model = storeModel(COLUMNS)
     render(<FilterBar model={model} />)
 
@@ -188,7 +230,7 @@ describe('FilterBar auto-open identity (uxc-4)', () => {
     )
   })
 
-  it('keeps a user-collapsed bar collapsed across a same-identity re-set', async () => {
+  it('honors the user-collapse latch across a same-identity programmatic re-set (latch is load-bearing)', async () => {
     const model = storeModel(COLUMNS)
     render(<FilterBar model={model} />)
 
@@ -203,7 +245,8 @@ describe('FilterBar auto-open identity (uxc-4)', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
 
     // A routine programmatic re-set with the same identity (fresh array, same
-    // column:predicate) must not fight the latch.
+    // column:predicate) re-fires the effect but must match the latch and leave
+    // the bar collapsed. Deleting the latch-match guard makes this fail.
     await act(async () => {
       await model.setFilters([{ column: 'country', predicate: "= 'US'" }])
     })
@@ -221,7 +264,7 @@ describe('FilterBar auto-open identity (uxc-4)', () => {
     expect(screen.getByTestId('filter-toggle').getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('honors a user collapse and a later user-driven re-open (no latch fight)', async () => {
+  it('closes on a user collapse and re-opens on a second user click (toggle clears the latch)', async () => {
     const model = storeModel(COLUMNS)
     render(<FilterBar model={model} />)
 
@@ -261,6 +304,31 @@ describe('FilterBar auto-open identity (uxc-4)', () => {
       await model.setFilters([{ column: 'country', predicate: "= 'US'" }])
     })
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('honors a collapse made mid-apply for the incoming set (collapse-during-apply policy (i))', async () => {
+    const { model, flush } = blockingModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    openBar()
+
+    // A user edit starts an apply that has not landed yet (pending).
+    fireEvent.change(control('filter-builder-operator', 'income'), { target: { value: 'gt' } })
+    fireEvent.change(control('filter-builder-value', 'income'), { target: { value: '50000' } })
+    fireEvent.click(control('filter-builder-apply', 'income'))
+
+    // While it is in flight the user collapses. Latching the *visible*
+    // (pre-apply, empty) signature would let the incoming filter force-open
+    // the bar over this deliberate collapse.
+    const toggle = screen.getByTestId('filter-toggle')
+    toggleBar()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    // The apply lands: the deliberate collapse survives the user's own edit.
+    await act(async () => {
+      flush()
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle.textContent).toBe('Filters · 1 active')
   })
 })
 

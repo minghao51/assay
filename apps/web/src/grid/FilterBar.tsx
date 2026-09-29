@@ -110,10 +110,23 @@ export function FilterBar({ model }: FilterBarProps) {
   // replacement at the same count — e.g. the validation panel's "Show only
   // failing rows" for rule B replacing rule A — must re-open a bar the user had
   // collapsed over the old predicate, or the predicate silently swaps under a
-  // collapsed bar. `collapsedRef` is the user-collapse latch: it binds to the
-  // signature the user collapsed under (set below in the toggle).
+  // collapsed bar.
+  //
+  // The effect depends on the filter *list*, not only its derived signature, so
+  // a same-identity re-set (`setFilters` with an equal-but-fresh list) still
+  // re-runs it. That is what makes the latch load-bearing: on the re-run the
+  // `collapsedRef` guard matches and keeps the bar collapsed. `collapsedRef` is
+  // the user-collapse latch, bound to the signature the user collapsed under;
+  // any different non-empty set — a same-count replacement included — overrides
+  // it, and emptying retires it (the collapsed set no longer exists).
   const signature = filterListSignature(model.filters)
   const collapsedRef = useRef<string | null>(null)
+  // Collapsing during an in-flight apply must latch the *incoming* set, not the
+  // pre-apply one still on screen: that apply is about to replace it, so
+  // latching the pre-apply signature would let the user's own edit force-open
+  // over their deliberate collapse. This flag defers the latch until the
+  // incoming signature lands (uxc-4 round 2, reviewer policy (i)).
+  const latchIncomingRef = useRef(false)
 
   useEffect(() => {
     if (signature === null) {
@@ -121,17 +134,24 @@ export function FilterBar({ model }: FilterBarProps) {
       // (the collapsed set no longer exists), so the next fresh filter
       // (empty → non-empty) auto-opens exactly as it did before uxc-4.
       collapsedRef.current = null
+      latchIncomingRef.current = false
       return
     }
-    // A user collapse is honored only for the exact set it was made under:
-    // routine re-renders and same-identity programmatic re-sets leave the
-    // signature unchanged (this effect does not re-run), and a re-set that
-    // happens to produce the same signature stays collapsed deliberately.
-    // Only a different, non-empty set — same count included — overrides it.
+    if (latchIncomingRef.current) {
+      // A collapse made mid-apply binds to the set that apply landed, so the
+      // user's own edit re-firing this effect cannot re-open over it.
+      latchIncomingRef.current = false
+      collapsedRef.current = signature
+      return
+    }
+    // A user collapse is honored only for the exact set it was made under: a
+    // same-identity programmatic re-set re-runs this effect but matches the
+    // latch and stays collapsed; a different non-empty set — same count
+    // included — overrides it.
     if (collapsedRef.current === signature) return
     setOpen(true)
     collapsedRef.current = null
-  }, [signature])
+  }, [model.filters, signature])
 
   /** Inputs mirror the accepted state after a successful change. */
   const syncDrafts = (filters: readonly FilterSpec[]): void => {
@@ -222,9 +242,23 @@ export function FilterBar({ model }: FilterBarProps) {
         onClick={() => {
           const next = !open
           setOpen(next)
-          // Collapsing latches onto the current filter set; opening clears it
-          // so a later programmatic change can re-open (uxc-4).
-          collapsedRef.current = next ? null : signature
+          if (next) {
+            // Opening clears the latch so a later programmatic change can
+            // re-open (uxc-4).
+            collapsedRef.current = null
+            latchIncomingRef.current = false
+          } else if (pending) {
+            // Collapsing mid-apply: the visible signature is about to be
+            // replaced, so bind the latch to the incoming set instead —
+            // otherwise the user's own edit would force-open over this
+            // deliberate collapse (uxc-4 round 2, reviewer policy (i)).
+            collapsedRef.current = null
+            latchIncomingRef.current = true
+          } else {
+            // Collapsing latches onto the current filter set.
+            collapsedRef.current = signature
+            latchIncomingRef.current = false
+          }
         }}
       >
         {activeCount > 0 ? `Filters · ${String(activeCount)} active` : 'Filters'}
