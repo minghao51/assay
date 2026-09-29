@@ -9,7 +9,7 @@ import {
 } from './support/a11y'
 import { writeValidationDatasetA } from './support/validation-datasets'
 import { writeDiffDatasetPair } from './support/diff-datasets'
-import { openFixture } from './support/fixtures'
+import { openFixture, openFilterBar } from './support/fixtures'
 
 // pt0-4 (O3): real axe-core scans of the four load-bearing surfaces — grid
 // with a fixture open, the schema tree expanded, the validation report, and
@@ -25,6 +25,11 @@ import { openFixture } from './support/fixtures'
 // validation-panel / diff-panel) so the target panel is really open and
 // populated, then asserts zero UNALLOWLISTED critical/serious violations.
 // Minor/moderate findings are logged but do not gate (task row bar).
+//
+// uxc-3: the grid scan additionally drives the expanded ux-4 filter bar into
+// its builder, fragment-escape-hatch, and client-side rejection states before
+// scanning, so the promoted scan exercises the whole expanded bar (both
+// schemes), not just the collapsed summary.
 //
 // The canary injects a nameless <button> (axe `button-name`, critical) into a
 // fresh per-test page, scans it, and asserts the scanner reports it AND that
@@ -67,12 +72,64 @@ async function scanAndGate(page: Page, target: string, scheme: 'light' | 'dark')
 }
 
 /**
+ * uxc-3: drive the expanded ux-4 filter bar into the three scan-relevant
+ * states — an applied type-aware builder filter (operator + value controls and
+ * an active chip), the populated SQL-fragment escape hatch, and a readable
+ * client-side rejection message — asserting each is really visible so a
+ * silently-collapsed bar cannot false-pass the promoted scan. Every value is
+ * synthetic customers.csv fixture data only (ADR 0025).
+ *
+ * Interaction patterns mirror tests/e2e/filter-builder.spec.ts (the ux-4
+ * builder journey); nothing new is invented here.
+ */
+async function expandFilterBarStates(page: Page): Promise<void> {
+  await openFilterBar(page)
+
+  const builderOperator = page.locator(
+    '[data-testid="filter-builder-operator"][data-col-name="income"]',
+  )
+  const builderValue = page.locator('[data-testid="filter-builder-value"][data-col-name="income"]')
+  const builderApply = page.locator('[data-testid="filter-builder-apply"][data-col-name="income"]')
+  const builderError = page.locator('[data-testid="filter-builder-error"][data-col-name="income"]')
+
+  // Builder state: numeric `income > 50000` (type-aware operator + value input).
+  await expect(builderOperator).toBeVisible()
+  await builderOperator.selectOption('gt')
+  await builderValue.fill('50000')
+  await builderApply.click()
+  await expect(page.locator('[data-testid="filter-chip"][data-col-name="income"] code')).toHaveText(
+    'income > 50000',
+  )
+  // Non-vacuity: the applied builder filter really narrowed the grid, which
+  // therefore has populated rows while the expanded bar is scanned.
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+  await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(3)
+
+  // Fragment mode: the SQL escape hatch renders alongside the builder; populate
+  // it (synthetic predicate) but do not apply — applying would replace the
+  // builder filter the scan is meant to see.
+  const fragment = page.locator('[data-testid="filter-input"][data-col-name="country"]')
+  await expect(fragment).toBeVisible()
+  await fragment.fill("= 'US'")
+  await expect(fragment).toHaveValue("= 'US'")
+  await expect(page.locator('[data-testid="filter-apply"][data-col-name="country"]')).toBeVisible()
+
+  // Rejection state: an invalid numeric value is rejected client-side and the
+  // readable inline alert (role=alert) is on screen before we scan.
+  await expect(builderValue).toBeEnabled()
+  await builderValue.fill('abc')
+  await builderApply.click()
+  await expect(builderError).toBeVisible()
+  await expect(builderError).toHaveText('That is not a number.')
+}
+
+/**
  * Register the four load-bearing scans for one colour scheme. Called once per
  * `test.describe` so `test.use({ colorScheme })` scopes each run; the journey
  * bodies are identical across schemes (only the resolved tokens differ).
  */
 function defineScans(scheme: 'light' | 'dark'): void {
-  test(`[${scheme}] grid with a fixture open has no unallowlisted critical/serious violations`, async ({
+  test(`[${scheme}] grid with a fixture open and the filter bar expanded has no unallowlisted critical/serious violations`, async ({
     page,
   }) => {
     test.setTimeout(120_000)
@@ -83,7 +140,12 @@ function defineScans(scheme: 'light' | 'dark'): void {
     await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
     await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
 
-    await scanAndGate(page, `grid (customers.csv, ${scheme})`, scheme)
+    // uxc-3: promote the expanded ux-4 filter bar into the durable scan. The
+    // helper expands the bar and asserts its builder, fragment, and rejection
+    // states are really visible (and the grid still populated) before scanning.
+    await expandFilterBarStates(page)
+
+    await scanAndGate(page, `grid + expanded filter bar (customers.csv, ${scheme})`, scheme)
   })
 
   test(`[${scheme}] expanded schema tree has no unallowlisted critical/serious violations`, async ({
