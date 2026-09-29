@@ -20,16 +20,18 @@
  * line/column), path errors echo the user's own path; raw engine error text
  * and dataset values never reach stderr.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { parseContract, describeContractError } from '@assay/contracts'
 import type { ContractError } from '@assay/contracts'
 import { compileContract, DEFAULT_SAMPLE_LIMIT, describeBindingError } from '@assay/validation'
 import type { BindingError } from '@assay/validation'
+import { bucketColumnCount, bucketFindingCount, bucketRowCount, bucketSize } from '@assay/telemetry'
 import { VALIDATION_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
 import { DATASET_VIEW, openConnection, PLAN_RELATION, registerDataset } from './connection.js'
 import type { CommandContext } from './context.js'
 import { CliError, usageError } from './errors.js'
 import type { CliExitCode } from './errors.js'
+import { durationSince, formatKindFromEngineFormat, validationOutcome } from './telemetry/emit.js'
 import { preparePlan, runValidationPlan } from './node-executor.js'
 import {
   buildValidationReport,
@@ -114,6 +116,7 @@ export async function runValidateCommand(
   options: ValidateOptions,
   context: CommandContext,
 ): Promise<CliExitCode> {
+  const startedAt = Date.now()
   const contractText = readContractText(options.contractPath)
   const parsed = parseContract(contractText)
   if (!parsed.ok) {
@@ -125,8 +128,21 @@ export async function runValidateCommand(
   let plan: EngineValidationPlan
   let result: EngineValidationResult
   let format: EngineFileFormat
+  let registeredColumns = 0
   try {
-    const registered = await registerDataset(conn, options.datasetPath)
+    let registered
+    try {
+      registered = await registerDataset(conn, options.datasetPath)
+    } catch (error) {
+      // `dataset_open_failed` (design §2/Appendix C): a closed reason enum.
+      context.telemetry?.emit('dataset_open_failed', {
+        dataset_role: 'primary',
+        format_kind: 'unknown',
+        reason_code: context.telemetry?.reasonFromError(error) ?? 'unknown',
+      })
+      throw error
+    }
+    registeredColumns = registered.schema.length
     const compiled = compileContract(parsed.contract, registered.schema, {
       relation: PLAN_RELATION,
       sampleLimit: options.sampleLimit,
@@ -157,6 +173,23 @@ export async function runValidateCommand(
     sampleLimitRequested: options.sampleLimit,
     sampleLimitEffective: Math.min(options.sampleLimit, VALIDATION_SAMPLE_HARD_MAX),
   }
+  // `dataset_opened` + `validation_run` (design §2/Appendix C): value-free
+  // buckets/counts only. Row count comes from the completed verdict.
+  context.telemetry?.emit('dataset_opened', {
+    dataset_role: 'primary',
+    format_kind: formatKindFromEngineFormat(format),
+    size_bucket: fileSizeBucket(options.datasetPath),
+    row_count_bucket: bucketRowCount(result.rowCount),
+    column_count_bucket: bucketColumnCount(registeredColumns),
+  })
+  context.telemetry?.emit('validation_run', {
+    checks_run: result.rules.length,
+    finding_count_bucket: bucketFindingCount(
+      result.rules.reduce((sum, rule) => sum + rule.failCount, 0),
+    ),
+    duration_bucket: durationSince(startedAt),
+    outcome: validationOutcome(report.valid),
+  })
   context.progress.done()
   context.out(
     options.format === 'json'
@@ -164,6 +197,15 @@ export async function runValidateCommand(
       : renderHumanReport(report, meta, context.style),
   )
   return report.valid ? 0 : 1
+}
+
+/** Size bucket for a path; an unreadable size degrades to `empty`. */
+function fileSizeBucket(path: string): ReturnType<typeof bucketSize> {
+  try {
+    return bucketSize(statSync(path).size)
+  } catch {
+    return 'empty'
+  }
 }
 
 /** Read the contract file (readable path error; size bounded for sanity). */

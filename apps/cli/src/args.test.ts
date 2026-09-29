@@ -33,4 +33,12 @@ describe('args — the total parser', () => {
     expect(invocation.positionals).toEqual(['--quiet', '-weird.csv'])
     expect(invocation.flags.quiet).toBe(false)
   })
+
+  it('parses --no-telemetry as a global boolean and refuses a value', () => {
+    expect(parseArgs(['profile', 'data.csv']).flags.noTelemetry).toBe(false)
+    const invocation = parseArgs(['profile', 'data.csv', '--no-telemetry'])
+    expect(invocation.flags.noTelemetry).toBe(true)
+    expect(invocation.positionals).toEqual(['data.csv'])
+    expect(() => parseArgs(['--no-telemetry=true'])).toThrow(CliError)
+  })
 })

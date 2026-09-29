@@ -19,6 +19,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EngineExportFormat, EngineExportResult } from '@assay/engine-duckdb'
 import { EXPORT_FORMATS, exportFormatInfo } from './formats'
+import { bucketRowCount } from '@assay/telemetry'
+import { useTelemetry } from '../telemetry/TelemetryContext'
+import { exportOutcome, targetFormat } from '../telemetry/emit'
 import {
   EXPORT_CANCELLED_MESSAGE,
   EXPORT_SAME_SOURCE_MESSAGE,
@@ -88,6 +91,8 @@ export function ExportDialog({
 }: ExportDialogProps) {
   const [selectedFormat, setSelectedFormat] = useState<EngineExportFormat>('parquet')
   const [phase, setPhase] = useState<ExportPhase>({ kind: 'idle' })
+  const telemetry = useTelemetry()
+  const startedAtRef = useRef<number | null>(null)
   const dialogRef = useRef<HTMLElement | null>(null)
   /**
    * Latest `onClose` in a ref so the mount effect below (initial focus, focus
@@ -197,6 +202,7 @@ export function ExportDialog({
 
   const run = async (): Promise<void> => {
     if (working) return
+    startedAtRef.current = Date.now()
     setPhase({ kind: 'working' })
     try {
       const destination = await requestDestination(selectedFormat)
@@ -205,6 +211,7 @@ export function ExportDialog({
         // failed. The engine export is never even attempted, so there is no
         // wasted materialization to explain.
         setPhase({ kind: 'cancelled' })
+        emitExport('cancelled', 0)
         return
       }
       if (destination.via === 'refused-source') {
@@ -212,14 +219,29 @@ export function ExportDialog({
         // the destination request — before any engine work and before any
         // byte write — so the source cannot be replaced by its own export.
         setPhase({ kind: 'refused' })
+        emitExport('refused', 0)
         return
       }
       const result = await runEngineExport(selectedFormat)
       const strategy = await writeCopy(destination, result)
       setPhase({ kind: 'result', result, strategy })
+      emitExport('result', result.rowCount)
     } catch (error) {
       setPhase({ kind: 'error', message: exportFailureMessage(error) })
+      emitExport('error', 0)
     }
+  }
+
+  /** `export_run` (design §2/Appendix C): format + coarse row bucket only. */
+  const emitExport = (
+    terminal: 'result' | 'cancelled' | 'refused' | 'error',
+    rowCount: number,
+  ): void => {
+    telemetry.emit('export_run', {
+      target_format: targetFormat(selectedFormat),
+      row_count_bucket: bucketRowCount(rowCount),
+      outcome: exportOutcome(terminal),
+    })
   }
 
   return (

@@ -11,6 +11,13 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 import { viewNameForTableId } from '@assay/engine-duckdb'
+import {
+  bucketColumnCount,
+  bucketFindingCount,
+  bucketRowCount,
+  bucketSize,
+  classifyOsFamily,
+} from '@assay/telemetry'
 import type { OverlayBase } from '@assay/domain'
 import { emptyHistory, liveRowCount, stateAtCursor } from '@assay/domain'
 import { GridViewportModel } from '@assay/grid'
@@ -53,6 +60,19 @@ import { useEditingSession } from './sessions/useEditingSession'
 import { useValidationSession } from './sessions/useValidationSession'
 import { useDiffSession } from './sessions/useDiffSession'
 import type { Phase, ScrollRequest } from './sessions/types'
+import { readWebTelemetryConfig } from './telemetry/config'
+import {
+  diffRunOutcome,
+  durationSince,
+  formatKindFromName,
+  reasonCodeFromError,
+  validationOutcome,
+} from './telemetry/emit'
+import { browserStorage, createWebTelemetry } from './telemetry/runtime'
+import type { WebTelemetryRuntime } from './telemetry/runtime'
+import { TelemetryProvider } from './telemetry/TelemetryContext'
+import { TelemetryDisclosure } from './telemetry/TelemetryDisclosure'
+import { TelemetrySettings } from './telemetry/TelemetrySettings'
 
 /**
  * Live summary line for the opened table (m2-3 row-count truth): the total
@@ -203,7 +223,28 @@ function WorkbenchSection({ id, children, disclosure = 'managed' }: WorkbenchSec
   )
 }
 
-export function App() {
+export interface AppProps {
+  /**
+   * Telemetry injection seam for tests. When omitted, `App` builds the
+   * build-configured runtime (inert in the stock build: no endpoint).
+   */
+  readonly telemetry?: WebTelemetryRuntime
+}
+
+export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
+  const telemetryConfig = useMemo(() => readWebTelemetryConfig(), [])
+  const telemetry = useMemo(
+    () =>
+      injectedTelemetry ??
+      createWebTelemetry({ config: telemetryConfig, storage: browserStorage() }),
+    [injectedTelemetry, telemetryConfig],
+  )
+  /**
+   * First-run disclosure visibility. The runtime only reports `true` when
+   * telemetry would otherwise be active (endpoint configured AND not opted
+   * out) and the per-install marker is absent (design §6.3).
+   */
+  const [disclosureOpen, setDisclosureOpen] = useState(() => telemetry.shouldShowDisclosure())
   /**
    * f-1: dataset-session epoch + reset registry. `beginSession` bumps the
    * shared token and runs every per-domain reset, so `openDataFile` no longer
@@ -394,6 +435,8 @@ export function App() {
    * released per-action without an engine change (boundary rule §7.4).
    */
   const disposeRequested = useRef(false)
+  /** Guards `app_boot` against React StrictMode's double mount effect. */
+  const appBootEmittedRef = useRef(false)
   useEffect(() => {
     const disposeEngine = (): void => {
       if (disposeRequested.current) return
@@ -407,6 +450,34 @@ export function App() {
       window.removeEventListener('pagehide', disposeEngine)
     }
   }, [])
+
+  /**
+   * Telemetry: `app_boot` once per boot, after the opt-out + endpoint gates
+   * (design §2/Appendix C), plus a fire-and-forget exit flush. `os_family` is
+   * a coarse enum; the raw platform string never leaves this expression
+   * (ADR 0025/D8). The exit flush uses `keepalive` and never blocks unload
+   * (R9).
+   */
+  useEffect(() => {
+    // StrictMode runs mount effects twice in development; emit `app_boot`
+    // exactly once per App instance (the ref survives the double-invoke).
+    if (!appBootEmittedRef.current) {
+      appBootEmittedRef.current = true
+      telemetry.emit('app_boot', {
+        engine_family: 'duckdb_wasm',
+        os_family: classifyOsFamily(typeof navigator === 'undefined' ? '' : navigator.userAgent),
+        build_channel: telemetryConfig.buildChannel,
+      })
+    }
+    const flushOnExit = (): void => {
+      void telemetry.flush()
+    }
+    window.addEventListener('pagehide', flushOnExit)
+    return () => {
+      window.removeEventListener('pagehide', flushOnExit)
+      telemetry.dispose()
+    }
+  }, [telemetry, telemetryConfig])
 
   /**
    * Subscribe to the model slices App renders from so schema re-keys after a
@@ -440,6 +511,109 @@ export function App() {
     },
     [phase, nestedSpecs],
   )
+
+  /**
+   * `validation_run` (design §2/Appendix C): emitted once a run settles —
+   * verdict, binding error, engine failure, or abort. The duration is
+   * measured from the `running` transition; the counts are value-free (rule
+   * count + coarse finding bucket), never rule/column text (ADR 0025).
+   */
+  const validationStartedAtRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (validationRun.kind === 'running') {
+      validationStartedAtRef.current = Date.now()
+      return
+    }
+    if (validationRun.kind === 'idle') {
+      validationStartedAtRef.current = null
+      return
+    }
+    const startedAt = validationStartedAtRef.current ?? Date.now()
+    validationStartedAtRef.current = null
+    const report = validationRun.kind === 'verdict' ? validationRun.report : null
+    telemetry.emit('validation_run', {
+      checks_run: report?.rows.length ?? 0,
+      finding_count_bucket: bucketFindingCount(
+        report?.rows.reduce((sum, row) => sum + row.failCount, 0) ?? 0,
+      ),
+      duration_bucket: durationSince(startedAt),
+      outcome: validationOutcome(validationRun),
+    })
+  }, [validationRun, telemetry])
+
+  /**
+   * `diff_run` (design §2/Appendix C): emitted once a diff settles. Only the
+   * `key_mode` enum (how keys were chosen) is sent — never the key column
+   * names (ADR 0025/R4).
+   */
+  const diffStartedAtRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (diffRun.kind === 'running') {
+      diffStartedAtRef.current = Date.now()
+      return
+    }
+    if (diffRun.kind === 'idle') {
+      diffStartedAtRef.current = null
+      return
+    }
+    const startedAt = diffStartedAtRef.current ?? Date.now()
+    diffStartedAtRef.current = null
+    telemetry.emit('diff_run', {
+      aspects_count: diffRun.kind === 'result' ? 3 : 0,
+      key_mode:
+        diffRun.kind === 'result'
+          ? diffRun.report.keySource === 'inferred'
+            ? 'inferred'
+            : 'explicit'
+          : 'none',
+      duration_bucket: durationSince(startedAt),
+      outcome: diffRunOutcome(diffRun),
+    })
+  }, [diffRun, telemetry])
+
+  /**
+   * `query_run` for the grid's filter/sort paths (design §2/Appendix C). The
+   * grid model's filter/sort state is the app-level seam the grid internals
+   * expose; row counts come from the model and durations are the client
+   * settle time (the engine fetch completion is not observed here — a
+   * recorded t-2 carry-over). SQL/nested/paging `query_run` are emitted from
+   * the SQL pane where the run actually settles.
+   */
+  const queryObserverRef = useRef<{
+    readonly model: GridViewportModel | null
+    readonly filters: readonly unknown[]
+    readonly sort: unknown
+  }>({ model: null, filters: [], sort: null })
+  useEffect(() => {
+    if (activeModel === null) {
+      queryObserverRef.current = { model: null, filters: [], sort: null }
+      return
+    }
+    const previous = queryObserverRef.current
+    if (previous.model !== activeModel) {
+      queryObserverRef.current = { model: activeModel, filters: modelFilters, sort: modelSort }
+      return
+    }
+    if (modelFilters !== previous.filters) {
+      queryObserverRef.current = { model: activeModel, filters: modelFilters, sort: modelSort }
+      telemetry.emit('query_run', {
+        query_kind: 'filter',
+        row_count_bucket: bucketRowCount(activeModel.totalRows ?? 0),
+        duration_bucket: durationSince(Date.now()),
+        outcome: 'success',
+      })
+      return
+    }
+    if (modelSort !== previous.sort) {
+      queryObserverRef.current = { model: activeModel, filters: modelFilters, sort: modelSort }
+      telemetry.emit('query_run', {
+        query_kind: 'sort',
+        row_count_bucket: bucketRowCount(activeModel.totalRows ?? 0),
+        duration_bucket: durationSince(Date.now()),
+        outcome: 'success',
+      })
+    }
+  }, [activeModel, modelFilters, modelSort, telemetry])
 
   const handleRecordClosed = useCallback(() => {
     setRecordRequest(null)
@@ -548,286 +722,317 @@ export function App() {
       if (datasetSession.tokenRef.current !== session) return
       setPanelModules(panels)
       setPhase({ kind: 'ready', model, tableId: handle.id, handle, base, provider })
+      // `dataset_opened` (design §2/Appendix C): role/format/size/row/column
+      // buckets only — the file name is read for its extension and discarded
+      // (ADR 0025). The runtime enforces the 50-per-session cap.
+      telemetry.emit('dataset_opened', {
+        dataset_role: 'primary',
+        format_kind: formatKindFromName(file.name),
+        size_bucket: bucketSize(file.size),
+        row_count_bucket: bucketRowCount(baseRowCount),
+        column_count_bucket: bucketColumnCount(baseSchema.length),
+      })
     } catch (error) {
       // A stale chain must not surface its failure over the newer phase.
       if (datasetSession.tokenRef.current !== session) return
+      // `dataset_open_failed` (design §2/Appendix C): a closed reason enum
+      // only; the error message/stack are never attached (ADR 0025/R3).
+      telemetry.emit('dataset_open_failed', {
+        dataset_role: 'primary',
+        format_kind: 'unknown',
+        reason_code: reasonCodeFromError(error),
+      })
       setPhase({
         kind: 'error',
         message: error instanceof Error ? error.message : String(error),
       })
     }
-  }, [datasetSession, historyRef, overlayRef])
+  }, [datasetSession, historyRef, overlayRef, telemetry])
 
   return (
-    <main>
-      <h1>{APP_NAME}</h1>
-      <p>{TAGLINE}</p>
-
-      <section data-testid="open-flow">
-        <button
-          type="button"
-          data-testid="open-button"
-          onClick={() => {
-            void openDataFile()
-          }}
-          disabled={phase.kind === 'opening'}
-        >
-          Open a data file…
-        </button>{' '}
-        <span data-testid="open-status" data-phase={phase.kind}>
-          {openStatusCopy(phase.kind)}
-        </span>
-        <span
-          className="visually-hidden"
-          role="status"
-          aria-atomic="true"
-          data-testid="open-live-region"
-        >
-          {openAnnouncement === null ? null : (
-            <span key={openAnnouncement.seq}>{openAnnouncement.text}</span>
-          )}
-        </span>
-        {phase.kind === 'error' && (
-          <p data-testid="open-error" role="alert">
-            {phase.message}
-          </p>
+    <TelemetryProvider runtime={telemetry}>
+      <main>
+        <h1>{APP_NAME}</h1>
+        <p>{TAGLINE}</p>
+        <TelemetrySettings />
+        {disclosureOpen && (
+          <TelemetryDisclosure
+            onDismiss={() => {
+              setDisclosureOpen(false)
+            }}
+          />
         )}
-        {phase.kind === 'ready' && <LiveTableInfo model={phase.model} />}
-      </section>
 
-      {phase.kind === 'ready' ? (
-        <>
-          {/*
-           * ux-6: sticky section nav. In-page anchor links only (native
-           * focusability, no custom key handling, no focus trap); every target
-           * section carries `scroll-margin-top` so the pinned nav never
-           * obscures the focused/anchored section. Listed in DOM order from the
-           * ONE order list above.
-           */}
-          <nav className="workbench-nav" aria-label="Workbench sections" data-testid="section-nav">
-            <ul className="workbench-nav-list">
-              {WORKBENCH_SECTIONS.map((section) => (
-                <li key={section.id}>
-                  <a
-                    className="workbench-nav-link"
-                    href={`#section-${section.id}`}
-                    data-testid={`section-nav-${section.id}`}
-                  >
-                    {section.title}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-          {actionError !== null && (
-            <p className="nested-action-error" role="alert" data-testid="nested-action-error">
-              {actionError}
-            </p>
-          )}
-          <WorkbenchSection id="schema" disclosure="inner">
-            <MemoSchemaPanel
-              columns={schemaColumns}
-              onAction={runNestedAction}
-              onRenameColumn={handleRenameColumn}
-              onCastColumn={handleCastColumn}
-              castPendingColumn={castPendingColumn}
-            />
-          </WorkbenchSection>
-          {/**
-           * Slice-1 placement (ux-6): the grid is hoisted to render immediately
-           * after the first/open section, above every tool panel. Rendering
-           * position only — the same mounted grid, same model, same fetch
-           * behavior (the body stays mounted even when collapsed).
-           */}
-          <WorkbenchSection id="grid">
-            <ErrorBoundary scope="grid">
-              <DataGrid
-                model={phase.model}
-                overlayState={overlayState}
-                scrollRequest={scrollRequest}
-                onCommitCell={handleCommitCell}
-                onDeleteRow={handleDeleteRow}
-                onEditAnnounce={announceEdit}
-                onOpenRecord={(rowIndex) => {
-                  setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
-                }}
-                onNestedAction={runNestedAction}
-              />
-            </ErrorBoundary>
-          </WorkbenchSection>
-          <WorkbenchSection id="editing">
-            <EditToolbar
-              onInsertRow={handleInsertRow}
-              pendingSummary={pendingChangesSummary(activeOps(history))}
-              error={editError}
-            />
-          </WorkbenchSection>
-          {/*
-           * q-3: the ONE polite live region for grid edit outcomes. Commit
-           * success and every value-free rejection (client validation reason
-           * or the q-8 engine materialization class) announce here; the
-           * visible `edit-error`/`grid-edit-error` text is not itself a live
-           * region. `seq` remounts the text node so repeated announcements
-           * still fire. Never carries a cell value (ADR 0025). Kept OUTSIDE the
-           * collapsible section bodies so collapsing a section never mutes an
-           * announcement.
-           */}
+        <section data-testid="open-flow">
+          <button
+            type="button"
+            data-testid="open-button"
+            onClick={() => {
+              void openDataFile()
+            }}
+            disabled={phase.kind === 'opening'}
+          >
+            Open a data file…
+          </button>{' '}
+          <span data-testid="open-status" data-phase={phase.kind}>
+            {openStatusCopy(phase.kind)}
+          </span>
           <span
             className="visually-hidden"
-            aria-live="polite"
+            role="status"
             aria-atomic="true"
-            data-testid="edit-live-region"
+            data-testid="open-live-region"
           >
-            {editAnnouncement === null ? null : (
-              <span key={editAnnouncement.seq}>{editAnnouncement.text}</span>
+            {openAnnouncement === null ? null : (
+              <span key={openAnnouncement.seq}>{openAnnouncement.text}</span>
             )}
           </span>
-          <WorkbenchSection id="export">
-            <section className="export-actions" aria-label="Export">
-              <h2 className="visually-hidden">Export</h2>
-              <button
-                type="button"
-                className="export-open"
-                data-testid="export-open"
-                onClick={() => {
-                  setExportOpen(true)
-                }}
-              >
-                Export a copy…
-              </button>
-              {exportOpen && (
-                <ExportDialog
-                  // The effective (unfiltered) count at the history cursor —
-                  // never the grid's filtered `totalRows` (m4-5 review
-                  // finding): `exportView` exports every row in natural order.
-                  // The memo is null only pre-ready; this branch is ready.
-                  rowCount={liveRowCount(
-                    phase.base,
-                    overlayState ?? stateAtCursor(phase.base, history),
-                  )}
-                  // Filtering and sorting tracked separately (m4-5 fix
-                  // round 2): a sort-only view must not claim a "filtered
-                  // subset"; the dialog describes only the active state.
-                  viewFiltered={modelFilters.length > 0}
-                  viewSorted={modelSort !== null}
-                  runEngineExport={runExport}
-                  requestDestination={requestExportDestination}
-                  writeCopy={deliverExportCopy}
-                  onClose={() => {
-                    setExportOpen(false)
-                  }}
-                />
-              )}
-            </section>
-          </WorkbenchSection>
-          {viewError && (
-            <p className="edit-view-error" role="alert" data-testid="view-error">
-              The grid could not be restored to a trustworthy view.{' '}
-              <button
-                type="button"
-                data-testid="view-retry"
-                onClick={() => {
-                  void retryView()
-                }}
-              >
-                Retry loading the view
-              </button>
+          {phase.kind === 'error' && (
+            <p data-testid="open-error" role="alert">
+              {phase.message}
             </p>
           )}
-          <WorkbenchSection id="history">
-            <HistoryPanel
-              entries={history.entries}
-              cursor={history.cursor}
-              onSelectCursor={handleSelectCursor}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-            />
-          </WorkbenchSection>
-          {/*
-           * Placement (m5-3): the validation panel's sample lists and filter
-           * control drive the grid above it, and its verdicts track the
-           * editing before it. Slice 1 keeps it a collapsible section in the
-           * stack.
-           */}
-          <WorkbenchSection id="validation">
-            {panelModules === null ? null : (
-              <panelModules.ValidationPanel
-                contractState={contractState}
-                runState={validationRun}
-                stale={validationStale}
-                jumpError={jumpError}
-                filterError={filterToFailuresError}
-                onContractFile={handleContractFile}
-                onValidate={handleValidate}
-                onCancelValidate={handleCancelValidate}
-                onJumpToSample={handleJumpToSample}
-                onFilterToFailures={handleFilterToFailures}
-                requestReportDestination={requestReportDestinationForPanel}
-                deliverReportCopy={writeReportCopy}
+          {phase.kind === 'ready' && <LiveTableInfo model={phase.model} />}
+        </section>
+
+        {phase.kind === 'ready' ? (
+          <>
+            {/*
+             * ux-6: sticky section nav. In-page anchor links only (native
+             * focusability, no custom key handling, no focus trap); every target
+             * section carries `scroll-margin-top` so the pinned nav never
+             * obscures the focused/anchored section. Listed in DOM order from the
+             * ONE order list above.
+             */}
+            <nav
+              className="workbench-nav"
+              aria-label="Workbench sections"
+              data-testid="section-nav"
+            >
+              <ul className="workbench-nav-list">
+                {WORKBENCH_SECTIONS.map((section) => (
+                  <li key={section.id}>
+                    <a
+                      className="workbench-nav-link"
+                      href={`#section-${section.id}`}
+                      data-testid={`section-nav-${section.id}`}
+                    >
+                      {section.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+            {actionError !== null && (
+              <p className="nested-action-error" role="alert" data-testid="nested-action-error">
+                {actionError}
+              </p>
+            )}
+            <WorkbenchSection id="schema" disclosure="inner">
+              <MemoSchemaPanel
+                columns={schemaColumns}
+                onAction={runNestedAction}
+                onRenameColumn={handleRenameColumn}
+                onCastColumn={handleCastColumn}
+                castPendingColumn={castPendingColumn}
               />
-            )}
-          </WorkbenchSection>
-          {/*
-           * Placement (m6-4): the comparison panel sits beside the validation
-           * panel — both drive the grid above (diff samples jump A-side rows)
-           * and both track the editing before them (verdict freshness). Schema
-           * drift and distribution deltas render before the key-selection
-           * control, so a row diff can never run before the schema-level view
-           * is visible.
-           */}
-          <WorkbenchSection id="compare">
-            {panelModules === null ? null : (
-              <panelModules.DiffPanel
-                comparison={comparisonState}
-                runState={diffRun}
-                stale={diffStale}
-                jumpError={diffJumpError}
-                onComparisonFile={handleComparisonFile}
-                onRunDiff={handleRunDiff}
-                onCancelDiff={handleCancelDiff}
-                onJumpToSample={handleJumpToDiffSample}
-                requestReportDestination={requestDiffReportDestinationForPanel}
-                deliverReportCopy={writeDiffReportCopy}
+            </WorkbenchSection>
+            {/**
+             * Slice-1 placement (ux-6): the grid is hoisted to render immediately
+             * after the first/open section, above every tool panel. Rendering
+             * position only — the same mounted grid, same model, same fetch
+             * behavior (the body stays mounted even when collapsed).
+             */}
+            <WorkbenchSection id="grid">
+              <ErrorBoundary scope="grid">
+                <DataGrid
+                  model={phase.model}
+                  overlayState={overlayState}
+                  scrollRequest={scrollRequest}
+                  onCommitCell={handleCommitCell}
+                  onDeleteRow={handleDeleteRow}
+                  onEditAnnounce={announceEdit}
+                  onOpenRecord={(rowIndex) => {
+                    setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
+                  }}
+                  onNestedAction={runNestedAction}
+                />
+              </ErrorBoundary>
+            </WorkbenchSection>
+            <WorkbenchSection id="editing">
+              <EditToolbar
+                onInsertRow={handleInsertRow}
+                pendingSummary={pendingChangesSummary(activeOps(history))}
+                error={editError}
               />
+            </WorkbenchSection>
+            {/*
+             * q-3: the ONE polite live region for grid edit outcomes. Commit
+             * success and every value-free rejection (client validation reason
+             * or the q-8 engine materialization class) announce here; the
+             * visible `edit-error`/`grid-edit-error` text is not itself a live
+             * region. `seq` remounts the text node so repeated announcements
+             * still fire. Never carries a cell value (ADR 0025). Kept OUTSIDE the
+             * collapsible section bodies so collapsing a section never mutes an
+             * announcement.
+             */}
+            <span
+              className="visually-hidden"
+              aria-live="polite"
+              aria-atomic="true"
+              data-testid="edit-live-region"
+            >
+              {editAnnouncement === null ? null : (
+                <span key={editAnnouncement.seq}>{editAnnouncement.text}</span>
+              )}
+            </span>
+            <WorkbenchSection id="export">
+              <section className="export-actions" aria-label="Export">
+                <h2 className="visually-hidden">Export</h2>
+                <button
+                  type="button"
+                  className="export-open"
+                  data-testid="export-open"
+                  onClick={() => {
+                    setExportOpen(true)
+                  }}
+                >
+                  Export a copy…
+                </button>
+                {exportOpen && (
+                  <ExportDialog
+                    // The effective (unfiltered) count at the history cursor —
+                    // never the grid's filtered `totalRows` (m4-5 review
+                    // finding): `exportView` exports every row in natural order.
+                    // The memo is null only pre-ready; this branch is ready.
+                    rowCount={liveRowCount(
+                      phase.base,
+                      overlayState ?? stateAtCursor(phase.base, history),
+                    )}
+                    // Filtering and sorting tracked separately (m4-5 fix
+                    // round 2): a sort-only view must not claim a "filtered
+                    // subset"; the dialog describes only the active state.
+                    viewFiltered={modelFilters.length > 0}
+                    viewSorted={modelSort !== null}
+                    runEngineExport={runExport}
+                    requestDestination={requestExportDestination}
+                    writeCopy={deliverExportCopy}
+                    onClose={() => {
+                      setExportOpen(false)
+                    }}
+                  />
+                )}
+              </section>
+            </WorkbenchSection>
+            {viewError && (
+              <p className="edit-view-error" role="alert" data-testid="view-error">
+                The grid could not be restored to a trustworthy view.{' '}
+                <button
+                  type="button"
+                  data-testid="view-retry"
+                  onClick={() => {
+                    void retryView()
+                  }}
+                >
+                  Retry loading the view
+                </button>
+              </p>
             )}
-          </WorkbenchSection>
-          <WorkbenchSection id="filters" disclosure="inner">
-            <FilterBar model={phase.model} />
-          </WorkbenchSection>
-          {/**
-           * Placement (m3-3): directly under the grid it inspects. It stays a
-           * section in the slice-1 stack (its dock is slice 2); its
-           * open/close semantics are unchanged.
-           */}
-          <WorkbenchSection id="record">
-            <MemoRecordInspector
-              model={phase.model}
-              request={recordRequest}
-              overlayRevision={overlayRevision}
-              onClosed={handleRecordClosed}
-            />
-          </WorkbenchSection>
-          <WorkbenchSection id="sql">
-            {panelModules === null ? null : (
-              <panelModules.SqlPanel tableId={phase.tableId} runRequest={sqlRequest} />
-            )}
-          </WorkbenchSection>
-          <WorkbenchSection id="profile" disclosure="inner">
-            {panelModules === null ? null : <panelModules.ProfilePanel handle={phase.handle} />}
-          </WorkbenchSection>
-        </>
-      ) : (
-        <>
-          <p>{SCAFFOLD_STATUS}</p>
-          <p>
-            Next: <strong>{NEXT_MILESTONE}</strong>
-          </p>
-          <p>
-            Documentation lives in <code>docs/</code> — start with{' '}
-            <code>docs/process/handoff.md</code>.
-          </p>
-        </>
-      )}
-    </main>
+            <WorkbenchSection id="history">
+              <HistoryPanel
+                entries={history.entries}
+                cursor={history.cursor}
+                onSelectCursor={handleSelectCursor}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+              />
+            </WorkbenchSection>
+            {/*
+             * Placement (m5-3): the validation panel's sample lists and filter
+             * control drive the grid above it, and its verdicts track the
+             * editing before it. Slice 1 keeps it a collapsible section in the
+             * stack.
+             */}
+            <WorkbenchSection id="validation">
+              {panelModules === null ? null : (
+                <panelModules.ValidationPanel
+                  contractState={contractState}
+                  runState={validationRun}
+                  stale={validationStale}
+                  jumpError={jumpError}
+                  filterError={filterToFailuresError}
+                  onContractFile={handleContractFile}
+                  onValidate={handleValidate}
+                  onCancelValidate={handleCancelValidate}
+                  onJumpToSample={handleJumpToSample}
+                  onFilterToFailures={handleFilterToFailures}
+                  requestReportDestination={requestReportDestinationForPanel}
+                  deliverReportCopy={writeReportCopy}
+                />
+              )}
+            </WorkbenchSection>
+            {/*
+             * Placement (m6-4): the comparison panel sits beside the validation
+             * panel — both drive the grid above (diff samples jump A-side rows)
+             * and both track the editing before them (verdict freshness). Schema
+             * drift and distribution deltas render before the key-selection
+             * control, so a row diff can never run before the schema-level view
+             * is visible.
+             */}
+            <WorkbenchSection id="compare">
+              {panelModules === null ? null : (
+                <panelModules.DiffPanel
+                  comparison={comparisonState}
+                  runState={diffRun}
+                  stale={diffStale}
+                  jumpError={diffJumpError}
+                  onComparisonFile={handleComparisonFile}
+                  onRunDiff={handleRunDiff}
+                  onCancelDiff={handleCancelDiff}
+                  onJumpToSample={handleJumpToDiffSample}
+                  requestReportDestination={requestDiffReportDestinationForPanel}
+                  deliverReportCopy={writeDiffReportCopy}
+                />
+              )}
+            </WorkbenchSection>
+            <WorkbenchSection id="filters" disclosure="inner">
+              <FilterBar model={phase.model} />
+            </WorkbenchSection>
+            {/**
+             * Placement (m3-3): directly under the grid it inspects. It stays a
+             * section in the slice-1 stack (its dock is slice 2); its
+             * open/close semantics are unchanged.
+             */}
+            <WorkbenchSection id="record">
+              <MemoRecordInspector
+                model={phase.model}
+                request={recordRequest}
+                overlayRevision={overlayRevision}
+                onClosed={handleRecordClosed}
+              />
+            </WorkbenchSection>
+            <WorkbenchSection id="sql">
+              {panelModules === null ? null : (
+                <panelModules.SqlPanel tableId={phase.tableId} runRequest={sqlRequest} />
+              )}
+            </WorkbenchSection>
+            <WorkbenchSection id="profile" disclosure="inner">
+              {panelModules === null ? null : <panelModules.ProfilePanel handle={phase.handle} />}
+            </WorkbenchSection>
+          </>
+        ) : (
+          <>
+            <p>{SCAFFOLD_STATUS}</p>
+            <p>
+              Next: <strong>{NEXT_MILESTONE}</strong>
+            </p>
+            <p>
+              Documentation lives in <code>docs/</code> — start with{' '}
+              <code>docs/process/handoff.md</code>.
+            </p>
+          </>
+        )}
+      </main>
+    </TelemetryProvider>
   )
 }

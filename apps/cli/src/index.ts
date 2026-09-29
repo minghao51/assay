@@ -24,6 +24,7 @@ import { CliError } from './errors.js'
 import type { CliExitCode } from './errors.js'
 import { createProgressReporter } from './progress.js'
 import { createReportStyle, shouldUseColor } from './style.js'
+import type { CliEnv } from './telemetry/config.js'
 import { readCliVersion } from './version.js'
 
 const VERSION = readCliVersion()
@@ -51,6 +52,8 @@ export function helpText(): string {
     '                      on stdout (human or JSON) is unchanged. Progress is',
     '                      written only when stderr is a terminal, so piped',
     '                      runs are already quiet.',
+    '  --no-telemetry      opt out of anonymous usage metadata for this',
+    '                      invocation (also available via ASSAY_NO_TELEMETRY)',
     '  --version           print the version (read from package.json)',
     '  --help              show this help',
     '',
@@ -129,6 +132,15 @@ export async function main(argv: readonly string[], io: CliIo = processIo()): Pr
     io.stdout.write(helpText())
     return invocation.flags.help || invocation.command === 'help' ? 0 : 2
   }
+  // Load the telemetry runtime lazily so `--help`/`--version` never pull in a
+  // workspace package at runtime (ADR 0042: the built entry runs under plain
+  // node with no TS loader).
+  const { createCliTelemetry } = await import('./telemetry/runtime.js')
+  const telemetry = createCliTelemetry({
+    env: io.env as CliEnv,
+    flagNoTelemetry: invocation.flags.noTelemetry,
+    stderr: io.stderr,
+  })
   // One context per run: stdout is the byte-stable report sink, human
   // styling follows the stdout TTY policy, and progress follows stderr/quiet.
   const context: CommandContext = {
@@ -137,44 +149,53 @@ export async function main(argv: readonly string[], io: CliIo = processIo()): Pr
     },
     style: createReportStyle(shouldUseColor({ isTTY: io.stdout.isTTY === true, env: io.env })),
     progress: createProgressReporter({ stream: io.stderr, quiet: invocation.flags.quiet }),
+    telemetry,
   }
-  if (invocation.command === 'validate') {
-    const { runValidateCommand, resolveValidateOptions } = await import('./validate.js')
-    const options = resolveValidateOptions({
-      contract: invocation.flags.contract,
-      format: invocation.flags.format,
-      sampleLimit: invocation.flags.sampleLimit,
-      keys: invocation.flags.keys,
-      infer: invocation.flags.infer,
-      positionals: invocation.positionals,
-    })
-    return runValidateCommand(options, context)
+  // The first-run disclosure (stderr only) and `app_boot` are emitted before
+  // the command runs, and never for `--help`/`--version` (design §6.3).
+  telemetry.start()
+  try {
+    if (invocation.command === 'validate') {
+      const { runValidateCommand, resolveValidateOptions } = await import('./validate.js')
+      const options = resolveValidateOptions({
+        contract: invocation.flags.contract,
+        format: invocation.flags.format,
+        sampleLimit: invocation.flags.sampleLimit,
+        keys: invocation.flags.keys,
+        infer: invocation.flags.infer,
+        positionals: invocation.positionals,
+      })
+      return await runValidateCommand(options, context)
+    }
+    if (invocation.command === 'diff') {
+      const { runDiffCommand, resolveDiffOptions } = await import('./diff.js')
+      const options = resolveDiffOptions({
+        keys: invocation.flags.keys,
+        infer: invocation.flags.infer,
+        contract: invocation.flags.contract,
+        format: invocation.flags.format,
+        sampleLimit: invocation.flags.sampleLimit,
+        positionals: invocation.positionals,
+      })
+      return await runDiffCommand(options, context)
+    }
+    if (invocation.command === 'profile') {
+      const { runProfileCommand, resolveProfileOptions } = await import('./profile.js')
+      const options = resolveProfileOptions({
+        contract: invocation.flags.contract,
+        format: invocation.flags.format,
+        sampleLimit: invocation.flags.sampleLimit,
+        keys: invocation.flags.keys,
+        infer: invocation.flags.infer,
+        positionals: invocation.positionals,
+      })
+      return await runProfileCommand(options, context)
+    }
+    throw new CliError(2, `unknown command '${invocation.command}' (see --help)`)
+  } finally {
+    // Bounded exit flush (design §8.3); never blocks past the budget (R9).
+    await telemetry.flush()
   }
-  if (invocation.command === 'diff') {
-    const { runDiffCommand, resolveDiffOptions } = await import('./diff.js')
-    const options = resolveDiffOptions({
-      keys: invocation.flags.keys,
-      infer: invocation.flags.infer,
-      contract: invocation.flags.contract,
-      format: invocation.flags.format,
-      sampleLimit: invocation.flags.sampleLimit,
-      positionals: invocation.positionals,
-    })
-    return runDiffCommand(options, context)
-  }
-  if (invocation.command === 'profile') {
-    const { runProfileCommand, resolveProfileOptions } = await import('./profile.js')
-    const options = resolveProfileOptions({
-      contract: invocation.flags.contract,
-      format: invocation.flags.format,
-      sampleLimit: invocation.flags.sampleLimit,
-      keys: invocation.flags.keys,
-      infer: invocation.flags.infer,
-      positionals: invocation.positionals,
-    })
-    return runProfileCommand(options, context)
-  }
-  throw new CliError(2, `unknown command '${invocation.command}' (see --help)`)
 }
 
 /**

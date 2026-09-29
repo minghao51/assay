@@ -3,9 +3,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { viewNameForTableId } from '@assay/engine-duckdb'
+import { bucketRowCount } from '@assay/telemetry'
+import type { QueryKind } from '@assay/telemetry'
 import { formatCell } from '../grid/format'
 import { projectBatchToRows } from '../grid/provider'
 import { engineClient } from '../lib/engine'
+import { useTelemetry } from '../telemetry/TelemetryContext'
+import { durationSince } from '../telemetry/emit'
 import { SQL_PAGE_SIZE, composePageQuery, resultColumnNames, summarizePage } from './paged-query'
 import { RunGuard } from './run-guard'
 import { runGuarded } from './guarded-run'
@@ -86,11 +90,13 @@ function errorMessage(error: unknown): string {
 
 export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
   const sqlTable = viewNameForTableId(tableId)
+  const telemetry = useTelemetry()
   const [draft, setDraft] = useState('')
   const [runState, setRunState] = useState<RunState>({ kind: 'idle' })
   const [page, setPage] = useState<PageResult | null>(null)
   const lastRunSql = useRef<string | null>(null)
   const guard = useRef(new RunGuard())
+  const startedAtRef = useRef<number | null>(null)
 
   const running = runState.kind === 'running'
   const runnable = composePageQuery(draft, { limit: SQL_PAGE_SIZE, offset: 0 }).ok
@@ -102,36 +108,52 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
    * superseded run's late result/rejection is discarded and can never
    * clobber the pane's current state.
    */
-  const execute = (userSql: string, offset: number): void => {
+  const execute = (userSql: string, offset: number, kind: QueryKind): void => {
     const composed = composePageQuery(userSql, { limit: SQL_PAGE_SIZE, offset })
     if (!composed.ok) {
       setRunState({ kind: 'error', message: composed.reason })
       return
     }
     lastRunSql.current = userSql
+    startedAtRef.current = Date.now()
     setRunState({ kind: 'running' })
     setPage(null)
     runGuarded(guard.current, engineClient.query(composed.sql), {
       onResult: (result) => {
+        const rows = projectBatchToRows(result.batch)
         setPage({
           columns: resultColumnNames(result.batch),
-          rows: projectBatchToRows(result.batch),
+          rows,
           offset,
           truncatedInTransport: result.hasMore,
         })
         setRunState({ kind: 'done' })
+        // `query_run` (design §2/Appendix C): entry-point class + coarse
+        // buckets only; SQL text and result cells never reach the payload.
+        telemetry.emit('query_run', {
+          query_kind: kind,
+          row_count_bucket: bucketRowCount(rows.length),
+          duration_bucket: durationSince(startedAtRef.current ?? Date.now()),
+          outcome: 'success',
+        })
       },
       onError: (cause: unknown) => {
         // Engine errors (EngineQueryError & co.) surface as readable alert
         // text; the pane (and engine) stay usable for the next run.
         setRunState({ kind: 'error', message: errorMessage(cause) })
+        telemetry.emit('query_run', {
+          query_kind: kind,
+          row_count_bucket: 'zero',
+          duration_bucket: durationSince(startedAtRef.current ?? Date.now()),
+          outcome: 'error',
+        })
       },
     })
   }
 
   const run = (): void => {
     if (running) return
-    execute(draft, 0) // a fresh Run always starts at the first page
+    execute(draft, 0, 'user_sql') // a fresh Run always starts at the first page
   }
 
   /**
@@ -148,18 +170,24 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
   useEffect(() => {
     if (runRequest === null) return
     setDraft(runRequest.sql)
-    executeRef.current(runRequest.sql, 0)
+    executeRef.current(runRequest.sql, 0, 'nested_action')
   }, [runRequest])
 
   const cancel = (): void => {
     if (!running) return
     guard.current.invalidate() // the abandoned run's late result never renders
     setRunState({ kind: 'cancelled' })
+    telemetry.emit('query_run', {
+      query_kind: 'user_sql',
+      row_count_bucket: 'zero',
+      duration_bucket: durationSince(startedAtRef.current ?? Date.now()),
+      outcome: 'cancelled',
+    })
   }
 
   const pageBy = (delta: number): void => {
     if (running || page === null || lastRunSql.current === null) return
-    execute(lastRunSql.current, page.offset + delta * SQL_PAGE_SIZE)
+    execute(lastRunSql.current, page.offset + delta * SQL_PAGE_SIZE, 'paging')
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {

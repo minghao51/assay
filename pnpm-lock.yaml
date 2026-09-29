@@ -101,6 +101,9 @@ importers:
       '@assay/engine-duckdb':
         specifier: workspace:*
         version: link:../../packages/engine-duckdb
+      '@assay/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
       '@assay/validation':
         specifier: workspace:*
         version: link:../../packages/validation
@@ -146,6 +149,9 @@ importers:
       '@assay/grid':
         specifier: workspace:*
         version: link:../../packages/grid
+      '@assay/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
       '@assay/validation':
         specifier: workspace:*
         version: link:../../packages/validation

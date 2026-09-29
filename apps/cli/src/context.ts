@@ -11,6 +11,7 @@
  */
 import type { ProgressReporter } from './progress.js'
 import type { ReportStyle } from './style.js'
+import type { CliTelemetry } from './telemetry/runtime.js'
 
 /** The output surfaces for one CLI run. */
 export interface CommandContext {
@@ -20,4 +21,9 @@ export interface CommandContext {
   readonly style: ReportStyle
   /** stderr progress (a no-op unless interactive and not `--quiet`). */
   readonly progress: ProgressReporter
+  /**
+   * Telemetry emission surface (design §2). Optional: tests that construct a
+   * context directly may omit it, and the runner emits nothing.
+   */
+  readonly telemetry?: CliTelemetry
 }

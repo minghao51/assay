@@ -7,6 +7,7 @@ import type {
   EngineProfileColumn,
   EngineTableHandle,
 } from '@assay/engine-duckdb'
+import { bucketColumnCount } from '@assay/telemetry'
 import { engineClient } from '../lib/engine'
 import { runGuarded } from '../sql/guarded-run'
 import { RunGuard } from '../sql/run-guard'
@@ -297,11 +298,16 @@ function ProfileTable({ profile }: { profile: ProfileData }) {
  * profile itself only runs when the user triggers it — it is the one op that
  * can take tens of seconds on multi-GB files.
  */
+import { useTelemetry } from '../telemetry/TelemetryContext'
+import { durationSince, profileOutcome } from '../telemetry/emit'
+
 export function ProfilePanel({ handle }: ProfilePanelProps) {
+  const telemetry = useTelemetry()
   const [open, setOpen] = useState(true)
   const [state, setState] = useState<ProfileState>({ kind: 'idle' })
   const guard = useRef(new RunGuard())
   const lastTableId = useRef<string | null>(null)
+  const startedAtRef = useRef<number | null>(null)
 
   /**
    * Defensive second layer only: today the App phase machine unmounts this
@@ -324,15 +330,28 @@ export function ProfilePanel({ handle }: ProfilePanelProps) {
 
   const runProfile = (): void => {
     if (state.kind === 'running') return
+    startedAtRef.current = Date.now()
     setState(reduceProfileState(state, { type: 'started' }))
     runGuarded(guard.current, engineClient.profile(handle), {
       onResult: (profile) => {
         setState((current) => reduceProfileState(current, { type: 'succeeded', profile }))
+        // `profile_run` (design §2/Appendix C): column-count/duration buckets
+        // and outcome only — no column names or statistics (ADR 0025).
+        telemetry.emit('profile_run', {
+          column_count_bucket: bucketColumnCount(profile.columns.length),
+          duration_bucket: durationSince(startedAtRef.current ?? Date.now()),
+          outcome: profileOutcome('done'),
+        })
       },
       onError: (cause: unknown) => {
         setState((current) =>
           reduceProfileState(current, { type: 'failed', message: errorMessage(cause) }),
         )
+        telemetry.emit('profile_run', {
+          column_count_bucket: 'zero',
+          duration_bucket: durationSince(startedAtRef.current ?? Date.now()),
+          outcome: profileOutcome('error'),
+        })
       },
     })
   }

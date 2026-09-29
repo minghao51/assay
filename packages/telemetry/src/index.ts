@@ -122,3 +122,25 @@ export {
   bucketFindingCount,
   bucketDuration,
 } from './buckets.js'
+
+export {
+  MAX_BUFFERED_EVENTS,
+  MAX_BUFFERED_BYTES,
+  MAX_BATCH_EVENTS,
+  MAX_BATCH_BYTES,
+  serializeEvent,
+  createEventBuffer,
+  splitIntoBatches,
+} from './buffer.js'
+export type { ByteLength, EventBuffer, EventBufferOptions, BatchOptions } from './buffer.js'
+
+export { MAX_DATASET_OPENED_PER_SESSION, createSessionTracker } from './session.js'
+export type { SessionTracker, SessionTrackerOptions } from './session.js'
+
+export {
+  DISCLOSURE_REVISION,
+  WEB_DISCLOSURE_BODY,
+  WEB_DISCLOSURE_KEEP_ON_LABEL,
+  WEB_DISCLOSURE_TURN_OFF_LABEL,
+  CLI_DISCLOSURE_COPY,
+} from './copy.js'

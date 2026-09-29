@@ -1626,3 +1626,43 @@ h1 {
   margin: 0.5rem 0 0;
   color: var(--color-success-text);
 }
+
+.telemetry-settings {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+}
+
+.telemetry-settings-dialog,
+.telemetry-disclosure {
+  border: 1px solid var(--color-border-panel-subtle);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  background: var(--color-surface-panel, #fff);
+  max-width: 42rem;
+}
+
+.telemetry-disclosure {
+  margin: 1rem 0;
+}
+
+.telemetry-disclosure-copy {
+  white-space: pre-wrap;
+  font-family: inherit;
+  margin: 0 0 0.75rem;
+}
+
+.telemetry-disclosure-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.telemetry-settings-option {
+  display: block;
+  margin: 0.5rem 0;
+}
+
+.telemetry-settings-hard-off {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}

@@ -26,6 +26,8 @@ export interface CliFlags {
   readonly infer: boolean
   /** `--quiet` was passed: suppress progress/hints on stderr (reports stay). */
   readonly quiet: boolean
+  /** `--no-telemetry` was passed: opt out for this invocation only (design §6.1). */
+  readonly noTelemetry: boolean
   readonly help: boolean
   readonly version: boolean
 }
@@ -45,12 +47,19 @@ const KNOWN_FLAGS: ReadonlySet<string> = new Set([
   'key',
   'infer',
   'quiet',
+  'no-telemetry',
   'help',
   'version',
 ])
 
 /** The boolean flags: `--name` alone, no value consumed. */
-const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['infer', 'quiet', 'help', 'version'])
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
+  'infer',
+  'quiet',
+  'no-telemetry',
+  'help',
+  'version',
+])
 
 /** Parse argv (without the node/script preamble) into command + flags. */
 export function parseArgs(argv: readonly string[]): CliInvocation {
@@ -62,6 +71,7 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
   let sampleLimit: string | undefined
   let infer = false
   let quiet = false
+  let noTelemetry = false
   let help = false
   let version = false
   for (let index = 0; index < argv.length; index++) {
@@ -88,6 +98,7 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
         }
         if (name === 'infer') infer = true
         else if (name === 'quiet') quiet = true
+        else if (name === 'no-telemetry') noTelemetry = true
         else if (name === 'help') help = true
         else version = true
         continue
@@ -114,6 +125,6 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
   return {
     command,
     positionals,
-    flags: { contract, format, sampleLimit, keys, infer, quiet, help, version },
+    flags: { contract, format, sampleLimit, keys, infer, quiet, noTelemetry, help, version },
   }
 }
