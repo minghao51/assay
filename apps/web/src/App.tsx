@@ -9,6 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import type { ReactNode } from 'react'
 import { viewNameForTableId } from '@assay/engine-duckdb'
 import type { OverlayBase } from '@assay/domain'
 import { emptyHistory, liveRowCount, stateAtCursor } from '@assay/domain'
@@ -105,6 +106,113 @@ function useStableColumns(columns: readonly ColumnSchema[]): readonly ColumnSche
  */
 const MemoSchemaPanel = memo(SchemaPanel)
 const MemoRecordInspector = memo(RecordInspector)
+
+/**
+ * ux-6 — workbench shell slice 1 (spec docs/product/05-workbench-shell.md §3).
+ *
+ * The ready frame is a single-column stack of eleven top-level sections at ALL
+ * widths (the two-pane split is slice 2 / q-15, deliberately NOT here). The
+ * order below is the slice-1 order: Schema first, then the GRID hoisted above
+ * the tool panels (the centerpiece is the first thing after open), then the
+ * remaining sections in their prior relative order. The sticky nav and the
+ * rendered sections both read this one list, so nav order can never drift from
+ * DOM order; the heading-map pin (`App.headings.test.tsx`) asserts the same
+ * order.
+ */
+type WorkbenchSectionId =
+  | 'schema'
+  | 'grid'
+  | 'editing'
+  | 'export'
+  | 'history'
+  | 'validation'
+  | 'compare'
+  | 'filters'
+  | 'record'
+  | 'sql'
+  | 'profile'
+
+const WORKBENCH_SECTIONS: ReadonlyArray<{
+  readonly id: WorkbenchSectionId
+  readonly title: string
+}> = [
+  { id: 'schema', title: 'Schema' },
+  { id: 'grid', title: 'Grid' },
+  { id: 'editing', title: 'Editing' },
+  { id: 'export', title: 'Export' },
+  { id: 'history', title: 'History' },
+  { id: 'validation', title: 'Validation' },
+  { id: 'compare', title: 'Compare' },
+  { id: 'filters', title: 'Filters' },
+  { id: 'record', title: 'Record' },
+  { id: 'sql', title: 'SQL' },
+  { id: 'profile', title: 'Profile' },
+]
+
+interface WorkbenchSectionProps {
+  readonly id: WorkbenchSectionId
+  readonly children: ReactNode
+  /**
+   * `managed` (default): this shell owns the section's single disclosure
+   * toggle. `inner`: the section's own component already exposes an equivalent
+   * `aria-expanded` disclosure (Schema, Profile, Filters — the ux-3/ux-4
+   * pattern this shell reuses), so the shell renders NO second toggle and just
+   * wraps the content as the nav/scroll target.
+   */
+  readonly disclosure?: 'managed' | 'inner'
+  /**
+   * Hide the visible toggle text, keeping the chevron (used for Validation/
+   * Compare, whose panel already renders a visible h2 — avoids a duplicated
+   * label while the `aria-label` keeps the button named).
+   */
+  readonly hideLabel?: boolean
+}
+
+/**
+ * One top-level section shell. Collapse is CSS-only DOM structure + component
+ * state: the body stays MOUNTED and gains the `hidden` attribute when
+ * collapsed, so the grid's fetch/window/virtualization behavior and the f-2
+ * memo boundaries are byte-identical (rendering position only, ADR 0022). The
+ * stable `section-<id>` anchor is the sticky nav's scroll target;
+ * `scroll-margin-top` (index.css) keeps it clear of the pinned nav.
+ */
+function WorkbenchSection({
+  id,
+  children,
+  disclosure = 'managed',
+  hideLabel = false,
+}: WorkbenchSectionProps) {
+  const [open, setOpen] = useState(true)
+  const title = WORKBENCH_SECTIONS.find((section) => section.id === id)?.title ?? id
+  const contentId = `section-${id}-content`
+  const toggleLabel = `${open ? 'Collapse' : 'Expand'} ${title}`
+  return (
+    <section className="workbench-section" id={`section-${id}`} data-section={id}>
+      {disclosure === 'managed' && (
+        <button
+          type="button"
+          className="workbench-section-toggle"
+          data-testid={`section-toggle-${id}`}
+          aria-expanded={open}
+          aria-controls={contentId}
+          aria-label={toggleLabel}
+          title={toggleLabel}
+          onClick={() => {
+            setOpen((previous) => !previous)
+          }}
+        >
+          <span className="workbench-section-marker" aria-hidden="true">
+            {open ? '▾' : '▸'}
+          </span>
+          {!hideLabel && <span className="workbench-section-label">{title}</span>}
+        </button>
+      )}
+      <div id={contentId} className="workbench-section-body" hidden={!open}>
+        {children}
+      </div>
+    </section>
+  )
+}
 
 export function App() {
   /**
@@ -500,30 +608,80 @@ export function App() {
 
       {phase.kind === 'ready' ? (
         <>
+          {/*
+           * ux-6: sticky section nav. In-page anchor links only (native
+           * focusability, no custom key handling, no focus trap); every target
+           * section carries `scroll-margin-top` so the pinned nav never
+           * obscures the focused/anchored section. Listed in DOM order from the
+           * ONE order list above.
+           */}
+          <nav className="workbench-nav" aria-label="Workbench sections" data-testid="section-nav">
+            <ul className="workbench-nav-list">
+              {WORKBENCH_SECTIONS.map((section) => (
+                <li key={section.id}>
+                  <a
+                    className="workbench-nav-link"
+                    href={`#section-${section.id}`}
+                    data-testid={`section-nav-${section.id}`}
+                  >
+                    {section.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
           {actionError !== null && (
             <p className="nested-action-error" role="alert" data-testid="nested-action-error">
               {actionError}
             </p>
           )}
-          <MemoSchemaPanel
-            columns={schemaColumns}
-            onAction={runNestedAction}
-            onRenameColumn={handleRenameColumn}
-            onCastColumn={handleCastColumn}
-            castPendingColumn={castPendingColumn}
-          />
-          <EditToolbar
-            onInsertRow={handleInsertRow}
-            pendingSummary={pendingChangesSummary(activeOps(history))}
-            error={editError}
-          />
+          <WorkbenchSection id="schema" disclosure="inner">
+            <MemoSchemaPanel
+              columns={schemaColumns}
+              onAction={runNestedAction}
+              onRenameColumn={handleRenameColumn}
+              onCastColumn={handleCastColumn}
+              castPendingColumn={castPendingColumn}
+            />
+          </WorkbenchSection>
+          {/**
+           * Slice-1 placement (ux-6): the grid is hoisted to render immediately
+           * after the first/open section, above every tool panel. Rendering
+           * position only — the same mounted grid, same model, same fetch
+           * behavior (the body stays mounted even when collapsed).
+           */}
+          <WorkbenchSection id="grid">
+            <ErrorBoundary scope="grid">
+              <DataGrid
+                model={phase.model}
+                overlayState={overlayState}
+                scrollRequest={scrollRequest}
+                onCommitCell={handleCommitCell}
+                onDeleteRow={handleDeleteRow}
+                onEditAnnounce={announceEdit}
+                onOpenRecord={(rowIndex) => {
+                  setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
+                }}
+                onNestedAction={runNestedAction}
+              />
+            </ErrorBoundary>
+          </WorkbenchSection>
+          <WorkbenchSection id="editing">
+            <EditToolbar
+              onInsertRow={handleInsertRow}
+              pendingSummary={pendingChangesSummary(activeOps(history))}
+              error={editError}
+            />
+          </WorkbenchSection>
           {/*
            * q-3: the ONE polite live region for grid edit outcomes. Commit
            * success and every value-free rejection (client validation reason
            * or the q-8 engine materialization class) announce here; the
            * visible `edit-error`/`grid-edit-error` text is not itself a live
            * region. `seq` remounts the text node so repeated announcements
-           * still fire. Never carries a cell value (ADR 0025).
+           * still fire. Never carries a cell value (ADR 0025). Kept OUTSIDE the
+           * collapsible section bodies so collapsing a section never mutes an
+           * announcement.
            */}
           <span
             className="visually-hidden"
@@ -535,42 +693,44 @@ export function App() {
               <span key={editAnnouncement.seq}>{editAnnouncement.text}</span>
             )}
           </span>
-          <section className="export-actions" aria-label="Export">
-            <h2 className="visually-hidden">Export</h2>
-            <button
-              type="button"
-              className="export-open"
-              data-testid="export-open"
-              onClick={() => {
-                setExportOpen(true)
-              }}
-            >
-              Export a copy…
-            </button>
-            {exportOpen && (
-              <ExportDialog
-                // The effective (unfiltered) count at the history cursor —
-                // never the grid's filtered `totalRows` (m4-5 review
-                // finding): `exportView` exports every row in natural order.
-                // The memo is null only pre-ready; this branch is ready.
-                rowCount={liveRowCount(
-                  phase.base,
-                  overlayState ?? stateAtCursor(phase.base, history),
-                )}
-                // Filtering and sorting tracked separately (m4-5 fix
-                // round 2): a sort-only view must not claim a "filtered
-                // subset"; the dialog describes only the active state.
-                viewFiltered={modelFilters.length > 0}
-                viewSorted={modelSort !== null}
-                runEngineExport={runExport}
-                requestDestination={requestExportDestination}
-                writeCopy={deliverExportCopy}
-                onClose={() => {
-                  setExportOpen(false)
+          <WorkbenchSection id="export">
+            <section className="export-actions" aria-label="Export">
+              <h2 className="visually-hidden">Export</h2>
+              <button
+                type="button"
+                className="export-open"
+                data-testid="export-open"
+                onClick={() => {
+                  setExportOpen(true)
                 }}
-              />
-            )}
-          </section>
+              >
+                Export a copy…
+              </button>
+              {exportOpen && (
+                <ExportDialog
+                  // The effective (unfiltered) count at the history cursor —
+                  // never the grid's filtered `totalRows` (m4-5 review
+                  // finding): `exportView` exports every row in natural order.
+                  // The memo is null only pre-ready; this branch is ready.
+                  rowCount={liveRowCount(
+                    phase.base,
+                    overlayState ?? stateAtCursor(phase.base, history),
+                  )}
+                  // Filtering and sorting tracked separately (m4-5 fix
+                  // round 2): a sort-only view must not claim a "filtered
+                  // subset"; the dialog describes only the active state.
+                  viewFiltered={modelFilters.length > 0}
+                  viewSorted={modelSort !== null}
+                  runEngineExport={runExport}
+                  requestDestination={requestExportDestination}
+                  writeCopy={deliverExportCopy}
+                  onClose={() => {
+                    setExportOpen(false)
+                  }}
+                />
+              )}
+            </section>
+          </WorkbenchSection>
           {viewError && (
             <p className="edit-view-error" role="alert" data-testid="view-error">
               The grid could not be restored to a trustworthy view.{' '}
@@ -585,85 +745,87 @@ export function App() {
               </button>
             </p>
           )}
-          <HistoryPanel
-            entries={history.entries}
-            cursor={history.cursor}
-            onSelectCursor={handleSelectCursor}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-          />
-          {/**
-           * Placement (m5-3): the validation panel sits between the editing
-           * surface and the grid — its sample lists and filter control drive
-           * the grid below, and its verdicts track the editing above.
-           */}
-          {panelModules === null ? null : (
-            <panelModules.ValidationPanel
-              contractState={contractState}
-              runState={validationRun}
-              stale={validationStale}
-              jumpError={jumpError}
-              filterError={filterToFailuresError}
-              onContractFile={handleContractFile}
-              onValidate={handleValidate}
-              onCancelValidate={handleCancelValidate}
-              onJumpToSample={handleJumpToSample}
-              onFilterToFailures={handleFilterToFailures}
-              requestReportDestination={requestReportDestinationForPanel}
-              deliverReportCopy={writeReportCopy}
+          <WorkbenchSection id="history">
+            <HistoryPanel
+              entries={history.entries}
+              cursor={history.cursor}
+              onSelectCursor={handleSelectCursor}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
             />
-          )}
-          {/**
+          </WorkbenchSection>
+          {/*
+           * Placement (m5-3): the validation panel's sample lists and filter
+           * control drive the grid above it, and its verdicts track the
+           * editing before it. Slice 1 keeps it a collapsible section in the
+           * stack.
+           */}
+          <WorkbenchSection id="validation" hideLabel>
+            {panelModules === null ? null : (
+              <panelModules.ValidationPanel
+                contractState={contractState}
+                runState={validationRun}
+                stale={validationStale}
+                jumpError={jumpError}
+                filterError={filterToFailuresError}
+                onContractFile={handleContractFile}
+                onValidate={handleValidate}
+                onCancelValidate={handleCancelValidate}
+                onJumpToSample={handleJumpToSample}
+                onFilterToFailures={handleFilterToFailures}
+                requestReportDestination={requestReportDestinationForPanel}
+                deliverReportCopy={writeReportCopy}
+              />
+            )}
+          </WorkbenchSection>
+          {/*
            * Placement (m6-4): the comparison panel sits beside the validation
-           * panel — both drive the grid below (diff samples jump A-side rows)
-           * and both track the editing above (verdict freshness). Schema drift
-           * and distribution deltas render before the key-selection control, so
-           * a row diff can never run before the schema-level view is visible.
+           * panel — both drive the grid above (diff samples jump A-side rows)
+           * and both track the editing before them (verdict freshness). Schema
+           * drift and distribution deltas render before the key-selection
+           * control, so a row diff can never run before the schema-level view
+           * is visible.
            */}
-          {panelModules === null ? null : (
-            <panelModules.DiffPanel
-              comparison={comparisonState}
-              runState={diffRun}
-              stale={diffStale}
-              jumpError={diffJumpError}
-              onComparisonFile={handleComparisonFile}
-              onRunDiff={handleRunDiff}
-              onCancelDiff={handleCancelDiff}
-              onJumpToSample={handleJumpToDiffSample}
-              requestReportDestination={requestDiffReportDestinationForPanel}
-              deliverReportCopy={writeDiffReportCopy}
-            />
-          )}
-          <FilterBar model={phase.model} />
-          <ErrorBoundary scope="grid">
-            <DataGrid
-              model={phase.model}
-              overlayState={overlayState}
-              scrollRequest={scrollRequest}
-              onCommitCell={handleCommitCell}
-              onDeleteRow={handleDeleteRow}
-              onEditAnnounce={announceEdit}
-              onOpenRecord={(rowIndex) => {
-                setRecordRequest((previous) => ({ rowIndex, seq: (previous?.seq ?? 0) + 1 }))
-              }}
-              onNestedAction={runNestedAction}
-            />
-          </ErrorBoundary>
+          <WorkbenchSection id="compare" hideLabel>
+            {panelModules === null ? null : (
+              <panelModules.DiffPanel
+                comparison={comparisonState}
+                runState={diffRun}
+                stale={diffStale}
+                jumpError={diffJumpError}
+                onComparisonFile={handleComparisonFile}
+                onRunDiff={handleRunDiff}
+                onCancelDiff={handleCancelDiff}
+                onJumpToSample={handleJumpToDiffSample}
+                requestReportDestination={requestDiffReportDestinationForPanel}
+                deliverReportCopy={writeDiffReportCopy}
+              />
+            )}
+          </WorkbenchSection>
+          <WorkbenchSection id="filters" disclosure="inner">
+            <FilterBar model={phase.model} />
+          </WorkbenchSection>
           {/**
-           * Placement (m3-3): directly under the grid it inspects. The app
-           * composes single-column, full-width disclosure sections (schema →
-           * editing → filters → grid → record → SQL → profile).
+           * Placement (m3-3): directly under the grid it inspects. It stays a
+           * section in the slice-1 stack (its dock is slice 2); its
+           * open/close semantics are unchanged.
            */}
-          <MemoRecordInspector
-            model={phase.model}
-            request={recordRequest}
-            overlayRevision={overlayRevision}
-            onClosed={handleRecordClosed}
-          />
-          {panelModules === null ? null : (
-            <panelModules.SqlPanel tableId={phase.tableId} runRequest={sqlRequest} />
-          )}
-          {panelModules === null ? null : <panelModules.ProfilePanel handle={phase.handle} />}
+          <WorkbenchSection id="record">
+            <MemoRecordInspector
+              model={phase.model}
+              request={recordRequest}
+              overlayRevision={overlayRevision}
+              onClosed={handleRecordClosed}
+            />
+          </WorkbenchSection>
+          <WorkbenchSection id="sql">
+            {panelModules === null ? null : (
+              <panelModules.SqlPanel tableId={phase.tableId} runRequest={sqlRequest} />
+            )}
+          </WorkbenchSection>
+          <WorkbenchSection id="profile" disclosure="inner">
+            {panelModules === null ? null : <panelModules.ProfilePanel handle={phase.handle} />}
+          </WorkbenchSection>
         </>
       ) : (
         <>

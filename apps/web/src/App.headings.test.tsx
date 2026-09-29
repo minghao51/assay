@@ -152,13 +152,13 @@ describe('ux-3 — complete heading map (UX-7)', () => {
     const h2 = screen.getAllByRole('heading', { level: 2 })
     expect(h2.map((heading) => heading.textContent)).toEqual([
       'Schema',
+      'Grid',
       'Editing',
       'Export',
       'History',
       'Validation',
       'Compare',
       'Filters',
-      'Grid',
       'Record',
       'SQL',
       'Profile',
@@ -175,13 +175,13 @@ describe('ux-3 — complete heading map (UX-7)', () => {
     // Every other section heading is present pre-record.
     expect(names).toEqual([
       'Schema',
+      'Grid',
       'Editing',
       'Export',
       'History',
       'Validation',
       'Compare',
       'Filters',
-      'Grid',
       'SQL',
       'Profile',
     ])

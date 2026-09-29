@@ -200,6 +200,88 @@ main {
   border: 0;
 }
 
+/* ---- Workbench shell slice 1 (ux-6) ---- */
+
+/*
+ * Sticky section nav (spec §3): in-page anchors in DOM order. It stays
+ * reachable by keyboard (plain links) and never traps focus. `scroll-margin-
+ * top` on every section keeps the pinned nav from obscuring the anchored
+ * target. The nav shares the surface token so axe contrast passes in both
+ * schemes.
+ */
+.workbench-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0.75rem 0 0;
+  padding: 0.35rem 0;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+.workbench-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.85rem;
+}
+
+.workbench-nav-link {
+  display: inline-block;
+  color: var(--color-accent-text);
+  font-size: 0.85rem;
+  text-decoration: none;
+  padding: 0.1rem 0.25rem;
+  border-radius: 3px;
+}
+
+.workbench-nav-link:hover,
+.workbench-nav-link:focus-visible {
+  background: var(--color-accent-subtle);
+  text-decoration: underline;
+}
+
+/* Anchor target offset: clear the ~2rem pinned nav plus a readable gap. */
+.workbench-section {
+  scroll-margin-top: 3.25rem;
+}
+
+.workbench-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0.2rem 0.35rem;
+  margin-top: 1rem;
+  cursor: pointer;
+}
+
+.workbench-section-toggle:hover {
+  background: var(--color-hover);
+}
+
+.workbench-section-marker {
+  display: inline-block;
+  width: 1em;
+  color: var(--color-text-secondary);
+}
+
+.workbench-section-body {
+  display: block;
+}
+
+/* The body stays mounted (grid/memo invariants); collapsed removes it from
+   layout and the accessibility tree. */
+.workbench-section-body[hidden] {
+  display: none;
+}
+
 h1 {
   font-size: 1.5rem;
 }
