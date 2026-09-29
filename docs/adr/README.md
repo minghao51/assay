@@ -50,6 +50,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0040 | Two Op Lanes in the Engine Worker (Query Lane + Registry Lane)                  |
 | 0041 | CLI validation runs on @duckdb/node-api behind the engine's `./node` seam       |
 | 0042 | Library Builds Use tsc Project References                                       |
+| 0044 | Grid-Centric Two-Pane Workbench Shell                                           |
 
 ## Proposed
 
@@ -63,6 +64,5 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0027 | TypeScript and PostgreSQL for the Initial Hosted Control Plane |
 | 0028 | Tauri Is the Preferred Future Desktop Shell                    |
 | 0043 | Changesets Are the Change-Intake Ledger Until First Publish    |
-| 0044 | Grid-Centric Two-Pane Workbench Shell                          |
 
 <!-- adr-index:end -->
