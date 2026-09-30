@@ -14,16 +14,23 @@
  * say "fixture", results show table ids, formats, types, and values only.
  * Not a shipped surface — it exists only in this package's `vite build`.
  */
-import { engineConformanceScenarioNames, runEngineConformanceScenarios } from '@assay/testing'
-import { DuckDbEngineClient } from '../src/index'
+import {
+  engineConformanceScenarioNames,
+  pipelineRunnerConformanceScenarioNames,
+  runEngineConformanceScenarios,
+  runPipelineRunnerConformanceScenarios,
+} from '@assay/testing'
+import { DuckDbEngineClient, quotedIdentifier } from '../src/index'
 import type {
   EngineFileSource,
   EngineQueryResult,
   EngineRangeWindow,
   EngineTableHandle,
 } from '../src/index'
+import type { PipelineV1 } from '@assay/pipeline'
 import type { EditOp, RowId } from '@assay/domain'
 import { createDuckDbConformanceSubject } from './conformance-subject'
+import { createPipelineRunnerSubject } from './pipeline-runner-subject'
 import {
   VALIDATION_BASE,
   VALIDATION_FIX_ALL_OPS,
@@ -594,6 +601,146 @@ async function runValidationJourney(): Promise<void> {
 requiredElement<HTMLButtonElement>('#validate-journey').addEventListener('click', () => {
   void runValidationJourney()
 })
+
+// ── p-3 pipeline runner (tests/e2e/pipeline-runner-journey.spec.ts) ──────────
+//
+// Two pieces of evidence against the REAL engine:
+//
+// 1. The journey: ONE explicit user-triggered `client.runPipeline` of a
+//    3-node pipeline (source → transform filter → sql projection). The
+//    OPFS-staged fixture is registered as the source relation through the
+//    engine's registration path, each compiled node materializes as a named
+//    view in topological order (CREATE OR REPLACE VIEW), and the final
+//    relation's rows are read back through the query lane. A second
+//    identical run proves idempotency: the relations are recreated, never
+//    appended (ADR 0032 discipline).
+// 2. The pipeline-runner conformance suite from @assay/testing, hosted by
+//    `pipeline-runner-subject.ts` — five scenarios (success, mid-DAG
+//    failure + clean re-run, cancel, unknown-node refusal, hostile-SQL
+//    refusal), each on its own fresh client.
+//
+// Privacy (ADR 0001/0025): evidence is node ids, relations, and counts —
+// plus the synthetic fixture's id column the journey explicitly reads back;
+// no file names anywhere.
+interface PipelineJourneyNodeEvidence {
+  nodeId: string
+  relation: string
+  rowCount: number
+}
+
+interface PipelineJourneyEvidence {
+  status?: string
+  nodes?: PipelineJourneyNodeEvidence[]
+  finalRows?: string[]
+  reRunStatus?: string
+  reRunRowCounts?: number[]
+  reRunFinalRows?: string[]
+  error?: string
+}
+
+const PIPELINE_JOURNEY_PIPELINE: PipelineV1 = {
+  version: 1,
+  pipeline: 'harness-journey',
+  nodes: [
+    { id: 'customers', type: 'source', source: { kind: 'file' } },
+    {
+      id: 'sg',
+      type: 'transform',
+      inputs: ['customers'],
+      operation: {
+        operation: 'filter',
+        args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+      },
+    },
+    {
+      id: 'out',
+      type: 'sql',
+      inputs: ['sg'],
+      sql: 'SELECT customer_id FROM sg ORDER BY customer_id',
+    },
+  ],
+}
+
+/** One relation column as rendered text (the Arrow API, NULLs as null). */
+async function readPipelineJourneyColumn(relation: string, column: string): Promise<string[]> {
+  const result = await client.query(
+    `SELECT CAST(${quotedIdentifier(column)} AS VARCHAR) AS "value" FROM ${quotedIdentifier(relation)}`,
+  )
+  const vector = result.batch.getChildAt(0)
+  const values: string[] = []
+  if (vector === null) return values
+  for (let row = 0; row < vector.length; row++) {
+    const value: unknown = vector.get(row)
+    values.push(value === null || value === undefined ? 'null' : String(value))
+  }
+  return values
+}
+
+async function runPipelineJourney(): Promise<void> {
+  const evidence: PipelineJourneyEvidence = {}
+  try {
+    const handle = await stageFixtureInOpfs(
+      '/fixtures/customers.parquet',
+      'assay-pipeline-journey.parquet',
+    )
+    const sources = [{ nodeId: 'customers', source: handle }]
+    const first = await client.runPipeline(PIPELINE_JOURNEY_PIPELINE, { sources })
+    evidence.status = first.status
+    evidence.nodes = first.nodes.map((node) => ({
+      nodeId: node.nodeId,
+      relation: node.relation,
+      rowCount: node.rowCount,
+    }))
+    evidence.finalRows = await readPipelineJourneyColumn('out', 'customer_id')
+    // Idempotent re-run: same relations recreated, same rows — never appended.
+    const second = await client.runPipeline(PIPELINE_JOURNEY_PIPELINE, { sources })
+    evidence.reRunStatus = second.status
+    evidence.reRunRowCounts = second.nodes.map((node) => node.rowCount)
+    evidence.reRunFinalRows = await readPipelineJourneyColumn('out', 'customer_id')
+    statusEl.textContent = client.status
+  } catch (error) {
+    evidence.error = errorMessage(error)
+  }
+  setText('pipeline-journey-result', JSON.stringify(evidence))
+}
+
+requiredElement<HTMLButtonElement>('#pipeline-journey').addEventListener('click', () => {
+  void runPipelineJourney()
+})
+
+const pipelineRunnerSubject = createPipelineRunnerSubject({
+  fixtureUrl: '/fixtures/customers.parquet',
+})
+
+async function runPipelineConformanceScenario(
+  name: (typeof pipelineRunnerConformanceScenarioNames)[number],
+): Promise<void> {
+  const report = await runPipelineRunnerConformanceScenarios(pipelineRunnerSubject, [name])
+  const result = report.results[0]
+  if (result !== undefined) {
+    setText(`pipeline-conformance-result-${name}`, JSON.stringify(result, null, 2))
+  }
+}
+
+async function runAllPipelineConformanceScenarios(): Promise<void> {
+  const report = await runPipelineRunnerConformanceScenarios(pipelineRunnerSubject)
+  setText('pipeline-conformance-run-all', JSON.stringify(report, null, 2))
+}
+
+for (const name of pipelineRunnerConformanceScenarioNames) {
+  requiredElement<HTMLButtonElement>(`#pipeline-conformance-${name}`).addEventListener(
+    'click',
+    () => {
+      void runPipelineConformanceScenario(name)
+    },
+  )
+}
+requiredElement<HTMLButtonElement>('#pipeline-conformance-run-all').addEventListener(
+  'click',
+  () => {
+    void runAllPipelineConformanceScenarios()
+  },
+)
 
 // ── M1-7 bench hooks (tests/e2e/bench-ttfr.spec.ts) ──────────────────────────
 //

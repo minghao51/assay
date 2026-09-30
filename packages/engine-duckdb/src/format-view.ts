@@ -83,3 +83,17 @@ export function createViewSql(
 ): string {
   return `CREATE VIEW ${quotedIdentifier(viewName)} AS SELECT * FROM ${fileScanSql(registeredFileName, format)}`
 }
+
+/**
+ * `CREATE OR REPLACE VIEW` variant (p-3): the pipeline runner re-materializes
+ * a source relation on every run, so the statement must be idempotent rather
+ * than collide with the previous run's view. Same binding and quoting as
+ * {@link createViewSql}.
+ */
+export function createOrReplaceViewSql(
+  viewName: string,
+  registeredFileName: string,
+  format: EngineFileFormat,
+): string {
+  return `CREATE OR REPLACE VIEW ${quotedIdentifier(viewName)} AS SELECT * FROM ${fileScanSql(registeredFileName, format)}`
+}

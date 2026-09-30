@@ -3377,3 +3377,137 @@ describe('EngineOpExecutor row-diff execution (m6-2; query lane)', () => {
     expect(deps.queryConn.sentSqls).toContain('ROLLBACK')
   })
 })
+
+// ── p-3: pipeline materialization ops (source registration + node views) ────
+//
+// The runner drives these two typed query-lane ops; the executor owns the
+// engine-boundary gates: the p-2 read-only SQL classifier, the reserved
+// `assay_*` relation refusal, idempotent source replacement, and value-free
+// failure classes. Query-lane routing is proven by every SQL landing on
+// `deps.queryConn` (never the registry lane).
+
+function pipelineSourceRequest(id: number, relation = 'customers'): EngineRequest {
+  return {
+    type: 'engine/pipeline-source',
+    requestId: id,
+    relation,
+    name: 'flat.parquet',
+    file: FLAT_FILE,
+  }
+}
+function pipelineMaterializeRequest(id: number, sql: string, relation = 'out'): EngineRequest {
+  return { type: 'engine/pipeline-materialize', requestId: id, relation, sql }
+}
+
+describe('EngineOpExecutor pipeline materialization (p-3)', () => {
+  it('registers a source, creates a named view on the query lane, and counts it', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(pipelineSourceRequest(1))
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toBe(
+      `CREATE OR REPLACE VIEW "customers" AS SELECT * FROM read_parquet('assay_pipeline_src_1')`,
+    )
+    deps.queryConn.resolveSend(0, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toBe(
+      'SELECT count(*)::BIGINT AS "row_count" FROM "customers"',
+    )
+    deps.queryConn.resolveSend(1, countTable(5n))
+    expect(await awaitPosted(deps, 1)).toMatchObject({
+      type: 'engine/pipeline-source-result',
+      relation: 'customers',
+      rowCount: 5,
+    })
+    expect(deps.registeredFiles.map((file) => file.name)).toEqual(['assay_pipeline_src_1'])
+    expectNoCollisions(deps)
+  })
+
+  it('replaces a source registration idempotently (drops the previous view + file)', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(pipelineSourceRequest(1))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, countTable(5n))
+    await awaitPosted(deps, 1)
+
+    executor.accept(pipelineSourceRequest(2))
+    await awaitSends(deps.queryConn, 3)
+    expect(deps.queryConn.sentSqls[2]).toBe('DROP VIEW IF EXISTS "customers"')
+    deps.queryConn.resolveSend(2, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 4)
+    expect(deps.queryConn.sentSqls[3]).toBe(
+      `CREATE OR REPLACE VIEW "customers" AS SELECT * FROM read_parquet('assay_pipeline_src_2')`,
+    )
+    deps.queryConn.resolveSend(3, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, countTable(5n))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/pipeline-source-result',
+      relation: 'customers',
+      rowCount: 5,
+    })
+    expect(deps.droppedFiles).toContain('assay_pipeline_src_1')
+    expectNoCollisions(deps)
+  })
+
+  it('materializes a node view on the query lane and counts it', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(pipelineMaterializeRequest(1, 'SELECT 1 AS value'))
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toBe('CREATE OR REPLACE VIEW "out" AS SELECT 1 AS value')
+    deps.queryConn.resolveSend(0, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toBe('SELECT count(*)::BIGINT AS "row_count" FROM "out"')
+    deps.queryConn.resolveSend(1, countTable(1n))
+    expect(await awaitPosted(deps, 1)).toMatchObject({
+      type: 'engine/pipeline-materialize-result',
+      relation: 'out',
+      rowCount: 1,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('refuses side-effect SQL at the boundary before any engine call (p-2 gate pinned)', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(pipelineMaterializeRequest(1, 'DROP TABLE customers'))
+    expect(await awaitPosted(deps, 1)).toMatchObject({ type: 'engine/error' })
+    expect(deps.queryConn.sentSqls).toEqual([])
+    expect(deps.conn.sentSqls).toEqual([])
+  })
+
+  it('refuses reserved assay_* relations before any engine call', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(pipelineMaterializeRequest(1, 'SELECT 1', 'assay_t1'))
+    expect(await awaitPosted(deps, 1)).toMatchObject({ type: 'engine/error' })
+    expect(deps.queryConn.sentSqls).toEqual([])
+    expect(deps.conn.sentSqls).toEqual([])
+  })
+
+  it('drops pipeline views and source registrations on dispose', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(pipelineSourceRequest(1))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, countTable(5n))
+    await awaitPosted(deps, 1)
+
+    executor.accept(pipelineMaterializeRequest(2, 'SELECT 1 AS value'))
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 4)
+    deps.queryConn.resolveSend(3, countTable(1n))
+    await awaitPosted(deps, 2)
+
+    executor.accept(disposeRequest(3))
+    await awaitSends(deps.conn, 1)
+    deps.conn.resolveSend(0, tableFromArrays({}))
+    await awaitSends(deps.conn, 2)
+    deps.conn.resolveSend(1, tableFromArrays({}))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/disposed' })
+    expect(deps.conn.sentSqls).toContain('DROP VIEW IF EXISTS "customers"')
+    expect(deps.conn.sentSqls).toContain('DROP VIEW IF EXISTS "out"')
+    expect(deps.droppedFiles).toContain('assay_pipeline_src_1')
+  })
+})

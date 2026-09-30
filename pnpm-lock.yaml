@@ -263,6 +263,9 @@ importers:
       '@assay/domain':
         specifier: workspace:*
         version: link:../domain
+      '@assay/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
       '@duckdb/duckdb-wasm':
         specifier: ^1.32.0
         version: 1.32.0
@@ -352,6 +355,9 @@ importers:
       '@assay/diff':
         specifier: workspace:*
         version: link:../diff
+      '@assay/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
       '@assay/validation':
         specifier: workspace:*
         version: link:../validation

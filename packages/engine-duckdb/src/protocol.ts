@@ -328,6 +328,41 @@ export interface EngineDiffRequest {
   overlay?: EngineOverlayPayload
 }
 
+/**
+ * Register a pipeline `source` node's dataset (p-3). The picked file is
+ * registered with DuckDB under an engine-generated name and bound as a view
+ * named by the node's `relation` — the node id, the pipeline's output port
+ * (the `format-view.ts` binding, named by the caller). Idempotent per
+ * relation: a second registration for the same relation replaces the previous
+ * view+file rather than accumulating one, so a re-run never appends and never
+ * leaks registrations. Query lane (ADR 0040): registering and viewing a
+ * potentially large file is the heavy, user-initiated class.
+ */
+export interface EnginePipelineSourceRequest {
+  type: 'engine/pipeline-source'
+  requestId: number
+  relation: string
+  name: string
+  file: File
+}
+
+/**
+ * Materialize one pipeline node's output (p-3):
+ * `CREATE OR REPLACE VIEW "<relation>" AS <sql>`. The SQL is re-classified at
+ * the boundary with the p-2 `classifyVerbatimSql` gate — a non-read-only or
+ * multi-statement body is answered with one typed `engine/error` before any
+ * DDL runs — and the relation is refused if it uses the engine-reserved
+ * `assay_*` namespace. Idempotent: `CREATE OR REPLACE VIEW` recreates on a
+ * re-run. Query lane (ADR 0040): the view's defining query may scan whole
+ * datasets.
+ */
+export interface EnginePipelineMaterializeRequest {
+  type: 'engine/pipeline-materialize'
+  requestId: number
+  relation: string
+  sql: string
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -349,6 +384,8 @@ export type EngineRequest =
   | EngineValidateRequest
   | EngineDiffStageRequest
   | EngineDiffRequest
+  | EnginePipelineSourceRequest
+  | EnginePipelineMaterializeRequest
   | EngineExportRequest
   | EngineDisposeRequest
 
@@ -499,6 +536,22 @@ export interface EngineDiffResultResponse {
   result: EngineRowDiffResult
 }
 
+/** A registered pipeline source relation (the node id) and its row count. */
+export interface EnginePipelineSourceResultResponse {
+  type: 'engine/pipeline-source-result'
+  requestId: number
+  relation: string
+  rowCount: number
+}
+
+/** A materialized pipeline node relation (the node id) and its row count. */
+export interface EnginePipelineMaterializeResultResponse {
+  type: 'engine/pipeline-materialize-result'
+  requestId: number
+  relation: string
+  rowCount: number
+}
+
 // ---- Profile payload types (m2-5) ----
 //
 // Structural mirrors of `@assay/engine`'s `ProfileColumnKind` /
@@ -586,6 +639,8 @@ export type EngineResponse =
   | EngineValidateResultResponse
   | EngineDiffStageResultResponse
   | EngineDiffResultResponse
+  | EnginePipelineSourceResultResponse
+  | EnginePipelineMaterializeResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
@@ -606,6 +661,8 @@ export type EngineSuccessResponse =
   | EngineValidateResultResponse
   | EngineDiffStageResultResponse
   | EngineDiffResultResponse
+  | EnginePipelineSourceResultResponse
+  | EnginePipelineMaterializeResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
 
@@ -857,6 +914,20 @@ function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
       },
     }
   }
+  if (type === 'engine/pipeline-source') {
+    if (typeof data.relation !== 'string') return malformedField('pipeline-source.relation')
+    if (typeof data.name !== 'string') return malformedField('pipeline-source.name')
+    if (!isFile(data.file)) return malformedField('pipeline-source.file')
+    return {
+      ok: true,
+      request: { type, requestId, relation: data.relation, name: data.name, file: data.file },
+    }
+  }
+  if (type === 'engine/pipeline-materialize') {
+    if (typeof data.relation !== 'string') return malformedField('pipeline-materialize.relation')
+    if (typeof data.sql !== 'string') return malformedField('pipeline-materialize.sql')
+    return { ok: true, request: { type, requestId, relation: data.relation, sql: data.sql } }
+  }
   if (type === 'engine/dispose') return { ok: true, request: { type, requestId } }
   // Unrecognised `type`: not part of the protocol (the envelope ignores it).
   return malformedField('type')
@@ -886,6 +957,8 @@ export const ENGINE_REQUEST_TYPES = [
   'engine/validate',
   'engine/diff-stage',
   'engine/diff',
+  'engine/pipeline-source',
+  'engine/pipeline-materialize',
   'engine/export',
   'engine/dispose',
 ] as const
@@ -1135,6 +1208,20 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
   }
   if (type === 'engine/diff-result' && isRowDiffResult(data.result)) {
     return { type, requestId, result: data.result }
+  }
+  if (
+    type === 'engine/pipeline-source-result' &&
+    typeof data.relation === 'string' &&
+    isRowCount(data.rowCount)
+  ) {
+    return { type, requestId, relation: data.relation, rowCount: data.rowCount }
+  }
+  if (
+    type === 'engine/pipeline-materialize-result' &&
+    typeof data.relation === 'string' &&
+    isRowCount(data.rowCount)
+  ) {
+    return { type, requestId, relation: data.relation, rowCount: data.rowCount }
   }
   if (type === 'engine/disposed') return { type, requestId }
   if (type === 'engine/error' && typeof data.message === 'string') {

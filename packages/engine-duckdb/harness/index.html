@@ -360,6 +360,77 @@
       </section>
 
       <!--
+        p-3 pipeline runner: ONE explicit user-triggered run of a 3-node
+        pipeline (source → transform filter → sql projection) via
+        client.runPipeline — the fixture registers as the source relation,
+        every compiled node materializes as a named view in topological
+        order, and the final rows are read back; a second run proves
+        idempotency (recreate, never append). Plus the pipeline-runner
+        conformance suite from @assay/testing hosted by
+        `pipeline-runner-subject.ts` (each scenario on its own fresh client).
+        Privacy (ADR 0001/0025): evidence is ids, relations, and counts plus
+        the explicitly-read synthetic id column — never file names.
+      -->
+      <section>
+        <h2>Pipeline journey (p-3): run a 3-node pipeline on the real engine</h2>
+        <button id="pipeline-journey" type="button">Pipeline: run the 3-node journey</button>
+        <dl>
+          <dt>pipeline journey evidence (JSON)</dt>
+          <dd><pre data-testid="pipeline-journey-result">not run</pre></dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Pipeline-runner conformance suite (@assay/testing, p-3)</h2>
+        <p>
+          <button id="pipeline-conformance-run-all" type="button">
+            Pipeline runner conformance: run all
+          </button>
+          <button id="pipeline-conformance-pipeline-success" type="button">
+            Pipeline conformance: success
+          </button>
+          <button id="pipeline-conformance-pipeline-mid-dag-failure" type="button">
+            Pipeline conformance: mid-DAG failure
+          </button>
+          <button id="pipeline-conformance-pipeline-cancel" type="button">
+            Pipeline conformance: cancel
+          </button>
+          <button id="pipeline-conformance-pipeline-unknown-node-refusal" type="button">
+            Pipeline conformance: unknown node refusal
+          </button>
+          <button id="pipeline-conformance-pipeline-hostile-sql-refusal" type="button">
+            Pipeline conformance: hostile SQL refusal
+          </button>
+        </p>
+        <dl>
+          <dt>run-all report</dt>
+          <dd><pre data-testid="pipeline-conformance-run-all">not run</pre></dd>
+          <dt>success result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-success">not run</pre>
+          </dd>
+          <dt>mid-DAG failure result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-mid-dag-failure">not run</pre>
+          </dd>
+          <dt>cancel result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-cancel">not run</pre>
+          </dd>
+          <dt>unknown node refusal result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-unknown-node-refusal">
+not run</pre>
+          </dd>
+          <dt>hostile SQL refusal result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-hostile-sql-refusal">
+not run</pre>
+          </dd>
+        </dl>
+      </section>
+
+      <!--
         M1-7 bench (tests/e2e/bench-ttfr.spec.ts, gated behind
         ASSAY_E2E_BIG_BENCH=1): stepwise timing hooks for the engine path —
         boot → open → schema/rowCount → first window (TTFR) → projected query

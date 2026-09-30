@@ -1267,6 +1267,30 @@ describe('m4-2: overlay + export protocol', () => {
         },
         field: 'diff.overlay',
       },
+      {
+        label: 'engine/pipeline-source missing relation',
+        type: 'engine/pipeline-source',
+        payload: { name: 'customers.parquet', file },
+        field: 'pipeline-source.relation',
+      },
+      {
+        label: 'engine/pipeline-source wrong-typed file',
+        type: 'engine/pipeline-source',
+        payload: { relation: 'customers', name: 'customers.parquet', file: 'not-a-file' },
+        field: 'pipeline-source.file',
+      },
+      {
+        label: 'engine/pipeline-materialize missing relation',
+        type: 'engine/pipeline-materialize',
+        payload: { sql: 'SELECT 1 AS value' },
+        field: 'pipeline-materialize.relation',
+      },
+      {
+        label: 'engine/pipeline-materialize missing sql',
+        type: 'engine/pipeline-materialize',
+        payload: { relation: 'out' },
+        field: 'pipeline-materialize.sql',
+      },
     ]
 
     it.each(cases)('$label', ({ type, payload, field }) => {
@@ -1281,9 +1305,9 @@ describe('m4-2: overlay + export protocol', () => {
       })
     })
 
-    it('lists exactly the 16 request types and covers every one', () => {
-      expect(ENGINE_REQUEST_TYPES).toHaveLength(16)
-      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(16)
+    it('lists exactly the 18 request types and covers every one', () => {
+      expect(ENGINE_REQUEST_TYPES).toHaveLength(18)
+      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(18)
       const covered = new Set(cases.map((entry) => entry.type))
       // init and dispose have no required fields (nothing can be malformed),
       // so every other request type must appear in the malformed matrix.

@@ -25,6 +25,16 @@ export type ConformanceSuiteName = (typeof conformanceSuiteNames)[number]
 export * from './engine-conformance'
 
 /**
+ * The pipeline-runner conformance suite (p-3): success, mid-DAG failure +
+ * clean re-run, generation-guard cancellation, unknown-node refusal, and the
+ * hostile-SQL gate — parameterized over a `PipelineRunnerConformanceSubject`
+ * so an engine's pipeline runner is proven against the same contract. Kept
+ * separate from the data-engine suite so engines without a pipeline surface
+ * are not forced to grow one.
+ */
+export * from './pipeline-runner-conformance'
+
+/**
  * The data-source behavior suite (T3): identity/idempotency (frozen handle,
  * stable identity), one-shot file resolution (incl. the additive `getFile`
  * seam), metadata contract (format + size only), cancel semantics (settled

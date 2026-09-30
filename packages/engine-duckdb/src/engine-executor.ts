@@ -51,7 +51,12 @@ import { Table, tableFromIPC, tableToIPC } from 'apache-arrow'
 import type { RecordBatch } from 'apache-arrow'
 import type { OverlayBase, OverlayState } from '@assay/domain'
 import { foldOverlay, initialState } from '@assay/domain'
-import { createViewSql, detectFileFormat, quotedIdentifier } from './format-view.js'
+import {
+  createOrReplaceViewSql,
+  createViewSql,
+  detectFileFormat,
+  quotedIdentifier,
+} from './format-view.js'
 import {
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
@@ -62,10 +67,13 @@ import {
   exportFileExtension,
 } from './overlay-query.js'
 import type { OverlayComposition } from './overlay-query.js'
+import { classifyVerbatimSql } from '@assay/pipeline'
 import { parseEngineRequestEnvelope } from './protocol.js'
 import type {
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
+  EnginePipelineMaterializeRequest,
+  EnginePipelineSourceRequest,
   EngineDiffRequest,
   EngineExportRequest,
   EngineFilterSpec,
@@ -85,6 +93,7 @@ import { classifyProfileColumnType } from './profile-classify.js'
 import { composeProfileBaseSql, composeProfileTopKSql, PROFILE_BASE_SLOT } from './profile-query.js'
 import { TableRegistry } from './table-registry.js'
 import type { RegisteredTable } from './table-registry.js'
+import { PipelineSourceRegistry } from './pipeline-runner/worker-registry.js'
 import {
   buildSampleFailures,
   composeValidationCountSql,
@@ -239,6 +248,8 @@ export class EngineOpExecutor {
   private readonly registry = new TableRegistry()
   /** Single-slot staged comparison registry (m6-2, C3). */
   private readonly comparisons = new ComparisonRegistry()
+  /** Pipeline source registrations + materialized relation names (p-3). */
+  private readonly pipeline = new PipelineSourceRegistry()
   /** Monotonic export sequence: generated, collision-free destination names. */
   private nextExportSeq = 1
 
@@ -291,6 +302,9 @@ export class EngineOpExecutor {
     // exactly the head-of-line blocking ADR 0040 exists to prevent.
     // m5-2: validation may scan whole datasets per planned rule — the same
     // heavy class; it queues behind queries/profile, never behind windows.
+    // p-3: pipeline source registration/materialization create views over
+    // large datasets and count them — the heavy class, so the pipeline runs
+    // on the query lane and never starves the grid's windows (ADR 0040).
     const lane =
       request.type === 'engine/query' ||
       request.type === 'engine/profile' ||
@@ -298,7 +312,9 @@ export class EngineOpExecutor {
       request.type === 'engine/overlay-cast-check' ||
       request.type === 'engine/validate' ||
       request.type === 'engine/diff-stage' ||
-      request.type === 'engine/diff'
+      request.type === 'engine/diff' ||
+      request.type === 'engine/pipeline-source' ||
+      request.type === 'engine/pipeline-materialize'
         ? this.queryLane
         : this.registryLane
     void lane.channel.run(() => this.dispatch(request, lane))
@@ -385,6 +401,14 @@ export class EngineOpExecutor {
         }
         case 'engine/diff': {
           await this.runDiff(request, lane)
+          break
+        }
+        case 'engine/pipeline-source': {
+          await this.runPipelineSource(request, lane)
+          break
+        }
+        case 'engine/pipeline-materialize': {
+          await this.runPipelineMaterialize(request, lane)
           break
         }
         case 'engine/export': {
@@ -1552,6 +1576,129 @@ export class EngineOpExecutor {
     return topK
   }
 
+  // -----------------------------------------------------------------------
+  // Pipeline materialization surface (p-3)
+  //
+  // Source registration and compiled-node materialization for the pipeline
+  // runner. Both are query-lane ops (ADR 0040) and both are idempotent:
+  // `pipeline-source` replaces the previous view/file for its relation, and
+  // `pipeline-materialize` uses `CREATE OR REPLACE VIEW`. Engine errors are
+  // mapped to fixed, value-free failure classes (ADR 0025): DuckDB text can
+  // embed composed SQL or cell values, so it never leaves the worker.
+  // -----------------------------------------------------------------------
+
+  /**
+   * Register a pipeline `source` node's dataset as a view named by the
+   * node's relation (p-3). Reuses the open path's lazy registration
+   * (`registerFileHandle` + the per-format scan) but binds the view to the
+   * caller's relation instead of an engine-generated `assay_tN`. Idempotent:
+   * a re-run drops the previous view+file for the relation first, so it never
+   * accumulates registrations and a failed registration rolls back cleanly.
+   */
+  private async runPipelineSource(
+    request: EnginePipelineSourceRequest,
+    lane: OpLane,
+  ): Promise<void> {
+    const relation = assertPipelineRelation(request.relation)
+    const format = detectFileFormat(request.name)
+    if (format === null) {
+      throw new Error(
+        'unsupported dataset format: this engine reads .parquet, .csv, .jsonl and .json files',
+      )
+    }
+    const conn = lane.connection(await this.deps.ensureSession())
+    const previous = this.pipeline.remove(relation)
+    if (previous !== null) {
+      await conn.query(`DROP VIEW IF EXISTS ${quotedIdentifier(relation)}`).catch(() => undefined)
+      await this.deps.dropFile(previous.registeredFileName).catch(() => undefined)
+    }
+    const reservation = this.pipeline.reserve(relation, format)
+    let confirmed = false
+    try {
+      await this.pipelineStep('the pipeline source could not be registered', () =>
+        this.deps.registerFileHandle(reservation.registeredFileName, request.file),
+      )
+      await this.pipelineStep('the pipeline source view could not be created', () =>
+        conn.query(createOrReplaceViewSql(relation, reservation.registeredFileName, format)),
+      )
+      this.pipeline.confirm(reservation)
+      confirmed = true
+      const rowCount = await this.pipelineStep('the pipeline source row count failed', () =>
+        this.countRelation(conn, relation),
+      )
+      this.post({
+        type: 'engine/pipeline-source-result',
+        requestId: request.requestId,
+        relation,
+        rowCount,
+      })
+    } finally {
+      if (!confirmed) {
+        await conn.query(`DROP VIEW IF EXISTS ${quotedIdentifier(relation)}`).catch(() => undefined)
+        await this.deps.dropFile(reservation.registeredFileName).catch(() => undefined)
+      }
+    }
+  }
+
+  /**
+   * Materialize one compiled pipeline node's output as
+   * `CREATE OR REPLACE VIEW "<relation>" AS <sql>` (p-3). The SQL is
+   * re-classified at this boundary with the p-2 read-only classifier — a plan
+   * that forged a node kind cannot smuggle a side effect in — and the
+   * relation is refused in the engine-reserved `assay_*` namespace.
+   */
+  private async runPipelineMaterialize(
+    request: EnginePipelineMaterializeRequest,
+    lane: OpLane,
+  ): Promise<void> {
+    const relation = assertPipelineRelation(request.relation)
+    if (!classifyVerbatimSql(request.sql).ok) {
+      throw new Error('the pipeline node SQL was refused by the read-only safety classifier')
+    }
+    const conn = lane.connection(await this.deps.ensureSession())
+    const sql = `CREATE OR REPLACE VIEW ${quotedIdentifier(relation)} AS ${request.sql}`
+    await this.pipelineStep('the pipeline node view could not be materialized', () =>
+      conn.query(sql),
+    )
+    this.pipeline.addView(relation)
+    const rowCount = await this.pipelineStep('the pipeline node row count failed', () =>
+      this.countRelation(conn, relation),
+    )
+    this.post({
+      type: 'engine/pipeline-materialize-result',
+      requestId: request.requestId,
+      relation,
+      rowCount,
+    })
+  }
+
+  /** Cheap `count(*)` over a pipeline relation (safe non-negative integer). */
+  private async countRelation(conn: EngineConnectionLike, relation: string): Promise<number> {
+    const result = await conn.query(
+      `SELECT count(*)::BIGINT AS ${quotedIdentifier('row_count')} FROM ${quotedIdentifier(relation)}`,
+    )
+    const value = result.getChildAt(0)?.get(0)
+    const rowCount = typeof value === 'bigint' ? Number(value) : value
+    if (typeof rowCount !== 'number' || !Number.isSafeInteger(rowCount) || rowCount < 0) {
+      throw new Error('count(*) returned an unexpected shape')
+    }
+    return rowCount
+  }
+
+  /**
+   * Map one engine-touching pipeline step to a fixed, value-free class (the
+   * `validationStep` discipline; ADR 0025). Errors thrown by this module's
+   * own gates (reserved relation, classifier refusal) are fixed strings and
+   * are thrown outside this wrapper.
+   */
+  private async pipelineStep<T>(failureClass: string, run: () => Promise<T>): Promise<T> {
+    try {
+      return await run()
+    } catch {
+      throw new Error(failureClass)
+    }
+  }
+
   /**
    * Drop every view and file registration (best-effort per entry: one failure
    * must not block the others). The client terminates the worker afterwards,
@@ -1588,6 +1735,15 @@ export class EngineOpExecutor {
         .query(`DROP VIEW IF EXISTS ${quotedIdentifier(staged.viewName)}`)
         .catch(() => undefined)
       await this.deps.dropFile(staged.registeredFileName).catch(() => undefined)
+    }
+    // p-3: pipeline source registrations and every materialized pipeline view
+    // are dropped with the rest (views first, then the files they read).
+    const pipelineState = this.pipeline.clear()
+    for (const relation of pipelineState.views) {
+      await conn.query(`DROP VIEW IF EXISTS ${quotedIdentifier(relation)}`).catch(() => undefined)
+    }
+    for (const source of pipelineState.sources) {
+      await this.deps.dropFile(source.registeredFileName).catch(() => undefined)
     }
     this.post({ type: 'engine/disposed', requestId })
   }
@@ -1673,6 +1829,20 @@ function transferableBuffer(bytes: Uint8Array): ArrayBuffer | null {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The pipeline runner's relation gate: node relations are user text rendered
+ * as quoted SQL identifiers, so they must never enter the engine-managed
+ * `assay_*` namespace (mirrors p-1's parse-time reserved-identifier rule for
+ * programmatic plans). Returns the original relation for SQL rendering.
+ */
+function assertPipelineRelation(relation: string): string {
+  const normalized = relation.trim().toLowerCase()
+  if (normalized.length === 0 || normalized.startsWith('assay_')) {
+    throw new Error('a pipeline node relation may not use the reserved assay_ namespace')
+  }
+  return relation
 }
 
 /**

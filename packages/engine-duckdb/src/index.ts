@@ -92,6 +92,10 @@ export type {
   EngineOverlayRowCountResultResponse,
   EngineOverlaySchemaRequest,
   EngineOverlaySchemaResultResponse,
+  EnginePipelineMaterializeRequest,
+  EnginePipelineMaterializeResultResponse,
+  EnginePipelineSourceRequest,
+  EnginePipelineSourceResultResponse,
   EngineProfileColumn,
   EngineProfileColumnKind,
   EngineProfileRequest,
@@ -125,6 +129,27 @@ export type { EngineFileFormat } from './format-view.js'
 // composers (m3-4 nested-compose) quote through the same implementation they
 // execute against instead of re-deriving quoting locally.
 export { quotedIdentifier } from './format-view.js'
+// p-3: the pipeline runner surface — the client method's input/outcome/error
+// types and the pure generation guard, public so hosts (and the conformance
+// harness) can drive and pin the runner without re-deriving its contract.
+export {
+  PipelineRunError,
+  PipelineRunGuard,
+  PipelineRunRefusalError,
+  executePipeline,
+} from './pipeline-runner/index.js'
+export type {
+  PipelineRunCanceled,
+  PipelineRunCompleted,
+  PipelineRunEngineOps,
+  PipelineRunInput,
+  PipelineRunNodeResult,
+  PipelineRunOptions,
+  PipelineRunRefusalReason,
+  PipelineRunResult,
+  PipelineRunSource,
+  PipelineRunSourceFile,
+} from './pipeline-runner/index.js'
 export { classifyProfileColumnType } from './profile-classify.js'
 export {
   composeProfileBaseSql,

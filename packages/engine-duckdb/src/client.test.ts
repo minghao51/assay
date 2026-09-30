@@ -1583,3 +1583,180 @@ describe('DuckDbEngineClient send() hardening (au3-4 S3)', () => {
     expect(client.status).toBe('ready')
   })
 })
+
+// ── p-3: runPipeline client binding (typed wire ops, value-free outcomes) ────
+
+import {
+  PipelineRunError,
+  PipelineRunGuard,
+  PipelineRunRefusalError,
+} from './pipeline-runner/index'
+import type { PipelineV1 } from '@assay/pipeline'
+
+function journeyPipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'journey',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+      { id: 'out', type: 'sql', inputs: ['sg'], sql: 'SELECT customer_id FROM sg' },
+    ],
+  }
+}
+
+const journeySource = {
+  name: 'customers.parquet',
+  getFile: async () => new File([new Uint8Array([1])], 'customers.parquet'),
+}
+
+describe('DuckDbEngineClient.runPipeline', () => {
+  it('compiles the IR and drives source + node ops in topological order', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.runPipeline(journeyPipeline(), {
+      sources: [{ nodeId: 'customers', source: journeySource }],
+    })
+    await flush()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+
+    expect(worker.requestAt(1)).toMatchObject({
+      type: 'engine/pipeline-source',
+      relation: 'customers',
+    })
+    worker.respond({
+      type: 'engine/pipeline-source-result',
+      requestId: worker.requestAt(1).requestId,
+      relation: 'customers',
+      rowCount: 5,
+    })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/pipeline-materialize',
+      relation: 'sg',
+    })
+    worker.respond({
+      type: 'engine/pipeline-materialize-result',
+      requestId: worker.requestAt(2).requestId,
+      relation: 'sg',
+      rowCount: 2,
+    })
+    await flush()
+    expect(worker.requestAt(3)).toMatchObject({
+      type: 'engine/pipeline-materialize',
+      relation: 'out',
+    })
+    worker.respond({
+      type: 'engine/pipeline-materialize-result',
+      requestId: worker.requestAt(3).requestId,
+      relation: 'out',
+      rowCount: 2,
+    })
+
+    expect(await pending).toEqual({
+      status: 'completed',
+      nodes: [
+        { nodeId: 'customers', relation: 'customers', rowCount: 5 },
+        { nodeId: 'sg', relation: 'sg', rowCount: 2 },
+        { nodeId: 'out', relation: 'out', rowCount: 2 },
+      ],
+    })
+  })
+
+  it('refuses hostile verbatim SQL before any pipeline op crosses the boundary', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.runPipeline({
+      order: ['out'],
+      nodes: [
+        {
+          nodeId: 'out',
+          kind: 'sql',
+          relation: 'out',
+          quotedRelation: '"out"',
+          sql: 'DROP TABLE customers',
+        },
+      ],
+    })
+    await flush()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await expect(pending).rejects.toBeInstanceOf(PipelineRunRefusalError)
+    await expect(pending).rejects.toMatchObject({ reason: 'forbidden-sql' })
+    expect(worker.postedRequests.map((request) => request.type)).toEqual(['engine/init'])
+  })
+
+  it('reports a canceled outcome when the generation guard is invalidated', async () => {
+    const { client, workers } = makeClient()
+    const guard = new PipelineRunGuard()
+    const pending = client.runPipeline(journeyPipeline(), {
+      sources: [{ nodeId: 'customers', source: journeySource }],
+      guard,
+    })
+    await flush()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    expect(worker.requestAt(1)).toMatchObject({ type: 'engine/pipeline-source' })
+    guard.invalidate()
+    worker.respond({
+      type: 'engine/pipeline-source-result',
+      requestId: worker.requestAt(1).requestId,
+      relation: 'customers',
+      rowCount: 5,
+    })
+    expect(await pending).toEqual({
+      status: 'canceled',
+      nodes: [{ nodeId: 'customers', relation: 'customers', rowCount: 5 }],
+      nextNodeId: 'sg',
+    })
+    // No node op was sent after cancellation.
+    expect(worker.postedRequests.map((request) => request.type)).toEqual([
+      'engine/init',
+      'engine/pipeline-source',
+    ])
+  })
+
+  it('maps a mid-DAG engine rejection to a value-free node-attributed failure', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.runPipeline(journeyPipeline(), {
+      sources: [{ nodeId: 'customers', source: journeySource }],
+    })
+    await flush()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond({
+      type: 'engine/pipeline-source-result',
+      requestId: worker.requestAt(1).requestId,
+      relation: 'customers',
+      rowCount: 5,
+    })
+    await flush()
+    worker.respond({
+      type: 'engine/error',
+      requestId: worker.requestAt(2).requestId,
+      message: 'Binder Error: SELECT raw SQL with customer values',
+    })
+    let error: unknown
+    try {
+      await pending
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(PipelineRunError)
+    const failure = error as PipelineRunError
+    expect(failure.nodeId).toBe('sg')
+    expect(failure.partial).toEqual([{ nodeId: 'customers', relation: 'customers' }])
+    // The raw engine text is dropped, never echoed.
+    expect(failure.message).not.toContain('customer values')
+  })
+})

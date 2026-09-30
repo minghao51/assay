@@ -43,6 +43,13 @@ import type {
   EngineSuccessResponse,
 } from './protocol.js'
 import { validateRowWindow } from './range-window.js'
+import { executePipeline } from './pipeline-runner/index.js'
+import type {
+  PipelineRunEngineOps,
+  PipelineRunInput,
+  PipelineRunOptions,
+  PipelineRunResult,
+} from './pipeline-runner/index.js'
 
 /** Lifecycle of the lazy engine bootstrap. */
 export type EngineStatus = 'idle' | 'booting' | 'ready' | 'failed' | 'disposed'
@@ -862,6 +869,62 @@ export class DuckDbEngineClient {
       throw new EngineProtocolError(`unexpected ${response.type} response for engine/diff`)
     }
     return response.result
+  }
+
+  /**
+   * Execute a validated P1 pipeline (p-3): compile the IR (or take a compiled
+   * plan), then materialize every node in topological order — sources through
+   * the engine's registration path bound to the node relation, every other
+   * node as `CREATE OR REPLACE VIEW "<relation>" AS <sql>`. One explicit
+   * user-triggered run (ADR 0032): no scheduling, retries, or run state; a
+   * re-run recreates views, never appends.
+   *
+   * Every engine call is a query-lane op (ADR 0040), so a run cannot starve
+   * the grid's registry-lane windows. The p-2 read-only SQL gate is enforced
+   * here before any engine call and again worker-side. See the runner module
+   * for the full outcome/refusal contract.
+   */
+  async runPipeline(
+    input: PipelineRunInput,
+    options: PipelineRunOptions = {},
+  ): Promise<PipelineRunResult> {
+    await this.ensureReady()
+    const ops: PipelineRunEngineOps = {
+      registerSource: async (relation, source) => {
+        const file = await source.getFile()
+        if (!isFile(file)) {
+          throw new EngineOperationError('pipeline source requires a File')
+        }
+        const response = await this.send({
+          type: 'engine/pipeline-source',
+          requestId: this.takeRequestId(),
+          relation,
+          name: source.name,
+          file,
+        })
+        if (response.type !== 'engine/pipeline-source-result') {
+          throw new EngineProtocolError(
+            `unexpected ${response.type} response for engine/pipeline-source`,
+          )
+        }
+        return response.rowCount
+      },
+      materialize: async (relation, sql) => {
+        const response = await this.send({
+          type: 'engine/pipeline-materialize',
+          requestId: this.takeRequestId(),
+          relation,
+          sql,
+        })
+        if (response.type !== 'engine/pipeline-materialize-result') {
+          throw new EngineProtocolError(
+            `unexpected ${response.type} response for engine/pipeline-materialize`,
+          )
+        }
+        return response.rowCount
+      },
+    }
+    return executePipeline(input, options, ops)
   }
 
   /**

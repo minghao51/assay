@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@assay/domain": "workspace:*",
+    "@assay/pipeline": "workspace:*",
     "apache-arrow": "17.0.0",
     "@duckdb/duckdb-wasm": "^1.32.0"
   },
