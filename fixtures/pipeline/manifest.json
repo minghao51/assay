@@ -9,6 +9,12 @@
       "description": "Architecture §5 example literal text (deliberate non-canonical spacing); parses cleanly and canonicalizes byte-for-byte to customer_portfolio.yaml"
     },
     {
+      "name": "cli_run.yaml",
+      "sha256": "cf94066dd87a20e329a55c982591ce2d0a026dd301fa4c45d907eecd40e6dc98",
+      "canonical": true,
+      "description": "CLI-friendly runnable pipeline (p-4): file source over fixtures/csv/customers.csv, rename + filter transforms, and a verbatim sql aggregate — every node in the P1 executable set, no reserved classes; backs `assay pipeline run`'s end-to-end integration journey"
+    },
+    {
       "name": "customer_portfolio.yaml",
       "sha256": "5e36e0b3abbc257776eeda08f94ce225a34b98e52bd614e1eaf90e0b6dd9a94d",
       "canonical": true,

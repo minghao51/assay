@@ -57,6 +57,7 @@ export type {
   EngineValidationSample,
 } from './validate-plan-wire.js'
 export {
+  createOrReplaceViewSql,
   createViewSql,
   detectFileFormat,
   fileScanSql,
@@ -64,6 +65,38 @@ export {
   sqlStringLiteral,
 } from './format-view.js'
 export type { EngineFileFormat } from './format-view.js'
+// p-4: the pipeline runner surface, Node-bound through this seam (the p-3
+// carry-over: `PipelineRunEngineOps` + guard/errors exported so a non-browser
+// host can bind the runner's ops). The CLI's node executor implements
+// `registerSource`/`materialize` over a `@duckdb/node-api` connection and
+// drives the pure `executePipeline` orchestration — the SAME runner the web
+// client binds to its postMessage ops, so the two surfaces cannot fork the
+// execution semantics (ADR 0041 seam discipline). Everything re-exported here
+// is host-free pure TypeScript (runner/errors/guard/plan import only
+// `@assay/pipeline` and each other — no worker transport, no registry, no
+// browser API), so this stays additive re-exports, no behavior.
+export {
+  assertRunnableRelation,
+  assertSqlAccepted,
+  executePipeline,
+  PipelineRunError,
+  PipelineRunGuard,
+  PipelineRunRefusalError,
+  resolvePlan,
+  validateCompilePlan,
+} from './pipeline-runner/index.js'
+export type {
+  PipelineRunCanceled,
+  PipelineRunCompleted,
+  PipelineRunEngineOps,
+  PipelineRunInput,
+  PipelineRunNodeResult,
+  PipelineRunOptions,
+  PipelineRunRefusalReason,
+  PipelineRunResult,
+  PipelineRunSource,
+  PipelineRunSourceFile,
+} from './pipeline-runner/index.js'
 // m6-2: row-diff execution machinery (the m6-3 CLI consumes these exactly as
 // the m5-4 CLI consumes the validation helpers, so cross-surface agreement is
 // by construction). Pure SQL/text logic over plain data — no browser API.

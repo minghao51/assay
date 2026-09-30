@@ -35,6 +35,7 @@
     "@assay/diff": "workspace:*",
     "@assay/domain": "workspace:*",
     "@assay/engine-duckdb": "workspace:*",
+    "@assay/pipeline": "workspace:*",
     "@assay/telemetry": "workspace:*",
     "@assay/validation": "workspace:*",
     "@duckdb/node-api": "1.5.5-r.5",

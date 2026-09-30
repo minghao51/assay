@@ -101,6 +101,9 @@ importers:
       '@assay/engine-duckdb':
         specifier: workspace:*
         version: link:../../packages/engine-duckdb
+      '@assay/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       '@assay/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry

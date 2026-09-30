@@ -22,6 +22,7 @@ Regeneration is therefore a deliberate, reviewed change. A fixture may carry
 | File | Purpose |
 | --- | --- |
 | `architecture-example.yaml` | Architecture §5 example literal text (non-canonical); canonicalizes to `customer_portfolio.yaml` |
+| `cli_run.yaml` | CLI-friendly runnable pipeline (p-4): file source over `fixtures/csv/customers.csv`, rename + filter transforms, and a verbatim sql aggregate — the `assay pipeline run` end-to-end fixture |
 | `customer_portfolio.yaml` | Canonical form of the architecture §5 example — source/transform/sql plus the reserved validate/publish classes |
 | `hostile-names.yaml` | Hostile node ids and config keys (quotes, spaces, unicode, `__proto__`) |
 | `reserved-namespace-refusal.yaml` | Negative probe: an `assay_*` node id is refused (`reserved-identifier`) |

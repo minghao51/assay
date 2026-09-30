@@ -1,0 +1,31 @@
+version: 1
+pipeline: cli_run
+nodes:
+  by_country:
+    type: sql
+    inputs: [ sg_only ]
+    sql: |
+      SELECT country, count(*) AS customers
+      FROM sg_only
+      GROUP BY country
+  customers:
+    type: source
+    source:
+      kind: file
+      path: ../csv/customers.csv
+  renamed:
+    type: transform
+    inputs: [ customers ]
+    operation:
+      rename:
+        columns:
+          customer_id: customer_ref
+  sg_only:
+    type: transform
+    inputs: [ renamed ]
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG

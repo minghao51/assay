@@ -84,6 +84,9 @@ import type { Table, Vector } from 'apache-arrow'
 import { DuckDBArrayValue, DuckDBDecimalValue, DuckDBListValue } from '@duckdb/node-api'
 import type { DuckDBConnection, DuckDBResultReader } from '@duckdb/node-api'
 import {
+  createOrReplaceViewSql,
+  detectFileFormat,
+  quotedIdentifier,
   ROW_DIFF_BEGIN_SQL,
   ROW_DIFF_ROLLBACK_SQL,
   VALIDATION_BEGIN_SQL,
@@ -130,13 +133,15 @@ import type {
   EngineValidationPlan,
   EngineValidationResult,
   EngineValidationRuleResult,
+  PipelineRunEngineOps,
   RowDiffSampleRow,
 } from '@assay/engine-duckdb/node'
 import { initialState } from '@assay/domain'
 import type { OverlayBase } from '@assay/domain'
 import type { CategoricalTopKEntry, DatasetProfile, NumericQuantiles } from '@assay/diff'
+import { classifyVerbatimSql } from '@assay/pipeline'
 import type { EngineSchema } from '@assay/validation'
-import { DATASET_VIEW, PLAN_RELATION } from './connection.js'
+import { DATASET_VIEW, PLAN_RELATION, countViewRows } from './connection.js'
 import { usageError } from './errors.js'
 
 /**
@@ -790,3 +795,68 @@ export function readerToArrowTable(reader: DuckDBResultReader): Table {
 
 /** The binding relation the CLI's plans compile against (re-exported). */
 export { PLAN_RELATION }
+
+// ---------------------------------------------------------------------------
+// Pipeline execution (p-4): bind the p-3 runner's `PipelineRunEngineOps` to a
+// `@duckdb/node-api` connection — the Node counterpart of the web client's
+// postMessage ops (ADR 0041: same runner, same gates, no forked semantics).
+// ---------------------------------------------------------------------------
+
+/**
+ * The runner ops over the Node connection.
+ *
+ * `registerSource` reuses the engine's `createOrReplaceViewSql` composer (the
+ * runner's idempotency contract: a re-run recreates, never appends) with the
+ * m5-4 registration policy (extension-based format detection, the path as a
+ * properly escaped SQL string literal — the same lazy-view shape the CLI has
+ * always registered). `materialize` re-classifies the verbatim SQL at this
+ * boundary with the p-2 read-only classifier (parity with the engine
+ * worker's gate) before issuing the same `CREATE OR REPLACE VIEW "<relation>"
+ * AS <sql>` statement the worker issues. Both resolve the relation's row
+ * count — the runner's cheap addressability number.
+ *
+ * Every engine-touching failure is a fixed, value-free class: the raw engine
+ * text is dropped HERE and the runner attributes the failure to the node
+ * (`PipelineRunError`) — DuckDB messages can embed composed SQL or cell
+ * values (ADR 0025).
+ */
+export function createPipelineRunOps(conn: DuckDBConnection): PipelineRunEngineOps {
+  const countRows = async (relation: string): Promise<number> => {
+    try {
+      return await countViewRows(conn, relation)
+    } catch {
+      throw new Error('the pipeline relation row count could not be read')
+    }
+  }
+  return {
+    registerSource: async (relation, source) => {
+      // The CLI always passes `PipelineFileSource` (see pipeline.ts); the
+      // structural read keeps this defensive against a future caller.
+      const path = (source as { path?: unknown }).path
+      const format = typeof path === 'string' ? detectFileFormat(source.name) : null
+      if (format === null) {
+        throw new Error('the pipeline source could not be resolved')
+      }
+      try {
+        await conn.run(createOrReplaceViewSql(relation, path as string, format))
+      } catch {
+        throw new Error('the pipeline source view could not be created')
+      }
+      return countRows(relation)
+    },
+    materialize: async (relation, sql) => {
+      // Belt-and-suspenders parity with the engine worker: the runner already
+      // gated this SQL (assertSqlAccepted), and this boundary re-checks it
+      // before any DDL, exactly like the worker does.
+      if (!classifyVerbatimSql(sql).ok) {
+        throw new Error('the pipeline node SQL was refused by the read-only safety classifier')
+      }
+      try {
+        await conn.run(`CREATE OR REPLACE VIEW ${quotedIdentifier(relation)} AS ${sql}`)
+      } catch {
+        throw new Error('the pipeline node view could not be materialized')
+      }
+      return countRows(relation)
+    },
+  }
+}

@@ -8,6 +8,7 @@
  *   assay validate <path> --contract <file>   (m5-4)
  *   assay diff <a> <b> (--key <column>… | --infer)  (m6-3)
  *   assay profile <path>                       (ar-5 / AR-C4)
+ *   assay pipeline validate|run <file>         (p-4; PT-P queue)
  *
  * The CLI shares the same core packages as web and VS Code (ADR 0008) and
  * executes validation and row-diff plans against the raw dataset file through
@@ -38,6 +39,8 @@ export function helpText(): string {
     '  assay validate <path> --contract <file> [options]',
     '  assay diff <a> <b> (--key <column>… | --infer) [options]',
     '  assay profile <path> [options]',
+    '  assay pipeline validate <file> [options]',
+    '  assay pipeline run <file> [options]',
     '',
     'commands:',
     '  validate          validate a dataset against an assay contract',
@@ -45,6 +48,11 @@ export function helpText(): string {
     '                    deltas, then the key-based row diff)',
     '  profile           profile a dataset (per-column null/distinct counts,',
     '                    numeric stats and quantiles, categorical top-k)',
+    '  pipeline          validate or run an Assay pipeline IR file (YAML):',
+    '                    validate = DAG validation + compile plan (no',
+    '                    execution); run = execute the compiled plan on a',
+    '                    local in-memory DuckDB session and report per-node',
+    '                    outcomes',
     '  help              show this help',
     '',
     'global options:',
@@ -91,6 +99,25 @@ export function helpText(): string {
     'the RAW file (base view only; no editing session). Categorical top-k',
     'lists at most 10 non-null values per column; numeric columns report',
     'min/max/mean/stddev and the p50/p90/p95/p99 quantiles.',
+    '',
+    'pipeline options:',
+    '  --format <fmt>      human (default) or json — the report format',
+    '',
+    'pipeline validate loads the pipeline IR (a total parser: malformed',
+    'documents report located errors and exit 2), DAG-validates it, and',
+    'compiles its plan — nothing is executed and no source dataset is',
+    'opened. pipeline run executes the compiled plan node-by-node on a local',
+    'in-memory DuckDB session (the same runner the web engine binds), then',
+    'lists the materialized output relations with their row counts; those',
+    "relations live only in the run's session and end when the process",
+    "exits. Source paths resolve relative to the pipeline file's directory",
+    '(absolute paths pass through); a source that cannot be resolved is',
+    'disclosed and refused — never guessed. Cancellation is not triggerable',
+    'from the one-shot CLI.',
+    '',
+    'pipeline exit codes: validate — 0 valid, 1 DAG/compile errors, 2',
+    'malformed or unreadable; run — 0 completed, 1 failed node or',
+    'DAG/compile refusal, 2 malformed, unreadable, or unresolvable sources.',
     '',
     'output:',
     '  Human reports get ANSI color only when stdout is a terminal. NO_COLOR',
@@ -190,6 +217,18 @@ export async function main(argv: readonly string[], io: CliIo = processIo()): Pr
         positionals: invocation.positionals,
       })
       return await runProfileCommand(options, context)
+    }
+    if (invocation.command === 'pipeline') {
+      const { runPipelineCommand, resolvePipelineOptions } = await import('./pipeline.js')
+      const options = resolvePipelineOptions({
+        contract: invocation.flags.contract,
+        keys: invocation.flags.keys,
+        infer: invocation.flags.infer,
+        sampleLimit: invocation.flags.sampleLimit,
+        format: invocation.flags.format,
+        positionals: invocation.positionals,
+      })
+      return await runPipelineCommand(options, context)
     }
     throw new CliError(2, `unknown command '${invocation.command}' (see --help)`)
   } finally {
