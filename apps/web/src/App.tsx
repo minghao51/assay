@@ -46,6 +46,7 @@ import { preloadBottomPanels } from './lib/bottom-panels'
 import type { BottomPanelModules } from './lib/bottom-panels'
 import { engineClient } from './lib/engine'
 import { NO_COLUMNS, useModelSlice } from './lib/use-model-slice'
+import { usePipelineSession } from './pipeline/usePipelineSession'
 import { RecordInspector } from './record/RecordInspector'
 import type { RecordRequest } from './record/RecordInspector'
 import { parseDuckDbType } from './schema/parseType'
@@ -130,7 +131,7 @@ const MemoRecordInspector = memo(RecordInspector)
 /**
  * ux-6 — workbench shell slice 1 (spec docs/product/05-workbench-shell.md §3).
  *
- * The ready frame is a single-column stack of eleven top-level sections at ALL
+ * The ready frame is a single-column stack of twelve top-level sections at ALL
  * widths (the two-pane split is slice 2 / q-15, deliberately NOT here). The
  * order below is the slice-1 order: Schema first, then the GRID hoisted above
  * the tool panels (the centerpiece is the first thing after open), then the
@@ -138,6 +139,10 @@ const MemoRecordInspector = memo(RecordInspector)
  * rendered sections both read this one list, so nav order can never drift from
  * DOM order; the heading-map pin (`App.headings.test.tsx`) asserts the same
  * order.
+ *
+ * p-5 (PROVISIONAL placement): "pipeline" sits AFTER Profile — last in the v1
+ * stack — pending slice-2 tool-pane membership (ADR 0044 / q-15 decides which
+ * sections become tool-pane residents). Do not reorder without that ruling.
  */
 type WorkbenchSectionId =
   | 'schema'
@@ -151,6 +156,7 @@ type WorkbenchSectionId =
   | 'record'
   | 'sql'
   | 'profile'
+  | 'pipeline'
 
 const WORKBENCH_SECTIONS: ReadonlyArray<{
   readonly id: WorkbenchSectionId
@@ -167,6 +173,8 @@ const WORKBENCH_SECTIONS: ReadonlyArray<{
   { id: 'record', title: 'Record' },
   { id: 'sql', title: 'SQL' },
   { id: 'profile', title: 'Profile' },
+  // Provisional tail (p-5): see the doc comment above.
+  { id: 'pipeline', title: 'Pipeline' },
 ]
 
 interface WorkbenchSectionProps {
@@ -395,6 +403,15 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   })
 
   /**
+   * p-5 pipeline session: open a pipeline file (real picker path), bind its
+   * source datasets per node (C2), run it on the engine (UI-level
+   * serialization + guard cancellation), and jump its outputs into the SQL
+   * pane's result surface. Entirely dataset-session scoped: the reset
+   * registered inside the hook drops everything on a new file open.
+   */
+  const pipeline = usePipelineSession({ session: datasetSession })
+
+  /**
    * m6-4 comparison session (f-1 extraction): staged comparison, row-diff run
    * state machine, freshness banner, and jump/report controls.
    */
@@ -579,6 +596,18 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   // full model version (q-1 forbids that), so honest absence beats false data
   // until a settle seam exists (recorded t-2 carry-over). SQL/nested/paging
   // `query_run` are emitted from the SQL pane where the run actually settles.
+
+  /**
+   * p-5: pipeline output → existing result surface. The panel composes the
+   * exact `SELECT * FROM "relation"` statement (through the shared quoting
+   * helper); this seam is the SAME `sqlRequest` path the m3-5 nested actions
+   * use, so the SQL pane shows what ran and pages the result — no new grid
+   * pathway is invented (documented in the panel).
+   */
+  const inspectPipelineOutput = useCallback((sql: string): void => {
+    requestSeq.current += 1
+    setSqlRequest({ sql, seq: requestSeq.current })
+  }, [])
 
   const handleRecordClosed = useCallback(() => {
     setRecordRequest(null)
@@ -983,6 +1012,26 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
             </WorkbenchSection>
             <WorkbenchSection id="profile" disclosure="inner">
               {panelModules === null ? null : <panelModules.ProfilePanel handle={phase.handle} />}
+            </WorkbenchSection>
+            {/**
+             * p-5 (provisional placement): last in the v1 stack pending
+             * slice-2 tool-pane membership (ADR 0044 / q-15). The panel is
+             * dataset-session scoped — the session hook registers the f-1
+             * reset, so a new file open drops the pipeline state.
+             */}
+            <WorkbenchSection id="pipeline">
+              {panelModules === null ? null : (
+                <panelModules.PipelinePanel
+                  fileState={pipeline.fileState}
+                  bindings={pipeline.bindings}
+                  runState={pipeline.runState}
+                  onOpenPipelineFile={pipeline.openPipelineFile}
+                  onBindSource={pipeline.bindSourceDataset}
+                  onRun={pipeline.run}
+                  onCancel={pipeline.cancelRun}
+                  onInspectOutput={inspectPipelineOutput}
+                />
+              )}
             </WorkbenchSection>
           </>
         ) : (

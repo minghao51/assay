@@ -10,6 +10,11 @@ import {
 import { writeValidationDatasetA } from './support/validation-datasets'
 import { writeDiffDatasetPair } from './support/diff-datasets'
 import { openFixture, openFilterBar } from './support/fixtures'
+import {
+  bindSourceDataset,
+  openPipelineDocument,
+  runPipelineToCompletion,
+} from './support/pipeline-panel'
 
 // pt0-4 (O3): real axe-core scans of the four load-bearing surfaces — grid
 // with a fixture open, the schema tree expanded, the validation report, and
@@ -211,6 +216,30 @@ function defineScans(scheme: 'light' | 'dark'): void {
     await expect(page.getByTestId('diff-sample').first()).toBeVisible()
 
     await scanAndGate(page, `diff report (2/2/2, ${scheme})`, scheme)
+  })
+
+  test(`[${scheme}] completed pipeline run has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(240_000)
+    // The p-5 surface in its richest honest state: the golden pipeline
+    // opened, its source bound (C2 pick), the run completed with per-node
+    // counts, and the output viewable (p-5 ruling 9: the allowlist stays
+    // empty for the new surface).
+    await openPipelineDocument(page)
+    await expect(page.getByTestId('pipeline-source-pending')).toBeVisible()
+    await bindSourceDataset(page)
+    await runPipelineToCompletion(page)
+
+    // Non-vacuity: the ordered node list is populated with settled statuses
+    // and the output jump is present before scanning.
+    await expect(page.locator('[data-testid="pipeline-node"]')).toHaveCount(4)
+    await expect(
+      page.locator('[data-testid="pipeline-node"][data-node-status="done"]'),
+    ).toHaveCount(4)
+    await expect(page.getByTestId('pipeline-view')).toBeVisible()
+
+    await scanAndGate(page, `pipeline panel (run completed, ${scheme})`, scheme)
   })
 }
 

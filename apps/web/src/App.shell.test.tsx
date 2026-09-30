@@ -14,14 +14,14 @@ import type { ArrowTableLike } from './grid/provider'
  * What this file pins:
  *
  * 1. **One shared disclosure per managed section.** Grid, Editing, Export,
- *    History, Validation, Compare, Record and SQL each render the shared
- *    `section-toggle-<id>` with `aria-expanded`. Schema, Filters and Profile
- *    keep their own equivalent `aria-expanded` disclosure (ux-3/ux-4) — the
- *    shell deliberately does NOT wrap them in a second toggle.
+ *    History, Validation, Compare, Record, SQL and Pipeline each render the
+ *    shared `section-toggle-<id>` with `aria-expanded`. Schema, Filters and
+ *    Profile keep their own equivalent `aria-expanded` disclosure (ux-3/ux-4)
+ *    — the shell deliberately does NOT wrap them in a second toggle.
  * 2. **CSS-only collapse keeps the section mounted.** Toggling a section flips
  *    `aria-expanded` and sets `hidden` on the body, but the child component
  *    stays in the DOM (the grid/fetch and f-2 memo invariants).
- * 3. **Sticky nav order == DOM order.** The nav links list all eleven sections
+ * 3. **Sticky nav order == DOM order.** The nav links list all twelve sections
  *    in the same order the sections render, and every `href` resolves to a
  *    real `section-<id>` anchor.
  * 4. **Grid hoisted.** The rendered section order is Schema → Grid → the rest
@@ -81,6 +81,7 @@ const SECTION_ORDER = [
   'record',
   'sql',
   'profile',
+  'pipeline',
 ] as const
 
 /** Sections whose shell owns the shared toggle (the other three have their own). */
@@ -93,6 +94,7 @@ const MANAGED_SECTIONS = [
   'compare',
   'record',
   'sql',
+  'pipeline',
 ] as const
 
 /** Visible section title, as it must appear in the collapsed toggle row. */
@@ -108,6 +110,7 @@ const SECTION_TITLES: Record<(typeof SECTION_ORDER)[number], string> = {
   record: 'Record',
   sql: 'SQL',
   profile: 'Profile',
+  pipeline: 'Pipeline',
 }
 
 /**
@@ -127,6 +130,7 @@ const SECTION_TOGGLE_TESTIDS: Record<(typeof SECTION_ORDER)[number], string> = {
   record: 'section-toggle-record',
   sql: 'section-toggle-sql',
   profile: 'profile-toggle',
+  pipeline: 'section-toggle-pipeline',
 }
 
 async function open(): Promise<void> {
@@ -167,7 +171,7 @@ describe('ux-6 — workbench section shell', () => {
         })
       }
       expect(toggle.getAttribute('aria-expanded')).toBe('false')
-      // The visible name stays in the toggle row for ALL eleven sections —
+      // The visible name stays in the toggle row for ALL twelve sections —
       // a collapsed Validation/Compare is no longer a bare chevron.
       expect(toggle.textContent).toContain(SECTION_TITLES[id])
     }

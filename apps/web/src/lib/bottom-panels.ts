@@ -35,12 +35,16 @@ export interface BottomPanelModules {
   readonly ProfilePanel: ComponentType<
     ComponentProps<(typeof import('../profile/ProfilePanel'))['ProfilePanel']>
   >
+  readonly PipelinePanel: ComponentType<
+    ComponentProps<(typeof import('../pipeline/PipelinePanel'))['PipelinePanel']>
+  >
 }
 
 let validationPanelImport: Promise<typeof import('../validation/ValidationPanel')> | null = null
 let diffPanelImport: Promise<typeof import('../diff/DiffPanel')> | null = null
 let sqlPanelImport: Promise<typeof import('../sql/SqlPanel')> | null = null
 let profilePanelImport: Promise<typeof import('../profile/ProfilePanel')> | null = null
+let pipelinePanelImport: Promise<typeof import('../pipeline/PipelinePanel')> | null = null
 
 const loadValidationPanel = (): Promise<typeof import('../validation/ValidationPanel')> =>
   (validationPanelImport ??= import('../validation/ValidationPanel'))
@@ -50,6 +54,8 @@ const loadSqlPanel = (): Promise<typeof import('../sql/SqlPanel')> =>
   (sqlPanelImport ??= import('../sql/SqlPanel'))
 const loadProfilePanel = (): Promise<typeof import('../profile/ProfilePanel')> =>
   (profilePanelImport ??= import('../profile/ProfilePanel'))
+const loadPipelinePanel = (): Promise<typeof import('../pipeline/PipelinePanel')> =>
+  (pipelinePanelImport ??= import('../pipeline/PipelinePanel'))
 
 let panelsPromise: Promise<BottomPanelModules> | null = null
 
@@ -73,10 +79,12 @@ export function preloadBottomPanels(): Promise<BottomPanelModules> {
     loadDiffPanel(),
     loadSqlPanel(),
     loadProfilePanel(),
-  ]).then(([validation, diff, sql, profile]) => ({
+    loadPipelinePanel(),
+  ]).then(([validation, diff, sql, profile, pipeline]) => ({
     ValidationPanel: memo(validation.ValidationPanel),
     DiffPanel: memo(diff.DiffPanel),
     SqlPanel: sql.SqlPanel,
     ProfilePanel: profile.ProfilePanel,
+    PipelinePanel: memo(pipeline.PipelinePanel),
   })))
 }

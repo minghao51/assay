@@ -152,6 +152,9 @@ importers:
       '@assay/grid':
         specifier: workspace:*
         version: link:../../packages/grid
+      '@assay/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       '@assay/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry

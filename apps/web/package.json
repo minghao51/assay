@@ -20,6 +20,7 @@
     "@assay/validation": "workspace:*",
     "@assay/engine-duckdb": "workspace:*",
     "@assay/grid": "workspace:*",
+    "@assay/pipeline": "workspace:*",
     "@assay/telemetry": "workspace:*",
     "@tanstack/react-virtual": "^3.14.13",
     "react": "catalog:",

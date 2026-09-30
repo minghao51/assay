@@ -13,11 +13,12 @@ import type { ArrowTableLike } from './grid/provider'
  * 1. **Complete heading map.** The ready frame carries an h1 and one h2 per
  *    top-level section, in DOM order matching the visual order: Schema,
  *    Editing, Export, History, Validation, Compare, Filters, Grid, Record,
- *    SQL, Profile. Schema/Editing/Export/History/Filters/Grid/Record/SQL/
- *    Profile use the visually-hidden h2 (their visible controls are a toggle
- *    or already-labelled section); Validation and Compare keep their visible
- *    h2. The Record heading exists only while the inspector is open, so the
- *    map is asserted after opening a record through the real row-click
+ *    SQL, Profile, Pipeline (p-5: Pipeline is the provisional tail, after
+ *    Profile). Schema/Editing/Export/History/Filters/Grid/Record/SQL/
+ *    Profile/Pipeline use the visually-hidden h2 (their visible controls are
+ *    a toggle or already-labelled section); Validation and Compare keep their
+ *    visible h2. The Record heading exists only while the inspector is open,
+ *    so the map is asserted after opening a record through the real row-click
  *    gesture.
  * 2. **Exactly one Undo/Redo pair** (UX-6): the history panel owns the only
  *    undo/redo buttons; the editing toolbar keeps Insert row + the pending
@@ -162,6 +163,7 @@ describe('ux-3 — complete heading map (UX-7)', () => {
       'Record',
       'SQL',
       'Profile',
+      'Pipeline',
     ])
   })
 
@@ -184,6 +186,7 @@ describe('ux-3 — complete heading map (UX-7)', () => {
       'Filters',
       'SQL',
       'Profile',
+      'Pipeline',
     ])
   })
 })

@@ -1666,3 +1666,157 @@ h1 {
   color: var(--color-text-muted);
   font-size: 0.85rem;
 }
+
+/* ---- Pipeline panel (p-5) ---- */
+
+/*
+ * The pipeline panel reuses the shell's surface tokens exclusively (contrast
+ * is checked per scheme by axe; no new colors are introduced). The node list
+ * is an accessible ordered list, not a graph: `list-style: none` is visual
+ * only — the <ol> keeps the semantic topological order.
+ */
+.pipeline {
+  margin-top: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-subtle);
+  padding: 0.5rem 0.75rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pipeline-open-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pipeline-open {
+  font: inherit;
+  padding: 0.2rem 0.9rem;
+  cursor: pointer;
+}
+
+.pipeline-open:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.pipeline-file-status {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+.pipeline-zero-state,
+.pipeline-opening {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.pipeline-parse-errors p,
+.pipeline-invalid p {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+.pipeline-parse-errors ul,
+.pipeline-invalid ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-summary {
+  margin: 0;
+}
+
+.pipeline-nodes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pipeline-node {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 3px;
+  /* Scheme-safe surface token (dual-scheme axe): slightly lifted from the
+     panel's --color-surface-subtle, defined in BOTH scheme blocks. */
+  background: var(--color-surface-alt);
+  padding: 0.35rem 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-node-id {
+  font-weight: 600;
+}
+
+.pipeline-node-output {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.pipeline-run-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pipeline-run,
+.pipeline-cancel,
+.pipeline-bind,
+.pipeline-view {
+  font: inherit;
+  padding: 0.2rem 0.9rem;
+  cursor: pointer;
+}
+
+.pipeline-run:disabled,
+.pipeline-cancel:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.pipeline-cancel:not(:disabled) {
+  border-color: var(--color-cancel-border);
+}
+
+.pipeline-run-status {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+.pipeline[data-state='running'] .pipeline-run-status,
+.pipeline-run-status[data-state='running'] {
+  color: var(--color-accent-text);
+  font-weight: 600;
+}
+
+.pipeline-run-refused,
+.pipeline-run-failed {
+  margin: 0;
+  color: var(--color-error-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-run-cancelled,
+.pipeline-completed-note,
+.pipeline-view-hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}

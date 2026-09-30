@@ -30,6 +30,7 @@ const SECTION_ORDER = [
   'record',
   'sql',
   'profile',
+  'pipeline',
 ] as const
 
 test.beforeEach(async ({ page }) => {
@@ -53,7 +54,8 @@ test('slice-1 shell: sticky nav, collapsible sections, hoisted mounted grid', as
   // Sticky positioning is the mechanism that keeps the nav in reach.
   expect(await nav.evaluate((element) => getComputedStyle(element).position)).toBe('sticky')
 
-  // Nav order === section DOM order, both pinned to the slice-1 order.
+  // Nav order === section DOM order, both pinned to the slice-1 order
+  // (p-5: 'Pipeline' is the provisional tail, after Profile).
   await expect(nav.locator('a')).toHaveText([
     'Schema',
     'Grid',
@@ -66,6 +68,7 @@ test('slice-1 shell: sticky nav, collapsible sections, hoisted mounted grid', as
     'Record',
     'SQL',
     'Profile',
+    'Pipeline',
   ])
   await expect(page.locator('.workbench-section')).toHaveCount(SECTION_ORDER.length)
   const rendered = await page
@@ -84,6 +87,7 @@ test('slice-1 shell: sticky nav, collapsible sections, hoisted mounted grid', as
     'compare',
     'record',
     'sql',
+    'pipeline',
   ]) {
     await expect(page.getByTestId(`section-toggle-${id}`)).toHaveAttribute('aria-expanded', 'true')
   }
