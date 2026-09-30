@@ -31,6 +31,13 @@ export type PipelineFileState =
 /** One source node's dataset binding (C2: user-picked, never guessed). */
 export type SourceBindingState =
   | { readonly kind: 'pending' }
+  /**
+   * The picked dataset could not be read (the picker or the file handle
+   * rejected). Honest degradation, mirroring the open path's `read-failed`:
+   * a fixed value-free state — never an unhandled rejection, never a
+   * partial binding, and the pick gesture stays available for a retry.
+   */
+  | { readonly kind: 'bind-failed' }
   | {
       readonly kind: 'bound'
       /**

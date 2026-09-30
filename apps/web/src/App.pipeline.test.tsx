@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   EngineTableHandle,
@@ -10,7 +10,9 @@ import type {
 } from '@assay/engine-duckdb'
 import { PipelineRunError, PipelineRunRefusalError } from '@assay/engine-duckdb'
 import { App } from './App'
+import { usePipelineSession } from './pipeline/usePipelineSession'
 import type { ArrowTableLike } from './grid/provider'
+import type { DatasetSession } from './sessions/session-reset'
 
 /**
  * p-5 App-level integration pins for the pipeline panel, driven through the
@@ -34,13 +36,21 @@ import type { ArrowTableLike } from './grid/provider'
  *    source pending/bound states (C2 — never guessed);
  * 4. the run discipline: unbound-source refusal collects ALL missing
  *    sources and calls the engine zero times; the Run control is disabled
- *    (serialized) while a run is in flight; live per-node status; the
- *    completed state's row counts; the typed canceled outcome (named
- *    partial + next node, boundary disclosure); the value-free failed
- *    state naming the failing node;
+ *    (serialized) while a run is in flight — AND the in-hook in-flight
+ *    check is pinned directly (a second run() driven while in flight is a
+ *    no-op: jsdom clicks bypass the disabled control); live per-node
+ *    status; the completed state's row counts; the typed canceled outcome
+ *    (named partial + next node, boundary disclosure); the value-free
+ *    failed state naming the failing node — with the NEGATIVE sweep: the
+ *    settled failed/canceled surfaces carry neither the picked source file
+ *    name nor any dataset text (a mutant embedding picked names into the
+ *    failure `message` must fail here);
  * 5. outputs → the EXISTING result surface: "View output" hands the exact
  *    quoted `SELECT * FROM "relation"` to the SQL pane's `runRequest` seam;
- * 6. privacy: picked file names never render (ADR 0025).
+ * 6. privacy: picked file names never render (ADR 0025); a rejecting
+ *    source pick degrades to the typed bind-failed alert (the open path's
+ *    honest-degradation pattern, per node), and run-failure messages render
+ *    through `sanitizePipelineText` like every other dynamic string.
  */
 
 /** Fake open result: the engine's opaque handle shape (engine-generated id). */
@@ -50,6 +60,14 @@ const FAKE_SCHEMA: readonly { name: string; type: string }[] = [
   { name: 'customer_id', type: 'BIGINT' },
   { name: 'country', type: 'VARCHAR' },
 ]
+
+/**
+ * Distinctive synthetic dataset payload for the value-free leak sweeps:
+ * failed/canceled surfaces must carry neither picked names nor dataset
+ * text, so the bound files in those tests carry this marker to catch
+ * content leaks too. Never a real value.
+ */
+const DATASET_SENTINEL = 'zq7-dataset-payload'
 
 function fakeBatch(): ArrowTableLike {
   const columns = [{ get: () => 1 }, { get: () => 'SG' }]
@@ -129,6 +147,8 @@ const h = vi.hoisted(() => ({
   rejectRun: null as null | ((error: unknown) => void),
   /** How many times the engine's runPipeline was invoked. */
   runCalls: 0,
+  /** When set, the mocked source handle rejects `getFile` (revoked/unreadable). */
+  failGetFile: false,
 }))
 
 vi.mock('@assay/data-sources/browser', () => ({
@@ -139,7 +159,15 @@ vi.mock('@assay/data-sources/browser', () => ({
     if (h.pickerResult === 'dismissed') return null
     const file = h.queue.shift()
     if (file === undefined) throw new Error('test picker queue exhausted')
-    return { via: 'input-fallback', source: { getFile: async () => file } }
+    return {
+      via: 'input-fallback',
+      source: {
+        getFile: async () => {
+          if (h.failGetFile) throw new Error('handle revoked')
+          return file
+        },
+      },
+    }
   },
 }))
 
@@ -191,8 +219,8 @@ const COMPLETED_RUN: PipelineRunResult = {
   ],
 }
 
-function datasetFile(name: string): File {
-  return new File(['id\n1\n'], name)
+function datasetFile(name: string, content = 'id\n1\n'): File {
+  return new File([content], name)
 }
 
 function yamlFile(name: string, text: string): File {
@@ -224,6 +252,7 @@ afterEach(() => {
   h.resolveRun = null
   h.rejectRun = null
   h.runCalls = 0
+  h.failGetFile = false
 })
 
 describe('pipeline panel — placement and empty states (p-5)', () => {
@@ -378,6 +407,40 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     expect(h.runCalls).toBe(0)
   })
 
+  it('degrades a rejecting source pick honestly (bind-failed alert, retry available, nothing executed)', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(PIPELINE_YAML)
+
+    // The pick succeeds but the file handle rejects (revoked/unreadable):
+    // the open path's honest-degradation pattern, mirrored per source node
+    // (reviewer round 1) — a typed, located, value-free alert, never an
+    // unhandled rejection and never a partial binding.
+    h.queue.push(datasetFile('source-dataset.parquet', DATASET_SENTINEL))
+    h.failGetFile = true
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    const alert = screen.getByTestId('pipeline-source-bind-error')
+    expect(alert.getAttribute('role')).toBe('alert')
+    expect(alert.getAttribute('data-node-id')).toBe('customers')
+    expect(alert.textContent).toMatch(/could not be read/)
+    expect(alert.textContent).not.toContain('source-dataset.parquet')
+    expect(alert.textContent).not.toContain(DATASET_SENTINEL)
+    // Still honestly unbound; nothing was executed.
+    expect(screen.queryByTestId('pipeline-source-bound')).toBeNull()
+    expect(h.runCalls).toBe(0)
+
+    // The pick gesture stays available: a retry with a readable handle binds.
+    h.failGetFile = false
+    h.queue.push(datasetFile('source-dataset.parquet', DATASET_SENTINEL))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    expect(screen.getByTestId('pipeline-source-bound')).toBeTruthy()
+    expect(screen.queryByTestId('pipeline-source-bind-error')).toBeNull()
+  })
+
   it('runs serialized with live per-node status, completes with counts, and jumps the output to the SQL pane', async () => {
     render(<App />)
     await openDataset('primary.jsonl')
@@ -413,6 +476,23 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     expect(statusOf('customers')).toBe('running')
     expect(statusOf('by_country')).toBe('pending')
 
+    // The disabled control is the primary guard: a second click gesture on
+    // it does NOT start a second run (React does not dispatch clicks to
+    // disabled controls — jsdom included). The in-hook belt-and-braces
+    // check cannot be driven through the DOM, so it is pinned directly at
+    // the hook level in the describe below.
+    await act(async () => {
+      fireEvent.click(runButton)
+    })
+    expect(h.runCalls).toBe(1)
+    expect(screen.getByTestId('pipeline-run-status').getAttribute('data-state')).toBe('running')
+    expect(nodes().map((node) => node.getAttribute('data-node-status'))).toEqual([
+      'running',
+      'pending',
+      'pending',
+      'pending',
+    ])
+
     // Settle: every node done with its real runner-shaped counts.
     await act(async () => {
       h.resolveRun?.(COMPLETED_RUN)
@@ -443,7 +523,7 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     render(<App />)
     await openDataset('primary.jsonl')
     await openPipeline(PIPELINE_YAML)
-    h.queue.push(datasetFile('source-dataset.parquet'))
+    h.queue.push(datasetFile('source-dataset.parquet', DATASET_SENTINEL))
     await act(async () => {
       fireEvent.click(screen.getByTestId('pipeline-bind'))
     })
@@ -473,13 +553,19 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     expect(note.textContent).toContain('renamed')
     expect(note.textContent).toContain('customers')
     expect(note.textContent).toMatch(/node boundaries/)
+    // Negative pin (reviewer round 1): the canceled surface is value-free
+    // too — neither the picked source file name nor any dataset text.
+    expect(note.textContent).not.toContain('source-dataset.parquet')
+    expect(note.textContent).not.toContain(DATASET_SENTINEL)
+    expect(document.body.textContent).not.toContain('source-dataset.parquet')
+    expect(document.body.textContent).not.toContain(DATASET_SENTINEL)
   })
 
   it('renders a failed run value-free with the failing node and named partial state', async () => {
     render(<App />)
     await openDataset('primary.jsonl')
     await openPipeline(PIPELINE_YAML)
-    h.queue.push(datasetFile('source-dataset.parquet'))
+    h.queue.push(datasetFile('source-dataset.parquet', DATASET_SENTINEL))
     await act(async () => {
       fireEvent.click(screen.getByTestId('pipeline-bind'))
     })
@@ -500,6 +586,15 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     expect(failed.textContent).toContain('sg_only')
     expect(failed.textContent).toContain('customers')
     expect(failed.textContent).toContain('renamed')
+    // Negative pin (reviewer round 1): the failed surface is value-free —
+    // neither the picked source file name nor any dataset text may appear,
+    // on the alert or anywhere on the page (the runner's fixed message
+    // class carries no values; a mutant embedding picked names or dataset
+    // content into the failure `message` must fail here).
+    expect(failed.textContent).not.toContain('source-dataset.parquet')
+    expect(failed.textContent).not.toContain(DATASET_SENTINEL)
+    expect(document.body.textContent).not.toContain('source-dataset.parquet')
+    expect(document.body.textContent).not.toContain(DATASET_SENTINEL)
     // Only TERMINAL relations are viewable (outputs jump; intermediate
     // partial relations do not) — and the only output here never
     // materialized, so nothing is viewable after this failure.
@@ -555,15 +650,19 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
 
     // A re-run replaces the failure; a non-typed engine failure renders the
     // readable message with no failing node (it predates node execution).
+    // The message rides `sanitizePipelineText` like every other dynamic
+    // pipeline string (reviewer round 1): the Error text's control character
+    // renders as a visible escape, and no picked name leaks.
     await act(async () => {
       fireEvent.click(screen.getByTestId('pipeline-run'))
     })
     await act(async () => {
-      h.rejectRun?.(new Error('the engine worker died'))
+      h.rejectRun?.(new Error('the engine worker died\u001b[31m'))
     })
     const failed = screen.getByTestId('pipeline-run-failed')
     expect(failed.textContent).toContain('before any node executed')
-    expect(failed.textContent).toContain('the engine worker died')
+    expect(failed.textContent).toContain('the engine worker died\\u001b[31m')
+    expect(document.body.textContent).not.toContain('source-dataset.parquet')
   })
 
   it('clears the run live region when a new pipeline supersedes the old one', async () => {
@@ -600,5 +699,76 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     expect(document.body.textContent).not.toContain('primary.jsonl')
     expect(document.body.textContent).not.toContain('pipeline-pin.yaml')
     expect(document.body.textContent).not.toContain('source-dataset.parquet')
+  })
+})
+
+/** A minimal DatasetSession for hook-level pins (no App, no DOM). */
+function stubSession(): DatasetSession {
+  return {
+    tokenRef: { current: 0 },
+    beginSession: () => 0,
+    registerReset: () => () => {},
+  }
+}
+
+describe('pipeline session hook — in-flight run serialization (p-5, reviewer round 1)', () => {
+  it('makes a second run() while in flight a no-op: one engine call, no state clobber', async () => {
+    const { result } = renderHook(() => usePipelineSession({ session: stubSession() }))
+
+    // Load the pipeline through the mocked picker (parse → validate →
+    // compile run FOR REAL) and bind its single source.
+    h.queue.push(yamlFile('pipeline-pin.yaml', PIPELINE_YAML))
+    await act(async () => {
+      result.current.openPipelineFile()
+    })
+    expect(result.current.fileState.kind).toBe('loaded')
+    h.queue.push(datasetFile('source-dataset.parquet', DATASET_SENTINEL))
+    await act(async () => {
+      result.current.bindSourceDataset('customers')
+    })
+    expect(result.current.bindings['customers']?.kind).toBe('bound')
+
+    // First run: in flight (the fake parks the runner promise).
+    await act(async () => {
+      result.current.run()
+    })
+    expect(h.runCalls).toBe(1)
+    expect(result.current.runState.kind).toBe('running')
+
+    // Request cancellation mid-flight, THEN drive a second run(): the
+    // in-hook guard must refuse it. This is the exact hole the disabled
+    // control cannot close (React swallows the DOM gesture) — the hook
+    // double-check is the last line of defense.
+    await act(async () => {
+      result.current.cancelRun()
+    })
+    await act(async () => {
+      result.current.run()
+    })
+
+    // One engine call — a guard-less second run would invoke the engine
+    // again (runCalls 2).
+    expect(h.runCalls).toBe(1)
+    // The in-flight state was NOT clobbered: a guard-less second run would
+    // reset cancelRequested to false and the statuses to all-pending.
+    const running = result.current.runState
+    if (running.kind !== 'running') throw new Error('expected the run to stay in flight')
+    expect(running.cancelRequested).toBe(true)
+    expect(running.statuses).toEqual({
+      customers: 'running',
+      renamed: 'pending',
+      sg_only: 'pending',
+      by_country: 'pending',
+    })
+
+    // The original run still settles honestly (typed canceled outcome).
+    await act(async () => {
+      h.resolveRun?.({
+        status: 'canceled',
+        nodes: [{ nodeId: 'customers', relation: 'customers', rowCount: 5 }],
+        nextNodeId: 'renamed',
+      })
+    })
+    expect(result.current.runState.kind).toBe('canceled')
   })
 })

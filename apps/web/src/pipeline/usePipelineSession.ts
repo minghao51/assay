@@ -45,6 +45,7 @@ import type {
   PipelineRunState,
   SourceBindingState,
 } from './pipeline-state'
+import { advanceNodeStatuses } from './pipeline-state'
 
 export interface PipelineSessionParams {
   readonly session: DatasetSession
@@ -180,10 +181,34 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
     (nodeId: string): void => {
       const sessionId = session.tokenRef.current
       void (async () => {
-        const picked = await pickDataFile()
+        /**
+         * Honest degradation (the open path's pattern): a rejecting picker
+         * or file handle degrades to the typed `bind-failed` state — never
+         * an unhandled rejection, never a partial binding.
+         */
+        const bindFailed = (): void => {
+          if (session.tokenRef.current !== sessionId) return
+          setBindings((previous) => ({
+            ...previous,
+            [nodeId]: { kind: 'bind-failed' },
+          }))
+        }
+        let picked: Awaited<ReturnType<typeof pickDataFile>> = null
+        try {
+          picked = await pickDataFile()
+        } catch {
+          bindFailed()
+          return
+        }
         if (session.tokenRef.current !== sessionId) return
         if (picked === null) return // dismissed — the source stays honestly pending
-        const file = await picked.source.getFile()
+        let file: File
+        try {
+          file = await picked.source.getFile()
+        } catch {
+          bindFailed()
+          return
+        }
         if (session.tokenRef.current !== sessionId) return
         setBindings((previous) => ({
           ...previous,
@@ -205,7 +230,8 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
     if (current.kind !== 'loaded') return
     // UI-level serialization (p-3 carry-over): no second run can start
     // while one is in flight. The disabled control is the primary guard;
-    // this check is the belt-and-braces.
+    // this check is the belt-and-braces (pinned directly at the hook level
+    // in App.pipeline.test.tsx — a second run() while in flight is a no-op).
     if (runStateRef.current.kind === 'running') return
     const plan = current.plan
 
@@ -250,19 +276,15 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
           // Live boundary updates: the named node is executing; every
           // earlier topological node is already materialized. Stale tokens
           // (a newer run / new pipeline / new dataset session) drop silently.
+          // The transition itself is the exported, unit-pinned
+          // `advanceNodeStatuses` — one implementation, no inline shadow.
           setRunState((previous) => {
             if (previous.kind !== 'running' || runTokenRef.current !== token) return previous
-            const index = plan.order.indexOf(nodeId)
-            if (index < 0) return previous
-            const statuses = { ...previous.statuses }
-            for (let position = 0; position < index; position += 1) {
-              const earlier = plan.order[position]
-              if (statuses[earlier] === 'pending' || statuses[earlier] === 'running') {
-                statuses[earlier] = 'done'
-              }
+            if (!plan.order.includes(nodeId)) return previous
+            return {
+              ...previous,
+              statuses: advanceNodeStatuses(previous.statuses, plan.order, nodeId),
             }
-            statuses[nodeId] = 'running'
-            return { ...previous, statuses }
           })
         },
       })

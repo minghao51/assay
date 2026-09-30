@@ -355,11 +355,22 @@ export function PipelinePanel({
                           >
                             Choose dataset…
                           </button>{' '}
-                          <span data-testid="pipeline-source-pending" data-node-id={node.nodeId}>
-                            No dataset bound yet — pick the dataset this source reads. The
-                            pipeline’s authored source path is not used in the browser; nothing is
-                            guessed.
-                          </span>
+                          {binding?.kind === 'bind-failed' ? (
+                            <span
+                              role="alert"
+                              data-testid="pipeline-source-bind-error"
+                              data-node-id={node.nodeId}
+                            >
+                              The picked dataset could not be read — nothing was bound. Nothing has
+                              been executed; choose the dataset again.
+                            </span>
+                          ) : (
+                            <span data-testid="pipeline-source-pending" data-node-id={node.nodeId}>
+                              No dataset bound yet — pick the dataset this source reads. The
+                              pipeline’s authored source path is not used in the browser; nothing is
+                              guessed.
+                            </span>
+                          )}
                         </>
                       )}
                     </span>
@@ -454,12 +465,14 @@ export function PipelinePanel({
           {runState.kind === 'failed' && (
             <p className="pipeline-run-failed" role="alert" data-testid="pipeline-run-failed">
               {runState.nodeId === null ? (
-                <>The run failed before any node executed. {runState.message}</>
+                <>
+                  The run failed before any node executed. {sanitizePipelineText(runState.message)}
+                </>
               ) : (
                 <>
                   The run failed at node <code>{sanitizePipelineText(runState.nodeId)}</code> —{' '}
-                  {runState.message}. Nodes materialized before the failure remain as named
-                  relations:{' '}
+                  {sanitizePipelineText(runState.message)}. Nodes materialized before the failure
+                  remain as named relations:{' '}
                   {runState.partial.length === 0
                     ? 'none'
                     : runState.partial.map((entry, index) => (
