@@ -119,7 +119,10 @@ nodes:
     inputs: [customers]
     operation:
       filter:
-        expression: country = 'SG'
+        predicates:
+          - column: country
+            operator: equals
+            value: SG
 
   policies:
     type: source
@@ -158,6 +161,11 @@ nodes:
 The IR's required properties (declarative, serializable, engine-neutral, Git-friendly,
 and shared by Web, VS Code, CLI, and enterprise services) are stated in
 [ADR 0030](../adr/0030-owned-pipeline-ir.md).
+
+The executable nodes in this example compile through the structured vocabulary (filter
+predicates; the compiled `join`/`aggregate`/`window` operations — pipeline stage P2).
+Operations outside the compiled set remain verbatim SQL nodes (the documented escape
+hatch); the `validate`/`publish` gate nodes execute per ADR 0035.
 
 ## 6. Node Types
 
