@@ -23,6 +23,7 @@
  */
 import {
   DuckDbEngineClient,
+  EngineOperationError,
   PipelineRunError,
   PipelineRunGuard,
   PipelineRunRefusalError,
@@ -34,6 +35,7 @@ import type {
   PipelineRunnerConformanceRunOptions,
   PipelineRunnerConformanceSource,
   PipelineRunnerConformanceSubject,
+  PipelineRunnerConformanceTableHandle,
 } from '@assay/testing'
 import type { PipelineRunSourceFile } from '../src/index'
 import type { PipelineV1 } from '@assay/pipeline'
@@ -86,6 +88,21 @@ class HarnessPipelineRunner implements PipelineRunnerConformanceRunner {
       values.push(value === null || value === undefined ? null : String(value))
     }
     return values
+  }
+
+  registerRelation(relation: string): Promise<PipelineRunnerConformanceTableHandle> {
+    return this.client.registerPipelineRelation(relation)
+  }
+
+  async schema(
+    handle: PipelineRunnerConformanceTableHandle,
+  ): Promise<readonly { readonly name: string; readonly type: string }[]> {
+    const columns = await this.client.schema(handle)
+    return columns.map((column) => ({ name: column.name, type: column.type }))
+  }
+
+  rowCount(handle: PipelineRunnerConformanceTableHandle): Promise<number> {
+    return this.client.rowCount(handle)
   }
 
   dispose(): Promise<void> {
@@ -148,6 +165,7 @@ export function createPipelineRunnerSubject(
       failureNodeId: (error) => (error instanceof PipelineRunError ? error.nodeId : null),
       failurePartial: (error) =>
         error instanceof PipelineRunError ? error.partial.map((entry) => entry.nodeId) : [],
+      operation: (error) => error instanceof EngineOperationError,
     },
   }
 }

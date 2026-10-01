@@ -26,7 +26,7 @@
 // Dataset values never reach stderr (ADR 0025).
 // ---------------------------------------------------------------------------
 
-import { describePipelineError } from '@assay/pipeline'
+import { describePipelineError, sanitizePipelineText } from '@assay/pipeline'
 import type {
   PipelineCompileResult,
   PipelineError,
@@ -48,19 +48,12 @@ import type { ReportStyle } from './style.js'
  * must not be able to inject terminal escapes into the CLI's output. Ordinary
  * text (and backslashes) pass through verbatim — the escapes are inert text,
  * so a literal `\u001b` sequence already in the document stays byte-stable.
+ *
+ * p2-1 (a): the implementation now lives in the shared pure home
+ * `@assay/pipeline` (`packages/pipeline/src/sanitize.ts`); it is re-exported
+ * here so the CLI's existing call sites and tests keep their import path.
  */
-export function sanitizePipelineText(text: string): string {
-  let out = ''
-  for (const char of text) {
-    const code = char.codePointAt(0)
-    if (code !== undefined && ((code >= 0x00 && code <= 0x1f) || (code >= 0x7f && code <= 0x9f))) {
-      out += `\\u${code.toString(16).padStart(4, '0')}`
-    } else {
-      out += char
-    }
-  }
-  return out
-}
+export { sanitizePipelineText }
 
 /**
  * The canonical one-line rendering of a pipeline error, sanitized at this

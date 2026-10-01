@@ -143,6 +143,7 @@ import { classifyVerbatimSql } from '@assay/pipeline'
 import type { EngineSchema } from '@assay/validation'
 import { DATASET_VIEW, PLAN_RELATION, countViewRows } from './connection.js'
 import { usageError } from './errors.js'
+import type { PipelineFileSource } from './pipeline.js'
 
 /**
  * Wire-harden a freshly compiled plan (the m5-2 boundary discipline: the
@@ -820,7 +821,9 @@ export { PLAN_RELATION }
  * (`PipelineRunError`) — DuckDB messages can embed composed SQL or cell
  * values (ADR 0025).
  */
-export function createPipelineRunOps(conn: DuckDBConnection): PipelineRunEngineOps {
+export function createPipelineRunOps(
+  conn: DuckDBConnection,
+): PipelineRunEngineOps<PipelineFileSource> {
   const countRows = async (relation: string): Promise<number> => {
     try {
       return await countViewRows(conn, relation)
@@ -830,15 +833,14 @@ export function createPipelineRunOps(conn: DuckDBConnection): PipelineRunEngineO
   }
   return {
     registerSource: async (relation, source) => {
-      // The CLI always passes `PipelineFileSource` (see pipeline.ts); the
-      // structural read keeps this defensive against a future caller.
-      const path = (source as { path?: unknown }).path
-      const format = typeof path === 'string' ? detectFileFormat(source.name) : null
+      // p2-1 (d): `source` is statically the CLI's `PipelineFileSource`, so
+      // `path` is typed — no defensive structural read/cast.
+      const format = detectFileFormat(source.name)
       if (format === null) {
         throw new Error('the pipeline source could not be resolved')
       }
       try {
-        await conn.run(createOrReplaceViewSql(relation, path as string, format))
+        await conn.run(createOrReplaceViewSql(relation, source.path, format))
       } catch {
         throw new Error('the pipeline source view could not be created')
       }

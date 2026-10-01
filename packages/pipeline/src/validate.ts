@@ -211,7 +211,15 @@ function resolveNode(ctx: WalkContext, node: YamlNode): YamlNode {
   if (node !== null && isAlias(node)) {
     try {
       return (node.resolve(ctx.doc) as YamlNode) ?? null
-    } catch {
+    } catch (error) {
+      // Deep alias nesting overflows the YAML resolver's recursion and throws
+      // a RangeError (the "Maximum call stack size exceeded" case). That is a
+      // resource-limit failure, not a malformed document the total parser owns
+      // — re-throw it so it stays a hard failure instead of degrading to an
+      // innocuous-looking null node. Every other resolver failure (an
+      // unresolvable alias) degrades to null and is reported as a located error
+      // by the caller.
+      if (error instanceof RangeError) throw error
       return null
     }
   }

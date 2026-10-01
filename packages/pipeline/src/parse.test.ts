@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
+import { isAlias, parseDocument } from 'yaml'
 import { parsePipeline } from './parse.js'
+import { validatePipelineDocument } from './validate.js'
 import type { PipelineError } from './errors.js'
 import type { PipelineV1 } from './ast.js'
 
@@ -32,6 +34,26 @@ function parseOk(text: string): PipelineV1 {
     throw new Error(`expected success, got: ${result.errors.map((e) => e.message).join('; ')}`)
   }
   return result.pipeline
+}
+
+/** Find the first real YAML alias node in a parsed document (for the p2-1 (f) probe). */
+function findAlias(node: unknown): { resolve: (...args: unknown[]) => unknown } | null {
+  if (node === null || typeof node !== 'object') return null
+  if (isAlias(node)) return node as { resolve: (...args: unknown[]) => unknown }
+  const candidate = node as {
+    items?: readonly unknown[]
+    key?: unknown
+    value?: unknown
+  }
+  for (const item of candidate.items ?? []) {
+    const hit = findAlias(item)
+    if (hit !== null) return hit
+  }
+  if ('key' in candidate || 'value' in candidate) {
+    const hit = findAlias(candidate.key) ?? findAlias(candidate.value)
+    if (hit !== null) return hit
+  }
+  return null
 }
 
 describe('parsePipeline: valid documents', () => {
@@ -345,6 +367,34 @@ nodes:
       // No merge was applied: the would-be merged key is absent.
       expect(Object.hasOwn(node.source, 'path')).toBe(false)
     }
+  })
+})
+
+describe('parsePipeline: deep alias resolution stays a hard failure (p2-1 (f))', () => {
+  it('re-throws a RangeError from alias resolution instead of swallowing it', () => {
+    // `resolveNode` used to `catch { return null }`, swallowing a RangeError
+    // from the YAML resolver (deep overspend / "Maximum call stack size
+    // exceeded"). Real deep-nesting input is intercepted by the library's own
+    // parse-time depth guard, so this pin injects the resolver failure at the
+    // seam to prove the catch narrows: a RangeError propagates instead of
+    // degrading to an innocuous null node.
+    const text = `${BASE}\n  x:\n    type: source\n    source: *missing\n`
+    const doc = parseDocument(text, { uniqueKeys: false })
+    const alias = findAlias(doc.contents)
+    expect(alias).not.toBeNull()
+    if (alias === null) return
+    alias.resolve = () => {
+      throw new RangeError('Maximum call stack size exceeded')
+    }
+    expect(() => validatePipelineDocument(doc, text)).toThrow(RangeError)
+  })
+
+  it('still degrades an ordinary unresolvable alias to a typed, located error', () => {
+    const text = `${BASE}\n  x:\n    type: source\n    source: *missing\n`
+    const doc = parseDocument(text, { uniqueKeys: false })
+    const { errors } = validatePipelineDocument(doc, text)
+    expect(errors.length).toBeGreaterThan(0)
+    expect(errors.every((error) => typeof error.code === 'string')).toBe(true)
   })
 })
 

@@ -90,6 +90,19 @@ export function validatePipeline(pipeline: PipelineV1): PipelineValidationResult
       })
       continue
     }
+    // p2-1 (i): the parse path rejects the repo-wide reserved `assay_*`
+    // namespace (node id = relation name) at parse time; programmatic ASTs
+    // reach validatePipeline directly, so the SAME rule (case-insensitive,
+    // whitespace-trimmed, same value-free error shape) is enforced here too.
+    if (id.trim().toLowerCase().startsWith('assay_')) {
+      errors.push({
+        code: 'reserved-identifier',
+        message: `${path}: the node id ${JSON.stringify(id)} uses the reserved "assay_" namespace — node ids become relation names, and "assay_*" is reserved repo-wide for compiler-internal identifiers; choose another id`,
+        path: `${path}.id`,
+        nodeId: id,
+      })
+      continue
+    }
     if (byId.has(id)) {
       errors.push({
         code: 'single-writer',

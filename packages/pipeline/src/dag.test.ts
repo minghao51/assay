@@ -88,6 +88,29 @@ describe('validatePipeline: rejected DAGs', () => {
     expect(result.errors[0]?.code).toBe('invalid-reference')
   })
 
+  it('flags reserved assay_* node ids on a programmatic AST (p2-1 (i))', () => {
+    // The parse path rejects the reserved namespace, but validatePipeline is
+    // public on a structurally built AST — the SAME rule must apply here so a
+    // programmatic pipeline cannot bypass the parse-only gate.
+    for (const id of ['assay_x', 'ASSAY_X', ' assay_x', 'assay_x ', '  Assay_X  ']) {
+      const result = validatePipeline(pipelineOf([source(id)]))
+      expect(result.ok, id).toBe(false)
+      if (result.ok) continue
+      expect(
+        result.errors.map((error) => error.code),
+        id,
+      ).toEqual(['reserved-identifier'])
+      expect(result.errors[0]).toMatchObject({ code: 'reserved-identifier', nodeId: id })
+      expect(result.errors[0]?.message, id).toContain('assay_')
+    }
+  })
+
+  it('keeps similar-prefix and hostile ids permissive on a programmatic AST (p2-1 (i))', () => {
+    for (const id of ['assay', 'assayx', 'my_assay_x', '__proto__', 'weird "quoted" key']) {
+      expect(validatePipeline(pipelineOf([source(id)])).ok, id).toBe(true)
+    }
+  })
+
   it('flags unresolved data and gate references', () => {
     const data = validatePipeline(pipelineOf([transform('a', ['missing'])]))
     expect(data.ok).toBe(false)

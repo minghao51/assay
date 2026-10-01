@@ -265,7 +265,36 @@ describe('executePipeline — refusals before any engine call', () => {
   })
 
   it('refuses a plan whose node relation uses the reserved assay_ namespace', async () => {
-    const pipeline = testPipeline()
+    // Pass a compiled plan directly: the IR path now refuses a reserved node
+    // id earlier (p2-1 (i) enforces it in `validatePipeline`, so
+    // `compilePipeline` fails first with `not-runnable`). The runner's own
+    // gate still guards a programmatic/lower-level plan input.
+    const plan: PipelineCompilePlan = {
+      order: ['assay_customers', 'out'],
+      nodes: [
+        {
+          nodeId: 'assay_customers',
+          kind: 'source',
+          relation: 'assay_customers',
+          quotedRelation: '"assay_customers"',
+          sql: null,
+        },
+        {
+          nodeId: 'out',
+          kind: 'sql',
+          relation: 'out',
+          quotedRelation: '"out"',
+          sql: 'SELECT 1 AS value',
+        },
+      ],
+    }
+    const error = await expectRefusal(plan, {
+      sources: [{ nodeId: 'assay_customers', source: SOURCE_FILE }],
+    })
+    expect(error.reason).toBe('forbidden-relation')
+  })
+
+  it('refuses a reserved node id through the IR path at compile (p2-1 (i))', async () => {
     const reserved: PipelineV1 = {
       version: 1,
       pipeline: 'reserved',
@@ -274,11 +303,13 @@ describe('executePipeline — refusals before any engine call', () => {
         { id: 'out', type: 'sql', inputs: ['assay_customers'], sql: 'SELECT 1 AS value' },
       ],
     }
-    void pipeline
     const error = await expectRefusal(reserved, {
       sources: [{ nodeId: 'assay_customers', source: SOURCE_FILE }],
     })
-    expect(error.reason).toBe('forbidden-relation')
+    // `validatePipeline` (now enforcing the parse-only reserved rule on
+    // programmatic ASTs) makes `compilePipeline` refuse the IR before the
+    // runner's reserved-relation gate is reached.
+    expect(error.reason).toBe('not-runnable')
   })
 
   it('refuses verbatim SQL that the p-2 classifier rejects (forged plan kind)', async () => {

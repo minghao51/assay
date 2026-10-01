@@ -118,6 +118,59 @@ describe('golden pipeline fixtures', () => {
     ])
   })
 
+  it('architecture-example.yaml is the only canonical:false manifest entry that parses (p2-1 (g))', () => {
+    // The queue wording said "the only canonical:false entry"; reality is two
+    // canonical:false entries. The invariant pinned here is the true one:
+    // architecture-example.yaml is the only canonical:false entry that PARSES,
+    // and the only other canonical:false entry is the deliberate negative
+    // probe (which must keep failing to parse).
+    const nonCanonical = manifest.files.filter((file) => file.canonical !== true)
+    expect(nonCanonical.map((file) => file.name).sort()).toEqual([
+      'architecture-example.yaml',
+      'reserved-namespace-refusal.yaml',
+    ])
+    const parsing = nonCanonical.filter((file) => file.expect !== 'refuses')
+    expect(parsing.map((file) => file.name)).toEqual(['architecture-example.yaml'])
+
+    // Re-verify the split explicitly against the bytes, not the manifest flags.
+    const example = parsePipeline(
+      readFileSync(join(FIXTURE_DIR, 'architecture-example.yaml'), 'utf8'),
+    )
+    expect(example.ok).toBe(true)
+    const refusal = parsePipeline(
+      readFileSync(join(FIXTURE_DIR, 'reserved-namespace-refusal.yaml'), 'utf8'),
+    )
+    expect(refusal.ok).toBe(false)
+  })
+
+  it('hostile-names.yaml pins the parsed AST of its most hostile construct (p2-1 (h))', () => {
+    // The fixture has no diff node, so the most hostile construct is the
+    // publish node whose id/input carry quotes, spaces and unicode, plus the
+    // __proto__-keyed transform. Pin the PARSED AST (not merely "it parses")
+    // so the hostile-name mapping cannot silently degrade.
+    const text = readFileSync(join(FIXTURE_DIR, 'hostile-names.yaml'), 'utf8')
+    const parsed = parsePipeline(text)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+
+    const publish = parsed.pipeline.nodes.find((node) => node.id === '\u00fcn\u00ef')
+    expect(publish).toEqual({
+      id: '\u00fcn\u00ef',
+      type: 'publish',
+      input: 'weird "quoted" key',
+      requires: ['1'],
+    })
+
+    const transform = parsed.pipeline.nodes.find((node) => node.id === '1')
+    expect(transform?.type).toBe('transform')
+    if (transform?.type !== 'transform') return
+    expect(transform.id).toBe('1')
+    expect(transform.inputs).toEqual(['__proto__'])
+    expect(transform.operation.operation).toBe('filter')
+    expect(Object.hasOwn(transform.operation.args, '__proto__')).toBe(true)
+    expect(transform.operation.args.expression).toBe('x = 1')
+  })
+
   it('hostile-names.yaml preserves hostile ids and the __proto__ probe', () => {
     const text = readFileSync(join(FIXTURE_DIR, 'hostile-names.yaml'), 'utf8')
     const parsed = parsePipeline(text)

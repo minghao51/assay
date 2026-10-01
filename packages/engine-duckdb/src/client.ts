@@ -928,6 +928,30 @@ export class DuckDbEngineClient {
   }
 
   /**
+   * Open an EXISTING pipeline relation (a node's materialized view in this
+   * session) as a dataset handle (p2-1), so the grid-native registry ops
+   * (`schema`/`fetchRange`/`rowCount`) and `exportView` address it by handle
+   * — no SQL-result detour through `query()`. The relation must already exist
+   * in this session (the pipeline run created it); an unknown relation rejects
+   * with the engine's operation category, value-free (ADR 0025). Registry
+   * lane: bookkeeping plus a cheap existence probe, no data scan.
+   */
+  async registerPipelineRelation(relation: string): Promise<EngineTableHandle> {
+    await this.ensureReady()
+    const response = await this.send({
+      type: 'engine/pipeline-handle',
+      requestId: this.takeRequestId(),
+      relation,
+    })
+    if (response.type !== 'engine/pipeline-handle-result') {
+      throw new EngineProtocolError(
+        `unexpected ${response.type} response for engine/pipeline-handle`,
+      )
+    }
+    return { kind: 'table', id: response.tableId }
+  }
+
+  /**
    * Gracefully dispose: ask the worker to drop every registered view/file,
    * wait briefly for the reply (or the worker's death), then terminate the
    * worker — the hard guarantee that the whole engine instance, including

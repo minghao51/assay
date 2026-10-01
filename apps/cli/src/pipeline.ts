@@ -49,18 +49,14 @@ import type {
   PipelineV1,
   PipelineValidationResult,
 } from '@assay/pipeline'
-import {
-  detectFileFormat,
-  executePipeline,
-  PipelineRunError,
-  PipelineRunRefusalError,
+import type {
+  EngineFileFormat,
+  PipelineRunSource,
+  PipelineRunSourceFile,
 } from '@assay/engine-duckdb/node'
-import type { PipelineRunSource, PipelineRunSourceFile } from '@assay/engine-duckdb/node'
-import { openConnection } from './connection.js'
 import type { CommandContext } from './context.js'
 import { CliError, usageError } from './errors.js'
 import type { CliExitCode } from './errors.js'
-import { createPipelineRunOps } from './node-executor.js'
 import {
   buildPipelineRunReport,
   buildPipelineValidateReport,
@@ -180,14 +176,21 @@ export async function runPipelineCommand(
     return 0
   }
 
+  // p2-1 (c): the native engine seam loads lazily on the EXECUTE path only —
+  // `assay pipeline validate` returns above and never boots or even loads
+  // `@duckdb/node-api` (standalone and transitively via the CLI's node seam).
+  const engine = await import('@assay/engine-duckdb/node')
+  const { openConnection } = await import('./connection.js')
+  const { createPipelineRunOps } = await import('./node-executor.js')
+
   // C2: resolve EVERY source node's dataset before any execution — collect
   // all failures, disclose them, refuse (exit 2). Never guess.
-  const sources = resolveSources(pipeline, options.pipelinePath)
+  const sources = resolveSources(pipeline, options.pipelinePath, engine.detectFileFormat)
 
   context.progress.step('running pipeline on the local engine')
   const conn = await openConnection()
   try {
-    const result = await executePipeline(
+    const result = await engine.executePipeline(
       plan,
       {
         sources,
@@ -208,7 +211,7 @@ export async function runPipelineCommand(
     // invalidated on this surface); it still counts as not-completed.
     return report.status === 'completed' ? 0 : 1
   } catch (error) {
-    if (error instanceof PipelineRunError) {
+    if (error instanceof engine.PipelineRunError) {
       // Typed, value-free, node-attributed: the report (stdout) IS the
       // result — the partial state and the failing node — and the exit is 1.
       const report = buildPipelineRunReport({ pipeline, order: plan.order, result: null, error })
@@ -219,7 +222,7 @@ export async function runPipelineCommand(
       )
       return 1
     }
-    if (error instanceof PipelineRunRefusalError) {
+    if (error instanceof engine.PipelineRunRefusalError) {
       // Unreachable for a compiler-produced plan that passed the gates above
       // (sources are pre-resolved; relations and SQL were already gated).
       // Reported as the fixed internal class, like the m5-4 wire-gate
@@ -270,10 +273,14 @@ export interface PipelineFileSource extends PipelineRunSourceFile {
  * failures at once, in node-id order — and refuses with exit 2 before any
  * execution (checkpoint C2: disclose and refuse, never guess or fall back).
  */
-function resolveSources(pipeline: PipelineV1, pipelinePath: string): readonly PipelineRunSource[] {
+function resolveSources(
+  pipeline: PipelineV1,
+  pipelinePath: string,
+  detectFileFormat: (name: string) => EngineFileFormat | null,
+): readonly PipelineRunSource<PipelineFileSource>[] {
   const baseDir = dirname(pipelinePath)
   const failures: string[] = []
-  const bindings: PipelineRunSource[] = []
+  const bindings: PipelineRunSource<PipelineFileSource>[] = []
   for (const node of pipeline.nodes) {
     if (node.type !== 'source') continue
     const id = sanitizePipelineText(node.id)

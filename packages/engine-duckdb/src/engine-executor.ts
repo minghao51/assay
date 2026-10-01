@@ -72,6 +72,7 @@ import { parseEngineRequestEnvelope } from './protocol.js'
 import type {
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
+  EnginePipelineHandleRequest,
   EnginePipelineMaterializeRequest,
   EnginePipelineSourceRequest,
   EngineDiffRequest,
@@ -409,6 +410,10 @@ export class EngineOpExecutor {
         }
         case 'engine/pipeline-materialize': {
           await this.runPipelineMaterialize(request, lane)
+          break
+        }
+        case 'engine/pipeline-handle': {
+          await this.runPipelineHandle(request, lane)
           break
         }
         case 'engine/export': {
@@ -1672,6 +1677,34 @@ export class EngineOpExecutor {
     })
   }
 
+  /**
+   * Open an EXISTING session relation as a dataset handle (p2-1). The
+   * relation must already be a view in this session (the motivating case: a
+   * pipeline node materialized by `engine/pipeline-materialize` or a source
+   * registered by `engine/pipeline-source`). A cheap existence probe
+   * (`SELECT 1 … LIMIT 0`) gates the handle; a missing relation is a fixed,
+   * value-free failure class (ADR 0025). The handle then resolves through the
+   * same `TableRegistry` the file-open path uses, so `schema`/`range`/
+   * `rowCount`/`export`/`profile`/`validate`/`diff` address it identically.
+   */
+  private async runPipelineHandle(
+    request: EnginePipelineHandleRequest,
+    lane: OpLane,
+  ): Promise<void> {
+    const relation = assertPipelineRelation(request.relation)
+    const conn = lane.connection(await this.deps.ensureSession())
+    await this.pipelineStep('the pipeline relation is not available in this session', () =>
+      conn.query(`SELECT 1 FROM ${quotedIdentifier(relation)} LIMIT 0`),
+    )
+    const entry = this.registry.registerView(relation)
+    this.post({
+      type: 'engine/pipeline-handle-result',
+      requestId: request.requestId,
+      relation,
+      tableId: entry.tableId,
+    })
+  }
+
   /** Cheap `count(*)` over a pipeline relation (safe non-negative integer). */
   private async countRelation(conn: EngineConnectionLike, relation: string): Promise<number> {
     const result = await conn.query(
@@ -1726,7 +1759,10 @@ export class EngineOpExecutor {
       await conn
         .query(`DROP VIEW IF EXISTS ${quotedIdentifier(entry.viewName)}`)
         .catch(() => undefined)
-      await this.deps.dropFile(entry.registeredFileName).catch(() => undefined)
+      // Session-view handles (p2-1) have no backing file registration.
+      if (entry.registeredFileName !== '') {
+        await this.deps.dropFile(entry.registeredFileName).catch(() => undefined)
+      }
     }
     // m6-2: the single staged comparison (if any) is dropped with the rest.
     const staged = this.comparisons.clear()

@@ -69,6 +69,7 @@ export { parsePipeline } from './parse.js'
 export { serializePipeline } from './serialize.js'
 export { validatePipeline } from './dag.js'
 export { quotePortIdentifier } from './identifiers.js'
+export { sanitizePipelineText } from './sanitize.js'
 export {
   COMPILED_TRANSFORM_OPERATIONS,
   classifyVerbatimSql,

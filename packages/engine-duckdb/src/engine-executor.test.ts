@@ -3398,6 +3398,9 @@ function pipelineSourceRequest(id: number, relation = 'customers'): EngineReques
 function pipelineMaterializeRequest(id: number, sql: string, relation = 'out'): EngineRequest {
   return { type: 'engine/pipeline-materialize', requestId: id, relation, sql }
 }
+function pipelineHandleRequest(id: number, relation = 'out'): EngineRequest {
+  return { type: 'engine/pipeline-handle', requestId: id, relation }
+}
 
 describe('EngineOpExecutor pipeline materialization (p-3)', () => {
   it('registers a source, creates a named view on the query lane, and counts it', async () => {
@@ -3509,5 +3512,58 @@ describe('EngineOpExecutor pipeline materialization (p-3)', () => {
     expect(deps.conn.sentSqls).toContain('DROP VIEW IF EXISTS "customers"')
     expect(deps.conn.sentSqls).toContain('DROP VIEW IF EXISTS "out"')
     expect(deps.droppedFiles).toContain('assay_pipeline_src_1')
+  })
+
+  it('opens an existing relation as a handle on the registry lane and schema-addresses it (p2-1 (b))', async () => {
+    const { executor, deps } = makeExecutor()
+    // Seed a materialized relation (query lane) — the handle op then addresses it.
+    executor.accept(pipelineMaterializeRequest(1, 'SELECT 1 AS value'))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, countTable(1n))
+    await awaitPosted(deps, 1)
+
+    executor.accept(pipelineHandleRequest(2))
+    await awaitSends(deps.conn, 1) // registry-lane existence probe
+    expect(deps.conn.sentSqls[0]).toBe('SELECT 1 FROM "out" LIMIT 0')
+    deps.conn.resolveSend(0, tableFromArrays({}))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/pipeline-handle-result', relation: 'out' })
+    if (posted.type !== 'engine/pipeline-handle-result') throw new Error('expected a handle')
+
+    // The handle resolves through the ordinary registry ops.
+    executor.accept({ type: 'engine/schema', requestId: 3, tableId: posted.tableId })
+    await awaitSends(deps.conn, 2)
+    deps.conn.resolveSend(1, describeTable())
+    const schema = await awaitPosted(deps, 3)
+    expect(schema.type).toBe('engine/schema-result')
+    expectNoCollisions(deps)
+  })
+
+  it('fails value-free when the relation does not exist, without registering a handle (p2-1 (b))', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(pipelineHandleRequest(1, 'ghost'))
+    await awaitSends(deps.conn, 1)
+    deps.conn.rejectSend(0, new Error('Catalog Error: view ghost does not exist'))
+    const posted = await awaitPosted(deps, 1)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      // Value-free: the raw engine text (which can name relations) is dropped.
+      expect(posted.message).toBe('the pipeline relation is not available in this session')
+      expect(posted.message).not.toContain('ghost')
+    }
+    // No handle was registered: a schema request for the next generated id fails.
+    executor.accept({ type: 'engine/schema', requestId: 2, tableId: 't1' })
+    const schema = await awaitPosted(deps, 2)
+    expect(schema).toMatchObject({ type: 'engine/error' })
+  })
+
+  it('refuses reserved assay_* relations before any engine call (p2-1 (b))', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(pipelineHandleRequest(1, 'assay_overlay_ord'))
+    expect(await awaitPosted(deps, 1)).toMatchObject({ type: 'engine/error' })
+    expect(deps.conn.sentSqls).toEqual([])
+    expect(deps.queryConn.sentSqls).toEqual([])
   })
 })

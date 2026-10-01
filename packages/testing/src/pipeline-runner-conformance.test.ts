@@ -15,6 +15,7 @@ import type {
   PipelineRunnerConformanceRunOptions,
   PipelineRunnerConformanceSource,
   PipelineRunnerConformanceSubject,
+  PipelineRunnerConformanceTableHandle,
 } from './pipeline-runner-conformance'
 
 /**
@@ -54,6 +55,13 @@ class FakeFailure extends Error {
   ) {
     super('the pipeline node could not be materialized')
     this.name = 'FakeFailure'
+  }
+}
+
+class FakeOperation extends Error {
+  constructor() {
+    super('the requested relation is not available in this session')
+    this.name = 'FakeOperation'
   }
 }
 
@@ -124,6 +132,27 @@ class FakeRunner implements PipelineRunnerConformanceRunner {
     const index = found.columns.indexOf(column)
     if (index < 0) return []
     return found.rows.map((row) => row[index] ?? null)
+  }
+
+  async registerRelation(relation: string): Promise<PipelineRunnerConformanceTableHandle> {
+    if (!this.relations.has(relation)) throw new FakeOperation()
+    return { kind: 'table', id: `fake-handle-${relation}` }
+  }
+
+  async schema(
+    handle: PipelineRunnerConformanceTableHandle,
+  ): Promise<readonly { readonly name: string; readonly type: string }[]> {
+    const relation = handle.id.replace(/^fake-handle-/, '')
+    const found = this.relations.get(relation)
+    if (found === undefined) throw new FakeOperation()
+    return found.columns.map((name) => ({ name, type: 'VARCHAR' }))
+  }
+
+  async rowCount(handle: PipelineRunnerConformanceTableHandle): Promise<number> {
+    const relation = handle.id.replace(/^fake-handle-/, '')
+    const found = this.relations.get(relation)
+    if (found === undefined) throw new FakeOperation()
+    return rowCountOf(found)
   }
 
   private async materialize(
@@ -207,6 +236,7 @@ function compliantSubject(): PipelineRunnerConformanceSubject {
       failure: (error) => error instanceof FakeFailure,
       failureNodeId: (error) => (error instanceof FakeFailure ? error.nodeId : null),
       failurePartial: (error) => (error instanceof FakeFailure ? [...error.partial] : []),
+      operation: (error) => error instanceof FakeOperation,
     },
   }
 }
@@ -242,6 +272,9 @@ describe('pipeline-runner conformance suite (fake compliant subject)', () => {
             return outcome
           },
           readColumn: (relation, column) => runner.readColumn(relation, column),
+          registerRelation: (relation) => runner.registerRelation(relation),
+          schema: (handle) => runner.schema(handle),
+          rowCount: (handle) => runner.rowCount(handle),
         }
       },
     }

@@ -61,4 +61,19 @@ describe('TableRegistry (M1-4 worker-side handle bookkeeping)', () => {
   it('view names are namespaced table ids', () => {
     expect(viewNameForTableId('t42')).toBe('assay_t42')
   })
+
+  it('registerView() maps an existing session view to a handle with no backing file (p2-1 (b))', () => {
+    const registry = new TableRegistry()
+    const entry = registry.registerView('by_country')
+
+    expect(entry.tableId).toBe('t1')
+    // The view name is the authored relation, used verbatim (not a file).
+    expect(entry.viewName).toBe('by_country')
+    expect(entry.registeredFileName).toBe('')
+    expect(entry.format).toBeNull()
+    expect(registry.get('t1')).toBe(entry)
+
+    // The counter is shared with reserve(): ids stay globally unique.
+    expect(registry.reserve('parquet').tableId).toBe('t2')
+  })
 })

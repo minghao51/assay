@@ -363,6 +363,25 @@ export interface EnginePipelineMaterializeRequest {
   sql: string
 }
 
+/**
+ * Open an EXISTING session relation as a dataset handle (p2-1). Given a
+ * relation that already exists as a session view (the motivating case: a
+ * pipeline node's materialized output), resolve the engine's own view name
+ * into a registry table id so the grid-native registry ops (`engine/schema`,
+ * `engine/range`, `engine/row-count`) and `engine/export` address it by
+ * handle — no SQL-result detour through `engine/query`. Additive op.
+ *
+ * The relation must already exist in this session; a missing relation is a
+ * typed, value-free `engine/error` (ADR 0025). The relation is still refused
+ * in the engine-reserved `assay_*` namespace. Registry lane: bookkeeping plus
+ * a cheap existence probe (no data scan).
+ */
+export interface EnginePipelineHandleRequest {
+  type: 'engine/pipeline-handle'
+  requestId: number
+  relation: string
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -386,6 +405,7 @@ export type EngineRequest =
   | EngineDiffRequest
   | EnginePipelineSourceRequest
   | EnginePipelineMaterializeRequest
+  | EnginePipelineHandleRequest
   | EngineExportRequest
   | EngineDisposeRequest
 
@@ -552,6 +572,18 @@ export interface EnginePipelineMaterializeResultResponse {
   rowCount: number
 }
 
+/**
+ * The relation is now addressable by the returned grid-facing `tableId`
+ * (structurally a table handle). The relation is echoed so the caller can
+ * correlate the handle with the pipeline node output.
+ */
+export interface EnginePipelineHandleResultResponse {
+  type: 'engine/pipeline-handle-result'
+  requestId: number
+  relation: string
+  tableId: string
+}
+
 // ---- Profile payload types (m2-5) ----
 //
 // Structural mirrors of `@assay/engine`'s `ProfileColumnKind` /
@@ -641,6 +673,7 @@ export type EngineResponse =
   | EngineDiffResultResponse
   | EnginePipelineSourceResultResponse
   | EnginePipelineMaterializeResultResponse
+  | EnginePipelineHandleResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
@@ -663,6 +696,7 @@ export type EngineSuccessResponse =
   | EngineDiffResultResponse
   | EnginePipelineSourceResultResponse
   | EnginePipelineMaterializeResultResponse
+  | EnginePipelineHandleResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
 
@@ -928,6 +962,10 @@ function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
     if (typeof data.sql !== 'string') return malformedField('pipeline-materialize.sql')
     return { ok: true, request: { type, requestId, relation: data.relation, sql: data.sql } }
   }
+  if (type === 'engine/pipeline-handle') {
+    if (typeof data.relation !== 'string') return malformedField('pipeline-handle.relation')
+    return { ok: true, request: { type, requestId, relation: data.relation } }
+  }
   if (type === 'engine/dispose') return { ok: true, request: { type, requestId } }
   // Unrecognised `type`: not part of the protocol (the envelope ignores it).
   return malformedField('type')
@@ -959,6 +997,7 @@ export const ENGINE_REQUEST_TYPES = [
   'engine/diff',
   'engine/pipeline-source',
   'engine/pipeline-materialize',
+  'engine/pipeline-handle',
   'engine/export',
   'engine/dispose',
 ] as const
@@ -1222,6 +1261,13 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
     isRowCount(data.rowCount)
   ) {
     return { type, requestId, relation: data.relation, rowCount: data.rowCount }
+  }
+  if (
+    type === 'engine/pipeline-handle-result' &&
+    typeof data.relation === 'string' &&
+    typeof data.tableId === 'string'
+  ) {
+    return { type, requestId, relation: data.relation, tableId: data.tableId }
   }
   if (type === 'engine/disposed') return { type, requestId }
   if (type === 'engine/error' && typeof data.message === 'string') {

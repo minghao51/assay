@@ -558,6 +558,7 @@ export default tseslint.config(
                 'dagster',
                 'dagster-*',
                 '@dagster/*',
+                '@dagster-io/*',
               ],
               message:
                 'dbt/SQLMesh/Dagster are compatibility and execution adapters, never core runtime dependencies (ADR 0031/0032).',

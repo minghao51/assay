@@ -50,6 +50,12 @@ export interface PipelineRunnerConformanceNodeResult {
   readonly rowCount: number
 }
 
+/** Opaque handle to a dataset the runner registered from a session relation. */
+export interface PipelineRunnerConformanceTableHandle {
+  readonly kind: 'table'
+  readonly id: string
+}
+
 export type PipelineRunnerConformanceOutcome =
   | {
       readonly status: 'completed'
@@ -78,6 +84,18 @@ export interface PipelineRunnerConformanceRunner {
   ): Promise<PipelineRunnerConformanceOutcome>
   /** One relation column as rendered text (NULL as `null`), in row order. */
   readColumn(relation: string, column: string): Promise<readonly (string | null)[]>
+  /**
+   * Register an EXISTING session relation (a materialized pipeline node) as a
+   * grid-addressable table handle (p2-1 (b)). A missing relation rejects with
+   * the engine's operation category, value-free.
+   */
+  registerRelation(relation: string): Promise<PipelineRunnerConformanceTableHandle>
+  /** Column name/type pairs of a registered handle, as the engine reports them. */
+  schema(
+    handle: PipelineRunnerConformanceTableHandle,
+  ): Promise<readonly { readonly name: string; readonly type: string }[]>
+  /** Total row count of a registered handle. */
+  rowCount(handle: PipelineRunnerConformanceTableHandle): Promise<number>
 }
 
 export interface PipelineRunnerConformanceSubject {
@@ -96,6 +114,8 @@ export interface PipelineRunnerConformanceSubject {
     failure(error: unknown): boolean
     failureNodeId(error: unknown): string | null
     failurePartial(error: unknown): readonly string[]
+    /** The engine's operation-error class (unknown handle/relation/format). */
+    operation(error: unknown): boolean
   }
 }
 
@@ -106,6 +126,7 @@ export const pipelineRunnerConformanceScenarioNames = [
   'pipeline-cancel',
   'pipeline-unknown-node-refusal',
   'pipeline-hostile-sql-refusal',
+  'pipeline-relation-handle',
 ] as const
 
 export type PipelineRunnerConformanceScenarioName =
@@ -404,6 +425,54 @@ const scenarios: Record<PipelineRunnerConformanceScenarioName, PipelineRunnerCon
         })
         expectCondition(ok.status === 'completed', 'the engine must remain usable after a refusal')
         return { refused: true, reusableAfterRefusal: true }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-relation-handle': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        // A real run materializes the relations the handle op addresses.
+        const source = await subject.stageSource()
+        const outcome = await runner.runPipeline(happyPipeline(), {
+          sources: [{ nodeId: 'customers', source }],
+        })
+        expectCondition(
+          outcome.status === 'completed',
+          `the happy pipeline must complete before opening a handle (got ${outcome.status})`,
+        )
+
+        const handle = await runner.registerRelation('out')
+        expectEqual(handle.kind, 'table', 'the handle kind')
+        expectCondition(handle.id.length > 0, 'the handle id must be non-empty')
+        const columns = await runner.schema(handle)
+        expectCondition(
+          columns.some((column) => column.name === 'customer_id'),
+          'the handle schema must expose the projected customer_id column',
+        )
+        expectEqual(await runner.rowCount(handle), 2, 'the handle row count')
+        // The handle is now grid-addressable: reading a column through the
+        // handle's relation yields the same pinned rows as the run.
+        expectDeepEqual(
+          await runner.readColumn('out', 'customer_id'),
+          HAPPY_FINAL_IDS,
+          'the handle relation rows',
+        )
+
+        // A missing relation rejects with the classified operation error, and
+        // the message never names the relation (value-free, ADR 0025).
+        const error = await rejectionOf(runner.registerRelation('no_such_relation_xyz'))
+        expectCondition(error !== null, 'an unknown relation must be refused')
+        expectCondition(
+          subject.errors.operation(error),
+          `an unknown relation must be the operation-error class (got: ${errorMessage(error)})`,
+        )
+        expectCondition(
+          !errorMessage(error).includes('no_such_relation_xyz'),
+          'the failure message must be value-free',
+        )
+        return { columns: columns.length, rowCount: 2, unknownRelationRefused: true }
       } finally {
         await subject.dispose(runner)
       }

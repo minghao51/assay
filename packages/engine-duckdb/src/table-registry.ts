@@ -62,6 +62,26 @@ export class TableRegistry {
     return this.tables.get(tableId) ?? null
   }
 
+  /**
+   * Register an EXISTING session view (p2-1: a pipeline relation) as a table
+   * handle. Unlike {@link reserve} (an open, where the caller creates the
+   * view), the view already exists and no file backs it: `registeredFileName`
+   * is empty and `format` is `null`. The view name is used verbatim — it is
+   * an authored pipeline relation rendered through the shared identifier
+   * helper, not a user file name (ADR 0025).
+   */
+  registerView(viewName: string): RegisteredTable {
+    const tableId = `t${this.nextSequence++}`
+    const entry: RegisteredTable = {
+      tableId,
+      viewName,
+      registeredFileName: '',
+      format: null,
+    }
+    this.tables.set(tableId, entry)
+    return entry
+  }
+
   /** Drop one entry (failed open rollback or explicit close). */
   remove(tableId: string): void {
     this.tables.delete(tableId)

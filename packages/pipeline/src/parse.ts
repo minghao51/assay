@@ -3,11 +3,14 @@
 /**
  * Total YAML → Pipeline IR parser (p-1).
  *
- * `parsePipeline` is **total**: any input yields either a {@link PipelineV1}
- * or `PipelineError[]` with line/column — never a raw throw (repo never-throws
- * convention; cf. `@assay/contracts`). Every malformed document produces
- * typed, actionable errors (`errors.ts` documents the taxonomy); see
- * `validate.ts` for the walk.
+ * `parsePipeline` is **total** over document-level inputs: any malformed
+ * document yields either a {@link PipelineV1} or `PipelineError[]` with
+ * line/column — never a raw throw (repo never-throws convention; cf.
+ * `@assay/contracts`). The one deliberate exception is a `RangeError` from
+ * the YAML resolver's deep-nesting recursion (p2-1 (f)): a resource-limit
+ * failure, not a document error, so it propagates rather than being
+ * swallowed. Every malformed document produces typed, actionable errors
+ * (`errors.ts` documents the taxonomy); see `validate.ts` for the walk.
  *
  * Implementation notes:
  * - The `yaml` library parses in *document* mode with `uniqueKeys: false`, so

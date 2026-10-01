@@ -52,9 +52,9 @@ export interface PipelineRunSourceFile {
 }
 
 /** One source node's dataset binding. */
-export interface PipelineRunSource {
+export interface PipelineRunSource<TSource extends PipelineRunSourceFile = PipelineRunSourceFile> {
   readonly nodeId: string
-  readonly source: PipelineRunSourceFile
+  readonly source: TSource
 }
 
 /** One materialized node's addressable output. */
@@ -81,9 +81,9 @@ export interface PipelineRunCanceled {
 
 export type PipelineRunResult = PipelineRunCompleted | PipelineRunCanceled
 
-export interface PipelineRunOptions {
+export interface PipelineRunOptions<TSource extends PipelineRunSourceFile = PipelineRunSourceFile> {
   /** Dataset binding for every `source` node; required for each source. */
-  readonly sources?: readonly PipelineRunSource[]
+  readonly sources?: readonly PipelineRunSource<TSource>[]
   /** Cancellation guard; omit for an uncancellable run. */
   readonly guard?: PipelineRunGuard
   /**
@@ -100,21 +100,23 @@ export interface PipelineRunOptions {
  * the client) so the orchestration is pure and Node-testable: the real client
  * binds these to its typed postMessage ops.
  */
-export interface PipelineRunEngineOps {
+export interface PipelineRunEngineOps<
+  TSource extends PipelineRunSourceFile = PipelineRunSourceFile,
+> {
   /** Register a dataset as the relation name; resolve its row count. */
-  registerSource(relation: string, source: PipelineRunSourceFile): Promise<number>
+  registerSource(relation: string, source: TSource): Promise<number>
   /** `CREATE OR REPLACE VIEW "<relation>" AS <sql>`; resolve its row count. */
   materialize(relation: string, sql: string): Promise<number>
 }
 
-function indexSources(
-  sources: readonly PipelineRunSource[] | undefined,
+function indexSources<TSource extends PipelineRunSourceFile>(
+  sources: readonly PipelineRunSource<TSource>[] | undefined,
   nodes: readonly CompiledNode[],
-): Map<string, PipelineRunSourceFile> {
+): Map<string, TSource> {
   const sourceNodes = new Set(
     nodes.filter((node) => node.kind === 'source').map((node) => node.nodeId),
   )
-  const byNode = new Map<string, PipelineRunSourceFile>()
+  const byNode = new Map<string, TSource>()
   for (const binding of sources ?? []) {
     if (!sourceNodes.has(binding.nodeId)) {
       throw new PipelineRunRefusalError('unknown-source', binding.nodeId)
@@ -133,10 +135,10 @@ function indexSources(
 }
 
 /** Execute a pipeline (or plan) once, node-by-node, in topological order. */
-export async function executePipeline(
+export async function executePipeline<TSource extends PipelineRunSourceFile>(
   input: PipelineRunInput,
-  options: PipelineRunOptions,
-  ops: PipelineRunEngineOps,
+  options: PipelineRunOptions<TSource>,
+  ops: PipelineRunEngineOps<TSource>,
 ): Promise<PipelineRunResult> {
   const plan = resolvePlan(input)
   const bindings = indexSources(options.sources, plan.nodes)

@@ -91,6 +91,16 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
       expect(parseEngineRequest({ type: 'engine/schema', requestId: 6, tableId: 1 })).toBeNull()
     })
 
+    it('parses engine/pipeline-handle with its relation (p2-1 (b))', () => {
+      expect(
+        parseEngineRequest({ type: 'engine/pipeline-handle', requestId: 12, relation: 'out' }),
+      ).toEqual({ type: 'engine/pipeline-handle', requestId: 12, relation: 'out' })
+      expect(parseEngineRequest({ type: 'engine/pipeline-handle', requestId: 12 })).toBeNull()
+      expect(
+        parseEngineRequest({ type: 'engine/pipeline-handle', requestId: 12, relation: 1 }),
+      ).toBeNull()
+    })
+
     it('parses engine/range with integer bounds and optional columns', () => {
       expect(
         parseEngineRequest({
@@ -366,6 +376,30 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
       expect(parseEngineResponse(message)).toEqual(message)
       expect(
         parseEngineResponse({ type: 'engine/range-result', requestId: 11, hasMore: false }),
+      ).toBeNull()
+    })
+
+    it('parses engine/pipeline-handle-result with its relation and table id (p2-1 (b))', () => {
+      const message = {
+        type: 'engine/pipeline-handle-result',
+        requestId: 13,
+        relation: 'out',
+        tableId: 't1',
+      }
+      expect(parseEngineResponse(message)).toEqual(message)
+      expect(
+        parseEngineResponse({
+          type: 'engine/pipeline-handle-result',
+          requestId: 13,
+          tableId: 't1',
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({
+          type: 'engine/pipeline-handle-result',
+          requestId: 13,
+          relation: 'out',
+        }),
       ).toBeNull()
     })
 
@@ -1291,6 +1325,12 @@ describe('m4-2: overlay + export protocol', () => {
         payload: { relation: 'out' },
         field: 'pipeline-materialize.sql',
       },
+      {
+        label: 'engine/pipeline-handle missing relation',
+        type: 'engine/pipeline-handle',
+        payload: {},
+        field: 'pipeline-handle.relation',
+      },
     ]
 
     it.each(cases)('$label', ({ type, payload, field }) => {
@@ -1305,9 +1345,9 @@ describe('m4-2: overlay + export protocol', () => {
       })
     })
 
-    it('lists exactly the 18 request types and covers every one', () => {
-      expect(ENGINE_REQUEST_TYPES).toHaveLength(18)
-      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(18)
+    it('lists exactly the 19 request types and covers every one', () => {
+      expect(ENGINE_REQUEST_TYPES).toHaveLength(19)
+      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(19)
       const covered = new Set(cases.map((entry) => entry.type))
       // init and dispose have no required fields (nothing can be malformed),
       // so every other request type must appear in the malformed matrix.
