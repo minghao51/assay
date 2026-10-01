@@ -223,10 +223,11 @@ export async function runPipelineCommand(
       return 1
     }
     if (error instanceof engine.PipelineRunRefusalError) {
-      // Unreachable for a compiler-produced plan that passed the gates above
-      // (sources are pre-resolved; relations and SQL were already gated).
+      // Reachable since p2-4: an export/publish-mode plan passes the CLI's
+      // gates above but is refused here by the runner's materialization gate.
       // Reported as the fixed internal class, like the m5-4 wire-gate
       // posture — never with raw error text.
+      // p2-5: reframe this as a typed mode refusal, not an internal error.
       throw usageError(
         `internal error: the compiled plan was refused by the runner (${error.reason})`,
       )

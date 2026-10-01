@@ -826,6 +826,40 @@ describe('executePipeline — p2-4 gates and materialization', () => {
     expect(result.nextNodeId).toBe('outB')
   })
 
+  it('stops at an unconsumed failing validate before any downstream node executes', async () => {
+    // Claim 4: `nextNodeId` naming alone is also satisfied by the defensive
+    // failed-validate tail after the whole plan ran, so pin the actual STOP —
+    // deleting the early `gated()` return must fail here.
+    const pipeline: PipelineV1 = {
+      version: 1,
+      pipeline: 'branching-gate',
+      nodes: [
+        { id: 'a', type: 'source', source: { kind: 'file' } },
+        { id: 'gateA', type: 'validate', input: 'a', contract: 'contracts/gate.yaml' },
+        { id: 'b', type: 'source', source: { kind: 'file' } },
+        { id: 'outB', type: 'sql', inputs: ['b'], sql: 'SELECT 1 AS value' },
+      ],
+    }
+    const ops = new FakeOps()
+    ops.validationValid = false
+    const result = await executePipeline(
+      pipeline,
+      {
+        sources: [
+          { nodeId: 'a', source: SOURCE_FILE },
+          { nodeId: 'b', source: SOURCE_FILE },
+        ],
+        contracts: [{ nodeId: 'gateA', contract: {} }],
+        compilers: PASS_THROUGH_COMPILERS,
+      },
+      ops,
+    )
+    expect(result.status).toBe('gated')
+    if (result.status !== 'gated') return
+    expect(result.nodes.at(-1)?.nodeId).toBe('gateA')
+    expect(ops.calls.some((call) => call.startsWith('materialize:outB'))).toBe(false)
+  })
+
   it('refuses a caller-supplied plan with a non-local mode or an inconsistent statement', async () => {
     const base = {
       nodeId: 'out',
@@ -862,6 +896,32 @@ describe('executePipeline — p2-4 gates and materialization', () => {
       {},
     )
     expect(wrongKind.reason).toBe('invalid-plan')
+  })
+
+  it('refuses a plan whose statement is missing even when statementKind is consistent', async () => {
+    // Claim 7: the existing `missingStatement` fixture also omits
+    // `statementKind`, so the consistent-kind check refuses it even with the
+    // presence check gone (unobserved). Keeping `statementKind: 'view'` and
+    // omitting only `statement` isolates the presence check: deleting it lets
+    // the plan fall through and execute.
+    const absentStatement = await expectRefusalOf(
+      {
+        order: ['out'],
+        nodes: [
+          {
+            nodeId: 'out',
+            kind: 'sql',
+            relation: 'out',
+            quotedRelation: '"out"',
+            sql: 'SELECT 1 AS value',
+            materialization: 'view',
+            statementKind: 'view',
+          },
+        ],
+      },
+      {},
+    )
+    expect(absentStatement.reason).toBe('invalid-plan')
   })
 
   it('refuses structurally malformed caller-supplied plans', async () => {

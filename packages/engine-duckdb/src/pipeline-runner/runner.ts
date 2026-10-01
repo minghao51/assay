@@ -32,9 +32,10 @@
  *
  * - `completed` — every node executed; data nodes carry their relation and
  *   row count, gates their value-free verdict.
- * - `gated` — a gate stopped the run: the failing gate is named
- *   (`gatedAt`), the partial state is the completed prefix, and a re-run
- *   after a fix completes. No downstream node runs.
+ * - `gated` — a gate stopped the run: `gatedAt` names where evaluation
+ *   stopped and `nodes` is every executed node in execution order (a failed
+ *   validate consumed by a publish is included; the publish's own result is
+ *   the gate for a blocked publish). No downstream node runs.
  * - `canceled` — the supplied {@link PipelineRunGuard} was invalidated at a
  *   node boundary; `nodes` is the named partial state.
  * - a thrown {@link PipelineRunError} — a node failed. The failing node is
@@ -134,10 +135,12 @@ export interface PipelineRunCanceled {
 }
 
 /**
- * A gate stopped the run (p2-4): the failing gate is named, the partial state
- * is the completed prefix plus the gate's own result, and no downstream node
- * executed. `nextNodeId` mirrors `canceled` (the next unexecuted node) so
- * existing surfaces that render either outcome compile unchanged.
+ * A gate stopped the run (p2-4): `gatedAt` names where evaluation stopped and
+ * `nodes` is every executed node in execution order — including a failed
+ * validate consumed by a publish (whose own result is the gate for a blocked
+ * publish). No downstream node executed. `nextNodeId` mirrors `canceled` (the
+ * next unexecuted node) so existing surfaces that render either outcome
+ * compile unchanged.
  */
 export interface PipelineRunGated {
   readonly status: 'gated'
