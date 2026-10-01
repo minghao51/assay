@@ -2,31 +2,48 @@
 
 // ---------------------------------------------------------------------------
 // p-4 — `assay pipeline validate|run` report model + renderers
+// p2-5 — gate visibility, gate results, materialization, gated/refused runs
 //
-// The pipeline surfaces render from the SAME p-1/p-2/p-3 objects the other
-// hosts consume (`PipelineError`, `PipelineCompilePlan`, the runner's
-// `PipelineRunResult`), never from re-derived semantics. Byte stability is a
-// contract (`--format json`): fixed key order, no timestamps, no absolute
-// paths (the only paths rendered are the pipeline file's OWN authored source
-// references, echoed verbatim as authored input — the m5-4 contract-structure
-// rule), `JSON.stringify(…, 2)` + a trailing newline.
+// The pipeline surfaces render from the SAME p-1/p-2/p-3/p2-4 objects the
+// other hosts consume (`PipelineError`, the compile plan, the runner's
+// `PipelineRunResult` / `PipelineRunGateResult`), never from re-derived
+// semantics. Byte stability is a contract (`--format json`): fixed key order,
+// no timestamps, no machine paths (the only paths rendered are the pipeline
+// file's OWN authored source/contract references, echoed verbatim as authored
+// input — the m5-4 contract-structure rule), `JSON.stringify(…, 2)` + a
+// trailing newline.
 //
 // Sanitization boundary (the p-2/p-3 carry-over): pipeline-derived text —
-// node ids, relation names, source paths, and `describePipelineError`
-// messages (which embed raw YAML excerpts from the `yaml` library, control
-// characters included) — is rendered through `sanitizePipelineText` in EVERY
-// human report line and stderr line, so an authored document cannot inject
-// ANSI/terminal escapes. The JSON envelopes need no separate escaping:
-// `JSON.stringify` already escapes control characters losslessly, and
-// re-escaping would corrupt the byte pins.
+// node ids, relation names, source/contract paths, and `describePipelineError`
+// / `describeContractError` messages (which embed raw YAML excerpts from the
+// `yaml` library, control characters included) — is rendered through
+// `sanitizePipelineText` in EVERY human report line and stderr line, so an
+// authored document cannot inject ANSI/terminal escapes. The JSON envelopes
+// need no separate escaping: `JSON.stringify` already escapes control
+// characters losslessly, and re-escaping would corrupt the byte pins.
 //
 // stderr carries authored, fixed messages only: parse errors quote the
-// pipeline document's own structure (authored input, line/column), source
-// resolution failures echo the pipeline's own authored path references.
-// Dataset values never reach stderr (ADR 0025).
+// pipeline document's own structure (authored input, line/column), source and
+// contract resolution failures echo the pipeline's own authored path
+// references. Dataset values never reach stderr (ADR 0025).
+//
+// p2-5 envelope shape change (versioned by the `report` marker +
+// `reportVersion`): the validate envelope gains per-node `materialization`, a
+// `gates[]` static-visibility array and `gateErrors[]`; the run envelope gains
+// per-node `materialization` + `gate`, and `status` now covers `gated`
+// (a first-class result, ADR 0035) and `refused` (a materialization mode this
+// surface cannot execute, ADR 0033) alongside `completed`/`failed`/`canceled`,
+// plus `gatedAt`/`gate`/`refusal`/`refusalNode`. The gate result payloads
+// reuse the proven value-free validate/diff shapes (verdict + violated-rule
+// count; added/removed/changed counts).
 // ---------------------------------------------------------------------------
 
-import { describePipelineError, sanitizePipelineText } from '@assay/pipeline'
+import {
+  describePipelineError,
+  isDataNode,
+  materializationOf,
+  sanitizePipelineText,
+} from '@assay/pipeline'
 import type {
   PipelineCompileResult,
   PipelineError,
@@ -35,7 +52,12 @@ import type {
   PipelineValidationResult,
   PipelineV1,
 } from '@assay/pipeline'
-import type { PipelineRunError, PipelineRunResult } from '@assay/engine-duckdb/node'
+import type {
+  PipelineRunError,
+  PipelineRunGateResult,
+  PipelineRunRefusalReason,
+  PipelineRunResult,
+} from '@assay/engine-duckdb/node'
 import { REPORT_VERSION } from './report-shared.js'
 import { plainStyle } from './style.js'
 import type { ReportStyle } from './style.js'
@@ -88,6 +110,43 @@ function plural(count: number, singular: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Shared gate vocabulary (p2-5)
+// ---------------------------------------------------------------------------
+
+/** The reserved gate node classes (ADR 0035). */
+export type PipelineGateKind = 'validate' | 'diff' | 'publish'
+
+/**
+ * A validate node's contract reference resolution (C2, static — no
+ * execution): `resolved` (readable + parses), `missing` (no readable file),
+ * `unparseable` (readable but not a valid contract). `null` on non-validate
+ * gates.
+ */
+export type PipelineContractStatus = 'resolved' | 'missing' | 'unparseable'
+
+/**
+ * Static gate-visibility for one gate node — computed WITHOUT executing (the
+ * `validate` subcommand's would-this-run-pass-its-gates view). `bound` is the
+ * static verdict: a validate node's contract resolved, a diff node's explicit
+ * key set is supplied, a publish node's `requires` edges resolve (the DAG
+ * already guarantees reference resolution). Never a runtime verdict.
+ */
+export interface PipelineGateVisibilityRow {
+  readonly nodeId: string
+  readonly kind: PipelineGateKind
+  readonly input: string
+  /** `diff` nodes only; `null` otherwise. */
+  readonly against: string | null
+  /** `validate` nodes only: the authored contract reference. */
+  readonly contract: string | null
+  /** `validate` nodes only. */
+  readonly contractStatus: PipelineContractStatus | null
+  /** `publish` nodes only: the authored `requires` edges ([] when absent). */
+  readonly requires: readonly string[] | null
+  readonly bound: boolean
+}
+
+// ---------------------------------------------------------------------------
 // validate — the DAG validation + compile plan report (no execution)
 // ---------------------------------------------------------------------------
 
@@ -108,6 +167,12 @@ export interface PipelineValidateNodeRow {
   readonly sourcePath: string | null
   /** `transform` nodes: the operation name; `null` otherwise (defensively). */
   readonly operation: string | null
+  /**
+   * Data nodes: the effective ADR 0033 materialization mode (absent = `view`)
+   * — including a declared-but-unsupported mode, disclosed as authored. Gate
+   * nodes: `null`.
+   */
+  readonly materialization: string | null
 }
 
 /** One located pipeline error, projected for report rendering. */
@@ -120,15 +185,20 @@ export interface PipelineErrorRow {
   readonly nodeId: string | null
 }
 
-/** The full validate report: the verdict plus the plan listing or the errors. */
+/** The full validate report: the verdict plus the plan/gate listing or errors. */
 export interface PipelineValidateReport {
   /** The pipeline's declared name. */
   readonly pipeline: string
+  /** Would the run pass its static gates? (DAG + data compile + gate bindings.) */
   readonly valid: boolean
   /** The deterministic topological order ([] when DAG validation failed). */
   readonly order: readonly string[]
   /** The listed plan nodes, in `order` ([] when DAG validation failed). */
   readonly nodes: readonly PipelineValidateNodeRow[]
+  /** Static gate visibility for every validate/diff/publish node, in order. */
+  readonly gates: readonly PipelineGateVisibilityRow[]
+  /** Localized, sanitized gate-binding failures (would-fail disclosures). */
+  readonly gateErrors: readonly string[]
   /** The located DAG/compile errors ([] when valid). */
   readonly errors: readonly PipelineErrorRow[]
 }
@@ -149,30 +219,52 @@ function errorRow(error: PipelineError): PipelineErrorRow {
   }
 }
 
+/** Project one gate-visibility row with fixed keys (absent fields are `null`). */
+function gateRow(gate: PipelineGateVisibilityRow): PipelineGateVisibilityRow {
+  return {
+    nodeId: gate.nodeId,
+    kind: gate.kind,
+    input: gate.input,
+    against: gate.against,
+    contract: gate.contract,
+    contractStatus: gate.contractStatus,
+    requires: gate.requires === null ? null : [...gate.requires],
+    bound: gate.bound,
+  }
+}
+
 /**
- * Assemble the validate report from the DAG-validation and compile outcomes.
- * `compile` is `null` when DAG validation failed (compile was not attempted —
- * it would only re-report the same DAG errors). The plan listing is
- * IR-derived: it renders the pipeline's own nodes (kinds, relations, authored
- * source references), so it stays available even when compilation refused.
+ * Assemble the validate report from the DAG-validation, data-subgraph compile,
+ * and static gate-visibility outcomes. `compile` is `null` when DAG validation
+ * failed (compile was not attempted — it would only re-report the same DAG
+ * errors). The plan listing is IR-derived (kinds, relations, authored
+ * references, effective materialization), so it stays available even when
+ * compilation or gate binding refused. `valid` is the would-this-run view:
+ * the DAG validates AND the data subgraph compiles AND every gate binding
+ * resolves.
  */
 export function buildPipelineValidateReport(input: {
   readonly pipeline: PipelineV1
   readonly validation: PipelineValidationResult
   readonly compile: PipelineCompileResult | null
+  readonly gates?: readonly PipelineGateVisibilityRow[]
+  readonly gateErrors?: readonly string[]
 }): PipelineValidateReport {
   const name = input.pipeline.pipeline
+  const gates = (input.gates ?? []).map(gateRow)
+  const gateErrors = [...(input.gateErrors ?? [])]
   if (!input.validation.ok) {
     return {
       pipeline: name,
       valid: false,
       order: [],
       nodes: [],
+      gates,
+      gateErrors,
       errors: input.validation.errors.map(errorRow),
     }
   }
-  const order =
-    input.compile !== null && input.compile.ok ? input.compile.plan.order : input.validation.order
+  const order = input.validation.order
   const nodes: PipelineValidateNodeRow[] = []
   for (const id of order) {
     const node = nodeById(input.pipeline, id)
@@ -189,16 +281,41 @@ export function buildPipelineValidateReport(input: {
         node.type === 'transform' && typeof node.operation.operation === 'string'
           ? node.operation.operation
           : null,
+      materialization: isDataNode(node) ? materializationOf(node) : null,
     })
   }
   const compileFailed = input.compile !== null && !input.compile.ok
+  const compileOk = input.compile !== null && input.compile.ok
+  const gatesBound = gates.every((gate) => gate.bound)
   return {
     pipeline: name,
-    valid: !compileFailed,
+    valid: compileOk && gatesBound,
     order,
     nodes,
+    gates,
+    gateErrors,
     errors: compileFailed ? input.compile.errors.map(errorRow) : [],
   }
+}
+
+/** The human one-line gate-visibility rendering (sanitized). */
+function gateVisibilityLine(gate: PipelineGateVisibilityRow): string {
+  const head = `  ${sanitizePipelineText(gate.nodeId)} — ${gate.kind}`
+  if (gate.kind === 'validate') {
+    const contract =
+      gate.contract === null ? 'contract not declared' : sanitizePipelineText(gate.contract)
+    const status = gate.contractStatus ?? 'unresolved'
+    return `${head} — contract "${contract}" (${status})`
+  }
+  if (gate.kind === 'diff') {
+    const against =
+      gate.against === null ? 'against not declared' : sanitizePipelineText(gate.against)
+    return `${head} — against "${against}" (keys ${gate.bound ? 'bound' : 'not bound'})`
+  }
+  const requires = gate.requires ?? []
+  const list =
+    requires.length === 0 ? '(none)' : requires.map((ref) => sanitizePipelineText(ref)).join(', ')
+  return `${head} — requires ${list}`
 }
 
 /** The human validate report. Line formats are byte-pinned by integration tests. */
@@ -213,6 +330,7 @@ export function renderHumanPipelineValidateReport(
     lines.push('plan:')
     report.nodes.forEach((node, index) => {
       let line = `  ${String(index + 1)}. ${sanitizePipelineText(node.nodeId)} — ${node.kind} — relation "${sanitizePipelineText(node.relation)}"`
+      if (node.materialization !== null) line += ` — ${sanitizePipelineText(node.materialization)}`
       if (node.kind === 'source') {
         const path =
           node.sourcePath === null ? 'path not declared' : sanitizePipelineText(node.sourcePath)
@@ -225,6 +343,16 @@ export function renderHumanPipelineValidateReport(
       lines.push(line)
     })
   }
+  if (report.gates.length > 0) {
+    lines.push('gates:')
+    for (const gate of report.gates) lines.push(gateVisibilityLine(gate))
+  }
+  if (report.gateErrors.length > 0) {
+    lines.push(`gate errors: ${style.count(String(report.gateErrors.length))}`)
+    for (const error of report.gateErrors) {
+      lines.push(`  ${sanitizePipelineText(error)}`)
+    }
+  }
   if (report.errors.length > 0) {
     lines.push(`errors: ${style.count(String(report.errors.length))}`)
     for (const error of report.errors) {
@@ -234,24 +362,27 @@ export function renderHumanPipelineValidateReport(
   lines.push(
     report.valid
       ? `verdict: ${style.pass('VALID')} — the DAG validates and the plan compiles (nothing was executed)`
-      : `verdict: ${style.fail('INVALID')} — ${style.count(String(report.errors.length))} ${plural(report.errors.length, 'error')}`,
+      : `verdict: ${style.fail('INVALID')} — ${style.count(String(report.errors.length + report.gateErrors.length))} ${plural(report.errors.length + report.gateErrors.length, 'error')}`,
   )
   return lines.join('\n') + '\n'
 }
 
 /**
- * The `--format json` validate envelope — byte-stable reference shape:
+ * The `--format json` validate envelope — byte-stable reference shape
+ * (p2-5 extension):
  *
  *     report:         'assay-pipeline-validate-report' (the format marker)
  *     reportVersion:  the CLI package version that produced the report
  *     pipeline:       the pipeline's declared name
  *     nodeCount:      the listed plan nodes' count
- *     valid:          the verdict (DAG validates AND plan compiles)
+ *     valid:          would the run pass its static gates?
  *     order:          the topological order ([] when the DAG failed)
  *     nodes[]:        the listed plan (id, kind, relation, authored source
- *                     reference, operation) in `order`
- *     errors[]:       the located DAG/compile errors (code, message, path,
- *                     line, column, nodeId — null where not applicable)
+ *                     reference, operation, effective materialization)
+ *     gates[]:        static gate visibility (id, kind, input, against,
+ *                     contract, contractStatus, requires, bound)
+ *     gateErrors[]:   localized gate-binding failure disclosures
+ *     errors[]:       the located DAG/compile errors
  *
  * Fixed key order, 2-space indent, trailing newline, no timestamps.
  */
@@ -270,7 +401,19 @@ export function renderJsonPipelineValidateReport(report: PipelineValidateReport)
       sourceKind: node.sourceKind,
       sourcePath: node.sourcePath,
       operation: node.operation,
+      materialization: node.materialization,
     })),
+    gates: report.gates.map((gate) => ({
+      nodeId: gate.nodeId,
+      kind: gate.kind,
+      input: gate.input,
+      against: gate.against,
+      contract: gate.contract,
+      contractStatus: gate.contractStatus,
+      requires: gate.requires === null ? null : [...gate.requires],
+      bound: gate.bound,
+    })),
+    gateErrors: [...report.gateErrors],
     errors: report.errors.map((error) => ({
       code: error.code,
       message: error.message,
@@ -288,18 +431,41 @@ export function renderJsonPipelineValidateReport(report: PipelineValidateReport)
 // ---------------------------------------------------------------------------
 
 /** One node's execution outcome, in execution order. */
+export type PipelineRunNodeStatus = 'materialized' | 'passed' | 'gated' | 'failed' | 'not-run'
+
+/** A gate node's value-free runtime result (never dataset values). */
+export interface PipelineRunGateRow {
+  readonly class: PipelineGateKind
+  readonly input: string
+  readonly against: string | null
+  readonly valid: boolean | null
+  readonly violatedRules: number | null
+  readonly added: number | null
+  readonly removed: number | null
+  readonly changed: number | null
+  readonly blockedGates: readonly string[] | null
+}
+
+/** One node's execution outcome, in execution order. */
 export interface PipelineRunNodeRow {
   readonly nodeId: string
   readonly kind: string
   readonly relation: string
-  /** `materialized`, `failed` (the run-stopping failure), or `not-run`. */
-  readonly status: 'materialized' | 'failed' | 'not-run'
+  readonly status: PipelineRunNodeStatus
   /**
    * The materialized relation's row count. Non-null only for nodes that
-   * materialized on a COMPLETED run (the runner reports counts once, at the
-   * end; a failed run's partial relations have no reported counts).
+   * materialized/evaluated on a COMPLETED run (the runner reports counts once,
+   * at the end; a failed run's partial relations have no reported counts).
    */
   readonly rowCount: number | null
+  /**
+   * How the node materialized: `source`, the effective ADR 0033 data mode, or
+   * `gate` for a validate/diff/publish verdict. `null` for a node that never
+   * ran.
+   */
+  readonly materialization: string | null
+  /** A gate node's value-free verdict; `null` for data nodes / unexecuted. */
+  readonly gate: PipelineRunGateRow | null
 }
 
 /** One terminal (output) relation: addressable for inspection/export hosts. */
@@ -309,10 +475,25 @@ export interface PipelineRunOutputRow {
   readonly rowCount: number
 }
 
+/** The run verdict: `gated` and `refused` are first-class results (p2-5). */
+export type PipelineRunReportStatus = 'completed' | 'gated' | 'failed' | 'canceled' | 'refused'
+
+/**
+ * A plan-level refusal (p2-5): the compiled plan uses a materialization mode
+ * this surface cannot execute (`unsupported-materialization` — e.g. `export`,
+ * which the Node surface has no OPFS artifact path for;
+ * `export-with-consumers` — an export consumed by another node). Value-free:
+ * the fixed reason discriminant plus the node it concerns.
+ */
+export interface PipelineRunRefusal {
+  readonly reason: PipelineRunRefusalReason
+  readonly nodeId: string | null
+}
+
 /** The full run report: per-node outcomes, the outputs, and the verdict. */
 export interface PipelineRunReport {
   readonly pipeline: string
-  readonly status: 'completed' | 'failed' | 'canceled'
+  readonly status: PipelineRunReportStatus
   /** The topological execution order (the plan's order). */
   readonly order: readonly string[]
   readonly nodes: readonly PipelineRunNodeRow[]
@@ -326,12 +507,22 @@ export interface PipelineRunReport {
    * envelope shape covers every runner outcome honestly.
    */
   readonly nextNodeId: string | null
+  /** The gate a `gated` run stopped at; `null` otherwise. */
+  readonly gatedAt: string | null
+  /** Which gate class stopped a `gated` run; `null` otherwise. */
+  readonly gate: 'validation-failed' | 'publish-blocked' | null
+  /** Why a `refused` run never started; `null` otherwise. */
+  readonly refusal: PipelineRunRefusalReason | null
+  /** The node a `refused` run concerns; `null` otherwise. */
+  readonly refusalNode: string | null
 }
 
 /**
- * The pipeline's terminal data nodes: plan nodes whose relation no other node
- * consumes — the pipeline's outputs. Computed from the IR's references (the
- * compiled plan does not carry inputs), so gate references count too.
+ * The pipeline's terminal data nodes: plan data nodes whose relation no OTHER
+ * DATA node consumes — the pipeline's outputs. Gate nodes (validate/diff/
+ * publish) read their inputs but materialize no new relation, so a data node
+ * consumed only by a gate stays an addressable output. Computed from the IR's
+ * transform/sql inputs; gate nodes themselves are never outputs.
  */
 export function pipelineOutputNodeIds(
   pipeline: PipelineV1,
@@ -341,30 +532,104 @@ export function pipelineOutputNodeIds(
   for (const node of pipeline.nodes) {
     if (node.type === 'transform' || node.type === 'sql') {
       for (const input of node.inputs) referenced.add(input)
-    } else if (node.type === 'validate') {
-      referenced.add(node.input)
-    } else if (node.type === 'publish') {
-      referenced.add(node.input)
-      for (const gate of node.requires ?? []) referenced.add(gate)
     }
   }
-  return order.filter((id) => !referenced.has(id))
+  const dataIds = new Set(pipeline.nodes.filter(isDataNode).map((node) => node.id))
+  return order.filter((id) => dataIds.has(id) && !referenced.has(id))
+}
+
+/** Project the runner's gate verdict into the fixed report-row keys. */
+function projectRunGate(gate: PipelineRunGateResult): PipelineRunGateRow {
+  if (gate.class === 'validate') {
+    return {
+      class: 'validate',
+      input: gate.input,
+      against: null,
+      valid: gate.valid,
+      violatedRules: gate.violatedRules,
+      added: null,
+      removed: null,
+      changed: null,
+      blockedGates: null,
+    }
+  }
+  if (gate.class === 'diff') {
+    return {
+      class: 'diff',
+      input: gate.input,
+      against: gate.against,
+      valid: null,
+      violatedRules: null,
+      added: gate.added,
+      removed: gate.removed,
+      changed: gate.changed,
+      blockedGates: null,
+    }
+  }
+  return {
+    class: 'publish',
+    input: gate.input,
+    against: null,
+    valid: null,
+    violatedRules: null,
+    added: null,
+    removed: null,
+    changed: null,
+    blockedGates: [...gate.blockedGates],
+  }
+}
+
+/** True when an executed gate's verdict is "not the run-stopping failure". */
+function gatePassed(gate: PipelineRunGateResult): boolean {
+  if (gate.class === 'validate') return gate.valid
+  if (gate.class === 'publish') return gate.blockedGates.length === 0
+  return true
 }
 
 /**
  * Assemble the run report from the plan order, the IR (kinds + output
- * computation), and the runner outcome. Exactly one of `result`/`error` is
- * non-null: `result` for `completed`/`canceled`, `error` for a thrown
- * `PipelineRunError` (status `failed`).
+ * computation + effective materialization), and the runner outcome. Exactly
+ * one of `result`/`error`/`refusal` is non-null: `result` for
+ * `completed`/`gated`/`canceled`, `error` for a thrown `PipelineRunError`
+ * (status `failed`), `refusal` for a pre-execution mode refusal
+ * (status `refused`).
  */
 export function buildPipelineRunReport(input: {
   readonly pipeline: PipelineV1
   readonly order: readonly string[]
   readonly result: PipelineRunResult | null
   readonly error: PipelineRunError | null
+  readonly refusal?: PipelineRunRefusal | null
 }): PipelineRunReport {
   const name = input.pipeline.pipeline
-  const kindOf = (id: string): string => nodeById(input.pipeline, id)?.type ?? 'unknown'
+  const nodeOf = (id: string): PipelineNode | undefined => nodeById(input.pipeline, id)
+  const kindOf = (id: string): string => nodeOf(id)?.type ?? 'unknown'
+  const isGateId = (id: string): boolean => {
+    const type = nodeOf(id)?.type
+    return type === 'validate' || type === 'diff' || type === 'publish'
+  }
+  const effectiveMode = (id: string): string | null => {
+    const node = nodeOf(id)
+    if (node === undefined) return null
+    return isDataNode(node) ? materializationOf(node) : 'gate'
+  }
+
+  if (input.refusal !== undefined && input.refusal !== null) {
+    return {
+      pipeline: name,
+      status: 'refused',
+      order: [],
+      nodes: [],
+      outputs: [],
+      failingNode: null,
+      nextNodeId: null,
+      gatedAt: null,
+      gate: null,
+      refusal: input.refusal.reason,
+      refusalNode: input.refusal.nodeId,
+    }
+  }
+
   const rowCountOf = (id: string): number | null => {
     if (input.result === null || input.result.status !== 'completed') return null
     return input.result.nodes.find((node) => node.nodeId === id)?.rowCount ?? null
@@ -375,8 +640,10 @@ export function buildPipelineRunReport(input: {
       nodeId: entry.nodeId,
       kind: kindOf(entry.nodeId),
       relation: entry.relation,
-      status: 'materialized',
+      status: isGateId(entry.nodeId) ? 'passed' : 'materialized',
       rowCount: null,
+      materialization: effectiveMode(entry.nodeId),
+      gate: null,
     }))
     const done = new Set(input.error.partial.map((entry) => entry.nodeId))
     for (const id of input.order) {
@@ -387,6 +654,8 @@ export function buildPipelineRunReport(input: {
         relation: id,
         status: id === input.error.nodeId ? 'failed' : 'not-run',
         rowCount: null,
+        materialization: id === input.error.nodeId ? effectiveMode(id) : null,
+        gate: null,
       })
     }
     return {
@@ -397,6 +666,10 @@ export function buildPipelineRunReport(input: {
       outputs: [],
       failingNode: input.error.nodeId,
       nextNodeId: null,
+      gatedAt: null,
+      gate: null,
+      refusal: null,
+      refusalNode: null,
     }
   }
 
@@ -412,56 +685,126 @@ export function buildPipelineRunReport(input: {
       outputs: [],
       failingNode: null,
       nextNodeId: null,
+      gatedAt: null,
+      gate: null,
+      refusal: null,
+      refusalNode: null,
     }
   }
 
-  const doneIds = new Set(result.nodes.map((node) => node.nodeId))
-  const nodes: PipelineRunNodeRow[] = input.order.map((id) => ({
-    nodeId: id,
-    kind: kindOf(id),
-    relation: id,
-    status: doneIds.has(id) ? 'materialized' : 'not-run',
-    rowCount: doneIds.has(id) ? rowCountOf(id) : null,
-  }))
-  if (result.status === 'completed') {
-    const outputs = pipelineOutputNodeIds(input.pipeline, input.order).flatMap((id) => {
-      const rowCount = rowCountOf(id)
-      return rowCount === null ? [] : [{ nodeId: id, relation: id, rowCount }]
-    })
-    return {
-      pipeline: name,
-      status: 'completed',
-      order: [...input.order],
-      nodes,
-      outputs,
-      failingNode: null,
-      nextNodeId: null,
+  const runById = new Map(result.nodes.map((node) => [node.nodeId, node]))
+  const gatedAt = result.status === 'gated' ? result.gatedAt : null
+  const nodes: PipelineRunNodeRow[] = input.order.map((id) => {
+    const runNode = runById.get(id)
+    if (runNode !== undefined) {
+      const gate = runNode.gate === undefined ? null : projectRunGate(runNode.gate)
+      let status: PipelineRunNodeStatus
+      if (isGateId(id)) {
+        status =
+          id === gatedAt
+            ? 'gated'
+            : runNode.gate !== undefined && !gatePassed(runNode.gate)
+              ? 'failed'
+              : 'passed'
+      } else {
+        status = 'materialized'
+      }
+      return {
+        nodeId: id,
+        kind: kindOf(id),
+        relation: runNode.relation,
+        status,
+        rowCount: runNode.rowCount,
+        materialization: runNode.materialization,
+        gate,
+      }
     }
-  }
+    return {
+      nodeId: id,
+      kind: kindOf(id),
+      relation: id,
+      status: 'not-run',
+      rowCount: null,
+      materialization: null,
+      gate: null,
+    }
+  })
+
+  const status: PipelineRunReportStatus =
+    result.status === 'completed' ? 'completed' : result.status === 'gated' ? 'gated' : 'canceled'
+
+  const outputs =
+    result.status === 'completed'
+      ? pipelineOutputNodeIds(input.pipeline, input.order).flatMap((id) => {
+          const rowCount = rowCountOf(id)
+          return rowCount === null ? [] : [{ nodeId: id, relation: id, rowCount }]
+        })
+      : []
+
   return {
     pipeline: name,
-    status: 'canceled',
+    status,
     order: [...input.order],
     nodes,
-    outputs: [],
+    outputs,
     failingNode: null,
-    nextNodeId: result.nextNodeId,
+    nextNodeId: result.status === 'canceled' ? result.nextNodeId : null,
+    gatedAt,
+    gate: result.status === 'gated' ? result.gate : null,
+    refusal: null,
+    refusalNode: null,
   }
+}
+
+/** The value-free human description of a mode refusal. */
+function describeRefusal(reason: PipelineRunRefusalReason): string {
+  switch (reason) {
+    case 'unsupported-materialization':
+      return 'the pipeline declares a materialization mode this surface cannot execute (export/publish)'
+    case 'export-with-consumers':
+      return 'an export node is consumed by another node, but an export materializes no relation'
+    default:
+      return 'a plan precondition this surface cannot satisfy'
+  }
+}
+
+/** The human one-line gate-result rendering (sanitized, value-free). */
+function gateResultSuffix(node: PipelineRunNodeRow, style: ReportStyle): string {
+  const gate = node.gate
+  if (gate === null) return ''
+  if (gate.class === 'validate') {
+    if (gate.valid === true) return ''
+    if (gate.valid === false) {
+      return ` — ${style.fail(String(gate.violatedRules ?? 0))} ${plural(gate.violatedRules ?? 0, 'rule')} violated`
+    }
+    return ''
+  }
+  if (gate.class === 'diff') {
+    return ` — added ${style.count(String(gate.added ?? 0))}, removed ${style.count(String(gate.removed ?? 0))}, changed ${style.count(String(gate.changed ?? 0))}`
+  }
+  if ((gate.blockedGates ?? []).length > 0) {
+    return ` — blocked by ${(gate.blockedGates ?? []).map((ref) => sanitizePipelineText(ref)).join(', ')}`
+  }
+  return ''
 }
 
 /** One per-node human line (the `run:` block). */
 function runNodeLine(node: PipelineRunNodeRow, index: number, style: ReportStyle): string {
   const head = `${String(index + 1)}. ${sanitizePipelineText(node.nodeId)} — ${node.kind}`
-  if (node.status === 'materialized' && node.rowCount !== null) {
+  if (node.status === 'not-run') return `  ${head} — not run`
+  if (node.status === 'failed') {
+    return `  ${head} — ${style.fail('FAILED')}${gateResultSuffix(node, style)}`
+  }
+  if (node.status === 'gated') {
+    return `  ${head} — ${style.fail('GATED')}${gateResultSuffix(node, style)}`
+  }
+  if (node.status === 'passed') {
+    return `  ${head} — passed${gateResultSuffix(node, style)}`
+  }
+  if (node.rowCount !== null) {
     return `  ${head} — materialized — ${style.count(String(node.rowCount))} ${plural(node.rowCount, 'row')}`
   }
-  if (node.status === 'materialized') {
-    return `  ${head} — materialized`
-  }
-  if (node.status === 'failed') {
-    return `  ${head} — ${style.fail('FAILED')}`
-  }
-  return `  ${head} — not run`
+  return `  ${head} — materialized`
 }
 
 /** The human run report. Line formats are byte-pinned by integration tests. */
@@ -472,8 +815,10 @@ export function renderHumanPipelineRunReport(
   const lines: string[] = []
   lines.push(`pipeline: ${sanitizePipelineText(report.pipeline)}`)
   lines.push(`nodes: ${String(report.nodes.length)}`)
-  lines.push('run:')
-  report.nodes.forEach((node, index) => lines.push(runNodeLine(node, index, style)))
+  if (report.nodes.length > 0) {
+    lines.push('run:')
+    report.nodes.forEach((node, index) => lines.push(runNodeLine(node, index, style)))
+  }
   if (report.status === 'completed') {
     lines.push('outputs (addressable relations):')
     for (const output of report.outputs) {
@@ -486,6 +831,17 @@ export function renderHumanPipelineRunReport(
     )
     lines.push(
       `verdict: ${style.pass('COMPLETED')} — ${style.count(String(report.nodes.length))} of ${String(report.nodes.length)} nodes materialized`,
+    )
+  } else if (report.status === 'gated') {
+    lines.push(
+      "note: the run stopped at the gate; later nodes were not run; relations already materialized live in this run's in-memory session, which end when the process exits",
+    )
+    lines.push(
+      `verdict: ${style.fail('GATED')} — the run stopped at ${report.gate ?? 'gate'} gate "${sanitizePipelineText(report.gatedAt ?? '')}"`,
+    )
+  } else if (report.status === 'refused') {
+    lines.push(
+      `verdict: ${style.fail('REFUSED')} — ${describeRefusal(report.refusal ?? 'unsupported-materialization')}; nothing was executed`,
     )
   } else if (report.status === 'failed') {
     lines.push(
@@ -505,7 +861,8 @@ export function renderHumanPipelineRunReport(
 }
 
 /**
- * The `--format json` run envelope — byte-stable reference shape:
+ * The `--format json` run envelope — byte-stable reference shape (p2-5
+ * extension):
  *
  *     report:          'assay-pipeline-run-report' (the format marker)
  *     reportVersion:   the CLI package version that produced the report
@@ -513,17 +870,22 @@ export function renderHumanPipelineRunReport(
  *     sessionLifetime: 'process' — relations are materialized in this run's
  *                      own in-memory session and end when the process exits
  *     nodeCount:       the executed plan's node count
- *     status:          'completed' | 'failed' | 'canceled'
+ *     status:          'completed' | 'gated' | 'failed' | 'canceled' | 'refused'
  *     order:           the topological execution order
  *     nodes[]:         per-node outcomes in execution order (id, kind,
- *                      relation, status, rowCount — null unless materialized
- *                      on a completed run)
+ *                      relation, status, rowCount, materialization, gate —
+ *                      gate carries the value-free validate/diff/publish
+ *                      verdict, never dataset values)
  *     outputs[]:       the terminal relations with their row counts
  *                      (completed runs only)
  *     failingNode:     the failed node ('failed' runs only, else null)
  *     nextNodeId:      the node a cancellation stopped before (null — a
  *                      one-shot CLI run cannot be canceled; the field keeps
  *                      the envelope honest across every runner outcome)
+ *     gatedAt:         the gate a gated run stopped at (else null)
+ *     gate:            which gate class stopped it (else null)
+ *     refusal:         why a refused run never started (else null)
+ *     refusalNode:     the node a refusal concerns (else null)
  *
  * Fixed key order, 2-space indent, trailing newline, no timestamps.
  */
@@ -542,6 +904,21 @@ export function renderJsonPipelineRunReport(report: PipelineRunReport): string {
       relation: node.relation,
       status: node.status,
       rowCount: node.rowCount,
+      materialization: node.materialization,
+      gate:
+        node.gate === null
+          ? null
+          : {
+              class: node.gate.class,
+              input: node.gate.input,
+              against: node.gate.against,
+              valid: node.gate.valid,
+              violatedRules: node.gate.violatedRules,
+              added: node.gate.added,
+              removed: node.gate.removed,
+              changed: node.gate.changed,
+              blockedGates: node.gate.blockedGates === null ? null : [...node.gate.blockedGates],
+            },
     })),
     outputs: report.outputs.map((output) => ({
       nodeId: output.nodeId,
@@ -550,6 +927,10 @@ export function renderJsonPipelineRunReport(report: PipelineRunReport): string {
     })),
     failingNode: report.failingNode,
     nextNodeId: report.nextNodeId,
+    gatedAt: report.gatedAt,
+    gate: report.gate,
+    refusal: report.refusal,
+    refusalNode: report.refusalNode,
   }
   return JSON.stringify(payload, null, 2) + '\n'
 }

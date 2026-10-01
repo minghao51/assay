@@ -33,6 +33,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 const CLI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
 const REPO_DIR = join(CLI_DIR, '..', '..')
 const GOLDEN_PIPELINE = join(REPO_DIR, 'fixtures', 'pipeline', 'cli_run.yaml')
+const GOLDEN_GATED = join(REPO_DIR, 'fixtures', 'pipeline', 'cli_gated.yaml')
+const GOLDEN_GATED_PASS = join(REPO_DIR, 'fixtures', 'pipeline', 'cli_gated_pass.yaml')
 const GOLDEN_DATASET = join(REPO_DIR, 'fixtures', 'csv', 'customers.csv')
 
 /** The package's own version — the `--version` single source of truth (q-4). */
@@ -191,6 +193,77 @@ nodes:
     sql: SELECT no_such_column FROM a
 `,
     ),
+    // p2-5 diff gate: source → filter(SG) → diff(sg against a). The keys are
+    // supplied with --key (the IR carries none), never inferred (C2).
+    diffPipeline: write(
+      'diff-pipeline.yaml',
+      `version: 1
+pipeline: diff_pipeline
+nodes:
+  a:
+    type: source
+    source:
+      kind: file
+      path: ${JSON.stringify(GOLDEN_DATASET).replaceAll('"', '')}
+  sg:
+    type: transform
+    inputs: [a]
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG
+  compare:
+    type: diff
+    input: sg
+    against: a
+`,
+    ),
+    // p2-5 export-mode node (no consumers): the Node surface has no OPFS
+    // export op, so the runner refuses it as a typed mode refusal.
+    exportPipeline: write(
+      'export-pipeline.yaml',
+      `version: 1
+pipeline: export_pipeline
+nodes:
+  a:
+    type: source
+    source:
+      kind: file
+      path: ${JSON.stringify(GOLDEN_DATASET).replaceAll('"', '')}
+  exp:
+    type: transform
+    inputs: [a]
+    materialization: export
+    operation:
+      rename:
+        columns:
+          customer_id: customer_ref
+`,
+    ),
+    // p2-5: a validate node whose contract is unparseable YAML carrying a raw
+    // control character — the disclosure must be sanitized at every surface.
+    badContractFile: write(
+      'bad-contract.yaml',
+      'format: v1\nname: "bad\u001bname"\nversion: 1\ncolumns: [ { name: a\n',
+    ),
+    badContractPipeline: write(
+      'bad-contract-pipeline.yaml',
+      `version: 1
+pipeline: bad_contract
+nodes:
+  a:
+    type: source
+    source:
+      kind: file
+      path: ${JSON.stringify(GOLDEN_DATASET).replaceAll('"', '')}
+  gate:
+    type: validate
+    input: a
+    contract: ./bad-contract.yaml
+`,
+    ),
   }
 })
 
@@ -203,10 +276,10 @@ describe('pipeline validate — byte-pinned happy path (the golden fixture)', ()
       `pipeline: cli_run
 nodes: 4
 plan:
-  1. customers — source — relation "customers" (file: ../csv/customers.csv)
-  2. renamed — transform — relation "renamed" (op: rename)
-  3. sg_only — transform — relation "sg_only" (op: filter)
-  4. by_country — sql — relation "by_country"
+  1. customers — source — relation "customers" — view (file: ../csv/customers.csv)
+  2. renamed — transform — relation "renamed" — view (op: rename)
+  3. sg_only — transform — relation "sg_only" — view (op: filter)
+  4. by_country — sql — relation "by_country" — view
 verdict: VALID — the DAG validates and the plan compiles (nothing was executed)
 `,
     )
@@ -236,7 +309,8 @@ verdict: VALID — the DAG validates and the plan compiles (nothing was executed
       "relation": "customers",
       "sourceKind": "file",
       "sourcePath": "../csv/customers.csv",
-      "operation": null
+      "operation": null,
+      "materialization": "view"
     },
     {
       "nodeId": "renamed",
@@ -244,7 +318,8 @@ verdict: VALID — the DAG validates and the plan compiles (nothing was executed
       "relation": "renamed",
       "sourceKind": null,
       "sourcePath": null,
-      "operation": "rename"
+      "operation": "rename",
+      "materialization": "view"
     },
     {
       "nodeId": "sg_only",
@@ -252,7 +327,8 @@ verdict: VALID — the DAG validates and the plan compiles (nothing was executed
       "relation": "sg_only",
       "sourceKind": null,
       "sourcePath": null,
-      "operation": "filter"
+      "operation": "filter",
+      "materialization": "view"
     },
     {
       "nodeId": "by_country",
@@ -260,9 +336,12 @@ verdict: VALID — the DAG validates and the plan compiles (nothing was executed
       "relation": "by_country",
       "sourceKind": null,
       "sourcePath": null,
-      "operation": null
+      "operation": null,
+      "materialization": "view"
     }
   ],
+  "gates": [],
+  "gateErrors": [],
   "errors": []
 }
 `,
@@ -298,6 +377,8 @@ verdict: INVALID — 1 error
   "valid": false,
   "order": [],
   "nodes": [],
+  "gates": [],
+  "gateErrors": [],
   "errors": [
     {
       "code": "unresolved-reference",
@@ -313,21 +394,20 @@ verdict: INVALID — 1 error
     )
   })
 
-  it('compile refusals keep the IR-derived plan listing (exit 1)', () => {
+  it('gate-visibility: a missing validate contract is disclosed as a would-fail (exit 1)', () => {
     const run = runCli(['pipeline', 'validate', files.compileRefusal ?? ''])
     expect(run.exitCode).toBe(1)
     expect(run.stderr).toBe('')
-    expect(run.stdout).toBe(
-      `pipeline: compile_refusal
-nodes: 2
-plan:
-  1. a — source — relation "a" (file: ./x.csv)
-  2. gate — validate — relation "gate"
-errors: 1
-  nodes.gate: nodes.gate: the validate node is reserved until P2 — P1 compiles source/transform/sql only; use a sql node for behaviour the P1 vocabulary does not compile
-verdict: INVALID — 1 error
-`,
-    )
+    // The data subgraph compiles; the gate binding is the would-fail. The
+    // contract path resolves relative to the pipeline file, so the disclosed
+    // location is machine-local — asserted by shape, not by exact path.
+    expect(run.stdout).toContain('pipeline: compile_refusal')
+    expect(run.stdout).toContain('2. gate — validate — relation "gate"')
+    expect(run.stdout).toContain('gates:')
+    expect(run.stdout).toContain('gate — validate — contract "contracts/x.yaml" (missing)')
+    expect(run.stdout).toContain('gate errors: 1')
+    expect(run.stdout).toContain('gate: contract file not found:')
+    expect(run.stdout).toContain('verdict: INVALID — 1 error')
   })
 })
 
@@ -377,12 +457,6 @@ describe('pipeline validate — exit 2 (malformed input, readable sanitized stde
     expect(contract.exitCode).toBe(2)
     expect(contract.stderr).toBe(
       'pipeline does not take --contract (did you mean `assay validate`? see --help)\n',
-    )
-
-    const key = runCli(['pipeline', 'run', 'x.yaml', '--key', 'id'])
-    expect(key.exitCode).toBe(2)
-    expect(key.stderr).toBe(
-      'pipeline does not take --key (did you mean `assay diff`? see --help)\n',
     )
 
     const infer = runCli(['pipeline', 'run', 'x.yaml', '--infer'])
@@ -446,28 +520,36 @@ verdict: COMPLETED — 4 of 4 nodes materialized
       "kind": "source",
       "relation": "customers",
       "status": "materialized",
-      "rowCount": 5
+      "rowCount": 5,
+      "materialization": "source",
+      "gate": null
     },
     {
       "nodeId": "renamed",
       "kind": "transform",
       "relation": "renamed",
       "status": "materialized",
-      "rowCount": 5
+      "rowCount": 5,
+      "materialization": "view",
+      "gate": null
     },
     {
       "nodeId": "sg_only",
       "kind": "transform",
       "relation": "sg_only",
       "status": "materialized",
-      "rowCount": 2
+      "rowCount": 2,
+      "materialization": "view",
+      "gate": null
     },
     {
       "nodeId": "by_country",
       "kind": "sql",
       "relation": "by_country",
       "status": "materialized",
-      "rowCount": 1
+      "rowCount": 1,
+      "materialization": "view",
+      "gate": null
     }
   ],
   "outputs": [
@@ -478,7 +560,11 @@ verdict: COMPLETED — 4 of 4 nodes materialized
     }
   ],
   "failingNode": null,
-  "nextNodeId": null
+  "nextNodeId": null,
+  "gatedAt": null,
+  "gate": null,
+  "refusal": null,
+  "refusalNode": null
 }
 `,
     )
@@ -532,19 +618,27 @@ verdict: FAILED — node "broken" could not be materialized
       "kind": "source",
       "relation": "a",
       "status": "materialized",
-      "rowCount": null
+      "rowCount": null,
+      "materialization": "view",
+      "gate": null
     },
     {
       "nodeId": "broken",
       "kind": "sql",
       "relation": "broken",
       "status": "failed",
-      "rowCount": null
+      "rowCount": null,
+      "materialization": "view",
+      "gate": null
     }
   ],
   "outputs": [],
   "failingNode": "broken",
-  "nextNodeId": null
+  "nextNodeId": null,
+  "gatedAt": null,
+  "gate": null,
+  "refusal": null,
+  "refusalNode": null
 }
 `,
     )
@@ -589,6 +683,246 @@ describe('pipeline run — exit 2 (C2: sources disclosed and refused, never gues
   })
 })
 
+describe('pipeline validate — gate visibility (the golden gated fixture)', () => {
+  it('human report lists the gate binding and is VALID (the contract resolves)', () => {
+    const run = runCli(['pipeline', 'validate', GOLDEN_GATED])
+    expect(run.exitCode).toBe(0)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `pipeline: cli_gated
+nodes: 3
+plan:
+  1. customers — source — relation "customers" — view (file: ../csv/customers.csv)
+  2. sg_only — transform — relation "sg_only" — view (op: filter)
+  3. quality — validate — relation "quality"
+gates:
+  quality — validate — contract "contracts/sg_min_rows_fail.yaml" (resolved)
+verdict: VALID — the DAG validates and the plan compiles (nothing was executed)
+`,
+    )
+  })
+
+  it('json report pins the gate-visibility envelope (exit 0)', () => {
+    const run = runCli(['pipeline', 'validate', GOLDEN_GATED, '--format', 'json'])
+    expect(run.exitCode).toBe(0)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `{
+  "report": "assay-pipeline-validate-report",
+  "reportVersion": "${PACKAGE_VERSION}",
+  "pipeline": "cli_gated",
+  "nodeCount": 3,
+  "valid": true,
+  "order": [
+    "customers",
+    "sg_only",
+    "quality"
+  ],
+  "nodes": [
+    {
+      "nodeId": "customers",
+      "kind": "source",
+      "relation": "customers",
+      "sourceKind": "file",
+      "sourcePath": "../csv/customers.csv",
+      "operation": null,
+      "materialization": "view"
+    },
+    {
+      "nodeId": "sg_only",
+      "kind": "transform",
+      "relation": "sg_only",
+      "sourceKind": null,
+      "sourcePath": null,
+      "operation": "filter",
+      "materialization": "view"
+    },
+    {
+      "nodeId": "quality",
+      "kind": "validate",
+      "relation": "quality",
+      "sourceKind": null,
+      "sourcePath": null,
+      "operation": null,
+      "materialization": null
+    }
+  ],
+  "gates": [
+    {
+      "nodeId": "quality",
+      "kind": "validate",
+      "input": "sg_only",
+      "against": null,
+      "contract": "contracts/sg_min_rows_fail.yaml",
+      "contractStatus": "resolved",
+      "requires": null,
+      "bound": true
+    }
+  ],
+  "gateErrors": [],
+  "errors": []
+}
+`,
+    )
+  })
+})
+
+describe('pipeline run — the gated golden journey on the real Node engine', () => {
+  it('a failing validate gate is a first-class gated result (exit 1, empty stderr)', () => {
+    const run = runCli(['pipeline', 'run', GOLDEN_GATED])
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `pipeline: cli_gated
+nodes: 3
+run:
+  1. customers — source — materialized — 5 rows
+  2. sg_only — transform — materialized — 2 rows
+  3. quality — validate — GATED — 1 rule violated
+note: the run stopped at the gate; later nodes were not run; relations already materialized live in this run's in-memory session, which end when the process exits
+verdict: GATED — the run stopped at validation-failed gate "quality"
+`,
+    )
+  })
+
+  it('the gated run json envelope pins the verdict, the gate, and the partial state', () => {
+    const run = runCli(['pipeline', 'run', GOLDEN_GATED, '--format', 'json'])
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `{
+  "report": "assay-pipeline-run-report",
+  "reportVersion": "${PACKAGE_VERSION}",
+  "pipeline": "cli_gated",
+  "sessionLifetime": "process",
+  "nodeCount": 3,
+  "status": "gated",
+  "order": [
+    "customers",
+    "sg_only",
+    "quality"
+  ],
+  "nodes": [
+    {
+      "nodeId": "customers",
+      "kind": "source",
+      "relation": "customers",
+      "status": "materialized",
+      "rowCount": 5,
+      "materialization": "source",
+      "gate": null
+    },
+    {
+      "nodeId": "sg_only",
+      "kind": "transform",
+      "relation": "sg_only",
+      "status": "materialized",
+      "rowCount": 2,
+      "materialization": "view",
+      "gate": null
+    },
+    {
+      "nodeId": "quality",
+      "kind": "validate",
+      "relation": "sg_only",
+      "status": "gated",
+      "rowCount": 2,
+      "materialization": "gate",
+      "gate": {
+        "class": "validate",
+        "input": "sg_only",
+        "against": null,
+        "valid": false,
+        "violatedRules": 1,
+        "added": null,
+        "removed": null,
+        "changed": null,
+        "blockedGates": null
+      }
+    }
+  ],
+  "outputs": [],
+  "failingNode": null,
+  "nextNodeId": null,
+  "gatedAt": "quality",
+  "gate": "validation-failed",
+  "refusal": null,
+  "refusalNode": null
+}
+`,
+    )
+  })
+
+  it('the passing variant completes (the gated-then-passing pair)', () => {
+    const run = runCli(['pipeline', 'run', GOLDEN_GATED_PASS])
+    expect(run.exitCode).toBe(0)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `pipeline: cli_gated_pass
+nodes: 3
+run:
+  1. customers — source — materialized — 5 rows
+  2. sg_only — transform — materialized — 2 rows
+  3. quality — validate — passed
+outputs (addressable relations):
+  sg_only — 2 rows
+note: relations live in this run's in-memory session and end when the process exits
+verdict: COMPLETED — 3 of 3 nodes materialized
+`,
+    )
+  })
+})
+
+describe('pipeline run — diff gates and materialization-mode refusals (p2-5)', () => {
+  it('a diff node runs with an explicit --key set and surfaces value-free counts', () => {
+    const run = runCli(['pipeline', 'run', files.diffPipeline ?? '', '--key', 'customer_id'])
+    expect(run.exitCode).toBe(0)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toContain('3. compare — diff — passed — added 3, removed 0, changed 0')
+    expect(run.stdout).toContain('outputs (addressable relations):')
+    expect(run.stdout).toContain('  sg — 2 rows')
+    expect(run.stdout).toContain('verdict: COMPLETED — 3 of 3 nodes materialized')
+  })
+
+  it('a diff node without an explicit key set is disclosed and refused (exit 2)', () => {
+    const run = runCli(['pipeline', 'run', files.diffPipeline ?? ''])
+    expect(run.exitCode).toBe(2)
+    expect(run.stdout).toBe('')
+    expect(run.stderr).toBe(
+      'pipeline gates could not be resolved (nothing was executed):\n' +
+        '  compare: a diff node requires an explicit key set (--key <column>); keys are never inferred\n',
+    )
+  })
+
+  it('an export-mode node is a typed mode refusal, never an internal error', () => {
+    const run = runCli(['pipeline', 'run', files.exportPipeline ?? ''])
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `pipeline: export_pipeline
+nodes: 0
+verdict: REFUSED — the pipeline declares a materialization mode this surface cannot execute (export/publish); nothing was executed
+`,
+    )
+
+    const json = runCli(['pipeline', 'run', files.exportPipeline ?? '', '--format', 'json'])
+    expect(json.exitCode).toBe(1)
+    expect(json.stderr).toBe('')
+    expect(json.stdout).toContain('"status": "refused"')
+    expect(json.stdout).toContain('"refusal": "unsupported-materialization"')
+    expect(json.stdout).toContain('"refusalNode": "exp"')
+  })
+
+  it('a validate contract parse failure is sanitized on stderr (no raw control bytes)', () => {
+    const run = runCli(['pipeline', 'run', files.badContractPipeline ?? ''])
+    expect(run.exitCode).toBe(2)
+    expect(run.stdout).toBe('')
+    expect(run.stderr).toContain('pipeline gates could not be resolved (nothing was executed):')
+    expect(run.stderr).toContain('gate: contract could not be parsed:')
+    expect(hasRawControlByte(run.stderr)).toBe(false)
+  })
+})
+
 describe('pipeline — determinism and help', () => {
   it('two validate runs are byte-identical (json)', () => {
     const args = ['pipeline', 'validate', GOLDEN_PIPELINE, '--format', 'json']
@@ -617,7 +951,10 @@ describe('pipeline — determinism and help', () => {
       '  pipeline          validate or run an Assay pipeline IR file (YAML):',
     )
     expect(run.stdout).toContain('pipeline options:')
+    expect(run.stdout).toContain('--key <column>')
     expect(run.stdout).toContain('disclosed and refused — never guessed')
-    expect(run.stdout).toContain('pipeline exit codes: validate — 0 valid, 1 DAG/compile errors, 2')
+    expect(run.stdout).toContain(
+      'pipeline exit codes: validate — 0 valid (would run), 1 DAG/data-compile',
+    )
   })
 })

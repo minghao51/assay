@@ -136,10 +136,11 @@ nodes:
     source:
       kind: file
       path: ./x.csv
-  gate:
-    type: validate
-    input: a
-    contract: contracts/x.yaml
+  b:
+    type: transform
+    inputs: [a]
+    operation:
+      no_such_op: {}
 `)
 
 describe('buildPipelineValidateReport', () => {
@@ -195,9 +196,9 @@ describe('buildPipelineValidateReport', () => {
       compile,
     })
     expect(report.valid).toBe(false)
-    expect(report.order).toEqual(['a', 'gate'])
-    expect(report.nodes.map((node) => node.kind)).toEqual(['source', 'validate'])
-    expect(report.errors.map((error) => error.code)).toEqual(['reserved-node-class'])
+    expect(report.order).toEqual(['a', 'b'])
+    expect(report.nodes.map((node) => node.kind)).toEqual(['source', 'transform'])
+    expect(report.errors.map((error) => error.code)).toEqual(['unknown-operation'])
   })
 })
 
@@ -227,7 +228,7 @@ nodes:
     expect(pipelineOutputNodeIds(pipeline, ['a', 'b', 'c', 'd'])).toEqual(['d'])
   })
 
-  it('counts gate references (publish/validate consume too)', () => {
+  it('keeps a data node consumed only by a gate as an output', () => {
     const pipeline = parse(`version: 1
 pipeline: gated
 nodes:
@@ -241,7 +242,9 @@ nodes:
     input: a
     contract: contracts/x.yaml
 `)
-    expect(pipelineOutputNodeIds(pipeline, ['a', 'gate'])).toEqual(['gate'])
+    // The gate reads `a` but materializes no new relation; `a` stays the
+    // addressable output.
+    expect(pipelineOutputNodeIds(pipeline, ['a', 'gate'])).toEqual(['a'])
   })
 })
 
@@ -337,9 +340,9 @@ describe('human renderers — byte pins (plain style)', () => {
       `pipeline: unit_pipeline
 nodes: 3
 plan:
-  1. customers — source — relation "customers" (file: ../csv/customers.csv)
-  2. filtered — transform — relation "filtered" (op: filter)
-  3. aggregated — sql — relation "aggregated"
+  1. customers — source — relation "customers" — view (file: ../csv/customers.csv)
+  2. filtered — transform — relation "filtered" — view (op: filter)
+  3. aggregated — sql — relation "aggregated" — view
 verdict: VALID — the DAG validates and the plan compiles (nothing was executed)
 `,
     )
@@ -377,10 +380,10 @@ verdict: INVALID — 1 error
       `pipeline: compile_refusal
 nodes: 2
 plan:
-  1. a — source — relation "a" (file: ./x.csv)
-  2. gate — validate — relation "gate"
+  1. a — source — relation "a" — view (file: ./x.csv)
+  2. b — transform — relation "b" — view (op: no_such_op)
 errors: 1
-  nodes.gate: nodes.gate: the validate node is reserved until P2 — P1 compiles source/transform/sql only; use a sql node for behaviour the P1 vocabulary does not compile
+  nodes.b.operation: nodes.b.operation: unknown transform operation "no_such_op" — the compiled vocabulary is select-columns, rename, cast, filter, join, aggregate, window; express anything else as a sql node carrying verbatim SQL with declared inputs
 verdict: INVALID — 1 error
 `,
     )
@@ -512,6 +515,8 @@ describe('json renderers — envelope shape and key order', () => {
       'valid',
       'order',
       'nodes',
+      'gates',
+      'gateErrors',
       'errors',
     ])
     expect(payload.report).toBe('assay-pipeline-validate-report')
@@ -527,6 +532,7 @@ describe('json renderers — envelope shape and key order', () => {
       'sourceKind',
       'sourcePath',
       'operation',
+      'materialization',
     ])
     expect(renderJsonPipelineValidateReport(report).endsWith('\n')).toBe(true)
   })
@@ -559,6 +565,10 @@ describe('json renderers — envelope shape and key order', () => {
       'outputs',
       'failingNode',
       'nextNodeId',
+      'gatedAt',
+      'gate',
+      'refusal',
+      'refusalNode',
     ])
     expect(payload.report).toBe('assay-pipeline-run-report')
     expect(payload.sessionLifetime).toBe('process')
@@ -572,6 +582,8 @@ describe('json renderers — envelope shape and key order', () => {
       'relation',
       'status',
       'rowCount',
+      'materialization',
+      'gate',
     ])
     expect(rendered.endsWith('\n')).toBe(true)
   })
@@ -598,5 +610,304 @@ describe('json renderers — envelope shape and key order', () => {
       ['filtered', 'failed', null],
       ['aggregated', 'not-run', null],
     ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// p2-5 — gate visibility (validate), gated runs, mode refusals
+// ---------------------------------------------------------------------------
+
+const GATE_PIPELINE = parse(`version: 1
+pipeline: gated
+nodes:
+  clean:
+    type: sql
+    inputs: [raw]
+    sql: SELECT * FROM raw
+  compare:
+    type: diff
+    against: raw
+    input: clean
+  gate:
+    type: validate
+    input: clean
+    contract: contracts/clean.yaml
+  out:
+    type: publish
+    input: clean
+    requires: [gate]
+  raw:
+    type: source
+    source:
+      kind: file
+      path: ./raw.csv
+`)
+
+/** Gate visibility rows for GATE_PIPELINE (all bound / one unbound). */
+function gateRows(bound: boolean): Parameters<typeof buildPipelineValidateReport>[0]['gates'] {
+  return [
+    {
+      nodeId: 'compare',
+      kind: 'diff',
+      input: 'clean',
+      against: 'raw',
+      contract: null,
+      contractStatus: null,
+      requires: null,
+      bound,
+    },
+    {
+      nodeId: 'gate',
+      kind: 'validate',
+      input: 'clean',
+      against: null,
+      contract: 'contracts/clean.yaml',
+      contractStatus: bound ? 'resolved' : 'missing',
+      requires: null,
+      bound,
+    },
+    {
+      nodeId: 'out',
+      kind: 'publish',
+      input: 'clean',
+      against: null,
+      requires: ['gate'],
+      contract: null,
+      contractStatus: null,
+      bound: true,
+    },
+  ]
+}
+
+describe('buildPipelineValidateReport — p2-5 gate visibility', () => {
+  it('lists every node with effective materialization and every gate binding', () => {
+    const validation = validatePipeline(GATE_PIPELINE)
+    if (!validation.ok) throw new Error('fixture must validate')
+    const compile = compilePipeline({
+      ...GATE_PIPELINE,
+      nodes: GATE_PIPELINE.nodes.filter(
+        (node) => node.type === 'source' || node.type === 'transform' || node.type === 'sql',
+      ),
+    })
+    if (!compile.ok) throw new Error('data subgraph must compile')
+    const report = buildPipelineValidateReport({
+      pipeline: GATE_PIPELINE,
+      validation,
+      compile,
+      gates: gateRows(true),
+    })
+    expect(report.valid).toBe(true)
+    expect(report.gates.map((gate) => [gate.nodeId, gate.kind, gate.bound])).toEqual([
+      ['compare', 'diff', true],
+      ['gate', 'validate', true],
+      ['out', 'publish', true],
+    ])
+    const clean = report.nodes.find((node) => node.nodeId === 'clean')
+    expect(clean?.materialization).toBe('view')
+    const gate = report.nodes.find((node) => node.nodeId === 'gate')
+    expect(gate?.materialization).toBe(null)
+  })
+
+  it('an unbound gate makes the report invalid and discloses the failures', () => {
+    const validation = validatePipeline(GATE_PIPELINE)
+    if (!validation.ok) throw new Error('fixture must validate')
+    const report = buildPipelineValidateReport({
+      pipeline: GATE_PIPELINE,
+      validation,
+      compile: null,
+      gates: gateRows(false),
+      gateErrors: ['gate: contract file not found: /tmp/contracts/clean.yaml'],
+    })
+    expect(report.valid).toBe(false)
+    expect(report.gateErrors).toEqual(['gate: contract file not found: /tmp/contracts/clean.yaml'])
+  })
+
+  it('the human report renders materialization, a gates section, and gate errors', () => {
+    const validation = validatePipeline(GATE_PIPELINE)
+    if (!validation.ok) throw new Error('fixture must validate')
+    const compile = compilePipeline({
+      ...GATE_PIPELINE,
+      nodes: GATE_PIPELINE.nodes.filter(
+        (node) => node.type === 'source' || node.type === 'transform' || node.type === 'sql',
+      ),
+    })
+    if (!compile.ok) throw new Error('data subgraph must compile')
+    const rendered = renderHumanPipelineValidateReport(
+      buildPipelineValidateReport({
+        pipeline: GATE_PIPELINE,
+        validation,
+        compile,
+        gates: gateRows(true),
+      }),
+    )
+    expect(rendered).toContain('2. clean — sql — relation "clean" — view')
+    expect(rendered).toContain('  gate — validate — contract "contracts/clean.yaml" (resolved)')
+    expect(rendered).toContain('  compare — diff — against "raw" (keys bound)')
+    expect(rendered).toContain('  out — publish — requires gate')
+  })
+})
+
+describe('buildPipelineRunReport — p2-5 gated and refused runs', () => {
+  it('a gated run is a first-class result with the gate verdict and partial state', () => {
+    const report = buildPipelineRunReport({
+      pipeline: GATE_PIPELINE,
+      order: ['raw', 'clean', 'compare', 'gate', 'out'],
+      result: {
+        status: 'gated',
+        gatedAt: 'gate',
+        gate: 'validation-failed',
+        nextNodeId: 'out',
+        nodes: [
+          { nodeId: 'raw', relation: 'raw', rowCount: 5, materialization: 'source' },
+          { nodeId: 'clean', relation: 'clean', rowCount: 5, materialization: 'view' },
+          {
+            nodeId: 'gate',
+            relation: 'clean',
+            rowCount: 5,
+            materialization: 'gate',
+            gate: {
+              class: 'validate',
+              input: 'clean',
+              valid: false,
+              violatedRules: 1,
+            },
+          },
+        ],
+      },
+      error: null,
+    })
+    expect(report.status).toBe('gated')
+    expect(report.gatedAt).toBe('gate')
+    expect(report.gate).toBe('validation-failed')
+    expect(report.nextNodeId).toBe(null)
+    expect(report.nodes.map((node) => [node.nodeId, node.status, node.materialization])).toEqual([
+      ['raw', 'materialized', 'source'],
+      ['clean', 'materialized', 'view'],
+      ['compare', 'not-run', null],
+      ['gate', 'gated', 'gate'],
+      ['out', 'not-run', null],
+    ])
+    const gate = report.nodes.find((node) => node.nodeId === 'gate')?.gate
+    expect(gate).toEqual({
+      class: 'validate',
+      input: 'clean',
+      against: null,
+      valid: false,
+      violatedRules: 1,
+      added: null,
+      removed: null,
+      changed: null,
+      blockedGates: null,
+    })
+    const human = renderHumanPipelineRunReport(report)
+    expect(human).toContain('4. gate — validate — GATED — 1 rule violated')
+    expect(human).toContain('verdict: GATED — the run stopped at validation-failed gate "gate"')
+  })
+
+  it('a diff gate surfaces its value-free aspect counts', () => {
+    const report = buildPipelineRunReport({
+      pipeline: GATE_PIPELINE,
+      order: ['raw', 'clean', 'compare', 'gate', 'out'],
+      result: {
+        status: 'completed',
+        nodes: [
+          { nodeId: 'raw', relation: 'raw', rowCount: 5, materialization: 'source' },
+          { nodeId: 'clean', relation: 'clean', rowCount: 5, materialization: 'view' },
+          {
+            nodeId: 'compare',
+            relation: 'clean',
+            rowCount: 5,
+            materialization: 'gate',
+            gate: {
+              class: 'diff',
+              input: 'clean',
+              against: 'raw',
+              added: 0,
+              removed: 3,
+              changed: 2,
+            },
+          },
+          {
+            nodeId: 'gate',
+            relation: 'clean',
+            rowCount: 5,
+            materialization: 'gate',
+            gate: { class: 'validate', input: 'clean', valid: true, violatedRules: 0 },
+          },
+          {
+            nodeId: 'out',
+            relation: 'clean',
+            rowCount: 5,
+            materialization: 'gate',
+            gate: { class: 'publish', input: 'clean', blockedGates: [] },
+          },
+        ],
+      },
+      error: null,
+    })
+    expect(report.status).toBe('completed')
+    const human = renderHumanPipelineRunReport(report)
+    expect(human).toContain('3. compare — diff — passed — added 0, removed 3, changed 2')
+    expect(human).toContain('5. out — publish — passed')
+  })
+
+  it('a publish blocked on its gate names the missing gates', () => {
+    const report = buildPipelineRunReport({
+      pipeline: GATE_PIPELINE,
+      order: ['raw', 'clean', 'gate', 'out'],
+      result: {
+        status: 'gated',
+        gatedAt: 'out',
+        gate: 'publish-blocked',
+        nextNodeId: null,
+        nodes: [
+          { nodeId: 'raw', relation: 'raw', rowCount: 5, materialization: 'source' },
+          { nodeId: 'clean', relation: 'clean', rowCount: 5, materialization: 'view' },
+          {
+            nodeId: 'gate',
+            relation: 'clean',
+            rowCount: 5,
+            materialization: 'gate',
+            gate: { class: 'validate', input: 'clean', valid: false, violatedRules: 1 },
+          },
+          {
+            nodeId: 'out',
+            relation: 'clean',
+            rowCount: 5,
+            materialization: 'gate',
+            gate: { class: 'publish', input: 'clean', blockedGates: ['gate'] },
+          },
+        ],
+      },
+      error: null,
+    })
+    expect(report.status).toBe('gated')
+    expect(report.gate).toBe('publish-blocked')
+    const human = renderHumanPipelineRunReport(report)
+    expect(human).toContain('3. gate — validate — FAILED — 1 rule violated')
+    expect(human).toContain('4. out — publish — GATED — blocked by gate')
+    expect(human).toContain('verdict: GATED — the run stopped at publish-blocked gate "out"')
+  })
+
+  it('a mode refusal is a result: refused status, value-free reason, no nodes', () => {
+    const report = buildPipelineRunReport({
+      pipeline: GATE_PIPELINE,
+      order: ['raw', 'clean', 'gate', 'out'],
+      result: null,
+      error: null,
+      refusal: { reason: 'unsupported-materialization', nodeId: 'clean' },
+    })
+    expect(report.status).toBe('refused')
+    expect(report.refusal).toBe('unsupported-materialization')
+    expect(report.refusalNode).toBe('clean')
+    expect(report.nodes).toEqual([])
+    const payload = JSON.parse(renderJsonPipelineRunReport(report)) as Record<string, unknown>
+    expect(payload.status).toBe('refused')
+    expect(payload.refusal).toBe('unsupported-materialization')
+    expect(payload.refusalNode).toBe('clean')
+    const human = renderHumanPipelineRunReport(report)
+    expect(human).toContain(
+      'verdict: REFUSED — the pipeline declares a materialization mode this surface cannot execute (export/publish); nothing was executed',
+    )
   })
 })

@@ -1,0 +1,21 @@
+version: 1
+pipeline: cli_gated
+nodes:
+  customers:
+    type: source
+    source:
+      kind: file
+      path: ../csv/customers.csv
+  quality:
+    type: validate
+    input: sg_only
+    contract: contracts/sg_min_rows_fail.yaml
+  sg_only:
+    type: transform
+    inputs: [ customers ]
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG

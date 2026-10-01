@@ -15,6 +15,18 @@
       "description": "CLI-friendly runnable pipeline (p-4): file source over fixtures/csv/customers.csv, rename + filter transforms, and a verbatim sql aggregate — every node in the P1 executable set, no reserved classes; backs `assay pipeline run`'s end-to-end integration journey"
     },
     {
+      "name": "cli_gated.yaml",
+      "sha256": "bb51881eb50582c995fe49fbc2eddf0f71b9d3ded88edb10c18ba44748e237c4",
+      "canonical": true,
+      "description": "p2-5 gated CLI fixture: file source over fixtures/csv/customers.csv, a filter transform, and a terminal validate node whose contract (contracts/sg_min_rows_fail.yaml) requires 3 rows while the filtered relation has 2 — backs the gated end-to-end integration journey and the validate gate-visibility path"
+    },
+    {
+      "name": "cli_gated_pass.yaml",
+      "sha256": "3a21ef007d1b3ea1fbe6c30dd895454c0eba74de356bf4b073c5185b2a31f269",
+      "canonical": true,
+      "description": "p2-5 passing variant of cli_gated.yaml: the same source/filter with a contract (contracts/sg_min_rows_pass.yaml) requiring 2 rows, so the validate gate passes and the run completes — pins the gated-then-passing pair"
+    },
+    {
       "name": "customer_portfolio.yaml",
       "sha256": "abf3c5d90ac47a8d0473387ea31f92f8f94cd3717e35edcbf91abb94d6b8fe00",
       "canonical": true,

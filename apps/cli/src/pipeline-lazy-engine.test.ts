@@ -63,7 +63,7 @@ describe('pipeline validate never loads the native engine (p2-1 (c))', () => {
 
     const context = captureContext()
     const code = await runPipelineCommand(
-      { subcommand: 'validate', pipelinePath: path, format: 'json' },
+      { subcommand: 'validate', pipelinePath: path, format: 'json', keys: [] },
       context,
     )
     expect(code).toBe(0)

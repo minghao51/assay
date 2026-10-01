@@ -1,40 +1,51 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * `assay pipeline validate <file>` / `assay pipeline run <file>` (p-4).
+ * `assay pipeline validate <file>` / `assay pipeline run <file>` (p-4; p2-5
+ * gates + materialization).
  *
  * The proven m5-4/m6-3 shape, reused: load the pipeline IR file through the
  * p-1 TOTAL parser (any malformed document degrades to located errors —
  * path/line/column — and exits 2, mirroring `validate`'s contract parse
- * path) → DAG-validate (`validatePipeline`) → compile the plan
- * (`compilePipeline`; typed refusals are validate failures, not crashes) →
+ * path) → DAG-validate (`validatePipeline`) → compile the DATA subgraph
+ * (`compilePipeline`; a data-node refusal is a validate failure, not a
+ * crash) → statically resolve every gate binding (C2, no execution):
  *
  * - `validate` renders the human report or byte-stable JSON envelope and
  *   exits 0/1. It NEVER executes and NEVER resolves a source dataset — no
- *   file beyond the pipeline document itself is opened on this path.
- * - `run` executes the compiled plan through the p-3 runner bound to a
+ *   file beyond the pipeline document and its authored contract references is
+ *   opened on this path. The report lists the plan in topological order with
+ *   each node's effective materialization, and a `gates` section with each
+ *   validate/diff/publish node's binding resolution (would-this-run-pass-its-
+ *   gates).
+ * - `run` executes the pipeline through the p-4 runner bound to a
  *   `@duckdb/node-api` connection via `./node` (ADR 0041 — the SAME
- *   `executePipeline` the web client binds to its postMessage ops), then
- *   reports per-node outcomes and lists the terminal output relations with
- *   their row counts. C2 discipline: every source node's dataset is resolved
- *   BEFORE any execution, all resolution failures are collected, disclosed,
- *   and refused (exit 2) — nothing is guessed, inferred, or silently
- *   fallen back. Cancellation is not triggerable from a one-shot CLI (no
- *   abort surface exists on this process boundary); the report shape keeps
- *   the runner's `canceled` outcome representable anyway, honestly.
+ *   `executePipeline` the web client binds to its postMessage ops), supplying
+ *   the parsed contracts and the explicit diff key set, then reports per-node
+ *   outcomes (materialization + gate verdicts) and lists the terminal output
+ *   relations. C2 discipline: every source dataset AND every validate
+ *   contract is resolved BEFORE any execution, all resolution failures are
+ *   collected, disclosed, and refused (exit 2) — nothing is guessed,
+ *   inferred, or silently fallen back. A gate failure (validation-failed /
+ *   publish-blocked) is a first-class RESULT (exit 1, the report on stdout);
+ *   a materialization mode this surface cannot execute (export/publish) is a
+ *   typed mode refusal (exit 1), never an internal error.
  *
  * Exit codes (pinned by integration tests, mirroring validate/diff):
- * - `0` — validate: the DAG validates and the plan compiles;
- *         run: every node materialized.
- * - `1` — validate: DAG errors or compile refusals (the report IS the
- *         result); run: a DAG/compile refusal, or a typed node failure
- *         (`PipelineRunError`) after the run began.
+ * - `0` — validate: the DAG validates, the data subgraph compiles, and every
+ *         gate binding resolves (the run would start);
+ *         run: every node executed (`completed`).
+ * - `1` — validate: DAG/data-compile errors OR gate-binding failures (the
+ *         report IS the result); run: a DAG/compile refusal, a typed node
+ *         failure (`PipelineRunError`), a gate failure (`gated`), or a
+ *         materialization-mode refusal (`refused`) — all RESULTS, not crashes.
  * - `2` — malformed input: IR parse errors, an unreadable pipeline file,
- *         unresolvable source datasets (disclosed), or bad usage.
+ *         unresolvable source datasets or validate contracts (disclosed), or
+ *         bad usage.
  *
  * Privacy (ADR 0025): stderr carries authored, fixed messages — parse errors
  * quote the PIPELINE DOCUMENT's own structure (authored input, line/column),
- * source resolution failures echo the pipeline's own authored path
+ * source/contract resolution failures echo the pipeline's own authored path
  * references — and every pipeline-derived fragment is sanitized
  * (`sanitizePipelineText`) at this boundary. Raw engine error text and
  * dataset values never reach stderr.
@@ -42,15 +53,12 @@
 import { readFileSync, existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
-import { compilePipeline, parsePipeline, validatePipeline } from '@assay/pipeline'
-import type {
-  PipelineCompileResult,
-  PipelineError,
-  PipelineV1,
-  PipelineValidationResult,
-} from '@assay/pipeline'
+import { parseContract, describeContractError } from '@assay/contracts'
+import { compilePipeline, isDataNode, parsePipeline, validatePipeline } from '@assay/pipeline'
+import type { PipelineError, PipelineV1 } from '@assay/pipeline'
 import type {
   EngineFileFormat,
+  PipelineRunContractBinding,
   PipelineRunSource,
   PipelineRunSourceFile,
 } from '@assay/engine-duckdb/node'
@@ -67,6 +75,11 @@ import {
   renderJsonPipelineValidateReport,
   sanitizePipelineText,
 } from './report-pipeline.js'
+import type {
+  PipelineContractStatus,
+  PipelineGateVisibilityRow,
+  PipelineValidateReport,
+} from './report-pipeline.js'
 
 /** The two-level subcommand: `assay pipeline <validate|run> <file>`. */
 export type PipelineSubcommand = 'validate' | 'run'
@@ -76,6 +89,13 @@ export interface PipelineOptions {
   readonly subcommand: PipelineSubcommand
   readonly pipelinePath: string
   readonly format: 'human' | 'json'
+  /**
+   * The explicit diff key set (C2): supplied with `--key` (repeatable) and
+   * applied to EVERY `diff` node in the pipeline (the IR carries no keys).
+   * Empty means no diff key binding — a pipeline with a diff node then refuses
+   * at resolution, never infers.
+   */
+  readonly keys: readonly string[]
 }
 
 /**
@@ -84,8 +104,9 @@ export interface PipelineOptions {
  * consume their positionals: `positionals[0]` is the subcommand,
  * `positionals[1]` the pipeline file. An unknown subcommand is the existing
  * usage-error path (exit 2, readable stderr). Cross-command flags are
- * rejected, never silently ignored (the m6-3 discipline); there is
- * deliberately no `--infer`-shaped flag on this surface (C2).
+ * rejected, never silently ignored (the m6-3 discipline); `--key` IS accepted
+ * (the explicit C2 diff key set), while there is deliberately no
+ * `--infer`-shaped flag on this surface (C2: never guess).
  */
 export function resolvePipelineOptions(flags: {
   readonly contract?: string
@@ -99,9 +120,6 @@ export function resolvePipelineOptions(flags: {
     throw usageError(
       'pipeline does not take --contract (did you mean `assay validate`? see --help)',
     )
-  }
-  if ((flags.keys?.length ?? 0) > 0) {
-    throw usageError('pipeline does not take --key (did you mean `assay diff`? see --help)')
   }
   if (flags.infer === true) {
     throw usageError(
@@ -132,7 +150,148 @@ export function resolvePipelineOptions(flags: {
   if (format !== 'human' && format !== 'json') {
     throw usageError(`--format must be 'human' or 'json' (got '${format}')`)
   }
-  return { subcommand, pipelinePath, format }
+  return { subcommand, pipelinePath, format, keys: flags.keys ?? [] }
+}
+
+/**
+ * The data subgraph of a pipeline (everything EXCEPT the reserved gate node
+ * classes): the p-2 compiler compiles source/transform/sql only, so the CLI
+ * compiles exactly that subgraph and binds gates statically/runtime
+ * separately. Data nodes never consume a gate (the DAG port rule), so the
+ * subgraph is self-contained.
+ */
+function dataSubgraph(pipeline: PipelineV1): PipelineV1 {
+  return {
+    version: pipeline.version,
+    pipeline: pipeline.pipeline,
+    nodes: pipeline.nodes.filter((node) => isDataNode(node)),
+  }
+}
+
+/** One validate node's static contract resolution. */
+interface ResolvedContract {
+  readonly status: PipelineContractStatus
+  /** Localized, sanitized failure lines to disclose ([] when resolved). */
+  readonly errorLines: readonly string[]
+}
+
+interface ContractResolution {
+  readonly bindings: readonly PipelineRunContractBinding[]
+  readonly byNode: ReadonlyMap<string, ResolvedContract>
+  /** Flat, sanitized failure disclosure lines (collect-all, node order). */
+  readonly failures: readonly string[]
+}
+
+/**
+ * C2 contract resolution for `validate` nodes: the authored `contract`
+ * reference resolves relative to the PIPELINE FILE's directory (absolute
+ * paths pass through), is read, and is parsed with the m5-0 total parser.
+ * Every failure — missing/unreadable file, parse errors — is COLLECTED in
+ * node order and disclosed value-free, node-attributed; the caller decides
+ * whether that is a report row (`validate`) or a refuse-before-execution
+ * (`run`). Never guesses.
+ */
+function resolveValidateContracts(pipeline: PipelineV1, pipelinePath: string): ContractResolution {
+  const baseDir = dirname(pipelinePath)
+  const bindings: PipelineRunContractBinding[] = []
+  const byNode = new Map<string, ResolvedContract>()
+  const failures: string[] = []
+  for (const node of pipeline.nodes) {
+    if (node.type !== 'validate') continue
+    const id = sanitizePipelineText(node.id)
+    const authored = node.contract
+    const resolved = isAbsolute(authored) ? authored : join(baseDir, authored)
+    let text: string
+    try {
+      text = readFileSync(resolved, 'utf8')
+    } catch {
+      // Disclose both forms: the report envelope carries the authored
+      // reference (it never carries machine paths, the p-4 discipline), while
+      // the run stderr echoes the resolved path (the p-4 source-resolution
+      // readability precedent).
+      const authoredDetail = `${id}: contract file not found: ${sanitizePipelineText(authored)}`
+      byNode.set(node.id, { status: 'missing', errorLines: [authoredDetail] })
+      failures.push(`${id}: contract file not found: ${sanitizePipelineText(resolved)}`)
+      continue
+    }
+    const parsed = parseContract(text)
+    if (!parsed.ok) {
+      const lines = parsed.errors.map((error) => sanitizePipelineText(describeContractError(error)))
+      const detail = `${id}: contract could not be parsed: ${sanitizePipelineText(authored)}`
+      byNode.set(node.id, { status: 'unparseable', errorLines: [detail, ...lines] })
+      failures.push(detail, ...lines)
+      continue
+    }
+    bindings.push({ nodeId: node.id, contract: parsed.contract })
+    byNode.set(node.id, { status: 'resolved', errorLines: [] })
+  }
+  return { bindings, byNode, failures }
+}
+
+/**
+ * The static gate-visibility rows: every validate/diff/publish node, in node
+ * order, with its binding resolution and the static `bound` verdict. No
+ * execution: a validate node binds when its contract resolves, a diff node
+ * when an explicit key set was supplied, a publish node when its `requires`
+ * edges resolve (the DAG already guarantees reference resolution).
+ */
+function buildGateVisibility(
+  pipeline: PipelineV1,
+  byNode: ReadonlyMap<string, ResolvedContract>,
+  keys: readonly string[],
+): readonly PipelineGateVisibilityRow[] {
+  const rows: PipelineGateVisibilityRow[] = []
+  for (const node of pipeline.nodes) {
+    if (node.type === 'validate') {
+      const resolution = byNode.get(node.id)
+      rows.push({
+        nodeId: node.id,
+        kind: 'validate',
+        input: node.input,
+        against: null,
+        contract: node.contract,
+        contractStatus: resolution?.status ?? null,
+        requires: null,
+        bound: resolution?.status === 'resolved',
+      })
+    } else if (node.type === 'diff') {
+      rows.push({
+        nodeId: node.id,
+        kind: 'diff',
+        input: node.input,
+        against: node.against,
+        contract: null,
+        contractStatus: null,
+        requires: null,
+        bound: keys.length > 0,
+      })
+    } else if (node.type === 'publish') {
+      rows.push({
+        nodeId: node.id,
+        kind: 'publish',
+        input: node.input,
+        against: null,
+        contract: null,
+        contractStatus: null,
+        requires: [...(node.requires ?? [])],
+        bound: true,
+      })
+    }
+  }
+  return rows
+}
+
+/** Render the validate report in the requested format. */
+function renderValidate(
+  report: PipelineValidateReport,
+  options: PipelineOptions,
+  context: CommandContext,
+): void {
+  context.out(
+    options.format === 'json'
+      ? renderJsonPipelineValidateReport(report)
+      : renderHumanPipelineValidateReport(report, context.style),
+  )
 }
 
 /**
@@ -150,30 +309,64 @@ export async function runPipelineCommand(
   }
   const pipeline = parsed.pipeline
 
-  // The shared validation gates: DAG validation, then compilation. A compile
-  // is attempted only when the DAG validates (compilePipeline re-runs DAG
-  // validation, so its errors would only duplicate the DAG's).
-  const { validation, compile } = validateThenCompile(pipeline)
-  if (!validation.ok || compile === null || !compile.ok) {
-    const report = buildPipelineValidateReport({ pipeline, validation, compile })
-    context.out(
-      options.format === 'json'
-        ? renderJsonPipelineValidateReport(report)
-        : renderHumanPipelineValidateReport(report, context.style),
+  // The shared static analysis: DAG validation, the data-subgraph compile,
+  // and C2 gate binding (never executing). A compile is attempted only when
+  // the DAG validates (compilePipeline re-runs DAG validation, so its errors
+  // would only duplicate the DAG's).
+  const validation = validatePipeline(pipeline)
+  const compile = validation.ok ? compilePipeline(dataSubgraph(pipeline)) : null
+  const resolution = resolveValidateContracts(pipeline, options.pipelinePath)
+  const gates = buildGateVisibility(pipeline, resolution.byNode, options.keys)
+  // Gate-binding failures disclosed in the static report: contract resolution
+  // failures (authored references — no machine paths in the envelope) plus a
+  // diff node with no explicit key set (C2: never inferred). The stderr
+  // refusal additionally uses the resolved contract paths (the p-4
+  // source-resolution readability precedent).
+  const missingDiffKeyLines = gates
+    .filter((gate) => gate.kind === 'diff' && !gate.bound)
+    .map(
+      (gate) =>
+        `${sanitizePipelineText(gate.nodeId)}: a diff node requires an explicit key set (--key <column>); keys are never inferred`,
     )
+  const reportGateErrors = [
+    ...pipeline.nodes
+      .filter((node) => node.type === 'validate')
+      .flatMap((node) => resolution.byNode.get(node.id)?.errorLines ?? []),
+    ...missingDiffKeyLines,
+  ]
+  const gateBindingFailures = [...resolution.failures, ...missingDiffKeyLines]
+  const validateReport = buildPipelineValidateReport({
+    pipeline,
+    validation,
+    compile,
+    gates,
+    gateErrors: reportGateErrors,
+  })
+
+  // `validate` ends here: the report is the static, would-this-run view.
+  if (options.subcommand === 'validate') {
+    renderValidate(validateReport, options, context)
+    return validateReport.valid ? 0 : 1
+  }
+
+  // Structural DAG/compile refusals report the validate surface (exit 1,
+  // nothing executed) — the p-4 behavior.
+  if (!validation.ok || compile === null || !compile.ok) {
+    renderValidate(validateReport, options, context)
     return 1
   }
-  const plan = compile.plan
 
-  // `validate` ends here: plan reported, nothing executed.
-  if (options.subcommand === 'validate') {
-    const report = buildPipelineValidateReport({ pipeline, validation, compile })
-    context.out(
-      options.format === 'json'
-        ? renderJsonPipelineValidateReport(report)
-        : renderHumanPipelineValidateReport(report, context.style),
+  // C2: every gate binding must resolve before any engine call. A missing or
+  // unparseable contract, or a diff node without an explicit `--key` set, is
+  // an input-resolution failure (exit 2) — collected, disclosed, refused.
+  if (!gates.every((gate) => gate.bound)) {
+    throw new CliError(
+      2,
+      [
+        'pipeline gates could not be resolved (nothing was executed):',
+        ...gateBindingFailures.map((failure) => `  ${failure}`),
+      ].join('\n'),
     )
-    return 0
   }
 
   // p2-1 (c): the native engine seam loads lazily on the EXECUTE path only —
@@ -181,26 +374,43 @@ export async function runPipelineCommand(
   // `@duckdb/node-api` (standalone and transitively via the CLI's node seam).
   const engine = await import('@assay/engine-duckdb/node')
   const { openConnection } = await import('./connection.js')
-  const { createPipelineRunOps } = await import('./node-executor.js')
+  const { createPipelineRunOps, createPipelineRunCompilers } = await import('./node-executor.js')
 
   // C2: resolve EVERY source node's dataset before any execution — collect
   // all failures, disclose them, refuse (exit 2). Never guess.
   const sources = resolveSources(pipeline, options.pipelinePath, engine.detectFileFormat)
 
+  // The explicit diff key set (C2): one explicit set, applied to every diff
+  // node (the IR carries no keys). Absent when the pipeline has no diff node.
+  const diffKeys =
+    options.keys.length === 0
+      ? []
+      : pipeline.nodes
+          .filter((node) => node.type === 'diff')
+          .map((node) => ({ nodeId: node.id, keys: [...options.keys] }))
+
   context.progress.step('running pipeline on the local engine')
   const conn = await openConnection()
   try {
     const result = await engine.executePipeline(
-      plan,
+      pipeline,
       {
         sources,
+        contracts: resolution.bindings,
+        diffKeys,
+        compilers: createPipelineRunCompilers(),
         onNode: (nodeId) => {
           context.progress.step(`node ${sanitizePipelineText(nodeId)}`)
         },
       },
       createPipelineRunOps(conn),
     )
-    const report = buildPipelineRunReport({ pipeline, order: plan.order, result, error: null })
+    const report = buildPipelineRunReport({
+      pipeline,
+      order: validation.order,
+      result,
+      error: null,
+    })
     context.progress.done()
     context.out(
       options.format === 'json'
@@ -208,13 +418,19 @@ export async function runPipelineCommand(
         : renderHumanPipelineRunReport(report, context.style),
     )
     // `canceled` is unreachable from the one-shot CLI (no guard is ever
-    // invalidated on this surface); it still counts as not-completed.
+    // invalidated on this surface); it still counts as not-completed. A
+    // `gated` run is a first-class result (exit 1, the report on stdout).
     return report.status === 'completed' ? 0 : 1
   } catch (error) {
     if (error instanceof engine.PipelineRunError) {
       // Typed, value-free, node-attributed: the report (stdout) IS the
       // result — the partial state and the failing node — and the exit is 1.
-      const report = buildPipelineRunReport({ pipeline, order: plan.order, result: null, error })
+      const report = buildPipelineRunReport({
+        pipeline,
+        order: validation.order,
+        result: null,
+        error,
+      })
       context.out(
         options.format === 'json'
           ? renderJsonPipelineRunReport(report)
@@ -223,14 +439,32 @@ export async function runPipelineCommand(
       return 1
     }
     if (error instanceof engine.PipelineRunRefusalError) {
-      // Reachable since p2-4: an export/publish-mode plan passes the CLI's
-      // gates above but is refused here by the runner's materialization gate.
-      // Reported as the fixed internal class, like the m5-4 wire-gate
-      // posture — never with raw error text.
-      // p2-5: reframe this as a typed mode refusal, not an internal error.
-      throw usageError(
-        `internal error: the compiled plan was refused by the runner (${error.reason})`,
+      // p2-5: a user-authored materialization-mode plan the local surface
+      // cannot execute (the p2-4 runner refuses `export` when no export op is
+      // bound, and `export-with-consumers` before any engine call). This is a
+      // typed, value-free mode refusal — a RESULT on stdout with exit 1, never
+      // an "internal error". Genuinely internal preconditions (the CLI
+      // pre-checks them) keep the fixed internal-error posture.
+      const modeRefusal =
+        error.reason === 'unsupported-materialization' || error.reason === 'export-with-consumers'
+      if (!modeRefusal) {
+        throw usageError(
+          `internal error: the compiled plan was refused by the runner (${error.reason})`,
+        )
+      }
+      const report = buildPipelineRunReport({
+        pipeline,
+        order: validation.order,
+        result: null,
+        error: null,
+        refusal: { reason: error.reason, nodeId: error.nodeId },
+      })
+      context.out(
+        options.format === 'json'
+          ? renderJsonPipelineRunReport(report)
+          : renderHumanPipelineRunReport(report, context.style),
       )
+      return 1
     }
     throw error
   } finally {
@@ -242,16 +476,6 @@ export async function runPipelineCommand(
       // best-effort
     }
   }
-}
-
-/** DAG-validate, then compile (or `null` when the DAG failed). */
-function validateThenCompile(pipeline: PipelineV1): {
-  readonly validation: PipelineValidationResult
-  readonly compile: PipelineCompileResult | null
-} {
-  const validation = validatePipeline(pipeline)
-  if (!validation.ok) return { validation, compile: null }
-  return { validation, compile: compilePipeline(pipeline) }
 }
 
 /**

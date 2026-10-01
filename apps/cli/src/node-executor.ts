@@ -133,13 +133,19 @@ import type {
   EngineValidationPlan,
   EngineValidationResult,
   EngineValidationRuleResult,
+  PipelineRunCompilers,
+  PipelineRunDiffCompilerInput,
   PipelineRunEngineOps,
+  PipelineRunValidationCompilerInput,
   RowDiffSampleRow,
 } from '@assay/engine-duckdb/node'
 import { initialState } from '@assay/domain'
 import type { OverlayBase } from '@assay/domain'
+import type { ContractV1 } from '@assay/contracts'
+import { compileRowDiffPlan } from '@assay/diff'
 import type { CategoricalTopKEntry, DatasetProfile, NumericQuantiles } from '@assay/diff'
 import { classifyVerbatimSql } from '@assay/pipeline'
+import { compileContract } from '@assay/validation'
 import type { EngineSchema } from '@assay/validation'
 import { DATASET_VIEW, PLAN_RELATION, countViewRows } from './connection.js'
 import { usageError } from './errors.js'
@@ -178,6 +184,10 @@ export async function runValidationPlan(
   conn: DuckDBConnection,
   plan: EngineValidationPlan,
   schema: EngineSchema,
+  // p2-5: the pipeline runner executes a gate against a node relation (an
+  // existing session view), not the CLI validate command's `assay_t1`; the
+  // caller passes the base view name so the binding view composes over it.
+  baseViewName: string = DATASET_VIEW,
 ): Promise<EngineValidationResult> {
   const effectiveLimit = validationEffectiveSampleLimit(plan.sampleLimit)
 
@@ -189,11 +199,11 @@ export async function runValidationPlan(
     columns: schema.map((column) => ({ name: column.name, type: column.type })),
     baseRowCount: 0,
   }
-  const composition = { viewName: DATASET_VIEW, base, state: initialState(base) }
+  const composition = { viewName: baseViewName, base, state: initialState(base) }
 
   // Defense-in-depth re-check of the static gate (the caller already ran it
   // via preparePlan; the containment posture wants it adjacent to execution).
-  assertValidationPlanRelationBinding(plan, [DATASET_VIEW])
+  assertValidationPlanRelationBinding(plan, [baseViewName])
 
   await step('the validation containment transaction could not be started', () =>
     conn.run(VALIDATION_BEGIN_SQL),
@@ -504,6 +514,10 @@ export async function runDiffPlan(
   plan: EngineRowDiffPlan,
   schemaA: EngineSchema,
   stagedViewB: string,
+  // p2-5: the pipeline runner diffs two node relations (session views); the
+  // caller passes side A's base view name instead of the CLI diff command's
+  // `assay_t1`.
+  baseViewName: string = DATASET_VIEW,
 ): Promise<EngineRowDiffResult> {
   const effectiveLimit = diffEffectiveSampleLimit(plan.sampleLimit)
   // The base-view composition (the engine's base path): DESCRIBE supplies the
@@ -514,10 +528,10 @@ export async function runDiffPlan(
     columns: schemaA.map((column) => ({ name: column.name, type: column.type })),
     baseRowCount: 0,
   }
-  const composition = { viewName: DATASET_VIEW, base, state: initialState(base) }
+  const composition = { viewName: baseViewName, base, state: initialState(base) }
 
   // Defense-in-depth re-check of the static gate adjacent to execution.
-  assertRowDiffPlanBinding(plan, [DATASET_VIEW, stagedViewB])
+  assertRowDiffPlanBinding(plan, [baseViewName, stagedViewB])
 
   await step('the row-diff containment transaction could not be started', () =>
     conn.run(ROW_DIFF_BEGIN_SQL),
@@ -816,6 +830,16 @@ export { PLAN_RELATION }
  * AS <sql>` statement the worker issues. Both resolve the relation's row
  * count — the runner's cheap addressability number.
  *
+ * p2-5 adds the gate ops the p2-4 runner needs: `schemaOf` DESCRIBEs a
+ * materialized node relation; `validate` executes a host-compiled M5 plan
+ * over that relation; `diff` executes a host-compiled M6 plan over two node
+ * relations. Both reuse the m5-4/m6-3 executors (`runValidationPlan` /
+ * `runDiffPlan`) with the pipeline's own base view name, so the CLI cannot
+ * fork the engine's result contract. There is deliberately NO `exportRelation`
+ * op: the local Node surface has no OPFS artifact path, so an `export`-mode
+ * node is a typed mode refusal the CLI reports (`refused`), never a silent
+ * skip.
+ *
  * Every engine-touching failure is a fixed, value-free class: the raw engine
  * text is dropped HERE and the runner attributes the failure to the node
  * (`PipelineRunError`) — DuckDB messages can embed composed SQL or cell
@@ -872,6 +896,85 @@ export function createPipelineRunOps(
         throw new Error('the pipeline node relation could not be materialized')
       }
       return countRows(relation)
+    },
+    schemaOf: async (relation) => describeRelation(conn, relation),
+    validate: async (relation, plan) => {
+      // The runner compiles the plan against `PIPELINE_VALIDATION_RELATION`;
+      // this op binds that view over the node relation and executes the M5
+      // machinery exactly as the CLI `validate` command does (`runValidationPlan`).
+      const schema = await describeRelation(conn, relation)
+      return runValidationPlan(conn, plan, schema, relation)
+    },
+    diff: async (inputRelation, againstRelation, plan) => {
+      // Side A is the input node relation, side B the `against` relation; the
+      // M6 executor binds both plan relations (`runDiffPlan`).
+      const schemaA = await describeRelation(conn, inputRelation)
+      return runDiffPlan(conn, plan, schemaA, againstRelation, inputRelation)
+    },
+  }
+}
+
+/**
+ * DESCRIBE an existing session relation into the compiler's `{name, type}[]`
+ * schema shape. Used by the pipeline gate ops (p2-5): the runner resolves a
+ * gate's input relation schema before compiling its plan. A missing relation
+ * throws a fixed, value-free class; the runner attributes it to the node.
+ */
+async function describeRelation(conn: DuckDBConnection, relation: string): Promise<EngineSchema> {
+  let rows: ReturnType<DuckDBResultReader['getRowObjects']>
+  try {
+    const reader = await conn.runAndReadAll(`DESCRIBE ${quotedIdentifier(relation)}`)
+    rows = reader.getRowObjects()
+  } catch {
+    throw new Error('the pipeline gate relation could not be described')
+  }
+  const schema: { name: string; type: string }[] = []
+  for (const row of rows) {
+    const name = row['column_name']
+    const type = row['column_type']
+    if (typeof name !== 'string' || typeof type !== 'string') {
+      throw new Error('the pipeline gate relation could not be described')
+    }
+    schema.push({ name, type })
+  }
+  return schema
+}
+
+/**
+ * The host-supplied pure plan compilers the p2-4 runner needs for gate nodes
+ * (p2-5): a validate node compiles the C2-supplied parsed contract against the
+ * input relation schema through the m5-1 compiler (then wire-hardens the plan
+ * through the engine's own m5-2 gate); a diff node compiles the M6 row-diff
+ * plan through the m6-1 compiler (then the m6-2 wire gate). Both are total
+ * (`{ok:false}` on a binding failure, never a throw); the runner maps a
+ * `{ok:false}` compile to a typed node failure. This keeps engine-duckdb
+ * dependency-free of `@assay/validation`/`@assay/diff` — the CLI owns the
+ * pure compilers, exactly as the web client does.
+ */
+export function createPipelineRunCompilers(): PipelineRunCompilers {
+  return {
+    validate: (input: PipelineRunValidationCompilerInput) => {
+      // The runner carries the C2-supplied contract as `unknown` (it is
+      // dependency-free of `@assay/contracts`); the CLI bound a parsed
+      // `ContractV1` here, and `compileContract` is total over its input, so
+      // the cast only recovers the narrowed type (a bad shape is `{ok:false}`).
+      const compiled = compileContract(input.contract as ContractV1, [...input.columns], {
+        relation: input.relation,
+      })
+      if (!compiled.ok) return { ok: false }
+      const plan = parseValidationPlan(compiled.plan)
+      if (plan === null) return { ok: false }
+      return { ok: true, plan }
+    },
+    diff: (input: PipelineRunDiffCompilerInput) => {
+      const compiled = compileRowDiffPlan([...input.schemaA], [...input.schemaB], [...input.keys], {
+        relationA: input.relationA,
+        relationB: input.relationB,
+      })
+      if (!compiled.ok) return { ok: false }
+      const plan = parseRowDiffPlan(compiled.plan)
+      if (plan === null) return { ok: false }
+      return { ok: true, plan }
     },
   }
 }

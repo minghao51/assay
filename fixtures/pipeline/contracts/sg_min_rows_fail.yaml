@@ -1,0 +1,5 @@
+format: v1
+name: sg-min-rows
+version: 1
+dataset:
+  min-rows: 3
