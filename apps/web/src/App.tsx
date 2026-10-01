@@ -598,17 +598,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   // `query_run` are emitted from the SQL pane where the run actually settles.
 
   /**
-   * p-5: pipeline output → existing result surface. The panel composes the
-   * exact `SELECT * FROM "relation"` statement (through the shared quoting
-   * helper); this seam is the SAME `sqlRequest` path the m3-5 nested actions
-   * use, so the SQL pane shows what ran and pages the result — no new grid
-   * pathway is invented (documented in the panel).
+   * p2-6: the pipeline panel owns its grid-native preview through the p2-1
+   * `registerPipelineRelation` handle op (see `usePipelineSession`). The
+   * former SQL-result detour is retired: a materialized relation now opens
+   * through the SAME handle-based grid model a dataset open uses, never
+   * through a composed `SELECT *` on the SQL pane.
    */
-  const inspectPipelineOutput = useCallback((sql: string): void => {
-    requestSeq.current += 1
-    setSqlRequest({ sql, seq: requestSeq.current })
-  }, [])
-
   const handleRecordClosed = useCallback(() => {
     setRecordRequest(null)
   }, [])
@@ -1024,12 +1019,16 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                 <panelModules.PipelinePanel
                   fileState={pipeline.fileState}
                   bindings={pipeline.bindings}
+                  contractBindings={pipeline.contractBindings}
                   runState={pipeline.runState}
+                  preview={pipeline.preview}
                   onOpenPipelineFile={pipeline.openPipelineFile}
                   onBindSource={pipeline.bindSourceDataset}
+                  onBindContract={pipeline.bindContract}
                   onRun={pipeline.run}
                   onCancel={pipeline.cancelRun}
-                  onInspectOutput={inspectPipelineOutput}
+                  onOpenPreview={pipeline.openPreview}
+                  onClosePreview={pipeline.closePreview}
                 />
               )}
             </WorkbenchSection>

@@ -2,25 +2,24 @@ import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import {
   bindSourceDataset,
+  openNodePreview,
   openPipelineDocument,
+  pipelineNode,
   runPipelineToCompletion,
 } from './support/pipeline-panel'
 
-// p-5 journey: open a pipeline file → inspect the DAG → run it on the real
-// engine → the output is visible in the SQL pane's result surface. Every
-// in-app activation is KEYBOARD-OPERABLE (focus + Enter on the same controls
-// a mouse user clicks — the a11y-keyboard.spec discipline); the picker path
-// is the hidden-`<input type="file">` fallback, so each pick arrives as a
-// filechooser event. The engine is the real DuckDB-WASM client; the runner
-// is the real p-3 executePipeline bound to its postMessage ops.
+// p-5/p2-6 journey: open a pipeline file → inspect the DAG → run it on the
+// real engine → a node's output opens GRID-NATIVE (the p2-1 view-as-handle
+// op; the same handle-based grid model a dataset open uses — no SQL-result
+// detour). Every in-app activation is KEYBOARD-OPERABLE (focus + Enter on the
+// same controls a mouse user clicks — the a11y-keyboard.spec discipline); the
+// picker path is the hidden-`<input type="file">` fallback, so each pick
+// arrives as a filechooser event. The engine is the real DuckDB-WASM client;
+// the runner is the real p2-4 executePipeline bound to its postMessage ops.
 //
 // Pinned counts are the golden pipeline's (fixtures/pipeline/cli_run.yaml
-// over the customers fixture, the same data `pipeline-runner-journey.spec`
-// pins through the harness): 5 source rows → 5 after the rename → 2 after
-// the SG filter → 1 aggregate row. Output = the terminal relation
-// `by_country`, viewed through the EXISTING SQL result surface (the
-// `runRequest` seam the nested actions use — no new grid pathway; p-5
-// ruling 5's smallest-honest-reuse).
+// over the customers fixture): 5 source rows → 5 after the rename → 2 after
+// the SG filter → 1 aggregate row.
 //
 // The Pipeline section's placement is PROVISIONAL (last, pending slice-2
 // tool-pane membership); the 900px test pins the ux-1 scroll-never-clip
@@ -47,12 +46,10 @@ function nodeRows(page: Page): Locator {
 
 /** Status text of one node row (resolved fresh). */
 function statusText(page: Page, nodeId: string): Locator {
-  return page
-    .locator(`[data-testid="pipeline-node"][data-node-id="${nodeId}"]`)
-    .getByTestId('pipeline-node-status')
+  return pipelineNode(page, nodeId).getByTestId('pipeline-node-status')
 }
 
-test('pipeline journey: open → inspect → run → output visible (keyboard-operable)', async ({
+test('pipeline journey: open → inspect → run → preview output (keyboard-operable)', async ({
   page,
 }) => {
   test.setTimeout(120_000)
@@ -60,18 +57,27 @@ test('pipeline journey: open → inspect → run → output visible (keyboard-op
 
   // Inspect: the DAG renders as an ordered list in topological (execution)
   // order, every node pending, the source honestly unbound, the terminal
-  // relation flagged as the output.
+  // relation flagged as the output, and each node carries a materialization
+  // badge.
   await expect(nodeRows(page)).toHaveCount(4)
   for (const [index, nodeId] of NODE_IDS.entries()) {
     await expect(nodeRows(page).nth(index)).toHaveAttribute('data-node-id', nodeId)
   }
   await expect(nodeRows(page).nth(0)).toHaveAttribute('data-node-kind', 'source')
   await expect(nodeRows(page).nth(3)).toHaveAttribute('data-node-kind', 'sql')
+  await expect(nodeRows(page).nth(0).getByTestId('pipeline-node-materialization')).toHaveText(
+    'source',
+  )
+  await expect(nodeRows(page).nth(3).getByTestId('pipeline-node-materialization')).toHaveText(
+    'view',
+  )
   for (const nodeId of NODE_IDS) {
     await expect(statusText(page, nodeId)).toHaveText('Pending')
   }
   await expect(page.getByTestId('pipeline-source-pending')).toBeVisible()
   await expect(page.getByTestId('pipeline-summary')).toContainText('1 output')
+  // Lineage (arch §16) is an ordered list, not a graph.
+  await expect(page.getByTestId('pipeline-lineage-datasets')).toContainText('customers')
   // Privacy (ADR 0025): the picked pipeline file's name never renders.
   await expect(page.getByTestId('pipeline-panel')).not.toContainText('cli_run.yaml')
 
@@ -89,19 +95,23 @@ test('pipeline journey: open → inspect → run → output visible (keyboard-op
     await expect(statusText(page, NODE_IDS[index])).toHaveText(expected)
   }
   await expect(page.getByTestId('pipeline-cancel')).toBeDisabled()
-  // The output jump is reachable by keyboard on the terminal node.
-  await expect(page.getByTestId('pipeline-view')).toBeVisible()
 
-  await page.getByTestId('pipeline-view').focus()
+  // Preview: the terminal relation opens grid-native through the p2-1
+  // handle op — the EXISTING grid model/schema surfaces render it (no SQL
+  // detour). The preview shows the sample rows, schema, and generated SQL.
+  await openNodePreview(page, 'by_country')
+  const preview = page.getByTestId('pipeline-preview')
+  await expect(preview.getByTestId('pipeline-preview-meta')).toContainText('by_country')
+  await expect(preview.getByTestId('pipeline-preview-columns')).toContainText('country')
+  await expect(preview.getByTestId('pipeline-preview-sql')).toContainText('GROUP BY')
+  const grid = preview.getByTestId('pipeline-preview-grid')
+  await expect(grid.getByTestId('grid-header-name')).toHaveText(['country', 'customers'])
+  await expect(grid.getByTestId('grid-cell')).toHaveText(['SG', '2'])
+
+  // Close returns to the ordered list.
+  await page.getByTestId('pipeline-preview-close').focus()
   await page.keyboard.press('Enter')
-
-  // Output visible: the EXISTING SQL result surface received the exact
-  // quoted statement and renders the relation's rows (bounded page).
-  await expect(page.getByTestId('sql-result')).toBeVisible()
-  await expect(page.getByTestId('sql-result-header')).toHaveText(['country', 'customers'])
-  await expect(page.getByTestId('sql-result-cell')).toHaveText(['SG', '2'])
-  // The pane shows exactly what ran (the m3-5 honesty contract).
-  await expect(page.getByTestId('sql-input')).toHaveValue('SELECT * FROM "by_country"')
+  await expect(page.getByTestId('pipeline-preview')).toHaveCount(0)
 })
 
 test('pipeline section at 900px: reachable by nav, controls never clipped', async ({ page }) => {
@@ -111,12 +121,18 @@ test('pipeline section at 900px: reachable by nav, controls never clipped', asyn
 
   // The keyboard journey completes at 900px (ux-1: scroll, never clip).
   await runPipelineToCompletion(page)
-  await expect(page.getByTestId('pipeline-view')).toBeVisible()
+  await openNodePreview(page, 'by_country')
 
-  // The run controls and the node list sit fully inside the viewport box
-  // after the anchor navigation (no clipping at the minimum width).
+  // The run controls, the node list, the preview button, and the preview grid
+  // sit fully inside the viewport box after the anchor navigation (no
+  // clipping at the minimum width).
   const viewportBox = { width: 900, height: 900 }
-  for (const testId of ['pipeline-run', 'pipeline-cancel', 'pipeline-nodes', 'pipeline-view']) {
+  for (const testId of [
+    'pipeline-run',
+    'pipeline-cancel',
+    'pipeline-nodes',
+    'pipeline-preview-grid',
+  ]) {
     const box = await page.getByTestId(testId).boundingBox()
     if (box === null) throw new Error(`missing bounding box for ${testId}`)
     expect(box.x, testId).toBeGreaterThanOrEqual(0)

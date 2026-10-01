@@ -112,6 +112,74 @@ nodes:
             value: SG
 `
 
+/** The gate pipeline (source → filter → validate → publish) for p2-6. */
+const GATED_PIPELINE_YAML = `version: 1
+pipeline: gate_pin
+nodes:
+  customers:
+    type: source
+    source:
+      kind: file
+      path: ../csv/customers.csv
+  gate:
+    type: validate
+    input: sg
+    contract: contracts/strict.yaml
+  out:
+    type: publish
+    input: sg
+    requires: [ gate ]
+  sg:
+    type: transform
+    inputs: [ customers ]
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG
+`
+
+/** A minimal parseable contract for the validate-node binding pins. */
+const CONTRACT_YAML = `format: v1
+name: gate-contract
+version: 1
+columns:
+  - name: customer_id
+    type: BIGINT
+    required: true
+dataset:
+  min-rows: 1
+`
+
+/** A malformed contract (columns is not a list) for the parse-error pin. */
+const BAD_CONTRACT_YAML = `format: v1
+name: broken
+version: 1
+columns: not-a-list
+`
+
+/** An export-mode terminal pipeline for the materialization-badge pins. */
+const EXPORT_PIPELINE_YAML = `version: 1
+pipeline: export_pin
+nodes:
+  customers:
+    type: source
+    source:
+      kind: file
+      path: ../csv/customers.csv
+  dump:
+    type: transform
+    inputs: [ customers ]
+    materialization: export
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG
+`
+
 /** Malformed: an unsupported version — the total parser's located error. */
 const BAD_YAML = `version: 2
 pipeline: future
@@ -123,18 +191,21 @@ nodes:
       path: a.parquet
 `
 
-/** The reserved-class shape (fixtures/pipeline/hostile-names.yaml's gist). */
-const RESERVED_YAML = `version: 1
-pipeline: reserved_pin
+/**
+ * A genuinely unrunnable DAG: `renamed` consumes a node that does not exist,
+ * so DAG validation refuses it before compilation (the p2-6 panel now LOADS
+ * gate pipelines, so a reserved-class document is no longer an invalid one).
+ */
+const INVALID_YAML = `version: 1
+pipeline: broken_pin
 nodes:
-  a:
-    type: source
-    source:
-      kind: file
-      path: a.parquet
-  gate:
-    type: publish
-    input: a
+  renamed:
+    type: transform
+    inputs: [ missing ]
+    operation:
+      rename:
+        columns:
+          customer_id: customer_ref
 `
 
 const h = vi.hoisted(() => ({
@@ -149,6 +220,10 @@ const h = vi.hoisted(() => ({
   runCalls: 0,
   /** When set, the mocked source handle rejects `getFile` (revoked/unreadable). */
   failGetFile: false,
+  /** When set, the p2-1 handle op rejects (an unaddressable relation). */
+  failPreview: false,
+  /** When set, only the preview's INPUT relation rejects (no schema delta). */
+  failPreviewInput: false,
 }))
 
 vi.mock('@assay/data-sources/browser', () => ({
@@ -174,13 +249,36 @@ vi.mock('@assay/data-sources/browser', () => ({
 vi.mock('./lib/engine', () => ({
   engineClient: {
     open: async () => FAKE_HANDLE,
-    schema: async () => FAKE_SCHEMA,
+    schema: async (handle: { readonly id: string }) =>
+      handle.id.includes(':renamed')
+        ? [
+            { name: 'customer_ref', type: 'BIGINT' },
+            { name: 'country', type: 'VARCHAR' },
+            { name: 'income', type: 'BIGINT' },
+          ]
+        : FAKE_SCHEMA,
     rowCount: async () => 5,
     fetchRange: async () => ({ batch: fakeBatch(), hasMore: false }),
+    overlaySchema: async () => FAKE_SCHEMA,
+    overlayRowCount: async () => 5,
+    fetchOverlayRange: async () => ({ batch: fakeBatch(), hasMore: false }),
+    // p2-6: the p2-1 view-as-handle op the grid-native preview opens through.
+    registerPipelineRelation: async (relation: string) => {
+      if (h.failPreview || (h.failPreviewInput && relation !== 'by_country')) {
+        throw new Error('relation not addressable')
+      }
+      return {
+        kind: 'table' as const,
+        id: `handle:${relation}`,
+      }
+    },
+    dispose: async () => {},
     /**
      * The deferred runner stand-in: begins the real guard, fires `onNode`
      * for the first node (live-status boundary semantics), then parks the
-     * outcome until the test resolves/rejects it.
+     * outcome until the test resolves/rejects it. The runner now receives the
+     * full IR (so p2-4 gates can execute), whose nodes carry `id`; a compiled
+     * plan's nodes carry `nodeId` — accept both.
      */
     runPipeline: (
       input: PipelineRunInput,
@@ -188,9 +286,18 @@ vi.mock('./lib/engine', () => ({
     ): Promise<PipelineRunResult> => {
       h.runCalls += 1
       options.guard?.begin()
-      const first = 'order' in input ? input.nodes[0] : null
-      if (first === null) throw new Error('test expects a compiled plan')
-      options.onNode?.(first.nodeId)
+      const nodes = input.nodes as readonly {
+        readonly id?: string
+        readonly nodeId?: string
+        readonly type?: string
+        readonly kind?: string
+      }[]
+      // The IR is canonical (ascending by id), so pick the first SOURCE for
+      // the boundary (topological first in these fixtures).
+      const first =
+        nodes.find((node) => node.type === 'source' || node.kind === 'source') ?? nodes[0]
+      if (first === undefined) throw new Error('test expects a pipeline with nodes')
+      options.onNode?.(first.nodeId ?? first.id ?? '')
       return new Promise<PipelineRunResult>((resolve, reject) => {
         h.resolveRun = resolve
         h.rejectRun = reject
@@ -253,6 +360,8 @@ afterEach(() => {
   h.rejectRun = null
   h.runCalls = 0
   h.failGetFile = false
+  h.failPreview = false
+  h.failPreviewInput = false
 })
 
 describe('pipeline panel — placement and empty states (p-5)', () => {
@@ -343,15 +452,16 @@ describe('pipeline panel — honest empty/error states (p-5)', () => {
   it('renders DAG/compile refusals as an alert and executes nothing', async () => {
     render(<App />)
     await openDataset('primary.jsonl')
-    h.queue.push(yamlFile('pipeline-pin.yaml', RESERVED_YAML))
+    h.queue.push(yamlFile('pipeline-pin.yaml', INVALID_YAML))
     await act(async () => {
       fireEvent.click(screen.getByTestId('pipeline-open'))
     })
 
     const alert = await screen.findByTestId('pipeline-invalid')
     expect(alert.getAttribute('role')).toBe('alert')
-    // The reserved-class refusal names the class, value-free.
-    expect(alert.textContent).toContain('reserved')
+    // A located, value-free refusal: the missing reference is named.
+    expect(screen.getAllByTestId('pipeline-invalid-error').length).toBeGreaterThan(0)
+    expect(alert.textContent).toContain('missing')
     expect(screen.queryByTestId('pipeline-summary')).toBeNull()
     expect(h.runCalls).toBe(0)
   })
@@ -511,12 +621,31 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     // The Run control re-enables for an idempotent re-run.
     expect((screen.getByTestId('pipeline-run') as HTMLButtonElement).disabled).toBe(false)
 
-    // Output → the EXISTING result surface: the exact quoted statement
-    // rides the SQL pane's runRequest seam (no new grid pathway).
+    // Output → the grid-native preview (p2-6): the p2-1 handle op registers
+    // the relation and the EXISTING grid model/schema surfaces render it —
+    // no SQL-result detour.
     await act(async () => {
-      fireEvent.click(screen.getByTestId('pipeline-view'))
+      const byCountry = document.querySelector(
+        '[data-testid="pipeline-node"][data-node-id="by_country"]',
+      ) as HTMLElement
+      fireEvent.click(within(byCountry).getByTestId('pipeline-preview-open'))
     })
-    expect(screen.getByTestId('sql-request-record').textContent).toBe('SELECT * FROM "by_country"')
+    const meta = await screen.findByTestId('pipeline-preview-meta')
+    expect(meta.textContent).toContain('by_country')
+    expect(screen.getByTestId('pipeline-preview-columns').textContent).toContain('customer_id')
+    // The generated SQL for the terminal sql node is rendered (sanitized).
+    expect(screen.getByTestId('pipeline-preview-sql').textContent).toContain('GROUP BY')
+    // The schema delta against the single input (sg_only) is empty here.
+    expect(screen.getByTestId('pipeline-preview-delta-empty')).toBeTruthy()
+    // The preview grid renders through the real DataGrid renderer.
+    expect(
+      screen.getByTestId('pipeline-preview-grid').querySelector('[data-testid="grid"]'),
+    ).not.toBeNull()
+    // Close returns to the list without changing anything.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-preview-close'))
+    })
+    expect(screen.queryByTestId('pipeline-preview')).toBeNull()
   })
 
   it('surfaces the typed canceled outcome with the named partial and next node', async () => {
@@ -597,10 +726,11 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     expect(failed.textContent).not.toContain(DATASET_SENTINEL)
     expect(document.body.textContent).not.toContain('source-dataset.parquet')
     expect(document.body.textContent).not.toContain(DATASET_SENTINEL)
-    // Only TERMINAL relations are viewable (outputs jump; intermediate
-    // partial relations do not) — and the only output here never
-    // materialized, so nothing is viewable after this failure.
-    expect(screen.queryByTestId('pipeline-view')).toBeNull()
+    // No terminal relation materialized, so the terminal node has no
+    // preview; the two partial relations DO (they materialized).
+    expect(
+      document.querySelector('[data-testid="pipeline-preview-open"][data-node-id="by_country"]'),
+    ).toBeNull()
   })
 
   it('drops a late run outcome when a new dataset session supersedes it', async () => {
@@ -639,13 +769,12 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
       fireEvent.click(screen.getByTestId('pipeline-run'))
     })
 
-    // The refusal class (unreachable for a compiler-produced plan with
-    // pre-bound sources) still renders honestly: fixed class text, named
-    // node, nothing fabricated.
+    // The refusal class renders honestly as a refused state: fixed class
+    // text, named node, nothing fabricated.
     await act(async () => {
       h.rejectRun?.(new PipelineRunRefusalError('missing-source', 'customers'))
     })
-    const refused = screen.getByTestId('pipeline-run-failed')
+    const refused = screen.getByTestId('pipeline-run-refused')
     expect(refused.getAttribute('role')).toBe('alert')
     expect(refused.textContent).toContain('customers')
     expect(refused.textContent).toContain('no dataset binding')
@@ -701,6 +830,347 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     expect(document.body.textContent).not.toContain('primary.jsonl')
     expect(document.body.textContent).not.toContain('pipeline-pin.yaml')
     expect(document.body.textContent).not.toContain('source-dataset.parquet')
+  })
+})
+
+describe('pipeline panel — gates, contracts, lineage, badges, preview (p2-6)', () => {
+  it('loads a gated pipeline, renders badges and lineage, and refuses an unbound-contract run', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(GATED_PIPELINE_YAML)
+
+    // Gate nodes load (the data subgraph compiles; the runner binds gates).
+    expect(screen.getByTestId('pipeline-summary').textContent).toContain(
+      '1 validate node awaiting a contract',
+    )
+    const kinds = screen
+      .getAllByTestId('pipeline-node')
+      .map((node) => node.getAttribute('data-node-kind'))
+    expect(kinds).toEqual(['source', 'transform', 'validate', 'publish'])
+    // Materialization badges: source / view / gate / gate.
+    expect(
+      screen
+        .getAllByTestId('pipeline-node-materialization')
+        .map((badge) => badge.getAttribute('data-materialization')),
+    ).toEqual(['source', 'view', 'gate', 'gate'])
+
+    // Lineage (arch §16): dataset consumers are transitive; publish requires.
+    const datasetLineage = screen.getByTestId('pipeline-lineage-datasets').textContent ?? ''
+    expect(datasetLineage).toContain('customers')
+    expect(datasetLineage).toContain('sg')
+    expect(datasetLineage).toContain('gate')
+    expect(datasetLineage).toContain('out')
+    const nodeLineage = screen.getByTestId('pipeline-lineage-nodes').textContent ?? ''
+    expect(nodeLineage).toContain('requires')
+
+    // Bind the source, then run: the missing contract is collected, disclosed,
+    // and the engine is never called.
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    const refused = screen.getByTestId('pipeline-run-refused')
+    expect(refused.getAttribute('role')).toBe('alert')
+    expect(refused.textContent).toContain('Missing contracts')
+    expect(refused.textContent).toContain('gate')
+    expect(h.runCalls).toBe(0)
+  })
+
+  it('binds a contract, surfaces the gated outcome, and unblocks after re-binding a passing contract', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(GATED_PIPELINE_YAML)
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+
+    // C2: the contract comes from an explicit pick, parsed for real.
+    h.queue.push(yamlFile('gate-contract.yaml', CONTRACT_YAML))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-contract'))
+    })
+    expect(screen.getByTestId('pipeline-contract-bound')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('gate-contract.yaml')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    expect(h.runCalls).toBe(1)
+
+    // The p2-4 gated outcome: the run stopped at the blocked publish, the
+    // failed validate verdict is named value-free, and the run state is NOT
+    // mistaken for a cancellation.
+    await act(async () => {
+      h.resolveRun?.({
+        status: 'gated',
+        gatedAt: 'out',
+        gate: 'publish-blocked',
+        nextNodeId: null,
+        nodes: [
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+          { nodeId: 'sg', relation: 'sg', rowCount: 2, materialization: 'view' },
+          {
+            nodeId: 'gate',
+            relation: 'sg',
+            rowCount: 2,
+            materialization: 'gate',
+            gate: { class: 'validate', input: 'sg', valid: false, violatedRules: 1 },
+          },
+          {
+            nodeId: 'out',
+            relation: 'sg',
+            rowCount: 2,
+            materialization: 'gate',
+            gate: { class: 'publish', input: 'sg', blockedGates: ['gate'] },
+          },
+        ],
+      })
+    })
+    expect(screen.getByTestId('pipeline-run-status').getAttribute('data-state')).toBe('gated')
+    const gated = screen.getByTestId('pipeline-run-gated')
+    expect(gated.getAttribute('role')).toBe('alert')
+    expect(gated.textContent).toContain('out')
+    expect(gated.textContent).toContain('publish gate is blocked')
+    expect(screen.getByTestId('pipeline-run-gated-detail').textContent).toContain('gate')
+    const gateRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="gate"]',
+    ) as HTMLElement
+    expect(within(gateRow).getByTestId('pipeline-node-gate').textContent).toContain(
+      'Validate: failed — 1 rule violated',
+    )
+    const outRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="out"]',
+    ) as HTMLElement
+    expect(within(outRow).getByTestId('pipeline-node-gate').textContent).toContain(
+      'Publish: blocked by gate',
+    )
+    expect(outRow.getAttribute('data-node-status')).toBe('gated')
+
+    // Fix: re-bind a passing contract, re-run → completed, gate passes.
+    h.queue.push(yamlFile('gate-contract-pass.yaml', CONTRACT_YAML))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-contract'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.({
+        status: 'completed',
+        nodes: [
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+          { nodeId: 'sg', relation: 'sg', rowCount: 2, materialization: 'view' },
+          {
+            nodeId: 'gate',
+            relation: 'sg',
+            rowCount: 2,
+            materialization: 'gate',
+            gate: { class: 'validate', input: 'sg', valid: true, violatedRules: 0 },
+          },
+          {
+            nodeId: 'out',
+            relation: 'sg',
+            rowCount: 2,
+            materialization: 'gate',
+            gate: { class: 'publish', input: 'sg', blockedGates: [] },
+          },
+        ],
+      })
+    })
+    expect(screen.getByTestId('pipeline-run-status').getAttribute('data-state')).toBe('completed')
+    expect(within(gateRow).getByTestId('pipeline-node-gate').textContent).toBe('Validate: passed')
+    expect(within(outRow).getByTestId('pipeline-node-gate').textContent).toBe(
+      'Publish: gate passed',
+    )
+  })
+
+  it('renders the schema delta against the node input in the grid-native preview', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(PIPELINE_YAML)
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.(COMPLETED_RUN)
+    })
+
+    const renamedRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="renamed"]',
+    ) as HTMLElement
+    await act(async () => {
+      fireEvent.click(within(renamedRow).getByTestId('pipeline-preview-open'))
+    })
+    await screen.findByTestId('pipeline-preview-meta')
+    // The mock's renamed relation schema differs from its input (customers):
+    // customer_ref added, customer_id removed.
+    const added = screen.getAllByTestId('pipeline-preview-added').map((li) => li.textContent)
+    const removed = screen.getAllByTestId('pipeline-preview-removed').map((li) => li.textContent)
+    expect(added.join(' ')).toContain('customer_ref')
+    expect(removed.join(' ')).toContain('customer_id')
+    expect(document.body.textContent).not.toContain('source-dataset.parquet')
+  })
+
+  it('degrades an unaddressable preview honestly (value-free alert, nothing changed)', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(PIPELINE_YAML)
+    h.queue.push(datasetFile('source-dataset.parquet', DATASET_SENTINEL))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.(COMPLETED_RUN)
+    })
+
+    h.failPreview = true
+    const byCountryRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="by_country"]',
+    ) as HTMLElement
+    await act(async () => {
+      fireEvent.click(within(byCountryRow).getByTestId('pipeline-preview-open'))
+    })
+    const error = await screen.findByTestId('pipeline-preview-error')
+    expect(error.getAttribute('role')).toBe('alert')
+    expect(error.textContent).toMatch(/could not be opened for preview/)
+    // Value-free: no relation, engine text, picked name, or dataset content.
+    expect(error.textContent).not.toContain('by_country')
+    expect(error.textContent).not.toContain('source-dataset.parquet')
+    expect(error.textContent).not.toContain(DATASET_SENTINEL)
+  })
+
+  it('renders an export node’s artifact value-free and offers no preview for it', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(EXPORT_PIPELINE_YAML)
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.({
+        status: 'completed',
+        nodes: [
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+          {
+            nodeId: 'dump',
+            relation: 'dump',
+            rowCount: 2,
+            materialization: 'export',
+            exportPath: 'assay-exports/assay-pipeline-export-dump.parquet',
+          },
+        ],
+      })
+    })
+    const dumpRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="dump"]',
+    ) as HTMLElement
+    expect(
+      within(dumpRow)
+        .getByTestId('pipeline-node-materialization')
+        .getAttribute('data-materialization'),
+    ).toBe('export')
+    expect(within(dumpRow).getByTestId('pipeline-node-export').textContent).toContain(
+      'assay-pipeline-export-dump.parquet',
+    )
+    // An export writes an OPFS artifact, not a session relation: no preview.
+    expect(within(dumpRow).queryByTestId('pipeline-preview-open')).toBeNull()
+  })
+
+  it('degrades an unparseable contract honestly and refuses the run with the node disclosed', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(GATED_PIPELINE_YAML)
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    h.queue.push(yamlFile('broken-contract.yaml', BAD_CONTRACT_YAML))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-contract'))
+    })
+    const alert = screen.getByTestId('pipeline-contract-parse-error')
+    expect(alert.getAttribute('role')).toBe('alert')
+    expect(alert.textContent).toMatch(/could not be parsed/)
+    // The node is still unbound, so a run is refused (collect-all-disclose).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    const refused = screen.getByTestId('pipeline-run-refused')
+    expect(refused.textContent).toContain('Missing contracts')
+    expect(refused.textContent).toContain('gate')
+    expect(h.runCalls).toBe(0)
+  })
+
+  it('degrades an unreadable contract honestly (retry available, nothing bound)', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(GATED_PIPELINE_YAML)
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    const unreadable = {
+      name: 'unreadable.contract.yaml',
+      size: 10,
+      text: async () => {
+        throw new Error('stream closed')
+      },
+    } as unknown as File
+    h.queue.push(unreadable)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-contract'))
+    })
+    const alert = screen.getByTestId('pipeline-contract-read-error')
+    expect(alert.getAttribute('role')).toBe('alert')
+    expect(alert.textContent).toMatch(/could not be read/)
+    // Still unbound, so the pick gesture remains available.
+    expect(screen.queryByTestId('pipeline-contract-bound')).toBeNull()
+    expect(screen.getByTestId('pipeline-bind-contract')).toBeTruthy()
+  })
+
+  it('omits the schema delta honestly when the input relation is not addressable', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(PIPELINE_YAML)
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.(COMPLETED_RUN)
+    })
+
+    // The OUTPUT relation registers; its input does not. The preview still
+    // renders the output, with the delta honestly absent (never guessed).
+    h.failPreviewInput = true
+    const byCountryRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="by_country"]',
+    ) as HTMLElement
+    await act(async () => {
+      fireEvent.click(within(byCountryRow).getByTestId('pipeline-preview-open'))
+    })
+    await screen.findByTestId('pipeline-preview-meta')
+    expect(screen.getByTestId('pipeline-preview-columns')).toBeTruthy()
+    expect(screen.queryByTestId('pipeline-preview-delta')).toBeNull()
+    expect(screen.queryByTestId('pipeline-preview-delta-empty')).toBeNull()
   })
 })
 

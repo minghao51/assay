@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Shared state vocabulary for the pipeline panel (p-5) — the shapes the
- * session hook (`usePipelineSession`) owns and the panel renders. Plain
- * data, discriminated unions, no behavior — mirroring the validation/diff
- * panel state contracts.
+ * Shared state vocabulary for the pipeline panel (p-5; extended p2-6) — the
+ * shapes the session hook (`usePipelineSession`) owns and the panel renders.
+ * Plain data, discriminated unions, no behavior — mirroring the
+ * validation/diff panel state contracts.
+ *
+ * p2-6 additions (arch §15/§16 core): the loaded file state carries the
+ * validated topological order (the full IR order including gate nodes, which
+ * the p2-3 compiler does not compile); per-`validate`-node contract bindings
+ * (C2: parsed contracts supplied by the user, never resolved from the IR's
+ * authored path); and the run outcomes carry the runner's per-node
+ * materialization + gate verdicts so the panel can render materialization
+ * badges, validate/diff verdicts, the gated (run-stopped-at-gate) state, and
+ * an honest preview.
  */
 import type { PipelineCompilePlan, PipelineError, PipelineV1 } from '@assay/pipeline'
+import type { ContractError, ContractV1 } from '@assay/contracts'
 
 /**
  * The pipeline FILE lifecycle. Parse and validation are the p-1 total
@@ -25,7 +35,15 @@ export type PipelineFileState =
   | {
       readonly kind: 'loaded'
       readonly pipeline: PipelineV1
+      /**
+       * The DATA subgraph's compiled plan (p2-3). Gate nodes (`validate` /
+       * `diff` / `publish`) are deliberately absent: the p2-3 compiler
+       * refuses them (`reserved-node-class`) and the p2-4 runner binds them
+       * separately. `buildNodeViews` merges this with the IR order.
+       */
       readonly plan: PipelineCompilePlan
+      /** The validated topological order of EVERY node (gates included). */
+      readonly order: readonly string[]
     }
 
 /** One source node's dataset binding (C2: user-picked, never guessed). */
@@ -49,19 +67,65 @@ export type SourceBindingState =
       readonly getFile: () => Promise<File>
     }
 
+/**
+ * One `validate` node's contract binding (p2-6, C2). The IR's authored
+ * `contract:` value is a path reference and is NEVER resolved in the browser;
+ * the user picks a contract file explicitly, which is parsed through
+ * `@assay/contracts`'s total parser. Parse failures are an honest state, not
+ * a run failure — the run pre-check refuses before any engine call.
+ */
+export type ContractBindingState =
+  | { readonly kind: 'pending' }
+  /** The picked contract could not be read or parsed (located, value-free). */
+  | { readonly kind: 'read-failed' }
+  | { readonly kind: 'parse-error'; readonly errors: readonly ContractError[] }
+  | { readonly kind: 'bound'; readonly contract: ContractV1 }
+
 /** Per-node run status, updated live via the runner's `onNode` hook. */
-export type NodeRunStatus = 'pending' | 'running' | 'done' | 'failed'
+export type NodeRunStatus = 'pending' | 'running' | 'done' | 'failed' | 'gated'
 
-/** One materialized node of a partial (canceled/failed) run state. */
-export interface PipelinePartialNode {
+/**
+ * How a node's output materialized (or that it is a gate verdict). Mirrors
+ * the runner's `PipelineRunNodeResult.materialization`; the pre-run badge
+ * reads the p2-3 plan's `statementKind`/`materialization`.
+ */
+export type NodeMaterialization = 'source' | 'view' | 'ephemeral' | 'table' | 'export' | 'gate'
+
+/** A gate node's value-free verdict (never dataset values). */
+export type PipelineRunGateVerdict =
+  | {
+      readonly class: 'validate'
+      readonly input: string
+      readonly valid: boolean
+      /** How many contract rules were violated (0 when valid). */
+      readonly violatedRules: number
+    }
+  | {
+      readonly class: 'diff'
+      readonly input: string
+      readonly against: string
+      readonly added: number
+      readonly removed: number
+      readonly changed: number
+    }
+  | {
+      readonly class: 'publish'
+      readonly input: string
+      /** The `requires` edges that had not succeeded ([] when the gate passed). */
+      readonly blockedGates: readonly string[]
+    }
+
+/** One executed node's addressable outcome (the runner's value-free shape). */
+export interface PipelineRunOutcome {
   readonly nodeId: string
-  readonly relation: string
-}
-
-/** One materialized node of a completed run (counts known). */
-export interface PipelineRunResultNode {
+  /** The output relation (the node id); for a gate, the input relation. */
   readonly relation: string
   readonly rowCount: number
+  readonly materialization: NodeMaterialization
+  /** An export node's OPFS artifact path (value-free; export only). */
+  readonly exportPath?: string
+  /** A gate node's value-free verdict (validate/diff/publish only). */
+  readonly gate?: PipelineRunGateVerdict
 }
 
 /**
@@ -73,8 +137,18 @@ export interface PipelineRunResultNode {
  */
 export type PipelineRunState =
   | { readonly kind: 'idle' }
-  /** Pre-flight honest refusal: unbound source nodes (nothing was executed). */
-  | { readonly kind: 'refused'; readonly missingSourceIds: readonly string[] }
+  /**
+   * Pre-flight honest refusal: unbound source nodes and/or unbound
+   * `validate` contracts, or a runner refusal (e.g. an unbound diff key set)
+   * collected and disclosed before any engine call. Nothing was executed.
+   */
+  | {
+      readonly kind: 'refused'
+      readonly missingSourceIds: readonly string[]
+      readonly missingContractIds: readonly string[]
+      /** A runner refusal's fixed value-free class text, or `null` for the pre-flight list. */
+      readonly runnerMessage: string | null
+    }
   | {
       readonly kind: 'running'
       readonly statuses: Readonly<Record<string, NodeRunStatus>>
@@ -83,12 +157,28 @@ export type PipelineRunState =
     }
   | {
       readonly kind: 'completed'
-      readonly results: Readonly<Record<string, PipelineRunResultNode>>
+      /** Every executed node, in execution order (gate verdicts included). */
+      readonly outcomes: readonly PipelineRunOutcome[]
+    }
+  /**
+   * A gate stopped the run (p2-4): `gatedAt` names where evaluation stopped
+   * and `outcomes` is every executed node — including a failed validate
+   * consumed by a publish (whose own result is the publish's blocked gate).
+   * No downstream node executed. The panel must show what completed, what a
+   * re-run needs, and which gates are still blocked.
+   */
+  | {
+      readonly kind: 'gated'
+      readonly gatedAt: string
+      readonly gate: 'validation-failed' | 'publish-blocked'
+      readonly outcomes: readonly PipelineRunOutcome[]
+      /** The next unexecuted node, or `null` on a trailing gate. */
+      readonly nextNodeId: string | null
     }
   | {
       readonly kind: 'canceled'
       /** Named partial state: the nodes materialized before cancellation. */
-      readonly partial: readonly PipelinePartialNode[]
+      readonly partial: readonly PipelineRunOutcome[]
       /** The node that was not executed, or `null` on a trailing cancellation. */
       readonly nextNodeId: string | null
     }
@@ -96,10 +186,49 @@ export type PipelineRunState =
       readonly kind: 'failed'
       /** The failing node, or `null` when the failure predates node execution. */
       readonly nodeId: string | null
-      readonly partial: readonly PipelinePartialNode[]
+      readonly partial: readonly PipelineRunOutcome[]
       /** Fixed, value-free class text (typed runner messages; never raw engine text). */
       readonly message: string
     }
+
+/**
+ * The per-node preview lifecycle (p2-6, arch §15). Preview is lazy and
+ * on-demand: the relation is opened through the p2-1 `registerPipelineRelation`
+ * op only when a preview is requested, and the returned `EngineTableHandle`
+ * drives the EXISTING grid model/schema surfaces (the same handle-based
+ * registry path a dataset open uses — never a SQL-result detour). The grid
+ * model itself is owned by the session hook; the panel only renders it.
+ */
+export type PipelinePreviewState =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'loading'; readonly nodeId: string }
+  | {
+      readonly kind: 'ready'
+      readonly nodeId: string
+      readonly relation: string
+      readonly rowCount: number
+      /** The node's output schema (the relation the handle addresses). */
+      readonly columns: readonly { readonly name: string; readonly type: string }[]
+      /** The single input relation's schema when the node has one input; else `null`. */
+      readonly inputColumns: readonly { readonly name: string; readonly type: string }[] | null
+      /** The p2-3 generated query for transform/sql nodes, or `null`. */
+      readonly sql: string | null
+      /** The pre-run materialization badge for this node. */
+      readonly materialization: NodeMaterialization
+      /**
+       * The live grid model over the registered handle. The panel renders it
+       * through the existing `DataGrid` renderer — no bespoke table.
+       */
+      readonly model: GridPreviewModel
+    }
+  | { readonly kind: 'failed'; readonly nodeId: string; readonly message: string }
+
+/**
+ * The structural surface the panel renders. Kept as a narrow local alias so
+ * the state module stays free of a `@assay/grid` import at the type level
+ * elsewhere; the hook owns the concrete `GridViewportModel`.
+ */
+export type GridPreviewModel = import('@assay/grid').GridViewportModel
 
 /** All nodes of a topological order start pending. */
 export function initialNodeStatuses(order: readonly string[]): Record<string, NodeRunStatus> {

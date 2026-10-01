@@ -11,9 +11,14 @@ import { writeValidationDatasetA } from './support/validation-datasets'
 import { writeDiffDatasetPair } from './support/diff-datasets'
 import { openFixture, openFilterBar } from './support/fixtures'
 import {
+  bindContract,
   bindSourceDataset,
+  openNodePreview,
   openPipelineDocument,
+  pipelineNode,
   runPipelineToCompletion,
+  runPipelineToGate,
+  writeGatePipelineFixture,
 } from './support/pipeline-panel'
 
 // pt0-4 (O3): real axe-core scans of the four load-bearing surfaces — grid
@@ -222,24 +227,45 @@ function defineScans(scheme: 'light' | 'dark'): void {
     page,
   }) => {
     test.setTimeout(240_000)
-    // The p-5 surface in its richest honest state: the golden pipeline
+    // The p-6 surface in its richest honest state: the golden pipeline
     // opened, its source bound (C2 pick), the run completed with per-node
-    // counts, and the output viewable (p-5 ruling 9: the allowlist stays
-    // empty for the new surface).
+    // counts, and the grid-native preview open (p2-6 ruling: the allowlist
+    // stays empty for the new surface).
     await openPipelineDocument(page)
     await expect(page.getByTestId('pipeline-source-pending')).toBeVisible()
     await bindSourceDataset(page)
     await runPipelineToCompletion(page)
+    await openNodePreview(page, 'by_country')
 
     // Non-vacuity: the ordered node list is populated with settled statuses
-    // and the output jump is present before scanning.
+    // and the preview grid is rendered before scanning.
     await expect(page.locator('[data-testid="pipeline-node"]')).toHaveCount(4)
     await expect(
       page.locator('[data-testid="pipeline-node"][data-node-status="done"]'),
     ).toHaveCount(4)
-    await expect(page.getByTestId('pipeline-view')).toBeVisible()
+    await expect(page.getByTestId('pipeline-preview-grid')).toBeVisible()
+    await expect(page.getByTestId('pipeline-lineage-nodes')).toBeVisible()
 
-    await scanAndGate(page, `pipeline panel (run completed, ${scheme})`, scheme)
+    await scanAndGate(page, `pipeline panel (run completed + preview, ${scheme})`, scheme)
+  })
+
+  test(`[${scheme}] gated pipeline run has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(240_000)
+    // The p2-6 gated surface: the run stopped at the blocked publish, with
+    // the failed validate verdict and blocked-gate detail rendered.
+    const fixture = writeGatePipelineFixture()
+    await openPipelineDocument(page, fixture.pipelinePath)
+    await bindSourceDataset(page)
+    await bindContract(page, fixture.failingContractPath)
+    await runPipelineToGate(page)
+
+    await expect(page.getByTestId('pipeline-run-gated')).toBeVisible()
+    await expect(pipelineNode(page, 'gate').getByTestId('pipeline-node-gate')).toContainText(
+      'Validate: failed',
+    )
+    await scanAndGate(page, `pipeline panel (gated, ${scheme})`, scheme)
   })
 }
 

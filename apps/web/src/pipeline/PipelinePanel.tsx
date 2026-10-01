@@ -3,61 +3,72 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PipelineError } from '@assay/pipeline'
 import {
+  buildLineage,
   buildNodeViews,
-  inspectRelationSql,
+  isPreviewable,
+  isSchemaDeltaEmpty,
   nodeStatusesForRun,
+  schemaDelta,
   viewableRelationsForRun,
 } from './pipeline-model'
 import type { PipelineNodeView } from './pipeline-model'
-import type { PipelineFileState, PipelineRunState, SourceBindingState } from './pipeline-state'
+import type {
+  ContractBindingState,
+  NodeRunStatus,
+  PipelineFileState,
+  PipelinePreviewState,
+  PipelineRunOutcome,
+  PipelineRunState,
+  SourceBindingState,
+} from './pipeline-state'
 import { sanitizePipelineText } from './sanitize'
+import { DataGrid } from '../grid/DataGrid'
 
 /**
- * The Pipeline workbench section body (p-5).
+ * The Pipeline workbench section body (p-5; p2-6 preview/gates/lineage).
  *
  * A **list, not a graph**: the validated DAG renders as one accessible
  * ordered list (`<ol>`) in the plan's deterministic topological order —
- * per node: id, kind, relation, live status. There is deliberately NO
- * visual graph editor in P1 (queue row p-5; ADR 0032 keeps orchestration
- * and interactive DAG tooling out).
+ * per node: id, kind, relation, materialization badge, live status, gate
+ * verdict. Lineage is likewise ordered lists (arch §16) — there is
+ * deliberately NO visual graph editor (ADR 0032; the panel stays an ordered
+ * list until q-15 possibly re-homes it).
  *
- * States (all honest, value-free — ADR 0025):
+ * States (all honest, value-free — ADR 0025): none / opening / read-failed /
+ * parse-error / invalid / loaded, plus the run lifecycle (idle / refused /
+ * running / completed / gated / canceled / failed) and the per-node preview
+ * (closed / loading / ready / failed).
  *
- * - **none** — the zero state; nothing loaded, nothing guessed.
- * - **opening** — the picker/read/parse chain is in flight.
- * - **read-failed / parse-error / invalid** — the total parser's and the
- *   DAG/compile gates' located errors, one sanitized line each (parse
- *   messages embed raw YAML excerpts; `sanitizePipelineText` makes control
- *   characters visible and React text nodes escape the rest).
- * - **loaded** — the inspect list plus the run controls. Source nodes show
- *   an explicit per-node dataset pick (C2: never guessed — pending is
- *   pending, not an error). Terminal relations are flagged as outputs and,
- *   once materialized by a run, offer "View output", which selects the
- *   relation into the EXISTING SQL result surface (the same `runRequest`
- *   seam the schema-tree/grid nested actions use) — the smallest honest
- *   reuse; a virtualized-grid open of a session view would need a new
- *   engine pathway (documented carry-over, not invented here).
+ * Preview (arch §15): a materialized data node's relation opens grid-native
+ * through the p2-1 `registerPipelineRelation` op — the returned handle drives
+ * the EXISTING `DataGrid` renderer over the existing grid model (the same
+ * path a dataset open uses), never a SQL-result detour. The preview shows
+ * sample rows, the output schema, a schema delta against the single input,
+ * and the p2-3 generated query (transform/sql nodes). Relations live for the
+ * engine session (disclosed).
  *
- * Run semantics: serialized at the UI level (Run disabled while in flight);
- * live per-node status via the runner's `onNode`; Cancel is boundary-scoped
- * (disclosed); failures name the failing node and the named partial state,
- * value-free. Output relations live in the app session (closing the tab
- * discards them) — disclosed like the CLI's process-lifetime note.
+ * Gates (ADR 0035): validate pass/fail is surfaced value-free (violated-rule
+ * count, never rule values), a blocked publish lists its missing gates, and a
+ * run that stops at a gate is the honest `gated` state (what completed, what
+ * was not executed, what a re-run needs).
  *
- * Privacy: picked file names are never rendered; no telemetry is emitted
- * from this panel (`pipeline_run` is reserved).
+ * Privacy: picked file names and contract names are never rendered; no
+ * telemetry is emitted from this panel (`pipeline_run` is reserved).
  */
 
 export interface PipelinePanelProps {
   readonly fileState: PipelineFileState
   readonly bindings: Readonly<Record<string, SourceBindingState>>
+  readonly contractBindings: Readonly<Record<string, ContractBindingState>>
   readonly runState: PipelineRunState
+  readonly preview: PipelinePreviewState
   readonly onOpenPipelineFile: () => void
   readonly onBindSource: (nodeId: string) => void
+  readonly onBindContract: (nodeId: string) => void
   readonly onRun: () => void
   readonly onCancel: () => void
-  /** Select a materialized relation into the existing SQL result surface. */
-  readonly onInspectOutput: (sql: string) => void
+  readonly onOpenPreview: (nodeId: string) => void
+  readonly onClosePreview: () => void
 }
 
 /** One sanitized, located pipeline-error line (the p-1 canonical form). */
@@ -73,15 +84,78 @@ function errorList(errors: readonly PipelineError[]): readonly string[] {
   return errors.map(errorLine)
 }
 
+/** The materialization badge label (text-only, dual-scheme legible). */
+function materializationLabel(materialization: string): string {
+  switch (materialization) {
+    case 'source':
+      return 'source'
+    case 'table':
+      return 'table'
+    case 'export':
+      return 'export'
+    case 'gate':
+      return 'gate'
+    case 'ephemeral':
+      return 'ephemeral'
+    default:
+      return 'view'
+  }
+}
+
+/** A gate node's value-free status line, or `null` before a verdict exists. */
+function gateStatusText(outcome: PipelineRunOutcome | undefined): string | null {
+  const gate = outcome?.gate
+  if (gate === undefined) return null
+  switch (gate.class) {
+    case 'validate':
+      return gate.valid
+        ? 'Validate: passed'
+        : `Validate: failed — ${String(gate.violatedRules)} rule${
+            gate.violatedRules === 1 ? '' : 's'
+          } violated`
+    case 'diff':
+      return `Diff: ${String(gate.added)} added, ${String(gate.removed)} removed, ${String(
+        gate.changed,
+      )} changed`
+    case 'publish':
+      return gate.blockedGates.length === 0
+        ? 'Publish: gate passed'
+        : `Publish: blocked by ${gate.blockedGates
+            .map((gateId) => sanitizePipelineText(gateId))
+            .join(', ')}`
+  }
+}
+
+function statusText(status: NodeRunStatus, outcome: PipelineRunOutcome | undefined): string {
+  switch (status) {
+    case 'pending':
+      return 'Pending'
+    case 'running':
+      return 'Running…'
+    case 'failed':
+      return 'Failed'
+    case 'gated':
+      return 'Stopped at gate'
+    case 'done':
+      return outcome !== undefined && outcome.materialization !== 'gate'
+        ? `Done · ${String(outcome.rowCount)} row${outcome.rowCount === 1 ? '' : 's'}`
+        : 'Done'
+  }
+}
+
 export function PipelinePanel({
   fileState,
   bindings,
+  contractBindings,
   runState,
+  preview,
   onOpenPipelineFile,
   onBindSource,
+  onBindContract,
   onRun,
   onCancel,
-  onInspectOutput,
+  onOpenPreview,
+  onClosePreview,
 }: PipelinePanelProps) {
   /**
    * The inspect view (pure derivation over the loaded pipeline + plan).
@@ -89,7 +163,10 @@ export function PipelinePanel({
    * once per pipeline open and never during run-state transitions.
    */
   const view = useMemo(
-    () => (fileState.kind === 'loaded' ? buildNodeViews(fileState.pipeline, fileState.plan) : null),
+    () =>
+      fileState.kind === 'loaded'
+        ? buildNodeViews(fileState.pipeline, fileState.order, fileState.plan)
+        : null,
     [fileState],
   )
   const order = useMemo(() => (view !== null ? view.map((node) => node.nodeId) : []), [view])
@@ -98,6 +175,10 @@ export function PipelinePanel({
     [runState, order, view],
   )
   const viewable = useMemo(() => viewableRelationsForRun(runState), [runState])
+  const lineage = useMemo(
+    () => (fileState.kind === 'loaded' ? buildLineage(fileState.pipeline, fileState.order) : null),
+    [fileState],
+  )
   const outputs = useMemo(
     () => (view !== null ? view.filter((node) => node.isOutput) : null),
     [view],
@@ -109,6 +190,15 @@ export function PipelinePanel({
             .length
         : 0,
     [view, bindings],
+  )
+  const unboundContractCount = useMemo(
+    () =>
+      view !== null
+        ? view.filter(
+            (node) => node.kind === 'validate' && contractBindings[node.nodeId]?.kind !== 'bound',
+          ).length
+        : 0,
+    [view, contractBindings],
   )
 
   const running = runState.kind === 'running'
@@ -142,6 +232,14 @@ export function PipelinePanel({
           text: `Pipeline run completed: ${String(view.length)} nodes materialized.`,
         })
         break
+      case 'gated':
+        setAnnouncement({
+          seq,
+          text: `Pipeline run stopped at gate ${sanitizePipelineText(runState.gatedAt)} (${
+            runState.gate === 'publish-blocked' ? 'publish blocked' : 'validation failed'
+          }).`,
+        })
+        break
       case 'canceled':
         setAnnouncement({
           seq,
@@ -161,7 +259,7 @@ export function PipelinePanel({
         })
         break
       case 'refused':
-        setAnnouncement({ seq, text: 'Pipeline run refused: a source node has no dataset.' })
+        setAnnouncement({ seq, text: 'Pipeline run refused before execution.' })
         break
       default:
         setAnnouncement(null)
@@ -193,6 +291,8 @@ export function PipelinePanel({
           : 'Running…'
       case 'completed':
         return `Completed — ${String(view?.length ?? 0)} of ${String(view?.length ?? 0)} nodes materialized.`
+      case 'gated':
+        return `Stopped at gate ${sanitizePipelineText(runState.gatedAt)} — nothing downstream was executed.`
       case 'canceled':
         return 'Cancelled.'
       case 'failed':
@@ -289,6 +389,13 @@ export function PipelinePanel({
                 a dataset
               </>
             )}
+            {unboundContractCount > 0 && (
+              <>
+                {' '}
+                · {String(unboundContractCount)} validate node
+                {unboundContractCount === 1 ? '' : 's'} awaiting a contract
+              </>
+            )}
           </p>
           {/*
            * The inspect list: topological (execution) order — dependencies
@@ -302,8 +409,10 @@ export function PipelinePanel({
           >
             {view.map((node: PipelineNodeView) => {
               const status = statuses[node.nodeId] ?? 'pending'
+              const outcome = viewable[node.nodeId]
               const binding = bindings[node.nodeId]
-              const materialized = viewable[node.nodeId]
+              const contractBinding = contractBindings[node.nodeId]
+              const gateText = gateStatusText(outcome)
               return (
                 <li
                   key={node.nodeId}
@@ -317,23 +426,34 @@ export function PipelinePanel({
                     {sanitizePipelineText(node.nodeId)}
                   </code>{' '}
                   <span data-testid="pipeline-node-kind">kind {node.kind}</span>{' '}
+                  <span
+                    className="pipeline-node-materialization"
+                    data-testid="pipeline-node-materialization"
+                    data-materialization={node.materialization}
+                  >
+                    {materializationLabel(node.materialization)}
+                  </span>{' '}
                   <span data-testid="pipeline-node-relation">
                     relation <code>{sanitizePipelineText(node.relation)}</code>
                   </span>{' '}
-                  <span data-testid="pipeline-node-status">
-                    {status === 'pending' && 'Pending'}
-                    {status === 'running' && 'Running…'}
-                    {status === 'failed' && 'Failed'}
-                    {status === 'done' &&
-                      (materialized?.rowCount !== undefined && materialized.rowCount !== null
-                        ? `Done · ${String(materialized.rowCount)} row${
-                            materialized.rowCount === 1 ? '' : 's'
-                          }`
-                        : 'Done')}
-                  </span>
+                  <span data-testid="pipeline-node-status">{statusText(status, outcome)}</span>
                   {node.isOutput && (
                     <span className="pipeline-node-output" data-testid="pipeline-node-output">
                       output
+                    </span>
+                  )}
+                  {outcome?.materialization === 'export' && outcome.exportPath !== undefined && (
+                    <span className="pipeline-node-export" data-testid="pipeline-node-export">
+                      exported artifact <code>{sanitizePipelineText(outcome.exportPath)}</code>
+                    </span>
+                  )}
+                  {gateText !== null && (
+                    <span
+                      className="pipeline-node-gate"
+                      data-testid="pipeline-node-gate"
+                      data-gate-class={outcome?.gate?.class}
+                    >
+                      {gateText}
                     </span>
                   )}
                   {node.kind === 'source' && (
@@ -375,23 +495,71 @@ export function PipelinePanel({
                       )}
                     </span>
                   )}
-                  {node.isOutput && materialized !== undefined && (
-                    <span className="pipeline-view-output">
+                  {node.kind === 'validate' && (
+                    <span className="pipeline-contract-binding">
+                      {contractBinding?.kind === 'bound' && (
+                        <span data-testid="pipeline-contract-bound" data-node-id={node.nodeId}>
+                          Contract bound.{' '}
+                        </span>
+                      )}
                       <button
                         type="button"
-                        className="pipeline-view"
-                        data-testid="pipeline-view"
+                        className="pipeline-bind"
+                        data-testid="pipeline-bind-contract"
                         data-node-id={node.nodeId}
                         onClick={() => {
-                          onInspectOutput(inspectRelationSql(materialized.relation))
+                          onBindContract(node.nodeId)
                         }}
                       >
-                        View output
+                        {contractBinding?.kind === 'bound'
+                          ? 'Replace contract…'
+                          : 'Choose contract…'}
                       </button>{' '}
-                      <span className="pipeline-view-hint">
-                        opens this relation in the SQL pane’s result table
-                      </span>
+                      {contractBinding?.kind === 'parse-error' ? (
+                        <span
+                          role="alert"
+                          data-testid="pipeline-contract-parse-error"
+                          data-node-id={node.nodeId}
+                        >
+                          The picked contract could not be parsed — nothing was bound. Nothing has
+                          been executed; choose the contract again.
+                        </span>
+                      ) : contractBinding?.kind === 'read-failed' ? (
+                        <span
+                          role="alert"
+                          data-testid="pipeline-contract-read-error"
+                          data-node-id={node.nodeId}
+                        >
+                          The picked contract could not be read — nothing was bound. Nothing has
+                          been executed; choose the contract again.
+                        </span>
+                      ) : contractBinding?.kind === 'pending' ? (
+                        <span data-testid="pipeline-contract-pending" data-node-id={node.nodeId}>
+                          No contract bound yet — pick the contract this validate node checks. The
+                          pipeline’s authored contract path is not used in the browser; nothing is
+                          guessed.
+                        </span>
+                      ) : null}
                     </span>
+                  )}
+                  {isPreviewable(outcome) && (
+                    <span className="pipeline-preview-open-row">
+                      <button
+                        type="button"
+                        className="pipeline-preview-open"
+                        data-testid="pipeline-preview-open"
+                        data-node-id={node.nodeId}
+                        aria-expanded={preview.kind !== 'closed' && preview.nodeId === node.nodeId}
+                        onClick={() => {
+                          onOpenPreview(node.nodeId)
+                        }}
+                      >
+                        Preview output
+                      </button>
+                    </span>
+                  )}
+                  {preview.kind !== 'closed' && preview.nodeId === node.nodeId && (
+                    <PreviewBody preview={preview} onClose={onClosePreview} />
                   )}
                 </li>
               )
@@ -428,15 +596,111 @@ export function PipelinePanel({
 
           {runState.kind === 'refused' && (
             <p className="pipeline-run-refused" role="alert" data-testid="pipeline-run-refused">
-              Every source node needs a dataset before the run. Missing:{' '}
-              {runState.missingSourceIds.map((nodeId, index) => (
-                <span key={nodeId}>
-                  {index > 0 && ', '}
-                  <code>{sanitizePipelineText(nodeId)}</code>
-                </span>
-              ))}
-              . Nothing was executed.
+              {runState.runnerMessage !== null ? (
+                <>
+                  The run was refused before execution —{' '}
+                  {sanitizePipelineText(runState.runnerMessage)}. Nothing was executed.
+                </>
+              ) : (
+                <>
+                  Every source node needs a dataset and every validate node needs a contract before
+                  the run.
+                  {runState.missingSourceIds.length > 0 && (
+                    <>
+                      {' '}
+                      Missing datasets:{' '}
+                      {runState.missingSourceIds.map((nodeId, index) => (
+                        <span key={nodeId}>
+                          {index > 0 && ', '}
+                          <code>{sanitizePipelineText(nodeId)}</code>
+                        </span>
+                      ))}
+                      .
+                    </>
+                  )}
+                  {runState.missingContractIds.length > 0 && (
+                    <>
+                      {' '}
+                      Missing contracts:{' '}
+                      {runState.missingContractIds.map((nodeId, index) => (
+                        <span key={nodeId}>
+                          {index > 0 && ', '}
+                          <code>{sanitizePipelineText(nodeId)}</code>
+                        </span>
+                      ))}
+                      .
+                    </>
+                  )}{' '}
+                  Nothing was executed.
+                </>
+              )}
             </p>
+          )}
+          {runState.kind === 'gated' && (
+            <div className="pipeline-run-gated" role="alert" data-testid="pipeline-run-gated">
+              <p>
+                The run stopped at gate <code>{sanitizePipelineText(runState.gatedAt)}</code> —{' '}
+                {runState.gate === 'publish-blocked'
+                  ? 'a publish gate is blocked.'
+                  : 'a validation gate failed.'}{' '}
+                {runState.nextNodeId === null ? (
+                  'Every later node is gated.'
+                ) : (
+                  <>
+                    The next node <code>{sanitizePipelineText(runState.nextNodeId)}</code> was not
+                    executed.
+                  </>
+                )}
+              </p>
+              <p data-testid="pipeline-run-gated-completed">
+                Completed before the stop:{' '}
+                {runState.outcomes.length === 0
+                  ? 'none'
+                  : runState.outcomes.map((outcome, index) => (
+                      <span key={outcome.nodeId}>
+                        {index > 0 && ', '}
+                        <code>{sanitizePipelineText(outcome.nodeId)}</code>
+                      </span>
+                    ))}
+                . Re-run after fixing the gate — relations are recreated, never appended.
+              </p>
+              {(() => {
+                const stop = runState.outcomes.find(
+                  (outcome) => outcome.nodeId === runState.gatedAt,
+                )
+                const blocked = stop?.gate?.class === 'publish' ? stop.gate.blockedGates : []
+                const failedValidate =
+                  runState.gate === 'validation-failed'
+                    ? runState.outcomes.find(
+                        (outcome) => outcome.gate?.class === 'validate' && !outcome.gate.valid,
+                      )
+                    : undefined
+                if (blocked.length === 0 && failedValidate === undefined) return null
+                return (
+                  <p data-testid="pipeline-run-gated-detail">
+                    {blocked.length > 0 && (
+                      <>
+                        Blocked gates:{' '}
+                        {blocked.map((gateId, index) => (
+                          <span key={gateId}>
+                            {index > 0 && ', '}
+                            <code>{sanitizePipelineText(gateId)}</code>
+                          </span>
+                        ))}
+                        .{' '}
+                      </>
+                    )}
+                    {failedValidate?.gate?.class === 'validate' && (
+                      <>
+                        The contract failed {String(failedValidate.gate.violatedRules)} rule
+                        {failedValidate.gate.violatedRules === 1 ? '' : 's'} (rule values are never
+                        surfaced). Bind a passing contract and re-run.
+                      </>
+                    )}
+                  </p>
+                )
+              })()}
+            </div>
           )}
           {runState.kind === 'canceled' && (
             <p className="pipeline-run-cancelled" data-testid="pipeline-run-cancelled">
@@ -489,10 +753,83 @@ export function PipelinePanel({
           )}
           {runState.kind === 'completed' && (
             <p className="pipeline-completed-note" data-testid="pipeline-completed-note">
-              Output relations live in this app session — closing the tab discards them. “View
-              output” shows a relation in the SQL pane’s result table; a re-run replaces every view
-              (never appends).
+              Output relations live in this app session — closing the tab discards them. “Preview
+              output” opens a relation in the grid; a re-run replaces every relation (never
+              appends).
             </p>
+          )}
+
+          {lineage !== null && (
+            <section className="pipeline-lineage" aria-label="Pipeline lineage">
+              <h3>Lineage</h3>
+              <h4>Datasets</h4>
+              {lineage.datasets.length === 0 ? (
+                <p className="pipeline-lineage-empty" data-testid="pipeline-lineage-empty">
+                  No source datasets in this pipeline.
+                </p>
+              ) : (
+                <ol className="pipeline-lineage-list" data-testid="pipeline-lineage-datasets">
+                  {lineage.datasets.map((dataset) => (
+                    <li key={dataset.sourceId} data-testid="pipeline-lineage-dataset">
+                      <code>{sanitizePipelineText(dataset.sourceId)}</code> →{' '}
+                      {dataset.consumers.length === 0
+                        ? 'no downstream nodes'
+                        : dataset.consumers.map((nodeId, index) => (
+                            <span key={nodeId}>
+                              {index > 0 && ', '}
+                              <code>{sanitizePipelineText(nodeId)}</code>
+                            </span>
+                          ))}
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <h4>Nodes</h4>
+              <ol className="pipeline-lineage-list" data-testid="pipeline-lineage-nodes">
+                {lineage.nodes.map((node) => (
+                  <li key={node.nodeId} data-testid="pipeline-lineage-node">
+                    <code>{sanitizePipelineText(node.nodeId)}</code>
+                    {node.inputs.length > 0 && (
+                      <>
+                        {' '}
+                        ←{' '}
+                        {node.inputs.map((input, index) => (
+                          <span key={input}>
+                            {index > 0 && ', '}
+                            <code>{sanitizePipelineText(input)}</code>
+                          </span>
+                        ))}
+                      </>
+                    )}
+                    {node.requires.length > 0 && (
+                      <>
+                        {' '}
+                        (requires{' '}
+                        {node.requires.map((gate, index) => (
+                          <span key={gate}>
+                            {index > 0 && ', '}
+                            <code>{sanitizePipelineText(gate)}</code>
+                          </span>
+                        ))}
+                        )
+                      </>
+                    )}
+                    {node.consumers.length > 0 && (
+                      <>
+                        {' '}
+                        →{' '}
+                        {node.consumers.map((consumer, index) => (
+                          <span key={consumer}>
+                            {index > 0 && ', '}
+                            <code>{sanitizePipelineText(consumer)}</code>
+                          </span>
+                        ))}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </section>
           )}
 
           <span
@@ -503,6 +840,125 @@ export function PipelinePanel({
           >
             {announcement === null ? null : <span key={announcement.seq}>{announcement.text}</span>}
           </span>
+        </>
+      )}
+    </section>
+  )
+}
+
+/**
+ * One node's grid-native preview (arch §15): the existing `DataGrid` over the
+ * handle-backed model, plus the output schema, the schema delta against the
+ * single input, and the generated query. All pipeline-derived text is
+ * sanitized; the grid is read-only (no overlay state).
+ */
+function PreviewBody({
+  preview,
+  onClose,
+}: {
+  readonly preview: Exclude<PipelinePreviewState, { readonly kind: 'closed' }>
+  readonly onClose: () => void
+}) {
+  return (
+    <section
+      className="pipeline-preview"
+      data-testid="pipeline-preview"
+      data-node-id={preview.nodeId}
+      aria-label={`Preview of node ${sanitizePipelineText(preview.nodeId)}`}
+    >
+      <div className="pipeline-preview-head">
+        <h3>Preview</h3>
+        <button
+          type="button"
+          className="pipeline-preview-close"
+          data-testid="pipeline-preview-close"
+          onClick={onClose}
+        >
+          Close preview
+        </button>
+      </div>
+      {preview.kind === 'loading' && (
+        <p className="pipeline-preview-loading" data-testid="pipeline-preview-loading">
+          Opening the relation for preview…
+        </p>
+      )}
+      {preview.kind === 'failed' && (
+        <p className="pipeline-preview-error" role="alert" data-testid="pipeline-preview-error">
+          {sanitizePipelineText(preview.message)}. Nothing was changed.
+        </p>
+      )}
+      {preview.kind === 'ready' && (
+        <>
+          <p className="pipeline-preview-meta" data-testid="pipeline-preview-meta">
+            Relation <code>{sanitizePipelineText(preview.relation)}</code> ·{' '}
+            {String(preview.rowCount)} row{preview.rowCount === 1 ? '' : 's'} ·{' '}
+            {materializationLabel(preview.materialization)} · opened grid-native through the session
+            handle. Relations live in this app session; closing the tab discards them.
+          </p>
+          <div className="pipeline-preview-schema">
+            <h4>Output schema</h4>
+            <ol className="pipeline-preview-columns" data-testid="pipeline-preview-columns">
+              {preview.columns.map((column) => (
+                <li key={column.name} data-testid="pipeline-preview-column">
+                  <code>{sanitizePipelineText(column.name)}</code>{' '}
+                  <span className="pipeline-preview-type">{sanitizePipelineText(column.type)}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+          {preview.inputColumns !== null &&
+            (() => {
+              const delta = schemaDelta(preview.inputColumns, preview.columns)
+              return (
+                <div className="pipeline-preview-delta">
+                  <h4>Schema delta vs input</h4>
+                  {isSchemaDeltaEmpty(delta) ? (
+                    <p data-testid="pipeline-preview-delta-empty">
+                      No schema change from the input.
+                    </p>
+                  ) : (
+                    <ul data-testid="pipeline-preview-delta">
+                      {delta.added.map((column) => (
+                        <li key={`add:${column.name}`} data-testid="pipeline-preview-added">
+                          added <code>{sanitizePipelineText(column.name)}</code>{' '}
+                          <span className="pipeline-preview-type">
+                            {sanitizePipelineText(column.type)}
+                          </span>
+                        </li>
+                      ))}
+                      {delta.removed.map((column) => (
+                        <li key={`remove:${column.name}`} data-testid="pipeline-preview-removed">
+                          removed <code>{sanitizePipelineText(column.name)}</code>
+                        </li>
+                      ))}
+                      {delta.changed.map((change) => (
+                        <li key={`change:${change.name}`} data-testid="pipeline-preview-changed">
+                          <code>{sanitizePipelineText(change.name)}</code>{' '}
+                          <span className="pipeline-preview-type">
+                            {sanitizePipelineText(change.from)}
+                          </span>{' '}
+                          →{' '}
+                          <span className="pipeline-preview-type">
+                            {sanitizePipelineText(change.to)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )
+            })()}
+          {preview.sql !== null && (
+            <div className="pipeline-preview-sql">
+              <h4>Generated SQL</h4>
+              <pre data-testid="pipeline-preview-sql">
+                <code>{sanitizePipelineText(preview.sql)}</code>
+              </pre>
+            </div>
+          )}
+          <div className="pipeline-preview-grid" data-testid="pipeline-preview-grid">
+            <DataGrid model={preview.model} onNestedAction={() => {}} />
+          </div>
         </>
       )}
     </section>

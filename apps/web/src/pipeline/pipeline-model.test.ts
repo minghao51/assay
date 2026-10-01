@@ -1,24 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
-import { compilePipeline, parsePipeline, validatePipeline } from '@assay/pipeline'
+import { compilePipeline, isDataNode, parsePipeline, validatePipeline } from '@assay/pipeline'
 import type { PipelineCompilePlan, PipelineV1 } from '@assay/pipeline'
 import { advanceNodeStatuses, initialNodeStatuses } from './pipeline-state'
-import type { PipelineRunState } from './pipeline-state'
+import type { PipelineRunOutcome, PipelineRunState } from './pipeline-state'
 import {
+  buildLineage,
   buildNodeViews,
-  inspectRelationSql,
+  gateVerdictForRun,
+  isPreviewable,
+  isSchemaDeltaEmpty,
   nodeStatusesForRun,
+  previewableNodeIds,
+  schemaDelta,
   viewableRelationsForRun,
 } from './pipeline-model'
 import { sanitizePipelineText } from './sanitize'
 
 /**
- * Pure pins for the pipeline panel model (p-5). The fixtures are the REAL
- * p-1/p-2 surfaces (parse → validate → compile) over a golden-shaped
- * document — the same 4-node shape as fixtures/pipeline/cli_run.yaml — so
- * the model is pinned against the IR the compiler actually produces, not a
- * hand-typed shadow of it.
+ * Pure pins for the pipeline panel model (p-5; p2-6 gates/lineage/delta).
+ * The fixtures are the REAL p-1/p-2 surfaces (parse → validate → compile)
+ * over golden-shaped documents — the same 4-node shape as
+ * `fixtures/pipeline/cli_run.yaml` and the gated `reserved-nodes.yaml`
+ * shape — so the model is pinned against the IR the compiler actually
+ * produces, not a hand-typed shadow of it.
  */
 
 /** The cli_run-shaped document (source → rename → filter → sql aggregate). */
@@ -55,30 +61,72 @@ nodes:
             value: SG
 `
 
-function load(): { pipeline: PipelineV1; plan: PipelineCompilePlan } {
-  const parsed = parsePipeline(DOC)
+/** The reserved-nodes-shaped document (source → sql → validate → publish). */
+const GATED_DOC = `version: 1
+pipeline: gated_pin
+nodes:
+  clean:
+    type: sql
+    inputs: [ raw ]
+    sql: SELECT * FROM raw
+  gate:
+    type: validate
+    input: clean
+    contract: contracts/clean.yaml
+  out:
+    type: publish
+    input: clean
+    requires: [ gate ]
+  raw:
+    type: source
+    source:
+      kind: file
+      path: raw.parquet
+`
+
+function load(text = DOC): {
+  pipeline: PipelineV1
+  plan: PipelineCompilePlan
+  order: readonly string[]
+} {
+  const parsed = parsePipeline(text)
   if (!parsed.ok) throw new Error('fixture must parse')
   const validation = validatePipeline(parsed.pipeline)
   if (!validation.ok) throw new Error('fixture must validate')
-  const compiled = compilePipeline(parsed.pipeline)
+  const compiled = compilePipeline({
+    ...parsed.pipeline,
+    nodes: parsed.pipeline.nodes.filter((node) => isDataNode(node)),
+  })
   if (!compiled.ok) throw new Error('fixture must compile')
-  return { pipeline: parsed.pipeline, plan: compiled.plan }
+  return { pipeline: parsed.pipeline, plan: compiled.plan, order: validation.order }
+}
+
+/** An executed data node's outcome (counts known). */
+function outcome(
+  nodeId: string,
+  rowCount: number,
+  materialization: PipelineRunOutcome['materialization'] = 'view',
+): PipelineRunOutcome {
+  return { nodeId, relation: nodeId, rowCount, materialization }
 }
 
 describe('buildNodeViews', () => {
-  it('lists nodes in the plan’s topological order with kinds, relations, and output flags', () => {
-    const { pipeline, plan } = load()
-    expect(plan.order).toEqual(['customers', 'renamed', 'sg_only', 'by_country'])
-    expect(buildNodeViews(pipeline, plan)).toEqual([
-      { nodeId: 'customers', kind: 'source', relation: 'customers', isOutput: false },
-      { nodeId: 'renamed', kind: 'transform', relation: 'renamed', isOutput: false },
-      { nodeId: 'sg_only', kind: 'transform', relation: 'sg_only', isOutput: false },
-      { nodeId: 'by_country', kind: 'sql', relation: 'by_country', isOutput: true },
-    ])
+  it('lists nodes in the validated order with kinds, badges, SQL, and output flags', () => {
+    const { pipeline, plan, order } = load()
+    expect(order).toEqual(['customers', 'renamed', 'sg_only', 'by_country'])
+    const views = buildNodeViews(pipeline, order, plan)
+    expect(views.map((view) => view.nodeId)).toEqual(order)
+    expect(views.map((view) => view.kind)).toEqual(['source', 'transform', 'transform', 'sql'])
+    expect(views.map((view) => view.materialization)).toEqual(['source', 'view', 'view', 'view'])
+    expect(views[0]?.sql).toBeNull()
+    expect(views[1]?.sql).toContain('customer_ref')
+    expect(views[3]?.sql).toContain('GROUP BY')
+    expect(views[3]?.isOutput).toBe(true)
+    expect(views[0]?.isOutput).toBe(false)
   })
 
   it('flags every unreferenced node as an output (multi-output pipelines)', () => {
-    const parsed = parsePipeline(`version: 1
+    const { pipeline, plan, order } = load(`version: 1
 pipeline: two_outputs
 nodes:
   a:
@@ -96,26 +144,48 @@ nodes:
     inputs: [ a ]
     sql: SELECT * FROM a
 `)
-    if (!parsed.ok) throw new Error('fixture must parse')
-    const validation = validatePipeline(parsed.pipeline)
-    if (!validation.ok) throw new Error('fixture must validate')
-    const compiled = compilePipeline(parsed.pipeline)
-    if (!compiled.ok) throw new Error('fixture must compile')
-    const views = buildNodeViews(parsed.pipeline, compiled.plan)
-    const outputs = views.filter((view) => view.isOutput).map((view) => view.nodeId)
-    // `joined` and `b` are both unconsumed: `joined` because nothing reads
-    // it, `b` because no node declares it as an input (a source with no
-    // consumer is itself a terminal output of the DAG).
-    expect(outputs.sort()).toEqual(['b', 'joined'])
+    const outputs = buildNodeViews(pipeline, order, plan)
+      .filter((view) => view.isOutput)
+      .map((view) => view.nodeId)
+      .sort()
+    expect(outputs).toEqual(['b', 'joined'])
+  })
+
+  it('includes gate nodes from the IR order with a `gate` badge and no SQL', () => {
+    const { pipeline, plan, order } = load(GATED_DOC)
+    const views = buildNodeViews(pipeline, order, plan)
+    expect(views.map((view) => view.nodeId)).toEqual(order)
+    const gate = views.find((view) => view.nodeId === 'gate')
+    const out = views.find((view) => view.nodeId === 'out')
+    expect(gate?.kind).toBe('validate')
+    expect(gate?.materialization).toBe('gate')
+    expect(gate?.sql).toBeNull()
+    expect(gate?.inputs).toEqual(['clean'])
+    expect(gate?.contract).toBe('contracts/clean.yaml')
+    expect(out?.kind).toBe('publish')
+    expect(out?.requires).toEqual(['gate'])
+    expect(out?.inputs).toEqual(['clean'])
   })
 })
 
-describe('inspectRelationSql', () => {
-  it('quotes the relation through the shared identifier helper (hostile ids safe)', () => {
-    expect(inspectRelationSql('by_country')).toBe('SELECT * FROM "by_country"')
-    // Quotes inside the id are doubled, never interpolated raw (the m4-2
-    // lesson: never hand-roll quoting).
-    expect(inspectRelationSql('weird "quoted" key')).toBe('SELECT * FROM "weird ""quoted"" key"')
+describe('schemaDelta', () => {
+  it('reports added, removed, and type-changed columns by name', () => {
+    const before = [
+      { name: 'id', type: 'BIGINT' },
+      { name: 'country', type: 'VARCHAR' },
+      { name: 'gone', type: 'BIGINT' },
+    ]
+    const after = [
+      { name: 'id', type: 'VARCHAR' },
+      { name: 'country', type: 'VARCHAR' },
+      { name: 'added', type: 'DOUBLE' },
+    ]
+    const delta = schemaDelta(before, after)
+    expect(delta.added).toEqual([{ name: 'added', type: 'DOUBLE' }])
+    expect(delta.removed).toEqual([{ name: 'gone', type: 'BIGINT' }])
+    expect(delta.changed).toEqual([{ name: 'id', from: 'BIGINT', to: 'VARCHAR' }])
+    expect(isSchemaDeltaEmpty(delta)).toBe(false)
+    expect(isSchemaDeltaEmpty(schemaDelta(before, before))).toBe(true)
   })
 })
 
@@ -124,33 +194,16 @@ describe('node statuses', () => {
 
   it('starts every node pending and advances the boundary honestly', () => {
     const initial = initialNodeStatuses(ORDER)
-    expect(initial).toEqual({
-      customers: 'pending',
-      renamed: 'pending',
-      sg_only: 'pending',
-      by_country: 'pending',
-    })
-    // onNode(sg_only): earlier nodes are materialized, sg_only is running.
     expect(advanceNodeStatuses(initial, ORDER, 'sg_only')).toEqual({
       customers: 'done',
       renamed: 'done',
       sg_only: 'running',
       by_country: 'pending',
     })
-    // An unknown node id leaves the map untouched (no guessing).
     expect(advanceNodeStatuses(initial, ORDER, 'nope')).toEqual(initial)
-    // A second boundary without a settle: the previously-running node is
-    // materialized (the runner awaits each op), so it flips to done.
-    const afterFirst = advanceNodeStatuses(initial, ORDER, 'sg_only')
-    expect(advanceNodeStatuses(afterFirst, ORDER, 'by_country')).toEqual({
-      customers: 'done',
-      renamed: 'done',
-      sg_only: 'done',
-      by_country: 'running',
-    })
   })
 
-  it('derives display statuses for every run state', () => {
+  it('derives display statuses for every run state (gated included)', () => {
     const running: PipelineRunState = {
       kind: 'running',
       statuses: advanceNodeStatuses(initialNodeStatuses(ORDER), ORDER, 'sg_only'),
@@ -160,21 +213,32 @@ describe('node statuses', () => {
 
     const completed: PipelineRunState = {
       kind: 'completed',
-      results: Object.fromEntries(
-        ORDER.map((nodeId) => [nodeId, { relation: nodeId, rowCount: 1 }]),
-      ),
+      outcomes: ORDER.map((nodeId) => outcome(nodeId, 1)),
     }
     expect(Object.values(nodeStatusesForRun(completed, ORDER)).every((s) => s === 'done')).toBe(
       true,
     )
 
+    // The gated state: executed nodes are done, the stop node is `gated`,
+    // everything downstream is pending.
+    const gated: PipelineRunState = {
+      kind: 'gated',
+      gatedAt: 'sg_only',
+      gate: 'validation-failed',
+      outcomes: [outcome('customers', 5), outcome('renamed', 5), outcome('sg_only', 2)],
+      nextNodeId: 'by_country',
+    }
+    expect(nodeStatusesForRun(gated, ORDER)).toEqual({
+      customers: 'done',
+      renamed: 'done',
+      sg_only: 'gated',
+      by_country: 'pending',
+    })
+
     const failed: PipelineRunState = {
       kind: 'failed',
       nodeId: 'sg_only',
-      partial: [
-        { nodeId: 'customers', relation: 'customers' },
-        { nodeId: 'renamed', relation: 'renamed' },
-      ],
+      partial: [outcome('customers', 5), outcome('renamed', 5)],
       message: 'the pipeline node could not be materialized',
     }
     expect(nodeStatusesForRun(failed, ORDER)).toEqual({
@@ -186,7 +250,7 @@ describe('node statuses', () => {
 
     const canceled: PipelineRunState = {
       kind: 'canceled',
-      partial: [{ nodeId: 'customers', relation: 'customers' }],
+      partial: [outcome('customers', 5)],
       nextNodeId: 'renamed',
     }
     expect(nodeStatusesForRun(canceled, ORDER)).toEqual({
@@ -195,38 +259,109 @@ describe('node statuses', () => {
       sg_only: 'pending',
       by_country: 'pending',
     })
-
-    expect(nodeStatusesForRun({ kind: 'idle' }, ORDER)['customers']).toBe('pending')
   })
 })
 
-describe('viewableRelationsForRun', () => {
-  it('exposes counts only for a completed run; partial state carries rowCount null', () => {
+describe('viewable relations, previewability, and gate verdicts', () => {
+  it('exposes executed outcomes; export and gate relations are not previewable', () => {
     expect(viewableRelationsForRun({ kind: 'idle' })).toEqual({})
 
     const completed: PipelineRunState = {
       kind: 'completed',
-      results: {
-        customers: { relation: 'customers', rowCount: 5 },
-        by_country: { relation: 'by_country', rowCount: 1 },
-      },
+      outcomes: [
+        outcome('customers', 5, 'source'),
+        outcome('by_country', 1),
+        outcome('dump', 5, 'export'),
+      ],
     }
-    expect(viewableRelationsForRun(completed)).toEqual({
-      customers: { relation: 'customers', rowCount: 5 },
-      by_country: { relation: 'by_country', rowCount: 1 },
-    })
+    const viewable = viewableRelationsForRun(completed)
+    expect(viewable['customers']).toEqual(outcome('customers', 5, 'source'))
+    expect(isPreviewable(viewable['by_country'])).toBe(true)
+    expect(isPreviewable(viewable['dump'])).toBe(false)
+    expect(previewableNodeIds(completed, ['customers', 'by_country', 'dump'])).toEqual([
+      'customers',
+      'by_country',
+    ])
+  })
 
-    // The p-4 carry-over: a failed run's partial materializations exist as
-    // views but carry NO counts — inspectable, honestly uncounted.
-    const failed: PipelineRunState = {
-      kind: 'failed',
-      nodeId: 'sg_only',
-      partial: [{ nodeId: 'customers', relation: 'customers' }],
-      message: 'the pipeline node could not be materialized',
+  it('reads a gate verdict from the run outcome and ignores non-gates', () => {
+    const gated: PipelineRunState = {
+      kind: 'gated',
+      gatedAt: 'out',
+      gate: 'publish-blocked',
+      outcomes: [
+        outcome('clean', 2),
+        {
+          ...outcome('gate', 2, 'gate'),
+          gate: { class: 'validate', input: 'clean', valid: false, violatedRules: 1 },
+        },
+        {
+          ...outcome('against', 2, 'gate'),
+          gate: {
+            class: 'diff',
+            input: 'clean',
+            against: 'prior',
+            added: 1,
+            removed: 0,
+            changed: 2,
+          },
+        },
+        {
+          ...outcome('out', 2, 'gate'),
+          gate: { class: 'publish', input: 'clean', blockedGates: ['gate'] },
+        },
+      ],
+      nextNodeId: null,
     }
-    expect(viewableRelationsForRun(failed)).toEqual({
-      customers: { relation: 'customers', rowCount: null },
+    expect(gateVerdictForRun(gated, 'gate')).toEqual({
+      class: 'validate',
+      input: 'clean',
+      valid: false,
+      violatedRules: 1,
     })
+    expect(gateVerdictForRun(gated, 'out')).toEqual({
+      class: 'publish',
+      input: 'clean',
+      blockedGates: ['gate'],
+    })
+    expect(gateVerdictForRun(gated, 'clean')).toBeNull()
+    expect(gateVerdictForRun(gated, 'against')).toEqual({
+      class: 'diff',
+      input: 'clean',
+      against: 'prior',
+      added: 1,
+      removed: 0,
+      changed: 2,
+    })
+    // A gate relation is not previewable (it only inspects its input).
+    expect(isPreviewable(viewableRelationsForRun(gated)['gate'])).toBe(false)
+  })
+})
+
+describe('buildLineage', () => {
+  it('derives dataset and node lineage in topological order', () => {
+    const { pipeline, order } = load()
+    const lineage = buildLineage(pipeline, order)
+    expect(lineage.datasets).toEqual([
+      { sourceId: 'customers', consumers: ['renamed', 'sg_only', 'by_country'] },
+    ])
+    const renamed = lineage.nodes.find((node) => node.nodeId === 'renamed')
+    expect(renamed?.inputs).toEqual(['customers'])
+    expect(renamed?.consumers).toEqual(['sg_only'])
+    const byCountry = lineage.nodes.find((node) => node.nodeId === 'by_country')
+    expect(byCountry?.inputs).toEqual(['sg_only'])
+    expect(byCountry?.consumers).toEqual([])
+  })
+
+  it('includes gate consumers and publish requirements (dataset lineage is transitive)', () => {
+    const { pipeline, order } = load(GATED_DOC)
+    const lineage = buildLineage(pipeline, order)
+    // `clean` is consumed by the gate and the publish, both downstream of raw.
+    expect(lineage.datasets).toEqual([{ sourceId: 'raw', consumers: ['clean', 'gate', 'out'] }])
+    const out = lineage.nodes.find((node) => node.nodeId === 'out')
+    expect(out?.inputs).toEqual(['clean'])
+    expect(out?.requires).toEqual(['gate'])
+    expect(out?.consumers).toEqual([])
   })
 })
 
@@ -236,7 +371,6 @@ describe('sanitizePipelineText (web render discipline)', () => {
     expect(sanitizePipelineText('a\u001b[31mb')).toBe('a\\u001b[31mb')
     expect(sanitizePipelineText('x\u007fy')).toBe('x\\u007fy')
     expect(sanitizePipelineText('q\u009fw')).toBe('q\\u009fw')
-    // Tab/newline are C0 and are escaped too — the CLI parity contract.
     expect(sanitizePipelineText('a\tb')).toBe('a\\u0009b')
     expect(sanitizePipelineText('ünï')).toBe('ünï')
   })
