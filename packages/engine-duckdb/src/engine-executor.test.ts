@@ -3514,6 +3514,34 @@ describe('EngineOpExecutor pipeline materialization (p-3)', () => {
     expect(deps.droppedFiles).toContain('assay_pipeline_src_1')
   })
 
+  it('dispose skips dropFile for a session-view handle while dropping a file-backed entry (p2-1 rider B)', async () => {
+    const { executor, deps } = makeExecutor()
+    // File-backed lane: a registry entry with a real registration name.
+    await openFlatTable(executor, deps)
+    // Session-view lane: a pipeline relation opened as a handle carries an
+    // empty `registeredFileName` (there is no backing file to drop).
+    executor.accept(pipelineHandleRequest(2, 'out'))
+    await awaitSends(deps.conn, 2)
+    deps.conn.resolveSend(1, tableFromArrays({}))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/pipeline-handle-result',
+      relation: 'out',
+    })
+
+    executor.accept(disposeRequest(3))
+    await awaitSends(deps.conn, 3) // DROP VIEW "assay_t1"
+    deps.conn.resolveSend(2, tableFromArrays({}))
+    await awaitSends(deps.conn, 4) // DROP VIEW "out"
+    deps.conn.resolveSend(3, tableFromArrays({}))
+    expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/disposed' })
+    // The file-backed entry is deregistered; the session-view handle is not:
+    // its empty `registeredFileName` must never reach dropFile.
+    expect(deps.droppedFiles).toEqual(['t1'])
+    expect(deps.droppedFiles).not.toContain('')
+    expect(deps.conn.sentSqls).toContain('DROP VIEW IF EXISTS "out"')
+    expectNoCollisions(deps)
+  })
+
   it('opens an existing relation as a handle on the registry lane and schema-addresses it (p2-1 (b))', async () => {
     const { executor, deps } = makeExecutor()
     // Seed a materialized relation (query lane) — the handle op then addresses it.

@@ -25,6 +25,9 @@
  * 5. `pipeline-hostile-sql-refusal` — a side-effect verbatim SQL node is
  *    refused before any engine call (the p-2 classifier gate) and the runner
  *    stays usable.
+ * 6. `pipeline-relation-handle` — a materialized pipeline relation registers
+ *    as a grid-addressable handle (its schema and row count resolve through
+ *    the ordinary registry ops); a missing relation fails value-free.
  *
  * The fixture the subject stages must be the canonical 5-row customer dataset
  * (`customer_id` 1..5, `country` SG/US/SG/DE/US) so the pinned expectations

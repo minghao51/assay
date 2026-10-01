@@ -389,6 +389,26 @@ describe('parsePipeline: deep alias resolution stays a hard failure (p2-1 (f))',
     expect(() => validatePipelineDocument(doc, text)).toThrow(RangeError)
   })
 
+  it('degrades a non-RangeError resolver failure to typed, located errors', () => {
+    // The other half of the catch narrowing (item (f)): a non-RangeError
+    // resolver throw must NOT propagate — it degrades to null and is reported
+    // as a typed, located document error, mirroring the RangeError probe.
+    const text = `${BASE}\n  x:\n    type: source\n    source: *missing\n`
+    const doc = parseDocument(text, { uniqueKeys: false })
+    const alias = findAlias(doc.contents)
+    expect(alias).not.toBeNull()
+    if (alias === null) return
+    alias.resolve = () => {
+      throw new Error('resolver failure that is not a RangeError')
+    }
+    let result: ReturnType<typeof validatePipelineDocument> | undefined
+    expect(() => {
+      result = validatePipelineDocument(doc, text)
+    }).not.toThrow()
+    expect(result?.errors.length).toBeGreaterThan(0)
+    expect(result?.errors.every((error) => typeof error.code === 'string')).toBe(true)
+  })
+
   it('still degrades an ordinary unresolvable alias to a typed, located error', () => {
     const text = `${BASE}\n  x:\n    type: source\n    source: *missing\n`
     const doc = parseDocument(text, { uniqueKeys: false })

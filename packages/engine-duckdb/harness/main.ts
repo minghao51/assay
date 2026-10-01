@@ -615,9 +615,9 @@ requiredElement<HTMLButtonElement>('#validate-journey').addEventListener('click'
 //    identical run proves idempotency: the relations are recreated, never
 //    appended (ADR 0032 discipline).
 // 2. The pipeline-runner conformance suite from @assay/testing, hosted by
-//    `pipeline-runner-subject.ts` — five scenarios (success, mid-DAG
+//    `pipeline-runner-subject.ts` — six scenarios (success, mid-DAG
 //    failure + clean re-run, cancel, unknown-node refusal, hostile-SQL
-//    refusal), each on its own fresh client.
+//    refusal, relation-handle), each on its own fresh client.
 //
 // Privacy (ADR 0001/0025): evidence is node ids, relations, and counts —
 // plus the synthetic fixture's id column the journey explicitly reads back;

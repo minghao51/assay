@@ -6,7 +6,7 @@
 '@assay/web': patch
 ---
 
-feat(p2-1): hygiene + PT-P carry-over debt bundle. Ten items: (a) the C0/C1
+feat(p2-1): hygiene + PT-P carry-over debt bundle. Nine items: (a) the C0/C1
 control-char sanitizer moves to one shared pure home in `@assay/pipeline`
 (`sanitize.ts`) with the CLI and web re-pointed to it (one escape-set pin);
 (b) an additive engine op `engine/pipeline-handle` + client method
