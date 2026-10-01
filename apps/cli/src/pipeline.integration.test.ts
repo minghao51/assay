@@ -264,6 +264,93 @@ nodes:
     contract: ./bad-contract.yaml
 `,
     ),
+    // p2-5 item 1: collect-all C2. Two validate gates with DIFFERENT failure
+    // classes. The parsed IR orders nodes by id, so alpha_gate (missing) is
+    // resolved before zeta_gate (unparseable); the pin asserts BOTH, in that
+    // order, so a stop-at-first-failure mutant leaves only one entry. One
+    // contract is missing (a file that is never written), the other exists but
+    // is unparseable.
+    collectAllBadContract: write(
+      'collect-all-bad-contract.yaml',
+      'format: v1\ncolumns: [ { name\n',
+    ),
+    collectAllPipeline: write(
+      'collect-all-pipeline.yaml',
+      `version: 1
+pipeline: collect_all
+nodes:
+  a:
+    type: source
+    source:
+      kind: file
+      path: ${JSON.stringify(GOLDEN_DATASET).replaceAll('"', '')}
+  zeta_gate:
+    type: validate
+    input: a
+    contract: ./collect-all-bad-contract.yaml
+  alpha_gate:
+    type: validate
+    input: a
+    contract: ./contracts/missing-collect.yaml
+`,
+    ),
+    // p2-5 item 5(c): a genuine DATA compile refusal (an unknown transform
+    // operation) — `run` must report the validate surface and exit 1 without
+    // resolving the (here non-existent) source.
+    dataCompileRefusal: write(
+      'data-compile-refusal.yaml',
+      `version: 1
+pipeline: data_compile_refusal
+nodes:
+  a:
+    type: source
+    source:
+      kind: file
+      path: ./x.csv
+  b:
+    type: transform
+    inputs: [a]
+    operation:
+      no_such_op: {}
+`,
+    ),
+    // p2-5 item 3: the failed-then-node-error interleaving. `zeta_gate` fails
+    // (sg_only has 2 rows, the contract requires 3) but a publish requires it,
+    // so the runner continues and the later `omega_broken` sql node errors.
+    // The failure partial then carries the executed gate with no verdict.
+    failedThenError: write(
+      'failed-then-error.yaml',
+      `version: 1
+pipeline: failed_then_error
+nodes:
+  a_customers:
+    type: source
+    source:
+      kind: file
+      path: ${JSON.stringify(GOLDEN_DATASET).replaceAll('"', '')}
+  b_sg:
+    type: transform
+    inputs: [a_customers]
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG
+  c_gate:
+    type: validate
+    input: b_sg
+    contract: ${JSON.stringify(join(REPO_DIR, 'fixtures', 'pipeline', 'contracts', 'sg_min_rows_fail.yaml')).replaceAll('"', '')}
+  d_broken:
+    type: sql
+    inputs: [a_customers]
+    sql: SELECT no_such_column FROM a_customers
+  e_publish:
+    type: publish
+    input: d_broken
+    requires: [c_gate]
+`,
+    ),
   }
 })
 
@@ -408,6 +495,22 @@ verdict: INVALID — 1 error
     expect(run.stdout).toContain('gate errors: 1')
     expect(run.stdout).toContain('gate: contract file not found:')
     expect(run.stdout).toContain('verdict: INVALID — 1 error')
+  })
+
+  it('collect-all C2: BOTH failing contracts are disclosed, in node order (exit 1)', () => {
+    // Item 1 pin: the parsed IR orders nodes by id, so alpha_gate (missing)
+    // precedes zeta_gate (unparseable). A stop-at-first-failure mutant leaves
+    // only one entry, and the order pin catches a reordering. JSON is the
+    // order-sensitive surface.
+    const run = runCli(['pipeline', 'validate', files.collectAllPipeline ?? '', '--format', 'json'])
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr).toBe('')
+    const payload = JSON.parse(run.stdout) as { valid: boolean; gateErrors: string[] }
+    expect(payload.valid).toBe(false)
+    expect(payload.gateErrors.slice(0, 2)).toEqual([
+      'alpha_gate: contract file not found: ./contracts/missing-collect.yaml',
+      'zeta_gate: contract could not be parsed: ./collect-all-bad-contract.yaml',
+    ])
   })
 })
 
@@ -580,6 +683,41 @@ describe('pipeline run — exit 1 (refusals and typed node failures)', () => {
     expect(run.stdout).toContain('nodes.a: data input "ghost" names no declared node')
   })
 
+  it('a DATA compile refusal on run reports the validate surface and exits 1 (item 5c)', () => {
+    // Restored end-to-end pin: p2-5's validate node is a GATE (not a compile
+    // refusal), so the unknown transform operation is the genuine data-compile
+    // refusal this path must still report on `run`.
+    const run = runCli(['pipeline', 'run', files.dataCompileRefusal ?? ''])
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toContain('pipeline: data_compile_refusal')
+    expect(run.stdout).toContain('2. b — transform — relation "b" — view (op: no_such_op)')
+    expect(run.stdout).toContain('unknown transform operation "no_such_op"')
+    expect(run.stdout).toContain('verdict: INVALID')
+  })
+
+  it('failed-then-node-error interleaving: an executed gate is `no-verdict`, never `passed`', () => {
+    // Item 3: zeta_gate fails but a publish requires it, so the runner
+    // continues; the later sql node then errors. The failure partial carries
+    // the gate with no verdict, so the report must be neutral.
+    const run = runCli(['pipeline', 'run', files.failedThenError ?? ''])
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `pipeline: failed_then_error
+nodes: 5
+run:
+  1. a_customers — source — materialized
+  2. b_sg — transform — materialized
+  3. c_gate — validate — ran (no verdict recorded)
+  4. d_broken — sql — FAILED
+  5. e_publish — publish — not run
+note: the failing node left no relation; earlier nodes left named relations in this run's in-memory session, which end when the process exits
+verdict: FAILED — node "d_broken" could not be materialized
+`,
+    )
+  })
+
   it('a mid-run node failure: typed, node-attributed, partial state listed, empty stderr', () => {
     const run = runCli(['pipeline', 'run', files.nodeFailure ?? ''])
     expect(run.exitCode).toBe(1)
@@ -680,6 +818,23 @@ describe('pipeline run — exit 2 (C2: sources disclosed and refused, never gues
         "  a_bad: unsupported source kind 'warehouse' — this command resolves file sources only\n" +
         `  z_missing: dataset file not found: ${join(dir, 'datasets', 'missing.csv')}\n`,
     )
+  })
+
+  it('collect-all C2: run refuses BOTH failing contracts at once, in node order (exit 2)', () => {
+    const run = runCli(['pipeline', 'run', files.collectAllPipeline ?? ''])
+    expect(run.exitCode).toBe(2)
+    expect(run.stdout).toBe('')
+    expect(
+      run.stderr.startsWith('pipeline gates could not be resolved (nothing was executed):'),
+    ).toBe(true)
+    const alpha = run.stderr.indexOf(
+      `alpha_gate: contract file not found: ${join(dir, 'contracts', 'missing-collect.yaml')}`,
+    )
+    const zeta = run.stderr.indexOf(
+      'zeta_gate: contract could not be parsed: ./collect-all-bad-contract.yaml',
+    )
+    expect(alpha).toBeGreaterThanOrEqual(0)
+    expect(zeta).toBeGreaterThan(alpha)
   })
 })
 
@@ -901,7 +1056,7 @@ describe('pipeline run — diff gates and materialization-mode refusals (p2-5)',
     expect(run.stdout).toBe(
       `pipeline: export_pipeline
 nodes: 0
-verdict: REFUSED — the pipeline declares a materialization mode this surface cannot execute (export/publish); nothing was executed
+verdict: REFUSED — node "exp": the pipeline declares a materialization mode this surface cannot execute (export/publish); nothing was executed
 `,
     )
 
@@ -956,5 +1111,22 @@ describe('pipeline — determinism and help', () => {
     expect(run.stdout).toContain(
       'pipeline exit codes: validate — 0 valid (would run), 1 DAG/data-compile',
     )
+  })
+
+  it('--help: the gate-failure guidance lines are exact (not garbled) — item 4 pin', () => {
+    const run = runCli(['--help'])
+    expect(run.exitCode).toBe(0)
+    const lines = run.stdout.split('\n')
+    const start = lines.indexOf(
+      'A gate failure (validation-failed or publish-blocked) is a result, not a',
+    )
+    expect(start).toBeGreaterThanOrEqual(0)
+    // Exact-match (toEqual), not a toContain fragment: a duplicate/garbled line
+    // or a broken wrap changes one of these three values.
+    expect(lines.slice(start, start + 3)).toEqual([
+      'A gate failure (validation-failed or publish-blocked) is a result, not a',
+      'crash; an export/publish materialization mode this surface cannot execute',
+      'is a typed refusal. Cancellation is not triggerable from the one-shot CLI.',
+    ])
   })
 })

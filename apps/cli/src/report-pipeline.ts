@@ -33,9 +33,11 @@
 // per-node `materialization` + `gate`, and `status` now covers `gated`
 // (a first-class result, ADR 0035) and `refused` (a materialization mode this
 // surface cannot execute, ADR 0033) alongside `completed`/`failed`/`canceled`,
-// plus `gatedAt`/`gate`/`refusal`/`refusalNode`. The gate result payloads
-// reuse the proven value-free validate/diff shapes (verdict + violated-rule
-// count; added/removed/changed counts).
+// plus `gatedAt`/`gate`/`refusal`/`refusalNode`; a gate that executed before a
+// later node failure is reported as `no-verdict` (the failure partial carries
+// no gate results, so `passed` would be a claim the report cannot support).
+// The gate result payloads reuse the proven value-free validate/diff shapes
+// (verdict + violated-rule count; added/removed/changed counts).
 // ---------------------------------------------------------------------------
 
 import {
@@ -430,8 +432,18 @@ export function renderJsonPipelineValidateReport(report: PipelineValidateReport)
 // run — the per-node outcome report (execution happened on this process)
 // ---------------------------------------------------------------------------
 
-/** One node's execution outcome, in execution order. */
-export type PipelineRunNodeStatus = 'materialized' | 'passed' | 'gated' | 'failed' | 'not-run'
+/**
+ * One node's execution outcome, in execution order.
+ *
+ * `no-verdict` is the honest status of a gate node that executed before a run
+ * died on a later node: the runner's `PipelineRunError.partial` carries only
+ * `nodeId`/`relation`, never a gate verdict, so the report cannot claim the
+ * gate `passed` (nor `failed`). It is never a runtime verdict — only a
+ * failure-report placeholder. The runner-surface gap (partial carries no gate
+ * results) is recorded as a p2-5 carry-over.
+ */
+export type PipelineRunNodeStatus =
+  'materialized' | 'passed' | 'no-verdict' | 'gated' | 'failed' | 'not-run'
 
 /** A gate node's value-free runtime result (never dataset values). */
 export interface PipelineRunGateRow {
@@ -636,11 +648,14 @@ export function buildPipelineRunReport(input: {
   }
 
   if (input.error !== null) {
+    // A gate that executed before the failure is `no-verdict`, NEVER `passed`:
+    // `PipelineRunError.partial` carries no gate verdicts (the runner-surface
+    // carrying gap), so `passed` would be a claim the report cannot support.
     const nodes: PipelineRunNodeRow[] = input.error.partial.map((entry) => ({
       nodeId: entry.nodeId,
       kind: kindOf(entry.nodeId),
       relation: entry.relation,
-      status: isGateId(entry.nodeId) ? 'passed' : 'materialized',
+      status: isGateId(entry.nodeId) ? 'no-verdict' : 'materialized',
       rowCount: null,
       materialization: effectiveMode(entry.nodeId),
       gate: null,
@@ -801,6 +816,11 @@ function runNodeLine(node: PipelineRunNodeRow, index: number, style: ReportStyle
   if (node.status === 'passed') {
     return `  ${head} — passed${gateResultSuffix(node, style)}`
   }
+  if (node.status === 'no-verdict') {
+    // A gate that executed but whose verdict the runner's failure partial does
+    // not carry: neutral, never a fabricated pass/fail.
+    return `  ${head} — ran (no verdict recorded)`
+  }
   if (node.rowCount !== null) {
     return `  ${head} — materialized — ${style.count(String(node.rowCount))} ${plural(node.rowCount, 'row')}`
   }
@@ -840,8 +860,10 @@ export function renderHumanPipelineRunReport(
       `verdict: ${style.fail('GATED')} — the run stopped at ${report.gate ?? 'gate'} gate "${sanitizePipelineText(report.gatedAt ?? '')}"`,
     )
   } else if (report.status === 'refused') {
+    const node =
+      report.refusalNode === null ? '' : `node "${sanitizePipelineText(report.refusalNode)}": `
     lines.push(
-      `verdict: ${style.fail('REFUSED')} — ${describeRefusal(report.refusal ?? 'unsupported-materialization')}; nothing was executed`,
+      `verdict: ${style.fail('REFUSED')} — ${node}${describeRefusal(report.refusal ?? 'unsupported-materialization')}; nothing was executed`,
     )
   } else if (report.status === 'failed') {
     lines.push(
@@ -875,7 +897,13 @@ export function renderHumanPipelineRunReport(
  *     nodes[]:         per-node outcomes in execution order (id, kind,
  *                      relation, status, rowCount, materialization, gate —
  *                      gate carries the value-free validate/diff/publish
- *                      verdict, never dataset values)
+ *                      verdict, never dataset values). `status` here is the
+ *                      NODE status: 'materialized' | 'passed' | 'no-verdict'
+ *                      | 'gated' | 'failed' | 'not-run'. `no-verdict` marks a
+ *                      gate that executed before a later node failure: the
+ *                      runner's `PipelineRunError.partial` carries no gate
+ *                      verdicts, so claiming `passed` would be dishonest
+ *                      (carry-over: extend `partial` with gate results).
  *     outputs[]:       the terminal relations with their row counts
  *                      (completed runs only)
  *     failingNode:     the failed node ('failed' runs only, else null)

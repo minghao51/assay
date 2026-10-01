@@ -907,7 +907,46 @@ describe('buildPipelineRunReport — p2-5 gated and refused runs', () => {
     expect(payload.refusalNode).toBe('clean')
     const human = renderHumanPipelineRunReport(report)
     expect(human).toContain(
-      'verdict: REFUSED — the pipeline declares a materialization mode this surface cannot execute (export/publish); nothing was executed',
+      'verdict: REFUSED — node "clean": the pipeline declares a materialization mode this surface cannot execute (export/publish); nothing was executed',
+    )
+  })
+
+  it('a gate that executed before a later node failure is `no-verdict`, never `passed`', () => {
+    // The failed-then-node-error interleaving: a validate gate a publish
+    // requires evaluates (and fails) without stopping the run, then a later
+    // data node errors. `PipelineRunError.partial` carries only nodeId/relation
+    // — no gate verdicts — so the report must not claim the gate `passed`.
+    const report = buildPipelineRunReport({
+      pipeline: GATE_PIPELINE,
+      order: ['raw', 'clean', 'gate', 'out'],
+      result: null,
+      error: {
+        name: 'PipelineRunError',
+        message: 'the pipeline node could not be materialized',
+        nodeId: 'out',
+        partial: [
+          { nodeId: 'raw', relation: 'raw' },
+          { nodeId: 'clean', relation: 'clean' },
+          { nodeId: 'gate', relation: 'clean' },
+        ],
+      } as InstanceType<typeof import('@assay/engine-duckdb/node').PipelineRunError>,
+    })
+    expect(report.status).toBe('failed')
+    expect(report.nodes.map((node) => [node.nodeId, node.status])).toEqual([
+      ['raw', 'materialized'],
+      ['clean', 'materialized'],
+      ['gate', 'no-verdict'],
+      ['out', 'failed'],
+    ])
+    const gate = report.nodes.find((node) => node.nodeId === 'gate')
+    expect(gate?.materialization).toBe('gate')
+    expect(gate?.gate).toBe(null)
+    const payload = JSON.parse(renderJsonPipelineRunReport(report)) as {
+      nodes: { nodeId: string; status: string }[]
+    }
+    expect(payload.nodes.find((node) => node.nodeId === 'gate')?.status).toBe('no-verdict')
+    expect(renderHumanPipelineRunReport(report)).toContain(
+      '3. gate — validate — ran (no verdict recorded)',
     )
   })
 })

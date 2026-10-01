@@ -39,9 +39,11 @@
  *         report IS the result); run: a DAG/compile refusal, a typed node
  *         failure (`PipelineRunError`), a gate failure (`gated`), or a
  *         materialization-mode refusal (`refused`) — all RESULTS, not crashes.
- * - `2` — malformed input: IR parse errors, an unreadable pipeline file,
- *         unresolvable source datasets or validate contracts (disclosed), or
- *         bad usage.
+ * - `2` — malformed input: IR parse errors, an unreadable pipeline file, or
+ *         bad usage; on `run` only, unresolvable source datasets or validate
+ *         contracts (disclosed and refused before any execution). The
+ *         `validate` path never resolves sources, and an unbound gate there is
+ *         a report row — exit 1, never 2.
  *
  * Privacy (ADR 0025): stderr carries authored, fixed messages — parse errors
  * quote the PIPELINE DOCUMENT's own structure (authored input, line/column),
