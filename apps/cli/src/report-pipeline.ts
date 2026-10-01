@@ -435,12 +435,13 @@ export function renderJsonPipelineValidateReport(report: PipelineValidateReport)
 /**
  * One node's execution outcome, in execution order.
  *
- * `no-verdict` is the honest status of a gate node that executed before a run
- * died on a later node: the runner's `PipelineRunError.partial` carries only
- * `nodeId`/`relation`, never a gate verdict, so the report cannot claim the
- * gate `passed` (nor `failed`). It is never a runtime verdict — only a
- * failure-report placeholder. The runner-surface gap (partial carries no gate
- * results) is recorded as a p2-5 carry-over.
+ * `no-verdict` is the honest status of a gate node whose verdict the runner
+ * did not carry: on a failure the `PipelineRunError.partial` carries only
+ * `nodeId`/`relation` (never a gate verdict), and a completed node without a
+ * `gate` field is the same gap on the success path — in both cases the report
+ * cannot claim the gate `passed` (nor `failed`). It is never a runtime verdict.
+ * The runner-surface gap (partial carries no gate results) is a p2-5
+ * carry-over.
  */
 export type PipelineRunNodeStatus =
   'materialized' | 'passed' | 'no-verdict' | 'gated' | 'failed' | 'not-run'
@@ -715,12 +716,18 @@ export function buildPipelineRunReport(input: {
       const gate = runNode.gate === undefined ? null : projectRunGate(runNode.gate)
       let status: PipelineRunNodeStatus
       if (isGateId(id)) {
+        // Symmetric with the error branch above: a gate the runner reported
+        // WITHOUT a verdict (no `gate` field) is `no-verdict`, never a
+        // fabricated `passed`. Unreachable while the runner always sets gate
+        // results, but the fallthrough must not overclaim.
         status =
           id === gatedAt
             ? 'gated'
-            : runNode.gate !== undefined && !gatePassed(runNode.gate)
-              ? 'failed'
-              : 'passed'
+            : runNode.gate === undefined
+              ? 'no-verdict'
+              : !gatePassed(runNode.gate)
+                ? 'failed'
+                : 'passed'
       } else {
         status = 'materialized'
       }

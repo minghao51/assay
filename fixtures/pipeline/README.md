@@ -13,9 +13,12 @@ cleanly and canonicalizes to `customer_portfolio.yaml`, so §5 coverage is
 preserved without claiming the doc's formatting is canonical.
 
 `manifest.json` carries SHA-256 checksums and a `canonical` flag; the fixture
-test verifies the manifest **bidirectionally** — every listed file exists with
-a matching checksum, and every `*.yaml` in this directory is listed.
-Regeneration is therefore a deliberate, reviewed change. A fixture may carry
+test verifies the manifest **bidirectionally and recursively** — every listed
+fixture (including the `contracts/` data-contract fixtures, listed separately
+under `contracts`) exists with a matching checksum, and every `*.yaml` under
+`fixtures/pipeline/` (subdirectories included) is listed. Regeneration is
+therefore a deliberate, reviewed change: editing a contract fixture without
+regenerating its checksum fails the suite. A fixture may carry
 `"expect": "refuses"` plus an `errorCode` to pin a parse refusal (p-2's
 `reserved-identifier` probe).
 
@@ -28,5 +31,7 @@ Regeneration is therefore a deliberate, reviewed change. A fixture may carry
 | `materialization-modes.yaml` | p2-2 materialization surface (ADR 0033): data nodes declaring `cache`/`ephemeral`/`table`/`export`/`incremental`, plus an absent-default (`view`) source |
 | `reserved-namespace-refusal.yaml` | Negative probe: an `assay_*` node id is refused (`reserved-identifier`) |
 | `reserved-nodes.yaml` | The reserved validate/diff/publish surface with the p2-2 settled shapes (`diff` = typed `input`+`against`; `validate` = `input`+`contract`; `publish` = `input`+`requires`) |
+| `contracts/sg_min_rows_fail.yaml` | p2-5 data-contract fixture: `min-rows: 3` (fails against `cli_gated.yaml`'s 2-row relation) |
+| `contracts/sg_min_rows_pass.yaml` | p2-5 data-contract fixture: `min-rows: 2` (passes against `cli_gated_pass.yaml`'s 2-row relation) |
 
 Policy: synthetic data only — never commit real or sensitive data.

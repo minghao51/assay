@@ -911,6 +911,43 @@ describe('buildPipelineRunReport — p2-5 gated and refused runs', () => {
     )
   })
 
+  it('a gate the runner completed without a recorded verdict is `no-verdict`, never `passed`', () => {
+    // Symmetry rider: the success branch must not fabricate `passed` for a
+    // gate node whose `gate` field the runner omitted — unreachable while the
+    // runner always sets gate results, but the fallthrough must stay honest.
+    const report = buildPipelineRunReport({
+      pipeline: GATE_PIPELINE,
+      order: ['raw', 'clean', 'gate', 'out'],
+      result: {
+        status: 'completed',
+        nodes: [
+          { nodeId: 'raw', relation: 'raw', rowCount: 5, materialization: 'source' },
+          { nodeId: 'clean', relation: 'clean', rowCount: 5, materialization: 'view' },
+          { nodeId: 'gate', relation: 'clean', rowCount: 5, materialization: 'gate' },
+          {
+            nodeId: 'out',
+            relation: 'clean',
+            rowCount: 5,
+            materialization: 'gate',
+            gate: { class: 'publish', input: 'clean', blockedGates: [] },
+          },
+        ],
+      },
+      error: null,
+    })
+    expect(report.status).toBe('completed')
+    const gate = report.nodes.find((node) => node.nodeId === 'gate')
+    expect(gate?.status).toBe('no-verdict')
+    expect(gate?.gate).toBe(null)
+    const payload = JSON.parse(renderJsonPipelineRunReport(report)) as {
+      nodes: { nodeId: string; status: string }[]
+    }
+    expect(payload.nodes.find((node) => node.nodeId === 'gate')?.status).toBe('no-verdict')
+    expect(renderHumanPipelineRunReport(report)).toContain(
+      '3. gate — validate — ran (no verdict recorded)',
+    )
+  })
+
   it('a gate that executed before a later node failure is `no-verdict`, never `passed`', () => {
     // The failed-then-node-error interleaving: a validate gate a publish
     // requires evaluates (and fails) without stopping the run, then a later

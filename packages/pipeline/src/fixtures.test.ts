@@ -24,21 +24,47 @@ interface Manifest {
     /** The error code a `refuses` fixture must report. */
     readonly errorCode?: string
   }[]
+  /**
+   * Data-contract fixtures (`contracts/`) checksummed by the same recursive
+   * discipline but NOT parsed as Pipeline IR (they are not pipelines).
+   */
+  readonly contracts?: readonly {
+    readonly name: string
+    readonly sha256: string
+    readonly description?: string
+  }[]
 }
 
 const manifest = JSON.parse(readFileSync(join(FIXTURE_DIR, 'manifest.json'), 'utf8')) as Manifest
 
+/** Every `*.yaml` under `dir`, as a `/`-separated path relative to `dir`. */
+function listYamlFiles(dir: string, prefix = ''): string[] {
+  const names: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+    if (entry.isDirectory()) names.push(...listYamlFiles(join(dir, entry.name), relative))
+    else if (entry.name.endsWith('.yaml')) names.push(relative)
+  }
+  return names
+}
+
 describe('golden pipeline fixtures', () => {
-  it('lists every fixture with a matching sha256 (bidirectional)', () => {
-    const onDisk = readdirSync(FIXTURE_DIR)
-      .filter((name) => name.endsWith('.yaml'))
-      .sort()
-    expect(manifest.files.map((file) => file.name).sort()).toEqual(onDisk)
-    for (const file of manifest.files) {
+  it('lists every fixture (recursively, incl. contracts/) with a matching sha256', () => {
+    // Recursive bidirectional check: the manifest names every `*.yaml` under
+    // fixtures/pipeline/ (contracts/ included) and nothing stale, so editing
+    // or adding a contract fixture requires the deliberate, reviewed
+    // manifest regeneration the policy mandates.
+    const onDisk = listYamlFiles(FIXTURE_DIR).sort()
+    const listed = [
+      ...manifest.files.map((file) => file.name),
+      ...(manifest.contracts ?? []).map((contract) => contract.name),
+    ].sort()
+    expect(listed).toEqual(onDisk)
+    for (const fixture of [...manifest.files, ...(manifest.contracts ?? [])]) {
       const digest = createHash('sha256')
-        .update(readFileSync(join(FIXTURE_DIR, file.name)))
+        .update(readFileSync(join(FIXTURE_DIR, fixture.name)))
         .digest('hex')
-      expect(digest).toBe(file.sha256)
+      expect(digest).toBe(fixture.sha256)
     }
   })
 
