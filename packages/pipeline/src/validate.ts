@@ -534,7 +534,7 @@ function readReference(ctx: WalkContext, node: YamlNode, path: string): string |
   return text
 }
 
-/** Read a single reference field (`input:` on validate/publish). */
+/** Read a single reference field (`input:` on validate/publish/diff). */
 function wantReference(ctx: WalkContext, entry: Entry, path: string): string | null {
   const resolved = resolveNode(ctx, entry.valueNode)
   if (resolved !== null && isSeq(resolved)) {
@@ -551,8 +551,8 @@ function wantReference(ctx: WalkContext, entry: Entry, path: string): string | n
 }
 
 /**
- * Walk a generic pipeline value (source config, operation args, opaque diff
- * body). Plain JSON-like values only: scalars, sequences, and mappings (with
+ * Walk a generic pipeline value (source config, operation args). Plain
+ * JSON-like values only: scalars, sequences, and mappings (with
  * string keys, no duplicates). Alias cycles are rejected rather than
  * recursing forever.
  */

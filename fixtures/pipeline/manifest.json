@@ -1,12 +1,12 @@
 {
-  "generator": "hand-authored canonical text fixtures (p-1; refusal probe added p-2; materialization surface added p2-2)",
+  "generator": "hand-authored canonical text fixtures (p-1; refusal probe added p-2; materialization surface added p2-2; structured §5 filter + compiled join added p2-3)",
   "policy": "Golden Pipeline IR documents backing the round-trip, totality, and DAG-validation pins. Every listed fixture is canonical text (text === serialize(parse(text))) except architecture-example.yaml, which is the architecture §5 literal and is pinned to canonicalize to customer_portfolio.yaml, and reserved-namespace-refusal.yaml, which is a deliberate negative probe (parse must fail). Synthetic only; regenerate the sha256 values deliberately with the fixture change.",
   "files": [
     {
       "name": "architecture-example.yaml",
-      "sha256": "608c63fbd02b5152ee0ae35557e7165df79e7597d60836fc5b4e4881fdb22d23",
+      "sha256": "c5cea395e4f3321eb95c33b1b4a72dc16a0f3ca7d9a6a129e217437ab83396e6",
       "canonical": false,
-      "description": "Architecture §5 example literal text (deliberate non-canonical spacing); parses cleanly and canonicalizes byte-for-byte to customer_portfolio.yaml"
+      "description": "Architecture §5 example literal text (deliberate non-canonical spacing); parses cleanly and canonicalizes byte-for-byte to customer_portfolio.yaml. p2-3: the filter uses the structured predicate grammar and the join uses the compiled join op, so the §5 example now compiles"
     },
     {
       "name": "cli_run.yaml",
@@ -16,9 +16,9 @@
     },
     {
       "name": "customer_portfolio.yaml",
-      "sha256": "5e36e0b3abbc257776eeda08f94ce225a34b98e52bd614e1eaf90e0b6dd9a94d",
+      "sha256": "abf3c5d90ac47a8d0473387ea31f92f8f94cd3717e35edcbf91abb94d6b8fe00",
       "canonical": true,
-      "description": "Canonical form of the architecture §5 example: source/transform/sql plus the reserved validate/publish classes"
+      "description": "Canonical form of the architecture §5 example: source/transform/sql plus the reserved validate/publish classes; p2-3 makes the §5 filter the structured predicate grammar and the join the compiled join op"
     },
     {
       "name": "hostile-names.yaml",

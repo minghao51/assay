@@ -40,4 +40,7 @@ nodes:
     inputs: [ customers ]
     operation:
       filter:
-        expression: country = 'SG'
+        predicates:
+          - column: country
+            operator: equals
+            value: SG

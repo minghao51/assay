@@ -563,6 +563,18 @@ describe('parsePipeline: sql nodes', () => {
 })
 
 describe('parsePipeline: materialization (p2-2; ADR 0033)', () => {
+  it('pins the ADR 0033 mode vocabulary literally', () => {
+    expect(MATERIALIZATION_MODES).toEqual([
+      'ephemeral',
+      'view',
+      'table',
+      'cache',
+      'incremental',
+      'export',
+      'publish',
+    ])
+  })
+
   it('accepts all seven logical modes on a data node and defaults to view', () => {
     for (const mode of MATERIALIZATION_MODES) {
       const pipeline = parseOk(

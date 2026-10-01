@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
+import { quoteIdentifier } from '@assay/validation'
 import { canonicalNodeOrder } from '../ast.js'
 import type { PipelineNode, PipelineValue, PipelineV1 } from '../ast.js'
 import { parsePipeline } from '../parse.js'
+import { makeTestRng } from '../property-testing.js'
 import { COMPILED_TRANSFORM_OPERATIONS, compilePipeline } from './compile.js'
 import type { PipelineCompilePlan } from './compile.js'
+import { classifyVerbatimSql } from './sql-safety.js'
 
 /** Build a canonically ordered pipeline from nodes. */
 function pipeline(nodes: PipelineNode[]): PipelineV1 {
@@ -152,8 +155,16 @@ nodes:
 })
 
 describe('compilePipeline: transform vocabulary', () => {
-  it('exports exactly the four documented operations', () => {
-    expect(COMPILED_TRANSFORM_OPERATIONS).toEqual(['select-columns', 'rename', 'cast', 'filter'])
+  it('exports exactly the seven documented operations', () => {
+    expect(COMPILED_TRANSFORM_OPERATIONS).toEqual([
+      'select-columns',
+      'rename',
+      'cast',
+      'filter',
+      'join',
+      'aggregate',
+      'window',
+    ])
   })
 
   it('compiles every filter operator', () => {
@@ -205,7 +216,9 @@ describe('compilePipeline: transform vocabulary', () => {
   })
 
   it('refuses an unknown operation, citing the escape hatch', () => {
-    const errors = errorsOf(pipeline([source('raw'), transform('j', 'raw', 'join', { on: 'id' })]))
+    const errors = errorsOf(
+      pipeline([source('raw'), transform('j', 'raw', 'flatten', { on: 'id' })]),
+    )
     expect(errors).toHaveLength(1)
     expect(errors[0]?.code).toBe('unknown-operation')
     expect(errors[0]?.message).toContain('sql node')
@@ -311,7 +324,7 @@ describe('compilePipeline: argument validation', () => {
     const errors = errorsOf(
       pipeline([
         source('raw'),
-        transform('a', 'raw', 'aggregate', {}),
+        transform('a', 'raw', 'flatten', {}),
         transform('b', 'raw', 'cast', { columns: { x: 'NOPE' } }),
       ]),
     )
@@ -323,7 +336,7 @@ describe('compilePipeline: argument validation', () => {
 
   it('points each operation/filter/cast refusal at the sql-node escape hatch', () => {
     const cases: readonly (readonly [string, PipelineNode[]])[] = [
-      ['unknown-operation', [source('raw'), transform('x', 'raw', 'join', { on: 'id' })]],
+      ['unknown-operation', [source('raw'), transform('x', 'raw', 'flatten', { on: 'id' })]],
       [
         'invalid-operation-args',
         [source('raw'), transform('s', 'raw', 'select-columns', { columns: [] })],
@@ -529,5 +542,583 @@ describe('compilePipeline: defensive argument branches', () => {
         pipeline([source('raw'), transform('s', 'raw', 'select-columns', { columns: 'a' })]),
       )[0]?.code,
     ).toBe('invalid-operation-args')
+  })
+})
+
+describe('compilePipeline: materialization → local statements (p2-3; ADR 0033)', () => {
+  const QUERY = 'SELECT\n  "id"\nFROM "raw"'
+
+  /** A `raw` source plus one `out` transform declaring the given mode. */
+  function materializedNode(materialization: unknown): PipelineNode {
+    return {
+      id: 'out',
+      type: 'transform',
+      inputs: ['raw'],
+      operation: { operation: 'select-columns', args: { columns: ['id'] } },
+      ...(materialization !== undefined ? { materialization } : {}),
+    } as unknown as PipelineNode
+  }
+
+  function entry(materialization: unknown) {
+    const plan = okPlan(pipeline([source('raw'), materializedNode(materialization)]))
+    const node = plan.nodes.find((candidate) => candidate.nodeId === 'out')
+    if (node === undefined) throw new Error('no out node')
+    return node
+  }
+
+  it('maps view (the absent default) to CREATE OR REPLACE VIEW', () => {
+    for (const materialization of [undefined, 'view']) {
+      expect(entry(materialization)).toMatchObject({
+        materialization: 'view',
+        statement: `CREATE OR REPLACE VIEW "out" AS ${QUERY}`,
+        statementKind: 'view',
+        sql: QUERY,
+      })
+    }
+  })
+
+  it('maps ephemeral to the view mechanism (DuckDB views are lazy/session-bound)', () => {
+    expect(entry('ephemeral')).toMatchObject({
+      materialization: 'ephemeral',
+      statement: `CREATE OR REPLACE VIEW "out" AS ${QUERY}`,
+      statementKind: 'view',
+    })
+  })
+
+  it('maps table to CREATE OR REPLACE TABLE AS', () => {
+    expect(entry('table')).toMatchObject({
+      materialization: 'table',
+      statement: `CREATE OR REPLACE TABLE "out" AS ${QUERY}`,
+      statementKind: 'table',
+    })
+  })
+
+  it('maps export to a deterministic COPY with the pinned Parquet options', () => {
+    expect(entry('export')).toMatchObject({
+      materialization: 'export',
+      statement: `COPY (${QUERY}) TO 'assay-exports/assay-export-out.parquet' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)`,
+      statementKind: 'export',
+    })
+  })
+
+  it('leaves a source statement-free but carries its effective mode', () => {
+    const plan = okPlan(pipeline([source('raw')]))
+    expect(plan.nodes[0]).toMatchObject({
+      materialization: 'view',
+      statement: null,
+      statementKind: 'source',
+    })
+  })
+
+  it('refuses cache/incremental/publish with a typed, value-free refusal citing ADR 0033', () => {
+    for (const mode of ['cache', 'incremental', 'publish'] as const) {
+      const errors = errorsOf(pipeline([source('raw'), materializedNode(mode)]))
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.code, mode).toBe('unsupported-materialization')
+      expect(errors[0]?.message, mode).toContain('ADR 0033')
+      expect(errors[0]?.message, mode).toContain(mode)
+      expect(errors[0]?.message, mode).not.toContain('SELECT')
+    }
+  })
+
+  it('refuses an unrecognized mode spelling programmatically (defensive)', () => {
+    const errors = errorsOf(pipeline([source('raw'), materializedNode('CACHE')]))
+    expect(errors[0]?.code).toBe('unsupported-materialization')
+    expect(errors[0]?.message).toContain('ephemeral')
+  })
+
+  it('applies the refusal to a source node too', () => {
+    const node = {
+      id: 'raw',
+      type: 'source',
+      materialization: 'incremental',
+      source: { kind: 'file' },
+    } as unknown as PipelineNode
+    expect(errorsOf(pipeline([node]))[0]?.code).toBe('unsupported-materialization')
+  })
+})
+
+describe('compilePipeline: join / aggregate / window golden SQL', () => {
+  it('compiles an inner join as USING over the two inputs', () => {
+    const sql = sqlOf(
+      pipeline([
+        source('customers'),
+        source('policies'),
+        {
+          id: 'joined',
+          type: 'transform',
+          inputs: ['customers', 'policies'],
+          operation: {
+            operation: 'join',
+            args: { left: 'customers', right: 'policies', on: ['customer_id'] },
+          },
+        },
+      ]),
+      'joined',
+    )
+    expect(sql).toBe('SELECT\n  *\nFROM "customers"\nINNER JOIN "policies" USING ("customer_id")')
+  })
+
+  it('honours the declared left/right order and multi-column USING keys', () => {
+    const sql = sqlOf(
+      pipeline([
+        source('customers'),
+        source('policies'),
+        {
+          id: 'joined',
+          type: 'transform',
+          inputs: ['customers', 'policies'],
+          operation: {
+            operation: 'join',
+            args: { left: 'policies', right: 'customers', on: ['a', 'b'] },
+          },
+        },
+      ]),
+      'joined',
+    )
+    expect(sql).toBe('SELECT\n  *\nFROM "policies"\nINNER JOIN "customers" USING ("a", "b")')
+  })
+
+  it('compiles a grouped aggregate with SUM and COUNT(*)', () => {
+    const sql = sqlOf(
+      pipeline([
+        source('raw'),
+        transform('agg', 'raw', 'aggregate', {
+          group_by: ['country'],
+          aggregations: [
+            { op: 'sum', column: 'income', as: 'total' },
+            { op: 'count', as: 'n' },
+          ],
+        }),
+      ]),
+      'agg',
+    )
+    expect(sql).toBe(
+      'SELECT\n  "country",\n  SUM("income") AS "total",\n  COUNT(*) AS "n"\nFROM "raw"\nGROUP BY "country"',
+    )
+  })
+
+  it('compiles a global aggregate when group_by is empty', () => {
+    const sql = sqlOf(
+      pipeline([
+        source('raw'),
+        transform('agg', 'raw', 'aggregate', {
+          group_by: [],
+          aggregations: [{ op: 'avg', column: 'x', as: 'mean' }],
+        }),
+      ]),
+      'agg',
+    )
+    expect(sql).toBe('SELECT\n  AVG("x") AS "mean"\nFROM "raw"')
+  })
+
+  it('compiles a window function with partition and ordered terms', () => {
+    const sql = sqlOf(
+      pipeline([
+        source('raw'),
+        transform('w', 'raw', 'window', {
+          function: 'row_number',
+          partition_by: ['country'],
+          order_by: [
+            { column: 'income', direction: 'desc' },
+            { column: 'id', direction: 'asc' },
+          ],
+          as: 'rank',
+        }),
+      ]),
+      'w',
+    )
+    expect(sql).toBe(
+      'SELECT\n  *,\n  ROW_NUMBER() OVER (PARTITION BY "country" ORDER BY "income" DESC, "id" ASC) AS "rank"\nFROM "raw"',
+    )
+  })
+
+  it('compiles a window function without a partition', () => {
+    const sql = sqlOf(
+      pipeline([
+        source('raw'),
+        transform('w', 'raw', 'window', {
+          function: 'dense_rank',
+          order_by: [{ column: 'id', direction: 'asc' }],
+          as: 'dr',
+        }),
+      ]),
+      'w',
+    )
+    expect(sql).toBe('SELECT\n  *,\n  DENSE_RANK() OVER (ORDER BY "id" ASC) AS "dr"\nFROM "raw"')
+  })
+
+  it('is byte-deterministic across the new ops and modes', () => {
+    const value = pipeline([
+      source('customers'),
+      source('policies'),
+      {
+        id: 'joined',
+        type: 'transform',
+        inputs: ['customers', 'policies'],
+        operation: {
+          operation: 'join',
+          args: { left: 'customers', right: 'policies', on: ['customer_id'] },
+        },
+      },
+      {
+        id: 'agg',
+        type: 'transform',
+        materialization: 'table',
+        inputs: ['joined'],
+        operation: {
+          operation: 'aggregate',
+          args: { group_by: ['customer_id'], aggregations: [{ op: 'count', as: 'n' }] },
+        },
+      },
+      {
+        id: 'ranked',
+        type: 'transform',
+        materialization: 'export',
+        inputs: ['agg'],
+        operation: {
+          operation: 'window',
+          args: {
+            function: 'rank',
+            partition_by: ['customer_id'],
+            order_by: [{ column: 'n', direction: 'desc' }],
+            as: 'rank',
+          },
+        },
+      },
+    ])
+    const first = compilePipeline(value)
+    const second = compilePipeline(value)
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first))
+  })
+})
+
+describe('compilePipeline: new-op refusals cite the escape hatch', () => {
+  const joinWith = (inputs: string[], args: Record<string, PipelineValue>): PipelineNode[] => [
+    source('a'),
+    source('b'),
+    { id: 'j', type: 'transform', inputs, operation: { operation: 'join', args } },
+  ]
+
+  it('refuses a join without exactly two inputs', () => {
+    const errors = errorsOf(pipeline(joinWith(['a'], { left: 'a', right: 'a', on: ['id'] })))
+    expect(errors[0]?.code).toBe('invalid-operation-args')
+    expect(errors[0]?.message).toContain('binary')
+    expect(errors[0]?.message).toContain('sql node')
+  })
+
+  it('refuses a join whose left/right are not the node inputs or are equal', () => {
+    const notInputs = errorsOf(
+      pipeline(joinWith(['a', 'b'], { left: 'c', right: 'b', on: ['id'] })),
+    )
+    expect(notInputs[0]?.code).toBe('invalid-operation-args')
+    const equal = errorsOf(pipeline(joinWith(['a', 'b'], { left: 'a', right: 'a', on: ['id'] })))
+    expect(equal[0]?.code).toBe('invalid-operation-args')
+  })
+
+  it('refuses join/aggregate/window argument shapes with the escape hatch appended', () => {
+    const cases: readonly (readonly [string, PipelineNode])[] = [
+      [
+        'j',
+        {
+          id: 'j',
+          type: 'transform',
+          inputs: ['a', 'b'],
+          operation: { operation: 'join', args: { left: 'a', right: 'b', on: [] } },
+        } as PipelineNode,
+      ],
+      [
+        'agg',
+        {
+          id: 'agg',
+          type: 'transform',
+          inputs: ['a'],
+          operation: {
+            operation: 'aggregate',
+            args: { group_by: [], aggregations: [{ op: 'nope', column: 'x', as: 'y' }] },
+          },
+        } as PipelineNode,
+      ],
+      [
+        'agg2',
+        {
+          id: 'agg2',
+          type: 'transform',
+          inputs: ['a'],
+          operation: {
+            operation: 'aggregate',
+            args: { group_by: [], aggregations: [{ op: 'sum', as: 'y' }] },
+          },
+        } as PipelineNode,
+      ],
+      [
+        'w',
+        {
+          id: 'w',
+          type: 'transform',
+          inputs: ['a'],
+          operation: {
+            operation: 'window',
+            args: { function: 'ntile', order_by: [{ column: 'x', direction: 'asc' }], as: 'y' },
+          },
+        } as PipelineNode,
+      ],
+      [
+        'w2',
+        {
+          id: 'w2',
+          type: 'transform',
+          inputs: ['a'],
+          operation: {
+            operation: 'window',
+            args: { function: 'rank', order_by: [{ column: 'x', direction: 'sideways' }], as: 'y' },
+          },
+        } as PipelineNode,
+      ],
+    ]
+    for (const [label, node] of cases) {
+      const errors = errorsOf(pipeline([source('a'), source('b'), node]))
+      expect(errors[0]?.code, label).toBe('invalid-operation-args')
+      expect(errors[0]?.message, label).toContain('sql node')
+      expect(errors[0]?.message, label).toContain('verbatim SQL with declared inputs')
+    }
+  })
+
+  it('refuses malformed aggregate arguments', () => {
+    const cases: PipelineValue[] = [
+      { group_by: 'x', aggregations: [{ op: 'sum', column: 'c', as: 'a' }] },
+      { group_by: [], aggregations: 'nope' },
+      { group_by: [], aggregations: ['nope'] },
+      {
+        group_by: [],
+        aggregations: [
+          { op: 'sum', column: 'c', as: 'a' },
+          { op: 'max', column: 'c', as: 'a' },
+        ],
+      },
+      { group_by: [], aggregations: [{ op: 'sum', as: 'a' }] },
+      { group_by: ['a', 'a'], aggregations: [{ op: 'count', as: 'n' }] },
+      { group_by: [], aggregations: [{ op: 'sum', column: '', as: 'a' }] },
+      { group_by: [], aggregations: [{ op: 'sum', column: 'c', as: '' }] },
+      { group_by: [], aggregations: [{ op: 'sum', column: 'c', as: 'a', extra: 1 }] },
+      { group_by: [], aggregations: [{ op: 'sum', column: 'c' }] },
+      { group_by: [3], aggregations: [{ op: 'count', as: 'n' }] },
+    ]
+    for (const args of cases) {
+      const errors = errorsOf(
+        pipeline([
+          source('raw'),
+          transform('agg', 'raw', 'aggregate', args as Record<string, PipelineValue>),
+        ]),
+      )
+      expect(errors.length, JSON.stringify(args)).toBeGreaterThan(0)
+      expect(errors.every((error) => error.code === 'invalid-operation-args')).toBe(true)
+    }
+  })
+
+  it('refuses malformed window arguments', () => {
+    const cases: PipelineValue[] = [
+      { function: 'rank', order_by: 'x', as: 'r' },
+      { function: 'rank', order_by: [], as: 'r' },
+      { function: 'rank', order_by: ['nope'], as: 'r' },
+      { function: 'rank', order_by: [{}], as: 'r' },
+      { function: 'rank', order_by: [{ column: 'a' }], as: 'r' },
+      {
+        function: 'rank',
+        order_by: [
+          { column: 'a', direction: 'asc' },
+          { column: 'a', direction: 'desc' },
+        ],
+        as: 'r',
+      },
+      { function: 'rank', order_by: [{ column: 'a', direction: 'asc', extra: 1 }], as: 'r' },
+      { function: 'rank', order_by: [{ column: 'a', direction: 'asc' }], as: '' },
+      {
+        function: 'rank',
+        order_by: [{ column: 'a', direction: 'asc' }],
+        partition_by: [],
+        as: 'r',
+      },
+      {
+        function: 'rank',
+        order_by: [{ column: 'a', direction: 'asc' }],
+        partition_by: ['p', 'p'],
+        as: 'r',
+      },
+      { function: 'rank', order_by: [{ column: 'a', direction: 'asc' }], as: 'r', extra: 1 },
+    ]
+    for (const args of cases) {
+      const errors = errorsOf(
+        pipeline([
+          source('raw'),
+          transform('w', 'raw', 'window', args as Record<string, PipelineValue>),
+        ]),
+      )
+      expect(errors.length, JSON.stringify(args)).toBeGreaterThan(0)
+      expect(errors.every((error) => error.code === 'invalid-operation-args')).toBe(true)
+    }
+  })
+
+  it('refuses malformed join arguments beyond arity', () => {
+    const cases: Record<string, PipelineValue>[] = [
+      { right: 'b', on: ['id'] },
+      { left: 'a', on: ['id'] },
+      { left: 'a', right: 'b', on: 'id' },
+      { left: 'a', right: 'b', on: [] },
+      { left: 'a', right: 'b', on: ['id'], extra: 1 },
+      { left: 'a', right: 'b', on: [3] },
+    ]
+    for (const args of cases) {
+      const errors = errorsOf(pipeline(joinWith(['a', 'b'], args)))
+      expect(errors.length, JSON.stringify(args)).toBeGreaterThan(0)
+      expect(errors.every((error) => error.code === 'invalid-operation-args')).toBe(true)
+    }
+  })
+})
+
+describe('compilePipeline: injection probes through the new ops', () => {
+  it('quotes hostile join refs and columns', () => {
+    const hostile = 'a" ; DROP TABLE t; --'
+    const sql = sqlOf(
+      pipeline([
+        { id: 'l"', type: 'source', source: { kind: 'file' } },
+        { id: 'r"', type: 'source', source: { kind: 'file' } },
+        {
+          id: 'j',
+          type: 'transform',
+          inputs: ['l"', 'r"'],
+          operation: { operation: 'join', args: { left: 'l"', right: 'r"', on: [hostile] } },
+        },
+      ]),
+      'j',
+    )
+    expect(sql).toBe('SELECT\n  *\nFROM "l"""\nINNER JOIN "r""" USING ("a"" ; DROP TABLE t; --")')
+  })
+
+  it('quotes hostile aggregate columns and aliases', () => {
+    const sql = sqlOf(
+      pipeline([
+        source('raw'),
+        transform('agg', 'raw', 'aggregate', {
+          group_by: ['g"'],
+          aggregations: [{ op: 'sum', column: 'c" ; DROP', as: 'x"' }],
+        }),
+      ]),
+      'agg',
+    )
+    expect(sql).toBe('SELECT\n  "g""",\n  SUM("c"" ; DROP") AS "x"""\nFROM "raw"\nGROUP BY "g"""')
+  })
+
+  it('quotes hostile window partitions, order columns, and aliases', () => {
+    const sql = sqlOf(
+      pipeline([
+        source('raw'),
+        transform('w', 'raw', 'window', {
+          function: 'rank',
+          partition_by: ['p"'],
+          order_by: [{ column: 'o"', direction: 'desc' }],
+          as: 'w"',
+        }),
+      ]),
+      'w',
+    )
+    expect(sql).toBe(
+      'SELECT\n  *,\n  RANK() OVER (PARTITION BY "p""" ORDER BY "o""" DESC) AS "w"""\nFROM "raw"',
+    )
+  })
+
+  it('encodes a traversal-shaped node id into a path-safe export stem', () => {
+    const plan = okPlan(
+      pipeline([
+        source('raw'),
+        {
+          id: '../escape',
+          type: 'transform',
+          materialization: 'export',
+          inputs: ['raw'],
+          operation: { operation: 'select-columns', args: { columns: ['id'] } },
+        },
+      ]),
+    )
+    const node = plan.nodes.find((candidate) => candidate.nodeId === '../escape')
+    expect(node?.statement).toBe(
+      `COPY (SELECT\n  "id"\nFROM "raw") TO 'assay-exports/assay-export-~002e~002e~002fescape.parquet' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)`,
+    )
+    expect(node?.statement).not.toContain("'../")
+  })
+
+  it('keeps a single quote out of the export destination string', () => {
+    const plan = okPlan(
+      pipeline([
+        source('raw'),
+        {
+          id: "o'brien",
+          type: 'transform',
+          materialization: 'export',
+          inputs: ['raw'],
+          operation: { operation: 'select-columns', args: { columns: ['id'] } },
+        },
+      ]),
+    )
+    const node = plan.nodes.find((candidate) => candidate.nodeId === "o'brien")
+    expect(node?.statement).toContain("'assay-exports/assay-export-o~0027brien.parquet'")
+  })
+})
+
+describe('compilePipeline: property — generated ops stay quoted, classified, and deterministic', () => {
+  const HOSTILE = ['a', 'a"b', "a'b", 'a b', '\u00fcn\u00ef', '../x', '1', 'a.b']
+
+  it('holds for 240 seeded unary pipelines (seed 20261003)', () => {
+    const rng = makeTestRng(20261003)
+    for (let i = 0; i < 240; i++) {
+      const column = rng.pick(HOSTILE)
+      const alias = `out_${String(i)}`
+      const templates: readonly (readonly [string, Record<string, PipelineValue>])[] = [
+        ['filter', { predicates: [{ column, operator: 'equals', value: 'x' }] }],
+        ['select-columns', { columns: [column] }],
+        ['rename', { columns: { [column]: alias } }],
+        ['aggregate', { group_by: [column], aggregations: [{ op: 'sum', column, as: alias }] }],
+        ['window', { function: 'rank', order_by: [{ column, direction: 'desc' }], as: alias }],
+      ]
+      const [name, args] = rng.pick(templates) as readonly [string, Record<string, PipelineValue>]
+      const value = pipeline([source('raw'), transform('t', 'raw', name, args)])
+      const first = compilePipeline(value)
+      const second = compilePipeline(value)
+      expect(first.ok, `${name} ${column}`).toBe(true)
+      if (!first.ok) continue
+      expect(JSON.stringify(second), `${name} ${column}`).toBe(JSON.stringify(first))
+      const entry = first.plan.nodes.find((node) => node.nodeId === 't')
+      if (entry === undefined || entry.sql === null) throw new Error('missing compiled sql')
+      expect(classifyVerbatimSql(entry.sql).ok, name).toBe(true)
+      expect(entry.sql, name).toContain(quoteIdentifier(column))
+    }
+  })
+
+  it('holds for 120 seeded joins (seed 20261004)', () => {
+    const rng = makeTestRng(20261004)
+    for (let i = 0; i < 120; i++) {
+      const left = rng.pick(HOSTILE)
+      const right = rng.pick(HOSTILE.filter((candidate) => candidate !== left))
+      const on = rng.pick(HOSTILE)
+      const value = pipeline([
+        { id: left, type: 'source', source: { kind: 'file' } },
+        { id: right, type: 'source', source: { kind: 'file' } },
+        {
+          id: 'joined',
+          type: 'transform',
+          inputs: [left, right],
+          operation: { operation: 'join', args: { left, right, on: [on] } },
+        },
+      ])
+      const first = compilePipeline(value)
+      expect(first.ok, `${left} | ${right} | ${on}`).toBe(true)
+      if (!first.ok) continue
+      const entry = first.plan.nodes.find((node) => node.nodeId === 'joined')
+      if (entry?.sql == null) throw new Error('missing join sql')
+      expect(entry.sql).toContain(quoteIdentifier(left))
+      expect(entry.sql).toContain(quoteIdentifier(right))
+      expect(entry.sql).toContain(quoteIdentifier(on))
+      expect(classifyVerbatimSql(entry.sql).ok).toBe(true)
+    }
   })
 })

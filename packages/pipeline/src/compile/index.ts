@@ -7,10 +7,17 @@
  * the purity/determinism guarantees; see `sql-safety.ts` for the classifier
  * rules.
  */
-export { COMPILED_TRANSFORM_OPERATIONS, compilePipeline } from './compile.js'
+export {
+  COMPILED_STATEMENT_KINDS,
+  COMPILED_TRANSFORM_OPERATIONS,
+  LOCAL_MATERIALIZATION_MODES,
+  compilePipeline,
+} from './compile.js'
 export type {
   CompiledNode,
+  CompiledStatementKind,
   CompiledTransformOperation,
+  LocalMaterializationMode,
   PipelineCompilePlan,
   PipelineCompileResult,
 } from './compile.js'

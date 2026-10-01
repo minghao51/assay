@@ -40,6 +40,7 @@
     "@assay/engine": "workspace:*",
     "@assay/testing": "workspace:*",
     "@assay/validation": "workspace:*",
+    "@duckdb/node-api": "1.5.5-r.5",
     "typescript": "catalog:",
     "vite": "catalog:"
   },

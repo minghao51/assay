@@ -24,7 +24,8 @@
  * format tightenings (`reserved-identifier`, `imprecise-number`) and
  * `compilePipeline` reports its refusals (`unknown-operation`,
  * `invalid-operation-args`, `invalid-filter`, `invalid-cast-type`,
- * `invalid-sql`, `reserved-node-class`, `invalid-node`) as the same
+ * `invalid-sql`, `reserved-node-class`, `unsupported-materialization`,
+ * `invalid-node`) as the same
  * {@link PipelineError} shape, so every surface renders through
  * {@link describePipelineError} unchanged.
  */
@@ -78,6 +79,8 @@ export type PipelineErrorCode =
   | 'invalid-sql'
   /** p-2 compile: a validate/diff/publish node is reserved until P2 and cannot be compiled. */
   | 'reserved-node-class'
+  /** p2-3 compile: a data node declares a materialization mode the local backend cannot map (ADR 0033 fail-explicitly). */
+  | 'unsupported-materialization'
   /** p-2 compile: a node's shape is not a compilable executable node (defensive; caller bug). */
   | 'invalid-node'
 

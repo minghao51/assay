@@ -19,17 +19,45 @@
  * collide with the repo-wide reserved `assay_*` namespace: verbatim SQL
  * references relations by id, so a compile-time rename would break it.
  *
- * ## Statements, not materialization
+ * ## Materialization → local statements (p2-3; ADR 0033)
  *
- * Compilation is scoped to the query text. It does **not** emit
- * `CREATE VIEW`/`CREATE TABLE`: materialization is p-3's runner decision
- * (architecture §8/§9). The IR carries an optional per-node `materialization`
- * mode (ADR 0033; p2-2) but this compiler ignores it — it emits the plain
- * query that computes each node's output. Mapping a mode to DDL/COPY is p-3's
- * concern. Each compiled entry therefore exposes the `sql` query that
- * computes the node's output; sources have no query (they are base relations
- * the runner registers). The statements are overlay-agnostic: they read the
- * base relations named by node id and compose no grid/session overlays.
+ * Compilation now carries the **mode → local statement** mapping (architecture
+ * §8) additively: each compiled entry exposes its effective `materialization`
+ * mode plus the `statement` the local runner executes and its `statementKind`.
+ * `sql`/`relation` semantics are unchanged — the P1 runner and CLI keep reading
+ * the plain query until p2-4 rewires them.
+ *
+ * | mode | local statement | `statementKind` |
+ * | --- | --- | --- |
+ * | `view` (and absent-default) | `CREATE OR REPLACE VIEW "<rel>" AS <query>` | `view` |
+ * | `ephemeral` | the view mechanism (DuckDB views are lazy/session-bound) | `view` |
+ * | `table` | `CREATE OR REPLACE TABLE "<rel>" AS <query>` | `table` |
+ * | `export` | `COPY (<query>) TO '<path>' (<options>)` | `export` |
+ *
+ * `ephemeral` maps to the **view** mechanism rather than CTE folding: DuckDB
+ * views are lazy and session-bound, so the view mapping preserves ephemeral's
+ * no-persistent-storage intent locally at zero structural cost, where CTE
+ * folding would restructure the DAG SQL per consumer. The architecture §8 row
+ * ("CTE / nested SQL") stays satisfied in spirit: locally, ephemeral is an
+ * unnamed-per-consumer relation never written to durable storage.
+ *
+ * `export` writes a deterministic destination derived from the node id under
+ * the repo's `assay-exports/` scratch convention (ADR 0017), with one canonical
+ * default format (`FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880` —
+ * the engine's `EXPORT_FORMAT_OPTIONS.parquet` and the fixture-generator
+ * conventions, ADR 0038). The node-id stem is encoded so a hostile id cannot
+ * introduce a path segment (`/`, `\`, `.`, `..`) or collide with another id.
+ *
+ * `cache`, `incremental`, and `publish` are **typed refusals**: OPFS-backed
+ * caching and incremental strategies are future slices, and publish-mode
+ * materialization is the P3 / Dataset Change Request boundary. Unsupported
+ * modes fail explicitly; silent semantic changes are not allowed (ADR 0033).
+ *
+ * A source's `statement` is `null` with `statementKind` `source` — sources are
+ * base relations the runner registers through the engine's file path, not SQL.
+ *
+ * The statements are overlay-agnostic: they read the base relations named by
+ * node id and compose no grid/session overlays.
  *
  * A `sql` node's text is carried **verbatim** (after the classifier accepts
  * it): its declared `inputs` are resolved by DAG validation, but the
@@ -37,18 +65,19 @@
  * the text — the author addresses relations by node id, exactly as the
  * architecture §5 example does.
  *
- * ## P1 transform vocabulary
+ * ## P1/P2 transform vocabulary
  *
- * Exactly four operations are compiled; every other operation, and every
+ * Exactly seven operations are compiled; every other operation, and every
  * refusal of any kind, is expressible through the **escape hatch**:
  *
  * > **Escape hatch contract.** A `sql` node carrying verbatim SQL with its
  * > declared `inputs` is the universal fallback. Anything the structured
- * > vocabulary does not cover — joins, aggregates, window functions,
- * > dialect-specific syntax, or a malformed structured operation — belongs
- * > in a `sql` node. Every compiler refusal message points at that path.
+ * > vocabulary does not cover — non-inner joins, richer aggregates, other
+ * > window functions, dialect-specific syntax, or a malformed structured
+ * > operation — belongs in a `sql` node. Every compiler refusal message
+ * > points at that path.
  *
- * The compiled shapes (all over `inputs: [source]`, a single unary input):
+ * The unary compiled shapes (over `inputs: [source]`):
  *
  * ```sql
  * -- select-columns: { columns: [a, b] }
@@ -78,7 +107,54 @@
  *   *
  * FROM "source"
  * WHERE ("country" = 'SG') AND ("income" > 50000)
+ *
+ * -- aggregate: { group_by: [country], aggregations: [{ op: sum, column: income, as: total }] }
+ * SELECT
+ *   "country",
+ *   SUM("income") AS "total"
+ * FROM "source"
+ * GROUP BY "country"
+ *
+ * -- window: { function: row_number, partition_by: [country],
+ * --           order_by: [{ column: income, direction: desc }], as: rank }
+ * SELECT
+ *   *,
+ *   ROW_NUMBER() OVER (PARTITION BY "country" ORDER BY "income" DESC) AS "rank"
+ * FROM "source"
  * ```
+ *
+ * `join` is the one binary operation: `{ left, right, on: [<column>, …] }` over
+ * `inputs: [left, right]`. Both refs must be among the node's `inputs`, `on`
+ * names at least one column present in both sides, and the compiled clause is
+ * `INNER JOIN "right" USING (…)` (the grammar restricts `on` to same-named
+ * columns, which is exactly DuckDB's `USING` semantics and yields one merged
+ * key column). Only inner joins are in the minimal vocabulary; other join
+ * kinds stay escape-hatch SQL:
+ *
+ * ```sql
+ * -- join: { left: customers, right: policies, on: [customer_id] }
+ * SELECT
+ *   *
+ * FROM "customers"
+ * INNER JOIN "policies" USING ("customer_id")
+ * ```
+ *
+ * ### aggregate / window grammars
+ *
+ * `aggregate: { group_by: [<column>, …], aggregations: [ { op, column, as }, … ] }`.
+ * `group_by` is required (an empty list is a global aggregate) and
+ * `aggregations` is a non-empty list. `op` is one of `sum`, `count`, `min`,
+ * `max`, `avg`; `column` is required for every op except `count`, which omits
+ * it to mean `COUNT(*)`; `as` is the required, explicit output alias (one shape
+ * per meaning, no auto-derived names). Group-by columns and aliases may not
+ * repeat.
+ *
+ * `window: { function, order_by: [ { column, direction }, … ], partition_by?: [<column>, …], as }`.
+ * `function` is one of `row_number`, `rank`, `dense_rank`; `order_by` is a
+ * non-empty list with `direction` exactly `asc` or `desc`; `partition_by` is
+ * optional (non-empty when present); `as` is the required explicit alias. The
+ * single window function is added as one extra column: `*,
+ * ROW_NUMBER() OVER (…) AS "alias"`.
  *
  * `rename` uses DuckDB's `* EXCLUDE (…), … AS …` and `cast` uses
  * `* REPLACE (…)` precisely so neither needs the source schema: P1
@@ -123,12 +199,22 @@ import {
   sqlNumberLiteral,
   sqlStringLiteral,
 } from '@assay/validation'
-import { compareNodeIds } from '../ast.js'
-import type { PipelineNode, PipelineV1 } from '../ast.js'
+import {
+  DEFAULT_MATERIALIZATION,
+  MATERIALIZATION_MODES,
+  compareNodeIds,
+  isMaterializationMode,
+} from '../ast.js'
+import type { MaterializationMode, PipelineNode, PipelineV1 } from '../ast.js'
 import { validatePipeline } from '../dag.js'
 import type { PipelineError, PipelineErrorCode } from '../errors.js'
 import { classifyVerbatimSql } from './sql-safety.js'
 import type { VerbatimSqlRefusal } from './sql-safety.js'
+
+/** How a compiled node's `statement` realizes its materialization mode. */
+export const COMPILED_STATEMENT_KINDS = ['source', 'view', 'table', 'export'] as const
+
+export type CompiledStatementKind = (typeof COMPILED_STATEMENT_KINDS)[number]
 
 /** One compiled executable node. `sql` is `null` for a source base relation. */
 export interface CompiledNode {
@@ -140,6 +226,18 @@ export interface CompiledNode {
   readonly quotedRelation: string
   /** The query computing this node's output, or `null` for a source. */
   readonly sql: string | null
+  /** The effective ADR 0033 mode (declared, or the absent-default `view`). */
+  readonly materialization?: MaterializationMode
+  /**
+   * The local statement realizing `materialization`: the view/table DDL, the
+   * export `COPY`, or `null` for a source (registered, not SQL). Composed by
+   * {@link compilePipeline} (p2-3); `sql` stays the plain query. Optional so a
+   * caller-supplied plan literal stays type-compatible (the extension is
+   * additive); every compiler-produced entry sets it.
+   */
+  readonly statement?: string | null
+  /** What `statement` is; `source` means `statement` is `null`. */
+  readonly statementKind?: CompiledStatementKind
 }
 
 /** A compiled pipeline: the deterministic plan and its per-node statements. */
@@ -155,10 +253,52 @@ export type PipelineCompileResult =
   | { readonly ok: true; readonly plan: PipelineCompilePlan }
   | { readonly ok: false; readonly errors: readonly PipelineError[] }
 
-/** The P1 compiled transform vocabulary. Anything else is the escape hatch. */
-export const COMPILED_TRANSFORM_OPERATIONS = ['select-columns', 'rename', 'cast', 'filter'] as const
+/** The compiled transform vocabulary. Anything else is the escape hatch. */
+export const COMPILED_TRANSFORM_OPERATIONS = [
+  'select-columns',
+  'rename',
+  'cast',
+  'filter',
+  'join',
+  'aggregate',
+  'window',
+] as const
 
 export type CompiledTransformOperation = (typeof COMPILED_TRANSFORM_OPERATIONS)[number]
+
+/**
+ * The materialization modes the local backend maps to statements. The other
+ * three ADR 0033 modes (`cache`, `incremental`, `publish`) are typed refusals
+ * rather than silent fallbacks.
+ */
+export const LOCAL_MATERIALIZATION_MODES = ['ephemeral', 'view', 'table', 'export'] as const
+
+export type LocalMaterializationMode = (typeof LOCAL_MATERIALIZATION_MODES)[number]
+
+/** The export conventions (engine `EXPORT_FORMAT_OPTIONS.parquet`, ADR 0038). */
+const EXPORT_DIRECTORY = 'assay-exports'
+const EXPORT_STEM_PREFIX = 'assay-export-'
+const EXPORT_FILE_EXTENSION = 'parquet'
+const EXPORT_FORMAT_OPTIONS = 'FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880'
+
+/** The closed aggregate-op vocabulary and its SQL spellings. */
+const AGGREGATE_OPERATORS: Readonly<Record<string, string>> = {
+  sum: 'SUM',
+  count: 'COUNT',
+  min: 'MIN',
+  max: 'MAX',
+  avg: 'AVG',
+}
+
+/** The closed window-function vocabulary and its SQL spellings. */
+const WINDOW_FUNCTIONS: Readonly<Record<string, string>> = {
+  row_number: 'ROW_NUMBER',
+  rank: 'RANK',
+  dense_rank: 'DENSE_RANK',
+}
+
+/** `join` is the only binary transform operation in the compiled vocabulary. */
+const BINARY_TRANSFORM_OPERATIONS: ReadonlySet<string> = new Set(['join'])
 
 /** The closed cast-target vocabulary (reuses the contract declared-type set). */
 const CAST_TYPES: ReadonlySet<string> = new Set(CONTRACT_TYPE_VOCABULARY)
@@ -254,13 +394,162 @@ function compileInternal(pipeline: PipelineV1): PipelineCompileResult {
   return { ok: true, plan: { order: validated.order, nodes: compiled } }
 }
 
+/** Read a data node's effective mode defensively (the AST guarantees a mode). */
+function readEffectiveMaterialization(
+  node: unknown,
+  relation: string,
+  errors: PipelineError[],
+): MaterializationMode | null {
+  const raw = (node as { materialization?: unknown }).materialization
+  if (raw === undefined) return DEFAULT_MATERIALIZATION
+  if (!isMaterializationMode(raw)) {
+    pushError(
+      errors,
+      'unsupported-materialization',
+      relation,
+      `nodes.${relation}.materialization`,
+      `nodes.${relation}.materialization: unrecognized materialization mode — the ADR 0033 vocabulary is ${MATERIALIZATION_MODES.join(', ')}`,
+    )
+    return null
+  }
+  return raw
+}
+
+function isLocalMaterializationMode(mode: MaterializationMode): mode is LocalMaterializationMode {
+  return (LOCAL_MATERIALIZATION_MODES as readonly string[]).includes(mode)
+}
+
+/**
+ * Gate a data node's mode: local modes pass; `cache`/`incremental`/`publish`
+ * are typed refusals (ADR 0033 — unsupported modes fail explicitly rather than
+ * silently changing semantics).
+ */
+function supportMaterialization(
+  mode: MaterializationMode,
+  relation: string,
+  errors: PipelineError[],
+): mode is LocalMaterializationMode {
+  if (isLocalMaterializationMode(mode)) return true
+  const reason =
+    mode === 'publish'
+      ? 'publish-mode materialization is the P3 / Dataset Change Request boundary, not a local mechanism'
+      : `the local ${mode} strategy is a future slice`
+  pushError(
+    errors,
+    'unsupported-materialization',
+    relation,
+    `nodes.${relation}.materialization`,
+    `nodes.${relation}.materialization: ${mode} is not supported by the local compiler — ${reason}; unsupported modes fail explicitly rather than silently changing semantics (ADR 0033)`,
+  )
+  return false
+}
+
+/**
+ * The deterministic, path-safe export destination for a node id (module doc).
+ * `encodeExportStem` keeps ASCII letters/digits/`-`/`_` and renders every
+ * other UTF-16 code unit as `~XXXX`, yielding one path-safe, collision-free
+ * segment (`~` is never emitted raw, so the escape marker is unambiguous).
+ */
+function exportDestination(relation: string): string {
+  return `${EXPORT_DIRECTORY}/${EXPORT_STEM_PREFIX}${encodeExportStem(relation)}.${EXPORT_FILE_EXTENSION}`
+}
+
+function encodeExportStem(id: string): string {
+  let out = ''
+  for (let index = 0; index < id.length; index++) {
+    const code = id.charCodeAt(index)
+    const ch = id[index] as string
+    const safe =
+      (code >= 0x30 && code <= 0x39) || // 0-9
+      (code >= 0x41 && code <= 0x5a) || // A-Z
+      (code >= 0x61 && code <= 0x7a) || // a-z
+      ch === '-' ||
+      ch === '_'
+    out += safe ? ch : `~${code.toString(16).padStart(4, '0')}`
+  }
+  return out
+}
+
+/** Map a supported mode to its local statement (the architecture §8 contract). */
+function composeMaterializationStatement(
+  mode: LocalMaterializationMode,
+  relation: string,
+  quotedRelation: string,
+  query: string,
+): { readonly statement: string; readonly statementKind: CompiledStatementKind } {
+  switch (mode) {
+    case 'view':
+    case 'ephemeral':
+      return {
+        statement: `CREATE OR REPLACE VIEW ${quotedRelation} AS ${query}`,
+        statementKind: 'view',
+      }
+    case 'table':
+      return {
+        statement: `CREATE OR REPLACE TABLE ${quotedRelation} AS ${query}`,
+        statementKind: 'table',
+      }
+    case 'export':
+      return {
+        statement: `COPY (${query}) TO ${sqlStringLiteral(exportDestination(relation))} (${EXPORT_FORMAT_OPTIONS})`,
+        statementKind: 'export',
+      }
+  }
+}
+
+/**
+ * Build a compiled data-node entry: gate + map the materialization mode around
+ * the already-compiled `query`. Returns `null` after pushing a refusal.
+ */
+function compileDataEntry(
+  kind: 'transform' | 'sql',
+  node: unknown,
+  relation: string,
+  quotedRelation: string,
+  query: string,
+  errors: PipelineError[],
+): CompiledNode | null {
+  const mode = readEffectiveMaterialization(node, relation, errors)
+  if (mode === null) return null
+  if (!supportMaterialization(mode, relation, errors)) return null
+  const { statement, statementKind } = composeMaterializationStatement(
+    mode,
+    relation,
+    quotedRelation,
+    query,
+  )
+  return {
+    nodeId: relation,
+    kind,
+    relation,
+    quotedRelation,
+    sql: query,
+    materialization: mode,
+    statement,
+    statementKind,
+  }
+}
+
 /** Compile one node. Returns `null` after pushing a refusal. */
 function compileNode(node: PipelineNode, errors: PipelineError[]): CompiledNode | null {
   const relation = node.id
   const quotedRelation = quoteIdentifier(relation)
   switch (node.type) {
-    case 'source':
-      return { nodeId: relation, kind: 'source', relation, quotedRelation, sql: null }
+    case 'source': {
+      const mode = readEffectiveMaterialization(node, relation, errors)
+      if (mode === null) return null
+      if (!supportMaterialization(mode, relation, errors)) return null
+      return {
+        nodeId: relation,
+        kind: 'source',
+        relation,
+        quotedRelation,
+        sql: null,
+        materialization: mode,
+        statement: null,
+        statementKind: 'source',
+      }
+    }
     case 'transform':
       return compileTransformNode(node, relation, quotedRelation, errors)
     case 'sql':
@@ -314,7 +603,7 @@ function rejectUnknownArgs(
       'invalid-operation-args',
       relation,
       `${path}.${key}`,
-      `${path}.${key}: unexpected argument for this operation — the P1 vocabulary accepts: ${allowed.join(', ')}${ESCAPE_HATCH_HINT}`,
+      `${path}.${key}: unexpected argument for this operation — the operation accepts: ${allowed.join(', ')}${ESCAPE_HATCH_HINT}`,
     )
   }
 }
@@ -350,13 +639,17 @@ function compileTransformNode(
     return null
   }
   const inputs = readInputs(node)
-  if (inputs === null || inputs.length !== 1) {
+  const binary = BINARY_TRANSFORM_OPERATIONS.has(name)
+  const expected = binary ? 2 : 1
+  if (inputs === null || inputs.length !== expected) {
     pushError(
       errors,
       'invalid-operation-args',
       relation,
       `${path}.inputs`,
-      `${path}.inputs: the ${name} operation is unary and expects exactly one input${ESCAPE_HATCH_HINT}`,
+      binary
+        ? `${path}.inputs: the ${name} operation is binary and expects exactly two inputs${ESCAPE_HATCH_HINT}`
+        : `${path}.inputs: the ${name} operation is unary and expects exactly one input${ESCAPE_HATCH_HINT}`,
     )
     return null
   }
@@ -377,18 +670,27 @@ function compileTransformNode(
     case 'filter':
       sql = compileFilter(args, input, opPath, relation, errors)
       break
+    case 'join':
+      sql = compileJoin(args, inputs, opPath, relation, errors)
+      break
+    case 'aggregate':
+      sql = compileAggregate(args, input, opPath, relation, errors)
+      break
+    case 'window':
+      sql = compileWindow(args, input, opPath, relation, errors)
+      break
     default:
       pushError(
         errors,
         'unknown-operation',
         relation,
         `${path}.operation`,
-        `${path}.operation: unknown transform operation ${JSON.stringify(name)} — the P1 compiled vocabulary is ${COMPILED_TRANSFORM_OPERATIONS.join(', ')}; express anything else as a sql node carrying verbatim SQL with declared inputs`,
+        `${path}.operation: unknown transform operation ${JSON.stringify(name)} — the compiled vocabulary is ${COMPILED_TRANSFORM_OPERATIONS.join(', ')}; express anything else as a sql node carrying verbatim SQL with declared inputs`,
       )
       return null
   }
   if (sql === null) return null
-  return { nodeId: relation, kind: 'transform', relation, quotedRelation, sql }
+  return compileDataEntry('transform', node, relation, quotedRelation, sql, errors)
 }
 
 function compileSqlNode(
@@ -420,7 +722,7 @@ function compileSqlNode(
     )
     return null
   }
-  return { nodeId: relation, kind: 'sql', relation, quotedRelation, sql }
+  return compileDataEntry('sql', node, relation, quotedRelation, sql, errors)
 }
 
 /** Value-free message for a classifier refusal (never echoes the SQL text). */
@@ -676,6 +978,362 @@ function compileFilter(
   if (errors.length > before) return null
   const where = rendered.map((predicate) => `(${predicate})`).join(' AND ')
   return `SELECT\n  *\nFROM ${input}\nWHERE ${where}`
+}
+
+/** Read a non-empty string argument; pushes a refusal on failure. */
+function readNonEmptyStringArg(
+  args: Record<string, unknown>,
+  key: string,
+  path: string,
+  relation: string,
+  errors: PipelineError[],
+): string | null {
+  const value = args[key]
+  if (typeof value !== 'string' || value.length === 0) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${path}.${key}`,
+      `${path}.${key}: expected a non-empty string${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  return value
+}
+
+/**
+ * Read a list of unique non-empty column names. `allowEmpty` admits the empty
+ * list (a global aggregate's `group_by`). Returns a partial list when entries
+ * are malformed — callers must check `errors.length` before using it.
+ */
+function readColumnList(
+  value: unknown,
+  path: string,
+  relation: string,
+  errors: PipelineError[],
+  options: { readonly allowEmpty: boolean },
+): string[] | null {
+  if (!Array.isArray(value) || (!options.allowEmpty && value.length === 0)) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      path,
+      options.allowEmpty
+        ? `${path}: expected a list of column names${ESCAPE_HATCH_HINT}`
+        : `${path}: expected a non-empty list of column names${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (let index = 0; index < value.length; index++) {
+    const column = value[index]
+    const at = `${path}[${index}]`
+    if (typeof column !== 'string' || column.length === 0) {
+      pushError(
+        errors,
+        'invalid-operation-args',
+        relation,
+        at,
+        `${at}: expected a non-empty column name${ESCAPE_HATCH_HINT}`,
+      )
+      continue
+    }
+    if (seen.has(column)) {
+      pushError(
+        errors,
+        'invalid-operation-args',
+        relation,
+        at,
+        `${at}: duplicate column ${JSON.stringify(column)} — each column may be named at most once${ESCAPE_HATCH_HINT}`,
+      )
+      continue
+    }
+    seen.add(column)
+    names.push(column)
+  }
+  return names
+}
+
+/**
+ * `join: { left, right, on: [<column>, …] }` — the one binary operation. The
+ * node's two inputs must be exactly `left`/`right`, and `on` names the
+ * same-named join columns, rendered as DuckDB's `USING` clause (one merged key
+ * column; see the module doc). Only inner joins are in the vocabulary.
+ */
+function compileJoin(
+  args: Record<string, unknown>,
+  inputs: readonly string[],
+  opPath: string,
+  relation: string,
+  errors: PipelineError[],
+): string | null {
+  const before = errors.length
+  rejectUnknownArgs(args, ['left', 'right', 'on'], opPath, relation, errors)
+  const left = readNonEmptyStringArg(args, 'left', opPath, relation, errors)
+  const right = readNonEmptyStringArg(args, 'right', opPath, relation, errors)
+  const on = readColumnList(args.on, `${opPath}.on`, relation, errors, { allowEmpty: false })
+  if (errors.length > before || left === null || right === null || on === null) return null
+
+  if (left === right) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      opPath,
+      `${opPath}: join left and right must name two different inputs${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  if (!inputs.includes(left) || !inputs.includes(right)) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      opPath,
+      `${opPath}: join left/right must name the node's two inputs${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  const columns = on.map((column) => quoteIdentifier(column)).join(', ')
+  return `SELECT\n  *\nFROM ${quoteIdentifier(left)}\nINNER JOIN ${quoteIdentifier(right)} USING (${columns})`
+}
+
+/** `aggregate: { group_by, aggregations: [ { op, column, as }, … ] }` (module doc). */
+function compileAggregate(
+  args: Record<string, unknown>,
+  input: string,
+  opPath: string,
+  relation: string,
+  errors: PipelineError[],
+): string | null {
+  const before = errors.length
+  rejectUnknownArgs(args, ['group_by', 'aggregations'], opPath, relation, errors)
+  const groupBy = readColumnList(args.group_by, `${opPath}.group_by`, relation, errors, {
+    allowEmpty: true,
+  })
+  const aggregations = args.aggregations
+  if (!Array.isArray(aggregations) || aggregations.length === 0) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${opPath}.aggregations`,
+      `${opPath}.aggregations: expected a non-empty list of aggregations${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  const rendered: string[] = []
+  const aliases = new Set<string>()
+  for (let index = 0; index < aggregations.length; index++) {
+    const renderedAgg = renderAggregation(
+      aggregations[index],
+      `${opPath}.aggregations[${index}]`,
+      relation,
+      aliases,
+      errors,
+    )
+    if (renderedAgg !== null) rendered.push(renderedAgg)
+  }
+  if (errors.length > before || groupBy === null) return null
+
+  const grouped = groupBy.map((column) => quoteIdentifier(column))
+  const head = `SELECT\n  ${[...grouped, ...rendered].join(',\n  ')}\nFROM ${input}`
+  return grouped.length === 0 ? head : `${head}\nGROUP BY ${grouped.join(', ')}`
+}
+
+/** Render one aggregate projection; `null` after pushing a refusal. */
+function renderAggregation(
+  aggregation: unknown,
+  path: string,
+  relation: string,
+  aliases: Set<string>,
+  errors: PipelineError[],
+): string | null {
+  if (!isRecord(aggregation)) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      path,
+      `${path}: expected an aggregation mapping with op, column, and as${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  rejectUnknownArgs(aggregation, ['op', 'column', 'as'], path, relation, errors)
+  const op = aggregation.op
+  if (typeof op !== 'string' || !Object.hasOwn(AGGREGATE_OPERATORS, op)) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${path}.op`,
+      `${path}.op: unknown aggregate op ${typeof op === 'string' ? JSON.stringify(op) : ''} — expected one of: ${Object.keys(AGGREGATE_OPERATORS).join(', ')}${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  const as = aggregation.as
+  if (typeof as !== 'string' || as.length === 0) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${path}.as`,
+      `${path}.as: expected a non-empty output alias${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  if (aliases.has(as)) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${path}.as`,
+      `${path}.as: duplicate output alias ${JSON.stringify(as)} — each aggregation needs a distinct alias${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  const fn = AGGREGATE_OPERATORS[op] as string
+  const column = aggregation.column
+  if (column === undefined) {
+    if (op !== 'count') {
+      pushError(
+        errors,
+        'invalid-operation-args',
+        relation,
+        `${path}.column`,
+        `${path}.column: the ${op} aggregation requires a column${ESCAPE_HATCH_HINT}`,
+      )
+      return null
+    }
+    aliases.add(as)
+    return `${fn}(*) AS ${quoteIdentifier(as)}`
+  }
+  if (typeof column !== 'string' || column.length === 0) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${path}.column`,
+      `${path}.column: expected a non-empty column name${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  aliases.add(as)
+  return `${fn}(${quoteIdentifier(column)}) AS ${quoteIdentifier(as)}`
+}
+
+/**
+ * `window: { function, order_by, partition_by?, as }` (module doc): adds one
+ * window-function column to `*`.
+ */
+function compileWindow(
+  args: Record<string, unknown>,
+  input: string,
+  opPath: string,
+  relation: string,
+  errors: PipelineError[],
+): string | null {
+  const before = errors.length
+  rejectUnknownArgs(args, ['function', 'partition_by', 'order_by', 'as'], opPath, relation, errors)
+  const fn = args.function
+  if (typeof fn !== 'string' || !Object.hasOwn(WINDOW_FUNCTIONS, fn)) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${opPath}.function`,
+      `${opPath}.function: unknown window function ${typeof fn === 'string' ? JSON.stringify(fn) : ''} — expected one of: ${Object.keys(WINDOW_FUNCTIONS).join(', ')}${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  const as = args.as
+  if (typeof as !== 'string' || as.length === 0) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${opPath}.as`,
+      `${opPath}.as: expected a non-empty output alias${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  const orderBy = args.order_by
+  if (!Array.isArray(orderBy) || orderBy.length === 0) {
+    pushError(
+      errors,
+      'invalid-operation-args',
+      relation,
+      `${opPath}.order_by`,
+      `${opPath}.order_by: expected a non-empty list of order terms${ESCAPE_HATCH_HINT}`,
+    )
+    return null
+  }
+  const orderTerms: string[] = []
+  const orderedColumns = new Set<string>()
+  for (let index = 0; index < orderBy.length; index++) {
+    const at = `${opPath}.order_by[${index}]`
+    const term = orderBy[index]
+    if (!isRecord(term)) {
+      pushError(
+        errors,
+        'invalid-operation-args',
+        relation,
+        at,
+        `${at}: expected an order term mapping with column and direction${ESCAPE_HATCH_HINT}`,
+      )
+      continue
+    }
+    rejectUnknownArgs(term, ['column', 'direction'], at, relation, errors)
+    const column = term.column
+    if (typeof column !== 'string' || column.length === 0) {
+      pushError(
+        errors,
+        'invalid-operation-args',
+        relation,
+        `${at}.column`,
+        `${at}.column: expected a non-empty column name${ESCAPE_HATCH_HINT}`,
+      )
+      continue
+    }
+    if (orderedColumns.has(column)) {
+      pushError(
+        errors,
+        'invalid-operation-args',
+        relation,
+        `${at}.column`,
+        `${at}.column: duplicate order column ${JSON.stringify(column)}${ESCAPE_HATCH_HINT}`,
+      )
+      continue
+    }
+    const direction = term.direction
+    if (direction !== 'asc' && direction !== 'desc') {
+      pushError(
+        errors,
+        'invalid-operation-args',
+        relation,
+        `${at}.direction`,
+        `${at}.direction: expected "asc" or "desc"${ESCAPE_HATCH_HINT}`,
+      )
+      continue
+    }
+    orderedColumns.add(column)
+    orderTerms.push(`${quoteIdentifier(column)} ${direction.toUpperCase()}`)
+  }
+  let partition: string | null = null
+  if (args.partition_by !== undefined) {
+    const columns = readColumnList(args.partition_by, `${opPath}.partition_by`, relation, errors, {
+      allowEmpty: false,
+    })
+    partition =
+      columns === null ? null : columns.map((column) => quoteIdentifier(column)).join(', ')
+  }
+  if (errors.length > before) return null
+
+  const over = `${partition === null ? '' : `PARTITION BY ${partition} `}ORDER BY ${orderTerms.join(', ')}`
+  return `SELECT\n  *,\n  ${WINDOW_FUNCTIONS[fn] as string}() OVER (${over}) AS ${quoteIdentifier(as)}\nFROM ${input}`
 }
 
 function renderPredicate(

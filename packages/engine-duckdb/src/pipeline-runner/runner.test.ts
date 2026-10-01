@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { DuckDBInstance } from '@duckdb/node-api'
+import { compilePipeline } from '@assay/pipeline'
 import type { PipelineCompilePlan, PipelineV1 } from '@assay/pipeline'
 import { PipelineRunError, PipelineRunRefusalError } from './errors.js'
 import { PipelineRunGuard } from './guard.js'
@@ -337,5 +342,123 @@ describe('executePipeline — refusals before any engine call', () => {
     }
     const error = await expectRefusal(broken, {})
     expect(error.reason).toBe('not-runnable')
+  })
+})
+
+/**
+ * Real-engine pins for p2-3 (additive, test-only): execute the compiler's NEW
+ * op SQL and its table/export statements on the real native `@duckdb/node-api`
+ * engine. The engine source is untouched — these tests bind the compiled
+ * statements directly to a connection.
+ */
+describe('executePipeline — p2-3 compiled statements on the real engine (node-api)', () => {
+  it('runs the compiled join/aggregate/window statements and reads the result', async () => {
+    const instance = await DuckDBInstance.create(':memory:')
+    const conn = await instance.connect()
+    await conn.run('CREATE TABLE customers (customer_id INTEGER, country VARCHAR)')
+    await conn.run("INSERT INTO customers VALUES (1, 'SG'), (2, 'SG'), (3, 'US')")
+    await conn.run('CREATE TABLE policies (customer_id INTEGER, premium INTEGER)')
+    await conn.run('INSERT INTO policies VALUES (1, 10), (2, 20)')
+
+    const compiled = compilePipeline({
+      version: 1,
+      pipeline: 'engine-pins',
+      nodes: [
+        { id: 'customers', type: 'source', source: { kind: 'file' } },
+        { id: 'policies', type: 'source', source: { kind: 'file' } },
+        {
+          id: 'joined',
+          type: 'transform',
+          inputs: ['customers', 'policies'],
+          operation: {
+            operation: 'join',
+            args: { left: 'customers', right: 'policies', on: ['customer_id'] },
+          },
+        },
+        {
+          id: 'agg',
+          type: 'transform',
+          materialization: 'table',
+          inputs: ['joined'],
+          operation: {
+            operation: 'aggregate',
+            args: {
+              group_by: ['country'],
+              aggregations: [{ op: 'sum', column: 'premium', as: 'total' }],
+            },
+          },
+        },
+        {
+          id: 'ranked',
+          type: 'transform',
+          inputs: ['agg'],
+          operation: {
+            operation: 'window',
+            args: {
+              function: 'row_number',
+              order_by: [{ column: 'total', direction: 'desc' }],
+              as: 'rank',
+            },
+          },
+        },
+      ],
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) return
+
+    for (const node of compiled.plan.nodes) {
+      if (node.statement === null || node.statement === undefined) continue
+      await conn.run(node.statement)
+    }
+
+    const reader = await conn.runAndReadAll(
+      'SELECT country, CAST(total AS INTEGER) AS total, CAST("rank" AS INTEGER) AS rank FROM ranked ORDER BY "rank"',
+    )
+    expect(reader.getRowObjects()).toEqual([{ country: 'SG', total: 30, rank: 1 }])
+  })
+
+  it('runs a compiled export COPY into a temp scratch dir and re-reads it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-p23-export-'))
+    const previousCwd = process.cwd()
+    try {
+      mkdirSync(join(dir, 'assay-exports'), { recursive: true })
+      // The compiled destination is relative (the OPFS `assay-exports/`
+      // convention); run from the temp scratch dir so nothing lands in the repo.
+      process.chdir(dir)
+      const instance = await DuckDBInstance.create(':memory:')
+      const conn = await instance.connect()
+      await conn.run('CREATE TABLE raw (id INTEGER, label VARCHAR)')
+      await conn.run("INSERT INTO raw VALUES (1, 'a'), (2, 'b')")
+
+      const compiled = compilePipeline({
+        version: 1,
+        pipeline: 'engine-export',
+        nodes: [
+          { id: 'raw', type: 'source', source: { kind: 'file' } },
+          {
+            id: 'out',
+            type: 'transform',
+            materialization: 'export',
+            inputs: ['raw'],
+            operation: { operation: 'select-columns', args: { columns: ['id', 'label'] } },
+          },
+        ],
+      })
+      expect(compiled.ok).toBe(true)
+      if (!compiled.ok) return
+
+      const out = compiled.plan.nodes.find((node) => node.nodeId === 'out')
+      expect(out?.statementKind).toBe('export')
+      await conn.run(out?.statement as string)
+
+      expect(existsSync(join(dir, 'assay-exports', 'assay-export-out.parquet'))).toBe(true)
+      const reader = await conn.runAndReadAll(
+        "SELECT CAST(count(*) AS INTEGER) AS n FROM read_parquet('assay-exports/assay-export-out.parquet')",
+      )
+      expect(reader.getRowObjects()).toEqual([{ n: 2 }])
+    } finally {
+      process.chdir(previousCwd)
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

@@ -100,7 +100,7 @@ const PIPELINE_NAMES = [
 ]
 
 const SOURCE_KINDS = ['file', 'table', 'dataset', 'object-store']
-const OPERATIONS = ['filter', 'select-columns', 'rename', 'cast', 'join', 'aggregate']
+const OPERATIONS = ['filter', 'select-columns', 'rename', 'cast', 'join', 'aggregate', 'window']
 const SCALARS: PipelineValue[] = [null, true, false, 0, 1, -2, 1.5, '', 'x', 'a"b', 'ünï']
 
 /**
@@ -285,8 +285,9 @@ export function renderAlternateYaml(rng: TestRng, pipeline: PipelineV1): string 
 }
 
 /**
- * The serialized node body (mirrors `serialize.ts`): the AST's `config` field
- * is spread for `diff`, whose opaque body lives directly at the node level.
+ * The serialized node body (mirrors `serialize.ts`): the p2-2 settled shapes
+ * live directly at the node level (`diff` = `input` + `against`), and an
+ * absent-default `materialization` is omitted (one shape per meaning).
  */
 function nodeBody(node: PipelineNode): Record<string, unknown> {
   switch (node.type) {

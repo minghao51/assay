@@ -9,6 +9,7 @@ import { parsePipeline } from './parse.js'
 import { serializePipeline } from './serialize.js'
 import { validatePipeline } from './dag.js'
 import { isDataNode, materializationOf } from './ast.js'
+import { compilePipeline } from './compile/index.js'
 
 const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures/pipeline')
 
@@ -85,6 +86,42 @@ describe('golden pipeline fixtures', () => {
     // §5 is parse-verified rather than overclaimed as canonical text.
     expect(literal).not.toBe(canonicalGolden)
     expect(serializePipeline(parsed.pipeline)).toBe(canonicalGolden)
+  })
+
+  it('architecture-example.yaml compiles its executable subgraph (p2-3 closes the §5 divergence)', () => {
+    const text = readFileSync(join(FIXTURE_DIR, 'architecture-example.yaml'), 'utf8')
+    const parsed = parsePipeline(text)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+
+    // The full §5 document still refuses its P2-gated classes — and only
+    // those: the structured filter and the compiled join no longer diverge.
+    const full = compilePipeline(parsed.pipeline)
+    expect(full.ok).toBe(false)
+    if (!full.ok) {
+      expect(full.errors.map((error) => error.code)).toEqual([
+        'reserved-node-class',
+        'reserved-node-class',
+      ])
+    }
+
+    // Dropping the gated nodes leaves the §5 data subgraph, which now compiles.
+    const dataOnly = {
+      ...parsed.pipeline,
+      nodes: parsed.pipeline.nodes.filter(
+        (node) => node.type !== 'validate' && node.type !== 'publish',
+      ),
+    }
+    const compiled = compilePipeline(dataOnly)
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) return
+    const byId = new Map(compiled.plan.nodes.map((node) => [node.nodeId, node]))
+    expect(byId.get('sg_customers')?.sql).toBe(
+      `SELECT\n  *\nFROM "customers"\nWHERE ("country" = 'SG')`,
+    )
+    expect(byId.get('customer_policies')?.sql).toBe(
+      'SELECT\n  *\nFROM "sg_customers"\nINNER JOIN "policies" USING ("customer_id")',
+    )
   })
 
   it('reserved-nodes.yaml pins the settled diff/validate/publish AST shapes (p2-2)', () => {
@@ -172,6 +209,10 @@ describe('golden pipeline fixtures', () => {
       readFileSync(join(FIXTURE_DIR, 'architecture-example.yaml'), 'utf8'),
     )
     expect(example.ok).toBe(true)
+    // The probe is now doubly invalid (reserved `assay_*` id AND a diff node
+    // missing `input`); the pinned `reserved-identifier` depends on that check
+    // short-circuiting before shape validation — regenerate with that order
+    // preserved or re-pin the expected code here.
     const refusal = parsePipeline(
       readFileSync(join(FIXTURE_DIR, 'reserved-namespace-refusal.yaml'), 'utf8'),
     )
