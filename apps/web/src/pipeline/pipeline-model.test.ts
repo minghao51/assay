@@ -84,6 +84,27 @@ nodes:
       path: raw.parquet
 `
 
+/** An ephemeral-mode transform (the p2-6 fix-round badge pin). */
+const EPHEMERAL_DOC = `version: 1
+pipeline: ephemeral_pin
+nodes:
+  customers:
+    type: source
+    source:
+      kind: file
+      path: ../csv/customers.csv
+  scratch:
+    type: transform
+    inputs: [ customers ]
+    materialization: ephemeral
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG
+`
+
 function load(text = DOC): {
   pipeline: PipelineV1
   plan: PipelineCompilePlan
@@ -149,6 +170,14 @@ nodes:
       .map((view) => view.nodeId)
       .sort()
     expect(outputs).toEqual(['b', 'joined'])
+  })
+
+  it('shows an ephemeral node from its plan mode, not the view statement kind', () => {
+    const { pipeline, plan, order } = load(EPHEMERAL_DOC)
+    const views = buildNodeViews(pipeline, order, plan)
+    expect(views.find((view) => view.nodeId === 'scratch')?.materialization).toBe('ephemeral')
+    // A source base relation has no statement and stays `source`.
+    expect(views.find((view) => view.nodeId === 'customers')?.materialization).toBe('source')
   })
 
   it('includes gate nodes from the IR order with a `gate` badge and no SQL', () => {

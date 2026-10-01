@@ -16,7 +16,7 @@
  * level, ordered lists — never a visual graph per ADR 0032/queue discipline),
  * and a schema delta between a node's input and output schemas.
  */
-import type { PipelineCompilePlan, PipelineNode, PipelineV1 } from '@assay/pipeline'
+import type { CompiledNode, PipelineCompilePlan, PipelineNode, PipelineV1 } from '@assay/pipeline'
 import type {
   NodeMaterialization,
   NodeRunStatus,
@@ -55,7 +55,7 @@ export interface PipelineNodeView {
   readonly isOutput: boolean
 }
 
-/** The engine-visible materialization badge for one plan entry. */
+/** The engine-visible materialization badge for one plan entry's statement kind. */
 function badgeForStatementKind(kind: string | undefined): NodeMaterialization {
   switch (kind) {
     case 'source':
@@ -66,6 +66,30 @@ function badgeForStatementKind(kind: string | undefined): NodeMaterialization {
       return 'export'
     default:
       return 'view'
+  }
+}
+
+/**
+ * The pre-run materialization badge for one compiled plan entry. The plan's
+ * effective ADR 0033 `materialization` mode distinguishes `ephemeral` from
+ * the view mechanism (both compile to `statementKind: 'view'`), so the mode
+ * outranks the statement kind. A source base relation has no statement and
+ * stays `source`; a caller-supplied plan that omits the mode falls back to
+ * `statementKind`.
+ */
+export function materializationBadgeFor(planNode: CompiledNode | undefined): NodeMaterialization {
+  if (planNode?.statementKind === 'source') return 'source'
+  switch (planNode?.materialization) {
+    case 'ephemeral':
+      return 'ephemeral'
+    case 'table':
+      return 'table'
+    case 'export':
+      return 'export'
+    case 'view':
+      return 'view'
+    default:
+      return badgeForStatementKind(planNode?.statementKind)
   }
 }
 
@@ -112,7 +136,7 @@ export function buildNodeViews(
     const sql = planNode?.sql ?? null
     const materialization: NodeMaterialization =
       ir.type === 'source' || ir.type === 'transform' || ir.type === 'sql'
-        ? badgeForStatementKind(planNode?.statementKind)
+        ? materializationBadgeFor(planNode)
         : 'gate'
     return [
       {

@@ -410,6 +410,10 @@ export function PipelinePanel({
             {view.map((node: PipelineNodeView) => {
               const status = statuses[node.nodeId] ?? 'pending'
               const outcome = viewable[node.nodeId]
+              // The runner's outcome is authoritative once a node executed;
+              // before the run the plan's effective mode distinguishes
+              // `ephemeral` from `view` (p2-6 fix round).
+              const materialization = outcome?.materialization ?? node.materialization
               const binding = bindings[node.nodeId]
               const contractBinding = contractBindings[node.nodeId]
               const gateText = gateStatusText(outcome)
@@ -429,9 +433,9 @@ export function PipelinePanel({
                   <span
                     className="pipeline-node-materialization"
                     data-testid="pipeline-node-materialization"
-                    data-materialization={node.materialization}
+                    data-materialization={materialization}
                   >
-                    {materializationLabel(node.materialization)}
+                    {materializationLabel(materialization)}
                   </span>{' '}
                   <span data-testid="pipeline-node-relation">
                     relation <code>{sanitizePipelineText(node.relation)}</code>

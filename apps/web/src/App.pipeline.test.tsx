@@ -21,8 +21,8 @@ import type { DatasetSession } from './sessions/session-reset'
  * dataset / pipeline / source, pops one entry), the engine client (open/
  * schema/rowCount/fetchRange for the dataset session + a DEFERRED
  * `runPipeline` the tests resolve or reject to simulate the runner), and
- * SqlPanel (replaced by a recording stub so the output-jump seam is
- * observable without an engine). parsePipeline/validatePipeline/
+ * SqlPanel (replaced by a recording stub so the pipeline surface renders
+ * without an engine). parsePipeline/validatePipeline/
  * compilePipeline run FOR REAL — the honest empty/error states are exercised
  * against the real p-1/p-2 surfaces.
  *
@@ -45,8 +45,9 @@ import type { DatasetSession } from './sessions/session-reset'
  *    settled failed/canceled surfaces carry neither the picked source file
  *    name nor any dataset text (a mutant embedding picked names into the
  *    failure `message` must fail here);
- * 5. outputs → the EXISTING result surface: "View output" hands the exact
- *    quoted `SELECT * FROM "relation"` to the SQL pane's `runRequest` seam;
+ * 5. outputs → the grid-native preview (p2-6): "Preview output" opens the
+ *    materialized relation through the p2-1 handle op, driving the EXISTING
+ *    grid model/schema surfaces (never a SQL-result detour);
  * 6. privacy: picked file names never render (ADR 0025); a rejecting
  *    source pick degrades to the typed bind-failed alert (the open path's
  *    honest-degradation pattern, per node), and run-failure messages render
@@ -180,6 +181,27 @@ nodes:
             value: SG
 `
 
+/** An ephemeral-mode transform pipeline for the p2-6 fix-round badge pin. */
+const EPHEMERAL_PIPELINE_YAML = `version: 1
+pipeline: ephemeral_pin
+nodes:
+  customers:
+    type: source
+    source:
+      kind: file
+      path: ../csv/customers.csv
+  scratch:
+    type: transform
+    inputs: [ customers ]
+    materialization: ephemeral
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG
+`
+
 /** Malformed: an unsupported version — the total parser's located error. */
 const BAD_YAML = `version: 2
 pipeline: future
@@ -224,6 +246,10 @@ const h = vi.hoisted(() => ({
   failPreview: false,
   /** When set, only the preview's INPUT relation rejects (no schema delta). */
   failPreviewInput: false,
+  /** When set, the p2-1 handle op parks until `resolvePreviewRegistration` runs. */
+  deferPreview: false,
+  /** Resolves the parked `registerPipelineRelation` (an in-flight preview delivery). */
+  resolvePreviewRegistration: null as null | ((handle: EngineTableHandle) => void),
 }))
 
 vi.mock('@assay/data-sources/browser', () => ({
@@ -263,14 +289,16 @@ vi.mock('./lib/engine', () => ({
     overlayRowCount: async () => 5,
     fetchOverlayRange: async () => ({ batch: fakeBatch(), hasMore: false }),
     // p2-6: the p2-1 view-as-handle op the grid-native preview opens through.
-    registerPipelineRelation: async (relation: string) => {
+    registerPipelineRelation: (relation: string): Promise<EngineTableHandle> => {
       if (h.failPreview || (h.failPreviewInput && relation !== 'by_country')) {
-        throw new Error('relation not addressable')
+        return Promise.reject(new Error('relation not addressable'))
       }
-      return {
-        kind: 'table' as const,
-        id: `handle:${relation}`,
+      if (h.deferPreview) {
+        return new Promise<EngineTableHandle>((resolve) => {
+          h.resolvePreviewRegistration = resolve
+        })
       }
+      return Promise.resolve({ kind: 'table', id: `handle:${relation}` })
     },
     dispose: async () => {},
     /**
@@ -306,7 +334,11 @@ vi.mock('./lib/engine', () => ({
   },
 }))
 
-/** The SQL-pane recording stub: the output-jump seam, made observable. */
+/**
+ * The SQL-pane stub: `App` renders it, but the pipeline journey no longer
+ * routes through it — the grid-native preview does. Kept minimal so the
+ * pipeline surface renders without an engine.
+ */
 vi.mock('./sql/SqlPanel', () => ({
   SqlPanel: (props: { runRequest?: { readonly sql: string } | null }) => (
     <div data-testid="sql-request-record">
@@ -362,6 +394,8 @@ afterEach(() => {
   h.failGetFile = false
   h.failPreview = false
   h.failPreviewInput = false
+  h.deferPreview = false
+  h.resolvePreviewRegistration = null
 })
 
 describe('pipeline panel — placement and empty states (p-5)', () => {
@@ -551,7 +585,7 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     expect(screen.queryByTestId('pipeline-source-bind-error')).toBeNull()
   })
 
-  it('runs serialized with live per-node status, completes with counts, and jumps the output to the SQL pane', async () => {
+  it('runs serialized with live per-node status, completes with counts, and opens the output grid-native', async () => {
     render(<App />)
     await openDataset('primary.jsonl')
     await openPipeline(PIPELINE_YAML)
@@ -1091,6 +1125,43 @@ describe('pipeline panel — gates, contracts, lineage, badges, preview (p2-6)',
     expect(within(dumpRow).queryByTestId('pipeline-preview-open')).toBeNull()
   })
 
+  it('keeps an ephemeral node’s badge before and after the run (never flips to view)', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(EPHEMERAL_PIPELINE_YAML)
+
+    const badge = (): HTMLElement => {
+      const row = document.querySelector(
+        '[data-testid="pipeline-node"][data-node-id="scratch"]',
+      ) as HTMLElement
+      return within(row).getByTestId('pipeline-node-materialization')
+    }
+    // Pre-run: the plan's effective ADR 0033 mode — the `view` statement kind
+    // an ephemeral node compiles to is not its badge.
+    expect(badge().getAttribute('data-materialization')).toBe('ephemeral')
+    expect(badge().textContent).toBe('ephemeral')
+
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.({
+        status: 'completed',
+        nodes: [
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+          { nodeId: 'scratch', relation: 'scratch', rowCount: 2, materialization: 'ephemeral' },
+        ],
+      })
+    })
+    // The p2-4 outcome is authoritative post-run; it stays `ephemeral`.
+    expect(badge().getAttribute('data-materialization')).toBe('ephemeral')
+    expect(badge().textContent).toBe('ephemeral')
+  })
+
   it('degrades an unparseable contract honestly and refuses the run with the node disclosed', async () => {
     render(<App />)
     await openDataset('primary.jsonl')
@@ -1244,5 +1315,82 @@ describe('pipeline session hook — in-flight run serialization (p-5, reviewer r
       })
     })
     expect(result.current.runState.kind).toBe('canceled')
+  })
+})
+
+describe('pipeline session hook — stale-preview lifecycle (p2-6, fix round)', () => {
+  /** Load the fixture pipeline and bind its single source through the picker. */
+  async function loadAndBind(result: {
+    current: ReturnType<typeof usePipelineSession>
+  }): Promise<void> {
+    h.queue.push(yamlFile('pipeline-pin.yaml', PIPELINE_YAML))
+    await act(async () => {
+      result.current.openPipelineFile()
+    })
+    h.queue.push(datasetFile('source-dataset.parquet'))
+    await act(async () => {
+      result.current.bindSourceDataset('customers')
+    })
+  }
+
+  it('closes an open preview and drops a late preview delivery when a run starts', async () => {
+    const { result } = renderHook(() => usePipelineSession({ session: stubSession() }))
+    await loadAndBind(result)
+
+    // (a) An open (ready) preview is closed the moment a run starts.
+    await act(async () => {
+      result.current.openPreview('by_country')
+    })
+    expect(result.current.preview.kind).toBe('ready')
+    await act(async () => {
+      result.current.run()
+    })
+    expect(result.current.preview.kind).toBe('closed')
+
+    // Settle the run so a second run is permitted below.
+    await act(async () => {
+      h.resolveRun?.({
+        status: 'canceled',
+        nodes: [
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'view' },
+        ],
+        nextNodeId: 'renamed',
+      })
+    })
+
+    // (b) A deferred preview delivery that resolves AFTER the run started is
+    // dropped by the generation token — it must not reopen the preview.
+    h.deferPreview = true
+    await act(async () => {
+      result.current.openPreview('by_country')
+    })
+    expect(result.current.preview.kind).toBe('loading')
+    await act(async () => {
+      result.current.run()
+    })
+    expect(result.current.preview.kind).toBe('closed')
+    await act(async () => {
+      h.resolvePreviewRegistration?.({ kind: 'table', id: 'handle:by_country' })
+    })
+    expect(result.current.preview.kind).toBe('closed')
+  })
+
+  it("closes the previous pipeline's preview when a new pipeline document opens", async () => {
+    const { result } = renderHook(() => usePipelineSession({ session: stubSession() }))
+    await loadAndBind(result)
+
+    await act(async () => {
+      result.current.openPreview('by_country')
+    })
+    expect(result.current.preview.kind).toBe('ready')
+
+    // A new pipeline document supersedes the old one; its preview must not
+    // survive into the new document.
+    h.queue.push(yamlFile('pipeline-pin-2.yaml', PIPELINE_YAML))
+    await act(async () => {
+      result.current.openPipelineFile()
+    })
+    expect(result.current.fileState.kind).toBe('loaded')
+    expect(result.current.preview.kind).toBe('closed')
   })
 })

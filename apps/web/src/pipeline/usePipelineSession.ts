@@ -61,7 +61,7 @@ import type { DatasetSession } from '../sessions/session-reset'
 import { engineClient } from '../lib/engine'
 import { DuckDbGridProvider } from '../grid/provider'
 import { readContractFile } from '../validation/contract-import'
-import { buildNodeViews } from './pipeline-model'
+import { buildNodeViews, materializationBadgeFor } from './pipeline-model'
 import type {
   ContractBindingState,
   NodeMaterialization,
@@ -105,17 +105,7 @@ function dataSubgraph(pipeline: PipelineV1): PipelineV1 {
 /** The engine-facing materialization badge for one loaded node (defensive default). */
 function badgeFor(fileState: PipelineFileState, nodeId: string): NodeMaterialization {
   if (fileState.kind !== 'loaded') return 'view'
-  const node = fileState.plan.nodes.find((entry) => entry.nodeId === nodeId)
-  switch (node?.statementKind) {
-    case 'source':
-      return 'source'
-    case 'table':
-      return 'table'
-    case 'export':
-      return 'export'
-    default:
-      return 'view'
-  }
+  return materializationBadgeFor(fileState.plan.nodes.find((entry) => entry.nodeId === nodeId))
 }
 
 /** Map a runner node result to the panel's value-free outcome shape. */
