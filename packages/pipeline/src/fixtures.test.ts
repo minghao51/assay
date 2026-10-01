@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { parsePipeline } from './parse.js'
 import { serializePipeline } from './serialize.js'
 import { validatePipeline } from './dag.js'
+import { isDataNode, materializationOf } from './ast.js'
 
 const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../fixtures/pipeline')
 
@@ -86,19 +87,53 @@ describe('golden pipeline fixtures', () => {
     expect(serializePipeline(parsed.pipeline)).toBe(canonicalGolden)
   })
 
-  it('reserved-nodes.yaml carries the diff body spread at the node level (no config: wrapper)', () => {
+  it('reserved-nodes.yaml pins the settled diff/validate/publish AST shapes (p2-2)', () => {
     const text = readFileSync(join(FIXTURE_DIR, 'reserved-nodes.yaml'), 'utf8')
     const parsed = parsePipeline(text)
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) return
-    const compare = parsed.pipeline.nodes.find((node) => node.id === 'compare')
-    expect(compare).toEqual({
+    const byId = new Map(parsed.pipeline.nodes.map((node) => [node.id, node]))
+    expect(byId.get('compare')).toEqual({
       id: 'compare',
       type: 'diff',
-      config: { input: 'clean', against: 'raw' },
+      input: 'clean',
+      against: 'raw',
     })
-    if (compare?.type !== 'diff') throw new Error('expected the compare node to be a diff')
-    expect(Object.hasOwn(compare.config, 'config')).toBe(false)
+    expect(byId.get('gate')).toEqual({
+      id: 'gate',
+      type: 'validate',
+      input: 'clean',
+      contract: 'contracts/clean.yaml',
+    })
+    expect(byId.get('out')).toEqual({
+      id: 'out',
+      type: 'publish',
+      input: 'clean',
+      requires: ['gate'],
+    })
+    // No stale opaque `config` wrapper survives the settlement.
+    expect(
+      byId.get('compare') !== undefined && Object.hasOwn(byId.get('compare') ?? {}, 'config'),
+    ).toBe(false)
+  })
+
+  it('materialization-modes.yaml pins the new field and the absent-default node (p2-2)', () => {
+    const text = readFileSync(join(FIXTURE_DIR, 'materialization-modes.yaml'), 'utf8')
+    const parsed = parsePipeline(text)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const modes = new Map(
+      parsed.pipeline.nodes.filter(isDataNode).map((node) => [node.id, materializationOf(node)]),
+    )
+    expect(modes.get('raw')).toBe('view') // absent default
+    expect(modes.get('cached')).toBe('cache')
+    expect(modes.get('ephemeral_step')).toBe('ephemeral')
+    expect(modes.get('staged')).toBe('table')
+    expect(modes.get('incr')).toBe('incremental')
+    expect(modes.get('exported')).toBe('export')
+    // The absent-default node must not carry the key in the AST.
+    const raw = parsed.pipeline.nodes.find((node) => node.id === 'raw')
+    expect(raw !== undefined && Object.hasOwn(raw, 'materialization')).toBe(false)
   })
 
   it('customer_portfolio.yaml is the architecture §5 example surface', () => {

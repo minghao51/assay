@@ -18,10 +18,12 @@
  *    guessing what another version's keys would mean.
  *
  * Node bodies are interpreted per class:
- * - `source`/`transform`/`sql` are fully typed (P1 executable classes);
+ * - `source`/`transform`/`sql` are fully typed (P1 executable classes), and
+ *   each accepts an optional `materialization` mode (ADR 0033; p2-2);
  * - `validate`/`publish` are typed to the shapes architecture §5 settles but
  *   carry no execution semantics (P2);
- * - `diff`'s body is opaque (`config`) because §5 does not settle its shape.
+ * - `diff` is typed to the p2-2 settled shape (`input` + `against`, both
+ *   table references) — the opaque-body era is over.
  *
  * Two p-2 format tightenings live here:
  * - **exact-or-rejected numbers** — every number in the IR (generic configs
@@ -41,9 +43,15 @@
 import { isAlias, isMap, isNode, isScalar, isSeq } from 'yaml'
 import type { Alias, Document, Scalar, YAMLMap, YAMLSeq } from 'yaml'
 import { canonicalDecimal, isExactDecimalLiteral } from '@assay/contracts'
-import { PIPELINE_IR_VERSION, canonicalNodeOrder, isPipelineNodeClass } from './ast.js'
+import {
+  PIPELINE_IR_VERSION,
+  canonicalNodeOrder,
+  isMaterializationMode,
+  isPipelineNodeClass,
+} from './ast.js'
 import type {
   DiffNode,
+  MaterializationMode,
   OperationConfig,
   PipelineMap,
   PipelineNode,
@@ -65,29 +73,31 @@ type YamlNode = Alias | Scalar | YAMLMap | YAMLSeq | null
 const ROOT_PATH = 'document'
 
 const ROOT_KEYS = ['version', 'pipeline', 'nodes'] as const
-const SOURCE_NODE_KEYS = ['type', 'source'] as const
-const TRANSFORM_NODE_KEYS = ['type', 'inputs', 'operation'] as const
-const SQL_NODE_KEYS = ['type', 'inputs', 'sql'] as const
+const SOURCE_NODE_KEYS = ['type', 'materialization', 'source'] as const
+const TRANSFORM_NODE_KEYS = ['type', 'materialization', 'inputs', 'operation'] as const
+const SQL_NODE_KEYS = ['type', 'materialization', 'inputs', 'sql'] as const
 const VALIDATE_NODE_KEYS = ['type', 'input', 'contract'] as const
 const PUBLISH_NODE_KEYS = ['type', 'input', 'requires'] as const
+const DIFF_NODE_KEYS = ['type', 'input', 'against'] as const
 
 /**
  * Where each YAML key is legal — powers the "misplaced key" hint on
- * unknown-key errors. `diff` intentionally accepts any key in its body
- * (opaque P2 shape), so it is absent from this table.
+ * unknown-key errors.
  */
 const KEY_LOCATIONS: Readonly<Record<string, readonly string[]>> = {
   version: ['the document root'],
   pipeline: ['the document root'],
   nodes: ['the document root'],
   type: ['a pipeline node'],
+  materialization: ['a source, transform, or sql node'],
   source: ['a source node'],
   inputs: ['a transform or sql node'],
   operation: ['a transform node'],
   sql: ['a sql node'],
-  input: ['a validate or publish node'],
+  input: ['a validate, diff, or publish node'],
   contract: ['a validate node'],
   requires: ['a publish node'],
+  against: ['a diff node'],
 }
 
 /**
@@ -344,6 +354,57 @@ function wantNonEmptyString(ctx: WalkContext, entry: Entry, path: string): strin
     return null
   }
   return text
+}
+
+/**
+ * Read an optional data-node `materialization` mode (ADR 0033; p2-2). The
+ * seven mode strings are exact (case-sensitive, no surrounding whitespace);
+ * the default `view` normalizes to absent so the AST keeps one shape per
+ * meaning. A mistyped or misspelled key never reaches here — it is an
+ * unknown key (see `rejectUnknownKeys`).
+ */
+function walkMaterialization(
+  ctx: WalkContext,
+  entry: Entry,
+  path: string,
+): MaterializationMode | undefined {
+  const resolved = resolveNode(ctx, entry.valueNode)
+  const { kind, value } = scalarKind(resolved)
+  if (kind !== 'string') {
+    pushError(
+      ctx,
+      'wrong-type',
+      `${path}: expected a materialization mode (one of: ephemeral, view, table, cache, incremental, export, publish), got ${describeYamlValue(resolved)}`,
+      path,
+      valuePosition(entry, resolved),
+    )
+    return undefined
+  }
+  const text = value as string
+  if (!isMaterializationMode(text)) {
+    pushError(
+      ctx,
+      'out-of-range',
+      `${path}: unknown materialization mode ${JSON.stringify(text)} — expected one of: ephemeral, view, table, cache, incremental, export, publish`,
+      path,
+      valuePosition(entry, resolved),
+    )
+    return undefined
+  }
+  // The default is spelled by absence (one shape per meaning).
+  return text === 'view' ? undefined : text
+}
+
+/** The node's optional `materialization` mode, or `undefined` when absent. */
+function readMaterialization(
+  ctx: WalkContext,
+  entries: Map<string, Entry>,
+  path: string,
+): MaterializationMode | undefined {
+  const entry = entries.get('materialization')
+  return entry === undefined
+    ? undefined
+    : walkMaterialization(ctx, entry, `${path}.materialization`)
 }
 
 /** A finite number (NaN/.inf rejected — generic config carries no honest infinities). */
@@ -783,7 +844,7 @@ function walkNode(
     case 'publish':
       return walkPublishNode(ctx, id, entries, path, childSeen)
     case 'diff':
-      return walkDiffNode(ctx, id, entries, path, childSeen)
+      return walkDiffNode(ctx, id, entries, path)
   }
 }
 
@@ -795,6 +856,7 @@ function walkSourceNode(
   seen: Set<object>,
 ): SourceNode | null {
   rejectUnknownKeys(ctx, entries, SOURCE_NODE_KEYS, `in the source node at "${path}"`, path)
+  const materialization = readMaterialization(ctx, entries, path)
   const sourceEntry = entries.get('source')
   if (sourceEntry === undefined) {
     pushError(
@@ -809,7 +871,12 @@ function walkSourceNode(
   }
   const source = walkSourceConfig(ctx, sourceEntry, `${path}.source`, seen)
   if (source === null) return null
-  return { id, type: 'source', source }
+  return {
+    id,
+    type: 'source',
+    ...(materialization !== undefined ? { materialization } : {}),
+    source,
+  }
 }
 
 function walkTransformNode(
@@ -820,6 +887,7 @@ function walkTransformNode(
   seen: Set<object>,
 ): TransformNode | null {
   rejectUnknownKeys(ctx, entries, TRANSFORM_NODE_KEYS, `in the transform node at "${path}"`, path)
+  const materialization = readMaterialization(ctx, entries, path)
   const inputsEntry = entries.get('inputs')
   let inputs: string[] | null = null
   if (inputsEntry === undefined) {
@@ -860,7 +928,13 @@ function walkTransformNode(
     operation = walkOperation(ctx, operationEntry, `${path}.operation`, seen)
   }
   if (inputs === null || operation === null) return null
-  return { id, type: 'transform', inputs, operation }
+  return {
+    id,
+    type: 'transform',
+    ...(materialization !== undefined ? { materialization } : {}),
+    inputs,
+    operation,
+  }
 }
 
 function walkSqlNode(
@@ -871,6 +945,7 @@ function walkSqlNode(
   seen: Set<object>,
 ): SqlNode | null {
   rejectUnknownKeys(ctx, entries, SQL_NODE_KEYS, `in the sql node at "${path}"`, path)
+  const materialization = readMaterialization(ctx, entries, path)
   const inputsEntry = entries.get('inputs')
   let inputs: string[] | null = null
   if (inputsEntry === undefined) {
@@ -900,7 +975,13 @@ function walkSqlNode(
     sql = wantNonEmptyString(ctx, sqlEntry, `${path}.sql`)
   }
   if (inputs === null || sql === null) return null
-  return { id, type: 'sql', inputs, sql }
+  return {
+    id,
+    type: 'sql',
+    ...(materialization !== undefined ? { materialization } : {}),
+    inputs,
+    sql,
+  }
 }
 
 function walkValidateNode(
@@ -980,18 +1061,41 @@ function walkDiffNode(
   id: string,
   entries: Map<string, Entry>,
   path: string,
-  seen: Set<object>,
 ): DiffNode | null {
-  // `diff`'s shape is not settled by architecture §5: carry the body opaquely
-  // (P2 owns its interpretation). `type` is the only consumed key.
-  const config: Record<string, PipelineValue> = {}
-  for (const [key, entry] of entries) {
-    if (key === 'type') continue
-    const value = walkValue(ctx, entry.valueNode, `${path}.${key}`, seen)
-    if (value === undefined) continue
-    defineOwn(config, key, value)
+  // p2-2 settled shape: exactly `input` + `against`, both table references.
+  // The opaque-body era is over — unknown keys are rejected like every other
+  // class (one shape per meaning).
+  rejectUnknownKeys(ctx, entries, DIFF_NODE_KEYS, `in the diff node at "${path}"`, path)
+  const inputEntry = entries.get('input')
+  let input: string | null = null
+  if (inputEntry === undefined) {
+    pushError(
+      ctx,
+      'missing-key',
+      `${path}: missing required key "input" — a diff node names the table compared`,
+      path,
+      null,
+      id,
+    )
+  } else {
+    input = wantReference(ctx, inputEntry, `${path}.input`)
   }
-  return { id, type: 'diff', config: config as PipelineMap }
+  const againstEntry = entries.get('against')
+  let against: string | null = null
+  if (againstEntry === undefined) {
+    pushError(
+      ctx,
+      'missing-key',
+      `${path}: missing required key "against" — a diff node names the table compared against`,
+      path,
+      null,
+      id,
+    )
+  } else {
+    against = wantReference(ctx, againstEntry, `${path}.against`)
+  }
+  if (input === null || against === null) return null
+  return { id, type: 'diff', input, against }
 }
 
 interface RootBuild {

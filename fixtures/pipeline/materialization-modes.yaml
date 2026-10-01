@@ -1,0 +1,43 @@
+version: 1
+pipeline: materialization_modes
+nodes:
+  cached:
+    type: transform
+    materialization: cache
+    inputs: [ raw ]
+    operation:
+      filter:
+        expression: n > 0
+  ephemeral_step:
+    type: transform
+    materialization: ephemeral
+    inputs: [ raw ]
+    operation:
+      filter:
+        expression: n > 0
+  exported:
+    type: sql
+    materialization: export
+    inputs: [ staged ]
+    sql: |
+      SELECT * FROM staged
+  incr:
+    type: sql
+    materialization: incremental
+    inputs: [ staged ]
+    sql: |
+      SELECT * FROM staged
+  raw:
+    type: source
+    source:
+      kind: file
+      path: ./raw.parquet
+  staged:
+    type: transform
+    materialization: table
+    inputs: [ raw ]
+    operation:
+      select-columns:
+        columns:
+          - id
+          - n

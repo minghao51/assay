@@ -3,7 +3,9 @@
 import { describe, expect, it } from 'vitest'
 import { isAlias, parseDocument } from 'yaml'
 import { parsePipeline } from './parse.js'
+import { serializePipeline } from './serialize.js'
 import { validatePipelineDocument } from './validate.js'
+import { MATERIALIZATION_MODES, materializationOf } from './ast.js'
 import type { PipelineError } from './errors.js'
 import type { PipelineV1 } from './ast.js'
 
@@ -91,24 +93,34 @@ nodes:
     expect(pipeline.nodes).toContainEqual({ id: 'out', type: 'publish', input: 'a' })
   })
 
-  it('carries a diff body opaquely as a spread mapping (no config wrapper)', () => {
+  it('parses the settled diff shape (input + against, both table refs)', () => {
     const pipeline = parseOk(`${BASE}
   d:
     type: diff
     against: a
-    nested:
-      deep: [1, 2, 3]
+    input: a
 `)
-    const node = pipeline.nodes.find((candidate) => candidate.id === 'd')
-    expect(node).toEqual({
+    expect(pipeline.nodes.find((candidate) => candidate.id === 'd')).toEqual({
       id: 'd',
       type: 'diff',
-      config: { against: 'a', nested: { deep: [1, 2, 3] } },
+      input: 'a',
+      against: 'a',
     })
-    // The body's keys live directly on the node's `config`, not under a
-    // nested `config:` key (the `config:` spelling is data, not structure).
-    if (node?.type !== 'diff') throw new Error('expected the d node to be a diff')
-    expect(Object.hasOwn(node.config, 'config')).toBe(false)
+  })
+
+  it('requires both diff references and rejects unknown diff keys', () => {
+    expect(codesOf(`${BASE}\n  d:\n    type: diff\n    input: a\n`)).toEqual(['missing-key'])
+    expect(codesOf(`${BASE}\n  d:\n    type: diff\n    against: a\n`)).toEqual(['missing-key'])
+    const errors = errorsOf(
+      `${BASE}\n  d:\n    type: diff\n    input: a\n    against: a\n    nested: 1\n`,
+    )
+    expect(errors.map((error) => error.code)).toEqual(['unknown-key'])
+  })
+
+  it('rejects a sequence for a diff reference', () => {
+    expect(codesOf(`${BASE}\n  d:\n    type: diff\n    input: [a]\n    against: a\n`)).toEqual([
+      'wrong-type',
+    ])
   })
 
   it('parses validate and publish (typed-but-reserved)', () => {
@@ -390,6 +402,10 @@ describe('parsePipeline: deep alias resolution stays a hard failure (p2-1 (f))',
   })
 
   it('degrades a non-RangeError resolver failure to typed, located errors', () => {
+    // Rider (p2-2): this injected-Error probe guards the catch-degrade branch
+    // of `resolveNode`; it is NOT a duplicate of the natural `*missing` probe
+    // below — that one resolves without throwing and would still pass under a
+    // `throw error` widening mutant.
     // The other half of the catch narrowing (item (f)): a non-RangeError
     // resolver throw must NOT propagate — it degrades to null and is reported
     // as a typed, located document error, mirroring the RangeError probe.
@@ -406,15 +422,28 @@ describe('parsePipeline: deep alias resolution stays a hard failure (p2-1 (f))',
       result = validatePipelineDocument(doc, text)
     }).not.toThrow()
     expect(result?.errors.length).toBeGreaterThan(0)
-    expect(result?.errors.every((error) => typeof error.code === 'string')).toBe(true)
+    for (const error of result?.errors ?? []) {
+      expect(error.code).toBeTruthy()
+      expect(error.path).toBeTruthy()
+      expect(typeof error.line).toBe('number')
+      expect(typeof error.column).toBe('number')
+    }
   })
 
   it('still degrades an ordinary unresolvable alias to a typed, located error', () => {
+    // Rider (p2-2): the natural `*missing` probe does NOT inject a throw, so
+    // it passes even under a `throw error` widening mutant; the injected-Error
+    // probe above is what guards the catch-degrade branch. Keep both.
     const text = `${BASE}\n  x:\n    type: source\n    source: *missing\n`
     const doc = parseDocument(text, { uniqueKeys: false })
     const { errors } = validatePipelineDocument(doc, text)
     expect(errors.length).toBeGreaterThan(0)
-    expect(errors.every((error) => typeof error.code === 'string')).toBe(true)
+    for (const error of errors) {
+      expect(error.code).toBeTruthy()
+      expect(error.path).toBeTruthy()
+      expect(typeof error.line).toBe('number')
+      expect(typeof error.column).toBe('number')
+    }
   })
 })
 
@@ -530,6 +559,137 @@ describe('parsePipeline: sql nodes', () => {
     expect(
       parseOk(`${BASE}\n  x:\n    type: sql\n    inputs: []\n    sql: SELECT 1\n`).nodes,
     ).toContainEqual({ id: 'x', type: 'sql', inputs: [], sql: 'SELECT 1' })
+  })
+})
+
+describe('parsePipeline: materialization (p2-2; ADR 0033)', () => {
+  it('accepts all seven logical modes on a data node and defaults to view', () => {
+    for (const mode of MATERIALIZATION_MODES) {
+      const pipeline = parseOk(
+        `${BASE}\n  x:\n    type: source\n    materialization: ${mode}\n    source: {kind: file}\n`,
+      )
+      const node = pipeline.nodes.find((candidate) => candidate.id === 'x')
+      expect(node?.type, mode).toBe('source')
+      if (node?.type !== 'source') continue
+      if (mode === 'view') {
+        // The default normalizes to absent (one shape per meaning).
+        expect(Object.hasOwn(node, 'materialization'), mode).toBe(false)
+      } else {
+        expect(node.materialization, mode).toBe(mode)
+      }
+      expect(materializationOf(node), mode).toBe(mode)
+    }
+  })
+
+  it('applies to source, transform, and sql (data-port classes)', () => {
+    const pipeline = parseOk(`${BASE}
+  s:
+    type: source
+    materialization: table
+    source: {kind: file}
+  t:
+    type: transform
+    materialization: cache
+    inputs: [s]
+    operation: {filter: {}}
+  q:
+    type: sql
+    materialization: export
+    inputs: [t]
+    sql: SELECT 1
+`)
+    expect(pipeline.nodes).toContainEqual({
+      id: 's',
+      type: 'source',
+      materialization: 'table',
+      source: { kind: 'file' },
+    })
+    expect(pipeline.nodes).toContainEqual({
+      id: 't',
+      type: 'transform',
+      materialization: 'cache',
+      inputs: ['s'],
+      operation: { operation: 'filter', args: {} },
+    })
+    expect(pipeline.nodes).toContainEqual({
+      id: 'q',
+      type: 'sql',
+      materialization: 'export',
+      inputs: ['t'],
+      sql: 'SELECT 1',
+    })
+  })
+
+  it('defaults to view when absent and never spells the default out', () => {
+    const pipeline = parseOk(`${BASE}\n  x:\n    type: source\n    source: {kind: file}\n`)
+    const node = pipeline.nodes.find((candidate) => candidate.id === 'x')
+    if (node === undefined) throw new Error('expected the x node')
+    expect(node.type).toBe('source')
+    if (node.type !== 'source') throw new Error('expected the x node to be a source')
+    expect(materializationOf(node)).toBe('view')
+    expect(Object.hasOwn(node, 'materialization')).toBe(false)
+  })
+
+  it('rejects non-string materialization values as wrong-type', () => {
+    const errors = errorsOf(
+      `${BASE}\n  x:\n    type: source\n    materialization: 3\n    source: {kind: file}\n`,
+    )
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ code: 'wrong-type', path: 'nodes.x.materialization' })
+  })
+
+  it('rejects unknown, wrong-case, and whitespace-padded modes as located out-of-range', () => {
+    for (const mode of ['mystery', 'View', "' view'", "'view '"]) {
+      const errors = errorsOf(
+        `${BASE}\n  x:\n    type: source\n    materialization: ${mode}\n    source: {kind: file}\n`,
+      )
+      expect(
+        errors.map((error) => error.code),
+        mode,
+      ).toEqual(['out-of-range'])
+      expect(errors[0], mode).toMatchObject({ path: 'nodes.x.materialization' })
+      expect(typeof errors[0]?.line, mode).toBe('number')
+      expect(typeof errors[0]?.column, mode).toBe('number')
+    }
+  })
+
+  it('rejects the British spelling and the typo key as unknown-key', () => {
+    for (const key of ['materialisation', 'materalization']) {
+      const errors = errorsOf(
+        `${BASE}\n  x:\n    type: source\n    ${key}: table\n    source: {kind: file}\n`,
+      )
+      expect(
+        errors.map((error) => error.code),
+        key,
+      ).toEqual(['unknown-key'])
+      expect(errors[0]?.path, key).toBe('nodes.x')
+    }
+  })
+
+  it('rejects materialization on gated nodes (validate/diff/publish)', () => {
+    const validate = errorsOf(
+      `${BASE}\n  x:\n    type: validate\n    input: a\n    contract: c.yaml\n    materialization: table\n`,
+    )
+    expect(validate.map((error) => error.code)).toEqual(['unknown-key'])
+    const publish = errorsOf(
+      `${BASE}\n  x:\n    type: publish\n    input: a\n    materialization: table\n`,
+    )
+    expect(publish.map((error) => error.code)).toEqual(['unknown-key'])
+    const diff = errorsOf(
+      `${BASE}\n  x:\n    type: diff\n    input: a\n    against: a\n    materialization: table\n`,
+    )
+    expect(diff.map((error) => error.code)).toEqual(['unknown-key'])
+  })
+
+  it('serializes a non-default mode and drops explicit view', () => {
+    const table = parseOk(
+      `${BASE}\n  x:\n    type: source\n    materialization: table\n    source: {kind: file}\n`,
+    )
+    expect(serializePipeline(table)).toContain('materialization: table')
+    const view = parseOk(
+      `${BASE}\n  x:\n    type: source\n    materialization: view\n    source: {kind: file}\n`,
+    )
+    expect(serializePipeline(view)).not.toContain('materialization')
   })
 })
 

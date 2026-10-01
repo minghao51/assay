@@ -8,13 +8,16 @@
  *
  * - Root keys in fixed order: `version`, `pipeline`, `nodes`.
  * - Node mapping keys ascending by id (code-unit order); node keys in fixed
- *   order: `type`, then the class-specific fields in their documented order.
- * - Within generic values (source config, operation args, opaque `diff` body)
- *   mapping keys are sorted ascending recursively — order in the *source* is
- *   not meaning, so canonical output depends on the AST only.
+ *   order: `type`, an optional `materialization` (data nodes only), then the
+ *   class-specific fields in their documented order (`diff` renders
+ *   `against` before `input`).
+ * - Within generic values (source config, operation args) mapping keys are
+ *   sorted ascending recursively — order in the *source* is not meaning, so
+ *   canonical output depends on the AST only.
  * - `inputs`/`requires` render as flow sequences (`[ a, b ]`); everything else
  *   is block style, 2-space indent, no line folding, single trailing newline.
- * - `publish.requires` is omitted when empty.
+ * - `publish.requires` is omitted when empty; `materialization` is omitted
+ *   when absent or the default `view` (one shape per meaning).
  * - Multi-line `sql` renders as a literal block by the library's canonical
  *   scalar styling.
  *
@@ -29,7 +32,7 @@
  * Purity: no React, no browser APIs, no engine (lint-enforced).
  */
 import { Document, stringify } from 'yaml'
-import { PIPELINE_IR_VERSION, compareNodeIds } from './ast.js'
+import { PIPELINE_IR_VERSION, compareNodeIds, isMaterializationMode } from './ast.js'
 import type { PipelineNode, PipelineV1 } from './ast.js'
 
 /** Serialize a pipeline to its canonical YAML form. Total; see the module doc. */
@@ -60,17 +63,20 @@ function serializeNode(doc: Document, node: PipelineNode): unknown {
     case 'source':
       return new Map<string, unknown>([
         ['type', 'source'],
+        ...materializationEntries(node),
         ['source', serializeSource(node.source)],
       ])
     case 'transform':
       return new Map<string, unknown>([
         ['type', 'transform'],
+        ...materializationEntries(node),
         ['inputs', doc.createNode(asStringList(node.inputs), { flow: true })],
         ['operation', serializeOperation(node.operation)],
       ])
     case 'sql':
       return new Map<string, unknown>([
         ['type', 'sql'],
+        ...materializationEntries(node),
         ['inputs', doc.createNode(asStringList(node.inputs), { flow: true })],
         ['sql', asText(node.sql)],
       ])
@@ -90,15 +96,28 @@ function serializeNode(doc: Document, node: PipelineNode): unknown {
       return new Map<string, unknown>(entries)
     }
     case 'diff':
+      // p2-2 settled shape; `against` before `input` matches the landed
+      // canonical fixture bytes (the pre-settlement sorted spread order).
       return new Map<string, unknown>([
         ['type', 'diff'],
-        ...sortedEntries(asRecord(node.config), (value) => toYamlValue(value)),
+        ['against', asText(node.against)],
+        ['input', asText(node.input)],
       ])
     default:
       // A caller bug behind a cast: emit a defensible minimal marker rather
       // than throwing. Not guaranteed to re-parse.
       return new Map<string, unknown>([['type', asText((node as { type?: unknown })?.type)]])
   }
+}
+
+/**
+ * The `materialization` entry for a data node: omitted when absent or the
+ * default `view` (the default is spelled by absence — one shape per meaning),
+ * and defensively omitted for a non-mode value behind a caller-bug cast.
+ */
+function materializationEntries(node: { readonly materialization?: unknown }): [string, unknown][] {
+  const mode = node?.materialization
+  return isMaterializationMode(mode) && mode !== 'view' ? [['materialization', mode]] : []
 }
 
 function serializeSource(source: unknown): unknown {

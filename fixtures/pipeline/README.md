@@ -25,7 +25,8 @@ Regeneration is therefore a deliberate, reviewed change. A fixture may carry
 | `cli_run.yaml` | CLI-friendly runnable pipeline (p-4): file source over `fixtures/csv/customers.csv`, rename + filter transforms, and a verbatim sql aggregate — the `assay pipeline run` end-to-end fixture |
 | `customer_portfolio.yaml` | Canonical form of the architecture §5 example — source/transform/sql plus the reserved validate/publish classes |
 | `hostile-names.yaml` | Hostile node ids and config keys (quotes, spaces, unicode, `__proto__`) |
+| `materialization-modes.yaml` | p2-2 materialization surface (ADR 0033): data nodes declaring `cache`/`ephemeral`/`table`/`export`/`incremental`, plus an absent-default (`view`) source |
 | `reserved-namespace-refusal.yaml` | Negative probe: an `assay_*` node id is refused (`reserved-identifier`) |
-| `reserved-nodes.yaml` | The reserved validate/diff/publish surface; `diff`'s body is carried opaquely and spread at the node level |
+| `reserved-nodes.yaml` | The reserved validate/diff/publish surface with the p2-2 settled shapes (`diff` = typed `input`+`against`; `validate` = `input`+`contract`; `publish` = `input`+`requires`) |
 
 Policy: synthetic data only — never commit real or sensitive data.

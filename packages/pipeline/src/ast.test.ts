@@ -45,7 +45,7 @@ describe('node-class vocabulary', () => {
         case 'publish':
           return { id: 'x', type, input: 'a' }
         case 'diff':
-          return { id: 'x', type, config: {} }
+          return { id: 'x', type, input: 'a', against: 'a' }
       }
     }
     expect(portTypeOf(node('source'))).toBe('data')

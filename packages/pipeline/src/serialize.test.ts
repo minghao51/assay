@@ -57,7 +57,7 @@ nodes:
 `)
   })
 
-  it('sorts operation args and diff config, and renders requires only when present', () => {
+  it('sorts operation args, renders the settled diff shape, and renders requires only when present', () => {
     const pipeline: PipelineV1 = {
       version: 1,
       pipeline: 'demo',
@@ -69,7 +69,7 @@ nodes:
           operation: { operation: 'join', args: { right: 's', left: 's', on: ['id'] } },
         },
         { id: 's', type: 'source', source: { kind: 'file' } },
-        { id: 'd', type: 'diff', config: { z: 1, a: 2 } },
+        { id: 'd', type: 'diff', input: 't', against: 's' },
         { id: 'p', type: 'publish', input: 't' },
         { id: 'p2', type: 'publish', input: 't', requires: ['d'] },
       ],
@@ -82,8 +82,8 @@ nodes:
         right: s`)
     expect(text).toContain(`  d:
     type: diff
-    a: 2
-    z: 1`)
+    against: s
+    input: t`)
     expect(text).toContain(`  p:
     type: publish
     input: t
@@ -92,6 +92,46 @@ nodes:
     type: publish
     input: t
     requires: [ d ]`)
+  })
+
+  it('emits a non-default materialization after type and omits the default', () => {
+    const pipeline: PipelineV1 = {
+      version: 1,
+      pipeline: 'demo',
+      nodes: [
+        { id: 'a', type: 'source', source: { kind: 'file' } },
+        { id: 'b', type: 'source', materialization: 'view', source: { kind: 'file' } },
+        {
+          id: 'c',
+          type: 'transform',
+          materialization: 'table',
+          inputs: ['a'],
+          operation: { operation: 'filter', args: {} },
+        },
+        { id: 'd', type: 'sql', materialization: 'export', inputs: ['c'], sql: 'SELECT 1' },
+      ],
+    }
+    const text = serializePipeline(pipeline)
+    // Absent and explicit `view` render identically (one shape per meaning).
+    expect(text).toContain(`  a:
+    type: source
+    source:`)
+    expect(text).toContain(`  b:
+    type: source
+    source:`)
+    expect(text).toContain(`  c:
+    type: transform
+    materialization: table
+    inputs: [ a ]`)
+    expect(text).toContain(`  d:
+    type: sql
+    materialization: export
+    inputs: [ c ]`)
+    // Byte-stable fixpoint: parse∘serialize keeps the explicit `view` absent.
+    const parsed = parsePipeline(text)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(serializePipeline(parsed.pipeline)).toBe(text)
   })
 
   it('is byte-identical regardless of node array order and generic key insertion order', () => {

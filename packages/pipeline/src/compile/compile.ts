@@ -23,11 +23,13 @@
  *
  * Compilation is scoped to the query text. It does **not** emit
  * `CREATE VIEW`/`CREATE TABLE`: materialization is p-3's runner decision
- * (architecture §8/§9), and the P1 IR carries no materialization mode. Each
- * compiled entry therefore exposes the `sql` query that computes the node's
- * output; sources have no query (they are base relations the runner
- * registers). The statements are overlay-agnostic: they read the base
- * relations named by node id and compose no grid/session overlays.
+ * (architecture §8/§9). The IR carries an optional per-node `materialization`
+ * mode (ADR 0033; p2-2) but this compiler ignores it — it emits the plain
+ * query that computes each node's output. Mapping a mode to DDL/COPY is p-3's
+ * concern. Each compiled entry therefore exposes the `sql` query that
+ * computes the node's output; sources have no query (they are base relations
+ * the runner registers). The statements are overlay-agnostic: they read the
+ * base relations named by node id and compose no grid/session overlays.
  *
  * A `sql` node's text is carried **verbatim** (after the classifier accepts
  * it): its declared `inputs` are resolved by DAG validation, but the

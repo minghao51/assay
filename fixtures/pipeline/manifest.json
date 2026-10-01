@@ -1,5 +1,5 @@
 {
-  "generator": "hand-authored canonical text fixtures (p-1; refusal probe added p-2)",
+  "generator": "hand-authored canonical text fixtures (p-1; refusal probe added p-2; materialization surface added p2-2)",
   "policy": "Golden Pipeline IR documents backing the round-trip, totality, and DAG-validation pins. Every listed fixture is canonical text (text === serialize(parse(text))) except architecture-example.yaml, which is the architecture §5 literal and is pinned to canonicalize to customer_portfolio.yaml, and reserved-namespace-refusal.yaml, which is a deliberate negative probe (parse must fail). Synthetic only; regenerate the sha256 values deliberately with the fixture change.",
   "files": [
     {
@@ -24,7 +24,13 @@
       "name": "hostile-names.yaml",
       "sha256": "54677e8f62c92118755157316b87e612f10e6b389e995f7f6df52a942ddd122f",
       "canonical": true,
-      "description": "Hostile node ids and config keys (quotes, spaces, unicode, __proto__) through the quoteIdentifier rules; diff body spread at the node level. The reserved assay_* node moved to reserved-namespace-refusal.yaml in p-2"
+      "description": "Hostile node ids and config keys (quotes, spaces, unicode, __proto__) through the quoteIdentifier rules. The reserved assay_* node moved to reserved-namespace-refusal.yaml in p-2"
+    },
+    {
+      "name": "materialization-modes.yaml",
+      "sha256": "8fd36413f645ea63a94a5e83727387a711f0cab37497b9029369786e09ae0317",
+      "canonical": true,
+      "description": "p2-2 materialization surface (ADR 0033): source/transform/sql nodes declaring cache/ephemeral/table/export/incremental plus an absent-default (view) source; canonical round-trip proof for the new field"
     },
     {
       "name": "reserved-namespace-refusal.yaml",
@@ -38,7 +44,7 @@
       "name": "reserved-nodes.yaml",
       "sha256": "18011f14235d0fcc715f3200c05383fb7bc82b72b2922adeff605caf511c3fe2",
       "canonical": true,
-      "description": "Reserved validate/diff/publish surface; diff's body is opaque and spread at the node level (architecture §5 does not settle it)"
+      "description": "Reserved validate/diff/publish surface with the p2-2 settled shapes: diff = typed input+against table refs, validate = input+contract, publish = input+requires"
     }
   ]
 }

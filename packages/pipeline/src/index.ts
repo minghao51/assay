@@ -17,10 +17,11 @@
  * four compiled operations is expressible as a `sql` node — see the escape-
  * hatch contract in `compile/compile.ts`.
  *
- * The three P1-executable classes are `source`, `transform`, `sql`; `validate`
- * and `publish` are typed to architecture §5's shapes but carry no execution
- * semantics (P2), and `diff`'s body is carried opaquely because §5 does not
- * settle it.
+ * The three P1-executable classes are `source`, `transform`, `sql`; each
+ * accepts an optional `materialization` mode (ADR 0033; p2-2, absent = `view`).
+ * `validate` and `publish` are typed to architecture §5's shapes but carry no
+ * execution semantics (P2), and `diff`'s p2-2 shape is the typed
+ * `{ input, against }` pair of table references.
  *
  * Export discipline mirrors `@assay/contracts`: property-test generators
  * (`property-testing.ts`) and the internal YAML node walk (`validate.ts`) stay
@@ -28,19 +29,27 @@
  */
 export {
   DATA_NODE_CLASSES,
+  DEFAULT_MATERIALIZATION,
   EXECUTABLE_NODE_CLASSES,
+  MATERIALIZATION_MODES,
   PIPELINE_IR_VERSION,
   PIPELINE_NODE_CLASSES,
   RESERVED_NODE_CLASSES,
   canonicalNodeOrder,
   compareNodeIds,
   isExecutableNodeClass,
+  isDataNode,
+  isMaterializationMode,
   isPipelineNodeClass,
+  materializationOf,
   portTypeOf,
 } from './ast.js'
 export type {
+  DataNode,
   DiffNode,
   ExecutableNodeClass,
+  MaterializationMode,
+  MaterializedNode,
   OperationConfig,
   PipelineIrVersion,
   PipelineMap,

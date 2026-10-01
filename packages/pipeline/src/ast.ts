@@ -18,10 +18,20 @@
  *   example (`input`/`contract`, `input`/`requires`); they parse and
  *   round-trip, but no execution semantics (gates, run order, contract
  *   resolution) are defined here — that is P2 (ADR 0035).
- * - `diff` has no shape in architecture §5, so its body is carried as an
- *   opaque, canonically serialized {@link PipelineMap}. Inventing a
- *   class-specific shape would over-commit a P1 schema to an unsettled P2
- *   decision.
+ * - `diff`'s shape is settled by p2-2: a typed `{ input, against }` pair of
+ *   table references (both consumed as data ports). The opaque-body era is
+ *   over — a diff node has exactly one shape.
+ *
+ * ## Materialization (p2-2; ADR 0033)
+ *
+ * Every **data-port** node class (`source`, `transform`, `sql`) may declare
+ * an optional `materialization` mode — a logical relation-persistence intent
+ * the execution backend maps to its own mechanism. The seven modes are ADR
+ * 0033's list; **absent means `view`** (the P1 session-view behavior). The
+ * AST keeps the field optional so absent stays absent (one shape per
+ * meaning); {@link materializationOf} reads the effective mode. Gated nodes
+ * (`validate`, `diff`, `publish`) produce verdicts, not relations, so they
+ * do not accept the key.
  *
  * ## Node identity and ports
  *
@@ -38,7 +48,7 @@
  *   mapping is a set of nodes; order is not meaning, so the parser sorts, the
  *   serializer sorts defensively, and round-trip is exact on canonical ASTs.
  * - `publish.requires` is absent when empty (one shape per meaning).
- * - Generic values (`source` config, operation args, `diff` config) are plain
+ * - Generic values (`source` config, operation args) are plain
  *   JSON-like values; the serializer recursively sorts mapping keys.
  *
  * Purity: types + helpers only — no React, no browser APIs, no engine, no
@@ -76,17 +86,16 @@ export type ReservedNodeClass = (typeof RESERVED_NODE_CLASSES)[number]
 /** A scalar a generic pipeline value may carry (matches YAML's plain scalars). */
 export type PipelineScalar = string | number | boolean | null
 
-/** A generic YAML mapping carried by the IR (source config, operation args, opaque bodies). */
+/** A generic YAML mapping carried by the IR (source config, operation args). */
 export interface PipelineMap {
   readonly [key: string]: PipelineValue
 }
 
 /**
  * A generic YAML value. Used where the IR deliberately carries an untyped
- * body: source configuration (per-kind fields), structured transform
- * operation arguments (the vocabulary is p-2's), and the reserved `diff`
- * body. Plain JSON-like values only — no anchors, tags, or aliases survive
- * parsing.
+ * body: source configuration (per-kind fields) and structured transform
+ * operation arguments (the vocabulary is p-2's). Plain JSON-like values only
+ * — no anchors, tags, or aliases survive parsing.
  */
 export type PipelineValue = PipelineScalar | readonly PipelineValue[] | PipelineMap
 
@@ -104,15 +113,45 @@ export interface OperationConfig {
   readonly args: PipelineMap
 }
 
+/** ADR 0033's seven logical materialization modes (lowercase, exact). */
+export const MATERIALIZATION_MODES = [
+  'ephemeral',
+  'view',
+  'table',
+  'cache',
+  'incremental',
+  'export',
+  'publish',
+] as const
+
+export type MaterializationMode = (typeof MATERIALIZATION_MODES)[number]
+
+/** The mode a data node has when it declares none: the P1 session-view behavior. */
+export const DEFAULT_MATERIALIZATION: MaterializationMode = 'view'
+
+/** Is `value` one of ADR 0033's logical materialization modes? */
+export function isMaterializationMode(value: unknown): value is MaterializationMode {
+  return typeof value === 'string' && (MATERIALIZATION_MODES as readonly string[]).includes(value)
+}
+
+/**
+ * The optional materialization field shared by the data-port node classes.
+ * `materialization` absent means {@link DEFAULT_MATERIALIZATION} (`view`); the
+ * AST never spells the default out (one shape per meaning).
+ */
+export interface MaterializedNode {
+  readonly materialization?: MaterializationMode
+}
+
 /** A source node — a dataset/table input. No input ports; its id is its output port. */
-export interface SourceNode {
+export interface SourceNode extends MaterializedNode {
   readonly id: string
   readonly type: 'source'
   readonly source: SourceConfig
 }
 
 /** A structured transform node (filter/cast/join/… — compiled to SQL in p-2). */
-export interface TransformNode {
+export interface TransformNode extends MaterializedNode {
   readonly id: string
   readonly type: 'transform'
   /** Table references this node consumes; at least one. */
@@ -121,12 +160,20 @@ export interface TransformNode {
 }
 
 /** An explicit SQL node (the canonical transform target, ADR 0029). */
-export interface SqlNode {
+export interface SqlNode extends MaterializedNode {
   readonly id: string
   readonly type: 'sql'
   /** Table references the SQL reads; may be empty for a constant query. */
   readonly inputs: readonly string[]
   readonly sql: string
+}
+
+/** The data-port node classes whose output is a relation (materialization applies). */
+export type DataNode = SourceNode | TransformNode | SqlNode
+
+/** Is `node` a data-port node (its output is a relation)? */
+export function isDataNode(node: PipelineNode): node is DataNode {
+  return node.type === 'source' || node.type === 'transform' || node.type === 'sql'
 }
 
 /** A validate node (reserved — ADR 0035 owns its execution semantics). */
@@ -149,12 +196,14 @@ export interface PublishNode {
   readonly requires?: readonly string[]
 }
 
-/** A diff node (reserved — architecture §5 does not settle its shape). */
+/** A diff node (p2-2 settled shape): compares two table references. */
 export interface DiffNode {
   readonly id: string
   readonly type: 'diff'
-  /** Opaque, canonically serialized body (P2 owns the shape). */
-  readonly config: PipelineMap
+  /** The table reference compared as the primary side. */
+  readonly input: string
+  /** The table reference compared against. */
+  readonly against: string
 }
 
 /** Any IR node. Discriminated by `type`. */
@@ -174,6 +223,14 @@ export interface PipelineV1 {
 
 /** The node classes whose output is a data relation (usable as a table reference). */
 export const DATA_NODE_CLASSES = EXECUTABLE_NODE_CLASSES
+
+/**
+ * The effective materialization mode of a data node: its declared mode, or
+ * {@link DEFAULT_MATERIALIZATION} (`view`) when absent (ADR 0033).
+ */
+export function materializationOf(node: DataNode): MaterializationMode {
+  return node.materialization ?? DEFAULT_MATERIALIZATION
+}
 
 /** Is `value` one of the recognized node classes? */
 export function isPipelineNodeClass(value: unknown): value is PipelineNodeClass {

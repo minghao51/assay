@@ -35,7 +35,7 @@ interface Ports {
   readonly gates: readonly string[]
 }
 
-/** The input ports of a node. `diff`'s body is opaque, so it has none in P1. */
+/** The input ports of a node. `diff` consumes its two compared tables as data ports. */
 function portsOf(node: PipelineNode): Ports {
   switch (node?.type) {
     case 'transform':
@@ -44,10 +44,11 @@ function portsOf(node: PipelineNode): Ports {
       return { data: asRefs(node.inputs), gates: [] }
     case 'validate':
       return { data: [node.input], gates: [] }
+    case 'diff':
+      return { data: [node.input, node.against], gates: [] }
     case 'publish':
       return { data: [node.input], gates: asRefs(node.requires) }
     case 'source':
-    case 'diff':
       return { data: [], gates: [] }
     default:
       return { data: [], gates: [] }

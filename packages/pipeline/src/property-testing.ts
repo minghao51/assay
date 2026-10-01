@@ -16,6 +16,7 @@
  */
 import { canonicalNodeOrder } from './ast.js'
 import type {
+  MaterializationMode,
   OperationConfig,
   PipelineMap,
   PipelineNode,
@@ -102,6 +103,25 @@ const SOURCE_KINDS = ['file', 'table', 'dataset', 'object-store']
 const OPERATIONS = ['filter', 'select-columns', 'rename', 'cast', 'join', 'aggregate']
 const SCALARS: PipelineValue[] = [null, true, false, 0, 1, -2, 1.5, '', 'x', 'a"b', 'ünï']
 
+/**
+ * The non-default materialization modes. `view` is deliberately excluded: the
+ * generator emits *canonical* ASTs, and an explicit `view` normalizes to
+ * absent at parse, so generating it would break round-trip identity.
+ */
+const MATERIALIZATIONS = [
+  'ephemeral',
+  'table',
+  'cache',
+  'incremental',
+  'export',
+  'publish',
+] as const satisfies readonly MaterializationMode[]
+
+/** A canonical materialization field: absent (the `view` default) or a non-default mode. */
+function genMaterialization(rng: TestRng): { materialization?: MaterializationMode } {
+  return rng.bool(0.4) ? {} : { materialization: rng.pick(MATERIALIZATIONS) }
+}
+
 /** A hostile-ish id from the pool, made unique against `used`. */
 function genId(rng: TestRng, used: Set<string>): string {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -176,6 +196,7 @@ export function genPipeline(rng: TestRng): PipelineV1 {
       nodes.push({
         id,
         type: 'source',
+        ...genMaterialization(rng),
         source: { kind: rng.pick(SOURCE_KINDS), path: `./${id}.parquet` },
       })
       dataIds.push(id)
@@ -188,13 +209,20 @@ export function genPipeline(rng: TestRng): PipelineV1 {
     }
     switch (classRoll) {
       case 1:
-        nodes.push({ id, type: 'transform', inputs: pickData(), operation: genOperation(rng) })
+        nodes.push({
+          id,
+          type: 'transform',
+          ...genMaterialization(rng),
+          inputs: pickData(),
+          operation: genOperation(rng),
+        })
         dataIds.push(id)
         break
       case 2:
         nodes.push({
           id,
           type: 'sql',
+          ...genMaterialization(rng),
           inputs: rng.bool(0.8) ? pickData() : [],
           sql: `SELECT *\nFROM "${rng.pick(dataIds)}"\n`,
         })
@@ -221,7 +249,13 @@ export function genPipeline(rng: TestRng): PipelineV1 {
         break
       }
       default: {
-        nodes.push({ id, type: 'diff', config: genArgs(rng) })
+        // p2-2 settled diff shape: two table references (data ports).
+        nodes.push({
+          id,
+          type: 'diff',
+          input: rng.pick(dataIds),
+          against: rng.pick(dataIds),
+        })
         break
       }
     }
@@ -257,15 +291,25 @@ export function renderAlternateYaml(rng: TestRng, pipeline: PipelineV1): string 
 function nodeBody(node: PipelineNode): Record<string, unknown> {
   switch (node.type) {
     case 'source':
-      return { type: 'source', source: node.source }
+      return {
+        type: 'source',
+        ...(node.materialization !== undefined ? { materialization: node.materialization } : {}),
+        source: node.source,
+      }
     case 'transform':
       return {
         type: 'transform',
+        ...(node.materialization !== undefined ? { materialization: node.materialization } : {}),
         inputs: node.inputs,
         operation: { [node.operation.operation]: node.operation.args },
       }
     case 'sql':
-      return { type: 'sql', inputs: node.inputs, sql: node.sql }
+      return {
+        type: 'sql',
+        ...(node.materialization !== undefined ? { materialization: node.materialization } : {}),
+        inputs: node.inputs,
+        sql: node.sql,
+      }
     case 'validate':
       return { type: 'validate', input: node.input, contract: node.contract }
     case 'publish':
@@ -275,7 +319,7 @@ function nodeBody(node: PipelineNode): Record<string, unknown> {
         ...(node.requires !== undefined ? { requires: node.requires } : {}),
       }
     case 'diff':
-      return { type: 'diff', ...node.config }
+      return { type: 'diff', against: node.against, input: node.input }
   }
 }
 
@@ -340,6 +384,11 @@ const GARBAGE = [
   // throws), not just clean documents.
   'assay_fuzz',
   '9007199254740993',
+  // p2-2 materialization spellings — the exact enum, wrong case, British
+  // spelling, and the typo key all exercise typed parse refusals.
+  'materialisation',
+  'materalization',
+  'View',
 ]
 
 /** Apply 1–3 random text mutations (delete/insert/duplicate-line/splice/alias-cycle). */

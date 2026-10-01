@@ -356,7 +356,7 @@ describe('compilePipeline: reserved and verbatim SQL', () => {
     const forType = (node: PipelineNode) => errorsOf(pipeline([source('raw'), node]))
     for (const [type, node] of [
       ['validate', { id: 'v', type: 'validate', input: 'raw', contract: 'c.yaml' } as PipelineNode],
-      ['diff', { id: 'd', type: 'diff', config: {} } as PipelineNode],
+      ['diff', { id: 'd', type: 'diff', input: 'raw', against: 'raw' } as PipelineNode],
       ['publish', { id: 'p', type: 'publish', input: 'raw' } as PipelineNode],
     ] as const) {
       const errors = forType(node)

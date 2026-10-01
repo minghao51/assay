@@ -54,11 +54,11 @@ describe('validatePipeline: accepted DAGs', () => {
     expect(result).toEqual({ ok: true, pipeline: pipelineOf([]), order: [] })
   })
 
-  it('accepts reserved nodes and an opaque diff body', () => {
+  it('accepts reserved nodes and a typed diff body', () => {
     const result = validatePipeline(
       pipelineOf([
         source('raw'),
-        { id: 'd', type: 'diff', config: { against: 'raw' } },
+        { id: 'd', type: 'diff', input: 'raw', against: 'raw' },
         { id: 'v', type: 'validate', input: 'raw', contract: 'c.yaml' },
         { id: 'p', type: 'publish', input: 'raw', requires: ['d', 'v'] },
       ]),
@@ -67,6 +67,47 @@ describe('validatePipeline: accepted DAGs', () => {
     if (!result.ok) return
     expect(result.order.indexOf('d')).toBeLessThan(result.order.indexOf('p'))
     expect(result.order.indexOf('v')).toBeLessThan(result.order.indexOf('p'))
+  })
+
+  it("treats a diff node's input and against as data ports (p2-2)", () => {
+    // Both references resolve to data nodes and become dependencies.
+    const result = validatePipeline(
+      pipelineOf([
+        source('raw'),
+        { id: 'clean', type: 'sql', inputs: ['raw'], sql: 'SELECT 1' },
+        { id: 'd', type: 'diff', input: 'clean', against: 'raw' },
+      ]),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.order.indexOf('raw')).toBeLessThan(result.order.indexOf('d'))
+    expect(result.order.indexOf('clean')).toBeLessThan(result.order.indexOf('d'))
+  })
+
+  it('flags an unresolved diff reference', () => {
+    const result = validatePipeline(
+      pipelineOf([source('raw'), { id: 'd', type: 'diff', input: 'raw', against: 'missing' }]),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors[0]).toMatchObject({ code: 'unresolved-reference', nodeId: 'd' })
+  })
+
+  it('flags a diff node referencing itself as port-type-shape', () => {
+    // `diff` produces a verdict (gated), so it cannot be a data input.
+    const result = validatePipeline(
+      pipelineOf([{ id: 'd', type: 'diff', input: 'd', against: 'd' }]),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.map((error) => error.code)).toContain('port-type-shape')
+  })
+
+  it('accepts identical input and against (a table compared with itself)', () => {
+    const result = validatePipeline(
+      pipelineOf([source('raw'), { id: 'd', type: 'diff', input: 'raw', against: 'raw' }]),
+    )
+    expect(result.ok).toBe(true)
   })
 })
 
@@ -237,7 +278,14 @@ function randomGraph(rng: TestRng): PipelineV1 {
 function referenceIsAcyclic(pipeline: PipelineV1): boolean {
   const deps = new Map<string, string[]>()
   for (const node of pipeline.nodes) {
-    deps.set(node.id, node.type === 'transform' || node.type === 'sql' ? [...node.inputs] : [])
+    deps.set(
+      node.id,
+      node.type === 'transform' || node.type === 'sql'
+        ? [...node.inputs]
+        : node.type === 'diff'
+          ? [node.input, node.against]
+          : [],
+    )
   }
   const state = new Map<string, 0 | 1 | 2>()
   const visit = (id: string): boolean => {
@@ -271,10 +319,11 @@ function dependenciesOf(node: PipelineNode): readonly string[] {
       return node.inputs
     case 'validate':
       return [node.input]
+    case 'diff':
+      return [node.input, node.against]
     case 'publish':
       return [node.input, ...(node.requires ?? [])]
     case 'source':
-    case 'diff':
       return []
   }
 }
