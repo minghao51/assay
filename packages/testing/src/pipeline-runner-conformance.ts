@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Pipeline-runner conformance suite (p-3).
+ * Pipeline-runner conformance suite (p-3; p2-4 gates + materialization).
  *
  * A dedicated suite (kept out of the generic data-engine conformance suite so
  * engines are not forced to grow a pipeline surface): it is parameterized
@@ -28,11 +28,27 @@
  * 6. `pipeline-relation-handle` — a materialized pipeline relation registers
  *    as a grid-addressable handle (its schema and row count resolve through
  *    the ordinary registry ops); a missing relation fails value-free.
+ * 7. `pipeline-validate-pass` — a `validate` node runs the M5 machinery with
+ *    a supplied parsed contract (C2) and its verdict is surfaced value-free.
+ * 8. `pipeline-validate-gated` — a failing validate (not consumed by a
+ *    publish) stops the run as a `gated` outcome naming the gate.
+ * 9. `pipeline-publish-gate` — a publish node whose `requires` gate failed is
+ *    a `publish-blocked` gated outcome; re-running with a passing contract
+ *    completes (re-run-after-fix).
+ * 10. `pipeline-diff-node` — a `diff` node runs the M6 row-diff machinery
+ *     against two session relations and surfaces value-free counts.
+ * 11. `pipeline-table-materialization` — a `table` node materializes a
+ *     DuckDB table (re-readable, and reported as a table by the engine).
+ * 12. `pipeline-export-materialization` — an `export` node writes a Parquet
+ *     artifact under `assay-exports/assay-pipeline-export-…` and no relation.
+ * 13. `pipeline-mode-refusals` — `publish`-mode, `cache`, `incremental`, and
+ *     export-with-consumers are typed refusals before execution.
  *
  * The fixture the subject stages must be the canonical 5-row customer dataset
- * (`customer_id` 1..5, `country` SG/US/SG/DE/US) so the pinned expectations
- * below hold. No dataset values are logged: the suite reports counts/ids only
- * and the failure detail may quote the suite's own synthetic expectations.
+ * (`customer_id` 1..5, `country` SG/US/SG/DE/US, NULL income on row 3) so the
+ * pinned expectations below hold. No dataset values are logged: the suite
+ * reports counts/ids only and the failure detail may quote the suite's own
+ * synthetic expectations.
  */
 import type { PipelineV1 } from '@assay/pipeline'
 
@@ -51,6 +67,20 @@ export interface PipelineRunnerConformanceNodeResult {
   readonly nodeId: string
   readonly relation: string
   readonly rowCount: number
+  /** How the node materialized: a data mode, `source`, or `gate` (p2-4). */
+  readonly materialization?: string
+  /** A gate node's value-free verdict (p2-4). */
+  readonly gate?: {
+    readonly class: string
+    readonly valid?: boolean
+    readonly violatedRules?: number
+    readonly added?: number
+    readonly removed?: number
+    readonly changed?: number
+    readonly blockedGates?: readonly string[]
+  }
+  /** An export node's OPFS artifact path (p2-4; value-free). */
+  readonly exportPath?: string
 }
 
 /** Opaque handle to a dataset the runner registered from a session relation. */
@@ -69,6 +99,25 @@ export type PipelineRunnerConformanceOutcome =
       readonly nodes: readonly PipelineRunnerConformanceNodeResult[]
       readonly nextNodeId: string | null
     }
+  | {
+      readonly status: 'gated'
+      readonly nodes: readonly PipelineRunnerConformanceNodeResult[]
+      readonly gatedAt: string
+      readonly gate: string
+      readonly nextNodeId: string | null
+    }
+
+/** A parsed contract (opaque to the suite) bound to a `validate` node (C2). */
+export interface PipelineRunnerConformanceContractBinding {
+  readonly nodeId: string
+  readonly contract: unknown
+}
+
+/** An explicit key set bound to a `diff` node (C2). */
+export interface PipelineRunnerConformanceDiffKeysBinding {
+  readonly nodeId: string
+  readonly keys: readonly string[]
+}
 
 export interface PipelineRunnerConformanceRunOptions {
   readonly sources?: readonly {
@@ -77,6 +126,10 @@ export interface PipelineRunnerConformanceRunOptions {
   }[]
   readonly guard?: PipelineRunnerConformanceGuard
   readonly onNode?: (nodeId: string) => void
+  /** Parsed contract bindings for `validate` nodes (p2-4). */
+  readonly contracts?: readonly PipelineRunnerConformanceContractBinding[]
+  /** Explicit key-set bindings for `diff` nodes (p2-4). */
+  readonly diffKeys?: readonly PipelineRunnerConformanceDiffKeysBinding[]
 }
 
 /** The runner surface the suite drives (the engine client's `runPipeline`). */
@@ -99,6 +152,11 @@ export interface PipelineRunnerConformanceRunner {
   ): Promise<readonly { readonly name: string; readonly type: string }[]>
   /** Total row count of a registered handle. */
   rowCount(handle: PipelineRunnerConformanceTableHandle): Promise<number>
+  /**
+   * The physical kind of a session relation (p2-4): `table`, `view`, or
+   * `missing`. Distinguishes `table` materialization from `view`.
+   */
+  relationKind(relation: string): Promise<'table' | 'view' | 'missing'>
 }
 
 export interface PipelineRunnerConformanceSubject {
@@ -119,6 +177,8 @@ export interface PipelineRunnerConformanceSubject {
     failurePartial(error: unknown): readonly string[]
     /** The engine's operation-error class (unknown handle/relation/format). */
     operation(error: unknown): boolean
+    /** The typed refusal reason discriminant (p2-4), or `null`. */
+    refusalReason(error: unknown): string | null
   }
 }
 
@@ -130,6 +190,13 @@ export const pipelineRunnerConformanceScenarioNames = [
   'pipeline-unknown-node-refusal',
   'pipeline-hostile-sql-refusal',
   'pipeline-relation-handle',
+  'pipeline-validate-pass',
+  'pipeline-validate-gated',
+  'pipeline-publish-gate',
+  'pipeline-diff-node',
+  'pipeline-table-materialization',
+  'pipeline-export-materialization',
+  'pipeline-mode-refusals',
 ] as const
 
 export type PipelineRunnerConformanceScenarioName =
@@ -231,6 +298,153 @@ function hostilePipeline(): PipelineV1 {
     version: 1,
     pipeline: 'conformance-hostile',
     nodes: [{ id: 'out', type: 'sql', inputs: [], sql: 'DROP TABLE customers' }],
+  }
+}
+
+/** A passing contract: `customer_id` is required and unique in the fixture. */
+function passingContract(): unknown {
+  return {
+    format: 'v1',
+    metadata: { name: 'conformance-pass', version: 1 },
+    columns: [{ name: 'customer_id', required: true, unique: true }],
+  }
+}
+
+/** A failing contract: `income` is NULL on row 3 (a real violation). */
+function failingContract(): unknown {
+  return {
+    format: 'v1',
+    metadata: { name: 'conformance-fail', version: 1 },
+    columns: [{ name: 'income', required: true }],
+  }
+}
+
+/** source → filter(SG) → validate(gate) → publish(out, requires gate). */
+function gatePipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'conformance-gate',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+      { id: 'gate', type: 'validate', input: 'sg', contract: 'contracts/gate.yaml' },
+      { id: 'out', type: 'publish', input: 'sg', requires: ['gate'] },
+    ],
+  }
+}
+
+/** source → filter(SG) → validate(gate); a terminal gate (no publish). */
+function terminalGatePipeline(): PipelineV1 {
+  const pipeline = gatePipeline()
+  return {
+    ...pipeline,
+    pipeline: 'conformance-terminal-gate',
+    nodes: pipeline.nodes.filter((node) => node.id !== 'out'),
+  }
+}
+
+/** source → filter(SG) → diff(compare sg against customers). */
+function diffPipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'conformance-diff',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+      { id: 'compare', type: 'diff', input: 'sg', against: 'customers' },
+    ],
+  }
+}
+
+/** source → table(SG filter) — a `table` materialization. */
+function tablePipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'conformance-table',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        materialization: 'table',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+    ],
+  }
+}
+
+/** source → export(out) — an `export` materialization. */
+function exportPipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'conformance-export',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'out',
+        type: 'sql',
+        materialization: 'export',
+        inputs: ['customers'],
+        sql: 'SELECT customer_id FROM customers',
+      },
+    ],
+  }
+}
+
+/** A data node declaring an unsupported mode (publish/cache/incremental). */
+function unsupportedModePipeline(mode: 'publish' | 'cache' | 'incremental'): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: `conformance-mode-${mode}`,
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'out',
+        type: 'sql',
+        materialization: mode,
+        inputs: ['customers'],
+        sql: 'SELECT customer_id FROM customers',
+      },
+    ],
+  }
+}
+
+/** An export node consumed by a second node (no relation to read). */
+function exportWithConsumersPipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'conformance-export-consumed',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'out',
+        type: 'sql',
+        materialization: 'export',
+        inputs: ['customers'],
+        sql: 'SELECT customer_id FROM customers',
+      },
+      { id: 'downstream', type: 'sql', inputs: ['out'], sql: 'SELECT customer_id FROM out' },
+    ],
   }
 }
 
@@ -476,6 +690,208 @@ const scenarios: Record<PipelineRunnerConformanceScenarioName, PipelineRunnerCon
           'the failure message must be value-free',
         )
         return { columns: columns.length, rowCount: 2, unknownRelationRefused: true }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-validate-pass': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const outcome = await runner.runPipeline(gatePipeline(), {
+          sources: [{ nodeId: 'customers', source }],
+          contracts: [{ nodeId: 'gate', contract: passingContract() }],
+        })
+        expectCondition(
+          outcome.status === 'completed',
+          `a passing validate must complete the run (got ${outcome.status})`,
+        )
+        if (outcome.status !== 'completed') fail('unreachable')
+        const gate = outcome.nodes.find((node) => node.nodeId === 'gate')
+        expectEqual(gate?.gate?.class, 'validate', 'the gate class')
+        expectEqual(gate?.gate?.valid, true, 'the validate verdict')
+        expectEqual(gate?.gate?.violatedRules, 0, 'the violated-rule count')
+        expectCondition(
+          outcome.nodes.some((node) => node.nodeId === 'out'),
+          'the publish node must run once its gate passed',
+        )
+        return { status: outcome.status, gateValid: true, publishRan: true }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-validate-gated': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const outcome = await runner.runPipeline(terminalGatePipeline(), {
+          sources: [{ nodeId: 'customers', source }],
+          contracts: [{ nodeId: 'gate', contract: failingContract() }],
+        })
+        expectCondition(
+          outcome.status === 'gated',
+          `a failing validate must gate the run (got ${outcome.status})`,
+        )
+        if (outcome.status !== 'gated') fail('unreachable')
+        expectEqual(outcome.gatedAt, 'gate', 'the gate the run stopped at')
+        expectEqual(outcome.gate, 'validation-failed', 'the gate class')
+        const gate = outcome.nodes.find((node) => node.nodeId === 'gate')
+        expectEqual(gate?.gate?.valid, false, 'the failed verdict')
+        expectEqual(gate?.gate?.violatedRules, 1, 'the violated-rule count')
+        // No node after the gate executed.
+        expectEqual(outcome.nodes.length, 3, 'the completed prefix')
+        return { gatedAt: outcome.gatedAt, gate: outcome.gate, nodes: outcome.nodes.length }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-publish-gate': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const sources = [{ nodeId: 'customers', source }]
+        const blocked = await runner.runPipeline(gatePipeline(), {
+          sources,
+          contracts: [{ nodeId: 'gate', contract: failingContract() }],
+        })
+        expectCondition(
+          blocked.status === 'gated',
+          `a publish whose gate failed must gate the run (got ${blocked.status})`,
+        )
+        if (blocked.status !== 'gated') fail('unreachable')
+        expectEqual(blocked.gatedAt, 'out', 'the blocking publish node')
+        expectEqual(blocked.gate, 'publish-blocked', 'the gate class')
+        const publish = blocked.nodes.find((node) => node.nodeId === 'out')
+        expectDeepEqual(publish?.gate?.blockedGates, ['gate'], 'the blocked gate list')
+
+        // Re-run after fixing the contract: the gate passes, the publish runs.
+        const completed = await runner.runPipeline(gatePipeline(), {
+          sources,
+          contracts: [{ nodeId: 'gate', contract: passingContract() }],
+        })
+        expectCondition(completed.status === 'completed', 'the fixed re-run must complete')
+        if (completed.status !== 'completed') fail('unreachable')
+        const published = completed.nodes.find((node) => node.nodeId === 'out')
+        expectEqual(published?.gate?.class, 'publish', 'the publish ran')
+        expectDeepEqual(published?.gate?.blockedGates, [], 'no blocked gates after the fix')
+        return { blockedAt: blocked.gatedAt, reRunStatus: completed.status }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-diff-node': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const outcome = await runner.runPipeline(diffPipeline(), {
+          sources: [{ nodeId: 'customers', source }],
+          diffKeys: [{ nodeId: 'compare', keys: ['customer_id'] }],
+        })
+        expectCondition(
+          outcome.status === 'completed',
+          `a diff node must complete the run (got ${outcome.status})`,
+        )
+        if (outcome.status !== 'completed') fail('unreachable')
+        const compare = outcome.nodes.find((node) => node.nodeId === 'compare')
+        expectEqual(compare?.gate?.class, 'diff', 'the diff class')
+        // sg (side A) = 2 rows; customers (side B) = 5 rows; keys match on 1/3.
+        expectEqual(compare?.gate?.added, 3, 'the added count')
+        expectEqual(compare?.gate?.removed, 0, 'the removed count')
+        expectEqual(compare?.gate?.changed, 0, 'the changed count')
+        return { added: 3, removed: 0, changed: 0 }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-table-materialization': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const outcome = await runner.runPipeline(tablePipeline(), {
+          sources: [{ nodeId: 'customers', source }],
+        })
+        expectCondition(
+          outcome.status === 'completed',
+          `a table node must complete the run (got ${outcome.status})`,
+        )
+        expectEqual(await runner.relationKind('sg'), 'table', 'the materialized relation kind')
+        const handle = await runner.registerRelation('sg')
+        expectEqual(await runner.rowCount(handle), 2, 'the table row count')
+        return { relationKind: 'table', rowCount: 2 }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-export-materialization': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const outcome = await runner.runPipeline(exportPipeline(), {
+          sources: [{ nodeId: 'customers', source }],
+        })
+        expectCondition(
+          outcome.status === 'completed',
+          `an export node must complete the run (got ${outcome.status})`,
+        )
+        if (outcome.status !== 'completed') fail('unreachable')
+        const exported = outcome.nodes.find((node) => node.nodeId === 'out')
+        expectEqual(exported?.materialization, 'export', 'the export materialization')
+        expectEqual(exported?.rowCount, 5, 'the exported row count')
+        const path = exported?.exportPath ?? ''
+        expectCondition(
+          path.startsWith('assay-exports/assay-pipeline-export-') && path.endsWith('.parquet'),
+          `the export path must use the pipeline prefix (got ${path})`,
+        )
+        // An export materializes no relation.
+        expectEqual(await runner.relationKind('out'), 'missing', 'no exported relation')
+        return { materialization: 'export', rowCount: 5, pathValueFree: true }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-mode-refusals': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const sources = [{ nodeId: 'customers', source }]
+        for (const mode of ['publish', 'cache', 'incremental'] as const) {
+          const error = await rejectionOf(
+            runner.runPipeline(unsupportedModePipeline(mode), { sources }),
+          )
+          expectCondition(error !== null, `the ${mode} mode must be refused`)
+          expectCondition(
+            subject.errors.refusal(error),
+            `the ${mode} mode must be the typed refusal class (got: ${errorMessage(error)})`,
+          )
+          expectEqual(
+            subject.errors.refusalReason(error),
+            'unsupported-materialization',
+            `the ${mode} refusal reason`,
+          )
+        }
+        const consumed = await rejectionOf(
+          runner.runPipeline(exportWithConsumersPipeline(), { sources }),
+        )
+        expectCondition(
+          subject.errors.refusal(consumed),
+          'an export with consumers must be refused',
+        )
+        expectEqual(
+          subject.errors.refusalReason(consumed),
+          'export-with-consumers',
+          'the export-consumer refusal reason',
+        )
+        // The refusals happened before execution: the engine is still usable.
+        const ok = await runner.runPipeline(happyPipeline(), { sources })
+        expectCondition(ok.status === 'completed', 'the engine must remain usable after refusals')
+        return { modesRefused: 4, reusableAfterRefusal: true }
       } finally {
         await subject.dispose(runner)
       }

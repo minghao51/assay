@@ -1641,33 +1641,35 @@ describe('DuckDbEngineClient.runPipeline', () => {
     })
     await flush()
     expect(worker.requestAt(2)).toMatchObject({
-      type: 'engine/pipeline-materialize',
+      type: 'engine/pipeline-execute',
       relation: 'sg',
     })
     worker.respond({
-      type: 'engine/pipeline-materialize-result',
+      type: 'engine/pipeline-execute-result',
       requestId: worker.requestAt(2).requestId,
       relation: 'sg',
+      materialization: 'view',
       rowCount: 2,
     })
     await flush()
     expect(worker.requestAt(3)).toMatchObject({
-      type: 'engine/pipeline-materialize',
+      type: 'engine/pipeline-execute',
       relation: 'out',
     })
     worker.respond({
-      type: 'engine/pipeline-materialize-result',
+      type: 'engine/pipeline-execute-result',
       requestId: worker.requestAt(3).requestId,
       relation: 'out',
+      materialization: 'view',
       rowCount: 2,
     })
 
     expect(await pending).toEqual({
       status: 'completed',
       nodes: [
-        { nodeId: 'customers', relation: 'customers', rowCount: 5 },
-        { nodeId: 'sg', relation: 'sg', rowCount: 2 },
-        { nodeId: 'out', relation: 'out', rowCount: 2 },
+        { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+        { nodeId: 'sg', relation: 'sg', rowCount: 2, materialization: 'view' },
+        { nodeId: 'out', relation: 'out', rowCount: 2, materialization: 'view' },
       ],
     })
   })
@@ -1683,6 +1685,9 @@ describe('DuckDbEngineClient.runPipeline', () => {
           relation: 'out',
           quotedRelation: '"out"',
           sql: 'DROP TABLE customers',
+          materialization: 'view',
+          statement: 'CREATE OR REPLACE VIEW "out" AS DROP TABLE customers',
+          statementKind: 'view',
         },
       ],
     })
@@ -1715,7 +1720,9 @@ describe('DuckDbEngineClient.runPipeline', () => {
     })
     expect(await pending).toEqual({
       status: 'canceled',
-      nodes: [{ nodeId: 'customers', relation: 'customers', rowCount: 5 }],
+      nodes: [
+        { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+      ],
       nextNodeId: 'sg',
     })
     // No node op was sent after cancellation.
@@ -1758,5 +1765,247 @@ describe('DuckDbEngineClient.runPipeline', () => {
     expect(failure.partial).toEqual([{ nodeId: 'customers', relation: 'customers' }])
     // The raw engine text is dropped, never echoed.
     expect(failure.message).not.toContain('customer values')
+  })
+
+  it('drives an export node through engine/pipeline-execute (p2-4)', async () => {
+    const { client, workers } = makeClient()
+    const pipeline: PipelineV1 = {
+      version: 1,
+      pipeline: 'client-export',
+      nodes: [
+        { id: 'customers', type: 'source', source: { kind: 'file' } },
+        {
+          id: 'out',
+          type: 'sql',
+          materialization: 'export',
+          inputs: ['customers'],
+          sql: 'SELECT customer_id FROM customers',
+        },
+      ],
+    }
+    const pending = client.runPipeline(pipeline, {
+      sources: [{ nodeId: 'customers', source: journeySource }],
+    })
+    await flush()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond({
+      type: 'engine/pipeline-source-result',
+      requestId: worker.requestAt(1).requestId,
+      relation: 'customers',
+      rowCount: 5,
+    })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/pipeline-execute',
+      materialization: 'export',
+    })
+    worker.respond({
+      type: 'engine/pipeline-execute-result',
+      requestId: worker.requestAt(2).requestId,
+      relation: 'out',
+      materialization: 'export',
+      rowCount: 5,
+      path: 'assay-exports/assay-pipeline-export-out.parquet',
+      bytes: 3,
+    })
+    const result = await pending
+    expect(result.status).toBe('completed')
+    if (result.status !== 'completed') return
+    expect(result.nodes.find((node) => node.nodeId === 'out')?.exportPath).toBe(
+      'assay-exports/assay-pipeline-export-out.parquet',
+    )
+  })
+
+  it('runs a validate gate through the M5 wire path (p2-4)', async () => {
+    const { client, workers } = makeClient()
+    const pipeline: PipelineV1 = {
+      version: 1,
+      pipeline: 'client-gate',
+      nodes: [
+        { id: 'customers', type: 'source', source: { kind: 'file' } },
+        { id: 'gate', type: 'validate', input: 'customers', contract: 'contracts/gate.yaml' },
+      ],
+    }
+    const plan: EngineValidationPlan = {
+      planKind: 'assay-validation-plan',
+      planVersion: 1,
+      contractName: 'gate',
+      contractVersion: 1,
+      relation: 'assay_pipeline_validation',
+      sampleLimit: 20,
+      rules: [
+        {
+          ruleId: 'columns[0].required',
+          path: 'columns[0].required',
+          kind: 'required',
+          column: 'customer_id',
+          outcome: 'row-samples',
+          sql: 'SELECT 1',
+        },
+      ],
+      summarySql: 'SELECT 1',
+    }
+    const pending = client.runPipeline(pipeline, {
+      sources: [{ nodeId: 'customers', source: journeySource }],
+      contracts: [{ nodeId: 'gate', contract: { fake: true } }],
+      compilers: { validate: () => ({ ok: true, plan }) },
+    })
+    await flush()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    worker.respond({
+      type: 'engine/pipeline-source-result',
+      requestId: worker.requestAt(1).requestId,
+      relation: 'customers',
+      rowCount: 5,
+    })
+    await flush()
+    expect(worker.requestAt(2)).toMatchObject({
+      type: 'engine/pipeline-handle',
+      relation: 'customers',
+    })
+    worker.respond({
+      type: 'engine/pipeline-handle-result',
+      requestId: worker.requestAt(2).requestId,
+      relation: 'customers',
+      tableId: 't1',
+    })
+    await flush()
+    expect(worker.requestAt(3)).toMatchObject({ type: 'engine/schema', tableId: 't1' })
+    worker.respond({
+      type: 'engine/schema-result',
+      requestId: worker.requestAt(3).requestId,
+      columns: [{ name: 'customer_id', type: 'BIGINT' }],
+    })
+    await flush()
+    expect(worker.requestAt(4)).toMatchObject({ type: 'engine/validate', tableId: 't1' })
+    worker.respond({
+      type: 'engine/validate-result',
+      requestId: worker.requestAt(4).requestId,
+      result: {
+        valid: true,
+        rowCount: 5,
+        rules: [
+          {
+            ruleId: 'columns[0].required',
+            outcome: 'row-samples',
+            failCount: 0,
+            failPercent: 0,
+            sampleFailures: [],
+          },
+        ],
+      },
+    })
+    const result = await pending
+    expect(result.status).toBe('completed')
+    if (result.status !== 'completed') return
+    expect(result.nodes.find((node) => node.nodeId === 'gate')?.gate).toEqual({
+      class: 'validate',
+      input: 'customers',
+      valid: true,
+      violatedRules: 0,
+    })
+  })
+
+  it('runs a diff node through engine/pipeline-diff (p2-4)', async () => {
+    const { client, workers } = makeClient()
+    const compiled = compileRowDiffPlan(
+      [
+        { name: 'customer_id', type: 'BIGINT' },
+        { name: 'country', type: 'VARCHAR' },
+      ],
+      [
+        { name: 'customer_id', type: 'BIGINT' },
+        { name: 'country', type: 'VARCHAR' },
+      ],
+      ['customer_id'],
+      { relationA: 'assay_pipeline_diff_a', relationB: 'assay_pipeline_diff_b' },
+    )
+    if (!compiled.ok) throw new Error('diff fixture compile failed')
+    const pipeline: PipelineV1 = {
+      version: 1,
+      pipeline: 'client-diff',
+      nodes: [
+        { id: 'a', type: 'source', source: { kind: 'file' } },
+        { id: 'b', type: 'source', source: { kind: 'file' } },
+        { id: 'compare', type: 'diff', input: 'a', against: 'b' },
+      ],
+    }
+    const pending = client.runPipeline(pipeline, {
+      sources: [
+        { nodeId: 'a', source: journeySource },
+        { nodeId: 'b', source: journeySource },
+      ],
+      diffKeys: [{ nodeId: 'compare', keys: ['customer_id'] }],
+      compilers: { diff: () => ({ ok: true, plan: compiled.plan }) },
+    })
+    await flush()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    let index = 1
+    for (const relation of ['a', 'b']) {
+      worker.respond({
+        type: 'engine/pipeline-source-result',
+        requestId: worker.requestAt(index).requestId,
+        relation,
+        rowCount: 2,
+      })
+      index += 1
+      await flush()
+    }
+    // schemaOf for both relations: handle + schema each.
+    for (const relation of ['a', 'b']) {
+      expect(worker.requestAt(index)).toMatchObject({
+        type: 'engine/pipeline-handle',
+        relation,
+      })
+      worker.respond({
+        type: 'engine/pipeline-handle-result',
+        requestId: worker.requestAt(index).requestId,
+        relation,
+        tableId: `t-${relation}`,
+      })
+      index += 1
+      await flush()
+      worker.respond({
+        type: 'engine/schema-result',
+        requestId: worker.requestAt(index).requestId,
+        columns: [
+          { name: 'customer_id', type: 'BIGINT' },
+          { name: 'country', type: 'VARCHAR' },
+        ],
+      })
+      index += 1
+      await flush()
+    }
+    expect(worker.requestAt(index)).toMatchObject({ type: 'engine/pipeline-diff' })
+    worker.respond({
+      type: 'engine/pipeline-diff-result',
+      requestId: worker.requestAt(index).requestId,
+      result: {
+        rowCountA: 2,
+        rowCountB: 2,
+        aspects: [
+          { aspect: 'added', count: 0, samples: [] },
+          { aspect: 'removed', count: 0, samples: [] },
+          { aspect: 'changed', count: 0, samples: [] },
+        ],
+      },
+    })
+    const result = await pending
+    expect(result.status).toBe('completed')
+    if (result.status !== 'completed') return
+    expect(result.nodes.find((node) => node.nodeId === 'compare')?.gate).toEqual({
+      class: 'diff',
+      input: 'a',
+      against: 'b',
+      added: 0,
+      removed: 0,
+      changed: 0,
+    })
   })
 })

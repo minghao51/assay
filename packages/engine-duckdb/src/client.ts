@@ -872,23 +872,40 @@ export class DuckDbEngineClient {
   }
 
   /**
-   * Execute a validated P1 pipeline (p-3): compile the IR (or take a compiled
-   * plan), then materialize every node in topological order — sources through
-   * the engine's registration path bound to the node relation, every other
-   * node as `CREATE OR REPLACE VIEW "<relation>" AS <sql>`. One explicit
+   * Execute a validated P1/p2 pipeline (p-3; p2-4 gates): compile the IR (or
+   * take a compiled plan), then execute every node in topological order —
+   * sources through the engine's registration path bound to the node
+   * relation, data nodes per their ADR 0033 mode (`view`/`ephemeral` session
+   * view, `table` DuckDB table, `export` Parquet artifact), and gate nodes
+   * through the M5/M6 machinery with host-supplied compilers. One explicit
    * user-triggered run (ADR 0032): no scheduling, retries, or run state; a
-   * re-run recreates views, never appends.
+   * re-run recreates relations, never appends.
    *
-   * Every engine call is a query-lane op (ADR 0040), so a run cannot starve
-   * the grid's registry-lane windows. The p-2 read-only SQL gate is enforced
-   * here before any engine call and again worker-side. See the runner module
-   * for the full outcome/refusal contract.
+   * The heavy engine calls (registration/materialization/export/validate/
+   * diff) are query-lane ops (ADR 0040), so a run cannot starve the grid's
+   * registry-lane windows; gate execution additionally resolves its input
+   * relations through the cheap registry-lane handle/schema probe. The p-2
+   * read-only SQL gate is enforced here before any engine call and again
+   * worker-side. See the runner module for the full outcome/refusal contract.
    */
   async runPipeline(
     input: PipelineRunInput,
     options: PipelineRunOptions = {},
   ): Promise<PipelineRunResult> {
     await this.ensureReady()
+    /**
+     * One registry handle per relation per run (p2-4): gate compilation and
+     * execution need the relation's schema/effective view, and registering
+     * once avoids accumulating handles across a multi-gate run.
+     */
+    const handles = new Map<string, EngineTableHandle>()
+    const handleFor = async (relation: string): Promise<EngineTableHandle> => {
+      const existing = handles.get(relation)
+      if (existing !== undefined) return existing
+      const handle = await this.registerPipelineRelation(relation)
+      handles.set(relation, handle)
+      return handle
+    }
     const ops: PipelineRunEngineOps = {
       registerSource: async (relation, source) => {
         const file = await source.getFile()
@@ -909,19 +926,68 @@ export class DuckDbEngineClient {
         }
         return response.rowCount
       },
-      materialize: async (relation, sql) => {
+      materialize: async (relation, sql, materialization) => {
         const response = await this.send({
-          type: 'engine/pipeline-materialize',
+          type: 'engine/pipeline-execute',
           requestId: this.takeRequestId(),
           relation,
+          materialization,
           sql,
         })
-        if (response.type !== 'engine/pipeline-materialize-result') {
+        if (response.type !== 'engine/pipeline-execute-result') {
           throw new EngineProtocolError(
-            `unexpected ${response.type} response for engine/pipeline-materialize`,
+            `unexpected ${response.type} response for engine/pipeline-execute`,
           )
         }
         return response.rowCount
+      },
+      exportRelation: async (relation, sql, path) => {
+        const response = await this.send({
+          type: 'engine/pipeline-execute',
+          requestId: this.takeRequestId(),
+          relation,
+          materialization: 'export',
+          sql,
+          path,
+        })
+        if (
+          response.type !== 'engine/pipeline-execute-result' ||
+          response.path === undefined ||
+          response.bytes === undefined
+        ) {
+          throw new EngineProtocolError(
+            `unexpected ${response.type} response for engine/pipeline-execute`,
+          )
+        }
+        return { path: response.path, rowCount: response.rowCount, bytes: response.bytes }
+      },
+      schemaOf: async (relation) => {
+        const handle = await handleFor(relation)
+        const columns = await this.schema(handle)
+        return columns.map((column) => ({ name: column.name, type: column.type }))
+      },
+      validate: async (relation, plan) => {
+        const handle = await handleFor(relation)
+        return this.validate(handle, plan)
+      },
+      diff: async (inputRelation, againstRelation, plan) => {
+        const wirePlan = parseRowDiffPlan(plan)
+        if (wirePlan === null) {
+          throw new EngineOperationError('malformed row-diff plan')
+        }
+        const response = await this.send({
+          type: 'engine/pipeline-diff',
+          requestId: this.takeRequestId(),
+          inputRelation,
+          againstRelation,
+          plan: wirePlan,
+        })
+        if (response.type !== 'engine/pipeline-diff-result') {
+          throw new EngineProtocolError(
+            `unexpected ${response.type} response for engine/pipeline-diff`,
+          )
+        }
+        return response.result
       },
     }
     return executePipeline(input, options, ops)

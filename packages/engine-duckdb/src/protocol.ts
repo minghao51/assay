@@ -382,6 +382,45 @@ export interface EnginePipelineHandleRequest {
   relation: string
 }
 
+/**
+ * Execute one pipeline data node with its ADR 0033 materialization mode
+ * (p2-4): `view`/`ephemeral` become a session view, `table` a DuckDB table,
+ * and `export` a Parquet artifact written to OPFS scratch space (the same
+ * `assay-exports/` convention as `engine/export`, under the pipeline's own
+ * distinct stem prefix). The SQL is re-classified with the p-2 read-only
+ * classifier at this boundary and the relation is refused in the reserved
+ * `assay_*` namespace. Query lane (ADR 0040): the node's query may scan whole
+ * datasets. Idempotent: the relation's prior view/table is dropped first, so
+ * a re-run recreates rather than appends.
+ */
+export interface EnginePipelineExecuteRequest {
+  type: 'engine/pipeline-execute'
+  requestId: number
+  relation: string
+  materialization: 'view' | 'ephemeral' | 'table' | 'export'
+  sql: string
+  /**
+   * Export destination (OPFS-relative, `assay-exports/assay-pipeline-export-…`);
+   * required exactly when `materialization` is `export`.
+   */
+  path?: string
+}
+
+/**
+ * Row-diff execution against two EXISTING session relations (p2-4): side A
+ * bound to `inputRelation`, side B to `againstRelation`, both pipeline node
+ * relations. Reuses the m6-2 row-diff machinery (`runDiff`'s core); the plan
+ * is boundary-validated exactly like `engine/diff`'s. Query lane: the plan may
+ * scan both relations.
+ */
+export interface EnginePipelineDiffRequest {
+  type: 'engine/pipeline-diff'
+  requestId: number
+  inputRelation: string
+  againstRelation: string
+  plan: EngineRowDiffPlan
+}
+
 /** Drop every view/file registered by this session (see `TableRegistry`). */
 export interface EngineDisposeRequest {
   type: 'engine/dispose'
@@ -406,6 +445,8 @@ export type EngineRequest =
   | EnginePipelineSourceRequest
   | EnginePipelineMaterializeRequest
   | EnginePipelineHandleRequest
+  | EnginePipelineExecuteRequest
+  | EnginePipelineDiffRequest
   | EngineExportRequest
   | EngineDisposeRequest
 
@@ -584,6 +625,30 @@ export interface EnginePipelineHandleResultResponse {
   tableId: string
 }
 
+/**
+ * Result of executing one pipeline node (p2-4): the relation (the node id),
+ * its effective mode, and the honest row count. For `export`, `path`/`bytes`
+ * name the OPFS artifact and no relation is materialized.
+ */
+export interface EnginePipelineExecuteResultResponse {
+  type: 'engine/pipeline-execute-result'
+  requestId: number
+  relation: string
+  materialization: 'view' | 'ephemeral' | 'table' | 'export'
+  rowCount: number
+  /** OPFS-relative artifact path (export only). */
+  path?: string
+  /** Artifact byte size (export only). */
+  bytes?: number
+}
+
+/** Result of a pipeline diff between two session relations (p2-4). */
+export interface EnginePipelineDiffResultResponse {
+  type: 'engine/pipeline-diff-result'
+  requestId: number
+  result: EngineRowDiffResult
+}
+
 // ---- Profile payload types (m2-5) ----
 //
 // Structural mirrors of `@assay/engine`'s `ProfileColumnKind` /
@@ -674,6 +739,8 @@ export type EngineResponse =
   | EnginePipelineSourceResultResponse
   | EnginePipelineMaterializeResultResponse
   | EnginePipelineHandleResultResponse
+  | EnginePipelineExecuteResultResponse
+  | EnginePipelineDiffResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
   | EngineErrorResponse
@@ -697,6 +764,8 @@ export type EngineSuccessResponse =
   | EnginePipelineSourceResultResponse
   | EnginePipelineMaterializeResultResponse
   | EnginePipelineHandleResultResponse
+  | EnginePipelineExecuteResultResponse
+  | EnginePipelineDiffResultResponse
   | EngineExportResultResponse
   | EngineDisposedResponse
 
@@ -966,6 +1035,55 @@ function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
     if (typeof data.relation !== 'string') return malformedField('pipeline-handle.relation')
     return { ok: true, request: { type, requestId, relation: data.relation } }
   }
+  if (type === 'engine/pipeline-execute') {
+    if (typeof data.relation !== 'string') return malformedField('pipeline-execute.relation')
+    if (!isPipelineMaterialization(data.materialization)) {
+      return malformedField('pipeline-execute.materialization')
+    }
+    if (typeof data.sql !== 'string') return malformedField('pipeline-execute.sql')
+    if (data.materialization === 'export') {
+      if (typeof data.path !== 'string') return malformedField('pipeline-execute.path')
+      return {
+        ok: true,
+        request: {
+          type,
+          requestId,
+          relation: data.relation,
+          materialization: data.materialization,
+          sql: data.sql,
+          path: data.path,
+        },
+      }
+    }
+    return {
+      ok: true,
+      request: {
+        type,
+        requestId,
+        relation: data.relation,
+        materialization: data.materialization,
+        sql: data.sql,
+      },
+    }
+  }
+  if (type === 'engine/pipeline-diff') {
+    if (typeof data.inputRelation !== 'string') return malformedField('pipeline-diff.inputRelation')
+    if (typeof data.againstRelation !== 'string') {
+      return malformedField('pipeline-diff.againstRelation')
+    }
+    const plan = parseRowDiffPlan(data.plan)
+    if (plan === null) return malformedField('pipeline-diff.plan')
+    return {
+      ok: true,
+      request: {
+        type,
+        requestId,
+        inputRelation: data.inputRelation,
+        againstRelation: data.againstRelation,
+        plan,
+      },
+    }
+  }
   if (type === 'engine/dispose') return { ok: true, request: { type, requestId } }
   // Unrecognised `type`: not part of the protocol (the envelope ignores it).
   return malformedField('type')
@@ -998,6 +1116,8 @@ export const ENGINE_REQUEST_TYPES = [
   'engine/pipeline-source',
   'engine/pipeline-materialize',
   'engine/pipeline-handle',
+  'engine/pipeline-execute',
+  'engine/pipeline-diff',
   'engine/export',
   'engine/dispose',
 ] as const
@@ -1123,6 +1243,13 @@ function isExportFormat(value: unknown): value is EngineExportFormat {
     value === 'csv' ||
     value === 'arrow'
   )
+}
+
+/** A pipeline node's ADR 0033 mode as far as the engine materializes it (p2-4). */
+function isPipelineMaterialization(
+  value: unknown,
+): value is 'view' | 'ephemeral' | 'table' | 'export' {
+  return value === 'view' || value === 'ephemeral' || value === 'table' || value === 'export'
 }
 
 /**
@@ -1268,6 +1395,35 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
     typeof data.tableId === 'string'
   ) {
     return { type, requestId, relation: data.relation, tableId: data.tableId }
+  }
+  if (
+    type === 'engine/pipeline-execute-result' &&
+    typeof data.relation === 'string' &&
+    isPipelineMaterialization(data.materialization) &&
+    isRowCount(data.rowCount)
+  ) {
+    if (data.materialization === 'export') {
+      if (typeof data.path !== 'string' || !isRowCount(data.bytes)) return null
+      return {
+        type,
+        requestId,
+        relation: data.relation,
+        materialization: data.materialization,
+        rowCount: data.rowCount,
+        path: data.path,
+        bytes: data.bytes,
+      }
+    }
+    return {
+      type,
+      requestId,
+      relation: data.relation,
+      materialization: data.materialization,
+      rowCount: data.rowCount,
+    }
+  }
+  if (type === 'engine/pipeline-diff-result' && isRowDiffResult(data.result)) {
+    return { type, requestId, result: data.result }
   }
   if (type === 'engine/disposed') return { type, requestId }
   if (type === 'engine/error' && typeof data.message === 'string') {

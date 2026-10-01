@@ -17,7 +17,9 @@ import { pipelineRunnerConformanceScenarioNames } from '../../packages/testing/s
 //    second identical run proves idempotency (recreate, never append).
 // 2. `pipeline-conformance-run-all` — the @assay/testing runner suite
 //    (success, mid-DAG failure + clean re-run, cancel, unknown-node
-//    refusal, hostile-SQL refusal) against fresh real clients.
+//    refusal, hostile-SQL refusal, relation handle, validate pass/gated,
+//    publish gate, diff node, table/export materialization, mode refusals)
+//    against fresh real clients.
 //
 // Harness served from packages/engine-duckdb by the second webServer in
 // playwright.config.ts; port env-overridable for parallel worktree batches
@@ -68,11 +70,11 @@ test('pipeline journey: a 3-node pipeline runs end-to-end on the real engine', a
 test('pipeline conformance run-all: the runner suite passes against the real engine', async ({
   page,
 }) => {
-  test.setTimeout(300_000) // one fresh engine boot per scenario
+  test.setTimeout(600_000) // one fresh engine boot per scenario
   await page.goto(HARNESS_URL)
   await page.getByRole('button', { name: 'Pipeline runner conformance: run all' }).click()
   const element = page.getByTestId('pipeline-conformance-run-all')
-  await expect(element).not.toHaveText('not run', { timeout: 180_000 })
+  await expect(element).not.toHaveText('not run', { timeout: 360_000 })
   const report = JSON.parse((await element.textContent())!) as RunAllReport
 
   expect(report.subject).toBe('engine-duckdb')

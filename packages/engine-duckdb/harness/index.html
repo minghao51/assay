@@ -380,6 +380,24 @@
         </dl>
       </section>
 
+      <!--
+        p2-4 gated pipeline journey: the fixture registers, the SG filter
+        materializes, and a validate node runs the M5 machinery with a
+        failing contract (a NULL income) — the publish that requires it is
+        `gated` (`publish-blocked`), the partial state and failed verdict are
+        named, and the publish gate does not pass. Re-running with a passing
+        contract completes. Privacy (ADR 0001/0025): evidence is ids,
+        relations, counts, and gate verdicts — never values.
+      -->
+      <section>
+        <h2>Pipeline gate journey (p2-4): a gated pipeline on the real engine</h2>
+        <button id="pipeline-gate-journey" type="button">Pipeline: run the gated journey</button>
+        <dl>
+          <dt>pipeline gate journey evidence (JSON)</dt>
+          <dd><pre data-testid="pipeline-gate-journey-result">not run</pre></dd>
+        </dl>
+      </section>
+
       <section>
         <h2>Pipeline-runner conformance suite (@assay/testing, p-3)</h2>
         <p>
@@ -403,6 +421,27 @@
           </button>
           <button id="pipeline-conformance-pipeline-relation-handle" type="button">
             Pipeline conformance: relation handle
+          </button>
+          <button id="pipeline-conformance-pipeline-validate-pass" type="button">
+            Pipeline conformance: validate pass
+          </button>
+          <button id="pipeline-conformance-pipeline-validate-gated" type="button">
+            Pipeline conformance: validate gated
+          </button>
+          <button id="pipeline-conformance-pipeline-publish-gate" type="button">
+            Pipeline conformance: publish gate
+          </button>
+          <button id="pipeline-conformance-pipeline-diff-node" type="button">
+            Pipeline conformance: diff node
+          </button>
+          <button id="pipeline-conformance-pipeline-table-materialization" type="button">
+            Pipeline conformance: table materialization
+          </button>
+          <button id="pipeline-conformance-pipeline-export-materialization" type="button">
+            Pipeline conformance: export materialization
+          </button>
+          <button id="pipeline-conformance-pipeline-mode-refusals" type="button">
+            Pipeline conformance: mode refusals
           </button>
         </p>
         <dl>
@@ -433,6 +472,36 @@ not run</pre>
           <dt>relation handle result</dt>
           <dd>
             <pre data-testid="pipeline-conformance-result-pipeline-relation-handle">not run</pre>
+          </dd>
+          <dt>validate pass result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-validate-pass">not run</pre>
+          </dd>
+          <dt>validate gated result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-validate-gated">not run</pre>
+          </dd>
+          <dt>publish gate result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-publish-gate">not run</pre>
+          </dd>
+          <dt>diff node result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-diff-node">not run</pre>
+          </dd>
+          <dt>table materialization result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-table-materialization">
+not run</pre>
+          </dd>
+          <dt>export materialization result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-export-materialization">
+not run</pre>
+          </dd>
+          <dt>mode refusals result</dt>
+          <dd>
+            <pre data-testid="pipeline-conformance-result-pipeline-mode-refusals">not run</pre>
           </dd>
         </dl>
       </section>

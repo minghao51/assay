@@ -410,6 +410,83 @@ describe('engine protocol parsers (ADR 0021: protocol owned by us)', () => {
       })
     })
 
+    it('parses the pipeline source and materialize results', () => {
+      expect(
+        parseEngineResponse({
+          type: 'engine/pipeline-source-result',
+          requestId: 19,
+          relation: 'customers',
+          rowCount: 5,
+        }),
+      ).toEqual({
+        type: 'engine/pipeline-source-result',
+        requestId: 19,
+        relation: 'customers',
+        rowCount: 5,
+      })
+      expect(
+        parseEngineResponse({
+          type: 'engine/pipeline-materialize-result',
+          requestId: 20,
+          relation: 'out',
+          rowCount: 2,
+        }),
+      ).toEqual({
+        type: 'engine/pipeline-materialize-result',
+        requestId: 20,
+        relation: 'out',
+        rowCount: 2,
+      })
+      expect(
+        parseEngineResponse({
+          type: 'engine/pipeline-source-result',
+          requestId: 19,
+          relation: 'customers',
+        }),
+      ).toBeNull()
+    })
+
+    it('parses engine/pipeline-execute-result for relation and export modes (p2-4)', () => {
+      const relationMessage = {
+        type: 'engine/pipeline-execute-result',
+        requestId: 21,
+        relation: 'out',
+        materialization: 'table',
+        rowCount: 3,
+      }
+      expect(parseEngineResponse(relationMessage)).toEqual(relationMessage)
+      const exportMessage = {
+        type: 'engine/pipeline-execute-result',
+        requestId: 22,
+        relation: 'out',
+        materialization: 'export',
+        rowCount: 5,
+        path: 'assay-exports/assay-pipeline-export-out.parquet',
+        bytes: 128,
+      }
+      expect(parseEngineResponse(exportMessage)).toEqual(exportMessage)
+      // An export result must carry a path and byte size; a non-export result
+      // must not require them, but an unknown materialization is rejected.
+      expect(
+        parseEngineResponse({
+          type: 'engine/pipeline-execute-result',
+          requestId: 22,
+          relation: 'out',
+          materialization: 'export',
+          rowCount: 5,
+        }),
+      ).toBeNull()
+      expect(
+        parseEngineResponse({
+          type: 'engine/pipeline-execute-result',
+          requestId: 21,
+          relation: 'out',
+          materialization: 'publish',
+          rowCount: 3,
+        }),
+      ).toBeNull()
+    })
+
     it('rejects unknown responses', () => {
       expect(parseEngineResponse({ type: 'engine/progress', requestId: 1 })).toBeNull()
       expect(parseEngineResponse('engine/ready')).toBeNull()
@@ -1331,6 +1408,42 @@ describe('m4-2: overlay + export protocol', () => {
         payload: {},
         field: 'pipeline-handle.relation',
       },
+      {
+        label: 'engine/pipeline-execute missing materialization',
+        type: 'engine/pipeline-execute',
+        payload: { relation: 'out', sql: 'SELECT 1 AS value' },
+        field: 'pipeline-execute.materialization',
+      },
+      {
+        label: 'engine/pipeline-execute unknown materialization',
+        type: 'engine/pipeline-execute',
+        payload: { relation: 'out', materialization: 'publish', sql: 'SELECT 1 AS value' },
+        field: 'pipeline-execute.materialization',
+      },
+      {
+        label: 'engine/pipeline-execute missing sql',
+        type: 'engine/pipeline-execute',
+        payload: { relation: 'out', materialization: 'view' },
+        field: 'pipeline-execute.sql',
+      },
+      {
+        label: 'engine/pipeline-execute export missing path',
+        type: 'engine/pipeline-execute',
+        payload: { relation: 'out', materialization: 'export', sql: 'SELECT 1 AS value' },
+        field: 'pipeline-execute.path',
+      },
+      {
+        label: 'engine/pipeline-diff missing againstRelation',
+        type: 'engine/pipeline-diff',
+        payload: { inputRelation: 'a', plan: wireRowDiffPlan() },
+        field: 'pipeline-diff.againstRelation',
+      },
+      {
+        label: 'engine/pipeline-diff malformed plan',
+        type: 'engine/pipeline-diff',
+        payload: { inputRelation: 'a', againstRelation: 'b', plan: { planKind: 'wrong' } },
+        field: 'pipeline-diff.plan',
+      },
     ]
 
     it.each(cases)('$label', ({ type, payload, field }) => {
@@ -1345,9 +1458,9 @@ describe('m4-2: overlay + export protocol', () => {
       })
     })
 
-    it('lists exactly the 19 request types and covers every one', () => {
-      expect(ENGINE_REQUEST_TYPES).toHaveLength(19)
-      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(19)
+    it('lists exactly the 21 request types and covers every one', () => {
+      expect(ENGINE_REQUEST_TYPES).toHaveLength(21)
+      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(21)
       const covered = new Set(cases.map((entry) => entry.type))
       // init and dispose have no required fields (nothing can be malformed),
       // so every other request type must appear in the malformed matrix.
@@ -1364,6 +1477,57 @@ describe('m4-2: overlay + export protocol', () => {
           request: { type, requestId },
         })
       }
+    })
+
+    it('accepts the p2-4 pipeline execute/diff requests (non-export + export)', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/pipeline-execute',
+          requestId,
+          relation: 'out',
+          materialization: 'view',
+          sql: 'SELECT 1 AS value',
+        }),
+      ).toEqual({
+        type: 'engine/pipeline-execute',
+        requestId,
+        relation: 'out',
+        materialization: 'view',
+        sql: 'SELECT 1 AS value',
+      })
+      expect(
+        parseEngineRequest({
+          type: 'engine/pipeline-execute',
+          requestId,
+          relation: 'out',
+          materialization: 'export',
+          sql: 'SELECT 1 AS value',
+          path: 'assay-exports/assay-pipeline-export-out.parquet',
+        }),
+      ).toEqual({
+        type: 'engine/pipeline-execute',
+        requestId,
+        relation: 'out',
+        materialization: 'export',
+        sql: 'SELECT 1 AS value',
+        path: 'assay-exports/assay-pipeline-export-out.parquet',
+      })
+      const plan = wireRowDiffPlan()
+      expect(
+        parseEngineRequest({
+          type: 'engine/pipeline-diff',
+          requestId,
+          inputRelation: 'a',
+          againstRelation: 'b',
+          plan,
+        }),
+      ).toEqual({
+        type: 'engine/pipeline-diff',
+        requestId,
+        inputRelation: 'a',
+        againstRelation: 'b',
+        plan,
+      })
     })
   })
 

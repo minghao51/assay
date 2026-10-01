@@ -212,10 +212,10 @@ vi.mock('./profile/ProfilePanel', () => ({ ProfilePanel: () => null }))
 const COMPLETED_RUN: PipelineRunResult = {
   status: 'completed',
   nodes: [
-    { nodeId: 'customers', relation: 'customers', rowCount: 5 },
-    { nodeId: 'renamed', relation: 'renamed', rowCount: 5 },
-    { nodeId: 'sg_only', relation: 'sg_only', rowCount: 2 },
-    { nodeId: 'by_country', relation: 'by_country', rowCount: 1 },
+    { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'view' },
+    { nodeId: 'renamed', relation: 'renamed', rowCount: 5, materialization: 'view' },
+    { nodeId: 'sg_only', relation: 'sg_only', rowCount: 2, materialization: 'view' },
+    { nodeId: 'by_country', relation: 'by_country', rowCount: 1, materialization: 'view' },
   ],
 }
 
@@ -544,7 +544,9 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     await act(async () => {
       h.resolveRun?.({
         status: 'canceled',
-        nodes: [{ nodeId: 'customers', relation: 'customers', rowCount: 5 }],
+        nodes: [
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'view' },
+        ],
         nextNodeId: 'renamed',
       })
     })
@@ -765,7 +767,9 @@ describe('pipeline session hook — in-flight run serialization (p-5, reviewer r
     await act(async () => {
       h.resolveRun?.({
         status: 'canceled',
-        nodes: [{ nodeId: 'customers', relation: 'customers', rowCount: 5 }],
+        nodes: [
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'view' },
+        ],
         nextNodeId: 'renamed',
       })
     })

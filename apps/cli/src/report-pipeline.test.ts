@@ -255,9 +255,9 @@ describe('buildPipelineRunReport', () => {
       result: {
         status: 'completed',
         nodes: [
-          { nodeId: 'customers', relation: 'customers', rowCount: 5 },
-          { nodeId: 'filtered', relation: 'filtered', rowCount: 2 },
-          { nodeId: 'aggregated', relation: 'aggregated', rowCount: 1 },
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'view' },
+          { nodeId: 'filtered', relation: 'filtered', rowCount: 2, materialization: 'view' },
+          { nodeId: 'aggregated', relation: 'aggregated', rowCount: 1, materialization: 'view' },
         ],
       },
       error: null,
@@ -301,7 +301,9 @@ describe('buildPipelineRunReport', () => {
       order,
       result: {
         status: 'canceled',
-        nodes: [{ nodeId: 'customers', relation: 'customers', rowCount: 5 }],
+        nodes: [
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'view' },
+        ],
         nextNodeId: 'filtered',
       },
       error: null,
@@ -391,9 +393,9 @@ verdict: INVALID — 1 error
       result: {
         status: 'completed',
         nodes: [
-          { nodeId: 'customers', relation: 'customers', rowCount: 5 },
-          { nodeId: 'filtered', relation: 'filtered', rowCount: 2 },
-          { nodeId: 'aggregated', relation: 'aggregated', rowCount: 1 },
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'view' },
+          { nodeId: 'filtered', relation: 'filtered', rowCount: 2, materialization: 'view' },
+          { nodeId: 'aggregated', relation: 'aggregated', rowCount: 1, materialization: 'view' },
         ],
       },
       error: null,
@@ -536,9 +538,9 @@ describe('json renderers — envelope shape and key order', () => {
       result: {
         status: 'completed',
         nodes: [
-          { nodeId: 'customers', relation: 'customers', rowCount: 5 },
-          { nodeId: 'filtered', relation: 'filtered', rowCount: 2 },
-          { nodeId: 'aggregated', relation: 'aggregated', rowCount: 1 },
+          { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'view' },
+          { nodeId: 'filtered', relation: 'filtered', rowCount: 2, materialization: 'view' },
+          { nodeId: 'aggregated', relation: 'aggregated', rowCount: 1, materialization: 'view' },
         ],
       },
       error: null,

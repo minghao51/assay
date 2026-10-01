@@ -3508,6 +3508,10 @@ describe('EngineOpExecutor pipeline materialization (p-3)', () => {
     deps.conn.resolveSend(0, tableFromArrays({}))
     await awaitSends(deps.conn, 2)
     deps.conn.resolveSend(1, tableFromArrays({}))
+    await awaitSends(deps.conn, 3)
+    deps.conn.resolveSend(2, tableFromArrays({}))
+    await awaitSends(deps.conn, 4)
+    deps.conn.resolveSend(3, tableFromArrays({}))
     expect(await awaitPosted(deps, 3)).toMatchObject({ type: 'engine/disposed' })
     expect(deps.conn.sentSqls).toContain('DROP VIEW IF EXISTS "customers"')
     expect(deps.conn.sentSqls).toContain('DROP VIEW IF EXISTS "out"')
@@ -3592,6 +3596,116 @@ describe('EngineOpExecutor pipeline materialization (p-3)', () => {
     executor.accept(pipelineHandleRequest(1, 'assay_overlay_ord'))
     expect(await awaitPosted(deps, 1)).toMatchObject({ type: 'engine/error' })
     expect(deps.conn.sentSqls).toEqual([])
+    expect(deps.queryConn.sentSqls).toEqual([])
+  })
+})
+
+// ── p2-4: pipeline-execute (view/table/export materialization) ──────────────
+//
+// The runner drives one op per data node; the executor maps the ADR 0033
+// mode to its statement, drops any same-named prior relation of either kind
+// (idempotent across mode changes), and for export runs the m4-2 two-step
+// (COPY into DuckDB's VFS → move bytes into OPFS). The destination path is
+// pinned to the runner's `assay-pipeline-export-…` shape so a hostile host
+// cannot name an arbitrary path.
+
+describe('EngineOpExecutor pipeline execute (p2-4)', () => {
+  it('materializes table mode as a DuckDB table after dropping any prior relation', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept({
+      type: 'engine/pipeline-execute',
+      requestId: 1,
+      relation: 'out',
+      materialization: 'table',
+      sql: 'SELECT 1 AS value',
+    })
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toBe('DROP VIEW IF EXISTS "out"')
+    deps.queryConn.resolveSend(0, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toBe('DROP TABLE IF EXISTS "out"')
+    deps.queryConn.resolveSend(1, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 3)
+    expect(deps.queryConn.sentSqls[2]).toBe('CREATE TABLE "out" AS SELECT 1 AS value')
+    deps.queryConn.resolveSend(2, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 4)
+    deps.queryConn.resolveSend(3, countTable(1n))
+    expect(await awaitPosted(deps, 1)).toMatchObject({
+      type: 'engine/pipeline-execute-result',
+      relation: 'out',
+      materialization: 'table',
+      rowCount: 1,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('exports to the pinned pipeline path via the VFS→OPFS two-step', async () => {
+    const { executor, deps } = makeExecutor()
+    const path = 'assay-exports/assay-pipeline-export-out.parquet'
+    executor.accept({
+      type: 'engine/pipeline-execute',
+      requestId: 1,
+      relation: 'out',
+      materialization: 'export',
+      sql: 'SELECT 1 AS value',
+      path,
+    })
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.sentSqls[0]).toContain(
+      "COPY (SELECT 1 AS value) TO 'assay-pipeline-export-vfs-",
+    )
+    expect(deps.queryConn.sentSqls[0]).toContain(
+      '(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)',
+    )
+    deps.queryConn.resolveSend(0, countTable(5n))
+    expect(await awaitPosted(deps, 1)).toMatchObject({
+      type: 'engine/pipeline-execute-result',
+      relation: 'out',
+      materialization: 'export',
+      rowCount: 5,
+      path,
+      bytes: 18,
+    })
+    expect(deps.writtenExports).toHaveLength(1)
+    expect(deps.writtenExports[0]?.path).toBe(path)
+    expect(deps.copiedExportBytes[0]).toContain('assay-pipeline-export-vfs-')
+    // The VFS copy is dropped after the byte read.
+    expect(deps.droppedFiles).toContain(deps.copiedExportBytes[0])
+    expectNoCollisions(deps)
+  })
+
+  it('refuses an export destination outside the pipeline prefix before any engine call', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept({
+      type: 'engine/pipeline-execute',
+      requestId: 1,
+      relation: 'out',
+      materialization: 'export',
+      sql: 'SELECT 1 AS value',
+      path: 'assay-exports/assay-export-1.parquet',
+    })
+    expect(await awaitPosted(deps, 1)).toMatchObject({ type: 'engine/error' })
+    expect(deps.queryConn.sentSqls).toEqual([])
+  })
+
+  it('refuses hostile SQL and reserved relations before any engine call', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept({
+      type: 'engine/pipeline-execute',
+      requestId: 1,
+      relation: 'out',
+      materialization: 'view',
+      sql: 'DROP TABLE customers',
+    })
+    expect(await awaitPosted(deps, 1)).toMatchObject({ type: 'engine/error' })
+    executor.accept({
+      type: 'engine/pipeline-execute',
+      requestId: 2,
+      relation: 'assay_t1',
+      materialization: 'view',
+      sql: 'SELECT 1 AS value',
+    })
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/error' })
     expect(deps.queryConn.sentSqls).toEqual([])
   })
 })

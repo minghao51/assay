@@ -87,8 +87,16 @@ export {
 } from './pipeline-runner/index.js'
 export type {
   PipelineRunCanceled,
+  PipelineRunColumn,
+  PipelineRunCompilers,
   PipelineRunCompleted,
+  PipelineRunContractBinding,
+  PipelineRunDiffCompilerInput,
+  PipelineRunDiffKeysBinding,
   PipelineRunEngineOps,
+  PipelineRunExport,
+  PipelineRunGated,
+  PipelineRunGateResult,
   PipelineRunInput,
   PipelineRunNodeResult,
   PipelineRunOptions,
@@ -96,6 +104,7 @@ export type {
   PipelineRunResult,
   PipelineRunSource,
   PipelineRunSourceFile,
+  PipelineRunValidationCompilerInput,
 } from './pipeline-runner/index.js'
 // m6-2: row-diff execution machinery (the m6-3 CLI consumes these exactly as
 // the m5-4 CLI consumes the validation helpers, so cross-surface agreement is

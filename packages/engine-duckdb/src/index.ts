@@ -140,8 +140,16 @@ export {
 } from './pipeline-runner/index.js'
 export type {
   PipelineRunCanceled,
+  PipelineRunColumn,
+  PipelineRunCompilers,
   PipelineRunCompleted,
+  PipelineRunContractBinding,
+  PipelineRunDiffCompilerInput,
+  PipelineRunDiffKeysBinding,
   PipelineRunEngineOps,
+  PipelineRunExport,
+  PipelineRunGated,
+  PipelineRunGateResult,
   PipelineRunInput,
   PipelineRunNodeResult,
   PipelineRunOptions,
@@ -149,6 +157,7 @@ export type {
   PipelineRunResult,
   PipelineRunSource,
   PipelineRunSourceFile,
+  PipelineRunValidationCompilerInput,
 } from './pipeline-runner/index.js'
 export { classifyProfileColumnType } from './profile-classify.js'
 export {

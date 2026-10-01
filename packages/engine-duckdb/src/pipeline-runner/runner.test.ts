@@ -10,7 +10,9 @@ import type { PipelineCompilePlan, PipelineV1 } from '@assay/pipeline'
 import { PipelineRunError, PipelineRunRefusalError } from './errors.js'
 import { PipelineRunGuard } from './guard.js'
 import { executePipeline } from './runner.js'
-import type { PipelineRunEngineOps, PipelineRunSourceFile } from './runner.js'
+import type { PipelineRunCompilers, PipelineRunEngineOps, PipelineRunSourceFile } from './runner.js'
+import type { EngineValidationPlan, EngineValidationResult } from '../validate-plan-wire.js'
+import type { EngineRowDiffPlan, EngineRowDiffResult } from '../diff-plan-wire.js'
 
 /**
  * Pure runner tests (p-3): orchestration, the boundary gates, cancellation,
@@ -48,10 +50,150 @@ function sourceOptions(): readonly { nodeId: string; source: PipelineRunSourceFi
   return [{ nodeId: 'customers', source: SOURCE_FILE }]
 }
 
+/** source → filter(SG) → validate(gate) → publish(out, requires gate). */
+function gatePipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'gate',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+      { id: 'gate', type: 'validate', input: 'sg', contract: 'contracts/gate.yaml' },
+      { id: 'out', type: 'publish', input: 'sg', requires: ['gate'] },
+    ],
+  }
+}
+
+/** source → filter(SG) → validate(gate); a terminal gate. */
+function terminalGatePipeline(): PipelineV1 {
+  const pipeline = gatePipeline()
+  return {
+    ...pipeline,
+    pipeline: 'terminal-gate',
+    nodes: pipeline.nodes.filter((n) => n.id !== 'out'),
+  }
+}
+
+/** source → filter(SG) → diff(compare sg against customers). */
+function diffPipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'diff',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+      { id: 'compare', type: 'diff', input: 'sg', against: 'customers' },
+    ],
+  }
+}
+
+/** source → table(SG filter). */
+function tablePipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'table',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        materialization: 'table',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+    ],
+  }
+}
+
+/** source → export(out). */
+function exportPipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'export',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'out',
+        type: 'sql',
+        materialization: 'export',
+        inputs: ['customers'],
+        sql: 'SELECT customer_id FROM customers',
+      },
+    ],
+  }
+}
+
+/** An unsupported materialization mode on a data node. */
+function unsupportedModePipeline(mode: 'publish' | 'cache' | 'incremental'): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: `mode-${mode}`,
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'out',
+        type: 'sql',
+        materialization: mode,
+        inputs: ['customers'],
+        sql: 'SELECT customer_id FROM customers',
+      },
+    ],
+  }
+}
+
+/** An export node consumed by a second node. */
+function exportWithConsumersPipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'export-consumed',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'out',
+        type: 'sql',
+        materialization: 'export',
+        inputs: ['customers'],
+        sql: 'SELECT customer_id FROM customers',
+      },
+      { id: 'downstream', type: 'sql', inputs: ['out'], sql: 'SELECT customer_id FROM out' },
+    ],
+  }
+}
+
 class FakeOps implements PipelineRunEngineOps {
   readonly calls: string[] = []
+  readonly modes: Record<string, string> = {}
   failAt: string | null = null
   onRegister: (() => void) | null = null
+  validationValid = true
+  diffResult: EngineRowDiffResult = {
+    rowCountA: 2,
+    rowCountB: 5,
+    aspects: [
+      { aspect: 'added', count: 3, samples: [] },
+      { aspect: 'removed', count: 0, samples: [] },
+      { aspect: 'changed', count: 0, samples: [] },
+    ],
+  }
 
   async registerSource(relation: string, source: PipelineRunSourceFile): Promise<number> {
     // The fake never reads the binding; referenced so the parameter is used.
@@ -62,11 +204,56 @@ class FakeOps implements PipelineRunEngineOps {
     return 5
   }
 
-  async materialize(relation: string, sql: string): Promise<number> {
+  async materialize(
+    relation: string,
+    sql: string,
+    materialization: 'view' | 'ephemeral' | 'table',
+  ): Promise<number> {
     this.calls.push(`materialize:${relation}:${sql}`)
+    this.modes[relation] = materialization
     if (this.failAt === `materialize:${relation}`) throw new Error('engine failure')
     return relation === 'sg' ? 2 : 2
   }
+
+  async exportRelation(
+    relation: string,
+    sql: string,
+    path: string,
+  ): Promise<{ path: string; rowCount: number; bytes: number }> {
+    this.calls.push(`export:${relation}:${sql}`)
+    return { path, rowCount: 5, bytes: 3 }
+  }
+
+  async schemaOf(): Promise<readonly { readonly name: string; readonly type: string }[]> {
+    return [{ name: 'customer_id', type: 'BIGINT' }]
+  }
+
+  async validate(relation: string): Promise<EngineValidationResult> {
+    this.calls.push(`validate:${relation}`)
+    return {
+      valid: this.validationValid,
+      rowCount: 2,
+      rules: [
+        {
+          ruleId: 'columns[0].required',
+          outcome: 'row-samples',
+          failCount: this.validationValid ? 0 : 1,
+          failPercent: 0,
+          sampleFailures: [],
+        },
+      ],
+    }
+  }
+
+  async diff(inputRelation: string, againstRelation: string): Promise<EngineRowDiffResult> {
+    this.calls.push(`diff:${inputRelation}:${againstRelation}`)
+    return this.diffResult
+  }
+}
+
+const PASS_THROUGH_COMPILERS: PipelineRunCompilers = {
+  validate: () => ({ ok: true, plan: {} as EngineValidationPlan }),
+  diff: () => ({ ok: true, plan: {} as EngineRowDiffPlan }),
 }
 
 describe('executePipeline — success', () => {
@@ -76,9 +263,9 @@ describe('executePipeline — success', () => {
     expect(result).toEqual({
       status: 'completed',
       nodes: [
-        { nodeId: 'customers', relation: 'customers', rowCount: 5 },
-        { nodeId: 'sg', relation: 'sg', rowCount: 2 },
-        { nodeId: 'out', relation: 'out', rowCount: 2 },
+        { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+        { nodeId: 'sg', relation: 'sg', rowCount: 2, materialization: 'view' },
+        { nodeId: 'out', relation: 'out', rowCount: 2, materialization: 'view' },
       ],
     })
     expect(ops.calls).toEqual([
@@ -106,6 +293,9 @@ describe('executePipeline — success', () => {
           relation: 'out',
           quotedRelation: '"out"',
           sql: 'SELECT 1 AS value',
+          materialization: 'view',
+          statement: 'CREATE OR REPLACE VIEW "out" AS SELECT 1 AS value',
+          statementKind: 'view',
         },
       ],
     }
@@ -123,7 +313,9 @@ describe('executePipeline — cancellation (generation guard)', () => {
     const result = await executePipeline(testPipeline(), { sources: sourceOptions(), guard }, ops)
     expect(result).toEqual({
       status: 'canceled',
-      nodes: [{ nodeId: 'customers', relation: 'customers', rowCount: 5 }],
+      nodes: [
+        { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+      ],
       nextNodeId: 'sg',
     })
     // The abandoned run stopped sending nodes after the first.
@@ -149,7 +341,9 @@ describe('executePipeline — cancellation (generation guard)', () => {
     expect(visited).toEqual(['customers', 'sg'])
     expect(result).toEqual({
       status: 'canceled',
-      nodes: [{ nodeId: 'customers', relation: 'customers', rowCount: 5 }],
+      nodes: [
+        { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+      ],
       nextNodeId: 'sg',
     })
     expect(ops.calls).toEqual(['source:customers'])
@@ -161,8 +355,8 @@ describe('executePipeline — cancellation (generation guard)', () => {
     ops.failAt = null
     // Invalidate while the last node is materializing.
     const original = ops.materialize.bind(ops)
-    ops.materialize = async (relation, sql) => {
-      const value = await original(relation, sql)
+    ops.materialize = async (relation, sql, materialization) => {
+      const value = await original(relation, sql, materialization)
       if (relation === 'out') guard.invalidate()
       return value
     }
@@ -170,9 +364,9 @@ describe('executePipeline — cancellation (generation guard)', () => {
     expect(result).toEqual({
       status: 'canceled',
       nodes: [
-        { nodeId: 'customers', relation: 'customers', rowCount: 5 },
-        { nodeId: 'sg', relation: 'sg', rowCount: 2 },
-        { nodeId: 'out', relation: 'out', rowCount: 2 },
+        { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+        { nodeId: 'sg', relation: 'sg', rowCount: 2, materialization: 'view' },
+        { nodeId: 'out', relation: 'out', rowCount: 2, materialization: 'view' },
       ],
       nextNodeId: null,
     })
@@ -290,6 +484,9 @@ describe('executePipeline — refusals before any engine call', () => {
           relation: 'out',
           quotedRelation: '"out"',
           sql: 'SELECT 1 AS value',
+          materialization: 'view',
+          statement: 'CREATE OR REPLACE VIEW "out" AS SELECT 1 AS value',
+          statementKind: 'view',
         },
       ],
     }
@@ -327,6 +524,9 @@ describe('executePipeline — refusals before any engine call', () => {
           relation: 'out',
           quotedRelation: '"out"',
           sql: 'DROP TABLE customers',
+          materialization: 'view',
+          statement: 'CREATE OR REPLACE VIEW "out" AS DROP TABLE customers',
+          statementKind: 'view',
         },
       ],
     }
@@ -344,6 +544,402 @@ describe('executePipeline — refusals before any engine call', () => {
     expect(error.reason).toBe('not-runnable')
   })
 })
+
+describe('executePipeline — p2-4 gates and materialization', () => {
+  it('runs a validate node, surfaces its verdict, and completes the publish gate', async () => {
+    const ops = new FakeOps()
+    ops.validationValid = true
+    const result = await executePipeline(
+      gatePipeline(),
+      {
+        sources: sourceOptions(),
+        contracts: [{ nodeId: 'gate', contract: { fake: true } }],
+        compilers: PASS_THROUGH_COMPILERS,
+      },
+      ops,
+    )
+    expect(result.status).toBe('completed')
+    if (result.status !== 'completed') return
+    const gate = result.nodes.find((node) => node.nodeId === 'gate')
+    expect(gate?.materialization).toBe('gate')
+    expect(gate?.gate).toEqual({
+      class: 'validate',
+      input: 'sg',
+      valid: true,
+      violatedRules: 0,
+    })
+    const publish = result.nodes.find((node) => node.nodeId === 'out')
+    expect(publish?.gate).toEqual({ class: 'publish', input: 'sg', blockedGates: [] })
+    expect(ops.calls).toContain('validate:sg')
+  })
+
+  it('gates a run at a failing terminal validate node', async () => {
+    const ops = new FakeOps()
+    ops.validationValid = false
+    const result = await executePipeline(
+      terminalGatePipeline(),
+      {
+        sources: sourceOptions(),
+        contracts: [{ nodeId: 'gate', contract: {} }],
+        compilers: PASS_THROUGH_COMPILERS,
+      },
+      ops,
+    )
+    expect(result).toEqual({
+      status: 'gated',
+      nodes: [
+        { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+        { nodeId: 'sg', relation: 'sg', rowCount: 2, materialization: 'view' },
+        {
+          nodeId: 'gate',
+          relation: 'sg',
+          rowCount: 2,
+          materialization: 'gate',
+          gate: { class: 'validate', input: 'sg', valid: false, violatedRules: 1 },
+        },
+      ],
+      gatedAt: 'gate',
+      gate: 'validation-failed',
+      nextNodeId: null,
+    })
+  })
+
+  it('gates a run at a publish whose required validate failed, then completes after the fix', async () => {
+    const ops = new FakeOps()
+    ops.validationValid = false
+    const gatedRun = await executePipeline(
+      gatePipeline(),
+      {
+        sources: sourceOptions(),
+        contracts: [{ nodeId: 'gate', contract: {} }],
+        compilers: PASS_THROUGH_COMPILERS,
+      },
+      ops,
+    )
+    expect(gatedRun.status).toBe('gated')
+    if (gatedRun.status !== 'gated') return
+    expect(gatedRun.gatedAt).toBe('out')
+    expect(gatedRun.gate).toBe('publish-blocked')
+    const publish = gatedRun.nodes.find((node) => node.nodeId === 'out')
+    expect(publish?.gate).toEqual({ class: 'publish', input: 'sg', blockedGates: ['gate'] })
+
+    // Re-run after fixing the contract: the gate passes, the publish runs.
+    ops.validationValid = true
+    const completed = await executePipeline(
+      gatePipeline(),
+      {
+        sources: sourceOptions(),
+        contracts: [{ nodeId: 'gate', contract: {} }],
+        compilers: PASS_THROUGH_COMPILERS,
+      },
+      ops,
+    )
+    expect(completed.status).toBe('completed')
+    if (completed.status !== 'completed') return
+    expect(completed.nodes.find((node) => node.nodeId === 'out')?.gate).toEqual({
+      class: 'publish',
+      input: 'sg',
+      blockedGates: [],
+    })
+  })
+
+  it('runs a diff node and surfaces its value-free aspect counts', async () => {
+    const ops = new FakeOps()
+    const result = await executePipeline(
+      diffPipeline(),
+      {
+        sources: sourceOptions(),
+        diffKeys: [{ nodeId: 'compare', keys: ['customer_id'] }],
+        compilers: PASS_THROUGH_COMPILERS,
+      },
+      ops,
+    )
+    expect(result.status).toBe('completed')
+    if (result.status !== 'completed') return
+    const compare = result.nodes.find((node) => node.nodeId === 'compare')
+    expect(compare?.gate).toEqual({
+      class: 'diff',
+      input: 'sg',
+      against: 'customers',
+      added: 3,
+      removed: 0,
+      changed: 0,
+    })
+    expect(ops.calls).toContain('diff:sg:customers')
+  })
+
+  it('materializes table mode through the table op', async () => {
+    const ops = new FakeOps()
+    const result = await executePipeline(tablePipeline(), { sources: sourceOptions() }, ops)
+    expect(result.status).toBe('completed')
+    expect(ops.modes['sg']).toBe('table')
+  })
+
+  it('exports an export node and returns the value-free artifact path', async () => {
+    const ops = new FakeOps()
+    const result = await executePipeline(exportPipeline(), { sources: sourceOptions() }, ops)
+    expect(result.status).toBe('completed')
+    if (result.status !== 'completed') return
+    const exported = result.nodes.find((node) => node.nodeId === 'out')
+    expect(exported?.materialization).toBe('export')
+    expect(exported?.rowCount).toBe(5)
+    expect(exported?.exportPath).toBe('assay-exports/assay-pipeline-export-out.parquet')
+  })
+
+  it('refuses unsupported materialization modes and export-with-consumers', async () => {
+    for (const mode of ['publish', 'cache', 'incremental'] as const) {
+      let error: unknown
+      try {
+        await executePipeline(
+          unsupportedModePipeline(mode),
+          { sources: sourceOptions() },
+          new FakeOps(),
+        )
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(PipelineRunRefusalError)
+      expect((error as PipelineRunRefusalError).reason).toBe('unsupported-materialization')
+    }
+    let error: unknown
+    try {
+      await executePipeline(
+        exportWithConsumersPipeline(),
+        { sources: sourceOptions() },
+        new FakeOps(),
+      )
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(PipelineRunRefusalError)
+    expect((error as PipelineRunRefusalError).reason).toBe('export-with-consumers')
+  })
+
+  it('collects missing contract and diff-key bindings, and rejects misaddressed ones', async () => {
+    const missing = await expectRefusalOf(gatePipeline(), { sources: sourceOptions() })
+    expect(missing.reason).toBe('missing-contract')
+    const unknown = await expectRefusalOf(terminalGatePipeline(), {
+      sources: sourceOptions(),
+      contracts: [{ nodeId: 'ghost', contract: {} }],
+    })
+    expect(unknown.reason).toBe('unknown-contract')
+    const missingKeys = await expectRefusalOf(diffPipeline(), { sources: sourceOptions() })
+    expect(missingKeys.reason).toBe('missing-diff-keys')
+  })
+
+  it('refuses a gate node when the host supplies no compiler (gate-unsupported)', async () => {
+    const error = await expectRefusalOf(terminalGatePipeline(), {
+      sources: sourceOptions(),
+      contracts: [{ nodeId: 'gate', contract: {} }],
+    })
+    expect(error.reason).toBe('gate-unsupported')
+  })
+
+  it('refuses a diff node with no compiler and an export node with no export op', async () => {
+    const diffError = await expectRefusalOf(diffPipeline(), {
+      sources: sourceOptions(),
+      diffKeys: [{ nodeId: 'compare', keys: ['customer_id'] }],
+    })
+    expect(diffError.reason).toBe('gate-unsupported')
+
+    const limitedOps: PipelineRunEngineOps = {
+      registerSource: async () => 1,
+      materialize: async () => 1,
+    }
+    let error: unknown
+    try {
+      await executePipeline(exportPipeline(), { sources: sourceOptions() }, limitedOps)
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(PipelineRunRefusalError)
+    expect((error as PipelineRunRefusalError).reason).toBe('unsupported-materialization')
+  })
+
+  it('refuses a validate gate when the engine validate op is missing', async () => {
+    const ops: PipelineRunEngineOps = {
+      registerSource: async () => 5,
+      materialize: async () => 2,
+      schemaOf: async () => [{ name: 'customer_id', type: 'BIGINT' }],
+    }
+    let error: unknown
+    try {
+      await executePipeline(
+        terminalGatePipeline(),
+        {
+          sources: sourceOptions(),
+          contracts: [{ nodeId: 'gate', contract: {} }],
+          compilers: PASS_THROUGH_COMPILERS,
+        },
+        ops,
+      )
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(PipelineRunRefusalError)
+    expect((error as PipelineRunRefusalError).reason).toBe('gate-unsupported')
+  })
+
+  it('maps a failing host compiler to a node-attributed run error', async () => {
+    const validateFailure = await runErrorOf(terminalGatePipeline(), {
+      sources: sourceOptions(),
+      contracts: [{ nodeId: 'gate', contract: {} }],
+      compilers: { validate: () => ({ ok: false }) },
+    })
+    expect(validateFailure.nodeId).toBe('gate')
+    const diffFailure = await runErrorOf(diffPipeline(), {
+      sources: sourceOptions(),
+      diffKeys: [{ nodeId: 'compare', keys: ['customer_id'] }],
+      compilers: { diff: () => ({ ok: false }) },
+    })
+    expect(diffFailure.nodeId).toBe('compare')
+  })
+
+  it('names the next node when a non-trailing validate gate stops the run', async () => {
+    const pipeline: PipelineV1 = {
+      version: 1,
+      pipeline: 'branching-gate',
+      nodes: [
+        { id: 'a', type: 'source', source: { kind: 'file' } },
+        { id: 'gateA', type: 'validate', input: 'a', contract: 'contracts/gate.yaml' },
+        { id: 'b', type: 'source', source: { kind: 'file' } },
+        { id: 'outB', type: 'sql', inputs: ['b'], sql: 'SELECT 1 AS value' },
+      ],
+    }
+    const ops = new FakeOps()
+    ops.validationValid = false
+    const result = await executePipeline(
+      pipeline,
+      {
+        sources: [
+          { nodeId: 'a', source: SOURCE_FILE },
+          { nodeId: 'b', source: SOURCE_FILE },
+        ],
+        contracts: [{ nodeId: 'gateA', contract: {} }],
+        compilers: PASS_THROUGH_COMPILERS,
+      },
+      ops,
+    )
+    expect(result.status).toBe('gated')
+    if (result.status !== 'gated') return
+    expect(result.gatedAt).toBe('gateA')
+    expect(result.nextNodeId).toBe('outB')
+  })
+
+  it('refuses a caller-supplied plan with a non-local mode or an inconsistent statement', async () => {
+    const base = {
+      nodeId: 'out',
+      kind: 'sql' as const,
+      relation: 'out',
+      quotedRelation: '"out"',
+      sql: 'SELECT 1 AS value',
+    }
+    const unsupported = await expectRefusalOf(
+      {
+        order: ['out'],
+        nodes: [{ ...base, materialization: 'publish', statement: 'x', statementKind: 'view' }],
+      },
+      {},
+    )
+    expect(unsupported.reason).toBe('unsupported-materialization')
+    const missingStatement = await expectRefusalOf(
+      { order: ['out'], nodes: [{ ...base, materialization: 'view' }] },
+      {},
+    )
+    expect(missingStatement.reason).toBe('invalid-plan')
+    const wrongKind = await expectRefusalOf(
+      {
+        order: ['out'],
+        nodes: [
+          {
+            ...base,
+            materialization: 'table',
+            statement: 'CREATE TABLE "out" AS SELECT 1',
+            statementKind: 'view',
+          },
+        ],
+      },
+      {},
+    )
+    expect(wrongKind.reason).toBe('invalid-plan')
+  })
+
+  it('refuses structurally malformed caller-supplied plans', async () => {
+    const base = {
+      nodeId: 'out',
+      kind: 'sql' as const,
+      relation: 'out',
+      quotedRelation: '"out"',
+      sql: 'SELECT 1',
+      materialization: 'view' as const,
+      statement: 'CREATE OR REPLACE VIEW "out" AS SELECT 1',
+      statementKind: 'view' as const,
+    }
+    const mismatched = await expectRefusalOf(
+      { order: ['out', 'x'], nodes: [base] } as unknown as PipelineCompilePlan,
+      {},
+    )
+    expect(mismatched.reason).toBe('invalid-plan')
+    const duplicate = await expectRefusalOf(
+      { order: ['out', 'out'], nodes: [base, base] } as unknown as PipelineCompilePlan,
+      {},
+    )
+    expect(duplicate.reason).toBe('invalid-plan')
+    const sourceWithSql = await expectRefusalOf(
+      {
+        order: ['src'],
+        nodes: [
+          {
+            nodeId: 'src',
+            kind: 'source',
+            relation: 'src',
+            quotedRelation: '"src"',
+            sql: 'SELECT 1',
+          },
+        ],
+      } as unknown as PipelineCompilePlan,
+      {},
+    )
+    expect(sourceWithSql.reason).toBe('invalid-plan')
+    const unknownKind = await expectRefusalOf(
+      { order: ['out'], nodes: [{ ...base, kind: 'validate' }] } as unknown as PipelineCompilePlan,
+      {},
+    )
+    expect(unknownKind.reason).toBe('invalid-plan')
+  })
+})
+
+/** Refuse-with-no-engine-call helper shared by the gate tests. */
+async function expectRefusalOf(
+  input: Parameters<typeof executePipeline>[0],
+  options: Parameters<typeof executePipeline>[1],
+): Promise<PipelineRunRefusalError> {
+  const ops = new FakeOps()
+  let error: unknown
+  try {
+    await executePipeline(input, options, ops)
+  } catch (caught) {
+    error = caught
+  }
+  expect(error).toBeInstanceOf(PipelineRunRefusalError)
+  expect(ops.calls).toEqual([])
+  return error as PipelineRunRefusalError
+}
+
+/** Run-error helper: execute and require a typed `PipelineRunError`. */
+async function runErrorOf(
+  input: Parameters<typeof executePipeline>[0],
+  options: Parameters<typeof executePipeline>[1],
+): Promise<PipelineRunError> {
+  let error: unknown
+  try {
+    await executePipeline(input, options, new FakeOps())
+  } catch (caught) {
+    error = caught
+  }
+  expect(error).toBeInstanceOf(PipelineRunError)
+  return error as PipelineRunError
+}
 
 /**
  * Real-engine pins for p2-3 (additive, test-only): execute the compiler's NEW

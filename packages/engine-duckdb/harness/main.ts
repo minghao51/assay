@@ -26,7 +26,10 @@ import type {
   EngineQueryResult,
   EngineRangeWindow,
   EngineTableHandle,
+  PipelineRunCompilers,
 } from '../src/index'
+import { compileContract } from '@assay/validation'
+import type { ContractV1 } from '@assay/contracts'
 import type { PipelineV1 } from '@assay/pipeline'
 import type { EditOp, RowId } from '@assay/domain'
 import { createDuckDbConformanceSubject } from './conformance-subject'
@@ -615,9 +618,10 @@ requiredElement<HTMLButtonElement>('#validate-journey').addEventListener('click'
 //    identical run proves idempotency: the relations are recreated, never
 //    appended (ADR 0032 discipline).
 // 2. The pipeline-runner conformance suite from @assay/testing, hosted by
-//    `pipeline-runner-subject.ts` — six scenarios (success, mid-DAG
-//    failure + clean re-run, cancel, unknown-node refusal, hostile-SQL
-//    refusal, relation-handle), each on its own fresh client.
+//    `pipeline-runner-subject.ts` — the suite's scenarios (success, mid-DAG
+//    failure, cancel, refusals, relation handle, validate pass/gated, publish
+//    gate, diff node, table/export materialization, mode refusals), each on
+//    its own fresh client.
 //
 // Privacy (ADR 0001/0025): evidence is node ids, relations, and counts —
 // plus the synthetic fixture's id column the journey explicitly reads back;
@@ -706,6 +710,123 @@ async function runPipelineJourney(): Promise<void> {
 
 requiredElement<HTMLButtonElement>('#pipeline-journey').addEventListener('click', () => {
   void runPipelineJourney()
+})
+
+// ── p2-4 gate journey (tests/e2e/pipeline-gate-journey.spec.ts) ──────────────
+//
+// One explicit gated pipeline on the real engine: the OPFS-staged fixture is
+// registered, the SG filter materializes, and the validate node runs the M5
+// machinery with a FAILING contract (a NULL income on row 3) — the publish
+// that requires the validate is `gated` (`publish-blocked`), the failed
+// verdict and the named partial state are visible, and the publish gate does
+// not pass. Re-running with a PASSING contract completes and the publish
+// gate passes (re-run-after-fix). Evidence is value-free: ids, relations,
+// counts, and the gate verdicts only.
+const PIPELINE_GATE_JOURNEY: PipelineV1 = {
+  version: 1,
+  pipeline: 'harness-gate-journey',
+  nodes: [
+    { id: 'customers', type: 'source', source: { kind: 'file' } },
+    {
+      id: 'sg',
+      type: 'transform',
+      inputs: ['customers'],
+      operation: {
+        operation: 'filter',
+        args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+      },
+    },
+    { id: 'gate', type: 'validate', input: 'sg', contract: 'contracts/gate.yaml' },
+    { id: 'out', type: 'publish', input: 'sg', requires: ['gate'] },
+  ],
+}
+
+const GATE_PASS_CONTRACT: ContractV1 = {
+  format: 'v1',
+  metadata: { name: 'harness-gate-pass', version: 1 },
+  columns: [{ name: 'customer_id', required: true, unique: true }],
+}
+const GATE_FAIL_CONTRACT: ContractV1 = {
+  format: 'v1',
+  metadata: { name: 'harness-gate-fail', version: 1 },
+  columns: [{ name: 'income', required: true }],
+}
+
+/** The M5 contract compiler the host supplies (the engine stays pure). */
+const GATE_JOURNEY_COMPILERS: PipelineRunCompilers = {
+  validate: (input) => {
+    const compiled = compileContract(input.contract as ContractV1, [...input.columns], {
+      relation: input.relation,
+    })
+    return compiled.ok ? { ok: true, plan: compiled.plan } : { ok: false }
+  },
+}
+
+interface PipelineGateJourneyEvidence {
+  status?: string
+  gatedAt?: string
+  gate?: string
+  nodes?: { nodeId: string; relation: string; rowCount: number; materialization: string }[]
+  gateValid?: boolean
+  publishBlockedGates?: number
+  reRunStatus?: string
+  reRunNodes?: string[]
+  reRunGateValid?: boolean
+  reRunPublishGateBlocked?: number
+  error?: string
+}
+
+async function runPipelineGateJourney(): Promise<void> {
+  const evidence: PipelineGateJourneyEvidence = {}
+  try {
+    const handle = await stageFixtureInOpfs(
+      '/fixtures/customers.parquet',
+      'assay-pipeline-gate-journey.parquet',
+    )
+    const sources = [{ nodeId: 'customers', source: handle }]
+    const first = await client.runPipeline(PIPELINE_GATE_JOURNEY, {
+      sources,
+      contracts: [{ nodeId: 'gate', contract: GATE_FAIL_CONTRACT }],
+      compilers: GATE_JOURNEY_COMPILERS,
+    })
+    evidence.status = first.status
+    if (first.status === 'gated') {
+      evidence.gatedAt = first.gatedAt
+      evidence.gate = first.gate
+    }
+    evidence.nodes = first.nodes.map((node) => ({
+      nodeId: node.nodeId,
+      relation: node.relation,
+      rowCount: node.rowCount,
+      materialization: node.materialization,
+    }))
+    const firstGate = first.nodes.find((node) => node.nodeId === 'gate')?.gate
+    evidence.gateValid = firstGate?.class === 'validate' ? firstGate.valid : undefined
+    const firstPublish = first.nodes.find((node) => node.nodeId === 'out')?.gate
+    evidence.publishBlockedGates =
+      firstPublish?.class === 'publish' ? firstPublish.blockedGates.length : -1
+
+    // Fix the contract and re-run: the gate passes and the publish runs.
+    const second = await client.runPipeline(PIPELINE_GATE_JOURNEY, {
+      sources,
+      contracts: [{ nodeId: 'gate', contract: GATE_PASS_CONTRACT }],
+      compilers: GATE_JOURNEY_COMPILERS,
+    })
+    evidence.reRunStatus = second.status
+    evidence.reRunNodes = second.nodes.map((node) => node.nodeId)
+    const reRunGate = second.nodes.find((node) => node.nodeId === 'gate')?.gate
+    evidence.reRunGateValid = reRunGate?.class === 'validate' ? reRunGate.valid : undefined
+    const publish = second.nodes.find((node) => node.nodeId === 'out')?.gate
+    evidence.reRunPublishGateBlocked =
+      publish?.class === 'publish' ? publish.blockedGates.length : -1
+  } catch (error) {
+    evidence.error = errorMessage(error)
+  }
+  setText('pipeline-gate-journey-result', JSON.stringify(evidence))
+}
+
+requiredElement<HTMLButtonElement>('#pipeline-gate-journey').addEventListener('click', () => {
+  void runPipelineGateJourney()
 })
 
 const pipelineRunnerSubject = createPipelineRunnerSubject({

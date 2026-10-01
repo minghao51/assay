@@ -1,26 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * DuckDB engine adapter for the p-3 pipeline-runner conformance suite
+ * DuckDB engine adapter for the p-3/p2-4 pipeline-runner conformance suite
  * (`@assay/testing`). Mirrors `conformance-subject.ts`'s dependency direction
  * (implementations import the testing package) but binds the dedicated
  * runner suite to the REAL `DuckDbEngineClient.runPipeline` on the real
  * DuckDB-WASM engine. Browser-only (OPFS staging + a real Worker).
  *
  * The suite's runner seam is deliberately structural
- * (`PipelineRunnerConformanceRunOptions`), so this adapter bridges two shapes
- * to the real client:
+ * (`PipelineRunnerConformanceRunOptions`), so this adapter bridges shapes to
+ * the real client:
  * - `sources[].source.getFile(): Promise<unknown>` → the client's
  *   `PipelineRunSource` (`Promise<File>`). The staged value is a genuine
  *   `FileSystemFileHandle`, validated here rather than assumed.
- * - the structural guard (`{ invalidate }`) → the real `PipelineRunGuard`
- *   the client's runner consumes: `createGuard` mints a real guard and keeps
- *   it behind the bridge, so the suite's `invalidate()` flips the very guard
- *   the run checks at its node boundaries (the generation-guard pattern).
+ * - the structural guard (`{ invalidate }`) → the real `PipelineRunGuard`.
+ * - the suite's opaque parsed contracts / diff key sets → the pure
+ *   `@assay/validation` / `@assay/diff` compilers the runner consumes (the
+ *   engine package stays dependency-free of those packages; the host supplies
+ *   the compiled plans).
  *
  * Privacy: the suite reports only ids/counts; no dataset values are rendered
- * here beyond the column the scenario explicitly reads back.
+ * here beyond the column a scenario explicitly reads back.
  */
+import { compileContract, sqlStringLiteral } from '@assay/validation'
+import { compileRowDiffPlan } from '@assay/diff'
 import {
   DuckDbEngineClient,
   EngineOperationError,
@@ -29,6 +32,7 @@ import {
   PipelineRunRefusalError,
   quotedIdentifier,
 } from '../src/index'
+import type { PipelineRunCompilers, PipelineRunSourceFile } from '../src/index'
 import type {
   PipelineRunnerConformanceGuard,
   PipelineRunnerConformanceRunner,
@@ -37,7 +41,7 @@ import type {
   PipelineRunnerConformanceSubject,
   PipelineRunnerConformanceTableHandle,
 } from '@assay/testing'
-import type { PipelineRunSourceFile } from '../src/index'
+import type { ContractV1 } from '@assay/contracts'
 import type { PipelineV1 } from '@assay/pipeline'
 
 /** Stage bytes into the OPFS sandbox and return a genuine file handle. */
@@ -59,6 +63,25 @@ async function stageBytesInOpfs(bytes: Uint8Array, name: string): Promise<FileSy
  */
 const realGuards = new WeakMap<PipelineRunnerConformanceGuard, PipelineRunGuard>()
 
+/** The pure M5/M6 plan compilers the runner consumes (host-supplied). */
+function buildCompilers(): PipelineRunCompilers {
+  return {
+    validate: (input) => {
+      const compiled = compileContract(input.contract as ContractV1, [...input.columns], {
+        relation: input.relation,
+      })
+      return compiled.ok ? { ok: true, plan: compiled.plan } : { ok: false }
+    },
+    diff: (input) => {
+      const compiled = compileRowDiffPlan([...input.schemaA], [...input.schemaB], [...input.keys], {
+        relationA: input.relationA,
+        relationB: input.relationB,
+      })
+      return compiled.ok ? { ok: true, plan: compiled.plan } : { ok: false }
+    },
+  }
+}
+
 class HarnessPipelineRunner implements PipelineRunnerConformanceRunner {
   constructor(private readonly client: DuckDbEngineClient) {}
 
@@ -73,6 +96,9 @@ class HarnessPipelineRunner implements PipelineRunnerConformanceRunner {
       })),
       guard: options.guard === undefined ? undefined : bridgeGuard(options.guard),
       onNode: options.onNode,
+      ...(options.contracts === undefined ? {} : { contracts: [...options.contracts] }),
+      ...(options.diffKeys === undefined ? {} : { diffKeys: [...options.diffKeys] }),
+      compilers: buildCompilers(),
     })
   }
 
@@ -103,6 +129,26 @@ class HarnessPipelineRunner implements PipelineRunnerConformanceRunner {
 
   rowCount(handle: PipelineRunnerConformanceTableHandle): Promise<number> {
     return this.client.rowCount(handle)
+  }
+
+  /**
+   * The physical kind of a session relation (p2-4). `information_schema.tables`
+   * reports `VIEW` for `CREATE VIEW` relations and `BASE TABLE` for
+   * `CREATE TABLE` ones; a relation absent from both is `missing`. The
+   * relation is rendered as a string literal (never an identifier), so a
+   * hostile name cannot alter the query.
+   */
+  async relationKind(relation: string): Promise<'table' | 'view' | 'missing'> {
+    const result = await this.client.query(
+      `SELECT table_type FROM information_schema.tables WHERE table_name = ${sqlStringLiteral(relation)}`,
+    )
+    const vector = result.batch.getChildAt(0)
+    if (vector === null || vector.length === 0) return 'missing'
+    const value: unknown = vector.get(0)
+    const text = value === null || value === undefined ? '' : String(value)
+    if (text === 'BASE TABLE') return 'table'
+    if (text === 'VIEW') return 'view'
+    return 'missing'
   }
 
   dispose(): Promise<void> {
@@ -166,6 +212,7 @@ export function createPipelineRunnerSubject(
       failurePartial: (error) =>
         error instanceof PipelineRunError ? error.partial.map((entry) => entry.nodeId) : [],
       operation: (error) => error instanceof EngineOperationError,
+      refusalReason: (error) => (error instanceof PipelineRunRefusalError ? error.reason : null),
     },
   }
 }

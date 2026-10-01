@@ -75,6 +75,8 @@ import type {
   EnginePipelineHandleRequest,
   EnginePipelineMaterializeRequest,
   EnginePipelineSourceRequest,
+  EnginePipelineExecuteRequest,
+  EnginePipelineDiffRequest,
   EngineDiffRequest,
   EngineExportRequest,
   EngineFilterSpec,
@@ -118,7 +120,11 @@ import type { EngineValidationResult, EngineValidationRuleResult } from './valid
 import { composeRowCountSql, composeWindowSql } from './window-query.js'
 import { ComparisonRegistry } from './comparison-registry.js'
 import { assertRowDiffPlanBinding } from './diff-plan-wire.js'
-import type { EngineRowDiffAspect, EngineRowDiffResult } from './diff-plan-wire.js'
+import type {
+  EngineRowDiffAspect,
+  EngineRowDiffPlan,
+  EngineRowDiffResult,
+} from './diff-plan-wire.js'
 import {
   buildDiffAspectSamples,
   composeDiffAspectQuery,
@@ -159,6 +165,22 @@ const OVERLAY_MATERIALIZATION_FAILURE = 'the edited view could not be materializ
  * class names the operation, never the data.
  */
 const EXPORT_MATERIALIZATION_FAILURE = 'the view could not be exported'
+
+/**
+ * The pipeline export node's OPFS destination shape (p2-4). The runner
+ * resolves the destination (`assay-exports/assay-pipeline-export-<stem>.parquet`)
+ * with the compiler's path-safe stem encoding; the distinct
+ * `assay-pipeline-export-` prefix cannot collide with the `engine/export`
+ * op's `assay-export-<seq>` sequence. Pinning the shape keeps a hostile host
+ * from naming an arbitrary path.
+ */
+const PIPELINE_EXPORT_PATH = /^assay-exports\/assay-pipeline-export-[A-Za-z0-9_~-]+\.parquet$/
+
+/** The pipeline export's engine-generated DuckDB-VFS stem prefix (never a user path). */
+const PIPELINE_EXPORT_STEM_PREFIX = 'assay-pipeline-export-vfs-'
+
+/** The pinned export options (byte-identical to the compile/ADR 0038 conventions). */
+const PIPELINE_EXPORT_FORMAT_OPTIONS = 'FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880'
 
 /**
  * Minimal structural view of an Apache Arrow record-batch stream reader —
@@ -315,7 +337,9 @@ export class EngineOpExecutor {
       request.type === 'engine/diff-stage' ||
       request.type === 'engine/diff' ||
       request.type === 'engine/pipeline-source' ||
-      request.type === 'engine/pipeline-materialize'
+      request.type === 'engine/pipeline-materialize' ||
+      request.type === 'engine/pipeline-execute' ||
+      request.type === 'engine/pipeline-diff'
         ? this.queryLane
         : this.registryLane
     void lane.channel.run(() => this.dispatch(request, lane))
@@ -410,6 +434,14 @@ export class EngineOpExecutor {
         }
         case 'engine/pipeline-materialize': {
           await this.runPipelineMaterialize(request, lane)
+          break
+        }
+        case 'engine/pipeline-execute': {
+          await this.runPipelineExecute(request, lane)
+          break
+        }
+        case 'engine/pipeline-diff': {
+          await this.runPipelineDiff(request, lane)
           break
         }
         case 'engine/pipeline-handle': {
@@ -1146,7 +1178,29 @@ export class EngineOpExecutor {
       throw new Error('unknown comparison handle')
     }
     const conn = lane.connection(await this.deps.ensureSession())
-    const plan = request.plan
+    const result = await this.executeDiffCore(
+      conn,
+      entryA.viewName,
+      comparison.viewName,
+      request.plan,
+      request.overlay,
+    )
+    this.post({ type: 'engine/diff-result', requestId: request.requestId, result })
+  }
+
+  /**
+   * Row-diff execution against two resolved session relations (p2-4): the
+   * shared core of `engine/diff` (side B = the staged comparison view) and
+   * `engine/pipeline-diff` (both sides = pipeline node relations). Returns
+   * the result; each caller posts its own response type.
+   */
+  private async executeDiffCore(
+    conn: EngineConnectionLike,
+    sideAViewName: string,
+    sideBViewName: string,
+    plan: EngineRowDiffPlan,
+    overlay: EngineOverlayPayload | undefined,
+  ): Promise<EngineRowDiffResult> {
     if (!Number.isSafeInteger(plan.sampleLimit) || plan.sampleLimit < 1) {
       throw new Error('row-diff plan sampleLimit must be a safe integer of at least 1')
     }
@@ -1157,14 +1211,14 @@ export class EngineOpExecutor {
     ])
 
     const composition: OverlayComposition =
-      request.overlay === undefined
+      overlay === undefined
         ? await this.validationStep('the row-diff side A could not be described', () =>
-            this.baseViewComposition(conn, entryA.viewName),
+            this.baseViewComposition(conn, sideAViewName),
           )
         : {
-            viewName: entryA.viewName,
-            base: request.overlay.base,
-            state: this.compositionOf(request.overlay).state,
+            viewName: sideAViewName,
+            base: overlay.base,
+            state: this.compositionOf(overlay).state,
           }
 
     await this.validationStep('the row-diff containment transaction could not be started', () =>
@@ -1180,7 +1234,7 @@ export class EngineOpExecutor {
       )
       aViewCreated = true
       await this.validationStep('the row-diff side B binding view could not be materialized', () =>
-        conn.query(composeDiffComparisonViewSql(plan.relationB, comparison.viewName)),
+        conn.query(composeDiffComparisonViewSql(plan.relationB, sideBViewName)),
       )
       bViewCreated = true
 
@@ -1288,11 +1342,7 @@ export class EngineOpExecutor {
     if (runResult === null) {
       throw new Error('the row-diff op completed without a result')
     }
-    this.post({
-      type: 'engine/diff-result',
-      requestId: request.requestId,
-      result: runResult,
-    })
+    return runResult
   }
 
   /**
@@ -1678,6 +1728,108 @@ export class EngineOpExecutor {
   }
 
   /**
+   * Execute one pipeline data node with its ADR 0033 mode (p2-4):
+   * `view`/`ephemeral` → a session view, `table` → a DuckDB table, `export` →
+   * a Parquet artifact moved from DuckDB's virtual filesystem into OPFS
+   * scratch space (the `engine/export` two-step, under the pipeline's own
+   * distinct stem prefix so it can never collide with the export op's
+   * `assay-export-<seq>` sequence). The relation's prior view AND table are
+   * dropped first, so a re-run recreates rather than appends and a mode
+   * change cannot leave a same-named relation of the wrong kind. The SQL is
+   * re-classified at this boundary; engine errors are value-free classes.
+   */
+  private async runPipelineExecute(
+    request: EnginePipelineExecuteRequest,
+    lane: OpLane,
+  ): Promise<void> {
+    const relation = assertPipelineRelation(request.relation)
+    if (!classifyVerbatimSql(request.sql).ok) {
+      throw new Error('the pipeline node SQL was refused by the read-only safety classifier')
+    }
+    const conn = lane.connection(await this.deps.ensureSession())
+    if (request.materialization === 'export') {
+      const path = request.path
+      if (path === undefined || !PIPELINE_EXPORT_PATH.test(path)) {
+        throw new Error('the pipeline export destination is invalid')
+      }
+      const seq = this.nextExportSeq++
+      const stem = `${PIPELINE_EXPORT_STEM_PREFIX}${String(seq)}`
+      const copySql = `COPY (${request.sql}) TO '${stem}' (${PIPELINE_EXPORT_FORMAT_OPTIONS})`
+      const copyResult = await this.pipelineStep(
+        'the pipeline export could not be materialized',
+        () => conn.query(copySql),
+      )
+      const count = readCopyRowCount(copyResult)
+      const rowCount =
+        count ??
+        (await this.pipelineStep('the pipeline export row count failed', async () => {
+          const counted = await conn.query(
+            `SELECT count(*)::BIGINT AS ${quotedIdentifier('row_count')} FROM (${request.sql}) AS ${quotedIdentifier('assay_pipeline_export_source')}`,
+          )
+          const value = counted.getChildAt(0)?.get(0)
+          const n = typeof value === 'bigint' ? Number(value) : value
+          if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
+            throw new Error('the pipeline export row count returned an unexpected shape')
+          }
+          return n
+        }))
+      let bytes: Uint8Array
+      try {
+        bytes = await this.pipelineStep('the pipeline export bytes could not be read', () =>
+          this.deps.copyExportBytes(stem),
+        )
+      } finally {
+        await this.deps.dropFile(stem).catch(() => undefined)
+      }
+      await this.deps.writeExportFile(path, bytes)
+      this.post({
+        type: 'engine/pipeline-execute-result',
+        requestId: request.requestId,
+        relation,
+        materialization: 'export',
+        rowCount,
+        path,
+        bytes: bytes.byteLength,
+      })
+      return
+    }
+    const keyword = request.materialization === 'table' ? 'TABLE' : 'VIEW'
+    // A re-run may follow a different materialization mode for the same
+    // relation; drop whichever kind exists so `CREATE` cannot fail.
+    await conn.query(`DROP VIEW IF EXISTS ${quotedIdentifier(relation)}`).catch(() => undefined)
+    await conn.query(`DROP TABLE IF EXISTS ${quotedIdentifier(relation)}`).catch(() => undefined)
+    await this.pipelineStep('the pipeline node relation could not be materialized', () =>
+      conn.query(`CREATE ${keyword} ${quotedIdentifier(relation)} AS ${request.sql}`),
+    )
+    this.pipeline.addView(relation)
+    const rowCount = await this.pipelineStep('the pipeline node row count failed', () =>
+      this.countRelation(conn, relation),
+    )
+    this.post({
+      type: 'engine/pipeline-execute-result',
+      requestId: request.requestId,
+      relation,
+      materialization: request.materialization,
+      rowCount,
+    })
+  }
+
+  /** Row-diff two pipeline session relations (p2-4); see {@link executeDiffCore}. */
+  private async runPipelineDiff(request: EnginePipelineDiffRequest, lane: OpLane): Promise<void> {
+    const inputRelation = assertPipelineRelation(request.inputRelation)
+    const againstRelation = assertPipelineRelation(request.againstRelation)
+    const conn = lane.connection(await this.deps.ensureSession())
+    const result = await this.executeDiffCore(
+      conn,
+      inputRelation,
+      againstRelation,
+      request.plan,
+      undefined,
+    )
+    this.post({ type: 'engine/pipeline-diff-result', requestId: request.requestId, result })
+  }
+
+  /**
    * Open an EXISTING session relation as a dataset handle (p2-1). The
    * relation must already be a view in this session (the motivating case: a
    * pipeline node materialized by `engine/pipeline-materialize` or a source
@@ -1776,7 +1928,11 @@ export class EngineOpExecutor {
     // are dropped with the rest (views first, then the files they read).
     const pipelineState = this.pipeline.clear()
     for (const relation of pipelineState.views) {
+      // A relation may be a view OR a table (p2-4 table materialization);
+      // drop whichever kind exists, never both (the mismatched DROP errors
+      // and is swallowed — this is best-effort reclaim, not user data).
       await conn.query(`DROP VIEW IF EXISTS ${quotedIdentifier(relation)}`).catch(() => undefined)
+      await conn.query(`DROP TABLE IF EXISTS ${quotedIdentifier(relation)}`).catch(() => undefined)
     }
     for (const source of pipelineState.sources) {
       await this.deps.dropFile(source.registeredFileName).catch(() => undefined)

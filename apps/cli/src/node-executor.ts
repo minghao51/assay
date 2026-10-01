@@ -846,17 +846,30 @@ export function createPipelineRunOps(
       }
       return countRows(relation)
     },
-    materialize: async (relation, sql) => {
+    materialize: async (relation, sql, materialization) => {
       // Belt-and-suspenders parity with the engine worker: the runner already
       // gated this SQL (assertSqlAccepted), and this boundary re-checks it
       // before any DDL, exactly like the worker does.
       if (!classifyVerbatimSql(sql).ok) {
         throw new Error('the pipeline node SQL was refused by the read-only safety classifier')
       }
+      const keyword = materialization === 'table' ? 'TABLE' : 'VIEW'
       try {
-        await conn.run(`CREATE OR REPLACE VIEW ${quotedIdentifier(relation)} AS ${sql}`)
+        // The relation's prior view OR table is dropped first (a mode change
+        // between runs must not leave a same-named relation of the wrong kind).
+        await conn.run(`DROP VIEW IF EXISTS ${quotedIdentifier(relation)}`)
       } catch {
-        throw new Error('the pipeline node view could not be materialized')
+        // not a view — ignore
+      }
+      try {
+        await conn.run(`DROP TABLE IF EXISTS ${quotedIdentifier(relation)}`)
+      } catch {
+        // not a table — ignore
+      }
+      try {
+        await conn.run(`CREATE ${keyword} ${quotedIdentifier(relation)} AS ${sql}`)
+      } catch {
+        throw new Error('the pipeline node relation could not be materialized')
       }
       return countRows(relation)
     },

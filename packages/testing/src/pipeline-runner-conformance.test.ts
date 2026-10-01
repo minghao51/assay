@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
-import { compilePipeline } from '@assay/pipeline'
+import { compilePipeline, validatePipeline } from '@assay/pipeline'
 import type { PipelineNode, PipelineV1 } from '@assay/pipeline'
 import {
   pipelineRunnerConformanceScenarioNames,
@@ -78,15 +78,81 @@ function rowCountOf(relation: Relation): number {
   return relation.rows.length
 }
 
+/** Non-null-aware value read (the fake renders NULL as the string `'NULL'`). */
+function isNull(value: string | null | undefined): boolean {
+  return value === null || value === undefined || value === 'NULL'
+}
+
+/** Evaluate the suite's simple contract AST against a fake relation. */
+function evaluateContract(contract: unknown, relation: Relation): number {
+  const columns = (
+    contract as { columns?: readonly { name?: unknown; required?: unknown; unique?: unknown }[] }
+  ).columns
+  if (!Array.isArray(columns)) return 0
+  let violated = 0
+  for (const rule of columns) {
+    if (typeof rule.name !== 'string') {
+      violated += 1
+      continue
+    }
+    const index = relation.columns.indexOf(rule.name)
+    if (index < 0) {
+      violated += 1
+      continue
+    }
+    const values = relation.rows.map((row) => row[index] ?? null)
+    if (rule.required === true && values.some((value) => isNull(value))) violated += 1
+    if (rule.unique === true) {
+      const nonNull = values.filter((value) => !isNull(value))
+      if (new Set(nonNull).size !== nonNull.length) violated += 1
+    }
+  }
+  return violated
+}
+
+/** Compute the three row-diff aspect counts over a key set. */
+function computeDiff(
+  sideA: Relation,
+  sideB: Relation,
+  keys: readonly string[],
+): { added: number; removed: number; changed: number } {
+  const keyIndexA = keys.map((key) => sideA.columns.indexOf(key))
+  const keyIndexB = keys.map((key) => sideB.columns.indexOf(key))
+  const keyOf = (row: readonly (string | null)[], indexes: readonly number[]): string =>
+    indexes.map((index) => (index < 0 ? 'NULL' : (row[index] ?? 'NULL'))).join('\u0000')
+  const mapA = new Map(sideA.rows.map((row) => [keyOf(row, keyIndexA), row]))
+  const mapB = new Map(sideB.rows.map((row) => [keyOf(row, keyIndexB), row]))
+  let added = 0
+  let removed = 0
+  let changed = 0
+  for (const key of mapB.keys()) if (!mapA.has(key)) added += 1
+  for (const key of mapA.keys()) if (!mapB.has(key)) removed += 1
+  const shared = sideA.columns.filter(
+    (column) => !keys.includes(column) && sideB.columns.includes(column),
+  )
+  for (const [key, rowA] of mapA) {
+    const rowB = mapB.get(key)
+    if (rowB === undefined) continue
+    const differs = shared.some((column) => {
+      const valueA = rowA[sideA.columns.indexOf(column)] ?? null
+      const valueB = rowB[sideB.columns.indexOf(column)] ?? null
+      return valueA !== valueB
+    })
+    if (differs) changed += 1
+  }
+  return { added, removed, changed }
+}
+
 class FakeRunner implements PipelineRunnerConformanceRunner {
   private readonly relations = new Map<string, Relation>()
+  private readonly kinds = new Map<string, 'view' | 'table'>()
 
   async runPipeline(
     pipeline: PipelineV1,
     options: PipelineRunnerConformanceRunOptions,
   ): Promise<PipelineRunnerConformanceOutcome> {
-    const compiled = compilePipeline(pipeline)
-    if (!compiled.ok) throw new FakeRefusal('not-runnable')
+    const validation = validatePipeline(pipeline)
+    if (!validation.ok) throw new FakeRefusal('not-runnable')
     const byId = new Map<string, PipelineNode>(pipeline.nodes.map((node) => [node.id, node]))
 
     const sourceIds = new Set(
@@ -102,8 +168,82 @@ class FakeRunner implements PipelineRunnerConformanceRunner {
       if (!bindings.has(id)) throw new FakeRefusal('missing-source')
     }
 
+    // Data-node materialization + gate-binding preconditions (the real
+    // runner's pure boundary gates, mirrored for the suite self-test).
+    const referenced = new Set<string>()
+    for (const node of pipeline.nodes) {
+      if (node.type === 'transform' || node.type === 'sql') {
+        for (const input of node.inputs) referenced.add(input)
+      } else if (node.type === 'validate' || node.type === 'publish') {
+        referenced.add(node.input)
+        if (node.type === 'publish') for (const gate of node.requires ?? []) referenced.add(gate)
+      } else if (node.type === 'diff') {
+        referenced.add(node.input)
+        referenced.add(node.against)
+      }
+    }
+    for (const node of pipeline.nodes) {
+      if (node.type !== 'source' && node.type !== 'transform' && node.type !== 'sql') continue
+      const mode = (node as { materialization?: string }).materialization ?? 'view'
+      if (mode === 'cache' || mode === 'incremental' || mode === 'publish') {
+        throw new FakeRefusal('unsupported-materialization')
+      }
+      if (mode === 'export' && referenced.has(node.id)) {
+        throw new FakeRefusal('export-with-consumers')
+      }
+    }
+    const contracts = new Map<string, unknown>()
+    for (const binding of options.contracts ?? []) {
+      if (!pipeline.nodes.some((node) => node.id === binding.nodeId && node.type === 'validate')) {
+        throw new FakeRefusal('unknown-contract')
+      }
+      contracts.set(binding.nodeId, binding.contract)
+    }
+    const diffKeys = new Map<string, readonly string[]>()
+    for (const binding of options.diffKeys ?? []) {
+      if (!pipeline.nodes.some((node) => node.id === binding.nodeId && node.type === 'diff')) {
+        throw new FakeRefusal('unknown-diff-keys')
+      }
+      diffKeys.set(binding.nodeId, binding.keys)
+    }
+    for (const node of pipeline.nodes) {
+      if (node.type === 'validate' && !contracts.has(node.id))
+        throw new FakeRefusal('missing-contract')
+      if (node.type === 'diff' && !diffKeys.has(node.id)) throw new FakeRefusal('missing-diff-keys')
+    }
+
+    const dataNodes = pipeline.nodes.filter(
+      (node) => node.type === 'source' || node.type === 'transform' || node.type === 'sql',
+    )
+    const compiled = compilePipeline({ ...pipeline, nodes: dataNodes })
+    if (!compiled.ok) throw new FakeRefusal('not-runnable')
+    const compiledById = new Map(compiled.plan.nodes.map((node) => [node.nodeId, node]))
+
     const done: PipelineRunnerConformanceNodeResult[] = []
-    for (const nodeId of compiled.plan.order) {
+    const succeeded = new Set<string>()
+    const rowCounts = new Map<string, number>()
+    const requiredByPublish = new Set<string>()
+    for (const node of pipeline.nodes) {
+      if (node.type === 'publish')
+        for (const gate of node.requires ?? []) requiredByPublish.add(gate)
+    }
+
+    const order = validation.order
+    const gated = (
+      gate: 'validation-failed' | 'publish-blocked',
+      gatedAt: string,
+    ): PipelineRunnerConformanceOutcome => {
+      const index = order.indexOf(gatedAt)
+      return {
+        status: 'gated',
+        nodes: done,
+        gatedAt,
+        gate,
+        nextNodeId: index + 1 < order.length ? order[index + 1]! : null,
+      }
+    }
+
+    for (const nodeId of order) {
       const node = byId.get(nodeId)
       if (node === undefined) throw new FakeRefusal('invalid-plan')
       if (options.guard !== undefined && (options.guard as FakeGuard).invalidated) {
@@ -115,9 +255,67 @@ class FakeRunner implements PipelineRunnerConformanceRunner {
       }
       const partial = done.map((entry) => entry.nodeId)
       try {
-        const relation = await this.materialize(node, bindings)
-        this.relations.set(nodeId, relation)
-        done.push({ nodeId, relation: nodeId, rowCount: rowCountOf(relation) })
+        if (node.type === 'source' || node.type === 'transform' || node.type === 'sql') {
+          if (!compiledById.has(nodeId)) throw new FakeRefusal('not-runnable')
+          const relation = await this.materialize(node, bindings)
+          const mode = (node as { materialization?: string }).materialization ?? 'view'
+          if (mode === 'export') {
+            done.push({
+              nodeId,
+              relation: nodeId,
+              rowCount: rowCountOf(relation),
+              materialization: 'export',
+              exportPath: `assay-exports/assay-pipeline-export-${nodeId}.parquet`,
+            })
+          } else {
+            this.relations.set(nodeId, relation)
+            this.kinds.set(nodeId, mode === 'table' ? 'table' : 'view')
+            done.push({
+              nodeId,
+              relation: nodeId,
+              rowCount: rowCountOf(relation),
+              materialization: mode,
+            })
+          }
+        } else if (node.type === 'validate') {
+          const relation = this.requireRelation(node.input)
+          const violatedRules = evaluateContract(contracts.get(nodeId), relation)
+          const valid = violatedRules === 0
+          done.push({
+            nodeId,
+            relation: node.input,
+            rowCount: rowCountOf(relation),
+            materialization: 'gate',
+            gate: { class: 'validate', valid, violatedRules },
+          })
+          if (!valid) {
+            if (!requiredByPublish.has(nodeId)) return gated('validation-failed', nodeId)
+            continue
+          }
+        } else if (node.type === 'diff') {
+          const sideA = this.requireRelation(node.input)
+          const sideB = this.requireRelation(node.against)
+          const counts = computeDiff(sideA, sideB, [...(diffKeys.get(nodeId) ?? [])])
+          done.push({
+            nodeId,
+            relation: node.input,
+            rowCount: rowCountOf(sideA),
+            materialization: 'gate',
+            gate: { class: 'diff', ...counts },
+          })
+        } else {
+          const blockedGates = (node.requires ?? []).filter((gate) => !succeeded.has(gate))
+          done.push({
+            nodeId,
+            relation: node.input,
+            rowCount: rowCounts.get(node.input) ?? 0,
+            materialization: 'gate',
+            gate: { class: 'publish', blockedGates },
+          })
+          if (blockedGates.length > 0) return gated('publish-blocked', nodeId)
+        }
+        succeeded.add(nodeId)
+        rowCounts.set(nodeId, done[done.length - 1]?.rowCount ?? 0)
       } catch (error) {
         if (error instanceof FakeRefusal) throw error
         throw new FakeFailure(nodeId, partial)
@@ -153,6 +351,16 @@ class FakeRunner implements PipelineRunnerConformanceRunner {
     const found = this.relations.get(relation)
     if (found === undefined) throw new FakeOperation()
     return rowCountOf(found)
+  }
+
+  async relationKind(relation: string): Promise<'table' | 'view' | 'missing'> {
+    return this.kinds.get(relation) ?? 'missing'
+  }
+
+  private requireRelation(relation: string): Relation {
+    const found = this.relations.get(relation)
+    if (found === undefined) throw new FakeFailure(relation, [])
+    return found
   }
 
   private async materialize(
@@ -214,10 +422,11 @@ class FakeRunner implements PipelineRunnerConformanceRunner {
 }
 
 function compliantSubject(): PipelineRunnerConformanceSubject {
-  const runner = new FakeRunner()
   return {
     name: 'fake-pipeline-runner',
-    createRunner: () => runner,
+    // A fresh runner per scenario (the real harness mints a fresh engine
+    // client), so relations never leak between scenarios.
+    createRunner: () => new FakeRunner(),
     dispose: async () => {
       // Keep the fake stateless across scenarios: scenarios are independent.
     },
@@ -237,6 +446,7 @@ function compliantSubject(): PipelineRunnerConformanceSubject {
       failureNodeId: (error) => (error instanceof FakeFailure ? error.nodeId : null),
       failurePartial: (error) => (error instanceof FakeFailure ? [...error.partial] : []),
       operation: (error) => error instanceof FakeOperation,
+      refusalReason: (error) => (error instanceof FakeRefusal ? error.reason : null),
     },
   }
 }
@@ -275,6 +485,7 @@ describe('pipeline-runner conformance suite (fake compliant subject)', () => {
           registerRelation: (relation) => runner.registerRelation(relation),
           schema: (handle) => runner.schema(handle),
           rowCount: (handle) => runner.rowCount(handle),
+          relationKind: (relation) => runner.relationKind(relation),
         }
       },
     }
