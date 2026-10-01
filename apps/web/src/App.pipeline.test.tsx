@@ -246,8 +246,14 @@ const h = vi.hoisted(() => ({
   failPreview: false,
   /** When set, only the preview's INPUT relation rejects (no schema delta). */
   failPreviewInput: false,
-  /** When set, the p2-1 handle op parks until `resolvePreviewRegistration` runs. */
-  deferPreview: false,
+  /**
+   * When set to a relation name, ONLY that relation's p2-1 handle op parks
+   * until `resolvePreviewRegistration` runs. Scoping the gate to the output
+   * relation (the previewed node id) lets the delivery proceed past the
+   * output await to the input registration and completion, so a neutralized
+   * generation-token guard is actually observable.
+   */
+  deferPreviewRelation: null as null | string,
   /** Resolves the parked `registerPipelineRelation` (an in-flight preview delivery). */
   resolvePreviewRegistration: null as null | ((handle: EngineTableHandle) => void),
 }))
@@ -293,7 +299,7 @@ vi.mock('./lib/engine', () => ({
       if (h.failPreview || (h.failPreviewInput && relation !== 'by_country')) {
         return Promise.reject(new Error('relation not addressable'))
       }
-      if (h.deferPreview) {
+      if (relation === h.deferPreviewRelation) {
         return new Promise<EngineTableHandle>((resolve) => {
           h.resolvePreviewRegistration = resolve
         })
@@ -394,7 +400,7 @@ afterEach(() => {
   h.failGetFile = false
   h.failPreview = false
   h.failPreviewInput = false
-  h.deferPreview = false
+  h.deferPreviewRelation = null
   h.resolvePreviewRegistration = null
 })
 
@@ -1359,8 +1365,11 @@ describe('pipeline session hook — stale-preview lifecycle (p2-6, fix round)', 
     })
 
     // (b) A deferred preview delivery that resolves AFTER the run started is
-    // dropped by the generation token — it must not reopen the preview.
-    h.deferPreview = true
+    // dropped by the generation token — it must not reopen the preview. The
+    // gate parks ONLY the output relation, so with the guard neutralized the
+    // delivery runs to completion (input registered, model loaded) and would
+    // reopen the preview; the token guard is what keeps it closed.
+    h.deferPreviewRelation = 'by_country'
     await act(async () => {
       result.current.openPreview('by_country')
     })
