@@ -30,12 +30,12 @@
     "@eslint/js": "^9.30.0",
     "@playwright/test": "^1.55.0",
     "@types/node": "catalog:",
-    "eslint": "^10.11.0",
+    "eslint": "^10.12.0",
     "eslint-plugin-import-x": "^4.17.1",
-    "prettier": "^3.9.8",
-    "turbo": "^2.11.3",
+    "prettier": "^3.9.9",
+    "turbo": "^2.11.7",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.70.1",
+    "typescript-eslint": "^8.71.0",
     "vitest": "catalog:"
   }
 }
