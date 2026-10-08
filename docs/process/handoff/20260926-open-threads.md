@@ -34,11 +34,12 @@
    [`handoff/20260926-publish-runbook.md`](20260926-publish-runbook.md)** (preconditions, cut sequence,
    consumer smoke, tag/release, abort policy; dry-run validated 2026-09-26). The cut is mechanical once
    M1 lands.
-6. **Now (2026-10-02, after rulings D15/D16):** the **PTV-M9 queue is ACTIVE** —
-   [handoff/20261002-ptv-m9-queue.md](20261002-ptv-m9-queue.md): **ptv-1** (R4 webview feasibility
-   spike — D15) and **m9-1** (DCR artifact v1 scoping proposal + Proposed ADR 0046 — D16). The
-   **D17 format ruling** and the **PT-V track-start ruling** follow the rows' deliverables; the
-   **P3 queue unblocks at D17**. G0 tail stays human-only (§3).
+6. **Now (2026-10-02, after the PTV-M9 closure):** the **PTV-M9 queue is CLOSED** — both rows landed
+   ([handoff/20261002-ptv-m9-queue.md](20261002-ptv-m9-queue.md)): **ptv-1** (R4 webview feasibility
+   spike — desktop-extension webview GO / vscode-web RE-SCOPE) and **m9-1** (DCR artifact v1 scoping
+   proposal + Proposed ADR 0046). **D17** (DCR format v1 — unblocks the P3 queue) and **D18**
+   (PT-V track start; code assigned by the closure session, maintainer to confirm) are now pending
+   with the maintainer. G0 tail stays human-only (§3).
 
 ## 2. Open threads (authoritative pointers)
 
@@ -60,10 +61,12 @@
 ## 3. Maintainer checkpoints & manual actions (humans only)
 
 - **Decisions: ALL RULED 2026-09-29** (the [rulings queue](20260926-maintainer-rulings.md) is closed): **C-pt0-1** ✅ telemetry approved (ADR 0045; implementation **complete 2026-09-29** — t-1/t-2/t-3 in the [telemetry queue](20260929-telemetry-queue.md); collector deployment + public disclosure = G0 tail) · **D12** ✅ PT-P first ([PT-P queue](20260929-ptp-queue.md) — **COMPLETE + CLOSED 2026-09-30: p-1…p-5 all landed** (IR core → SQL compilation → DuckDB runner → CLI → web panel; unit 2217→2515, e2e 153+1→159+1); **the P2 follow-on was queued and is now COMPLETE + CLOSED 2026-10-02** — [PT-P2 queue](20260930-ptp2-queue.md), p2-1…p2-6, pipeline P2 code-complete end-to-end; carry-overs in its §4); PT-V after — R4 spike) · **D13** ✅ keep-as-target (arch-01 §7) · **D14** ✅ ADR 0044 Accepted as written — ux-6 **landed 2026-09-29** (UX queue closed), q-15 (slice 2) unblocked/pickup-ready.
-- **NEW 2026-10-02 — PT-V go/no-go + M9 scoping: BOTH RULED (D15/D16, see the [rulings file](20260926-maintainer-rulings.md)):**
-  **D15** ✅ GO via the **R4 webview feasibility spike** (ptv-1 in the [ptv-m9 queue](20261002-ptv-m9-queue.md)); the PT-V track
-  commitment follows the spike's evidence report. **D16** ✅ M9 scoping authorized (m9-1: spec + Proposed ADR 0046; the **D17** DCR
-  format ruling follows, unblocking the P3 queue). Engineering dispatches resume from the ptv-m9 queue.
+- **NEW 2026-10-02 — PT-V go/no-go + M9 scoping ruled (D15/D16); PTV-M9 CLOSED — D17/D18 now pending:**
+  **D15** ✅ GO via the **R4 webview feasibility spike** (ptv-1 — desktop-extension webview **GO**, vscode-web **RE-SCOPE**;
+  [report](../../engineering/08-vscode-webview-feasibility.md)); the PT-V track commitment awaits **D18**. **D16** ✅ M9 scoping
+  authorized (m9-1: spec + Proposed ADR 0046; the **D17** DCR-format ruling still pending, unblocking the P3 queue). Both
+  PTV-M9 rows landed 2026-10-02 ([queue §5](20261002-ptv-m9-queue.md)); engineering dispatches resume only after the D17/D18
+  rulings.
 - **Manual actions open** ([manual-actions.md](../manual-actions.md)): **M1** npm org claim
   (gates first publish, D6 tail) · **M4** trademark/domain clearance (G0 tail) · org
   transfer + public flip (G0; the SECURITY.md private-reporting caveat resolves at flip).
