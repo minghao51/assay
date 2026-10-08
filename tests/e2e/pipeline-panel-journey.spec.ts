@@ -21,9 +21,10 @@ import {
 // over the customers fixture): 5 source rows → 5 after the rename → 2 after
 // the SG filter → 1 aggregate row.
 //
-// The Pipeline section's placement is PROVISIONAL (last, pending slice-2
-// tool-pane membership); the 900px test pins the ux-1 scroll-never-clip
-// discipline for the new section at the minimum supported width.
+// The Pipeline section is a tool-pane resident ordered last (after profile) in
+// both layouts (q-15 ruling, 2026-10-02); the 900px test pins the ux-1
+// scroll-never-clip discipline for the new section at the minimum supported
+// width.
 
 const NODE_IDS = ['customers', 'renamed', 'sg_only', 'by_country']
 

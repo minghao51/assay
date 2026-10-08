@@ -3,6 +3,7 @@ pipeline: reserved_namespace_refusal
 nodes:
   assay_overlay_ord:
     type: diff
+    input: base
     against: base
   base:
     type: source

@@ -305,8 +305,9 @@ export function PipelinePanel({
       {/*
        * ux-3 heading map: this section's h2 lives here (visually hidden, the
        * SQL/Profile pattern) so the shell's complete heading map includes the
-       * Pipeline section. Placement is PROVISIONAL (p-5): last in the v1
-       * stack pending slice-2 tool-pane membership (ADR 0044 / q-15).
+       * Pipeline section. Panel-placement ruling (q-15, 2026-10-02): the
+       * pipeline panel is a tool-pane resident ordered last (after profile) in
+       * both layouts; do not reorder without a new ruling.
        */}
       <h2 className="visually-hidden">Pipeline</h2>
 

@@ -46,11 +46,11 @@
     },
     {
       "name": "reserved-namespace-refusal.yaml",
-      "sha256": "1b064ce85aa41d596471181fb85ca3a91d5edcaec0162400eba389c2fafb4853",
+      "sha256": "f62ba2483b92e91b63be824e6af501d68934269339cdcbfab0fea3ee1d9f1416",
       "canonical": false,
       "expect": "refuses",
       "errorCode": "reserved-identifier",
-      "description": "Negative probe: an assay_-prefixed node id (which would collide with the repo-wide reserved namespace once node id = relation name) must be refused at parse"
+      "description": "Negative probe: an assay_-prefixed node id (which would collide with the repo-wide reserved namespace once node id = relation name) must be refused at parse. The diff node carries the p2-2 settled shape-valid `input`+`against` refs (p2c-3), so the refusal is proven independent of shape validity — it fires via the reserved-id short-circuit alone"
     },
     {
       "name": "reserved-nodes.yaml",

@@ -235,14 +235,35 @@ describe('golden pipeline fixtures', () => {
       readFileSync(join(FIXTURE_DIR, 'architecture-example.yaml'), 'utf8'),
     )
     expect(example.ok).toBe(true)
-    // The probe is now doubly invalid (reserved `assay_*` id AND a diff node
-    // missing `input`); the pinned `reserved-identifier` depends on that check
-    // short-circuiting before shape validation — regenerate with that order
-    // preserved or re-pin the expected code here.
+    // The probe is shape-valid apart from its reserved `assay_*` id: its diff
+    // node carries the settled `input`+`against` refs (p2c-3), so the pinned
+    // `reserved-identifier` refusal fires via the reserved-id short-circuit
+    // independent of shape validity. The dedicated pin below swaps only the id
+    // and proves the rest of the document parses and DAG-validates.
     const refusal = parsePipeline(
       readFileSync(join(FIXTURE_DIR, 'reserved-namespace-refusal.yaml'), 'utf8'),
     )
     expect(refusal.ok).toBe(false)
+  })
+
+  it('reserved-namespace-refusal.yaml is shape-valid apart from its reserved id (p2c-3)', () => {
+    // The refusal probe must refuse for the reserved-id class ALONE. Swap only
+    // the reserved id for a non-reserved one; the same document must then parse
+    // and DAG-validate (the diff node's `input`+`against` refs resolve),
+    // proving the refusal no longer depends on any shape defect.
+    const text = readFileSync(join(FIXTURE_DIR, 'reserved-namespace-refusal.yaml'), 'utf8')
+    const renamed = text.replace('assay_overlay_ord', 'overlay_probe')
+    expect(renamed).not.toBe(text)
+    const parsed = parsePipeline(renamed)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(validatePipeline(parsed.pipeline).ok).toBe(true)
+    expect(parsed.pipeline.nodes.find((node) => node.type === 'diff')).toEqual({
+      id: 'overlay_probe',
+      type: 'diff',
+      input: 'base',
+      against: 'base',
+    })
   })
 
   it('hostile-names.yaml pins the parsed AST of its most hostile construct (p2-1 (h))', () => {
