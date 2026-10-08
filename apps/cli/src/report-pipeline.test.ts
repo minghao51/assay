@@ -948,6 +948,39 @@ describe('buildPipelineRunReport — p2-5 gated and refused runs', () => {
     )
   })
 
+  it('a gate in a failed run whose partial entry omitted a verdict is `no-verdict`, never `passed`', () => {
+    // Failure-path symmetry rider for the success-path pin above: the runner
+    // always carries an executed gate's verdict on `partial` now, but the
+    // defensive `entry.gate === undefined` branch must stay honest — a partial
+    // entry that omits the optional field renders `no-verdict`, not `passed`.
+    const report = buildPipelineRunReport({
+      pipeline: GATE_PIPELINE,
+      order: ['raw', 'clean', 'gate', 'out'],
+      result: null,
+      error: {
+        name: 'PipelineRunError',
+        message: 'the pipeline node could not be materialized',
+        nodeId: 'out',
+        partial: [
+          { nodeId: 'raw', relation: 'raw' },
+          { nodeId: 'clean', relation: 'clean' },
+          { nodeId: 'gate', relation: 'clean' },
+        ],
+      } as InstanceType<typeof import('@assay/engine-duckdb/node').PipelineRunError>,
+    })
+    expect(report.status).toBe('failed')
+    const gate = report.nodes.find((node) => node.nodeId === 'gate')
+    expect(gate?.status).toBe('no-verdict')
+    expect(gate?.gate).toBe(null)
+    const payload = JSON.parse(renderJsonPipelineRunReport(report)) as {
+      nodes: { nodeId: string; status: string }[]
+    }
+    expect(payload.nodes.find((node) => node.nodeId === 'gate')?.status).toBe('no-verdict')
+    expect(renderHumanPipelineRunReport(report)).toContain(
+      '3. gate — validate — ran (no verdict recorded)',
+    )
+  })
+
   it('a gate that executed before a later node failure keeps its real verdict', () => {
     // The failed-then-node-error interleaving: a validate gate a publish
     // requires evaluates (and fails) without stopping the run, then a later

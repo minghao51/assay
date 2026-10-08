@@ -21,7 +21,16 @@ the fixed value-free class.
 envelope) instead of a blanket `no-verdict`. `no-verdict` remains only as the
 defensive fallback for a gate result the runner did not carry (the optional
 `gate` field is absent); the real runner sets a verdict for every executed gate,
-so it is no longer reachable from a real run. This is a versioned
-report-envelope shape change under the existing `report` marker /
-`reportVersion` discipline (no new marker): a failed run's `nodes[].status` and
-`nodes[].gate` now carry the executed gate's real values.
+so it is no longer reachable from a real run. This is a value-domain change
+within the existing report-envelope shape (no keys added) under the existing
+`report` marker / `reportVersion` discipline (no new marker): a failed run's
+`nodes[].status` and `nodes[].gate` now carry the executed gate's real values.
+
+Web panel: failed-run gated/failed states already render, and the panel's
+failure path already maps `error.partial` entries (`partialOutcomes` in
+`apps/web/src/pipeline/usePipelineSession.ts` reads `nodeId`/`relation` and
+ignores the new optional `gate`), so panel consumption of `partial[].gate`
+verdicts is **trivially additive** (pass the field through, mirroring
+`toOutcome` on the success path) — recorded follow-up **`p2c-4`** (web panel
+renders executed-gate verdicts on the failure path), not implemented here
+(`apps/web/**` is out of scope for p2c-1).
