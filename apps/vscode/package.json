@@ -2,8 +2,39 @@
   "name": "@assay/vscode",
   "version": "0.0.0",
   "private": true,
-  "description": "Assay VS Code extension \u2014 placeholder until the PT-V post-MVP track (D11)",
+  "type": "module",
+  "displayName": "Assay (R4 webview spike)",
+  "description": "Assay VS Code extension — PT-V R4 webview feasibility spike (ptv-1); spike-only scaffold, not a product extension",
+  "publisher": "assay-spike",
   "license": "AGPL-3.0-or-later",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=22"
+  },
+  "main": "./dist/extension.cjs",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "assay.spike.run",
+        "title": "Assay: Run R4 webview feasibility spike"
+      }
+    ]
+  },
+  "scripts": {
+    "build:spike": "node scripts/build.mjs",
+    "generate:fixture": "node scripts/generate-fixture.mjs",
+    "run:spike": "node scripts/run-spike.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json"
+  },
+  "devDependencies": {
+    "@duckdb/duckdb-wasm": "^1.32.0",
+    "@types/node": "catalog:",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^3.1.0",
+    "esbuild": "^0.28.2",
+    "typescript": "catalog:"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/minghao51/assay.git"
