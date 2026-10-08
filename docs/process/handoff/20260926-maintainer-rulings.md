@@ -87,6 +87,43 @@ records per the sections below; the [open-threads map](20260926-open-threads.md)
 - **Default if deferred:** ux-6 and q-15 stay blocked; the single-column stack (post ux-1…ux-4)
   remains workable but the audit's UX-3 stays open.
 
+## Ruling D15 — PT-V go/no-go — added 2026-10-02 (post q-15 closure) — ✅ RESOLVED 2026-10-02: **GO via the R4 spike** (spike approved as the next engineering dispatch; the PT-V **track commitment** is decoupled and follows the spike's evidence report).
+
+- **Decide:** start PT-V now (a), hold with residue fills (b), or approve the **R4 webview
+  feasibility spike** only (c) — track commitment deferred to the spike's evidence.
+- **Ruled: (c).** The spike ([ptv-m9 queue](20261002-ptv-m9-queue.md) row **ptv-1**) answers the
+  R4 questions empirically (worker boot per hosting target, OPFS/COOP-COEP constraints,
+  file-access bridge, memory ceilings, packaging) and lands a GO / NO-GO / RE-SCOPE
+  recommendation per hosting target (desktop extension vs vscode-web). Whether PT-V proper
+  starts — and at which hosting target — is decided on that report (a follow-up ruling, not a
+  re-decision of this one).
+- **Read:** [post-MVP track §5](../../product/04-post-mvp-track.md) (scope + spike definition);
+  [roadmap §3.1 M7 row](../../product/03-execution-roadmap.md); [ADR 0008](../../adr/0008-shared-core-web-vscode-cli.md),
+  [ADR 0022](../../adr/0022-headless-grid-and-renderer-strategy.md); D12 (PT-P first — complete 2026-10-02, precondition satisfied).
+- **Unblocks:** **ptv-1** (the spike) immediately; PT-V planning after the report. A NO-GO/RE-SCOPE
+  result re-frames PT-V without sunk track cost — that is the point of decoupling.
+- **Record:** roadmap §7 D15 row; product/04 §9 + §3/§5 status lines; handoff §9; this file.
+- **Default if deferred:** n/a — ruled.
+
+## Ruling D16 — M9 scoping go-ahead — added 2026-10-02 (post q-15 closure) — ✅ RESOLVED 2026-10-02: **authorized** (scoping proposal now; the DCR **format ruling** comes back after the proposal lands).
+
+- **Decide:** whether to start scoping **M9 (local DCR generation)** now — P3 (DCR integration,
+  roadmap §3.2) is blocked on it, and G3's evidence list requires "DCR artifact format stable
+  (M9 done)".
+- **Ruled: yes.** The scoping **proposal** (v1 field selection from ADR 0014's list; format
+  discipline per the repo's canonical-serialization precedent; the local candidate-DatasetVersion
+  definition; generation entry points; hosted concerns — comments/approvals/policy — explicitly
+  out per ADR 0014's standalone-report consequence) is queue row **m9-1**: a spec + **Proposed
+  ADR 0046**, authored by the next session, that comes BACK for the format ruling (requested as
+  **D17**). Authoring ≠ deciding: nothing in the proposal binds until that ruling.
+- **Read:** [roadmap §3.1 M9 row + §5 G3](../../product/03-execution-roadmap.md); [ADR 0014](../../adr/0014-dataset-change-request-model.md)
+  (field list + standalone-report consequence); [ADR 0011](../../adr/0011-dataset-identity-and-versioning.md) (versioning);
+  [ADR 0033](../../adr/0033-materialization-is-logical-and-backend-mapped.md)/[0035](../../adr/0035-data-quality-and-publish-gates-are-first-class-dag-nodes.md)
+  (the publish boundary P3 will wire — publish-mode materialization refuses explicitly today).
+- **Unblocks:** **m9-1** immediately; the **P3 queue** after the D17 format ruling.
+- **Record:** roadmap §7 D16 row; product/04 §9; handoff §9; this file.
+- **Default if deferred:** n/a — ruled.
+
 ## Related human items (tracked in [manual-actions](../manual-actions.md), not re-listed here)
 
 M1 (npm org — gates the [publish runbook](20260926-publish-runbook.md)), M4 (trademark/domain),
