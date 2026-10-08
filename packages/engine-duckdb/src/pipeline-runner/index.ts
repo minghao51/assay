@@ -22,7 +22,7 @@ export type {
   PipelineRunValidationCompilerInput,
 } from './runner.js'
 export { PipelineRunRefusalError, PipelineRunError } from './errors.js'
-export type { PipelineRunRefusalReason } from './errors.js'
+export type { PipelineRunPartialNode, PipelineRunRefusalReason } from './errors.js'
 export { PipelineRunGuard } from './guard.js'
 export {
   LOCAL_RUN_MATERIALIZATION_MODES,

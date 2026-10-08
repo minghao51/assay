@@ -153,6 +153,7 @@ export type {
   PipelineRunInput,
   PipelineRunNodeResult,
   PipelineRunOptions,
+  PipelineRunPartialNode,
   PipelineRunRefusalReason,
   PipelineRunResult,
   PipelineRunSource,

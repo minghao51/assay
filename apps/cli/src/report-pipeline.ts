@@ -34,8 +34,8 @@
 // (a first-class result, ADR 0035) and `refused` (a materialization mode this
 // surface cannot execute, ADR 0033) alongside `completed`/`failed`/`canceled`,
 // plus `gatedAt`/`gate`/`refusal`/`refusalNode`; a gate that executed before a
-// later node failure is reported as `no-verdict` (the failure partial carries
-// no gate results, so `passed` would be a claim the report cannot support).
+// later node failure is reported with its real value-free verdict (p2c-1: the
+// runner's failure partial now carries executed gates' verdicts).
 // The gate result payloads reuse the proven value-free validate/diff shapes
 // (verdict + violated-rule count; added/removed/changed counts).
 // ---------------------------------------------------------------------------
@@ -57,6 +57,7 @@ import type {
 import type {
   PipelineRunError,
   PipelineRunGateResult,
+  PipelineRunPartialNode,
   PipelineRunRefusalReason,
   PipelineRunResult,
 } from '@assay/engine-duckdb/node'
@@ -436,12 +437,12 @@ export function renderJsonPipelineValidateReport(report: PipelineValidateReport)
  * One node's execution outcome, in execution order.
  *
  * `no-verdict` is the honest status of a gate node whose verdict the runner
- * did not carry: on a failure the `PipelineRunError.partial` carries only
- * `nodeId`/`relation` (never a gate verdict), and a completed node without a
- * `gate` field is the same gap on the success path — in both cases the report
- * cannot claim the gate `passed` (nor `failed`). It is never a runtime verdict.
- * The runner-surface gap (partial carries no gate results) is a p2-5
- * carry-over.
+ * did not carry — the optional `gate` field is absent from the node result
+ * (success path) or the failure partial entry. After p2c-1 the runner sets a
+ * verdict for every executed gate on both paths, so this is a defensive
+ * fallback the real runner does not produce; the report still refuses to claim
+ * the gate `passed` (nor `failed`) when the field is missing. It is never a
+ * runtime verdict.
  */
 export type PipelineRunNodeStatus =
   'materialized' | 'passed' | 'no-verdict' | 'gated' | 'failed' | 'not-run'
@@ -649,17 +650,26 @@ export function buildPipelineRunReport(input: {
   }
 
   if (input.error !== null) {
-    // A gate that executed before the failure is `no-verdict`, NEVER `passed`:
-    // `PipelineRunError.partial` carries no gate verdicts (the runner-surface
-    // carrying gap), so `passed` would be a claim the report cannot support.
+    // p2c-1: `PipelineRunError.partial` now carries each executed gate's
+    // value-free verdict, so a gate that ran before the failure is rendered
+    // with its real verdict — never a blanket `no-verdict`. `no-verdict`
+    // remains only for the defensive case where the partial entry omits the
+    // optional `gate` field (the real runner always sets it for an executed
+    // gate). The failing node is not in `partial`, so it is never given a
+    // fabricated verdict.
+    const statusOfPartial = (entry: PipelineRunPartialNode): PipelineRunNodeStatus => {
+      if (!isGateId(entry.nodeId)) return 'materialized'
+      if (entry.gate === undefined) return 'no-verdict'
+      return gatePassed(entry.gate) ? 'passed' : 'failed'
+    }
     const nodes: PipelineRunNodeRow[] = input.error.partial.map((entry) => ({
       nodeId: entry.nodeId,
       kind: kindOf(entry.nodeId),
       relation: entry.relation,
-      status: isGateId(entry.nodeId) ? 'no-verdict' : 'materialized',
+      status: statusOfPartial(entry),
       rowCount: null,
       materialization: effectiveMode(entry.nodeId),
-      gate: null,
+      gate: entry.gate === undefined ? null : projectRunGate(entry.gate),
     }))
     const done = new Set(input.error.partial.map((entry) => entry.nodeId))
     for (const id of input.order) {
@@ -824,8 +834,8 @@ function runNodeLine(node: PipelineRunNodeRow, index: number, style: ReportStyle
     return `  ${head} — passed${gateResultSuffix(node, style)}`
   }
   if (node.status === 'no-verdict') {
-    // A gate that executed but whose verdict the runner's failure partial does
-    // not carry: neutral, never a fabricated pass/fail.
+    // A gate whose verdict the runner did not carry (the optional `gate` field
+    // is absent — defensive after p2c-1): neutral, never a fabricated pass/fail.
     return `  ${head} — ran (no verdict recorded)`
   }
   if (node.rowCount !== null) {
@@ -907,10 +917,9 @@ export function renderHumanPipelineRunReport(
  *                      verdict, never dataset values). `status` here is the
  *                      NODE status: 'materialized' | 'passed' | 'no-verdict'
  *                      | 'gated' | 'failed' | 'not-run'. `no-verdict` marks a
- *                      gate that executed before a later node failure: the
- *                      runner's `PipelineRunError.partial` carries no gate
- *                      verdicts, so claiming `passed` would be dishonest
- *                      (carry-over: extend `partial` with gate results).
+ *                      gate result the runner did not carry (the optional
+ *                      `gate` field is absent — defensive after p2c-1; the
+ *                      runner sets a verdict for every executed gate).
  *     outputs[]:       the terminal relations with their row counts
  *                      (completed runs only)
  *     failingNode:     the failed node ('failed' runs only, else null)

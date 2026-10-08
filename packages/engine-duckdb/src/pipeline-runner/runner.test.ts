@@ -795,6 +795,62 @@ describe('executePipeline — p2-4 gates and materialization', () => {
     expect(diffFailure.nodeId).toBe('compare')
   })
 
+  it('carries an executed gate verdict on the failure partial (p2c-1)', async () => {
+    // A gate a publish requires evaluates (and fails) without stopping the
+    // run; a later data node then errors. The partial must keep the gate's
+    // value-free verdict, and never the raw engine text.
+    const pipeline: PipelineV1 = {
+      version: 1,
+      pipeline: 'fail-after-gate',
+      nodes: [
+        { id: 'customers', type: 'source', source: { kind: 'file' } },
+        {
+          id: 'sg',
+          type: 'transform',
+          inputs: ['customers'],
+          operation: {
+            operation: 'filter',
+            args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+          },
+        },
+        { id: 'gate', type: 'validate', input: 'sg', contract: 'contracts/gate.yaml' },
+        { id: 'zz_broken', type: 'sql', inputs: ['sg'], sql: 'SELECT no_such_column FROM sg' },
+        { id: 'out', type: 'publish', input: 'zz_broken', requires: ['gate'] },
+      ],
+    }
+    const ops = new FakeOps()
+    ops.validationValid = false
+    ops.failAt = 'materialize:zz_broken'
+    let error: unknown
+    try {
+      await executePipeline(
+        pipeline,
+        {
+          sources: sourceOptions(),
+          contracts: [{ nodeId: 'gate', contract: {} }],
+          compilers: PASS_THROUGH_COMPILERS,
+        },
+        ops,
+      )
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(PipelineRunError)
+    const failure = error as PipelineRunError
+    expect(failure.nodeId).toBe('zz_broken')
+    expect(failure.partial).toEqual([
+      { nodeId: 'customers', relation: 'customers' },
+      { nodeId: 'sg', relation: 'sg' },
+      {
+        nodeId: 'gate',
+        relation: 'sg',
+        gate: { class: 'validate', input: 'sg', valid: false, violatedRules: 1 },
+      },
+    ])
+    // Value-free: the raw engine failure text never reaches the payload.
+    expect(JSON.stringify(failure.partial)).not.toContain('engine failure')
+  })
+
   it('names the next node when a non-trailing validate gate stops the run', async () => {
     const pipeline: PipelineV1 = {
       version: 1,

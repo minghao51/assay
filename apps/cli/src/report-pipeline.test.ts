@@ -948,11 +948,12 @@ describe('buildPipelineRunReport — p2-5 gated and refused runs', () => {
     )
   })
 
-  it('a gate that executed before a later node failure is `no-verdict`, never `passed`', () => {
+  it('a gate that executed before a later node failure keeps its real verdict', () => {
     // The failed-then-node-error interleaving: a validate gate a publish
     // requires evaluates (and fails) without stopping the run, then a later
-    // data node errors. `PipelineRunError.partial` carries only nodeId/relation
-    // — no gate verdicts — so the report must not claim the gate `passed`.
+    // data node errors. p2c-1: `PipelineRunError.partial` carries the executed
+    // gate's value-free verdict, so the report renders the real failure —
+    // never a blanket `no-verdict` and never a fabricated `passed`.
     const report = buildPipelineRunReport({
       pipeline: GATE_PIPELINE,
       order: ['raw', 'clean', 'gate', 'out'],
@@ -964,7 +965,11 @@ describe('buildPipelineRunReport — p2-5 gated and refused runs', () => {
         partial: [
           { nodeId: 'raw', relation: 'raw' },
           { nodeId: 'clean', relation: 'clean' },
-          { nodeId: 'gate', relation: 'clean' },
+          {
+            nodeId: 'gate',
+            relation: 'clean',
+            gate: { class: 'validate', input: 'clean', valid: false, violatedRules: 1 },
+          },
         ],
       } as InstanceType<typeof import('@assay/engine-duckdb/node').PipelineRunError>,
     })
@@ -972,18 +977,111 @@ describe('buildPipelineRunReport — p2-5 gated and refused runs', () => {
     expect(report.nodes.map((node) => [node.nodeId, node.status])).toEqual([
       ['raw', 'materialized'],
       ['clean', 'materialized'],
-      ['gate', 'no-verdict'],
+      ['gate', 'failed'],
       ['out', 'failed'],
     ])
     const gate = report.nodes.find((node) => node.nodeId === 'gate')
     expect(gate?.materialization).toBe('gate')
-    expect(gate?.gate).toBe(null)
+    expect(gate?.gate).toEqual({
+      class: 'validate',
+      input: 'clean',
+      against: null,
+      valid: false,
+      violatedRules: 1,
+      added: null,
+      removed: null,
+      changed: null,
+      blockedGates: null,
+    })
     const payload = JSON.parse(renderJsonPipelineRunReport(report)) as {
-      nodes: { nodeId: string; status: string }[]
+      nodes: { nodeId: string; status: string; gate: { valid: boolean } | null }[]
     }
-    expect(payload.nodes.find((node) => node.nodeId === 'gate')?.status).toBe('no-verdict')
+    const gatePayload = payload.nodes.find((node) => node.nodeId === 'gate')
+    expect(gatePayload?.status).toBe('failed')
+    expect(gatePayload?.gate?.valid).toBe(false)
     expect(renderHumanPipelineRunReport(report)).toContain(
-      '3. gate — validate — ran (no verdict recorded)',
+      '3. gate — validate — FAILED — 1 rule violated',
     )
+  })
+
+  it('a passing diff/publish gate before a later failure keeps its value-free counts', () => {
+    // The other gate classes on the failure path: a diff gate's aspect counts
+    // and a publish gate's `blockedGates` survive the partial state too.
+    const pipeline = parse(`version: 1
+pipeline: fail_after_gates
+nodes:
+  raw:
+    type: source
+    source:
+      kind: file
+      path: ./raw.csv
+  clean:
+    type: sql
+    inputs: [raw]
+    sql: SELECT * FROM raw
+  compare:
+    type: diff
+    against: raw
+    input: clean
+  gate:
+    type: validate
+    input: clean
+    contract: contracts/clean.yaml
+  out:
+    type: publish
+    input: clean
+    requires: [gate]
+  zz_boom:
+    type: sql
+    inputs: [clean]
+    sql: SELECT no_such_column FROM clean
+`)
+    const report = buildPipelineRunReport({
+      pipeline,
+      order: ['raw', 'clean', 'compare', 'gate', 'out', 'zz_boom'],
+      result: null,
+      error: {
+        name: 'PipelineRunError',
+        message: 'the pipeline node could not be materialized',
+        nodeId: 'zz_boom',
+        partial: [
+          { nodeId: 'raw', relation: 'raw' },
+          { nodeId: 'clean', relation: 'clean' },
+          {
+            nodeId: 'compare',
+            relation: 'clean',
+            gate: {
+              class: 'diff',
+              input: 'clean',
+              against: 'raw',
+              added: 3,
+              removed: 1,
+              changed: 2,
+            },
+          },
+          {
+            nodeId: 'gate',
+            relation: 'clean',
+            gate: { class: 'validate', input: 'clean', valid: true, violatedRules: 0 },
+          },
+          {
+            nodeId: 'out',
+            relation: 'clean',
+            gate: { class: 'publish', input: 'clean', blockedGates: [] },
+          },
+        ],
+      } as InstanceType<typeof import('@assay/engine-duckdb/node').PipelineRunError>,
+    })
+    expect(report.nodes.map((node) => [node.nodeId, node.status])).toEqual([
+      ['raw', 'materialized'],
+      ['clean', 'materialized'],
+      ['compare', 'passed'],
+      ['gate', 'passed'],
+      ['out', 'passed'],
+      ['zz_boom', 'failed'],
+    ])
+    const human = renderHumanPipelineRunReport(report)
+    expect(human).toContain('3. compare — diff — passed — added 3, removed 1, changed 2')
+    expect(human).toContain('5. out — publish — passed')
   })
 })

@@ -314,10 +314,10 @@ nodes:
       no_such_op: {}
 `,
     ),
-    // p2-5 item 3: the failed-then-node-error interleaving. `zeta_gate` fails
-    // (sg_only has 2 rows, the contract requires 3) but a publish requires it,
-    // so the runner continues and the later `omega_broken` sql node errors.
-    // The failure partial then carries the executed gate with no verdict.
+    // p2-5 item 3: the failed-then-node-error interleaving. `c_gate` fails
+    // (b_sg has 2 rows, the contract requires 3) but a publish requires it,
+    // so the runner continues and the later `d_broken` sql node errors. p2c-1:
+    // the failure partial then carries the executed gate's value-free verdict.
     failedThenError: write(
       'failed-then-error.yaml',
       `version: 1
@@ -696,10 +696,11 @@ describe('pipeline run — exit 1 (refusals and typed node failures)', () => {
     expect(run.stdout).toContain('verdict: INVALID')
   })
 
-  it('failed-then-node-error interleaving: an executed gate is `no-verdict`, never `passed`', () => {
-    // Item 3: zeta_gate fails but a publish requires it, so the runner
-    // continues; the later sql node then errors. The failure partial carries
-    // the gate with no verdict, so the report must be neutral.
+  it('failed-then-node-error interleaving: an executed gate keeps its real verdict', () => {
+    // Item 3: c_gate fails but a publish requires it, so the runner
+    // continues; the later sql node then errors. p2c-1: the failure partial
+    // carries the executed gate's value-free verdict, so the report renders
+    // the real failure instead of a blanket `no-verdict`.
     const run = runCli(['pipeline', 'run', files.failedThenError ?? ''])
     expect(run.exitCode).toBe(1)
     expect(run.stderr).toBe('')
@@ -709,11 +710,99 @@ nodes: 5
 run:
   1. a_customers — source — materialized
   2. b_sg — transform — materialized
-  3. c_gate — validate — ran (no verdict recorded)
+  3. c_gate — validate — FAILED — 1 rule violated
   4. d_broken — sql — FAILED
   5. e_publish — publish — not run
 note: the failing node left no relation; earlier nodes left named relations in this run's in-memory session, which end when the process exits
 verdict: FAILED — node "d_broken" could not be materialized
+`,
+    )
+  })
+
+  it('the failed-run json envelope carries the executed gate verdict (exit 1)', () => {
+    const run = runCli(['pipeline', 'run', files.failedThenError ?? '', '--format', 'json'])
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr).toBe('')
+    expect(run.stdout).toBe(
+      `{
+  "report": "assay-pipeline-run-report",
+  "reportVersion": "${PACKAGE_VERSION}",
+  "pipeline": "failed_then_error",
+  "sessionLifetime": "process",
+  "nodeCount": 5,
+  "status": "failed",
+  "order": [
+    "a_customers",
+    "b_sg",
+    "c_gate",
+    "d_broken",
+    "e_publish"
+  ],
+  "nodes": [
+    {
+      "nodeId": "a_customers",
+      "kind": "source",
+      "relation": "a_customers",
+      "status": "materialized",
+      "rowCount": null,
+      "materialization": "view",
+      "gate": null
+    },
+    {
+      "nodeId": "b_sg",
+      "kind": "transform",
+      "relation": "b_sg",
+      "status": "materialized",
+      "rowCount": null,
+      "materialization": "view",
+      "gate": null
+    },
+    {
+      "nodeId": "c_gate",
+      "kind": "validate",
+      "relation": "b_sg",
+      "status": "failed",
+      "rowCount": null,
+      "materialization": "gate",
+      "gate": {
+        "class": "validate",
+        "input": "b_sg",
+        "against": null,
+        "valid": false,
+        "violatedRules": 1,
+        "added": null,
+        "removed": null,
+        "changed": null,
+        "blockedGates": null
+      }
+    },
+    {
+      "nodeId": "d_broken",
+      "kind": "sql",
+      "relation": "d_broken",
+      "status": "failed",
+      "rowCount": null,
+      "materialization": "view",
+      "gate": null
+    },
+    {
+      "nodeId": "e_publish",
+      "kind": "publish",
+      "relation": "e_publish",
+      "status": "not-run",
+      "rowCount": null,
+      "materialization": null,
+      "gate": null
+    }
+  ],
+  "outputs": [],
+  "failingNode": "d_broken",
+  "nextNodeId": null,
+  "gatedAt": null,
+  "gate": null,
+  "refusal": null,
+  "refusalNode": null
+}
 `,
     )
   })

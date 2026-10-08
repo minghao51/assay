@@ -16,7 +16,14 @@
  * guess), and the local backend must be able to map every declared
  * materialization mode. Missing bindings and unmappable modes are collected
  * and refused here, before any engine call, never discovered mid-run.
+ *
+ * p2c-1: a failed run's named partial state now carries each executed gate's
+ * value-free verdict (`PipelineRunPartialNode.gate`), so a caller can honestly
+ * report what an executed gate decided even though a later node failed. The
+ * field is optional and additive (data nodes carry none; the failing node is
+ * never in `partial` because it never completed).
  */
+import type { PipelineRunGateResult } from './runner.js'
 
 /** Why the runner refused a request before touching the engine. */
 export type PipelineRunRefusalReason =
@@ -106,17 +113,34 @@ function refusalMessage(reason: PipelineRunRefusalReason): string {
 }
 
 /**
+ * One completed node in a failed run's named partial state (p2c-1).
+ * `nodeId`/`relation` are schema (never dataset values). `gate` is the
+ * executed gate's value-free verdict and is present exactly when the
+ * completed node was a validate/diff/publish gate — the same
+ * {@link PipelineRunGateResult} shape a successful run carries, one shape per
+ * meaning. It is optional so existing callers that read only
+ * `nodeId`/`relation` keep compiling (additive). The failing node is never in
+ * `partial` (it never completed), so no verdict is fabricated for it.
+ */
+export interface PipelineRunPartialNode {
+  readonly nodeId: string
+  readonly relation: string
+  /** The gate's value-free verdict (validate/diff/publish only). */
+  readonly gate?: PipelineRunGateResult
+}
+
+/**
  * A node the engine could not execute after a run began. The failing node is
  * named by `nodeId` (schema, never data); `partial` is the named partial
  * state the run leaves in the session (the nodes completed before the
- * failure), so the caller can inspect/export it and a re-run can replace it.
- * The message is a fixed, value-free class — the raw engine error is
- * deliberately discarded.
+ * failure, with executed gates' value-free verdicts), so the caller can
+ * inspect/export it and a re-run can replace it. The message is a fixed,
+ * value-free class — the raw engine error is deliberately discarded.
  */
 export class PipelineRunError extends Error {
   constructor(
     readonly nodeId: string,
-    readonly partial: readonly { readonly nodeId: string; readonly relation: string }[],
+    readonly partial: readonly PipelineRunPartialNode[],
   ) {
     super('the pipeline node could not be materialized')
     this.name = 'PipelineRunError'

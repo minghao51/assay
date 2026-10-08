@@ -39,7 +39,8 @@
  * - `canceled` — the supplied {@link PipelineRunGuard} was invalidated at a
  *   node boundary; `nodes` is the named partial state.
  * - a thrown {@link PipelineRunError} — a node failed. The failing node is
- *   named and the completed prefix is left as named partial state (value-free).
+ *   named and the completed prefix is left as named partial state (value-free),
+ *   including any executed gate's value-free verdict (p2c-1).
  *
  * Invalid requests (uncompilable IR, inconsistent plan, unknown/missing
  * source/contract/diff-key binding, reserved relation, refused SQL,
@@ -57,6 +58,7 @@
 import type { EngineRowDiffPlan, EngineRowDiffResult } from '../diff-plan-wire.js'
 import type { EngineValidationPlan, EngineValidationResult } from '../validate-plan-wire.js'
 import { PipelineRunError, PipelineRunRefusalError } from './errors.js'
+import type { PipelineRunPartialNode } from './errors.js'
 import { PipelineRunGuard } from './guard.js'
 import { assertRunnableRelation, assertSqlAccepted, resolvePlan } from './plan.js'
 import type {
@@ -338,10 +340,13 @@ function assertExecutionSupport<TSource extends PipelineRunSourceFile>(
   }
 }
 
-function partialOf(
-  nodes: readonly PipelineRunNodeResult[],
-): readonly { readonly nodeId: string; readonly relation: string }[] {
-  return nodes.map((entry) => ({ nodeId: entry.nodeId, relation: entry.relation }))
+function partialOf(nodes: readonly PipelineRunNodeResult[]): readonly PipelineRunPartialNode[] {
+  return nodes.map((entry) =>
+    // p2c-1: an executed gate's value-free verdict survives a later failure.
+    entry.gate === undefined
+      ? { nodeId: entry.nodeId, relation: entry.relation }
+      : { nodeId: entry.nodeId, relation: entry.relation, gate: entry.gate },
+  )
 }
 
 /** Sum a diff result's three aspects, value-free. */
