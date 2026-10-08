@@ -143,6 +143,35 @@ function statusText(status: NodeRunStatus, outcome: PipelineRunOutcome | undefin
   }
 }
 
+/**
+ * Value-free per-node contract-bind ordinal (p2c-6). Each successful bind
+ * replaces the node's binding object, so that identity change is the
+ * observable event; the ordinal it produces is exposed only as the
+ * `data-bind-revision` attribute. This makes a contract *replacement*
+ * observable (the revision advances) without ever rendering the file, path,
+ * or contract content (ADR 0025). Derived component-locally — session state
+ * carries no bind ordinal.
+ */
+function useContractBindRevisions(
+  contractBindings: Readonly<Record<string, ContractBindingState>>,
+): Readonly<Record<string, number>> {
+  const seenRef = useRef(new Map<string, ContractBindingState>())
+  const [revisions, setRevisions] = useState<Readonly<Record<string, number>>>({})
+  useEffect(() => {
+    const changed = Object.entries(contractBindings).filter(
+      ([nodeId, binding]) => binding.kind === 'bound' && seenRef.current.get(nodeId) !== binding,
+    )
+    if (changed.length === 0) return
+    for (const [nodeId, binding] of changed) seenRef.current.set(nodeId, binding)
+    setRevisions((previous) => {
+      const next = { ...previous }
+      for (const [nodeId] of changed) next[nodeId] = (next[nodeId] ?? 0) + 1
+      return next
+    })
+  }, [contractBindings])
+  return revisions
+}
+
 export function PipelinePanel({
   fileState,
   bindings,
@@ -169,6 +198,7 @@ export function PipelinePanel({
         : null,
     [fileState],
   )
+  const bindRevisions = useContractBindRevisions(contractBindings)
   const order = useMemo(() => (view !== null ? view.map((node) => node.nodeId) : []), [view])
   const statuses = useMemo(
     () => (view !== null ? nodeStatusesForRun(runState, order) : null),
@@ -503,7 +533,11 @@ export function PipelinePanel({
                   {node.kind === 'validate' && (
                     <span className="pipeline-contract-binding">
                       {contractBinding?.kind === 'bound' && (
-                        <span data-testid="pipeline-contract-bound" data-node-id={node.nodeId}>
+                        <span
+                          data-testid="pipeline-contract-bound"
+                          data-node-id={node.nodeId}
+                          data-bind-revision={bindRevisions[node.nodeId] ?? 0}
+                        >
                           Contract bound.{' '}
                         </span>
                       )}

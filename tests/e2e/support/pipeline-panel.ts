@@ -155,11 +155,23 @@ export async function bindSourceDataset(page: Page): Promise<void> {
 
 /** Bind (or replace) one validate node's contract through the real picker. */
 export async function bindContract(page: Page, contractPath: string): Promise<void> {
+  const bound = page.getByTestId('pipeline-contract-bound')
+  // The span renders whenever ANY contract is bound, so on a re-bind its mere
+  // visibility is vacuous: the replacement's readContractFile+parseContract
+  // lands asynchronously after it. Capture the value-free bind revision first
+  // and, on a re-bind, wait for it to advance past the pre-bind value.
+  const revisionBefore =
+    (await bound.count()) > 0 ? await bound.getAttribute('data-bind-revision') : null
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('pipeline-bind-contract').focus()
   await page.keyboard.press('Enter')
   await (await chooserPromise).setFiles(contractPath)
-  await expect(page.getByTestId('pipeline-contract-bound')).toBeVisible()
+  await expect(bound).toBeVisible()
+  if (revisionBefore !== null) {
+    await expect
+      .poll(async () => bound.getAttribute('data-bind-revision'), { timeout: 20_000 })
+      .not.toBe(revisionBefore)
+  }
 }
 
 /** Run the pipeline and wait for the runner's completed outcome. */

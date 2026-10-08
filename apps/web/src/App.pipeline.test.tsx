@@ -1006,6 +1006,9 @@ describe('pipeline panel — gates, contracts, lineage, badges, preview (p2-6)',
       fireEvent.click(screen.getByTestId('pipeline-bind-contract'))
     })
     expect(screen.getByTestId('pipeline-contract-bound')).toBeTruthy()
+    expect(screen.getByTestId('pipeline-contract-bound').getAttribute('data-bind-revision')).toBe(
+      '1',
+    )
     expect(document.body.textContent).not.toContain('gate-contract.yaml')
 
     await act(async () => {
@@ -1067,6 +1070,11 @@ describe('pipeline panel — gates, contracts, lineage, badges, preview (p2-6)',
     await act(async () => {
       fireEvent.click(screen.getByTestId('pipeline-bind-contract'))
     })
+    // The replacement is observable value-free: the bind revision advances
+    // (the file identity itself is never rendered — ADR 0025).
+    expect(screen.getByTestId('pipeline-contract-bound').getAttribute('data-bind-revision')).toBe(
+      '2',
+    )
     await act(async () => {
       fireEvent.click(screen.getByTestId('pipeline-run'))
     })
