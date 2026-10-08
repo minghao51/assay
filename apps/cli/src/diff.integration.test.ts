@@ -478,7 +478,10 @@ error: [side B] missing-key-column (column 'amount'): key column 'amount' does n
       '  diff              compare two dataset versions (schema drift, profile',
     )
     expect(run.stdout).toContain('zero candidates is a binding error (exit 2)')
-    expect(run.stdout).toContain('  0   no differences found across the aspects that ran')
+    expect(run.stdout).toContain('  0   the command completed without a failure verdict (diff: no')
+    expect(run.stdout).toContain(
+      '  1   differences were found (diff), or a pipeline was gated/failed/',
+    )
   })
 })
 

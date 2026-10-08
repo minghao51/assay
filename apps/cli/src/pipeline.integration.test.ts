@@ -1202,6 +1202,28 @@ describe('pipeline — determinism and help', () => {
     )
   })
 
+  it('--help: the global exit-codes block names the pipeline mapping — p2c-5 pin', () => {
+    const run = runCli(['--help'])
+    expect(run.exitCode).toBe(0)
+    const lines = run.stdout.split('\n')
+    const start = lines.indexOf('exit codes:')
+    expect(start).toBeGreaterThanOrEqual(0)
+    // Exact-match (toEqual), not toContain fragments: the global block must
+    // state that `pipeline run` exits 0 as `completed` even when a diff gate
+    // found differences, and 1 for gated/failed/refused — results, not
+    // crashes. Any reflow that loses those clauses changes one of these lines.
+    expect(lines.slice(start, start + 8)).toEqual([
+      'exit codes:',
+      '  0   the command completed without a failure verdict (diff: no',
+      '      differences found; validate: valid; profile: the profile was produced;',
+      '      pipeline run: completed — even when a diff gate found differences)',
+      '  1   differences were found (diff), or a pipeline was gated/failed/',
+      '      refused (the report on stdout is the result)',
+      '  2   usage, path, inference, or binding error (readable stderr; no',
+      '      dataset values are ever printed to stderr)',
+    ])
+  })
+
   it('--help: the gate-failure guidance lines are exact (not garbled) — item 4 pin', () => {
     const run = runCli(['--help'])
     expect(run.exitCode).toBe(0)
