@@ -443,6 +443,12 @@ export function renderJsonPipelineValidateReport(report: PipelineValidateReport)
  * fallback the real runner does not produce; the report still refuses to claim
  * the gate `passed` (nor `failed`) when the field is missing. It is never a
  * runtime verdict.
+ *
+ * `passed` is the gate-level meaning of the runner's success rule:
+ * **succeeded = completed execution**. A `diff` gate that ran still `passed`
+ * when it found differences (its added/removed/changed counts report the
+ * finding) — `passed` is never a "datasets matched" claim; only a `validate`
+ * gate's `passed` implies `valid`.
  */
 export type PipelineRunNodeStatus =
   'materialized' | 'passed' | 'no-verdict' | 'gated' | 'failed' | 'not-run'

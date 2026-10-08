@@ -28,6 +28,14 @@
  * blocked publish is the gated outcome, and publish-MODE materialization is a
  * typed refusal at plan resolution (the P3/DCR boundary, product/04).
  *
+ * Gate success has exactly one meaning: **succeeded = completed execution**.
+ * A gate that ran to completion is succeeded for downstream `requires`
+ * evaluation regardless of what it found — a `diff` gate succeeding means the
+ * diff EXECUTED (its `added`/`removed`/`changed` counts are the finding), not
+ * that the compared datasets matched. A `validate` gate is succeeded only when
+ * its verdict is `valid` (a violation is not a completed pass); a `publish`
+ * gate is succeeded only when all its `requires` edges have succeeded.
+ *
  * ## Outcomes
  *
  * - `completed` — every node executed; data nodes carry their relation and
@@ -99,7 +107,13 @@ export interface PipelineRunNodeResult {
   readonly gate?: PipelineRunGateResult
 }
 
-/** A gate node's value-free result (never dataset values). */
+/**
+ * A gate node's value-free result (never dataset values).
+ *
+ * Gate status is `succeeded = completed execution`: a `diff` result carrying
+ * nonzero counts is still a succeeded gate (the diff ran), so downstream
+ * `requires` never read a diff's success as "the datasets matched".
+ */
 export type PipelineRunGateResult =
   | {
       readonly class: 'validate'

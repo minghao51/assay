@@ -18,7 +18,8 @@ import { pipelineRunnerConformanceScenarioNames } from '../../packages/testing/s
 // 2. `pipeline-conformance-run-all` — the @assay/testing runner suite
 //    (success, mid-DAG failure + clean re-run, cancel, unknown-node
 //    refusal, hostile-SQL refusal, relation handle, validate pass/gated,
-//    publish gate, diff node, table/export materialization, mode refusals)
+//    publish gate + two-gate blockedGates, diff node, table/export
+//    materialization, mode refusals, table↔view mode change)
 //    against fresh real clients.
 //
 // Harness served from packages/engine-duckdb by the second webServer in

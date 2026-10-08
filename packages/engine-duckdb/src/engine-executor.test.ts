@@ -3039,6 +3039,24 @@ function changedAspectTable(count: number, ordinals: readonly number[]): Table {
   })
 }
 
+/** An added/removed aspect result table fixed to one side. */
+function sideAspectTable(side: 'A' | 'B', count: number, ordinals: readonly number[]): Table {
+  return tableFromArrays({
+    assay_side: ordinals.map(() => side),
+    assay_row_ordinal: BigInt64Array.from(ordinals.map((ordinal) => BigInt(ordinal))),
+    sample_index: BigInt64Array.from(ordinals.map((_, index) => BigInt(index))),
+    assay_count: BigInt64Array.from(ordinals.map(() => BigInt(count))),
+  })
+}
+
+/** A totals arm with the given per-aspect counts. */
+function totalsTable(added: number, removed: number, changed: number): Table {
+  return tableFromArrays({
+    assay_aspect: ['added', 'removed', 'changed'],
+    assay_count: BigInt64Array.from([BigInt(added), BigInt(removed), BigInt(changed)]),
+  })
+}
+
 /** An A-side ordinal → logical row-key table (the m5-2 resolution channel). */
 function aKeyTable(entries: readonly (readonly [number, string])[]): Table {
   return tableFromArrays({
@@ -3269,6 +3287,81 @@ describe('EngineOpExecutor row-diff execution (m6-2; query lane)', () => {
         rowKey: 'base:a#0',
         changedColumns: ['val'],
       })
+    }
+    expectNoCollisions(deps)
+  })
+
+  it('binds each aspect to its own plan SQL and reads the documented side (m6-2 per-aspect binding)', async () => {
+    // The add/remove/changed aspect loop is the factored core shared by
+    // `engine/diff` and `engine/pipeline-diff`. Its e2e guard is real-engine
+    // (the pipeline-diff-node conformance scenario); this is the unit pin:
+    // each aspect runs EXACTLY its own plan SQL (never another aspect's),
+    // in the compiler's documented order, and reads its documented side
+    // (added = B, removed/changed = A). Swapping any two aspect SQLs fails
+    // both the byte assertion and `readDiffAspectRows`'s side check.
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    await stageComparison(executor, deps)
+    const plan = rowDiffPlanFixture(20)
+    executor.accept(diffRequest(3, plan))
+    await awaitSends(deps.queryConn, 3) // DESCRIBE the base view
+    deps.queryConn.resolveSend(2, describeTable())
+    await awaitSends(deps.queryConn, 4)
+    deps.queryConn.resolveSend(3, tableFromArrays({})) // BEGIN
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, tableFromArrays({})) // CREATE A
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(5, tableFromArrays({})) // CREATE B
+    await awaitSends(deps.queryConn, 7)
+    deps.queryConn.resolveSend(6, countTable(4n)) // count A
+    await awaitSends(deps.queryConn, 8)
+    deps.queryConn.resolveSend(7, countTable(5n)) // count B
+
+    // added: exactly the plan's addedSql, clamped at K=20, read from side B.
+    await awaitSends(deps.queryConn, 9)
+    expect(deps.queryConn.sentSqls[8]).toBe(`SELECT * FROM (${plan.addedSql}) LIMIT 20`)
+    deps.queryConn.resolveSend(8, sideAspectTable('B', 3, [2]))
+    // removed: exactly removedSql, read from side A.
+    await awaitSends(deps.queryConn, 10)
+    expect(deps.queryConn.sentSqls[9]).toBe(`SELECT * FROM (${plan.removedSql}) LIMIT 20`)
+    deps.queryConn.resolveSend(9, sideAspectTable('A', 1, [2]))
+    // changed: exactly changedSql, read from side A with the changed column set.
+    await awaitSends(deps.queryConn, 11)
+    expect(deps.queryConn.sentSqls[10]).toBe(`SELECT * FROM (${plan.changedSql}) LIMIT 20`)
+    deps.queryConn.resolveSend(10, changedAspectTable(2, [1]))
+
+    // The A-side ordinals seen across removed+changed (1 and 2) resolve to keys.
+    await awaitSends(deps.queryConn, 12)
+    deps.queryConn.resolveSend(
+      11,
+      aKeyTable([
+        [1, 'base:a#1'],
+        [2, 'base:a#2'],
+      ]),
+    )
+    await awaitSends(deps.queryConn, 13)
+    deps.queryConn.resolveSend(12, totalsTable(3, 1, 2)) // totals agree
+    await awaitSends(deps.queryConn, 14)
+    deps.queryConn.resolveSend(13, tableFromArrays({})) // DROP A
+    await awaitSends(deps.queryConn, 15)
+    deps.queryConn.resolveSend(14, tableFromArrays({})) // DROP B
+    await awaitSends(deps.queryConn, 16)
+    deps.queryConn.resolveSend(15, tableFromArrays({})) // ROLLBACK
+
+    const posted = await awaitPosted(deps, 3)
+    expect(posted.type).toBe('engine/diff-result')
+    if (posted.type === 'engine/diff-result') {
+      // The result binding follows the same aspect: added samples are B-side
+      // (`b:<ordinal>`), removed/changed are resolved A-side logical keys.
+      expect(posted.result.aspects).toEqual([
+        { aspect: 'added', count: 3, samples: [{ side: 'B', rowKey: 'b:2' }] },
+        { aspect: 'removed', count: 1, samples: [{ side: 'A', rowKey: 'base:a#2' }] },
+        {
+          aspect: 'changed',
+          count: 2,
+          samples: [{ side: 'A', rowKey: 'base:a#1', changedColumns: ['val'] }],
+        },
+      ])
     }
     expectNoCollisions(deps)
   })

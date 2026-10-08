@@ -43,6 +43,14 @@
  *     artifact under `assay-exports/assay-pipeline-export-…` and no relation.
  * 13. `pipeline-mode-refusals` — `publish`-mode, `cache`, `incremental`, and
  *     export-with-consumers are typed refusals before execution.
+ * 14. `pipeline-publish-two-gates` — a publish node that requires TWO gates
+ *     with one failing is a `publish-blocked` gated outcome whose
+ *     `blockedGates` lists the failed gate and only it; re-running with both
+ *     contracts passing completes (re-run-after-fix).
+ * 15. `pipeline-mode-change` — running the same node as a `table` and then a
+ *     `view` (and back) in one session replaces the relation's physical kind
+ *     (the old relation is gone, the new one has the right kind and shape) —
+ *     the p2-4 mode-change-safe drop path on the real engine.
  *
  * The fixture the subject stages must be the canonical 5-row customer dataset
  * (`customer_id` 1..5, `country` SG/US/SG/DE/US, NULL income on row 3) so the
@@ -197,6 +205,8 @@ export const pipelineRunnerConformanceScenarioNames = [
   'pipeline-table-materialization',
   'pipeline-export-materialization',
   'pipeline-mode-refusals',
+  'pipeline-publish-two-gates',
+  'pipeline-mode-change',
 ] as const
 
 export type PipelineRunnerConformanceScenarioName =
@@ -341,6 +351,29 @@ function gatePipeline(): PipelineV1 {
   }
 }
 
+/** source → filter(SG) → validate(gateA) + validate(gateB) → publish(out, requires both). */
+function twoGatePipeline(): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: 'conformance-two-gate',
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+      { id: 'gateA', type: 'validate', input: 'sg', contract: 'contracts/gate-a.yaml' },
+      { id: 'gateB', type: 'validate', input: 'sg', contract: 'contracts/gate-b.yaml' },
+      { id: 'out', type: 'publish', input: 'sg', requires: ['gateA', 'gateB'] },
+    ],
+  }
+}
+
 /** source → filter(SG) → validate(gate); a terminal gate (no publish). */
 function terminalGatePipeline(): PipelineV1 {
   const pipeline = gatePipeline()
@@ -383,6 +416,27 @@ function tablePipeline(): PipelineV1 {
         id: 'sg',
         type: 'transform',
         materialization: 'table',
+        inputs: ['customers'],
+        operation: {
+          operation: 'filter',
+          args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+        },
+      },
+    ],
+  }
+}
+
+/** source → filter(SG), with a switchable materialization mode (table ↔ view). */
+function modeChangePipeline(mode: 'table' | 'view'): PipelineV1 {
+  return {
+    version: 1,
+    pipeline: `conformance-mode-change-${mode}`,
+    nodes: [
+      { id: 'customers', type: 'source', source: { kind: 'file' } },
+      {
+        id: 'sg',
+        type: 'transform',
+        materialization: mode,
         inputs: ['customers'],
         operation: {
           operation: 'filter',
@@ -783,6 +837,55 @@ const scenarios: Record<PipelineRunnerConformanceScenarioName, PipelineRunnerCon
       }
     },
 
+    'pipeline-publish-two-gates': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const sources = [{ nodeId: 'customers', source }]
+        // gateA passes, gateB fails: the publish must name ONLY gateB.
+        const blocked = await runner.runPipeline(twoGatePipeline(), {
+          sources,
+          contracts: [
+            { nodeId: 'gateA', contract: passingContract() },
+            { nodeId: 'gateB', contract: failingContract() },
+          ],
+        })
+        expectCondition(
+          blocked.status === 'gated',
+          `a publish with one failing required gate must gate the run (got ${blocked.status})`,
+        )
+        if (blocked.status !== 'gated') fail('unreachable')
+        expectEqual(blocked.gatedAt, 'out', 'the blocking publish node')
+        expectEqual(blocked.gate, 'publish-blocked', 'the gate class')
+        const gateA = blocked.nodes.find((node) => node.nodeId === 'gateA')
+        const gateB = blocked.nodes.find((node) => node.nodeId === 'gateB')
+        expectEqual(gateA?.gate?.class, 'validate', 'gateA ran')
+        expectEqual(gateA?.gate?.valid, true, 'gateA passed')
+        expectEqual(gateB?.gate?.valid, false, 'gateB failed')
+        const publish = blocked.nodes.find((node) => node.nodeId === 'out')
+        // The unblock list names the failed gate and only it — the passing
+        // gateA must never appear.
+        expectDeepEqual(publish?.gate?.blockedGates, ['gateB'], 'the blocked gate list')
+
+        // Re-run after fixing gateB's contract: both gates pass, publish runs.
+        const completed = await runner.runPipeline(twoGatePipeline(), {
+          sources,
+          contracts: [
+            { nodeId: 'gateA', contract: passingContract() },
+            { nodeId: 'gateB', contract: passingContract() },
+          ],
+        })
+        expectCondition(completed.status === 'completed', 'the fixed re-run must complete')
+        if (completed.status !== 'completed') fail('unreachable')
+        const published = completed.nodes.find((node) => node.nodeId === 'out')
+        expectEqual(published?.gate?.class, 'publish', 'the publish ran')
+        expectDeepEqual(published?.gate?.blockedGates, [], 'no blocked gates after the fix')
+        return { blockedGates: 1, reRunStatus: completed.status }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
     'pipeline-diff-node': async (subject) => {
       const runner = subject.createRunner()
       try {
@@ -823,6 +926,58 @@ const scenarios: Record<PipelineRunnerConformanceScenarioName, PipelineRunnerCon
         const handle = await runner.registerRelation('sg')
         expectEqual(await runner.rowCount(handle), 2, 'the table row count')
         return { relationKind: 'table', rowCount: 2 }
+      } finally {
+        await subject.dispose(runner)
+      }
+    },
+
+    'pipeline-mode-change': async (subject) => {
+      const runner = subject.createRunner()
+      try {
+        const source = await subject.stageSource()
+        const sources = [{ nodeId: 'customers', source }]
+
+        const asTable = await runner.runPipeline(modeChangePipeline('table'), { sources })
+        expectCondition(
+          asTable.status === 'completed',
+          `the table run must complete (got ${asTable.status})`,
+        )
+        expectEqual(await runner.relationKind('sg'), 'table', 'the first materialization kind')
+        expectEqual(await runner.rowCount(await runner.registerRelation('sg')), 2, 'table rows')
+        expectDeepEqual(
+          await runner.readColumn('sg', 'customer_id'),
+          HAPPY_FINAL_IDS,
+          'the table relation rows',
+        )
+
+        // Mode change table → view in the SAME session: the old table is gone
+        // (a relation has exactly one physical kind), the view has the shape.
+        const asView = await runner.runPipeline(modeChangePipeline('view'), { sources })
+        expectCondition(
+          asView.status === 'completed',
+          `the view run must complete (got ${asView.status})`,
+        )
+        expectEqual(await runner.relationKind('sg'), 'view', 'the replaced materialization kind')
+        expectEqual(await runner.rowCount(await runner.registerRelation('sg')), 2, 'view rows')
+        expectDeepEqual(
+          await runner.readColumn('sg', 'customer_id'),
+          HAPPY_FINAL_IDS,
+          'the view relation rows',
+        )
+
+        // And back view → table, proving the drop path is symmetric.
+        const asTableAgain = await runner.runPipeline(modeChangePipeline('table'), { sources })
+        expectCondition(
+          asTableAgain.status === 'completed',
+          `the table re-run must complete (got ${asTableAgain.status})`,
+        )
+        expectEqual(await runner.relationKind('sg'), 'table', 'the table kind after switching back')
+        expectEqual(
+          await runner.rowCount(await runner.registerRelation('sg')),
+          2,
+          'table rows again',
+        )
+        return { kinds: 'table-view-table', rowCount: 2 }
       } finally {
         await subject.dispose(runner)
       }

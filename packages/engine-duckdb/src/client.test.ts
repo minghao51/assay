@@ -1591,6 +1591,7 @@ import {
   PipelineRunGuard,
   PipelineRunRefusalError,
 } from './pipeline-runner/index'
+import type { PipelineRunOptions, PipelineRunResult } from './pipeline-runner/index'
 import type { PipelineV1 } from '@assay/pipeline'
 
 function journeyPipeline(): PipelineV1 {
@@ -1616,6 +1617,113 @@ function journeyPipeline(): PipelineV1 {
 const journeySource = {
   name: 'customers.parquet',
   getFile: async () => new File([new Uint8Array([1])], 'customers.parquet'),
+}
+
+/**
+ * Drive ONE `runPipeline` call against the scripted fake worker (p2c-2 (d)).
+ * The client's ops are strictly sequential (each awaits its response), so we
+ * answer the next posted request until the run settles — a long-lived
+ * session's consecutive runs reuse the SAME client/worker. Returns the number
+ * of `engine/pipeline-handle` registrations the run made, so a test can pin
+ * the per-run handle discipline.
+ */
+async function driveClientRun(
+  client: DuckDbEngineClient,
+  workers: FakeWorker[],
+  pipeline: PipelineV1,
+  options: PipelineRunOptions,
+  startIndex: number,
+  verdicts: readonly boolean[],
+  handleId: string,
+): Promise<{ result: PipelineRunResult; endIndex: number; handleRequests: number }> {
+  const pending = client.runPipeline(pipeline, options)
+  let index = startIndex
+  let validateIndex = 0
+  let handleRequests = 0
+  let settled = false
+  let result: PipelineRunResult | undefined
+  void pending.then(
+    (value) => {
+      result = value
+      settled = true
+    },
+    () => {
+      settled = true
+    },
+  )
+  for (let guard = 0; guard < 200 && !settled; guard += 1) {
+    await flush()
+    if (settled) break
+    const worker = workers[0]
+    if (worker === undefined) throw new Error('the client never booted a worker')
+    const request = worker.requestAt(index)
+    index += 1
+    switch (request.type) {
+      case 'engine/init':
+        worker.respond(readyResponse(request.requestId))
+        break
+      case 'engine/pipeline-source':
+        worker.respond({
+          type: 'engine/pipeline-source-result',
+          requestId: request.requestId,
+          relation: 'customers',
+          rowCount: 5,
+        })
+        break
+      case 'engine/pipeline-execute':
+        worker.respond({
+          type: 'engine/pipeline-execute-result',
+          requestId: request.requestId,
+          relation: 'sg',
+          materialization: 'view',
+          rowCount: 2,
+        })
+        break
+      case 'engine/pipeline-handle':
+        handleRequests += 1
+        worker.respond({
+          type: 'engine/pipeline-handle-result',
+          requestId: request.requestId,
+          relation: 'sg',
+          tableId: handleId,
+        })
+        break
+      case 'engine/schema':
+        worker.respond({
+          type: 'engine/schema-result',
+          requestId: request.requestId,
+          columns: [{ name: 'customer_id', type: 'BIGINT' }],
+        })
+        break
+      case 'engine/validate': {
+        const valid = verdicts[validateIndex] ?? true
+        validateIndex += 1
+        worker.respond({
+          type: 'engine/validate-result',
+          requestId: request.requestId,
+          result: {
+            valid,
+            rowCount: 2,
+            rules: [
+              {
+                ruleId: 'columns[0].required',
+                outcome: 'row-samples',
+                failCount: valid ? 0 : 1,
+                failPercent: 0,
+                sampleFailures: [],
+              },
+            ],
+          },
+        })
+        break
+      }
+      default:
+        throw new Error(`unexpected request ${request.type}`)
+    }
+  }
+  await pending
+  if (result === undefined) throw new Error('the run did not settle')
+  return { result, endIndex: index, handleRequests }
 }
 
 describe('DuckDbEngineClient.runPipeline', () => {
@@ -2007,5 +2115,119 @@ describe('DuckDbEngineClient.runPipeline', () => {
       removed: 0,
       changed: 0,
     })
+  })
+
+  it('reuses one gate handle per relation per run and registers fresh across consecutive runs (p2c-2 (d))', async () => {
+    // The m6-4-era registry-accumulation concern, for pipeline gates: a
+    // long-lived session runs a gated pipeline repeatedly. The client keeps
+    // ONE handle per relation per run (`handleFor`'s run-local memo) — the
+    // same relation must not be re-registered once per gate — and each run
+    // registers a FRESH handle rather than carrying a stale one over. No
+    // accumulation may break a later run.
+    const { client, workers } = makeClient()
+    const pipeline: PipelineV1 = {
+      version: 1,
+      pipeline: 'client-gate-reuse',
+      nodes: [
+        { id: 'customers', type: 'source', source: { kind: 'file' } },
+        {
+          id: 'sg',
+          type: 'transform',
+          inputs: ['customers'],
+          operation: {
+            operation: 'filter',
+            args: { predicates: [{ column: 'country', operator: 'equals', value: 'SG' }] },
+          },
+        },
+        { id: 'gateA', type: 'validate', input: 'sg', contract: 'contracts/gate-a.yaml' },
+        { id: 'gateB', type: 'validate', input: 'sg', contract: 'contracts/gate-b.yaml' },
+        { id: 'out', type: 'publish', input: 'sg', requires: ['gateA', 'gateB'] },
+      ],
+    }
+    const plan: EngineValidationPlan = {
+      planKind: 'assay-validation-plan',
+      planVersion: 1,
+      contractName: 'gate',
+      contractVersion: 1,
+      relation: 'assay_pipeline_validation',
+      sampleLimit: 20,
+      rules: [
+        {
+          ruleId: 'columns[0].required',
+          path: 'columns[0].required',
+          kind: 'required',
+          column: 'customer_id',
+          outcome: 'row-samples',
+          sql: 'SELECT 1',
+        },
+      ],
+      summarySql: 'SELECT 1',
+    }
+    const options: PipelineRunOptions = {
+      sources: [{ nodeId: 'customers', source: journeySource }],
+      contracts: [
+        { nodeId: 'gateA', contract: { fake: true } },
+        { nodeId: 'gateB', contract: { fake: true } },
+      ],
+      compilers: { validate: () => ({ ok: true, plan }) },
+    }
+    // pass → pass: two runs, each with TWO gates on the same `sg` relation.
+    const first = await driveClientRun(client, workers, pipeline, options, 0, [true, true], 't1')
+    expect(first.result.status).toBe('completed')
+    // One handle per relation per run, despite two gate probes of `sg`.
+    expect(first.handleRequests).toBe(1)
+
+    const second = await driveClientRun(
+      client,
+      workers,
+      pipeline,
+      options,
+      first.endIndex,
+      [true, true],
+      't2',
+    )
+    expect(second.result.status).toBe('completed')
+    // A fresh handle for the second run — never a stale one carried over.
+    expect(second.handleRequests).toBe(1)
+
+    // fail → fixed-rerun: gateA fails, the publish blocks on gateA only.
+    const gated = await driveClientRun(
+      client,
+      workers,
+      pipeline,
+      options,
+      second.endIndex,
+      [false, true],
+      't3',
+    )
+    expect(gated.result.status).toBe('gated')
+    expect(gated.handleRequests).toBe(1)
+    if (gated.result.status !== 'gated') return
+    expect(gated.result.nodes.find((node) => node.nodeId === 'out')?.gate).toEqual({
+      class: 'publish',
+      input: 'sg',
+      blockedGates: ['gateA'],
+    })
+
+    const fixed = await driveClientRun(
+      client,
+      workers,
+      pipeline,
+      options,
+      gated.endIndex,
+      [true, true],
+      't4',
+    )
+    expect(fixed.result.status).toBe('completed')
+    expect(fixed.handleRequests).toBe(1)
+
+    // Four consecutive runs in one session → exactly four handle
+    // registrations (one per run), never the per-gate accumulation the
+    // run-local memo prevents.
+    const bootedWorker = workers[0]
+    if (bootedWorker === undefined) throw new Error('the client never booted a worker')
+    expect(
+      bootedWorker.postedRequests.filter((request) => request.type === 'engine/pipeline-handle'),
+    ).toHaveLength(4)
   })
 })
