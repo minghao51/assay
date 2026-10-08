@@ -55,6 +55,7 @@ import type {
   PipelineRunCompilers,
   PipelineRunContractBinding,
   PipelineRunNodeResult,
+  PipelineRunPartialNode,
 } from '@assay/engine-duckdb'
 import { pickDataFile } from '@assay/data-sources/browser'
 import type { DatasetSession } from '../sessions/session-reset'
@@ -120,9 +121,14 @@ function toOutcome(result: PipelineRunNodeResult): PipelineRunOutcome {
   }
 }
 
-/** Map a runner failure's named partial (relation only; counts unknown). */
+/**
+ * Map a runner failure's named partial. Counts are unknown (the runner
+ * reports none for partial state) and the materialization badge is derived
+ * from the plan; an executed gate's value-free verdict is passed through
+ * exactly as `toOutcome` does on the success path (p2c-4).
+ */
 function partialOutcomes(
-  partial: readonly { readonly nodeId: string; readonly relation: string }[],
+  partial: readonly PipelineRunPartialNode[],
   fileState: PipelineFileState,
 ): readonly PipelineRunOutcome[] {
   return partial.map((entry) => ({
@@ -130,6 +136,7 @@ function partialOutcomes(
     relation: entry.relation,
     rowCount: 0,
     materialization: badgeFor(fileState, entry.nodeId),
+    ...(entry.gate === undefined ? {} : { gate: entry.gate }),
   }))
 }
 

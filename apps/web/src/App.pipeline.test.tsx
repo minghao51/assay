@@ -780,6 +780,71 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     ).toBeNull()
   })
 
+  it('renders an executed gate verdict on the failure path (p2c-4)', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await openPipeline(GATED_PIPELINE_YAML)
+    h.queue.push(datasetFile('source-dataset.parquet', DATASET_SENTINEL))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    h.queue.push(yamlFile('gate-contract.yaml', CONTRACT_YAML))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-contract'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    expect(h.runCalls).toBe(1)
+
+    // p2c-1: a later node (`out`) fails after the validate gate executed, so
+    // the gate's value-free verdict rides `error.partial[].gate`. p2c-4
+    // passes that verdict through (mirroring `toOutcome`) so the panel
+    // renders it, not just the CLI.
+    await act(async () => {
+      h.rejectRun?.(
+        new PipelineRunError('out', [
+          { nodeId: 'customers', relation: 'customers' },
+          { nodeId: 'sg', relation: 'sg' },
+          {
+            nodeId: 'gate',
+            relation: 'sg',
+            gate: { class: 'validate', input: 'sg', valid: false, violatedRules: 2 },
+          },
+        ]),
+      )
+    })
+
+    expect(screen.getByTestId('pipeline-run-status').getAttribute('data-state')).toBe('failed')
+    const gateRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="gate"]',
+    ) as HTMLElement
+    expect(within(gateRow).getByTestId('pipeline-node-gate').textContent).toContain(
+      'Validate: failed — 2 rules violated',
+    )
+    expect(gateRow.getAttribute('data-node-status')).toBe('done')
+    // A partial entry WITHOUT a verdict renders exactly as before: done, no
+    // gate text.
+    const sourceRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="customers"]',
+    ) as HTMLElement
+    expect(sourceRow.getAttribute('data-node-status')).toBe('done')
+    expect(within(sourceRow).queryByTestId('pipeline-node-gate')).toBeNull()
+    // The failing node is never in `partial` — no verdict is fabricated.
+    const outRow = document.querySelector(
+      '[data-testid="pipeline-node"][data-node-id="out"]',
+    ) as HTMLElement
+    expect(outRow.getAttribute('data-node-status')).toBe('failed')
+    expect(within(outRow).queryByTestId('pipeline-node-gate')).toBeNull()
+    // Value-free (ADR 0025): the verdict carries counts only — never the
+    // picked source name nor any dataset text.
+    const failed = screen.getByTestId('pipeline-run-failed')
+    expect(failed.textContent).not.toContain('source-dataset.parquet')
+    expect(failed.textContent).not.toContain(DATASET_SENTINEL)
+    expect(document.body.textContent).not.toContain('source-dataset.parquet')
+    expect(document.body.textContent).not.toContain(DATASET_SENTINEL)
+  })
+
   it('drops a late run outcome when a new dataset session supersedes it', async () => {
     render(<App />)
     await openDataset('primary.jsonl')
