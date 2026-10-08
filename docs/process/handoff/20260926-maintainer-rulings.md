@@ -6,13 +6,16 @@ until they are called. Each ruling below states what is being decided, the exact
 what it unblocks, and where the ruling must be recorded once made.
 
 Conventions (binding): decisions are recorded where this file says — never re-decided elsewhere;
-durable/structural decisions get an ADR (copy `docs/adr/template.md`, next free number **0046** —
+durable/structural decisions get an ADR (copy `docs/adr/template.md`, next free number **0047** —
 0043 landed 2026-09-27 (changesets ledger), 0044 landed 2026-09-29 (workbench shell; Accepted
-same day via ruling D14), 0045 landed 2026-09-29 (telemetry design adopted, via ruling C-pt0-1)); when a ruling lands, splice its close into `handoff.md` §9 and flip the
+same day via ruling D14), 0045 landed 2026-09-29 (telemetry design adopted, via ruling C-pt0-1),
+**0046 Proposed 2026-10-02** (DCR artifact v1 — pending ruling D17)); when a ruling lands, splice its close into `handoff.md` §9 and flip the
 status cells in the authoritative rows linked below. ~15 minutes of maintainer time total
-(D14 added 2026-09-29 — still short). **ALL FOUR RULED 2026-09-29 — this queue is CLOSED**
-(C-pt0-1: approved + ADR 0045; D12: PT-P first; D13: keep-as-target; D14: ADR 0044 accepted);
-records per the sections below; the [open-threads map](20260926-open-threads.md) is re-pointed.
+(D14 added 2026-09-29 — still short). **D15 + D16 ruled 2026-10-02** (PT-V GO via the R4 spike;
+M9 scoping authorized) and **D17 + D18 are PENDING** (DCR artifact format v1; PT-V track start —
+D18's code assigned at the ptv-m9 closure, maintainer to confirm); earlier rulings (C-pt0-1,
+D12–D14) ruled 2026-09-29. Records per the sections below; the
+[open-threads map](20260926-open-threads.md) is re-pointed.
 
 ## How to record a ruling (per item)
 
@@ -123,6 +126,44 @@ records per the sections below; the [open-threads map](20260926-open-threads.md)
 - **Unblocks:** **m9-1** immediately; the **P3 queue** after the D17 format ruling.
 - **Record:** roadmap §7 D16 row; product/04 §9; handoff §9; this file.
 - **Default if deferred:** n/a — ruled.
+
+## Ruling D17 — DCR artifact format v1 — added 2026-10-02 (post ptv-m9 closure)
+
+- **Decide:** rule on the canonical local **DCR artifact format v1** proposed by
+  [`docs/product/06-dcr-artifact.md`](../../product/06-dcr-artifact.md) and [Proposed ADR 0046](../../adr/0046-dcr-artifact-format-v1.md):
+  the **12 open questions in spec §9** — serialization choice + `format`/version stamp (Q1);
+  concrete field schema and the ADR 0014 four-delta → M6 aspect mapping (Q2); embed vs reference
+  payloads (Q3); local candidate-DatasetVersion identity (Q4); generation entry point(s) (Q5);
+  local privacy-findings producer (Q6); row-diff key discipline (Q7); evaluations defer/reserve
+  (Q8); reserved identifier/namespace prefix (Q9); the artifact's own identity/status (Q10);
+  timestamps vs byte-stability (Q11); hosted round-trip/forward compatibility (Q12). The spec
+  carries a recommendation per question; **nothing is decided by the proposal** (D16 discipline).
+- **Read:** the [scoping spec §9](../../product/06-dcr-artifact.md) (the numbered list) +
+  [Proposed ADR 0046](../../adr/0046-dcr-artifact-format-v1.md); [ADR 0014](../../adr/0014-dataset-change-request-model.md)
+  (field list + standalone-report consequence); [ADR 0011](../../adr/0011-dataset-identity-and-versioning.md)/[0012](../../adr/0012-edit-overlay-and-transaction-semantics.md)
+  (versioning/overlay); the canonical-serialization precedents (ADR 0013/0026/0030).
+- **Unblocks:** flipping ADR 0046 Proposed→Accepted and authoring the **P3 queue**
+  (DCR/publish integration, roadmap §3.2); G3's "DCR artifact format stable (M9 done)" evidence.
+- **Record:** flip ADR 0046 to Accepted (or amend — never renumber); roadmap §7 D17 row +
+  product/04 §9; handoff §9; this file. If the format is amended, update the spec in the same commit.
+- **Default if deferred:** P3 stays blocked; ADR 0046 stays Proposed (binds nothing).
+
+## Ruling D18 — PT-V track start (post-spike) — added 2026-10-02 (post ptv-m9 closure; code assigned by the closure session — maintainer to confirm)
+
+- **Decide:** whether/where **PT-V proper** starts, reading the delivered R4 report
+  [`docs/engineering/08-vscode-webview-feasibility.md`](../../engineering/08-vscode-webview-feasibility.md):
+  the spike's **desktop-extension webview GO** is the recommended target; **vscode-web is RE-SCOPE**
+  (host-entry + OPFS policy unmeasured). Options: (a) start PT-V slice 1 on the desktop-extension
+  webview; (b) hold PT-V and continue residue/hardening; (c) start a different post-MVP thread.
+- **Read:** the [ptv-1 report](../../engineering/08-vscode-webview-feasibility.md); the
+  [ptv-m9 queue §5 closure](20261002-ptv-m9-queue.md) (slice-1 carry list: blob-bootstrap/CSP pins,
+  Parquet-extension vendoring, `eh`-failure exit-code hardening, secondary timing envelopes,
+  coverage policy); [post-MVP track §5](../../product/04-post-mvp-track.md) (PT-V scope + spike
+  definition); [roadmap §3.1 M7 row](../../product/03-execution-roadmap.md); D15 (GO via the spike).
+- **Unblocks:** the PT-V slice-1 queue (or a hold/NO-GO decision that leaves PT-V unstarted).
+- **Record:** roadmap §7 + product/04 §9 + §3/§5 status lines; handoff §9; this file.
+- **Default if deferred:** PT-V stays unstarted; the spike evidence is banked and no track cost is
+  sunk (D15's point).
 
 ## Related human items (tracked in [manual-actions](../manual-actions.md), not re-listed here)
 
