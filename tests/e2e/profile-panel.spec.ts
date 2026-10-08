@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { openFixture } from './support/fixtures'
+import { expandAllSections, openFixture } from './support/fixtures'
 
 // Task m2-6 proof (handoff §6): the profile panel + distribution charts over
 // the full stack — trigger → engineClient.profile() (the m2-5 `engine/profile`
@@ -71,6 +71,9 @@ async function reopenFixture(page: Page, fixturePath: string): Promise<void> {
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
     timeout: 20_000,
   })
+  // q-15: a re-open remounts the ready frame, so the pane resets to the
+  // one-section default; re-expand the tool sections this spec drives.
+  await expandAllSections(page)
 }
 
 /** Column-scoped locator: the panel tags every per-column element. */
@@ -87,7 +90,8 @@ test('profiles the customers fixture: exact numeric stats, quantile strip, categ
 }) => {
   await openFixture(page, CUSTOMERS_FIXTURE)
 
-  // The panel is a disclosure section, open by default, idle until triggered.
+  // The panel is a disclosure section (q-15: the shared open-section step
+  // expanded it), idle until triggered.
   const section = page.getByTestId('profile-section')
   await expect(page.getByTestId('profile-toggle')).toHaveAttribute('aria-expanded', 'true')
   await expect(section).toHaveAttribute('data-state', 'idle')

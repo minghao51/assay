@@ -405,25 +405,32 @@ afterEach(() => {
 })
 
 describe('pipeline panel — placement and empty states (p-5)', () => {
-  it('renders the provisional Pipeline section last, with an honest zero state', async () => {
+  it('renders the Pipeline section last in the tool pane, with an honest zero state', async () => {
     render(<App />)
     await openDataset('primary.jsonl')
 
-    // Provisional tail: the section renders after Profile in the DOM.
-    const rendered = Array.from(document.querySelectorAll('.workbench-section')).map((section) =>
-      section.getAttribute('data-section'),
-    )
+    // Panel-placement ruling (queue 2026-10-02): the pipeline panel is the last
+    // tool-pane resident, after profile.
+    const rendered = Array.from(
+      document.querySelectorAll('.workbench-tools .workbench-section'),
+    ).map((section) => section.getAttribute('data-section'))
     expect(rendered[rendered.length - 1]).toBe('pipeline')
     expect(rendered.indexOf('pipeline')).toBeGreaterThan(rendered.indexOf('profile'))
 
-    // The shell owns the managed disclosure; the body is the panel.
-    expect(screen.getByTestId('section-toggle-pipeline').getAttribute('aria-expanded')).toBe('true')
+    // The shell owns the managed disclosure; it starts collapsed (one-section
+    // first paint) and expanding it mounts/keeps the panel body.
+    const toggle = screen.getByTestId('section-toggle-pipeline')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByTestId('pipeline-panel')).toBeTruthy()
     expect(screen.getByTestId('pipeline-zero-state').textContent).toMatch(/No pipeline open/)
 
     // Collapse keeps the body mounted (CSS-only collapse invariant).
     await act(async () => {
-      fireEvent.click(screen.getByTestId('section-toggle-pipeline'))
+      fireEvent.click(toggle)
     })
     expect(document.getElementById('section-pipeline-content')?.hasAttribute('hidden')).toBe(true)
     expect(screen.getByTestId('pipeline-panel')).toBeTruthy()

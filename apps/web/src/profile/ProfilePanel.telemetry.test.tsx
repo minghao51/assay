@@ -48,6 +48,7 @@ describe('ProfilePanel telemetry — profile_run (design §2/Appendix C)', () =>
         <ProfilePanel handle={HANDLE} />
       </TelemetryProvider>,
     )
+    fireEvent.click(screen.getByTestId('profile-toggle'))
     fireEvent.click(screen.getByTestId('profile-run'))
     await waitFor(() => {
       expect(runtime.emit).toHaveBeenCalledWith('profile_run', {
@@ -66,6 +67,7 @@ describe('ProfilePanel telemetry — profile_run (design §2/Appendix C)', () =>
         <ProfilePanel handle={HANDLE} />
       </TelemetryProvider>,
     )
+    fireEvent.click(screen.getByTestId('profile-toggle'))
     fireEvent.click(screen.getByTestId('profile-run'))
     await waitFor(() => {
       expect(runtime.emit).toHaveBeenCalledWith('profile_run', {

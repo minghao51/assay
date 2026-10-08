@@ -11,15 +11,17 @@ import type { ArrowTableLike } from './grid/provider'
  * only the picker/engine boundaries faked (the `App.test.tsx` posture):
  *
  * 1. **Complete heading map.** The ready frame carries an h1 and one h2 per
- *    top-level section, in DOM order matching the visual order: Schema,
- *    Editing, Export, History, Validation, Compare, Filters, Grid, Record,
- *    SQL, Profile, Pipeline (p-5: Pipeline is the provisional tail, after
- *    Profile). Schema/Editing/Export/History/Filters/Grid/Record/SQL/
- *    Profile/Pipeline use the visually-hidden h2 (their visible controls are
- *    a toggle or already-labelled section); Validation and Compare keep their
- *    visible h2. The Record heading exists only while the inspector is open,
- *    so the map is asserted after opening a record through the real row-click
- *    gesture.
+ *    top-level section, in two-pane DOM order (tools-left, center-right):
+ *    Schema, Editing, Export, History, Validation, Compare, Filters, SQL,
+ *    Profile, Pipeline — then Grid and Record in the center column. The map is
+ *    asserted in the complete/open state (q-15: the pane opens with only
+ *    Schema expanded, so the managed sections are opened first — the recorded
+ *    slice-1 ruling allows a collapsed section to drop its h2).
+ *    Schema/Editing/Export/History/Filters/Grid/Record/SQL/Profile/Pipeline use
+ *    the visually-hidden h2 (their visible controls are a toggle or
+ *    already-labelled section); Validation and Compare keep their visible h2.
+ *    The Record heading exists only while the inspector is open, so the map is
+ *    asserted after opening a record through the real row-click gesture.
  * 2. **Exactly one Undo/Redo pair** (UX-6): the history panel owns the only
  *    undo/redo buttons; the editing toolbar keeps Insert row + the pending
  *    summary. `getAllByRole` returns exactly one of each by accessible name.
@@ -107,6 +109,19 @@ async function open(): Promise<void> {
 }
 
 /**
+ * q-15: expand every shell-managed section. The two-pane pane starts with only
+ * Schema expanded (the one-section default), and the ux-3 complete map is
+ * asserted in the open state.
+ */
+async function openManagedSections(): Promise<void> {
+  for (const id of ['editing', 'export', 'history', 'validation', 'compare', 'sql', 'pipeline']) {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`section-toggle-${id}`))
+    })
+  }
+}
+
+/**
  * Explicit wait budget for the two environment transitions this pin crosses:
  * the grid row's payload arriving (its current-epoch slot turning `ready`)
  * and the row-click → record-inspector render. Both are microtask-driven
@@ -142,9 +157,10 @@ async function openRecord(): Promise<void> {
 }
 
 describe('ux-3 — complete heading map (UX-7)', () => {
-  it('renders h1 + one h2 per top-level section, in visual order', async () => {
+  it('renders h1 + one h2 per top-level section, in two-pane DOM order', async () => {
     render(<App />)
     await open()
+    await openManagedSections()
     await openRecord()
 
     const h1 = screen.getAllByRole('heading', { level: 1 })
@@ -153,23 +169,24 @@ describe('ux-3 — complete heading map (UX-7)', () => {
     const h2 = screen.getAllByRole('heading', { level: 2 })
     expect(h2.map((heading) => heading.textContent)).toEqual([
       'Schema',
-      'Grid',
       'Editing',
       'Export',
       'History',
       'Validation',
       'Compare',
       'Filters',
-      'Record',
       'SQL',
       'Profile',
       'Pipeline',
+      'Grid',
+      'Record',
     ])
   })
 
   it('keeps the Record heading out of the map while no record is open', async () => {
     render(<App />)
     await open()
+    await openManagedSections()
 
     expect(screen.queryByTestId('record-inspector')).toBeNull()
     const names = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
@@ -177,7 +194,6 @@ describe('ux-3 — complete heading map (UX-7)', () => {
     // Every other section heading is present pre-record.
     expect(names).toEqual([
       'Schema',
-      'Grid',
       'Editing',
       'Export',
       'History',
@@ -187,6 +203,7 @@ describe('ux-3 — complete heading map (UX-7)', () => {
       'SQL',
       'Profile',
       'Pipeline',
+      'Grid',
     ])
   })
 })
@@ -195,6 +212,7 @@ describe('ux-3 — single Undo/Redo pair (UX-6)', () => {
   it('renders exactly one Undo and one Redo button in the ready frame', async () => {
     render(<App />)
     await open()
+    await openManagedSections()
 
     expect(screen.getAllByRole('button', { name: /^Undo$/ })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: /^Redo$/ })).toHaveLength(1)

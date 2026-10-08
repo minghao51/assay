@@ -269,6 +269,49 @@ function defineScans(scheme: 'light' | 'dark'): void {
   })
 }
 
+/**
+ * pt0-4/q-15: the <1024px stack viewport class. ADR 0044 mitigates the extra
+ * class by keeping it to the existing 900px pin plus a journey smoke — the
+ * grid + expanded filter bar and the populated validation report, both
+ * schemes — so the empty allowlist holds at BOTH viewport classes (the ≥1024
+ * scans are the `defineScans` set above).
+ */
+function defineNarrowScans(scheme: 'light' | 'dark'): void {
+  test(`[${scheme}] 900px grid + expanded filter bar has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await page.setViewportSize({ width: 900, height: 900 })
+    await openFixture(page, CSV_FIXTURE, { assertFileNameHidden: true })
+    await expect(page.getByTestId('grid')).toBeVisible()
+    await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+    await expandFilterBarStates(page)
+    await scanAndGate(page, `900px grid + expanded filter bar (${scheme})`, scheme)
+  })
+
+  test(`[${scheme}] 900px populated validation report has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(240_000)
+    await page.setViewportSize({ width: 900, height: 900 })
+    const dataset = writeValidationDatasetA()
+    await openFixture(page, dataset.dataPath, { assertFileNameHidden: true })
+    await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
+
+    const chooserPromise = page.waitForEvent('filechooser')
+    await page.getByTestId('validation-open-contract').click()
+    await (await chooserPromise).setFiles(dataset.contractPath)
+    await expect(page.getByTestId('validation-contract-name')).toHaveText('orders-basic')
+    await page.getByTestId('validation-run').click()
+    await expect(page.getByTestId('validation-verdict')).toHaveText(
+      '4 of 9 rules fail (7 rows checked).',
+    )
+    await expect(page.getByTestId('validation-rule')).toHaveCount(9)
+
+    await scanAndGate(page, `900px validation report (4/9 failing, ${scheme})`, scheme)
+  })
+}
+
 test.describe('axe scans — light scheme', () => {
   test.use({ colorScheme: 'light' })
   defineScans('light')
@@ -277,6 +320,16 @@ test.describe('axe scans — light scheme', () => {
 test.describe('axe scans — dark scheme', () => {
   test.use({ colorScheme: 'dark' })
   defineScans('dark')
+})
+
+test.describe('axe scans at 900px — light scheme', () => {
+  test.use({ colorScheme: 'light' })
+  defineNarrowScans('light')
+})
+
+test.describe('axe scans at 900px — dark scheme', () => {
+  test.use({ colorScheme: 'dark' })
+  defineNarrowScans('dark')
 })
 
 test('canary: axe reports an injected nameless button and the gate rejects it', async ({

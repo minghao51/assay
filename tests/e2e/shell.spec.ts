@@ -1,24 +1,30 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import { openFixture } from './support/fixtures'
+import type { Page } from '@playwright/test'
+import { row, waitForReadyRow } from './support/grid'
+import { expandAllSections, openFixture } from './support/fixtures'
 
-// ux-6 — workbench shell slice 1 (spec docs/product/05-workbench-shell.md §3).
-// This journey pins the parts of the slice-1 acceptance list that are
-// browser-layout facts rather than component structure:
+// q-15 — workbench shell slice 2, the ≥1024px grid-centric two-pane shell
+// (spec docs/product/05-workbench-shell.md §3; ADR 0044). This journey pins
+// the browser-layout facts the component suite cannot:
 //
-//   1. every top-level section is a collapsible disclosure (`aria-expanded`);
-//   2. a sticky section nav lists the sections in DOM order and is
-//      keyboard-operable (plain anchors, no focus trap);
-//   3. anchored sections are not obscured by the pinned nav (`scroll-margin`);
-//   4. the grid renders immediately after the Schema section and stays
-//      MOUNTED when its section is collapsed (rendering position only).
+//   1. At ≥1024px the tool pane (left, sticky, own scroll) and the center
+//      column (right: grid + docked record inspector) are side by side; the
+//      grid never unmounts or reorders when tools are used.
+//   2. First paint expands exactly one tool section (Schema); the managed tool
+//      sections are collapsed and expansion is non-exclusive.
+//   3. The pane collapses to a rail without moving the center column.
+//   4. Below 1024px the SAME DOM renders as the slice-1 single-column stack
+//      (schema → grid → the tool sections), scroll-never-clip.
+//   5. The complete heading map holds in BOTH layouts (open state).
 //
 // Assertions stay on stable testids/ARIA; no dataset values are read or
 // logged (ADR 0025).
 
 const CUSTOMERS = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
 
-const SECTION_ORDER = [
+/** Sticky-nav reading order (slice-1 order, grid promoted). */
+const NAV_ORDER = [
   'schema',
   'grid',
   'editing',
@@ -33,6 +39,38 @@ const SECTION_ORDER = [
   'pipeline',
 ] as const
 
+/** Two-pane DOM order: tool pane first (tools-left), then the center column. */
+const DOM_ORDER = [
+  'schema',
+  'editing',
+  'export',
+  'history',
+  'validation',
+  'compare',
+  'filters',
+  'sql',
+  'profile',
+  'pipeline',
+  'grid',
+  'record',
+] as const
+
+/** The complete h2 map in open state (record open), in two-pane DOM order. */
+const HEADING_MAP = [
+  'Schema',
+  'Editing',
+  'Export',
+  'History',
+  'Validation',
+  'Compare',
+  'Filters',
+  'SQL',
+  'Profile',
+  'Pipeline',
+  'Grid',
+  'Record',
+] as const
+
 test.beforeEach(async ({ page }) => {
   // Hidden-<input type="file"> fallback (m1-5 pattern): Playwright's
   // filechooser event reaches the input, not window.showOpenFilePicker.
@@ -45,17 +83,41 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('slice-1 shell: sticky nav, collapsible sections, hoisted mounted grid', async ({ page }) => {
-  await openFixture(page, CUSTOMERS, { assertFileNameHidden: true })
+/** Open a dataset without the test-only expand-all step (pin the real default). */
+async function openDefault(page: Page): Promise<void> {
+  await openFixture(page, CUSTOMERS, { assertFileNameHidden: true, expandSections: false })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+}
 
+/** Open a record through the real row-click gesture (record dock). */
+async function openRecord(page: Page): Promise<void> {
+  await waitForReadyRow(page, 0)
+  await row(page, 0).click()
+  await expect(page.getByTestId('record-inspector')).toBeVisible()
+}
+
+test('two-pane shell at ≥1024px: tools left, persistent grid center, rail', async ({ page }) => {
+  await openDefault(page)
+
+  // Two-pane structure: the tool pane and the center column are real boxes.
+  await expect(page.locator('.workbench-tools')).toBeVisible()
+  await expect(page.locator('.workbench-center')).toBeVisible()
+  const toolsBox = await page.locator('.workbench-tools').boundingBox()
+  const gridBox = await page.locator('#section-grid').boundingBox()
+  if (toolsBox === null || gridBox === null) throw new Error('missing bounding box')
+  // Grid is to the right of the tool pane (tools-left, ADR 0044).
+  expect(gridBox.x).toBeGreaterThan(toolsBox.x + toolsBox.width - 1)
+  // Sticky pane so tools stay reachable while the center scrolls.
+  expect(
+    await page
+      .locator('.workbench-tools')
+      .evaluate((element) => getComputedStyle(element).position),
+  ).toBe('sticky')
+
+  // Sticky in-pane nav, reading order, resolving anchors.
   const nav = page.getByTestId('section-nav')
   await expect(nav).toBeVisible()
-  // Sticky positioning is the mechanism that keeps the nav in reach.
   expect(await nav.evaluate((element) => getComputedStyle(element).position)).toBe('sticky')
-
-  // Nav order === section DOM order, both pinned to the slice-1 order
-  // (p-5: 'Pipeline' is the provisional tail, after Profile).
   await expect(nav.locator('a')).toHaveText([
     'Schema',
     'Grid',
@@ -70,36 +132,9 @@ test('slice-1 shell: sticky nav, collapsible sections, hoisted mounted grid', as
     'Profile',
     'Pipeline',
   ])
-  await expect(page.locator('.workbench-section')).toHaveCount(SECTION_ORDER.length)
-  const rendered = await page
-    .locator('.workbench-section')
-    .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-section')))
-  expect(rendered).toEqual([...SECTION_ORDER])
-
-  // Each managed section exposes one shared aria-expanded toggle; the
-  // inner-disclosure sections keep their own and get no second toggle.
-  for (const id of [
-    'grid',
-    'editing',
-    'export',
-    'history',
-    'validation',
-    'compare',
-    'record',
-    'sql',
-    'pipeline',
-  ]) {
-    await expect(page.getByTestId(`section-toggle-${id}`)).toHaveAttribute('aria-expanded', 'true')
+  for (const id of NAV_ORDER) {
+    await expect(page.getByTestId(`section-nav-${id}`)).toHaveAttribute('href', `#section-${id}`)
   }
-  await expect(page.getByTestId('section-toggle-schema')).toHaveCount(0)
-  await expect(page.getByTestId('schema-toggle')).toHaveAttribute('aria-expanded', 'true')
-
-  // Anchors are keyboard-operable in order (native links, no focus trap).
-  const firstLink = page.getByTestId('section-nav-schema')
-  await firstLink.focus()
-  await expect(firstLink).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(page.getByTestId('section-nav-grid')).toBeFocused()
 
   // Anchoring does not hide the target under the pinned nav.
   await page.getByTestId('section-nav-profile').click()
@@ -108,37 +143,98 @@ test('slice-1 shell: sticky nav, collapsible sections, hoisted mounted grid', as
   const targetBox = await page.getByTestId('profile-section').boundingBox()
   if (navBox === null || targetBox === null) throw new Error('missing bounding box')
   expect(targetBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height - 2)
-  // And every section carries the scroll-margin that makes that true.
   expect(
     await page.locator('#section-grid').evaluate((el) => getComputedStyle(el).scrollMarginTop),
   ).not.toBe('0px')
 
-  // Collapse the grid: it leaves the accessibility tree but stays MOUNTED —
-  // the same grid, so fetch/virtualization/data-flow are unchanged.
+  // One-section first paint: Schema open, every managed tool section
+  // collapsed, grid (the persistent center) open.
+  await expect(page.getByTestId('schema-toggle')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByTestId('profile-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByTestId('section-toggle-grid')).toHaveAttribute('aria-expanded', 'true')
+  for (const id of ['editing', 'export', 'history', 'validation', 'compare', 'sql', 'pipeline']) {
+    await expect(page.getByTestId(`section-toggle-${id}`)).toHaveAttribute('aria-expanded', 'false')
+  }
+
+  // Non-exclusive expansion: opening two sections keeps both open.
+  await page.getByTestId('section-toggle-validation').click()
+  await page.getByTestId('section-toggle-compare').click()
+  await expect(page.getByTestId('section-toggle-validation')).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  await expect(page.getByTestId('section-toggle-compare')).toHaveAttribute('aria-expanded', 'true')
+
+  // Grid persistent center: collapsing its section leaves it MOUNTED.
   const gridToggle = page.getByTestId('section-toggle-grid')
   await gridToggle.click()
   await expect(gridToggle).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByTestId('grid')).toBeHidden()
   await expect(page.getByTestId('grid')).toHaveCount(1)
-  // Re-expand: the mounted grid is intact and still shows the same table.
   await gridToggle.click()
-  await expect(gridToggle).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByTestId('grid')).toBeVisible()
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
-  // The re-expanded mounted grid still renders its virtualized rows (no
-  // zero-measure stall from the display:none window).
-  await expect(page.locator('[data-testid="grid-row"]').first()).toBeVisible()
 
-  // Collapsing keeps a visible name in the toggle row for every section
-  // (uniform affordance). Pin the two that previously rendered a bare
-  // chevron — Validation and Compare.
-  for (const [id, name] of [
-    ['validation', 'Validation'],
-    ['compare', 'Compare'],
-  ] as const) {
-    const toggle = page.getByTestId(`section-toggle-${id}`)
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await expect(toggle).toContainText(name)
+  // Complete heading map (open state), including the docked Record heading.
+  await expandAllSections(page)
+  await openRecord(page)
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText([...HEADING_MAP])
+
+  // Pane rail: the tool pane collapses to a rail; the center column stays put.
+  const centerBefore = await page.locator('.workbench-center').boundingBox()
+  await page.getByTestId('pane-toggle').click()
+  await expect(page.getByTestId('pane-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.locator('#workbench-tools-body')).toBeHidden()
+  await expect(page.getByTestId('grid')).toBeVisible()
+  const centerAfter = await page.locator('.workbench-center').boundingBox()
+  if (centerBefore === null || centerAfter === null) throw new Error('missing bounding box')
+  // The center grows leftward but is never unmounted or reordered.
+  expect(centerAfter.x).toBeLessThanOrEqual(centerBefore.x + 1)
+})
+
+test('below 1024px: the slice-1 single-column stack is preserved', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 })
+  await openDefault(page)
+
+  // The pane rail affordance is a ≥1024px control; the stack shows everything.
+  await expect(page.locator('.workbench-pane-head')).toBeHidden()
+
+  // Single column: nav + every section span the page, and the grid is
+  // visually promoted right after the schema section (slice-1 order), with the
+  // tool sections after it. The DOM is tools-then-center; CSS `order` is what
+  // restores the stack, so this measures geometry, not DOM order.
+  const yOf = async (id: string): Promise<number> => {
+    const box = await page.locator(`#section-${id}`).boundingBox()
+    if (box === null) throw new Error(`missing bounding box for ${id}`)
+    return box.y
   }
+  expect(await yOf('schema')).toBeLessThan(await yOf('grid'))
+  expect(await yOf('grid')).toBeLessThan(await yOf('editing'))
+  expect(await yOf('record')).toBeGreaterThan(await yOf('filters'))
+  expect(await yOf('pipeline')).toBeGreaterThan(await yOf('profile'))
+
+  // Scroll, never clip (ux-1).
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+
+  // Keyboard-reachable nav at the stack; anchoring reaches the last section.
+  await page.getByTestId('section-nav-pipeline').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#section-pipeline')).toBeInViewport()
+
+  // The complete h2 map holds in the stack too (same DOM order, open state).
+  await expandAllSections(page)
+  await openRecord(page)
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText([...HEADING_MAP])
+})
+
+test('every section renders in the two-pane DOM order with matching anchors', async ({ page }) => {
+  await openDefault(page)
+  const rendered = await page
+    .locator('.workbench-section')
+    .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-section')))
+  expect(rendered).toEqual([...DOM_ORDER])
 })

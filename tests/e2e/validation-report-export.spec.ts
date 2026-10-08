@@ -4,6 +4,7 @@ import type { Download, Locator, Page } from '@playwright/test'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { writeValidationDatasetB } from './support/validation-datasets'
+import { expandAllSections } from './support/fixtures'
 
 // m5-3 journey 2: the failure report + the invalid-row explorer's honesty
 // edges. On the 120-row dataset B (CLI-derived counts in
@@ -45,6 +46,8 @@ async function openDatasetB(page: Page): Promise<{ dataName: string; contractNam
     timeout: 20_000,
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('120')
+  // q-15: expand the two-pane tool sections this journey drives (validation).
+  await expandAllSections(page)
   chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('validation-open-contract').click()
   await (await chooserPromise).setFiles(dataset.contractPath)

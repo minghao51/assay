@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Download, Page } from '@playwright/test'
-import { openFixture, openFilterBar } from './support/fixtures'
+import { openFixture, openFilterBar, expandAllSections } from './support/fixtures'
 import { cell, editCell, row } from './support/grid'
 
 // Task m4-5 proof (handoff §6): the export/rewrite UX over the m4-2 export op.
@@ -171,6 +171,8 @@ async function openFixtureViaFakeFsa(
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
     timeout: 20_000,
   })
+  // q-15: expand the two-pane tool sections (Export/Editing) this spec drives.
+  await expandAllSections(page)
 }
 
 /**

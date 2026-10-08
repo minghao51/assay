@@ -19,6 +19,50 @@ export interface OpenFixtureOptions {
   readonly requireSchemaPanel?: boolean
   /** Also assert the picked name never renders in `table-info` (ADR 0025). */
   readonly assertFileNameHidden?: boolean
+  /**
+   * q-15: expand every shell-managed tool section after open (default true).
+   * The two-pane pane starts with only Schema expanded, so legacy journeys
+   * that interact with a collapsed panel opt in through this shared step (the
+   * slice-1 precedent: specs gain open-section steps via shared helpers). The
+   * shell journey (`shell.spec.ts`) passes `false` to pin the real default.
+   */
+  readonly expandSections?: boolean
+}
+
+/** Managed sections the shell owns a `section-toggle-<id>` for. */
+const MANAGED_SECTION_IDS = [
+  'grid',
+  'editing',
+  'export',
+  'history',
+  'validation',
+  'compare',
+  'sql',
+  'pipeline',
+] as const
+
+/** Expand one shell-managed section (idempotent). */
+export async function openSection(page: Page, id: string): Promise<void> {
+  const toggle = page.getByTestId(`section-toggle-${id}`)
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click()
+  }
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+}
+
+/**
+ * q-15: expand every shell-managed section plus the Profile inner disclosure,
+ * so a legacy journey sees the same panel set it saw before the two-pane
+ * default (all managed sections open). Safe to call repeatedly.
+ */
+export async function expandAllSections(page: Page): Promise<void> {
+  for (const id of MANAGED_SECTION_IDS) {
+    await openSection(page, id)
+  }
+  const profileToggle = page.getByTestId('profile-toggle')
+  if ((await profileToggle.getAttribute('aria-expanded')) !== 'true') {
+    await profileToggle.click()
+  }
 }
 
 /** Open a fixture through the app's real picker path and wait until ready. */
@@ -38,6 +82,9 @@ export async function openFixture(
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
     timeout: 20_000,
   })
+  if (options.expandSections !== false) {
+    await expandAllSections(page)
+  }
   if (options.requireSchemaPanel === true) {
     await expect(page.getByTestId('schema-panel')).toBeVisible()
   }

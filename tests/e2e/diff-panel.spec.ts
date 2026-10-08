@@ -8,6 +8,7 @@ import {
   writeIdenticalDiffPair,
   writeSwappedDiffPair,
 } from './support/diff-datasets'
+import { expandAllSections } from './support/fixtures'
 
 // m6-4 done-when journeys (handoff §6):
 //
@@ -55,6 +56,9 @@ async function openDatasetA(page: Page, aPath: string): Promise<void> {
     timeout: 20_000,
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  // q-15: the two-pane pane starts with only Schema expanded; this journey
+  // needs the Compare panel open (shared open-section step).
+  await expandAllSections(page)
 }
 
 async function stageComparison(page: Page, bPath: string): Promise<void> {

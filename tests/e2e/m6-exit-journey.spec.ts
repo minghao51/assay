@@ -9,6 +9,7 @@ import {
   writeExitJourneyOverKPair,
   writeExitJourneyPair,
 } from './support/diff-datasets'
+import { expandAllSections } from './support/fixtures'
 
 // Task m6-5 (handoff §6) — the M6 EXIT JOURNEY, the final MVP task: the two
 // diff surfaces must agree EXACTLY on the same two files, and the docs-07
@@ -458,6 +459,9 @@ async function openDatasetA(page: Page, aPath: string, expectedRows = '5'): Prom
     timeout: 20_000,
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText(expectedRows)
+  // q-15: the two-pane pane starts with only Schema expanded; this journey
+  // drives the Compare panel (shared open-section step).
+  await expandAllSections(page)
 }
 
 /** Stage side B through the real comparison control. */

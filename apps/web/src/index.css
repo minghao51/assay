@@ -282,6 +282,165 @@ main {
   display: none;
 }
 
+/* ---- Workbench shell slice 2 (q-15): grid-centric two-pane ---- */
+
+/*
+ * One DOM, two CSS layouts. The wrappers are real boxes only at ≥1024px
+ * (sticky tool pane beside the persistent grid/grid-dock center column); at
+ * <1024px they become `display: contents` and `order` restores the slice-1
+ * single-column stack with the grid promoted after the schema section. The
+ * grid section stays mounted and keeps its own scroll in both layouts
+ * (ADR 0022 — the shell owns layout only).
+ */
+.workbench-layout {
+  display: block;
+}
+
+@media (max-width: 1023px) {
+  .workbench-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* No pane box below 1024px: nav + sections become the stack's flex items. */
+  .workbench-tools,
+  .workbench-tools-body,
+  .workbench-center {
+    display: contents;
+  }
+
+  /* The rail toggle is a ≥1024px affordance; hidden here. */
+  .workbench-pane-head {
+    display: none;
+  }
+
+  /* Slice-1 visual order: nav, Schema, GRID, then the tool sections in
+     DOM order (record after filters), pipeline last. */
+  .workbench-nav {
+    order: 0;
+  }
+
+  #section-schema {
+    order: 1;
+  }
+
+  #section-grid {
+    order: 2;
+  }
+
+  #section-editing {
+    order: 3;
+  }
+
+  #section-export {
+    order: 4;
+  }
+
+  #section-history {
+    order: 5;
+  }
+
+  #section-validation {
+    order: 6;
+  }
+
+  #section-compare {
+    order: 7;
+  }
+
+  #section-filters {
+    order: 8;
+  }
+
+  #section-record {
+    order: 9;
+  }
+
+  #section-sql {
+    order: 10;
+  }
+
+  #section-profile {
+    order: 11;
+  }
+
+  #section-pipeline {
+    order: 12;
+  }
+}
+
+@media (min-width: 1024px) {
+  .workbench-layout {
+    display: grid;
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+  }
+
+  /* Collapsed to a rail: the pane shrinks, the center column never moves. */
+  .workbench-layout[data-pane='collapsed'] {
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+  }
+
+  .workbench-tools {
+    grid-column: 1;
+    min-width: 0;
+    position: sticky;
+    top: 0.5rem;
+    max-height: calc(100vh - 1rem);
+    overflow-y: auto;
+    padding: 0.25rem 0.6rem 0.75rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+  }
+
+  .workbench-layout[data-pane='collapsed'] .workbench-tools {
+    overflow: hidden;
+    padding: 0.25rem;
+  }
+
+  .workbench-tools-body[hidden] {
+    display: none;
+  }
+
+  .workbench-pane-head {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .workbench-pane-toggle {
+    font: inherit;
+    line-height: 1;
+    padding: 0.15rem 0.4rem;
+    cursor: pointer;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--color-text-secondary);
+  }
+
+  .workbench-pane-toggle:hover,
+  .workbench-pane-toggle:focus-visible {
+    background: var(--color-hover);
+    border-color: var(--color-border);
+  }
+
+  /* The in-pane nav is sticky within the pane's own scroll. */
+  .workbench-nav {
+    top: 0;
+  }
+
+  .workbench-center {
+    grid-column: 2;
+    min-width: 0;
+  }
+}
+
+.workbench-section {
+  min-width: 0;
+}
+
 h1 {
   font-size: 1.5rem;
 }
@@ -1986,12 +2145,14 @@ h1 {
 .pipeline-preview-sql pre {
   margin: 0;
   padding: 0.4rem;
-  max-height: 12rem;
-  overflow: auto;
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border-subtle);
   border-radius: 3px;
   font-size: 0.85rem;
+  /* q-15: wrap the generated SQL instead of scrolling it. At tool-pane width
+     a horizontally scrollable <pre> has no keyboard access (axe
+     `scrollable-region-focusable`); wrapping keeps the pane clip-free. */
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

@@ -69,7 +69,7 @@ async function openRepresentativeView(page: Page): Promise<void> {
   await openFixture(page, CUSTOMERS_FIXTURE, { assertFileNameHidden: true })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
-  // Profile panel is open by default (disclosure section); populate it.
+  // Profile panel (q-15: the shared open-section step expanded it); populate it.
   await expect(page.getByTestId('profile-toggle')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByTestId('profile-panel')).toBeVisible()
   await page.getByTestId('profile-run').click()

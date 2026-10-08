@@ -6,6 +6,7 @@ import { expect, test } from '@playwright/test'
 import type { Download, Locator, Page } from '@playwright/test'
 import { writeValidationDatasetA } from './support/validation-datasets'
 import { row } from './support/grid'
+import { expandAllSections } from './support/fixtures'
 
 // Task m5-6 (handoff §6) — the M5 EXIT JOURNEY: the two validation surfaces
 // must agree EXACTLY on the same inputs, then the fix-to-clean loop must
@@ -310,6 +311,8 @@ test('M5 exit journey: same contract + same dirty file agree EXACTLY across web 
     timeout: 20_000,
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
+  // q-15: expand the two-pane tool sections this journey drives (validation).
+  await expandAllSections(page)
 
   // --- WEB: import the contract through the panel's import control. ---
   chooserPromise = page.waitForEvent('filechooser')

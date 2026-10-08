@@ -294,16 +294,18 @@ function ProfileTable({ profile }: { profile: ProfileData }) {
 }
 
 /**
- * Disclosure panel, open by default (consistent with the schema panel); the
- * profile itself only runs when the user triggers it — it is the one op that
- * can take tens of seconds on multi-GB files.
+ * Disclosure panel. Slice 2 (q-15) starts it COLLAPSED so the two-pane tool
+ * pane opens with exactly one tool section expanded (Schema — the spec §3
+ * "one section expanded at a time by default" discipline); the profile itself
+ * only runs when the user triggers it — it is the one op that can take tens of
+ * seconds on multi-GB files.
  */
 import { useTelemetry } from '../telemetry/TelemetryContext'
 import { durationSince, profileOutcome } from '../telemetry/emit'
 
 export function ProfilePanel({ handle }: ProfilePanelProps) {
   const telemetry = useTelemetry()
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const [state, setState] = useState<ProfileState>({ kind: 'idle' })
   const guard = useRef(new RunGuard())
   const lastTableId = useRef<string | null>(null)

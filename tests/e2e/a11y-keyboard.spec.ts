@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { cell, row, waitForReadyRow } from './support/grid'
+import { openSection } from './support/fixtures'
 
 // q-3 (PT-Q a11y polish pack, AR-W10): the keyboard and live-region contract
 // for the two interactive surfaces the audit flagged.
@@ -45,6 +46,7 @@ test('ExportDialog is a modal dialog: initial focus, Tab trap, Escape, focus ret
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
     timeout: 20_000,
   })
+  await openSection(page, 'export')
 
   const trigger = page.getByTestId('export-open')
   await trigger.focus()
@@ -191,6 +193,7 @@ test('keyboard-only journey: open → edit → export', async ({ page }) => {
     timeout: 20_000,
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  await openSection(page, 'export')
 
   // Edit by keyboard: focus a cell, Enter opens the editor, select-all + type
   // + Enter commits. No pointer event in the whole journey.
