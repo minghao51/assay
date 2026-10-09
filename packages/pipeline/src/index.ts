@@ -25,9 +25,14 @@
  * execution semantics (P2), and `diff`'s p2-2 shape is the typed
  * `{ input, against }` pair of table references.
  *
+ * The DCR artifact core (p3-1; ADR 0046/D17) shares the discipline: a pure
+ * builder (`buildDcrArtifact`), a byte-stable canonical serializer
+ * (`serializeDcr`), a total parser (`parseDcr`, never throws), and typed
+ * located errors — the local-derivable v1 DCR per ADR 0014's field list.
+ *
  * Export discipline mirrors `@assay/contracts`: property-test generators
- * (`property-testing.ts`) and the internal YAML node walk (`validate.ts`) stay
- * in-package.
+ * (`property-testing.ts`, `dcr-property-testing.ts`) and the internal YAML
+ * node walks (`validate.ts`, `dcr-validate.ts`) stay in-package.
  */
 export {
   DATA_NODE_CLASSES,
@@ -79,6 +84,55 @@ export type {
 export { parsePipeline } from './parse.js'
 export { serializePipeline } from './serialize.js'
 export { validatePipeline } from './dag.js'
+export {
+  DCR_COLUMN_FAMILIES,
+  DCR_FORMAT,
+  DCR_PRIVACY_NOT_COMPUTED_DISCLOSURE,
+  DCR_PROFILE_COLUMN_KINDS,
+  DCR_RESERVED_PREFIX,
+  DCR_ROW_DIFF_ASPECTS,
+  DCR_SCHEMA_DRIFT_KINDS,
+  DCR_VERSION,
+  compareDcrAspects,
+  compareDcrSchemaDriftFindings,
+  compareDcrStrings,
+  isAnchorFreeRowKey,
+  isDcrColumnTypeFamily,
+  isDcrProfileColumnKind,
+  isDcrRowDiffAspect,
+  isDcrSchemaDriftKind,
+} from './dcr-ast.js'
+export type {
+  DcrArtifactV1,
+  DcrCategoricalDistributionDelta,
+  DcrCategoricalTopKEntry,
+  DcrColumnDistributionDelta,
+  DcrDeltas,
+  DcrLineage,
+  DcrMaterializationRef,
+  DcrNumericDistributionDelta,
+  DcrPrivacyFindings,
+  DcrProfileColumnKind,
+  DcrProvenance,
+  DcrRowDiff,
+  DcrRowDiffAspect,
+  DcrRowDiffAspectResult,
+  DcrRowDiffSample,
+  DcrColumnTypeFamily,
+  DcrSchemaDriftFinding,
+  DcrSchemaDriftKind,
+  DcrSchemaFingerprint,
+  DcrValidationRuleRow,
+  DcrValidationVerdict,
+  DcrVersion,
+  DcrVersionRef,
+} from './dcr-ast.js'
+export { buildDcrArtifact } from './dcr-build.js'
+export type { DcrBuilderInput } from './dcr-build.js'
+export { describeDcrError } from './dcr-errors.js'
+export type { DcrBuildResult, DcrError, DcrErrorCode, DcrParseResult } from './dcr-errors.js'
+export { parseDcr } from './dcr-parse.js'
+export { serializeDcr } from './dcr-serialize.js'
 export { quotePortIdentifier } from './identifiers.js'
 export { sanitizePipelineText } from './sanitize.js'
 export {

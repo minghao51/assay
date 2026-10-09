@@ -1,0 +1,193 @@
+{
+ "deltas": {
+  "columnDeltas": [
+   {
+    "column": "amount",
+    "typeA": "DECIMAL(18,2)",
+    "typeB": "DECIMAL(18,2)",
+    "kindA": "numeric",
+    "numeric": {
+     "p50Shift": 12.5,
+     "p90Shift": 30.5,
+     "varianceShiftStandardized": -0.25,
+     "meanShiftStandardized": 0.5
+    },
+    "kindB": "numeric"
+   },
+   {
+    "kindB": "categorical",
+    "kindA": "categorical",
+    "typeB": "VARCHAR",
+    "typeA": "VARCHAR",
+    "column": "status",
+    "categorical": {
+     "vanishedCategories": [
+      {
+       "count": 3,
+       "value": "beta"
+      }
+     ],
+     "newCategories": [
+      {
+       "value": "alpha",
+       "count": 7
+      }
+     ],
+     "totalVariation": 0.125
+    }
+   }
+  ],
+  "rowDiff": {
+   "rowCountB": 1002,
+   "rowCountA": 1000,
+   "aspects": [
+    {
+     "samples": [
+      {
+       "side": "B",
+       "rowKey": "b:1000"
+      },
+      {
+       "rowKey": "b:1001",
+       "side": "B"
+      }
+     ],
+     "aspect": "added",
+     "count": 2
+    },
+    {
+     "aspect": "removed",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "count": 2,
+     "aspect": "changed",
+     "samples": [
+      {
+       "changedColumns": [
+        "amount",
+        "status"
+       ],
+       "rowKey": "base:41",
+       "side": "A"
+      },
+      {
+       "rowKey": "base:41",
+       "changedColumns": [
+        "amount",
+        "status"
+       ],
+       "side": "B"
+      }
+     ]
+    }
+   ],
+   "sampleLimit": 20,
+   "keys": [
+    "order_id"
+   ]
+  },
+  "schemaDrift": [
+   {
+    "typeA": "INTEGER",
+    "typeB": "VARCHAR",
+    "familyB": "textual",
+    "familyA": "numeric",
+    "column": "account_ref",
+    "kind": "type-changed-cross-family"
+   },
+   {
+    "column": "priority_flag",
+    "kind": "column-added"
+   },
+   {
+    "nullShareA": 0,
+    "nullShareB": 0.25,
+    "column": "region_code",
+    "kind": "nullability-changed"
+   }
+  ]
+ },
+ "candidate": {
+  "datasetId": "orders",
+  "versionId": "orders-v8",
+  "provenance": {
+   "transformationRecipe": "filter recent + rename region",
+   "parentVersionIds": [
+    "orders-v7"
+   ]
+  },
+  "schemaFingerprint": {
+   "value": "fp-8c2d",
+   "algorithm": "assay-schema-fingerprint-v1"
+  },
+  "materialization": {
+   "node": "candidate_orders"
+  }
+ },
+ "base": {
+  "materialization": {
+   "node": "base_orders"
+  },
+  "provenance": {
+   "parentVersionIds": [
+    "orders-v6"
+   ]
+  },
+  "schemaFingerprint": {
+   "algorithm": "assay-schema-fingerprint-v1",
+   "value": "fp-7f3a"
+  },
+  "versionId": "orders-v7",
+  "datasetId": "orders"
+ },
+ "version": 1,
+ "privacyFindings": {
+  "disclosure": "Privacy findings were not computed: this build has no local privacy-analysis producer (ADR 0046, ruling D17-Q6).",
+  "status": "not-computed"
+ },
+ "format": "assay-dcr",
+ "validation": [
+  {
+   "nodeId": "check_min_rows",
+   "rowCount": 1002,
+   "input": "candidate_orders",
+   "rules": [
+    {
+     "kind": "min-rows",
+     "ruleId": "min-rows:2000",
+     "failCount": 998,
+     "failPercent": 100
+    },
+    {
+     "ruleId": "required:region_code",
+     "column": "region_code",
+     "failCount": 250,
+     "kind": "required",
+     "failPercent": 25
+    }
+   ],
+   "violatedRules": 1,
+   "valid": false
+  },
+  {
+   "valid": true,
+   "input": "candidate_orders",
+   "violatedRules": 0,
+   "nodeId": "check_region_required"
+  }
+ ],
+ "lineage": {
+  "nodes": [
+   "base_orders",
+   "filter_recent",
+   "candidate_orders",
+   "check_min_rows"
+  ],
+  "inputVersionIds": [
+   "orders-v6",
+   "orders-v7"
+  ]
+ }
+}

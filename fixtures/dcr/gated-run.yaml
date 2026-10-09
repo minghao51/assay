@@ -1,0 +1,112 @@
+format: assay-dcr
+version: 1
+base:
+  datasetId: orders
+  versionId: orders-v7
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: fp-7f3a
+  provenance:
+    parentVersionIds: [ orders-v6 ]
+  materialization:
+    node: base_orders
+candidate:
+  datasetId: orders
+  versionId: orders-v8
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: fp-8c2d
+  provenance:
+    transformationRecipe: filter recent + rename region
+    parentVersionIds: [ orders-v7 ]
+  materialization:
+    node: candidate_orders
+deltas:
+  schemaDrift:
+    - kind: type-changed-cross-family
+      column: account_ref
+      typeA: INTEGER
+      typeB: VARCHAR
+      familyA: numeric
+      familyB: textual
+    - kind: column-added
+      column: priority_flag
+    - kind: nullability-changed
+      column: region_code
+      nullShareA: 0
+      nullShareB: 0.25
+  columnDeltas:
+    - column: amount
+      typeA: DECIMAL(18,2)
+      typeB: DECIMAL(18,2)
+      kindA: numeric
+      kindB: numeric
+      numeric:
+        meanShiftStandardized: 0.5
+        varianceShiftStandardized: -0.25
+        p50Shift: 12.5
+        p90Shift: 30.5
+    - column: status
+      typeA: VARCHAR
+      typeB: VARCHAR
+      kindA: categorical
+      kindB: categorical
+      categorical:
+        totalVariation: 0.125
+        newCategories:
+          - value: alpha
+            count: 7
+        vanishedCategories:
+          - value: beta
+            count: 3
+  rowDiff:
+    keys: [ order_id ]
+    sampleLimit: 20
+    rowCountA: 1000
+    rowCountB: 1002
+    aspects:
+      - aspect: added
+        count: 2
+        samples:
+          - side: B
+            rowKey: b:1000
+          - side: B
+            rowKey: b:1001
+      - aspect: removed
+        count: 0
+        samples: []
+      - aspect: changed
+        count: 2
+        samples:
+          - side: A
+            rowKey: base:41
+            changedColumns: [ amount, status ]
+          - side: B
+            rowKey: base:41
+            changedColumns: [ amount, status ]
+validation:
+  - nodeId: check_min_rows
+    input: candidate_orders
+    valid: false
+    violatedRules: 1
+    rowCount: 1002
+    rules:
+      - ruleId: min-rows:2000
+        kind: min-rows
+        failCount: 998
+        failPercent: 100
+      - ruleId: required:region_code
+        kind: required
+        column: region_code
+        failCount: 250
+        failPercent: 25
+  - nodeId: check_region_required
+    input: candidate_orders
+    valid: true
+    violatedRules: 0
+lineage:
+  inputVersionIds: [ orders-v6, orders-v7 ]
+  nodes: [ base_orders, filter_recent, candidate_orders, check_min_rows ]
+privacyFindings:
+  status: not-computed
+  disclosure: "Privacy findings were not computed: this build has no local privacy-analysis producer (ADR 0046, ruling D17-Q6)."

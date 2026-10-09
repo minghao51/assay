@@ -1,0 +1,95 @@
+{
+  "generator": "hand-authored probes + artifacts generated through serializeDcr itself (p3-1)",
+  "policy": "Golden DCR artifact documents (ADR 0046, ruling D17) backing the round-trip, byte-stability, and refusal pins. Synthetic, value-free data only (ADR 0025): no dataset cell values, no SQL, no timestamps, no sensitive paths \u2014 pinned by scan tests in packages/pipeline/src/dcr-build.test.ts. Canonical fixtures satisfy text === serializeDcr(parseDcr(text)); gated-run-alternate.yaml is the deliberate non-canonical rendering pinned to canonicalize to gated-run.yaml; the refuses-* fixtures are negative probes (parse must fail with exactly the pinned code). Regenerate the sha256 values deliberately with any fixture change.",
+  "files": [
+    {
+      "name": "gated-run-alternate.yaml",
+      "sha256": "20518ea11318a79b34d1be8727df83004ce9d49960a1248e77fa00a3a303eb5b",
+      "canonical": false,
+      "canonicalizesTo": "gated-run.yaml",
+      "description": "Deliberately non-canonical rendering of gated-run.yaml (JSON form, shuffled key order, 1-space indent): parses to the same AST and canonicalizes byte-for-byte to it (the architecture-example discipline)"
+    },
+    {
+      "name": "gated-run.yaml",
+      "sha256": "361424a4d5865dedd59fef3f0ff5174a46601a0cd12b5c7b9923fd09a29dd741",
+      "canonical": true,
+      "description": "Full canonical artifact off a synthetic gated run: schema-drift findings (type-cross-family, column-added, nullability), numeric + categorical distribution deltas, a keyed rowDiff with bounded anchor-free samples, two value-free validate verdicts, and P2-derived lineage. Generated through serializeDcr itself, so canonical: true is honest by construction"
+    },
+    {
+      "name": "minimal.yaml",
+      "sha256": "052d0113ef1ba6042c39e9dfc7e1e7848ba51b1e02e2644f1b1964cdc2483973",
+      "canonical": true,
+      "description": "The smallest legal artifact: stamped sides (node and export materialization spellings), an empty deltas block, and the canonical privacyFindings disclosure"
+    },
+    {
+      "name": "refuses-anchored-row-key.yaml",
+      "sha256": "b8f3fce6fca47d990e34044c5ddb18e820cd10171dcfdab2fb7a93936f24af5b",
+      "expect": "refuses",
+      "errorCode": "invalid-reference",
+      "description": "ADR 0025 shape-pin: a sample row key in the m4-3 grid form (anchor-bearing) is refused \u2014 anchors never enter the artifact"
+    },
+    {
+      "name": "refuses-cell-values.yaml",
+      "sha256": "eee0b5239619db31cc397963ace40d419a2ae2fa76c7f7f9637aafec197aa650",
+      "expect": "refuses",
+      "errorCode": "unknown-key",
+      "description": "ADR 0025 shape-pin: a `values` key on a row-diff sample is refused \u2014 the grammar has no cell-value carrier"
+    },
+    {
+      "name": "refuses-comments-field.yaml",
+      "sha256": "2199fd5ff8ad9b158f34c469ce8fd3449d3c648b55fa9b40d8ce1712ab993278",
+      "expect": "refuses",
+      "errorCode": "unknown-key",
+      "description": "Hosted-concern probe (D17-Q8/M10): a `comments` key is refused, never silently dropped"
+    },
+    {
+      "name": "refuses-evaluations-field.yaml",
+      "sha256": "0beade79026891c238d0e0075aa00c4a50c9f165a1a5c08f2b28a662ef3eae31",
+      "expect": "refuses",
+      "errorCode": "unknown-key",
+      "description": "D17-Q8 probe: evaluations are omitted from v1 with no reserved field \u2014 the key is refused"
+    },
+    {
+      "name": "refuses-imprecise-number.yaml",
+      "sha256": "6c1ce9348af7aacb8ba6e56b6e9aa652ac7b3c2db951c390de772c43799a3a67",
+      "expect": "refuses",
+      "errorCode": "imprecise-number",
+      "description": "Exact-or-rejected: a literal the YAML\u2192number parse would silently alter is refused"
+    },
+    {
+      "name": "refuses-reserved-namespace.yaml",
+      "sha256": "6584e3fbf3895f91667cbf005f93c73631ebd76563a4b35fbc295d9e554dc1b3",
+      "expect": "refuses",
+      "errorCode": "reserved-identifier",
+      "description": "D17-Q9: an id-position field using the reserved assay_dcr_ namespace is refused"
+    },
+    {
+      "name": "refuses-rowdiff-without-keys.yaml",
+      "sha256": "b3b5a1c56e2ad17c8ee354e84a9762fbb8e2ba32442b3b2f1ff72acb8db7c030",
+      "expect": "refuses",
+      "errorCode": "out-of-range",
+      "description": "D17-Q7: a rowDiff block with an empty key list is a typed error; omit the block when no keys were supplied"
+    },
+    {
+      "name": "refuses-wallclock-field.yaml",
+      "sha256": "06756126d875b31f1373a12c77011e5446c2cff7f11337806d74d4d6a5e685f0",
+      "expect": "refuses",
+      "errorCode": "unknown-key",
+      "description": "D17-Q11 probe: a createdAt key has no spelling anywhere in v1 \u2014 refused, not dropped"
+    },
+    {
+      "name": "refuses-wrong-format.yaml",
+      "sha256": "8e5717a4939d96b9c8764c2fdcc4e1983c0b479ec57e558b0a56038264b098ed",
+      "expect": "refuses",
+      "errorCode": "unsupported-format",
+      "description": "A foreign format stamp is reported alone"
+    },
+    {
+      "name": "refuses-wrong-version.yaml",
+      "sha256": "fdf9cf0198d2d68149094b0d776c346e4c9fda61a99ff2e613025716341e3685",
+      "expect": "refuses",
+      "errorCode": "unsupported-version",
+      "description": "A foreign version is reported alone (a version bump is maintainer-visible, D17-Q12)"
+    }
+  ]
+}
