@@ -2,15 +2,17 @@
 
 ## Status
 
-Proposed
+Accepted (ruling D17, 2026-10-02 — the 12 spec-§9 questions ruled as recorded in the Decision
+section below)
 
 ## Date
 
-Proposed 2026-10-02
+Proposed 2026-10-02; Accepted 2026-10-02 (ruling D17) —
+[maintainer-rulings queue](../process/handoff/20260926-maintainer-rulings.md).
 
 ## Deciders
 
-- Maintainer (ruling **D17** — the format ruling requested by this proposal; not yet made)
+- Maintainer (ruling D17 — DCR artifact format v1; D18 for the PT-V track start)
 
 ## Context
 
@@ -39,19 +41,20 @@ parsers, one-shape-per-meaning normalization, and a reserved `assay_*` namespace
 
 Ruling **D16** (2026-10-02) authorized this as a **scoping proposal, not a decision**: the M9
 scoping spec ([`docs/product/06-dcr-artifact.md`](../product/06-dcr-artifact.md), queue row m9-1)
-proposes v1, and the format is decided by the subsequent **D17** ruling. This ADR is therefore
-**Proposed** and binds nothing until that ruling.
+proposed v1, and the format was decided by the subsequent **D17** ruling (2026-10-02) — see
+Decision.
 
 ## Decision
 
-Proposed (pending D17): define a **versioned, canonical, value-free local DCR artifact format**
-(“v1”) that a local surface can generate standalone, following the contract/pipeline-IR discipline.
+Accepted (ruling D17, 2026-10-02): define a **versioned, canonical, value-free local DCR
+artifact format** (“v1”) that a local surface can generate standalone, following the
+contract/pipeline-IR discipline.
 
 1. **Scope.** v1 carries the local-derivable subset of ADR 0014's field list: schema, row, profile,
    and distribution deltas (M6), validation (M5, reused as in P2), lineage (P2 / ADR 0011), and a
-   privacy-findings slot whose local producer is unresolved. **Comments, approvals, and policy
-   checks are out of v1** (hosted, M10/G3, per ADR 0014's standalone-report consequence);
-   **evaluations are deferred** (M8 is G2-gated).
+   privacy-findings slot carrying an explicit "not computed" disclosure (D17-Q6, deferred — no
+   local producer). **Comments, approvals, and policy checks are out of v1** (hosted, M10/G3, per
+   ADR 0014's standalone-report consequence); **evaluations are deferred** (M8 is G2-gated).
 2. **Candidate version.** A DCR references a **local candidate DatasetVersion** whose identity is
    logical, not file-based (ADR 0011), built from the effective candidate state (base asset +
    applied edit overlay per ADR 0012) or a gated pipeline run's materialized output — never from a
@@ -61,19 +64,49 @@ Proposed (pending D17): define a **versioned, canonical, value-free local DCR ar
    **total** parser that returns located typed errors and never throws, one-shape-per-meaning
    normalization, and a reserved `assay_*`-style namespace. **Value-free throughout** (ADR 0025):
    no dataset cell values, raw SQL results, or filenames-where-sensitive.
-4. **Non-binding detail.** The concrete serialization choice, field schema, embed-vs-reference,
-   candidate identity, entry point(s), artifact identity/status, timestamp policy, privacy-finding
-   producer, reserved prefix, and hosted forward-compatibility are **open questions listed for D17
-   in the scoping spec §9** — they are **not decided by this ADR**.
+4. **Ruled detail (D17, 2026-10-02).** The 12 scoping-spec §9 questions are decided; this ADR is
+   self-contained and carries the answers:
+   1. **Serialization/stamp (Q1):** canonical **YAML** (the contracts/IR precedent), stamped
+      `format: assay-dcr` + `version: 1`.
+   2. **Field schema / delta mapping (Q2):** mirror M6's aspects verbatim — `schemaDrift` /
+      `columnDeltas` / `rowDiff` — with ADR 0014's four delta names mapped onto them. **Explicitly
+      confirmed:** "profile delta" is satisfied by profile-derived nullability drift + distribution
+      deltas; **no standalone profile diff in v1**.
+   3. **Embed vs reference (Q3):** fully **embed** the bounded v1 payloads (sample limits inherited
+      from M6's C1/K discipline); **no reference mode in v1**.
+   4. **Candidate identity (Q4):** logical id + schema fingerprint + provenance **plus** a
+      materialization reference (pipeline run node / export path); **no full content hash in v1**
+      (connector-specific, infeasible for large/lazy outputs).
+   5. **Entry point(s) (Q5):** **both** — CLI subcommand and web panel action off a gated run —
+      sharing one pure artifact builder; if capacity forces one, **CLI first**.
+   6. **Privacy findings (Q6):** **deferred** — v1 carries an explicit "not computed" disclosure for
+      the field (no local producer exists; nothing invented).
+   7. **Row-diff keys (Q7):** requires explicit keys (typed located error otherwise) and is
+      **explicitly absent** when no keys were supplied; **no silent inference inside a DCR** (the
+      diff surfaces' inference-disclosure carry is rejected).
+   8. **Evaluations (Q8):** omitted entirely from v1 (no reserved field); deferral to M8 (G2)
+      recorded.
+   9. **Reserved namespace (Q9):** reserve `assay_dcr_*` — a **delegated selection** by the
+      orchestrator under the maintainer's "go with your suggestion" delegation (the existing
+      `assay_*`-style reservation in the format-discipline clause made it cost-free).
+   10. **Artifact identity/status (Q10):** **none** — the artifact is a standalone report file (the
+       m5-3/m6-4 export precedent); hosted M10 owns workflow state. **Confirmed:** the local
+       artifact is not expected to be byte-identical to the future hosted DCR.
+   11. **Timestamps (Q11):** no wall-clock anywhere in canonical bytes; provenance timestamps, if
+       needed, live outside the canonical core.
+   12. **Forward compatibility (Q12):** v1 is an extensible superset the hosted layer extends;
+       **additive-only within `v1` is an explicit constraint of this ruling** (non-additive change =
+       STOP-and-report; version bump = maintainer-visible).
 
-The format is **additive-only within `v1`** (the Pipeline IR precedent: a non-additive change is a
-STOP-and-report; a version bump is a maintainer-visible decision).
+The format is **additive-only within `v1`** — an explicit **constraint of the D17 ruling** (the
+Pipeline IR precedent: a non-additive change is a STOP-and-report; a version bump is a
+maintainer-visible decision).
 
 ## Consequences
 
 ### Positive
 
-- Gives P3 a concrete, reviewable artifact to integrate against once D17 lands.
+- Gives P3 a concrete, reviewable artifact to integrate against (D17 landed 2026-10-02).
 - Reuses M5/M6/P2 outputs instead of inventing a parallel model, so the local DCR cannot disagree
   with the surfaces that produced it.
 - Follows a proven, testable discipline (byte-stability, total parsing), so cross-surface web≡CLI
@@ -82,10 +115,10 @@ STOP-and-report; a version bump is a maintainer-visible decision).
 
 ### Negative / risks
 
-- The privacy-findings field has **no local producer today**; v1 must carry an explicit disclosure
-  or defer the field (D17-Q6) — a stated honesty gap, not a silent one.
-- ADR 0014's four delta categories do not map 1:1 onto M6's aspects; the chosen mapping must be
-  documented and pinned (D17-Q2).
+- The privacy-findings field has **no local producer today**; by ruling D17 it carries an explicit
+  "not computed" disclosure (D17-Q6) — a stated honesty gap, not a silent one.
+- ADR 0014's four delta categories do not map 1:1 onto M6's aspects; the chosen mapping (D17-Q2) is
+  pinned above and must remain documented.
 - A second canonical format adds maintenance surface, mitigated by sharing the serializer/parser
   patterns with contracts/pipeline (not the code, which is domain-specific).
 
@@ -93,7 +126,7 @@ STOP-and-report; a version bump is a maintainer-visible decision).
 
 - The format is a local report, not a workflow object: review state stays in the hosted aggregate
   (M10) and the domain `DatasetChangeRequest` scaffold.
-- D17 is the single decision point; this ADR flips to Accepted only through it.
+- D17 was the single decision point; this ADR flipped to Accepted through it (2026-10-02).
 
 ## Alternatives considered
 

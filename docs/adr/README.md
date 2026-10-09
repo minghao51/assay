@@ -52,6 +52,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0042 | Library Builds Use tsc Project References                                       |
 | 0044 | Grid-Centric Two-Pane Workbench Shell                                           |
 | 0045 | Telemetry Design Adopted (Typed Allowlisted Schema, Self-Hosted Collector)      |
+| 0046 | Define a Canonical Local DCR Artifact Format (v1)                               |
 
 ## Proposed
 
@@ -65,6 +66,5 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0027 | TypeScript and PostgreSQL for the Initial Hosted Control Plane |
 | 0028 | Tauri Is the Preferred Future Desktop Shell                    |
 | 0043 | Changesets Are the Change-Intake Ledger Until First Publish    |
-| 0046 | Define a Canonical Local DCR Artifact Format (v1)              |
 
 <!-- adr-index:end -->
