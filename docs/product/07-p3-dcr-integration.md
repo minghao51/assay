@@ -1,6 +1,8 @@
 # P3 — DCR Integration (Phase Document)
 
-**Status:** ACTIVE — opened 2026-10-10 off rulings D16/D17; p3-1 landed (`dae8e83`), p3-2 next.
+**Status:** ACTIVE — opened 2026-10-10 off rulings D16/D17; spec review RULED same day (**D19**,
+2026-10-10); p3-1 landed (`dae8e83`); queue six rows (p3-1b inserted between p3-2 and p3-3);
+**p3-2 next**.
 Execution queue: [P3 queue](../process/handoff/20261002-p3-queue.md) (scope/done-when/STOP per row).
 Format rulings: [ADR 0046](../adr/0046-dcr-artifact-format-v1.md) + the ruled
 [spec §9](06-dcr-artifact.md). This document proposes design and collects open questions; it does
@@ -25,13 +27,14 @@ order, per-row status, and closure counts — and **below the spec** —
 owns the format rulings and is not amended here. What this document owns:
 
 - the **phase purpose and outcome** (this section);
-- a **per-row design expansion** of the four remaining queue rows (§4–§7) — rationale and
-  grounding the queue cells deliberately omit, never a re-scope;
+- a **per-row design expansion** of four of the five remaining queue rows (§4–§7 — p3-2…p3-5;
+  the fifth, **p3-1b**, is designed in its queue cell) — rationale and grounding the queue cells
+  deliberately omit, never a re-scope;
 - **cross-cutting engineering notes** every row inherits (§8);
-- and the **open spec questions under active maintainer review** (§9) — eight questions the
-  implementation has surfaced where the D17 rulings bound but do not fully settle the answer.
-  §9 is the honest-gap register for the phase; its outcomes are rulings or parked decisions, and
-  until one lands, the queue rows proceed on what is already ruled.
+- and the **spec questions ruled 2026-10-10 (D19)** (§9) — eight questions the implementation
+  surfaced where the D17 rulings bound but did not fully settle the answer. §9 is the honest-gap
+  register for the phase; its outcomes are rulings or parked decisions — all eight now ruled
+  (**D19**, outcomes inline).
 
 ## 2. Binding inputs
 
@@ -91,12 +94,18 @@ buildDcrArtifact → canonical YAML bytes (format: assay-dcr / version: 1)
    packages/pipeline: dcr-{ast,errors,build,serialize,validate,parse,property-testing}.ts
    fixtures/dcr: gated-run / minimal / gated-run-alternate + refuses-* corpus (own manifest)
         │
+        ▼  p3-1b — truncation/bounding disclosure keys (D19 OQ-4; after p3-2, before p3-3)
+   additive optional disclosure key(s) on bounded payloads
+        │
         ├──►  p3-3 — CLI `assay dcr`          ──┐
         └──►  p3-4 — web panel export action  ──┴─► byte-identical artifact bytes
                 (LOAD-BEARING PIN: web ≡ CLI; M5/M6 exact-agreement precedent)
         │
         ▼  p3-5 — conformance + honesty sweep (closes the queue)
 ```
+
+The queue is **six rows** since D19 (2026-10-10): **p3-1b** (truncation/bounding disclosure) runs
+after p3-2, before p3-3 — p3-3's golden artifact is minted after it.
 
 Where things live:
 
@@ -148,8 +157,9 @@ parentVersionIds?}` + a `materialization` of `{node} | {export}`. Mapping: the *
   a publish-mode run asked for a candidate reference refuses; wiring it would have to delete the
   pin (STOP boundary §2).
 - **Risks.** The materialization reference points at mutable runner state and the fingerprint
-  algorithm's stability is unpinned — both are structural enough that they are formally open:
-  §9 OQ-5 and §9 OQ-6.
+  algorithm's stability was unpinned — both were formally open and are now ruled (**D19**,
+  2026-10-10): §9 OQ-5 (export-time liveness refusal; parse stays dangling-tolerant) and §9 OQ-6
+  (fingerprint-stability fixture in p3-5's sweep).
 - Done-when is the second half of the quoted cell; gates per §8; commit `feat(p3-2):` +
   changesets `@assay/engine-duckdb` and `@assay/pipeline` as touched.
 
@@ -164,6 +174,8 @@ Queue row, verbatim:
 > precedent). Done-when: `assay dcr` end-to-end on a golden gated run; a committed golden YAML
 > artifact (synthetic, value-free) + byte-stability pin; an integration test per the `pipeline.*`
 > pattern; a changeset per repo precedent. `feat(p3-3):` + changeset (`@assay/cli`). **Third.**
+> **D19 OQ-5:** export refuses loudly on dangling materialization refs (typed error, refusal
+> discipline); parse stays dangling-tolerant. Goldens minted after p3-1b.
 
 Design notes:
 
@@ -199,6 +211,7 @@ Queue row, verbatim:
 > delivery + a value-free content pin; dual-scheme axe clean; **LOAD-BEARING PIN: web≡CLI
 > byte-agreement** — the same golden gated run exports byte-identical artifact bytes from CLI and
 > web (the M5/M6 exact-agreement precedent). `feat(p3-4):` + changeset (`@assay/web`). **Fourth.**
+> **D19 OQ-5:** same export-time liveness refusal on the web path.
 
 Design notes:
 
@@ -215,7 +228,9 @@ Design notes:
   pure TypeScript: both surfaces consume the same `@assay/pipeline` builder and serializer, so the
   pin holds within a build by construction. What it does **not** pin is stability across releases
   (a dependency upgrade changing YAML escaping would move both surfaces together, preserving the
-  pin while changing the bytes) — that is §9 OQ-3, and it is open on purpose.
+  pin while changing the bytes) — that is §9 OQ-3, now ruled (**D19**, 2026-10-10): cross-release
+  byte-stability is the fixture-corpus policy (serializer drift = fixture failures); the
+  tool-version stamp was rejected.
 
 ## 7. p3-5 — conformance + honesty bundle
 
@@ -227,7 +242,8 @@ Queue row, verbatim:
 > rejection, per Q12); a reserved-namespace sweep; fixes only for sweep-exposed defects (each
 > with a fixture + regression test per AGENTS.md). Done-when: sweep green; no new features
 > smuggled in. `test(p3-5):`/`fix(p3-5):` + changeset only if packages changed. **Last — closes
-> the queue.**
+> the queue.** **D19 OQ-6(b):** fingerprint-stability fixture (schema set → expected fingerprints)
+> joins the sweep.
 
 Design notes:
 
@@ -266,8 +282,10 @@ Design notes:
 
 ## 9. Open spec questions — the v1 adversarial review
 
-**Status: OPEN.** Opened with this document (2026-10-10) and under active maintainer review.
-These are **not decisions**; nothing here re-opens D17. Each question states context, why it
+**Status: RULED (D19, 2026-10-10).** Opened with this document (2026-10-10); all eight questions
+were ruled the same day by **D19**
+([rulings file](../process/handoff/20260926-maintainer-rulings.md)) — each question carries its
+outcome inline below. Nothing here re-opens D17. Each question states context, why it
 matters, options, and which ruling bounds it. Every outcome must land as **additive-within-v1**
 (Q12) or be parked for v2/hosted; durable answers get [ADR 0047](../adr/README.md)+ or a roadmap §7
 backlog entry, and answers fold back into this section. Nothing changes the landed v1 grammar
@@ -287,6 +305,15 @@ which is a stronger promise than the ruling's words. _Options:_ (a) confirm the 
 values (breaks strictness; effectively a format weakening). _Bounds:_ Q12 (additive-only),
 Q1 (the strict total-parser discipline). The recommendation is (a); it needs an explicit
 confirmation because it narrows Q12.
+
+**Ruled (D19, 2026-10-10):** "optional keys is alright, however yes, any enum keys will need version
+bump, also the hash we need for prompts version needt o have the optinal keys in as well" — new
+**optional record keys are additive within v1**; **ANY new enum/discriminator member is a version
+bump** (maintainer-visible per Q12) — v1's enum spaces are closed. Supplementary clause recorded
+VERBATIM (the quote's final segment), interpretation **proposed — maintainer confirm pending**: any
+digest computed over a DCR artifact (e.g., future prompt-version pinning) must run over the FULL
+canonical serialization including optional keys — optional keys are never stripped from hashed
+content.
 
 **OQ-2 — The disclosure-shape trap (`privacyFindings`).** _Context:_ the landed slot is **not** a
 bare string — it is a tagged object (`packages/pipeline/src/dcr-ast.ts`):
@@ -317,6 +344,9 @@ landed v1 grammar and needs an explicit ruling, not an authoring choice. _Bounds
 disclosure), Q12 (additive-only), Q8 (the no-reserved-fields precedent argues (a)). The sharpest
 structural question in this list.
 
+**Ruled (D19, 2026-10-10): (a) — accept.** The tagged shape stands as landed; a future "computed"
+evolution is a v2 union member that replaces the disclosure — a v2 concern only.
+
 **OQ-3 — Byte-agreement scope across tool versions.** _Context:_ p3-4 pins web≡CLI
 byte-agreement **within a build**. Cross-release byte-stability — the same logical DCR serialized
 by two different tool versions yielding identical bytes — is pinned nowhere. The serializer is
@@ -333,6 +363,11 @@ neither identity nor wall-clock, strictly, but it is identity-adjacent); it need
 chosen. _Bounds:_ Q1/Q11 (canonical bytes), Q10 (no identity), Q12 (additive-only — a stamp would
 be additive, but its semantics are not ruled).
 
+**Ruled (D19, 2026-10-10): proceed as recommended — (a), enforced by the golden fixture corpus.**
+Cross-release byte-stability holds because serializer changes surface as `fixtures/dcr/` fixture
+failures (regeneration deliberate + changeset). The **tool-version stamp is REJECTED** (Q10
+adjacency).
+
 **OQ-4 — Truncation disclosure for bounded payloads.** _Context:_ Q3 embeds bounded payloads at
 M6's limits. The row-diff block already discloses its bound by construction — `sampleLimit` (the
 K), `rowCountA`/`rowCountB`, and per-aspect exact counts "over the full relations (never the
@@ -348,6 +383,11 @@ enough to surface rather than decide silently); (b) silent bounding, documented 
 field must not fork the mirrored shapes). Leaning (a) per the honest-gap pattern; needs a ruling
 because it adds surface.
 
+**Ruled (D19, 2026-10-10): "yup add the disclosure field."** Truncation/bounding disclosure
+authorized as **v1-authoring** — additive optional key(s) disclosing when an embedded payload
+aspect hits its M6 bound (the bins precedent). Executed as new queue row **p3-1b** (runs after
+p3-2, before p3-3 — p3-3's golden artifact depends on it).
+
 **OQ-5 — Materialization-reference mutability.** _Context:_ the Q4 materialization reference
 (`{node} | {export}`) points at runner state — a DuckDB table/view the run left behind, or the
 OPFS `assay-exports/` scratch path — which can be dropped, re-materialized, or garbage-collected
@@ -362,6 +402,11 @@ _Bounds:_ Q4 (the reference form), Q10 (no status in the artifact — rules out 
 "live/dead" flag without a ruling), ADR 0025 (any liveness UX stays value-free). Leaning (a)+(b)
 for v1, (c) parked.
 
+**Ruled (D19, 2026-10-10): "refuse Loudly" — (a) at export; parse stays dangling-tolerant.**
+Exporting a DCR off a dangling materialization reference REFUSES with a typed error (refusal
+discipline); parse remains dangling-tolerant — the artifact is an evidence snapshot (unchanged v1
+behavior; Q10). Pinned in p3-3 and p3-4.
+
 **OQ-6 — Schema-fingerprint stability.** _Context:_ the candidate reference carries
 `schemaFingerprint {algorithm, value}`; the `algorithm` field is a free-form string and **nothing
 landed pins which algorithm produces it or that its semantics never change** — p3-2 will source it
@@ -373,6 +418,11 @@ fixture (fixed relation shape → fixed `algorithm`+`value` pair) + a documented
 (b) leave it as producer freedom (the artifact records what was used, comparability is the
 producer's problem). _Bounds:_ Q4 (fingerprint in identity), Q12 (pinning is additive/test-only).
 Leaning (a); cheap to land inside p3-5's sweep.
+
+**Ruled (D19, 2026-10-10): "b)" — fixture only, no frozen-name policy.** The fingerprint-stability
+fixture joins p3-5's sweep; the algorithm-names-frozen policy is NOT adopted — the maintainer
+picked only (b): the artifact records what was used, and cross-version comparability remains the
+producer's concern.
 
 **OQ-7 — Row-key re-diff stability.** _Context:_ `DcrRowDiffSample.rowKey` values live in the
 anchor-free export grammar `base:<n>` / `insert:<n>` / `b:<n>` — **sample ordinals**, not content
@@ -386,6 +436,10 @@ system** (consistent with Q10's no-identity ruling); document the per-generation
 (b) pin diff determinism (an engine conformance commitment beyond this phase's scope, likely
 v2/hosted). _Bounds:_ Q7 (explicit keys, anchor-free grammar), ADR 0011/0012 (logical identity
 lives in the version reference, not in sample keys). Leaning (a).
+
+**Ruled (D19, 2026-10-10): (a) — accept.** Row-keys are stable per-generation only
+(evidence-snapshot semantics, consistent with Q10); re-diff determinism is the diff engine's
+contract (M6), not the artifact format's.
 
 **OQ-8 — Old-tool loud-fail on additive fields.** _Context:_ the strict unknown-key refusal is
 correct for format hygiene, but it means an artifact written by a **newer** tool carrying an
@@ -401,6 +455,10 @@ supported set — upgrade guidance, not a bare code); (b) tolerate-and-ignore un
 Q12 (whose wording — "extensible superset" + version-stamped rejection — already leans (a)),
 Q1 (the total strict parser). Leaning (a) with the messaging requirement; needs an explicit
 confirmation because it is a product-behavior call, not just a format one.
+
+**Ruled (D19, 2026-10-10): "yup" — (a) loud-fail confirmed as intended product behavior.** Strict
+unknown-key refusal + version-stamped rejection (the error names the artifact's `version: 1` vs the
+tool's supported set); never silently softened.
 
 ## 10. Out of scope (this phase and v1)
 
@@ -419,7 +477,8 @@ confirmation because it is a product-behavior call, not just a format one.
 
 ## 11. Closure criteria
 
-- All five queue rows landed (p3-1 ✅, p3-2…p3-5) with the p3-5 sweep green and counts recorded
+- All six queue rows landed (p3-1 ✅, p3-1b, p3-2…p3-5) with the p3-5 sweep green and counts
+  recorded
   (queue §5 closure block: per-row outcomes, counts at close, the **G3 evidence note** — "DCR
   artifact format stable (M9 done)", [roadmap §5](03-execution-roadmap.md)).
 - §9 dispositions recorded: each open question either answered (folded here + roadmap §7) or

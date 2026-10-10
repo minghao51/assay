@@ -203,6 +203,62 @@ webview); earlier rulings (C-pt0-1, D12–D14) ruled 2026-09-29. Records per the
 - **Record:** roadmap §7 D18 row + product/04 §9/§3/§5; handoff §9 **ef**; this file.
 - **Default if deferred:** n/a — ruled.
 
+## Ruling D19 — P3 phase-doc §9 spec review (OQ-1…OQ-8) — added 2026-10-10 (post phase-doc 07 /
+
+p3-1) — ✅ RESOLVED 2026-10-10: all eight questions ruled same day; the P3 queue is amended
+accordingly (six rows — p3-1b inserted between p3-2 and p3-3).
+
+- **Decide:** rule on the eight open spec questions in
+  [`07-p3-dcr-integration.md` §9](../../product/07-p3-dcr-integration.md) — the v1 adversarial
+  review opened with the phase document (2026-10-10), eight questions the landed p3-1
+  implementation surfaced where the D17 rulings bound but did not fully settle the answer: enum
+  closure vs additive-only (OQ-1); the `privacyFindings` disclosure-shape trap (OQ-2);
+  cross-release byte-agreement scope (OQ-3); truncation disclosure for bounded payloads (OQ-4);
+  materialization-reference mutability (OQ-5); schema-fingerprint stability (OQ-6); row-key
+  re-diff stability (OQ-7); old-tool loud-fail on additive fields (OQ-8). Nothing here re-opens
+  D17.
+- **Ruled — the eight outcomes (maintainer quotes verbatim):**
+  - **OQ-1 —** "optional keys is alright, however yes, any enum keys will need version bump, also
+    the hash we need for prompts version needt o have the optinal keys in as well" → new
+    **optional record keys are additive within v1**; **ANY new enum/discriminator member is a
+    version bump** (maintainer-visible per Q12) — v1's enum spaces are closed. **Supplementary
+    clause recorded VERBATIM (the quote's final segment), interpretation marked "proposed —
+    maintainer confirm pending":** any digest computed over a DCR artifact (e.g., future
+    prompt-version pinning) must run over the FULL canonical serialization including optional
+    keys — optional keys are never stripped from hashed content.
+  - **OQ-2 — accept.** The tagged `privacyFindings` shape stands; a future "computed" evolution is
+    a v2 union member that replaces the disclosure — a v2 concern only.
+  - **OQ-3 — proceed as recommended.** Cross-release byte-stability is enforced by the **golden
+    fixture corpus** (`fixtures/dcr/` — serializer changes surface as fixture failures;
+    regeneration is deliberate + changeset-accompanied). The **tool-version stamp is REJECTED**
+    (Q10 adjacency).
+  - **OQ-4 —** "yup add the disclosure field" → the **truncation/bounding disclosure is authorized
+    as v1-authoring** (additive optional key(s) disclosing when an embedded payload aspect hits
+    its M6 bound — the bins precedent). Becomes new queue row **p3-1b**
+    ([P3 queue](20261002-p3-queue.md)) — runs after p3-2, before p3-3 (p3-3's golden artifact
+    depends on it).
+  - **OQ-5 —** "refuse Loudly" → the **export-time liveness check**: exporting a DCR off a
+    dangling materialization reference REFUSES with a typed error (refusal discipline); parse
+    stays **dangling-tolerant** — the artifact is an evidence snapshot (unchanged v1 behavior).
+    Pins appended to p3-3 + p3-4.
+  - **OQ-6 —** "b)" → the **fingerprint-stability fixture joins p3-5's sweep**; the
+    algorithm-names-frozen policy is NOT adopted (the maintainer picked only (b)).
+  - **OQ-7 — accept.** Row-keys are stable **per-generation only** (evidence-snapshot semantics,
+    consistent with Q10); re-diff determinism is the diff engine's contract (M6), not the artifact
+    format's.
+  - **OQ-8 —** "yup" → **loud-fail confirmed as intended product behavior**: strict unknown-key
+    refusal + version-stamped rejection; never silently softened.
+- **Read:** [phase doc 07 §9](../../product/07-p3-dcr-integration.md) (context/options/bounds per
+  question); [ADR 0046](../../adr/0046-dcr-artifact-format-v1.md) + the
+  [ruled spec §9](../../product/06-dcr-artifact.md) (the D17 boundaries each question cites).
+- **Unblocks:** nothing was blocked (p3-2 was already dispatchable), but the outcomes de-risk the
+  remaining rows and amend the queue: p3-1b queued (OQ-4); liveness-refusal pins on p3-3/p3-4
+  (OQ-5); the fingerprint fixture in p3-5's sweep (OQ-6).
+- **Record:** phase doc 07 §9 Ruled lines + §5/§6/§7 quoted queue cells synced; roadmap §7 D19
+  row; the [P3 queue](20261002-p3-queue.md) amended (+p3-1b, appended pins); handoff §9 **ej**;
+  this file.
+- **Default if deferred:** n/a — ruled.
+
 ## Related human items (tracked in [manual-actions](../manual-actions.md), not re-listed here)
 
 M1 (npm org — gates the [publish runbook](20260926-publish-runbook.md)), M4 (trademark/domain),
