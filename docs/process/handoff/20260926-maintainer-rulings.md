@@ -222,10 +222,10 @@ accordingly (six rows — p3-1b inserted between p3-2 and p3-3).
     the hash we need for prompts version needt o have the optinal keys in as well" → new
     **optional record keys are additive within v1**; **ANY new enum/discriminator member is a
     version bump** (maintainer-visible per Q12) — v1's enum spaces are closed. **Supplementary
-    clause recorded VERBATIM (the quote's final segment), interpretation marked "proposed —
-    maintainer confirm pending":** any digest computed over a DCR artifact (e.g., future
-    prompt-version pinning) must run over the FULL canonical serialization including optional
-    keys — optional keys are never stripped from hashed content.
+    clause recorded VERBATIM (the quote's final segment), interpretation confirmed by maintainer
+    2026-10-10:** any digest computed over a DCR artifact (e.g., future prompt-version pinning)
+    runs over the FULL canonical serialization including optional keys — optional keys are never
+    stripped from hashed content.
   - **OQ-2 — accept.** The tagged `privacyFindings` shape stands; a future "computed" evolution is
     a v2 union member that replaces the disclosure — a v2 concern only.
   - **OQ-3 — proceed as recommended.** Cross-release byte-stability is enforced by the **golden

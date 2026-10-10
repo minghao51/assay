@@ -313,8 +313,8 @@ confirmation because it narrows Q12.
 bump, also the hash we need for prompts version needt o have the optinal keys in as well" — new
 **optional record keys are additive within v1**; **ANY new enum/discriminator member is a version
 bump** (maintainer-visible per Q12) — v1's enum spaces are closed. Supplementary clause recorded
-VERBATIM (the quote's final segment), interpretation **proposed — maintainer confirm pending**: any
-digest computed over a DCR artifact (e.g., future prompt-version pinning) must run over the FULL
+VERBATIM (the quote's final segment), interpretation **confirmed by maintainer 2026-10-10**: any
+digest computed over a DCR artifact (e.g., future prompt-version pinning) runs over the FULL
 canonical serialization including optional keys — optional keys are never stripped from hashed
 content.
 
