@@ -55,6 +55,20 @@ export type PipelineRunRefusalReason =
   | 'unknown-diff-keys'
   /** A gate node cannot be evaluated: the host supplied no compiler/schema/exec ops. */
   | 'gate-unsupported'
+  /** A candidate-reference request names a node that is not a data node of the supplied plan (p3-2). */
+  | 'candidate-node-unknown'
+  /** A candidate reference was asked for a canceled run — only completed/gated runs carry one (p3-2). */
+  | 'candidate-run-canceled'
+  /** The candidate node is in the plan but did not execute in the run (gated/canceled before it) (p3-2). */
+  | 'candidate-node-absent'
+  /** The candidate node executed but produced no materialized output (a gate or source result) (p3-2). */
+  | 'candidate-not-materialized'
+  /** The candidate node declares publish-mode materialization — the explicit P3/DCR boundary (ADR 0033/0035) (p3-2). */
+  | 'publish-materialization'
+  /** The materialized relation's schema could not be introspected for the fingerprint (p3-2). */
+  | 'candidate-schema-unavailable'
+  /** A candidate identity string is empty, NUL-bearing, or otherwise unusable (p3-2). */
+  | 'candidate-identity-invalid'
 
 /**
  * A run request the runner refused before any engine call. Value-free: the
@@ -109,6 +123,20 @@ function refusalMessage(reason: PipelineRunRefusalReason): string {
       return 'a diff-key binding names a node that is not a diff node'
     case 'gate-unsupported':
       return 'a gate node cannot be evaluated: the host supplied no gate compiler or engine op'
+    case 'candidate-node-unknown':
+      return 'a candidate reference names a node that is not a data node of the supplied plan'
+    case 'candidate-run-canceled':
+      return 'a canceled run carries no candidate reference: only completed or gated runs do'
+    case 'candidate-node-absent':
+      return 'the candidate node did not execute in this run, so it left no materialized output'
+    case 'candidate-not-materialized':
+      return 'the candidate node produced no materialized output to reference'
+    case 'publish-materialization':
+      return 'a publish-mode materialization is never a candidate reference: the publish boundary stays explicit (ADR 0033/0035)'
+    case 'candidate-schema-unavailable':
+      return 'the materialized relation schema could not be introspected for the schema fingerprint'
+    case 'candidate-identity-invalid':
+      return 'a candidate identity string must be a non-empty NUL-free string'
   }
 }
 

@@ -133,12 +133,15 @@ export { quotedIdentifier } from './format-view.js'
 // types and the pure generation guard, public so hosts (and the conformance
 // harness) can drive and pin the runner without re-deriving its contract.
 export {
+  CANDIDATE_SCHEMA_FINGERPRINT_ALGORITHM,
   PipelineRunError,
   PipelineRunGuard,
   PipelineRunRefusalError,
+  candidateVersionRefFromRun,
   executePipeline,
 } from './pipeline-runner/index.js'
 export type {
+  CandidateVersionRefInput,
   PipelineRunCanceled,
   PipelineRunColumn,
   PipelineRunCompilers,

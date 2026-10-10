@@ -78,6 +78,8 @@ export type { EngineFileFormat } from './format-view.js'
 export {
   assertRunnableRelation,
   assertSqlAccepted,
+  candidateVersionRefFromRun,
+  CANDIDATE_SCHEMA_FINGERPRINT_ALGORITHM,
   executePipeline,
   PipelineRunError,
   PipelineRunGuard,
@@ -86,6 +88,7 @@ export {
   validateCompilePlan,
 } from './pipeline-runner/index.js'
 export type {
+  CandidateVersionRefInput,
   PipelineRunCanceled,
   PipelineRunColumn,
   PipelineRunCompilers,
