@@ -1,8 +1,8 @@
 # P3 — DCR Integration (Phase Document)
 
 **Status:** ACTIVE — opened 2026-10-10 off rulings D16/D17; spec review RULED same day (**D19**,
-2026-10-10); p3-1 landed (`dae8e83`); p3-2 landed (`72363b7`); queue six rows (p3-1b inserted
-between p3-2 and p3-3); **p3-1b next**.
+2026-10-10); p3-1 landed (`dae8e83`); p3-2 landed (`72363b7`); p3-1b landed (`2b9a895`); queue six
+rows (p3-1b between p3-2 and p3-3); **p3-3 next**.
 Execution queue: [P3 queue](../process/handoff/20261002-p3-queue.md) (scope/done-when/STOP per row).
 Format rulings: [ADR 0046](../adr/0046-dcr-artifact-format-v1.md) + the ruled
 [spec §9](06-dcr-artifact.md). This document proposes design and collects open questions; it does
@@ -179,6 +179,8 @@ Queue row, verbatim:
 > pattern; a changeset per repo precedent. `feat(p3-3):` + changeset (`@assay/cli`). **Third.**
 > **D19 OQ-5:** export refuses loudly on dangling materialization refs (typed error, refusal
 > discipline); parse stays dangling-tolerant. Goldens minted after p3-1b.
+
+p3-1b note (2026-10-10): the goldens dependency above is **satisfied** — the D19-OQ-4 bounding-disclosure keys exist on `main` (`2b9a895`), so p3-3 mints its golden artifact against the disclosed shape.
 
 Design notes:
 

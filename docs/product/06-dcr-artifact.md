@@ -117,6 +117,11 @@ Two honesty notes carried into the DCR field schema (and ruled by D17):
   `--infer` is an explicit opt-in). A locally generated DCR inherits that discipline — see
   **D17-Q7** (ruled: explicit keys required, row delta absent without them; §9).
 
+Bounding disclosure (**D19-OQ-4**, landed p3-1b, 2026-10-10): the categorical top-k lists carry
+optional literal-`true` keys `newCategoriesBounded`/`vanishedCategoriesBounded` — present exactly
+when that list was bounded (`false` refused; absence = not bounded); the row-diff block discloses
+its bound by construction (`sampleLimit` + exact counts).
+
 ### 3.2 Validation
 
 `@assay/contracts` fixes the portable vocabulary and shape
