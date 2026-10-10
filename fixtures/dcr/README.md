@@ -3,7 +3,10 @@
 Golden documents for the DCR artifact format v1 (`format: assay-dcr` /
 `version: 1`), consumed by `packages/pipeline/src/dcr-fixtures.test.ts`.
 
-- `minimal.yaml`, `gated-run.yaml` — canonical text (`text === serialize(parse(text))`).
+- `minimal.yaml`, `gated-run.yaml`, `bounded-topk.yaml` — canonical text
+  (`text === serialize(parse(text))`); `bounded-topk.yaml` demonstrates the
+  D19-OQ-4 bounding disclosure (`newCategoriesBounded: true` present, the
+  unbounded side's key absent — absence is meaning).
 - `gated-run-alternate.yaml` — a valid but deliberately non-canonical
   rendering (JSON form) pinned to canonicalize byte-for-byte to `gated-run.yaml`.
 - `refuses-*.yaml` — negative probes; each must fail with exactly the pinned

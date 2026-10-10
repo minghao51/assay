@@ -195,6 +195,12 @@ function serializeCategoricalDelta(
     totalVariation: finiteOrNull(record.totalVariation),
     newCategories: asArray(record.newCategories).map(serializeTopKEntry),
     vanishedCategories: asArray(record.vanishedCategories).map(serializeTopKEntry),
+    // The D19-OQ-4 bounding disclosure (p3-1b): fixed key order, appended
+    // after the three base keys; carried only when spelled exactly `true`
+    // (the AST type admits no other), so artifacts without bounding emit
+    // byte-identically to before — absence is meaning.
+    ...(record.newCategoriesBounded === true ? { newCategoriesBounded: true } : {}),
+    ...(record.vanishedCategoriesBounded === true ? { vanishedCategoriesBounded: true } : {}),
   }
 }
 

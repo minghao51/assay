@@ -448,6 +448,84 @@ validation:
   })
 })
 
+describe('parseDcr: the D19-OQ-4 bounding disclosure (p3-1b)', () => {
+  /** A categorical delta block, patched into MINIMAL's empty deltas. */
+  const CATEGORICAL_PATCH = `deltas:
+  columnDeltas:
+    - column: status
+      typeA: VARCHAR
+      typeB: VARCHAR
+      kindA: categorical
+      kindB: categorical
+      categorical:
+        totalVariation: 0.25
+        newCategories:
+          - value: alpha
+            count: 7
+        vanishedCategories: []
+`
+
+  it('accepts the disclosure, carries it on the AST, and round-trips byte-stably', () => {
+    const patched = MINIMAL.replace(
+      'deltas: {}',
+      `${CATEGORICAL_PATCH}        newCategoriesBounded: true\n`,
+    )
+    const parsed = parseDcr(patched)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const categorical = parsed.artifact.deltas.columnDeltas?.[0]?.categorical
+    expect(categorical?.newCategoriesBounded).toBe(true)
+    // The undeclared side stays absent — absence is meaning on parse too.
+    expect(categorical).not.toHaveProperty('vanishedCategoriesBounded')
+    const canonical = serializeDcr(parsed.artifact)
+    expect(canonical).toContain('        newCategoriesBounded: true\n')
+    expect(parseDcr(canonical)).toEqual({ ok: true, artifact: parsed.artifact })
+  })
+
+  it('a present `false` is refused (one shape per meaning — omit the key instead)', () => {
+    const patched = MINIMAL.replace(
+      'deltas: {}',
+      `${CATEGORICAL_PATCH}        newCategoriesBounded: false\n`,
+    )
+    const parsed = parseDcr(patched)
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(codesOf(parsed.errors)).toEqual(['out-of-range'])
+    expect(parsed.errors[0]?.message).toContain('presence-is-meaning')
+    expect(parsed.errors[0]?.path).toBe('deltas.columnDeltas[0].categorical.newCategoriesBounded')
+    // Located: points at the offending scalar.
+    expect(parsed.errors[0]?.line).toBeGreaterThan(1)
+    expect(parsed.errors[0]?.column).toBeGreaterThan(0)
+  })
+
+  it('a non-boolean spelling is a wrong-type error at the key', () => {
+    const patched = MINIMAL.replace(
+      'deltas: {}',
+      `${CATEGORICAL_PATCH}        vanishedCategoriesBounded: "true"\n`,
+    )
+    const parsed = parseDcr(patched)
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(codesOf(parsed.errors)).toEqual(['wrong-type'])
+    expect(parsed.errors[0]?.path).toBe(
+      'deltas.columnDeltas[0].categorical.vanishedCategoriesBounded',
+    )
+  })
+
+  it('a lookalike misspelling is still an unknown key — the allowlist is exact', () => {
+    const patched = MINIMAL.replace(
+      'deltas: {}',
+      `${CATEGORICAL_PATCH}        newCategoryBounded: true\n`,
+    )
+    const parsed = parseDcr(patched)
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(codesOf(parsed.errors)).toEqual(['unknown-key'])
+    expect(parsed.errors[0]?.message).toContain('newCategoryBounded')
+    expect(parsed.errors[0]?.message).toContain('unknown keys are refused')
+  })
+})
+
 describe('parseDcr: consumes the builder output', () => {
   it('parses a builder-produced artifact to the same AST (the two seams agree)', () => {
     const built = buildDcrArtifact({

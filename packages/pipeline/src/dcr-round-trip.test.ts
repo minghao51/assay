@@ -18,6 +18,9 @@ import { mutateYaml } from './property-testing.js'
  *   same AST and serializes to the same bytes; serialization is a fixpoint.
  * - **Totality under fuzzing**: mutated documents never throw; whatever
  *   still parses satisfies the canonical fixpoint.
+ * - **Bounding disclosure (p3-1b, D19-OQ-4)**: the optional
+ *   bounded-flag keys appear in the canonical bytes exactly when the AST
+ *   carries them — absence is meaning, both directions.
  *
  * Seeds are date-of-work-derived constants. A failure reproduces by re-running
  * with the printed seed.
@@ -26,9 +29,11 @@ import { mutateYaml } from './property-testing.js'
 const SEED_ROUND_TRIP = 20261003
 const SEED_ALTERNATE = 20261004
 const SEED_FUZZ = 20261005
+const SEED_DISCLOSURE = 20261011
 const ROUND_TRIP_CASES = 400
 const ALTERNATE_CASES = 400
 const FUZZ_CASES = 2500
+const DISCLOSURE_CASES = 400
 
 describe('property: parseDcr ∘ serializeDcr is the identity on valid DCR artifacts', () => {
   it(`round-trips ${ROUND_TRIP_CASES} generated artifacts (seed ${SEED_ROUND_TRIP})`, () => {
@@ -85,4 +90,55 @@ describe('property: parseDcr is total under fuzzing', () => {
     // measured 69/2500 survivors on the committed seed.
     expect(parsedCount).toBeGreaterThan(FUZZ_CASES / 50)
   }, 20_000)
+})
+
+describe('property: the D19-OQ-4 bounding disclosure is present exactly when the aspect was bounded (p3-1b)', () => {
+  it(`flags in the AST ⟺ keys in the canonical bytes, over ${DISCLOSURE_CASES} generated artifacts (seed ${SEED_DISCLOSURE})`, () => {
+    const rng = makeTestRng(SEED_DISCLOSURE)
+    let flaggedKeys = 0
+    for (let i = 0; i < DISCLOSURE_CASES; i++) {
+      const artifact = genDcr(rng)
+      const text = serializeDcr(artifact)
+      // The key names are unique in the grammar, so raw occurrence counts
+      // are exact: presence in the bytes ⟺ the flag on some categorical
+      // delta — and the count matches how many deltas carry each flag.
+      const newInBytes = (text.match(/newCategoriesBounded/g) ?? []).length
+      const vanishedInBytes = (text.match(/vanishedCategoriesBounded/g) ?? []).length
+      let newInAst = 0
+      let vanishedInAst = 0
+      for (const delta of artifact.deltas.columnDeltas ?? []) {
+        if (delta.categorical?.newCategoriesBounded === true) newInAst++
+        if (delta.categorical?.vanishedCategoriesBounded === true) vanishedInAst++
+      }
+      expect(newInBytes).toBe(newInAst)
+      expect(vanishedInBytes).toBe(vanishedInAst)
+      flaggedKeys += newInAst + vanishedInAst
+    }
+    // Sanity: the generator exercises the flagged state, so the ⟺ pin is
+    // not vacuous (measured 40 on the committed seed).
+    expect(flaggedKeys).toBeGreaterThan(0)
+  })
+
+  it('byte-stability holds for flagged artifacts: two serializations are identical and re-parse to the same AST', () => {
+    const rng = makeTestRng(SEED_DISCLOSURE + 1)
+    let flaggedArtifacts = 0
+    for (let i = 0; i < DISCLOSURE_CASES; i++) {
+      const artifact = genDcr(rng)
+      const hasFlags = (artifact.deltas.columnDeltas ?? []).some(
+        (delta) =>
+          delta.categorical?.newCategoriesBounded === true ||
+          delta.categorical?.vanishedCategoriesBounded === true,
+      )
+      if (!hasFlags) continue
+      flaggedArtifacts++
+      const once = serializeDcr(artifact)
+      const twice = serializeDcr(artifact)
+      expect(twice).toBe(once)
+      const reparsed = parseDcr(once)
+      expect(reparsed).toEqual({ ok: true, artifact })
+      if (!reparsed.ok) return
+      expect(serializeDcr(reparsed.artifact)).toBe(once)
+    }
+    expect(flaggedArtifacts).toBeGreaterThan(0)
+  })
 })

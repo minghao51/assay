@@ -228,6 +228,34 @@ function optInt(
   return reqInt(ctx, record, key, path, min, max)
 }
 
+/**
+ * An optional presence-is-meaning boolean (the D19-OQ-4 bounding
+ * disclosure): the only legal present spelling is exactly `true` — a
+ * present `false` would be a second spelling of "not bounded" (one shape
+ * per meaning), so it is refused; omit the key instead. Three states:
+ * `undefined` = absent (not bounded — absence is meaning), `true` = the
+ * disclosure, `null` = a collected error (aborts the build).
+ */
+function optTrueLiteral(
+  ctx: BuildContext,
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+): true | undefined | null {
+  const value = record[key]
+  if (value === undefined) return undefined
+  if (value === true) return true
+  if (value === false) {
+    return fail(
+      ctx,
+      'out-of-range',
+      `${path}: the bounding disclosure is presence-is-meaning — the only legal spelling is exactly true; omit the key when the aspect was not bounded`,
+      path,
+    )
+  }
+  return fail(ctx, 'wrong-type', `${path}: expected exactly the boolean true`, path)
+}
+
 /** A required finite number or explicit `null`, within `[min, max]` when a number. */
 function reqFiniteOrNull(
   ctx: BuildContext,
@@ -705,6 +733,23 @@ function walkColumnDelta(
       categoricalRecord.vanishedCategories,
       `${path}.categorical.vanishedCategories`,
     )
+    // The D19-OQ-4 bounding disclosure: read after the three base keys, so
+    // the canonical serialization order stays totalVariation →
+    // newCategories → vanishedCategories → newCategoriesBounded →
+    // vanishedCategoriesBounded (fixed; appended, so pre-disclosure
+    // artifacts serialize byte-identically).
+    const newCategoriesBounded = optTrueLiteral(
+      ctx,
+      categoricalRecord,
+      'newCategoriesBounded',
+      `${path}.categorical.newCategoriesBounded`,
+    )
+    const vanishedCategoriesBounded = optTrueLiteral(
+      ctx,
+      categoricalRecord,
+      'vanishedCategoriesBounded',
+      `${path}.categorical.vanishedCategoriesBounded`,
+    )
     categorical = {
       totalVariation: reqFiniteOrNull(
         ctx,
@@ -716,6 +761,8 @@ function walkColumnDelta(
       ),
       newCategories: newCategories ?? [],
       vanishedCategories: vanishedCategories ?? [],
+      ...(newCategoriesBounded === true ? { newCategoriesBounded: true } : {}),
+      ...(vanishedCategoriesBounded === true ? { vanishedCategoriesBounded: true } : {}),
     }
   }
   return {

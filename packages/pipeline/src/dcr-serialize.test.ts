@@ -199,6 +199,159 @@ privacyFindings:
 `)
   })
 
+  it('emits the D19-OQ-4 bounding disclosure in fixed key order after the base keys (p3-1b)', () => {
+    const artifact: DcrArtifactV1 = {
+      ...MINIMAL,
+      deltas: {
+        columnDeltas: [
+          {
+            column: 'status',
+            typeA: 'VARCHAR',
+            typeB: 'VARCHAR',
+            kindA: 'categorical',
+            kindB: 'categorical',
+            categorical: {
+              totalVariation: 0.25,
+              newCategories: [{ value: 'alpha', count: 7 }],
+              vanishedCategories: [],
+              newCategoriesBounded: true,
+              vanishedCategoriesBounded: true,
+            },
+          },
+        ],
+      },
+    }
+    // Canonical block form: both flags, appended in fixed order after the
+    // three base keys — never interleaved, never reordered.
+    expect(serializeDcr(artifact)).toBe(`format: assay-dcr
+version: 1
+base:
+  datasetId: dataset-a
+  versionId: version-a-1
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: fp-a-0001
+  materialization:
+    node: src_orders
+candidate:
+  datasetId: dataset-a
+  versionId: version-a-2
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: fp-a-0002
+  materialization:
+    export: exports/run-2/out.parquet
+deltas:
+  columnDeltas:
+    - column: status
+      typeA: VARCHAR
+      typeB: VARCHAR
+      kindA: categorical
+      kindB: categorical
+      categorical:
+        totalVariation: 0.25
+        newCategories:
+          - value: alpha
+            count: 7
+        vanishedCategories: []
+        newCategoriesBounded: true
+        vanishedCategoriesBounded: true
+privacyFindings:
+  status: not-computed
+  disclosure: "Privacy findings were not computed: this build has no local privacy-analysis producer (ADR 0046, ruling D17-Q6)."
+`)
+  })
+
+  it('old bytes unchanged: an unbounded categorical block emits exactly the pre-p3-1b form (absence is meaning)', () => {
+    const artifact: DcrArtifactV1 = {
+      ...MINIMAL,
+      deltas: {
+        columnDeltas: [
+          {
+            column: 'status',
+            typeA: 'VARCHAR',
+            typeB: 'VARCHAR',
+            kindA: 'categorical',
+            kindB: 'categorical',
+            categorical: {
+              totalVariation: 0.25,
+              newCategories: [{ value: 'alpha', count: 7 }],
+              vanishedCategories: [],
+            },
+          },
+        ],
+      },
+    }
+    // The pre-disclosure byte form, pinned: no trace of either new key.
+    const text = serializeDcr(artifact)
+    expect(text).toBe(`format: assay-dcr
+version: 1
+base:
+  datasetId: dataset-a
+  versionId: version-a-1
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: fp-a-0001
+  materialization:
+    node: src_orders
+candidate:
+  datasetId: dataset-a
+  versionId: version-a-2
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: fp-a-0002
+  materialization:
+    export: exports/run-2/out.parquet
+deltas:
+  columnDeltas:
+    - column: status
+      typeA: VARCHAR
+      typeB: VARCHAR
+      kindA: categorical
+      kindB: categorical
+      categorical:
+        totalVariation: 0.25
+        newCategories:
+          - value: alpha
+            count: 7
+        vanishedCategories: []
+privacyFindings:
+  status: not-computed
+  disclosure: "Privacy findings were not computed: this build has no local privacy-analysis producer (ADR 0046, ruling D17-Q6)."
+`)
+    expect(text).not.toContain('newCategoriesBounded')
+    expect(text).not.toContain('vanishedCategoriesBounded')
+    // …and it parses back to the flag-less AST unchanged.
+    expect(parseDcr(text)).toEqual({ ok: true, artifact })
+  })
+
+  it('one-sided bounding discloses exactly the bounded side (independent flags)', () => {
+    const artifact: DcrArtifactV1 = {
+      ...MINIMAL,
+      deltas: {
+        columnDeltas: [
+          {
+            column: 'status',
+            typeA: 'VARCHAR',
+            typeB: 'VARCHAR',
+            kindA: 'categorical',
+            kindB: 'categorical',
+            categorical: {
+              totalVariation: null,
+              newCategories: [],
+              vanishedCategories: [{ value: 'beta', count: 3 }],
+              vanishedCategoriesBounded: true,
+            },
+          },
+        ],
+      },
+    }
+    const text = serializeDcr(artifact)
+    expect(text).toContain('        vanishedCategoriesBounded: true\n')
+    expect(text).not.toContain('newCategoriesBounded')
+    expect(parseDcr(text)).toEqual({ ok: true, artifact })
+  })
+
   it('is a fixpoint: serialize(parse(serialize(x))) is byte-identical', () => {
     const text = serializeDcr(MINIMAL)
     const parsed = parseDcr(text)

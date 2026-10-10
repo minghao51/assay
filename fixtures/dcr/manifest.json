@@ -1,7 +1,13 @@
 {
   "generator": "hand-authored probes + artifacts generated through serializeDcr itself (p3-1)",
-  "policy": "Golden DCR artifact documents (ADR 0046, ruling D17) backing the round-trip, byte-stability, and refusal pins. Synthetic, value-free data only (ADR 0025): no dataset cell values, no SQL, no timestamps, no sensitive paths \u2014 pinned by scan tests in packages/pipeline/src/dcr-build.test.ts. Canonical fixtures satisfy text === serializeDcr(parseDcr(text)); gated-run-alternate.yaml is the deliberate non-canonical rendering pinned to canonicalize to gated-run.yaml; the refuses-* fixtures are negative probes (parse must fail with exactly the pinned code). Regenerate the sha256 values deliberately with any fixture change.",
+  "policy": "Golden DCR artifact documents (ADR 0046, ruling D17) backing the round-trip, byte-stability, and refusal pins. Synthetic, value-free data only (ADR 0025): no dataset cell values, no SQL, no timestamps, no sensitive paths \u2014 pinned by scan tests in packages/pipeline/src/dcr-build.test.ts. Canonical fixtures satisfy text === serializeDcr(parseDcr(text)); gated-run-alternate.yaml is the deliberate non-canonical rendering pinned to canonicalize to gated-run.yaml; the refuses-* fixtures are negative probes (parse must fail with exactly the pinned code). The D19-OQ-4 bounding-disclosure keys (newCategoriesBounded / vanishedCategoriesBounded, p3-1b) are additive-optional: present exactly when a top-k payload hit its M6 bound, absent otherwise. Regenerate the sha256 values deliberately with any fixture change.",
   "files": [
+    {
+      "name": "bounded-topk.yaml",
+      "sha256": "9b5f8cbd7b80d7362ecdfc683873480b054aa8f1b8d7d43dbcf93d994e80688b",
+      "canonical": true,
+      "description": "The D19-OQ-4 bounding disclosure (p3-1b): a categorical delta whose candidate-side top-k hit its M6 bound carries newCategoriesBounded: true while the unbounded base side stays absent \u2014 absence is meaning, visible in one block. Generated through serializeDcr itself, so canonical: true is honest by construction"
+    },
     {
       "name": "gated-run-alternate.yaml",
       "sha256": "20518ea11318a79b34d1be8727df83004ce9d49960a1248e77fa00a3a303eb5b",
@@ -27,6 +33,20 @@
       "expect": "refuses",
       "errorCode": "invalid-reference",
       "description": "ADR 0025 shape-pin: a sample row key in the m4-3 grid form (anchor-bearing) is refused \u2014 anchors never enter the artifact"
+    },
+    {
+      "name": "refuses-bounded-flag-false.yaml",
+      "sha256": "e9da77caa7ee8406174bdec809d2168230c718de4e2824f4a8e745e4699e5214",
+      "expect": "refuses",
+      "errorCode": "out-of-range",
+      "description": "Presence-is-meaning probe (D19-OQ-4): a present false disclosure is refused \u2014 the only legal present spelling is exactly true; omit the key when the aspect was not bounded"
+    },
+    {
+      "name": "refuses-bounded-flag-misspelled.yaml",
+      "sha256": "365b7e6894e6fb65feb3251b690722dc295408f44ff12832099d5ee9232f8b7f",
+      "expect": "refuses",
+      "errorCode": "unknown-key",
+      "description": "Allowlist-exactness probe (D19-OQ-4): a lookalike misspelling of the disclosure key is refused \u2014 additive keys are allowlisted exactly, unknown keys stay refused (D17-Q12)"
     },
     {
       "name": "refuses-cell-values.yaml",

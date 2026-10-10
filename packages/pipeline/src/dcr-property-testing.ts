@@ -167,6 +167,11 @@ function genColumnDelta(rng: TestRng): DcrColumnDistributionDelta {
             : (rng.pick([0, 0.125, 0.25, 0.5, 0.75, 1]) as number),
           newCategories: genTopK(rng),
           vanishedCategories: genTopK(rng),
+          // The D19-OQ-4 bounding disclosure (p3-1b), exercised in every
+          // state: each flag independent, so present/absent combinations
+          // (and the all-absent pre-disclosure shape) all reach the pins.
+          ...(rng.bool(0.25) ? { newCategoriesBounded: true as const } : {}),
+          ...(rng.bool(0.25) ? { vanishedCategoriesBounded: true as const } : {}),
         }
       : undefined
   return {

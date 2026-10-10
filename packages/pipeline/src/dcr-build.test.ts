@@ -205,6 +205,120 @@ describe('buildDcrArtifact: the canonical artifact from producer inputs', () => 
   })
 })
 
+describe('buildDcrArtifact: the D19-OQ-4 bounding disclosure (p3-1b)', () => {
+  /** The fully-typed bounded input (the happy path stays compile-checked). */
+  const boundedInput = (flags: {
+    newCategoriesBounded?: true
+    vanishedCategoriesBounded?: true
+  }): DcrBuilderInput => ({
+    ...baseInput(),
+    deltas: {
+      columnDeltas: [
+        {
+          column: 'status',
+          typeA: 'VARCHAR',
+          typeB: 'VARCHAR',
+          kindA: 'categorical',
+          kindB: 'categorical',
+          categorical: {
+            totalVariation: 0.25,
+            newCategories: [{ value: 'alpha', count: 7 }],
+            vanishedCategories: [],
+            ...flags,
+          },
+        },
+      ],
+    },
+  })
+
+  it('carries the disclosure exactly when the builder input declares bounding (absence is meaning, both directions)', () => {
+    const unbounded = buildDcrArtifact(boundedInput({}))
+    expect(unbounded.ok).toBe(true)
+    if (!unbounded.ok) return
+    const unboundedCategorical = unbounded.artifact.deltas.columnDeltas?.[0]?.categorical
+    expect(unboundedCategorical).not.toHaveProperty('newCategoriesBounded')
+    expect(unboundedCategorical).not.toHaveProperty('vanishedCategoriesBounded')
+
+    const newBounded = buildDcrArtifact(boundedInput({ newCategoriesBounded: true }))
+    expect(newBounded.ok).toBe(true)
+    if (!newBounded.ok) return
+    const newCategorical = newBounded.artifact.deltas.columnDeltas?.[0]?.categorical
+    expect(newCategorical?.newCategoriesBounded).toBe(true)
+    // The undeclared side stays absent — each flag is independent.
+    expect(newCategorical).not.toHaveProperty('vanishedCategoriesBounded')
+  })
+
+  /**
+   * The bounded-shape input with a raw (possibly contract-violating)
+   * categorical block — for refusal probes only; the typed happy path uses
+   * {@link boundedInput} and stays compile-checked.
+   */
+  const hostileCategoricalInput = (categorical: Record<string, unknown>): DcrBuilderInput =>
+    ({
+      ...baseInput(),
+      deltas: {
+        columnDeltas: [
+          {
+            column: 'status',
+            typeA: 'VARCHAR',
+            typeB: 'VARCHAR',
+            kindA: 'categorical',
+            kindB: 'categorical',
+            categorical,
+          },
+        ],
+      },
+    }) as unknown as DcrBuilderInput
+
+  it('refuses a present `false` — presence-is-meaning has exactly one present spelling', () => {
+    const result = buildDcrArtifact(
+      hostileCategoricalInput({
+        totalVariation: 0.25,
+        newCategories: [{ value: 'alpha', count: 7 }],
+        vanishedCategories: [],
+        newCategoriesBounded: false,
+      }),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.map((error) => error.code)).toEqual(['out-of-range'])
+    expect(result.errors[0]?.path).toBe('deltas.columnDeltas[0].categorical.newCategoriesBounded')
+    expect(result.errors[0]?.message).toContain('presence-is-meaning')
+  })
+
+  it('refuses non-boolean spellings of the disclosure', () => {
+    for (const bad of ['true', 1, null]) {
+      const result = buildDcrArtifact(
+        hostileCategoricalInput({
+          totalVariation: 0.25,
+          newCategories: [{ value: 'alpha', count: 7 }],
+          vanishedCategories: [],
+          vanishedCategoriesBounded: bad,
+        }),
+      )
+      expect(result.ok, String(bad)).toBe(false)
+      if (result.ok) continue
+      expect(result.errors.map((error) => error.code)).toEqual(['wrong-type'])
+      expect(result.errors[0]?.path).toBe(
+        'deltas.columnDeltas[0].categorical.vanishedCategoriesBounded',
+      )
+    }
+  })
+
+  it('the disclosed artifact round-trips byte-stably through the parser', () => {
+    const built = buildDcrArtifact(
+      boundedInput({ newCategoriesBounded: true, vanishedCategoriesBounded: true }),
+    )
+    expect(built.ok).toBe(true)
+    if (!built.ok) return
+    const text = serializeDcr(built.artifact)
+    const reparsed = parseDcr(text)
+    expect(reparsed).toEqual({ ok: true, artifact: built.artifact })
+    if (!reparsed.ok) return
+    expect(serializeDcr(reparsed.artifact)).toBe(text)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Hygiene pins
 // ---------------------------------------------------------------------------

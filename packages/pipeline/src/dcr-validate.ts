@@ -123,7 +123,15 @@ const NUMERIC_KEYS = [
   'p50Shift',
   'p90Shift',
 ] as const
+/** The required keys of a categorical delta block (both top-k lists are always spelled). */
 const CATEGORICAL_KEYS = ['totalVariation', 'newCategories', 'vanishedCategories'] as const
+/**
+ * The optional bounding-disclosure keys (D19-OQ-4, p3-1b): each is legal
+ * but never required — absence is the meaning "not bounded".
+ */
+const CATEGORICAL_DISCLOSURE_KEYS = ['newCategoriesBounded', 'vanishedCategoriesBounded'] as const
+/** Every legal key of a categorical delta block (the exact allowlist). */
+const CATEGORICAL_ALL_KEYS = [...CATEGORICAL_KEYS, ...CATEGORICAL_DISCLOSURE_KEYS] as const
 const TOP_K_KEYS = ['value', 'count'] as const
 const ROW_DIFF_KEYS = ['keys', 'sampleLimit', 'rowCountA', 'rowCountB', 'aspects'] as const
 const ASPECT_KEYS = ['aspect', 'count', 'samples'] as const
@@ -176,6 +184,8 @@ const KEY_LOCATIONS: Readonly<Record<string, readonly string[]>> = {
   totalVariation: ['a categorical delta block'],
   newCategories: ['a categorical delta block'],
   vanishedCategories: ['a categorical delta block'],
+  newCategoriesBounded: ['a categorical delta block'],
+  vanishedCategoriesBounded: ['a categorical delta block'],
   count: ['a categorical top-k entry', 'a row-diff aspect'],
   rowDiff: ['the deltas block'],
   schemaDrift: ['the deltas block'],
@@ -566,6 +576,37 @@ function wantBoolean(ctx: WalkContext, entry: Entry, path: string): boolean | nu
     return null
   }
   return value as boolean
+}
+
+/**
+ * A presence-is-meaning disclosure flag (D19-OQ-4, p3-1b): the only legal
+ * present spelling is exactly the boolean `true` — a present `false` would
+ * be a second spelling of "not bounded" (one shape per meaning), so it is
+ * refused with the omit-it-instead guidance; any non-boolean scalar is a
+ * wrong type.
+ */
+function wantTrueLiteral(ctx: WalkContext, entry: Entry, path: string): true | null {
+  const resolved = resolveNode(ctx, entry.valueNode)
+  const { kind, value } = scalarKind(resolved)
+  if (kind === 'boolean' && value === true) return true
+  if (kind === 'boolean') {
+    pushError(
+      ctx,
+      'out-of-range',
+      `${path}: the bounding disclosure is presence-is-meaning — the only legal spelling is exactly true; omit the key when the aspect was not bounded`,
+      path,
+      valuePosition(entry, resolved),
+    )
+    return null
+  }
+  pushError(
+    ctx,
+    'wrong-type',
+    `${path}: expected exactly the boolean true, got ${describeYamlValue(resolved)}`,
+    path,
+    valuePosition(entry, resolved),
+  )
+  return null
 }
 
 /** A required string from a fixed vocabulary. */
@@ -1430,7 +1471,7 @@ function walkCategoricalDelta(
     )
     return undefined
   }
-  rejectUnknownKeys(ctx, entries, CATEGORICAL_KEYS, path)
+  rejectUnknownKeys(ctx, entries, CATEGORICAL_ALL_KEYS, path)
   if (!requireKeys(ctx, entries, CATEGORICAL_KEYS, path, entry.valueNode)) return undefined
   const totalVariation = wantFiniteOrNull(
     ctx,
@@ -1449,10 +1490,32 @@ function walkCategoricalDelta(
     entries.get('vanishedCategories') as Entry,
     `${path}.vanishedCategories`,
   )
+  // The D19-OQ-4 bounding disclosure: optional, exactly-`true`-when-present
+  // (absence is meaning); a malformed spelling aborts this block.
+  let newCategoriesBounded: true | undefined
+  const newBoundedEntry = entries.get('newCategoriesBounded')
+  if (newBoundedEntry !== undefined) {
+    const flag = wantTrueLiteral(ctx, newBoundedEntry, `${path}.newCategoriesBounded`)
+    if (flag === null) return undefined
+    newCategoriesBounded = flag
+  }
+  let vanishedCategoriesBounded: true | undefined
+  const vanishedBoundedEntry = entries.get('vanishedCategoriesBounded')
+  if (vanishedBoundedEntry !== undefined) {
+    const flag = wantTrueLiteral(ctx, vanishedBoundedEntry, `${path}.vanishedCategoriesBounded`)
+    if (flag === null) return undefined
+    vanishedCategoriesBounded = flag
+  }
   if (totalVariation === undefined || newCategories === null || vanishedCategories === null) {
     return undefined
   }
-  return { totalVariation, newCategories, vanishedCategories }
+  return {
+    totalVariation,
+    newCategories,
+    vanishedCategories,
+    ...(newCategoriesBounded !== undefined ? { newCategoriesBounded } : {}),
+    ...(vanishedCategoriesBounded !== undefined ? { vanishedCategoriesBounded } : {}),
+  }
 }
 
 /**

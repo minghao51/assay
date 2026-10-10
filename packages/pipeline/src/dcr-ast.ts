@@ -252,6 +252,19 @@ export interface DcrCategoricalDistributionDelta {
   readonly newCategories: readonly DcrCategoricalTopKEntry[]
   /** Values in A's top-k absent from B's, in A's top-k order (preserved). */
   readonly vanishedCategories: readonly DcrCategoricalTopKEntry[]
+  /**
+   * Bounding disclosure (D19-OQ-4; p3-1b): present — and only ever spelled
+   * exactly `true` — when the candidate-side profile's at-most-k top-k hit
+   * its M6 bound, so `newCategories` may be incomplete. **Absence is
+   * meaning**: absent is the one spelling of "not bounded" (there is no
+   * `false` — one shape per meaning), so artifacts without bounding
+   * serialize byte-identically to before. Additive-only within v1
+   * (D17-Q12); the literal `true` type keeps the AST honest at compile
+   * time.
+   */
+  readonly newCategoriesBounded?: true
+  /** As {@link DcrCategoricalDistributionDelta.newCategoriesBounded}, for the base-side top-k behind `vanishedCategories`. */
+  readonly vanishedCategoriesBounded?: true
 }
 
 /** One shared column's distribution delta (mirrors `@assay/diff` `ColumnDistributionDelta`). */

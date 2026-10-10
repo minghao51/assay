@@ -1,0 +1,36 @@
+format: assay-dcr
+version: 1
+base:
+  datasetId: dataset-a
+  versionId: version-a-1
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: fp-a-0001
+  materialization:
+    node: src_orders
+candidate:
+  datasetId: dataset-a
+  versionId: version-a-2
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: fp-a-0002
+  materialization:
+    export: exports/run-2/out.parquet
+deltas:
+  columnDeltas:
+    - column: status
+      typeA: VARCHAR
+      typeB: VARCHAR
+      kindA: categorical
+      kindB: categorical
+      categorical:
+        totalVariation: 0.25
+        newCategories:
+          - value: alpha
+            count: 7
+        vanishedCategories: []
+        newCategoryBounded: true
+
+privacyFindings:
+  status: not-computed
+  disclosure: "Privacy findings were not computed: this build has no local privacy-analysis producer (ADR 0046, ruling D17-Q6)."
