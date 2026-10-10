@@ -1,8 +1,8 @@
 # P3 — DCR Integration (Phase Document)
 
 **Status:** ACTIVE — opened 2026-10-10 off rulings D16/D17; spec review RULED same day (**D19**,
-2026-10-10); p3-1 landed (`dae8e83`); queue six rows (p3-1b inserted between p3-2 and p3-3);
-**p3-2 next**.
+2026-10-10); p3-1 landed (`dae8e83`); p3-2 landed (`72363b7`); queue six rows (p3-1b inserted
+between p3-2 and p3-3); **p3-1b next**.
 Execution queue: [P3 queue](../process/handoff/20261002-p3-queue.md) (scope/done-when/STOP per row).
 Format rulings: [ADR 0046](../adr/0046-dcr-artifact-format-v1.md) + the ruled
 [spec §9](06-dcr-artifact.md). This document proposes design and collects open questions; it does
@@ -145,7 +145,10 @@ Design notes:
   `schemaFingerprint {algorithm, value}` + optional `provenance {transformationRecipe?,
 parentVersionIds?}` + a `materialization` of `{node} | {export}`. Mapping: the **logical id**
   comes from the run's dataset identity (not a file path); the **schema fingerprint** comes from
-  engine introspection of the materialized table/view the producing node left behind; the
+  engine introspection of the materialized view/ephemeral/table relation the producing node left
+  behind (the runner's native modes are view/ephemeral/table/export — export goes via the export
+  form; reviewer note, 2026-10-10: the queue's `table`/`export`/`view` phrasing was loose,
+  `ephemeral` added here); the
   **provenance** carries the run + node identity (the plan as `transformationRecipe`, the input
   datasets as `parentVersionIds` — no wall-clock, per Q11); the **materialization reference** uses
   the node form or the export form, with the runner's value-free `exportPath` (`pipelineExportPath`
