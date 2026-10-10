@@ -20,6 +20,16 @@ export interface CliFlags {
   readonly contract?: string
   readonly format?: string
   readonly sampleLimit?: string
+  /** `--out` was passed: the p3-3 `assay dcr` artifact destination. */
+  readonly out?: string
+  /** `--base-node` / `--base-dataset-id` / `--base-version-id` (`assay dcr`). */
+  readonly baseNode?: string
+  readonly baseDatasetId?: string
+  readonly baseVersionId?: string
+  /** `--candidate-node` / `--candidate-dataset-id` / `--candidate-version-id` (`assay dcr`). */
+  readonly candidateNode?: string
+  readonly candidateDatasetId?: string
+  readonly candidateVersionId?: string
   /** `--key` occurrences, in the order given (repeatable). */
   readonly keys: readonly string[]
   /** `--infer` was passed (top-candidate inference with disclosure). */
@@ -44,6 +54,13 @@ const KNOWN_FLAGS: ReadonlySet<string> = new Set([
   'contract',
   'format',
   'sample-limit',
+  'out',
+  'base-node',
+  'base-dataset-id',
+  'base-version-id',
+  'candidate-node',
+  'candidate-dataset-id',
+  'candidate-version-id',
   'key',
   'infer',
   'quiet',
@@ -61,6 +78,27 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'version',
 ])
 
+/**
+ * The p3-3 `assay dcr` flags are `dcr`-only: every other command rejects
+ * them instead of silently ignoring them (the m6-3 cross-command
+ * discipline). Called from the entry before any command resolver runs.
+ */
+export function assertNoDcrFlags(command: string, flags: CliFlags): void {
+  const taken: string[] = []
+  if (flags.out !== undefined) taken.push('--out')
+  if (flags.baseNode !== undefined) taken.push('--base-node')
+  if (flags.baseDatasetId !== undefined) taken.push('--base-dataset-id')
+  if (flags.baseVersionId !== undefined) taken.push('--base-version-id')
+  if (flags.candidateNode !== undefined) taken.push('--candidate-node')
+  if (flags.candidateDatasetId !== undefined) taken.push('--candidate-dataset-id')
+  if (flags.candidateVersionId !== undefined) taken.push('--candidate-version-id')
+  if (taken.length > 0) {
+    throw usageError(
+      `${command} does not take ${taken.join(', ')} (did you mean \`assay dcr\`? see --help)`,
+    )
+  }
+}
+
 /** Parse argv (without the node/script preamble) into command + flags. */
 export function parseArgs(argv: readonly string[]): CliInvocation {
   const positionals: string[] = []
@@ -69,6 +107,13 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
   let contract: string | undefined
   let format: string | undefined
   let sampleLimit: string | undefined
+  let out: string | undefined
+  let baseNode: string | undefined
+  let baseDatasetId: string | undefined
+  let baseVersionId: string | undefined
+  let candidateNode: string | undefined
+  let candidateDatasetId: string | undefined
+  let candidateVersionId: string | undefined
   let infer = false
   let quiet = false
   let noTelemetry = false
@@ -116,6 +161,13 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
       if (name === 'contract') contract = value
       else if (name === 'format') format = value
       else if (name === 'sample-limit') sampleLimit = value
+      else if (name === 'out') out = value
+      else if (name === 'base-node') baseNode = value
+      else if (name === 'base-dataset-id') baseDatasetId = value
+      else if (name === 'base-version-id') baseVersionId = value
+      else if (name === 'candidate-node') candidateNode = value
+      else if (name === 'candidate-dataset-id') candidateDatasetId = value
+      else if (name === 'candidate-version-id') candidateVersionId = value
       else if (name === 'key') keys.push(value)
       continue
     }
@@ -125,6 +177,23 @@ export function parseArgs(argv: readonly string[]): CliInvocation {
   return {
     command,
     positionals,
-    flags: { contract, format, sampleLimit, keys, infer, quiet, noTelemetry, help, version },
+    flags: {
+      contract,
+      format,
+      sampleLimit,
+      out,
+      baseNode,
+      baseDatasetId,
+      baseVersionId,
+      candidateNode,
+      candidateDatasetId,
+      candidateVersionId,
+      keys,
+      infer,
+      quiet,
+      noTelemetry,
+      help,
+      version,
+    },
   }
 }

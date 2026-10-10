@@ -19,7 +19,7 @@
  */
 import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { parseArgs } from './args.js'
+import { assertNoDcrFlags, parseArgs } from './args.js'
 import type { CommandContext } from './context.js'
 import { CliError } from './errors.js'
 import type { CliExitCode } from './errors.js'
@@ -41,6 +41,7 @@ export function helpText(): string {
     '  assay profile <path> [options]',
     '  assay pipeline validate <file> [options]',
     '  assay pipeline run <file> [options]',
+    '  assay dcr <file> [options]',
     '',
     'commands:',
     '  validate          validate a dataset against an assay contract',
@@ -53,6 +54,10 @@ export function helpText(): string {
     '                    visibility (no execution); run = execute the pipeline',
     '                    (gates + materialization) on a local in-memory',
     '                    DuckDB session and report per-node outcomes',
+    '  dcr               generate a DCR artifact (ADR 0046) off a pipeline',
+    '                    run: base + candidate DatasetVersion references from',
+    '                    the named nodes, schema drift, the executed validate',
+    '                    verdicts, and lineage — as a new canonical YAML file',
     '  help              show this help',
     '',
     'global options:',
@@ -129,6 +134,45 @@ export function helpText(): string {
     '0 completed, 1 gated/failed/refused or a DAG/compile refusal, 2 malformed,',
     'unreadable, unresolvable sources, or unresolvable contracts.',
     '',
+    'dcr options:',
+    '  --out <path>                artifact destination — a NEW file (an',
+    '                              existing path is never overwritten; exit 2',
+    '                              before anything runs)',
+    '  --base-node <id>            the data node whose materialized output is',
+    '                              the base version (source/gate nodes are',
+    '                              not dataset versions)',
+    "  --base-dataset-id <id>      the base version's logical dataset id",
+    '  --base-version-id <id>      explicit base version id (default:',
+    '                              <dataset-id>@<fingerprint prefix>)',
+    '  --candidate-node <id>       the data node whose materialized output is',
+    '                              the candidate version',
+    "  --candidate-dataset-id <id> the candidate version's logical dataset id",
+    '  --candidate-version-id <id> explicit candidate version id (same default',
+    '                              rule)',
+    '  --key <column>              explicit diff key set (repeatable; required',
+    '                              when the pipeline has a diff node — keys',
+    '                              are never inferred)',
+    '  --format <fmt>              human (default) or json — the report format',
+    '',
+    'dcr runs the pipeline (the `assay pipeline run` execution) and derives a',
+    'DCR artifact (ADR 0046) from the run: the base and candidate',
+    "DatasetVersion references come from the two named nodes' materialized",
+    'outputs (one derivation path for both sides); deltas carry the structural',
+    'schema drift between the two relations; validation carries every validate',
+    'verdict the run executed — a gated run carries the verdict that stopped',
+    'it, and verdicts that do not exist are never fabricated; lineage carries',
+    'the executed node order. The artifact is written as a NEW file in the',
+    'canonical byte-stable YAML form. Both materialization references are',
+    'verified against the run session at export time; a reference that no',
+    'longer resolves refuses loudly (exit 1, nothing written).',
+    '',
+    'dcr exit codes: 0 the artifact was written off a completed run; 1 the',
+    'artifact was written off a gated run (the report discloses the gating),',
+    'or a failed/refused/canceled run produced no artifact, or a materialization',
+    'reference was dangling at export time; 2 usage, malformed pipeline,',
+    'unresolvable sources/contracts/gate bindings, a reference derivation that',
+    'does not match the run, a build refusal, or an existing --out path.',
+    '',
     'output:',
     '  Human reports get ANSI color only when stdout is a terminal. NO_COLOR',
     '  (any value, including empty) disables it; FORCE_COLOR=0, false, or an',
@@ -190,6 +234,11 @@ export async function main(argv: readonly string[], io: CliIo = processIo()): Pr
     progress: createProgressReporter({ stream: io.stderr, quiet: invocation.flags.quiet }),
     telemetry,
   }
+  // Cross-command flags are rejected, never silently ignored (the m6-3
+  // discipline): the p3-3 `dcr` flags are `dcr`-only.
+  if (invocation.command !== 'dcr' && invocation.command !== undefined) {
+    assertNoDcrFlags(invocation.command, invocation.flags)
+  }
   // The first-run disclosure (stderr only) and `app_boot` are emitted before
   // the command runs, and never for `--help`/`--version` (design §6.3).
   telemetry.start()
@@ -229,6 +278,25 @@ export async function main(argv: readonly string[], io: CliIo = processIo()): Pr
         positionals: invocation.positionals,
       })
       return await runProfileCommand(options, context)
+    }
+    if (invocation.command === 'dcr') {
+      const { runDcrCommand, resolveDcrOptions } = await import('./dcr.js')
+      const options = resolveDcrOptions({
+        contract: invocation.flags.contract,
+        keys: invocation.flags.keys,
+        infer: invocation.flags.infer,
+        sampleLimit: invocation.flags.sampleLimit,
+        format: invocation.flags.format,
+        out: invocation.flags.out,
+        baseNode: invocation.flags.baseNode,
+        baseDatasetId: invocation.flags.baseDatasetId,
+        baseVersionId: invocation.flags.baseVersionId,
+        candidateNode: invocation.flags.candidateNode,
+        candidateDatasetId: invocation.flags.candidateDatasetId,
+        candidateVersionId: invocation.flags.candidateVersionId,
+        positionals: invocation.positionals,
+      })
+      return await runDcrCommand(options, context)
     }
     if (invocation.command === 'pipeline') {
       const { runPipelineCommand, resolvePipelineOptions } = await import('./pipeline.js')

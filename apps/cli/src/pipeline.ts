@@ -171,13 +171,13 @@ function dataSubgraph(pipeline: PipelineV1): PipelineV1 {
 }
 
 /** One validate node's static contract resolution. */
-interface ResolvedContract {
+export interface ResolvedContract {
   readonly status: PipelineContractStatus
   /** Localized, sanitized failure lines to disclose ([] when resolved). */
   readonly errorLines: readonly string[]
 }
 
-interface ContractResolution {
+export interface ContractResolution {
   readonly bindings: readonly PipelineRunContractBinding[]
   readonly byNode: ReadonlyMap<string, ResolvedContract>
   /** Flat, sanitized failure disclosure lines (collect-all, node order). */
@@ -190,10 +190,13 @@ interface ContractResolution {
  * paths pass through), is read, and is parsed with the m5-0 total parser.
  * Every failure — missing/unreadable file, parse errors — is COLLECTED in
  * node order and disclosed value-free, node-attributed; the caller decides
- * whether that is a report row (`validate`) or a refuse-before-execution
- * (`run`). Never guesses.
+ * whether that is a report row (`validate`), a refuse-before-execution
+ * (`run`), or the same (p3-3 `assay dcr`). Never guesses.
  */
-function resolveValidateContracts(pipeline: PipelineV1, pipelinePath: string): ContractResolution {
+export function resolveValidateContracts(
+  pipeline: PipelineV1,
+  pipelinePath: string,
+): ContractResolution {
   const baseDir = dirname(pipelinePath)
   const bindings: PipelineRunContractBinding[] = []
   const byNode = new Map<string, ResolvedContract>()

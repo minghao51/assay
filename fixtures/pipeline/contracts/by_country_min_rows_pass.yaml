@@ -1,0 +1,5 @@
+format: v1
+name: by-country-min-rows
+version: 1
+dataset:
+  min-rows: 1

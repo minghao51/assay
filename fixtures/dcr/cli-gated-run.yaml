@@ -1,0 +1,54 @@
+format: assay-dcr
+version: 1
+base:
+  datasetId: customers_base
+  versionId: customers_base@109bc0a5db22eecc
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: 109bc0a5db22eecc602340293d5d2855bd66bcfeacde1792880e0a71e5b5ff75
+  provenance:
+    transformationRecipe: cli_dcr_gated|renamed
+    parentVersionIds: [ customers ]
+  materialization:
+    node: renamed
+candidate:
+  datasetId: customers_by_country
+  versionId: customers_by_country@870adfe368067bc6
+  schemaFingerprint:
+    algorithm: assay-schema-fingerprint-v1
+    value: 870adfe368067bc6a9b1b79f74040c0d30db6b002f168fca7752190121f64f3a
+  provenance:
+    transformationRecipe: cli_dcr_gated|by_country
+    parentVersionIds: [ sg_only ]
+  materialization:
+    node: by_country
+deltas:
+  schemaDrift:
+    - kind: column-removed
+      column: customer_ref
+      typeA: BIGINT
+      familyA: numeric
+    - kind: column-added
+      column: customers
+      typeB: BIGINT
+      familyB: numeric
+    - kind: column-removed
+      column: income
+      typeA: BIGINT
+      familyA: numeric
+    - kind: column-removed
+      column: signup_date
+      typeA: DATE
+      familyA: temporal
+validation:
+  - nodeId: quality
+    input: by_country
+    valid: false
+    violatedRules: 1
+    rowCount: 1
+lineage:
+  inputVersionIds: [ customers_base@109bc0a5db22eecc ]
+  nodes: [ customers, renamed, sg_only, by_country, quality ]
+privacyFindings:
+  status: not-computed
+  disclosure: "Privacy findings were not computed: this build has no local privacy-analysis producer (ADR 0046, ruling D17-Q6)."

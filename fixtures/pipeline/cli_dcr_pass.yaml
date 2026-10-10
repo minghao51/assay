@@ -1,0 +1,38 @@
+version: 1
+pipeline: cli_dcr_pass
+nodes:
+  by_country:
+    type: transform
+    inputs: [ sg_only ]
+    operation:
+      aggregate:
+        aggregations:
+          - as: customers
+            op: count
+        group_by:
+          - country
+  customers:
+    type: source
+    source:
+      kind: file
+      path: ../csv/customers.csv
+  quality:
+    type: validate
+    input: by_country
+    contract: contracts/by_country_min_rows_pass.yaml
+  renamed:
+    type: transform
+    inputs: [ customers ]
+    operation:
+      rename:
+        columns:
+          customer_id: customer_ref
+  sg_only:
+    type: transform
+    inputs: [ renamed ]
+    operation:
+      filter:
+        predicates:
+          - column: country
+            operator: equals
+            value: SG

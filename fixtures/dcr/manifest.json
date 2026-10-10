@@ -1,5 +1,5 @@
 {
-  "generator": "hand-authored probes + artifacts generated through serializeDcr itself (p3-1)",
+  "generator": "hand-authored probes + artifacts generated through serializeDcr itself (p3-1); cli-gated-run.yaml minted by the p3-3 CLI path",
   "policy": "Golden DCR artifact documents (ADR 0046, ruling D17) backing the round-trip, byte-stability, and refusal pins. Synthetic, value-free data only (ADR 0025): no dataset cell values, no SQL, no timestamps, no sensitive paths \u2014 pinned by scan tests in packages/pipeline/src/dcr-build.test.ts. Canonical fixtures satisfy text === serializeDcr(parseDcr(text)); gated-run-alternate.yaml is the deliberate non-canonical rendering pinned to canonicalize to gated-run.yaml; the refuses-* fixtures are negative probes (parse must fail with exactly the pinned code). The D19-OQ-4 bounding-disclosure keys (newCategoriesBounded / vanishedCategoriesBounded, p3-1b) are additive-optional: present exactly when a top-k payload hit its M6 bound, absent otherwise. Regenerate the sha256 values deliberately with any fixture change.",
   "files": [
     {
@@ -20,6 +20,12 @@
       "sha256": "361424a4d5865dedd59fef3f0ff5174a46601a0cd12b5c7b9923fd09a29dd741",
       "canonical": true,
       "description": "Full canonical artifact off a synthetic gated run: schema-drift findings (type-cross-family, column-added, nullability), numeric + categorical distribution deltas, a keyed rowDiff with bounded anchor-free samples, two value-free validate verdicts, and P2-derived lineage. Generated through serializeDcr itself, so canonical: true is honest by construction"
+    },
+    {
+      "name": "cli-gated-run.yaml",
+      "sha256": "fa78df965bb0b16365ee7e174e57364ab7dfa0dd4e737f31d4ae7b29186d73c5",
+      "canonical": true,
+      "description": "p3-3: the committed golden artifact the REAL CLI path writes end-to-end (execute the fixtures/pipeline/cli_dcr_gated.yaml gated run, derive both version references via the p3-2 function, buildDcrArtifact, serializeDcr) \u2014 apps/cli/src/dcr.integration.test.ts pins CLI bytes == serializer bytes == this file, plus run-to-run stability. Generated through serializeDcr itself, so canonical: true is honest by construction"
     },
     {
       "name": "minimal.yaml",
