@@ -14,6 +14,7 @@ import {
 import type { PipelineNodeView } from './pipeline-model'
 import type {
   ContractBindingState,
+  DcrExportState,
   NodeRunStatus,
   PipelineFileState,
   PipelinePreviewState,
@@ -22,6 +23,7 @@ import type {
   SourceBindingState,
 } from './pipeline-state'
 import { sanitizePipelineText } from './sanitize'
+import { dcrExportableNodeIds } from './dcr-export'
 import { DataGrid } from '../grid/DataGrid'
 
 /**
@@ -69,6 +71,13 @@ export interface PipelinePanelProps {
   readonly onCancel: () => void
   readonly onOpenPreview: (nodeId: string) => void
   readonly onClosePreview: () => void
+  readonly dcrExport: DcrExportState
+  readonly onExportDcr: (spec: {
+    readonly baseNodeId: string
+    readonly baseDatasetId: string
+    readonly candidateNodeId: string
+    readonly candidateDatasetId: string
+  }) => void
 }
 
 /** One sanitized, located pipeline-error line (the p-1 canonical form). */
@@ -185,6 +194,8 @@ export function PipelinePanel({
   onCancel,
   onOpenPreview,
   onClosePreview,
+  dcrExport,
+  onExportDcr,
 }: PipelinePanelProps) {
   /**
    * The inspect view (pure derivation over the loaded pipeline + plan).
@@ -232,6 +243,14 @@ export function PipelinePanel({
   )
 
   const running = runState.kind === 'running'
+
+  // The DCR export form state (panel-local, like the validation export's
+  // format state): both sides' node choice + logical dataset id. Defaults
+  // are empty — the user states every side explicitly (C2: never guessed).
+  const [dcrBaseNode, setDcrBaseNode] = useState('')
+  const [dcrBaseDatasetId, setDcrBaseDatasetId] = useState('')
+  const [dcrCandidateNode, setDcrCandidateNode] = useState('')
+  const [dcrCandidateDatasetId, setDcrCandidateDatasetId] = useState('')
 
   /**
    * ONE polite live region for run transitions (the q-3 house pattern:
@@ -798,6 +817,22 @@ export function PipelinePanel({
             </p>
           )}
 
+          {(runState.kind === 'completed' || runState.kind === 'gated') && (
+            <DcrExportSection
+              runState={runState}
+              dcrExport={dcrExport}
+              baseNode={dcrBaseNode}
+              baseDatasetId={dcrBaseDatasetId}
+              candidateNode={dcrCandidateNode}
+              candidateDatasetId={dcrCandidateDatasetId}
+              onBaseNode={setDcrBaseNode}
+              onBaseDatasetId={setDcrBaseDatasetId}
+              onCandidateNode={setDcrCandidateNode}
+              onCandidateDatasetId={setDcrCandidateDatasetId}
+              onExport={onExportDcr}
+            />
+          )}
+
           {lineage !== null && (
             <section className="pipeline-lineage" aria-label="Pipeline lineage">
               <h3>Lineage</h3>
@@ -1001,5 +1036,172 @@ function PreviewBody({
         </>
       )}
     </section>
+  )
+}
+
+/**
+ * The DCR artifact export section (p3-4): offered on completed/gated runs.
+ * Both comparison sides are stated explicitly (C2 — the node choice from
+ * the run's materialized data nodes, the logical dataset id typed by the
+ * user, never guessed, never a path); the artifact is always a NEW file and
+ * the copy says so; every settled outcome is an honest, value-free line —
+ * the derivation refusals (including the D19-OQ-5 dangling-materialization
+ * refusal) render as alerts stating that NOTHING was written.
+ */
+function DcrExportSection(props: {
+  readonly runState: Extract<PipelineRunState, { readonly kind: 'completed' | 'gated' }>
+  readonly dcrExport: DcrExportState
+  readonly baseNode: string
+  readonly baseDatasetId: string
+  readonly candidateNode: string
+  readonly candidateDatasetId: string
+  readonly onBaseNode: (value: string) => void
+  readonly onBaseDatasetId: (value: string) => void
+  readonly onCandidateNode: (value: string) => void
+  readonly onCandidateDatasetId: (value: string) => void
+  readonly onExport: (spec: {
+    readonly baseNodeId: string
+    readonly baseDatasetId: string
+    readonly candidateNodeId: string
+    readonly candidateDatasetId: string
+  }) => void
+}): React.JSX.Element {
+  const choices = dcrExportableNodeIds(
+    props.runState.kind === 'gated'
+      ? {
+          status: 'gated',
+          gatedAt: props.runState.gatedAt,
+          gate: props.runState.gate,
+          nextNodeId: props.runState.nextNodeId,
+          nodes: props.runState.outcomes,
+        }
+      : { status: 'completed', nodes: props.runState.outcomes },
+  )
+  const ready =
+    props.baseNode !== '' &&
+    props.baseDatasetId.trim() !== '' &&
+    props.candidateNode !== '' &&
+    props.candidateDatasetId.trim() !== ''
+  return (
+    <fieldset className="pipeline-dcr-export" data-testid="pipeline-dcr-export">
+      <legend>Export the DCR artifact</legend>
+      <p className="pipeline-dcr-copy" data-testid="pipeline-dcr-copy">
+        Writes a <strong>new file</strong> describing the change from the base to the candidate
+        version of this run — schema drift, the validate verdicts the run executed, and lineage.
+        Name both sides explicitly: the node whose output is the version, and the dataset&apos;s
+        logical id (a name, never a path). No dataset values are included.
+      </p>
+      <div className="pipeline-dcr-side">
+        <label htmlFor="pipeline-dcr-base-node">Base node</label>{' '}
+        <select
+          id="pipeline-dcr-base-node"
+          className="pipeline-dcr-node"
+          data-testid="pipeline-dcr-base-node"
+          value={props.baseNode}
+          onChange={(event) => {
+            props.onBaseNode(event.target.value)
+          }}
+        >
+          <option value="">choose the base node…</option>
+          {choices.map((nodeId) => (
+            <option key={nodeId} value={nodeId}>
+              {sanitizePipelineText(nodeId)}
+            </option>
+          ))}
+        </select>{' '}
+        <label htmlFor="pipeline-dcr-base-dataset">Base dataset id</label>{' '}
+        <input
+          id="pipeline-dcr-base-dataset"
+          className="pipeline-dcr-dataset"
+          data-testid="pipeline-dcr-base-dataset"
+          type="text"
+          value={props.baseDatasetId}
+          onChange={(event) => {
+            props.onBaseDatasetId(event.target.value)
+          }}
+        />
+      </div>
+      <div className="pipeline-dcr-side">
+        <label htmlFor="pipeline-dcr-candidate-node">Candidate node</label>{' '}
+        <select
+          id="pipeline-dcr-candidate-node"
+          className="pipeline-dcr-node"
+          data-testid="pipeline-dcr-candidate-node"
+          value={props.candidateNode}
+          onChange={(event) => {
+            props.onCandidateNode(event.target.value)
+          }}
+        >
+          <option value="">choose the candidate node…</option>
+          {choices.map((nodeId) => (
+            <option key={nodeId} value={nodeId}>
+              {sanitizePipelineText(nodeId)}
+            </option>
+          ))}
+        </select>{' '}
+        <label htmlFor="pipeline-dcr-candidate-dataset">Candidate dataset id</label>{' '}
+        <input
+          id="pipeline-dcr-candidate-dataset"
+          className="pipeline-dcr-dataset"
+          data-testid="pipeline-dcr-candidate-dataset"
+          type="text"
+          value={props.candidateDatasetId}
+          onChange={(event) => {
+            props.onCandidateDatasetId(event.target.value)
+          }}
+        />
+      </div>
+      <button
+        type="button"
+        className="pipeline-dcr-run"
+        data-testid="pipeline-dcr-export-run"
+        disabled={!ready || props.dcrExport.kind === 'working'}
+        onClick={() => {
+          props.onExport({
+            baseNodeId: props.baseNode,
+            baseDatasetId: props.baseDatasetId,
+            candidateNodeId: props.candidateNode,
+            candidateDatasetId: props.candidateDatasetId,
+          })
+        }}
+      >
+        Export DCR artifact…
+      </button>
+      {props.dcrExport.kind === 'working' && (
+        <p role="status" data-testid="pipeline-dcr-export-progress">
+          Deriving the artifact…
+        </p>
+      )}
+      {props.dcrExport.kind === 'delivered' && (
+        <p role="status" data-testid="pipeline-dcr-export-result" data-state="delivered">
+          {props.dcrExport.message}
+        </p>
+      )}
+      {props.dcrExport.kind === 'cancelled' && (
+        <p role="status" data-testid="pipeline-dcr-export-cancelled">
+          Export cancelled — no new file was written, and the opened file is unchanged.
+        </p>
+      )}
+      {props.dcrExport.kind === 'same-source' && (
+        <p role="alert" data-testid="pipeline-dcr-export-same-source">
+          That is the opened file — writing the artifact there would change the source. Choose a
+          different name or location. Nothing was written, and the opened file is unchanged.
+        </p>
+      )}
+      {props.dcrExport.kind === 'refused' && (
+        <p
+          role="alert"
+          data-testid="pipeline-dcr-export-refused"
+          data-reason={props.dcrExport.reason}
+        >
+          {props.dcrExport.message}
+        </p>
+      )}
+      {props.dcrExport.kind === 'failed' && (
+        <p role="alert" data-testid="pipeline-dcr-export-failed">
+          {props.dcrExport.message}
+        </p>
+      )}
+    </fieldset>
   )
 }

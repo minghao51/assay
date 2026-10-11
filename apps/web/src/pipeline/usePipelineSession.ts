@@ -59,12 +59,23 @@ import type {
 } from '@assay/engine-duckdb'
 import { pickDataFile } from '@assay/data-sources/browser'
 import type { DatasetSession } from '../sessions/session-reset'
+import type { SourceIdentity } from '../export/save-destination'
 import { engineClient } from '../lib/engine'
 import { DuckDbGridProvider } from '../grid/provider'
 import { readContractFile } from '../validation/contract-import'
 import { buildNodeViews, materializationBadgeFor } from './pipeline-model'
+import {
+  dcrExportFailureMessage,
+  dcrExportSuccessMessage,
+  dcrRefusalMessage,
+  deriveDcrArtifact,
+  requestDcrDestination,
+  writeDcrCopy,
+} from './dcr-export'
+import type { DcrExportRun, DcrExportSpec } from './dcr-export'
 import type {
   ContractBindingState,
+  DcrExportState,
   NodeMaterialization,
   PipelineFileState,
   PipelinePreviewState,
@@ -76,6 +87,13 @@ import { advanceNodeStatuses } from './pipeline-state'
 
 export interface PipelineSessionParams {
   readonly session: DatasetSession
+  /**
+   * The opened source's retained FSA identity (App-owned; the m4-5 rule).
+   * Present only for FSA-opened sessions — it is what lets a picked save
+   * destination be proven-not-the-source before any byte write. Absent
+   * means the DCR export is download-only by construction.
+   */
+  readonly sourceIdentityRef: { current: SourceIdentity | null }
 }
 
 export interface PipelineSession {
@@ -84,6 +102,7 @@ export interface PipelineSession {
   readonly contractBindings: Readonly<Record<string, ContractBindingState>>
   readonly runState: PipelineRunState
   readonly preview: PipelinePreviewState
+  readonly dcrExport: DcrExportState
   readonly openPipelineFile: () => void
   readonly bindSourceDataset: (nodeId: string) => void
   readonly bindContract: (nodeId: string) => void
@@ -91,6 +110,7 @@ export interface PipelineSession {
   readonly cancelRun: () => void
   readonly openPreview: (nodeId: string) => void
   readonly closePreview: () => void
+  readonly exportDcr: (spec: DcrExportSpec) => void
 }
 
 /** Readable, fixed text for an unexpected (non-typed) run failure. */
@@ -181,7 +201,7 @@ function buildPreviewModel(handle: Parameters<typeof engineClient.schema>[0]): G
 }
 
 export function usePipelineSession(params: PipelineSessionParams): PipelineSession {
-  const { session } = params
+  const { session, sourceIdentityRef } = params
 
   const [fileState, setFileState] = useState<PipelineFileState>({ kind: 'none' })
   const [bindings, setBindings] = useState<Readonly<Record<string, SourceBindingState>>>({})
@@ -190,6 +210,7 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
   >({})
   const [runState, setRunState] = useState<PipelineRunState>({ kind: 'idle' })
   const [preview, setPreview] = useState<PipelinePreviewState>({ kind: 'closed' })
+  const [dcrExport, setDcrExport] = useState<DcrExportState>({ kind: 'idle' })
 
   /**
    * Monotonic run token: each run captures its token and every delivery
@@ -215,6 +236,8 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
   contractBindingsRef.current = contractBindings
   const runStateRef = useRef(runState)
   runStateRef.current = runState
+  const dcrExportRef = useRef(dcrExport)
+  dcrExportRef.current = dcrExport
 
   /**
    * f-1: a new dataset open drops the pipeline session. The token bump also
@@ -234,6 +257,7 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
       setContractBindings({})
       setRunState({ kind: 'idle' })
       setPreview({ kind: 'closed' })
+      setDcrExport({ kind: 'idle' })
     }
     return session.registerReset(reset)
   }, [session])
@@ -305,6 +329,7 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
       setContractBindings({})
       setRunState({ kind: 'idle' })
       setPreview({ kind: 'closed' })
+      setDcrExport({ kind: 'idle' })
       setFileState({
         kind: 'loaded',
         pipeline: parsed.pipeline,
@@ -463,6 +488,7 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
     runTokenRef.current = token
     previewTokenRef.current += 1
     setPreview({ kind: 'closed' })
+    setDcrExport({ kind: 'idle' })
     const guard = new PipelineRunGuard()
     guardRef.current = guard
     const sessionId = session.tokenRef.current
@@ -637,6 +663,109 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
     setPreview({ kind: 'closed' })
   }, [])
 
+  /**
+   * Export the DCR artifact off the settled run (p3-4). The derivation
+   * mirrors the CLI seam exactly (see `./dcr-export`): both sides through
+   * the p3-2 function, OQ-5 export-time liveness through the SAME
+   * `schemaOf` op the runner used (built here over the p2-1 handle op —
+   * the client's own internal op path), the payload through the p3-1
+   * builder. Refusals are typed states with nothing written; delivery is
+   * the m4-5/m5-3 save-destination discipline (download-only when identity
+   * cannot be proven).
+   */
+  const exportDcr = useCallback(
+    (rawSpec: DcrExportSpec): void => {
+      const current = fileStateRef.current
+      if (current.kind !== 'loaded') return
+      const settled = runStateRef.current
+      if (settled.kind !== 'completed' && settled.kind !== 'gated') return
+      if (dcrExportRef.current.kind === 'working') return
+      const spec: DcrExportSpec = {
+        baseNodeId: rawSpec.baseNodeId,
+        baseDatasetId: rawSpec.baseDatasetId.trim(),
+        candidateNodeId: rawSpec.candidateNodeId,
+        candidateDatasetId: rawSpec.candidateDatasetId.trim(),
+      }
+      if (spec.baseNodeId === spec.candidateNodeId) {
+        setDcrExport({
+          kind: 'refused',
+          reason: 'same-node',
+          nodeId: null,
+          message: dcrRefusalMessage({ reason: 'same-node', nodeId: null }),
+        })
+        return
+      }
+      const token = runTokenRef.current
+      const sessionId = session.tokenRef.current
+      setDcrExport({ kind: 'working' })
+      void (async () => {
+        const dropped = (): boolean =>
+          runTokenRef.current !== token || session.tokenRef.current !== sessionId
+        // The session-truth seam: the SAME ops path the runner used (the
+        // p2-1 handle op + the schema surface) — one source of session
+        // truth for both the derivation and the OQ-5 liveness check.
+        const schemaOf = async (relation: string) => {
+          const handle = await engineClient.registerPipelineRelation(relation)
+          const columns = await engineClient.schema(handle)
+          return columns.map((column) => ({ name: column.name, type: column.type }))
+        }
+        const run: DcrExportRun =
+          settled.kind === 'gated'
+            ? {
+                status: 'gated',
+                gatedAt: settled.gatedAt,
+                gate: settled.gate,
+                nextNodeId: settled.nextNodeId,
+                nodes: settled.outcomes,
+              }
+            : { status: 'completed', nodes: settled.outcomes }
+        const derived = await deriveDcrArtifact({ run, plan: current.pipeline, schemaOf, spec })
+        if (dropped()) return
+        if (!derived.ok) {
+          setDcrExport({
+            kind: 'refused',
+            reason: derived.refusal.reason,
+            nodeId: derived.refusal.nodeId,
+            message: dcrRefusalMessage(derived.refusal),
+          })
+          return
+        }
+        let destination: Awaited<ReturnType<typeof requestDcrDestination>> = null
+        try {
+          destination = await requestDcrDestination({
+            sourceIdentity: sourceIdentityRef.current ?? undefined,
+          })
+        } catch (error) {
+          if (dropped()) return
+          setDcrExport({ kind: 'failed', message: dcrExportFailureMessage(error) })
+          return
+        }
+        if (dropped()) return
+        if (destination === null) {
+          setDcrExport({ kind: 'cancelled' })
+          return
+        }
+        if (destination.via === 'refused-source') {
+          setDcrExport({ kind: 'same-source' })
+          return
+        }
+        try {
+          const strategy = await writeDcrCopy(destination, { yaml: derived.yaml })
+          if (dropped()) return
+          setDcrExport({
+            kind: 'delivered',
+            strategy,
+            message: dcrExportSuccessMessage(derived.summary, strategy),
+          })
+        } catch (error) {
+          if (dropped()) return
+          setDcrExport({ kind: 'failed', message: dcrExportFailureMessage(error) })
+        }
+      })()
+    },
+    [session, sourceIdentityRef],
+  )
+
   return {
     fileState,
     bindings,
@@ -650,5 +779,7 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
     cancelRun,
     openPreview,
     closePreview,
+    dcrExport,
+    exportDcr,
   }
 }

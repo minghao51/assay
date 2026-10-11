@@ -145,11 +145,14 @@ export async function openPipelineDocument(
 }
 
 /** Bind the pipeline's single source node through the real picker path. */
-export async function bindSourceDataset(page: Page): Promise<void> {
+export async function bindSourceDataset(
+  page: Page,
+  datasetPath: string = PIPELINE_DATASET_FIXTURE,
+): Promise<void> {
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('pipeline-bind').focus()
   await page.keyboard.press('Enter')
-  await (await chooserPromise).setFiles(PIPELINE_DATASET_FIXTURE)
+  await (await chooserPromise).setFiles(datasetPath)
   await expect(page.getByTestId('pipeline-source-bound')).toBeVisible()
 }
 

@@ -1786,6 +1786,50 @@ h1 {
   color: var(--color-success-text);
 }
 
+/* p3-4: the DCR artifact export section (mirrors the m5-3/m6-4 export
+   sections; form controls follow the panel's select/button tokens). */
+.pipeline-dcr-export {
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border-panel-subtle);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pipeline-dcr-copy {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.pipeline-dcr-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.pipeline-dcr-node {
+  max-width: 14rem;
+}
+
+.pipeline-dcr-dataset {
+  width: 12rem;
+}
+
+.pipeline-dcr-export p[role='status'],
+.pipeline-dcr-export p[role='alert'] {
+  margin: 0;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-dcr-export p[role='alert'] {
+  color: var(--color-error-text);
+}
+
 .telemetry-settings {
   position: absolute;
   top: 0.5rem;

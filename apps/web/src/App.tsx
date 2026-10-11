@@ -458,7 +458,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * pane's result surface. Entirely dataset-session scoped: the reset
    * registered inside the hook drops everything on a new file open.
    */
-  const pipeline = usePipelineSession({ session: datasetSession })
+  const pipeline = usePipelineSession({ session: datasetSession, sourceIdentityRef })
 
   /**
    * m6-4 comparison session (f-1 extraction): staged comparison, row-diff run
@@ -1109,6 +1109,8 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                         onCancel={pipeline.cancelRun}
                         onOpenPreview={pipeline.openPreview}
                         onClosePreview={pipeline.closePreview}
+                        dcrExport={pipeline.dcrExport}
+                        onExportDcr={pipeline.exportDcr}
                       />
                     )}
                   </WorkbenchSection>

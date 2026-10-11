@@ -256,6 +256,16 @@ const h = vi.hoisted(() => ({
   deferPreviewRelation: null as null | string,
   /** Resolves the parked `registerPipelineRelation` (an in-flight preview delivery). */
   resolvePreviewRegistration: null as null | ((handle: EngineTableHandle) => void),
+  /**
+   * p3-4: the artifact YAMLs the delivery boundary captured (one per
+   * export). The derivation itself runs FOR REAL — only the destination
+   * acquisition + byte write are faked.
+   */
+  dcrWrites: [] as string[],
+  /** When true, the faked destination acquisition reports the same-source refusal. */
+  dcrSameSource: false,
+  /** When true, the faked byte write throws (a delivery failure). */
+  dcrFailWrite: false,
 }))
 
 vi.mock('@assay/data-sources/browser', () => ({
@@ -345,6 +355,27 @@ vi.mock('./lib/engine', () => ({
  * routes through it — the grid-native preview does. Kept minimal so the
  * pipeline surface renders without an engine.
  */
+vi.mock('./pipeline/dcr-export', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./pipeline/dcr-export')>()
+  return {
+    ...actual,
+    // The destination boundary: download (or the same-source refusal), so
+    // no native picker is touched. Identity is absent in these tests, which
+    // is itself the m4-5 rule (download-only by construction) — the branch
+    // is pinned in dcr-export.test.ts.
+    requestDcrDestination: async () =>
+      h.dcrSameSource ? { via: 'refused-source' as const } : { via: 'download' as const },
+    writeDcrCopy: async (
+      _destination: unknown,
+      content: { readonly yaml: string },
+    ): Promise<'download'> => {
+      if (h.dcrFailWrite) throw new Error('disk full')
+      h.dcrWrites.push(content.yaml)
+      return 'download' as const
+    },
+  }
+})
+
 vi.mock('./sql/SqlPanel', () => ({
   SqlPanel: (props: { runRequest?: { readonly sql: string } | null }) => (
     <div data-testid="sql-request-record">
@@ -402,6 +433,9 @@ afterEach(() => {
   h.failPreviewInput = false
   h.deferPreviewRelation = null
   h.resolvePreviewRegistration = null
+  h.dcrWrites.length = 0
+  h.dcrSameSource = false
+  h.dcrFailWrite = false
 })
 
 describe('pipeline panel — placement and empty states (p-5)', () => {
@@ -1342,7 +1376,9 @@ function stubSession(): DatasetSession {
 
 describe('pipeline session hook — in-flight run serialization (p-5, reviewer round 1)', () => {
   it('makes a second run() while in flight a no-op: one engine call, no state clobber', async () => {
-    const { result } = renderHook(() => usePipelineSession({ session: stubSession() }))
+    const { result } = renderHook(() =>
+      usePipelineSession({ session: stubSession(), sourceIdentityRef: { current: null } }),
+    )
 
     // Load the pipeline through the mocked picker (parse → validate →
     // compile run FOR REAL) and bind its single source.
@@ -1420,7 +1456,9 @@ describe('pipeline session hook — stale-preview lifecycle (p2-6, fix round)', 
   }
 
   it('closes an open preview and drops a late preview delivery when a run starts', async () => {
-    const { result } = renderHook(() => usePipelineSession({ session: stubSession() }))
+    const { result } = renderHook(() =>
+      usePipelineSession({ session: stubSession(), sourceIdentityRef: { current: null } }),
+    )
     await loadAndBind(result)
 
     // (a) An open (ready) preview is closed the moment a run starts.
@@ -1465,7 +1503,9 @@ describe('pipeline session hook — stale-preview lifecycle (p2-6, fix round)', 
   })
 
   it("closes the previous pipeline's preview when a new pipeline document opens", async () => {
-    const { result } = renderHook(() => usePipelineSession({ session: stubSession() }))
+    const { result } = renderHook(() =>
+      usePipelineSession({ session: stubSession(), sourceIdentityRef: { current: null } }),
+    )
     await loadAndBind(result)
 
     await act(async () => {
@@ -1481,5 +1521,167 @@ describe('pipeline session hook — stale-preview lifecycle (p2-6, fix round)', 
     })
     expect(result.current.fileState.kind).toBe('loaded')
     expect(result.current.preview.kind).toBe('closed')
+  })
+})
+
+describe('pipeline panel — the DCR artifact export (p3-4)', () => {
+  /** Drive one completed run of the golden-twin pipeline and return the panel. */
+  async function completedRun(): Promise<void> {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('section-toggle-pipeline'))
+    })
+    await openPipeline(PIPELINE_YAML)
+    h.queue.push(datasetFile('customers.csv'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind'))
+    })
+    await screen.findByTestId('pipeline-source-bound')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.(COMPLETED_RUN)
+    })
+    await screen.findByTestId('pipeline-dcr-export')
+  }
+
+  function setSide(prefix: 'base' | 'candidate', node: string, datasetId: string): void {
+    fireEvent.change(screen.getByTestId(`pipeline-dcr-${prefix}-node`), {
+      target: { value: node },
+    })
+    fireEvent.change(screen.getByTestId(`pipeline-dcr-${prefix}-dataset`), {
+      target: { value: datasetId },
+    })
+  }
+
+  it('offers the materialized data nodes as sides on a completed run (never source nodes)', async () => {
+    await completedRun()
+    const options = Array.from(
+      screen.getByTestId('pipeline-dcr-base-node').querySelectorAll('option'),
+    )
+      .map((option) => option.getAttribute('value'))
+      .filter((value) => value !== '')
+    expect(options).toEqual(['customers', 'renamed', 'sg_only', 'by_country'])
+    // The export control is disabled until BOTH sides are stated (C2).
+    expect((screen.getByTestId('pipeline-dcr-export-run') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('the export is absent before a run and on a canceled run', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('section-toggle-pipeline'))
+    })
+    await openPipeline(PIPELINE_YAML)
+    expect(screen.queryByTestId('pipeline-dcr-export')).toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.({ status: 'canceled', nextNodeId: null, nodes: [] })
+    })
+    expect(screen.queryByTestId('pipeline-dcr-export')).toBeNull()
+  })
+
+  it('derives for real and delivers: the artifact is a new file, value-free, unchanged source', async () => {
+    await completedRun()
+    setSide('base', 'renamed', 'customers_base')
+    setSide('candidate', 'by_country', 'customers_by_country')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-dcr-export-run'))
+    })
+    const result = await screen.findByTestId('pipeline-dcr-export-result')
+    expect(result.textContent).toContain('new file')
+    expect(result.textContent).toContain('The opened file is unchanged')
+
+    // The REAL derivation produced a real canonical artifact through the
+    // shared builder (no web-side re-serialization).
+    expect(h.dcrWrites).toHaveLength(1)
+    const yaml = h.dcrWrites[0] ?? ''
+    expect(yaml.startsWith('format: assay-dcr\nversion: 1\n')).toBe(true)
+    expect(yaml).toContain('assay-schema-fingerprint-v1')
+    expect(yaml).toContain('customers_base')
+    expect(yaml).toContain('customers_by_country')
+    // Value-free (ADR 0025): no dataset cell value, no picked file name.
+    expect(yaml).not.toContain('SG')
+    expect(yaml).not.toContain('52000')
+    expect(yaml).not.toContain('customers.csv')
+    // The result line never names a file path either.
+    expect(result.textContent).not.toContain('customers.csv')
+  })
+
+  it('the same node on both sides refuses loudly before any derivation or write', async () => {
+    await completedRun()
+    setSide('base', 'renamed', 'customers_base')
+    setSide('candidate', 'renamed', 'customers_other')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-dcr-export-run'))
+    })
+    const refused = await screen.findByTestId('pipeline-dcr-export-refused')
+    expect(refused.getAttribute('data-reason')).toBe('same-node')
+    expect(refused.textContent).toContain('must be different nodes')
+    expect(refused.textContent).toContain('Nothing was written')
+    expect(h.dcrWrites).toHaveLength(0)
+  })
+
+  it('the D19-OQ-5 liveness refusal: an unresolvable relation surfaces the typed alert, nothing written', async () => {
+    h.failPreview = true
+    await completedRun()
+    setSide('base', 'renamed', 'customers_base')
+    setSide('candidate', 'by_country', 'customers_by_country')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-dcr-export-run'))
+    })
+    const refused = await screen.findByTestId('pipeline-dcr-export-refused')
+    expect(refused.getAttribute('data-reason')).toBe('dangling-materialization')
+    expect(refused.textContent).toContain('no longer')
+    expect(refused.textContent).toContain('Nothing was written')
+    expect(h.dcrWrites).toHaveLength(0)
+  })
+
+  it('the same-source refusal and the failure state render as alerts, nothing written', async () => {
+    await completedRun()
+    setSide('base', 'renamed', 'customers_base')
+    setSide('candidate', 'by_country', 'customers_by_country')
+    h.dcrSameSource = true
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-dcr-export-run'))
+    })
+    const refused = await screen.findByTestId('pipeline-dcr-export-same-source')
+    expect(refused.textContent).toContain('Nothing was written')
+    expect(h.dcrWrites).toHaveLength(0)
+
+    // A delivery failure: the honest failure line, still nothing written.
+    h.dcrSameSource = false
+    h.dcrFailWrite = true
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-dcr-export-run'))
+    })
+    const failed = await screen.findByTestId('pipeline-dcr-export-failed')
+    expect(failed.textContent).toContain('disk full')
+    expect(failed.textContent).toContain('No file was written')
+    expect(h.dcrWrites).toHaveLength(0)
+  })
+
+  it('a newer run resets a previous export result line', async () => {
+    await completedRun()
+    setSide('base', 'renamed', 'customers_base')
+    setSide('candidate', 'by_country', 'customers_by_country')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-dcr-export-run'))
+    })
+    await screen.findByTestId('pipeline-dcr-export-result')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    // While the new run is in flight the section hides with the run state.
+    expect(screen.queryByTestId('pipeline-dcr-export')).toBeNull()
+    await act(async () => {
+      h.resolveRun?.(COMPLETED_RUN)
+    })
+    await screen.findByTestId('pipeline-dcr-export')
+    expect(screen.queryByTestId('pipeline-dcr-export-result')).toBeNull()
   })
 })

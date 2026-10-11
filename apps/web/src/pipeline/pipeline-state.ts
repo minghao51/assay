@@ -257,3 +257,30 @@ export function advanceNodeStatuses(
   next[currentNodeId] = 'running'
   return next
 }
+
+/**
+ * The DCR artifact export lifecycle (p3-4). The export is offered on
+ * completed/gated runs only; every settled outcome is an honest state with
+ * fixed value-free text (the m5-3/m6-4 export-state shape): the derivation
+ * refusals land as `refused` (typed reason data — OQ-5 lands here), the
+ * delivery outcomes mirror the report-export machine.
+ */
+export type DcrExportState =
+  | { readonly kind: 'idle' }
+  /** Derivation + destination + delivery in flight (an honest busy state). */
+  | { readonly kind: 'working' }
+  | {
+      readonly kind: 'delivered'
+      readonly strategy: 'file-system-access' | 'download'
+      readonly message: string
+    }
+  | { readonly kind: 'cancelled' }
+  /** The picked destination was the opened source (refused before any write). */
+  | { readonly kind: 'same-source' }
+  | {
+      readonly kind: 'refused'
+      readonly reason: string
+      readonly nodeId: string | null
+      readonly message: string
+    }
+  | { readonly kind: 'failed'; readonly message: string }
