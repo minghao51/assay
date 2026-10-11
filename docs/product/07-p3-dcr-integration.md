@@ -220,6 +220,20 @@ Queue row, verbatim:
 > web (the M5/M6 exact-agreement precedent). `feat(p3-4):` + changeset (`@assay/web`). **Fourth.**
 > **D19 OQ-5:** same export-time liveness refusal on the web path.
 
+Landed note (2026-10-11, `d14fe33`): landed and reviewer-**approved** — the export action went in off completed/gated runs through the one shared builder path (p3-1 `buildDcrArtifact`/`serializeDcr` + p3-2 `candidateVersionRefFromRun` + `@assay/diff` schemaDrift; no web-side re-serialization), changeset `@assay/web` only.
+
+- **Pins:** the LOAD-BEARING web≡CLI byte-agreement vs the committed golden
+  [`../../fixtures/dcr/cli-gated-run.yaml`](../../fixtures/dcr/cli-gated-run.yaml) is pinned at
+  unit + e2e (the M5/M6 exact-agreement precedent); D19-OQ-5 export-time liveness refusal is in
+  (typed `dangling-materialization`, in-panel `role=alert`, nothing written, parse untouched);
+  value-free pins at 3 layers.
+- **Gates:** unit 2842→2874 (176→177 files); coverage 89.55/83.69/89.97/91.14 →
+  89.50/83.55/89.99/91.12 (thresholds 83/76/80/84); changesets 145→146; docs:links 103 files/0
+  broken; e2e 170→172 passed +1 env-gated skip — the new
+  `tests/e2e/pipeline-dcr-export.spec.ts` (+2).
+- **Drills + a11y:** four mutation drills each proven to bite; dual-scheme axe clean (4 pipeline
+  scans).
+
 Design notes:
 
 - **Export action, sanitized, new file.** The pipeline panel (p2-6 surface) gains an export
