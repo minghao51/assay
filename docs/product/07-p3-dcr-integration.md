@@ -1,8 +1,9 @@
 # P3 — DCR Integration (Phase Document)
 
-**Status:** ACTIVE — opened 2026-10-10 off rulings D16/D17; spec review RULED same day (**D19**,
-2026-10-10); p3-1 landed (`dae8e83`); p3-2 landed (`72363b7`); p3-1b landed (`2b9a895`); p3-3 landed (`a97379e`); queue six
-rows (p3-1b between p3-2 and p3-3); **p3-4 next**.
+**Status:** ACTIVE → **QUEUE CLOSED 2026-10-11** — opened 2026-10-10 off rulings D16/D17; spec
+review RULED same day (**D19**, 2026-10-10); all six rows landed: p3-1 (`dae8e83`); p3-2
+(`72363b7`); p3-1b (`2b9a895`); p3-3 (`a97379e`); p3-4 (`d14fe33`); p3-5 (`bfc33b4`) — §11 closure
+criteria met (§9 dispositions RULED; re-points completed).
 Execution queue: [P3 queue](../process/handoff/20261002-p3-queue.md) (scope/done-when/STOP per row).
 Format rulings: [ADR 0046](../adr/0046-dcr-artifact-format-v1.md) + the ruled
 [spec §9](06-dcr-artifact.md). This document proposes design and collects open questions; it does
@@ -265,6 +266,32 @@ Queue row, verbatim:
 > smuggled in. `test(p3-5):`/`fix(p3-5):` + changeset only if packages changed. **Last — closes
 > the queue.** **D19 OQ-6(b):** fingerprint-stability fixture (schema set → expected fingerprints)
 > joins the sweep.
+
+**Landed note** (2026-10-11, `bfc33b4`): landed and reviewer-**approved** (5/5 mutation drills
+bite) — the sweep went in as **two NEW test files only** (+703 lines, zero src/fixture/changeset
+bytes): `packages/pipeline/src/dcr-conformance.test.ts` (49 tests) +
+`packages/engine-duckdb/src/pipeline-runner/fingerprint-stability.test.ts` (8 tests — the OQ-6(b)
+fixture lives beside its engine-duckdb-only subject `candidateVersionRefFromRun`; `pipeline`
+cannot depend on `engine-duckdb`). **No product defects exposed** — no fix commit, no changeset
+(test-only, consumer-invisible).
+
+- **The sweep:** every committed fixture round-trips byte-identical (5 canonical incl. the CLI
+  golden end-to-end; `gated-run-alternate` canonicalizes to `gated-run.yaml`); the **12**
+  `refuses-*` probes each yield exactly one pinned code (the worker's 11 reviewer-corrected);
+  corrupt-variant classes (truncation, slice-deletion, garbage incl. NUL, quoting, key-mangling,
+  quote-stripping, stamp-duplication) never throw — every error located (code + path + line/col).
+- **The guarantees, tested not asserted:** additive-only (unknown key at 14 positions + EOF +
+  misspelling → version-stamped `unknown-key`); enum closure (4 vocabularies per-member; the
+  refusal allowlist ≡ the exported constants); `assay_dcr_*` refused case-insensitively at 4 id
+  positions × 3 case variants with non-overreach pinned.
+- **Gates:** unit 2874→2931 (177→179 files); coverage 89.50/83.55/89.99/91.12 →
+  89.56/83.61/89.99/91.16 (all ≥ baseline; thresholds 83/76/80/84); changesets 146 (unchanged);
+  docs:links 103/0 (unchanged); e2e not run (not web-visible). One unreproduced first-run
+  full-suite failure (host-load class) stays on flake watch.
+
+**Queue closed 2026-10-11** — all six rows landed; the [§11](#11-closure-criteria) closure
+criteria are met (per-row outcomes + counts at close in the
+[queue §5](../process/handoff/20261002-p3-queue.md); re-points completed).
 
 Design notes:
 
