@@ -1,24 +1,38 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Spike webview main thread (ptv-1). Collects the R4 evidence that must come
- * from the webview origin itself (cross-origin isolation, COOP/COEP resource
- * headers, File System Access API availability, OPFS reachability, main-thread
- * heap) and drives the DuckDB worker. Results are posted back to the extension
- * host, which writes them to the run's evidence JSON.
+ * Spike webview main thread (ptv-1 harness; engine path re-wired by ptv1-1).
+ * Collects the R4 evidence that must come from the webview origin itself
+ * (cross-origin isolation, COOP/COEP resource headers, File System Access API
+ * availability, OPFS reachability, main-thread heap) and drives the engine
+ * through the REAL `@assay/engine-duckdb` adapter. Results are posted back to
+ * the extension host, which writes them to the run's evidence JSON.
+ *
+ * ptv1-1 (the bundler-agnostic worker seam): the R4 spike's own engine boot
+ * code is gone. The mvp/eh boots, the fixture open, the row count, the first
+ * window, and the Parquet-extension probe all run through the real
+ * `DuckDbEngineClient` and the real shared worker core
+ * (`@assay/engine-duckdb/worker-core`, started injected by
+ * `webview/worker.ts`). The host-side seam is exactly what production will use:
+ * the extension worker bundle is fetched and re-exposed as a same-origin
+ * `blob:` URL, the DuckDB glue + WASM likewise, and the blob URLs are posted
+ * to the worker as one `engine/assets` control message BEFORE the client's
+ * first `engine/init` (the factory below owns that ordering).
  *
  * Worker-loading finding baked in here: `new Worker(webview.asWebviewUri(...))`
  * throws a cross-origin error in a desktop webview (the resource is served from
  * `https://file+.vscode-resource.vscode-cdn.net` while the document origin is
- * `vscode-webview://…`). The harness records that failure and then falls back
- * to the documented workaround — fetch each script/WASM as a Blob and construct
- * the worker from a same-origin `blob:` URL. Both the failure and the workaround
+ * `vscode-webview://…`). The harness records that failure and then uses the
+ * documented workaround — fetch each script/WASM as a Blob and construct the
+ * worker from a same-origin `blob:` URL. Both the failure and the workaround
  * are measured, not assumed.
  *
  * Everything here is spike-only and value-free: the only dataset-derived
  * values in the report are one fixture row's id/bucket/label shape check —
  * enough to prove a real window was returned, not a data dump.
  */
+import { DuckDbEngineClient } from '@assay/engine-duckdb'
+import type { EngineAssetsMessage } from '@assay/engine-duckdb/worker-core'
 
 interface BundleUrls {
   readonly workerUrl: string
@@ -106,47 +120,6 @@ function heapSample(): Record<string, number> {
       }
 }
 
-interface WorkerResponse {
-  readonly kind: 'response'
-  readonly id: number
-  readonly ok: boolean
-  readonly result?: unknown
-  readonly error?: string
-}
-
-let callSequence = 0
-
-/** Request/response over one worker, with a timeout so a wedged boot cannot hang the run. */
-function call(
-  worker: Worker,
-  request: Record<string, unknown>,
-  timeoutMs: number,
-  transfer: ArrayBuffer[] = [],
-): Promise<unknown> {
-  const id = ++callSequence
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      worker.removeEventListener('message', onMessage)
-      reject(new Error(`worker timeout after ${timeoutMs}ms: ${String(request['kind'])}`))
-    }, timeoutMs)
-    function onMessage(event: MessageEvent<WorkerResponse>): void {
-      const data = event.data
-      if (data?.kind !== 'response' || data.id !== id) {
-        return
-      }
-      clearTimeout(timer)
-      worker.removeEventListener('message', onMessage)
-      if (data.ok) {
-        resolve(data.result)
-      } else {
-        reject(new Error(data.error ?? 'worker returned an unnamed error'))
-      }
-    }
-    worker.addEventListener('message', onMessage)
-    worker.postMessage({ ...request, id }, transfer)
-  })
-}
-
 async function step(name: string, attempt: () => Promise<unknown>): Promise<unknown> {
   try {
     setStatus(name)
@@ -203,28 +176,136 @@ function waitForFixture(): Promise<{ name: string; bytes: ArrayBuffer }> {
 }
 
 /**
- * Blob-wrap a bundle's glue script and WASM, boot it in the worker, then
- * release the blob URLs. Revoking matters for the Q5 heap number: without it
- * the ~39 MB WASM blob stays alive in the renderer and the main-thread heap is
- * dominated by the workaround rather than by the dataset.
+ * Build the real adapter over a blob-URL-bootstrapped engine worker. This is
+ * the host-side half of the ptv1-1 seam: the worker bundle is fetched from its
+ * webview resource URI and re-exposed as a same-origin blob (a cross-origin
+ * `new Worker(...)` throws in the webview — Q1a), and the DuckDB asset blob
+ * URLs are posted as the FIRST message the worker receives, so the shared
+ * core's injected mode resolves before the client's `engine/init`.
  */
-async function bootBundle(
-  worker: Worker,
-  name: 'mvp' | 'eh',
-  bundle: BundleUrls,
-): Promise<unknown> {
-  const glueUrl = await toBlobUrl(bundle.workerUrl, 'text/javascript')
-  const wasmUrl = await toBlobUrl(bundle.wasmUrl, 'application/wasm')
-  try {
-    return await call(
-      worker,
-      { kind: 'boot', bundle: name, urls: { workerUrl: glueUrl, wasmUrl } },
-      90_000,
-    )
-  } finally {
-    URL.revokeObjectURL(wasmUrl)
-    URL.revokeObjectURL(glueUrl)
+function createAdapterClient(
+  workerBlobUrl: string,
+  label: 'mvp' | 'eh',
+  assets: EngineAssetsMessage,
+): DuckDbEngineClient {
+  return new DuckDbEngineClient({
+    workerFactory: () => {
+      const worker = new Worker(workerBlobUrl, { type: 'module' })
+      attachDiagnostics(worker, label)
+      worker.postMessage(assets)
+      return worker
+    },
+  })
+}
+
+/** Boot the real adapter and time it (the Q1 boot envelope). */
+async function bootAdapter(client: DuckDbEngineClient): Promise<unknown> {
+  const started = performance.now()
+  const ready = await client.ensureReady()
+  return {
+    ok: true,
+    bootMs: performance.now() - started,
+    version: ready.duckdbVersion,
+    // Evidence that the harness exercised the real adapter, not spike-local code.
+    adapter: '@assay/engine-duckdb',
   }
+}
+
+/**
+ * Register the fixture bytes through the real adapter and time
+ * open → count → first row (the Q5 envelope, same methodology as the R4
+ * spike: pickerToFirstRowMs is the sum of the three engine phases).
+ */
+async function openFixtureThroughAdapter(
+  client: DuckDbEngineClient,
+  fixture: { name: string; bytes: ArrayBuffer },
+): Promise<unknown> {
+  const fixtureFile = new File([fixture.bytes], fixture.name)
+  const bytes = fixture.bytes.byteLength
+
+  const openStarted = performance.now()
+  const handle = await client.open({
+    name: fixture.name,
+    getFile: () => Promise.resolve(fixtureFile),
+  })
+  const openMs = performance.now() - openStarted
+
+  const countStarted = performance.now()
+  const rows = await client.rowCount(handle)
+  const rowCountMs = performance.now() - countStarted
+
+  // Record the runtime extension dependency (`read_parquet` autoloads the
+  // Parquet extension from extensions.duckdb.org in DuckDB-WASM 1.32.0) —
+  // through the real adapter's SQL surface, same evidence as the R4 spike.
+  let parquetExtension: unknown = null
+  try {
+    const extTable = await client.query(
+      "SELECT extension_name, loaded, installed FROM duckdb_extensions() WHERE extension_name = 'parquet'",
+    )
+    parquetExtension = {
+      name: String(extTable.batch.getChildAt(0)?.get(0) ?? ''),
+      loaded: Boolean(extTable.batch.getChildAt(1)?.get(0)),
+      installed: Boolean(extTable.batch.getChildAt(2)?.get(0)),
+    }
+  } catch (error) {
+    parquetExtension = { error: error instanceof Error ? error.message : String(error) }
+  }
+
+  const firstRowStarted = performance.now()
+  const windowTable = await client.fetchRange(handle, {
+    startRow: 0,
+    endRow: 1000,
+    columns: ['id', 'bucket', 'label'],
+  })
+  const ttfrMs = performance.now() - firstRowStarted
+  const firstRow = {
+    id: String(windowTable.batch.getChildAt(0)?.get(0) ?? ''),
+    bucket: String(windowTable.batch.getChildAt(1)?.get(0) ?? ''),
+    label: String(windowTable.batch.getChildAt(2)?.get(0) ?? ''),
+  }
+
+  return {
+    bytes,
+    rows,
+    openMs,
+    rowCountMs,
+    ttfrMs,
+    ttfrRows: windowTable.batch.numRows,
+    firstRow,
+    pickerToFirstRowMs: openMs + rowCountMs + ttfrMs,
+    parquetExtension,
+  }
+}
+
+/** Diagnostic OPFS round-trip (the m4-2 export path needs OPFS). */
+async function opfsProbe(): Promise<unknown> {
+  const result: Record<string, unknown> = { available: false }
+  try {
+    if (typeof navigator.storage?.getDirectory !== 'function') {
+      result['reason'] = 'navigator.storage.getDirectory is unavailable'
+      result['storageManager'] = typeof navigator.storage
+      return result
+    }
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle('assay-spike', { create: true })
+    const handle = await dir.getFileHandle('probe.bin', { create: true })
+    const writable = await handle.createWritable()
+    await writable.write(new Uint8Array([1, 2, 3, 4]))
+    await writable.close()
+    const read = new Uint8Array(await (await handle.getFile()).arrayBuffer())
+    result['available'] = true
+    result['wroteBytes'] = read.byteLength
+    result['roundTrip'] = read.byteLength === 4 && read[0] === 1 && read[3] === 4
+    await dir.removeEntry('probe.bin')
+    try {
+      result['estimate'] = await navigator.storage.estimate()
+    } catch {
+      // estimate() is optional; its absence must not fail the probe.
+    }
+  } catch (error) {
+    result['reason'] = error instanceof Error ? error.message : String(error)
+  }
+  return result
 }
 
 async function run(): Promise<void> {
@@ -270,7 +351,7 @@ async function run(): Promise<void> {
   }
   results['workerDirectConstruction'] = direct
 
-  // Q1b: blob-URL workaround for the extension's own worker bundle.
+  // Q1b: blob-URL bootstrap for the REAL engine adapter's worker bundle.
   const workerUrl = await step('worker.blobUrl', () =>
     toBlobUrl(config.workerScriptUrl, 'text/javascript'),
   )
@@ -284,39 +365,50 @@ async function run(): Promise<void> {
 
   const bundles = (results['bundles'] = {}) as Record<string, unknown>
 
-  // Q1c: DuckDB-WASM `mvp` boot inside a nested worker.
-  const mvpWorker = new Worker(workerUrl, { type: 'module' })
-  attachDiagnostics(mvpWorker, 'mvp')
-  const mvpBoot = await step('boot.mvp', () => bootBundle(mvpWorker, 'mvp', config.bundles.mvp))
+  // Q1c: the real adapter boots the `mvp` DuckDB bundle inside the webview —
+  // the blob-URL asset injection the ptv1-1 seam exists for. The blob URLs are
+  // revoked once instantiate() has consumed them (the spike's Q5 methodology:
+  // the heap sample must reflect the dataset, not the workaround).
+  const mvpAssets: EngineAssetsMessage = {
+    type: 'engine/assets',
+    duckdbWorkerUrl: await toBlobUrl(config.bundles.mvp.workerUrl, 'text/javascript'),
+    duckdbWasmUrl: await toBlobUrl(config.bundles.mvp.wasmUrl, 'application/wasm'),
+  }
+  const mvpClient = createAdapterClient(workerUrl, 'mvp', mvpAssets)
+  const mvpBoot = await step('boot.mvp', () => bootAdapter(mvpClient))
   bundles['mvp'] = mvpBoot ?? { ok: false, note: 'see errors["boot.mvp"]' }
+  URL.revokeObjectURL(mvpAssets.duckdbWorkerUrl)
+  URL.revokeObjectURL(mvpAssets.duckdbWasmUrl)
   heap['postBoot'] = heapSample()
 
   if (mvpBoot !== undefined) {
     const fixture = await fixturePromise
-    const opened = await step('open.million', () =>
-      call(mvpWorker, { kind: 'open', name: fixture.name, bytes: fixture.bytes }, 180_000, [
-        fixture.bytes,
-      ]),
-    )
+    const opened = await step('open.million', () => openFixtureThroughAdapter(mvpClient, fixture))
     if (opened !== undefined) {
       results['fixture'] = opened
     }
     heap['postFirstRow'] = heapSample()
-    results['opfs'] = await step('opfs', () => call(mvpWorker, { kind: 'opfsProbe' }, 30_000))
   } else {
     results['fixture'] = { blockedBy: 'boot.mvp' }
-    results['opfs'] = { blockedBy: 'boot.mvp' }
   }
-  mvpWorker.terminate()
+  results['opfs'] = await step('opfs', () => opfsProbe())
+  await step('dispose.mvp', () => mvpClient.dispose())
 
-  // Q1d: probe the `eh` (exception-handling) bundle in a fresh worker too.
+  // Q1d: probe the `eh` (exception-handling) bundle in a fresh adapter worker.
   // Measured result: it boots without cross-origin isolation, like `mvp`; only
-  // the separate `coi` (threads) bundle would require it (not probed).
-  const ehWorker = new Worker(workerUrl, { type: 'module' })
-  attachDiagnostics(ehWorker, 'eh')
-  const ehBoot = await step('boot.eh', () => bootBundle(ehWorker, 'eh', config.bundles.eh))
+  // the separate `coi` (threads) bundle would require it (not probed). The mvp
+  // client is disposed first so the two ~40 MB WASM heaps do not coexist.
+  const ehAssets: EngineAssetsMessage = {
+    type: 'engine/assets',
+    duckdbWorkerUrl: await toBlobUrl(config.bundles.eh.workerUrl, 'text/javascript'),
+    duckdbWasmUrl: await toBlobUrl(config.bundles.eh.wasmUrl, 'application/wasm'),
+  }
+  const ehClient = createAdapterClient(workerUrl, 'eh', ehAssets)
+  const ehBoot = await step('boot.eh', () => bootAdapter(ehClient))
   bundles['eh'] = ehBoot ?? { ok: false, note: 'see errors["boot.eh"]' }
-  ehWorker.terminate()
+  await step('dispose.eh', () => ehClient.dispose())
+  URL.revokeObjectURL(ehAssets.duckdbWorkerUrl)
+  URL.revokeObjectURL(ehAssets.duckdbWasmUrl)
   URL.revokeObjectURL(workerUrl)
 
   finish()

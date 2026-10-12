@@ -9,7 +9,8 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./node": "./src/node.ts"
+    "./node": "./src/node.ts",
+    "./worker-core": "./src/worker-core.ts"
   },
   "publishConfig": {
     "exports": {
@@ -20,6 +21,10 @@
       "./node": {
         "types": "./dist/node.d.ts",
         "default": "./dist/node.js"
+      },
+      "./worker-core": {
+        "types": "./dist/worker-core.d.ts",
+        "default": "./dist/worker-core.js"
       }
     }
   },

@@ -1,0 +1,6 @@
+---
+'@assay/engine-duckdb': patch
+'@assay/vscode': patch
+---
+
+feat(ptv1-1): bundler-agnostic engine worker seam — one shared worker core, two entries. The engine worker's protocol adapter is extracted from `worker.ts` into a new `@assay/engine-duckdb/worker-core` entry (`startEngineWorkerCore`), parameterized by where its DuckDB-WASM asset URLs come from: `{ source: 'static' }` (the Vite web entry — every message still goes to the executor untouched, so the default web path is byte-identical by construction and pinned headlessly in `worker-core.test.ts`) or `{ source: 'injected' }` — the host posts one `engine/assets` control message (blob-URL bootstrap, R4 spike-proven) before the first request, and the core boots from those URLs; the message deliberately lives outside `./protocol` so the engine client never sends it. `defaultWorkerFactory` is exported so the exact default construction (`new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })`) is pinned. The VS Code spike harness now boots the REAL adapter (`DuckDbEngineClient` + the esbuild-built shared core) instead of spike-local boot code: same evidence schema (boot/open/rowCount/ttfr/Parquet-extension/OPFS probes), plus an `adapter` identity field in the results and summary.

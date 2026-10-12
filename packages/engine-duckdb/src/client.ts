@@ -305,8 +305,17 @@ function isFile(value: unknown): value is File {
   return typeof File === 'function' && value instanceof File
 }
 
-/** Creates the real engine worker: this package's TS worker entry (bundled by Vite). */
-function defaultWorkerFactory(): EngineWorkerLike {
+/**
+ * Creates the real engine worker: this package's TS worker entry (bundled by
+ * Vite). This exact construction IS the web default — the client posts exactly
+ * one `engine/init` on it and nothing else. Hosts that need a different boot
+ * (the VS Code webview's blob-URL bootstrap, ptv1-1) inject their own
+ * `workerFactory` and post the `engine/assets` control message (see
+ * `./worker-core`) before the first request. Exported (ptv1-1) so the default
+ * construction is pinned headlessly in `worker-core.test.ts`: any change here
+ * must keep the default web path byte-identical.
+ */
+export function defaultWorkerFactory(): EngineWorkerLike {
   return new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
 }
 

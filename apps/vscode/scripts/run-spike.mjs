@@ -160,6 +160,7 @@ console.log(
   `mvp boot:               ok=${String(mvp.ok === true)} bootMs=${String(mvp.bootMs)} version=${String(mvp.version ?? '')}`,
 )
 console.log(`eh boot:                ok=${String(eh.ok === true)} ${String(eh.error ?? '')}`)
+console.log(`engine adapter:         ${String(mvp.adapter ?? 'spike-local (ptv1-1 seam missing)')}`)
 console.log(`fixture rows:           ${String(fixture.rows)} (${String(fixture.bytes)} bytes)`)
 console.log(`ttfrMs:                 ${String(fixture.ttfrMs)}`)
 console.log(`pickerToFirstRowMs:     ${String(fixture.pickerToFirstRowMs)}`)

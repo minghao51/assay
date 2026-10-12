@@ -132,6 +132,9 @@ importers:
 
   apps/vscode:
     devDependencies:
+      '@assay/engine-duckdb':
+        specifier: workspace:*
+        version: link:../../packages/engine-duckdb
       '@duckdb/duckdb-wasm':
         specifier: ^1.32.0
         version: 1.32.0

@@ -28,6 +28,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json"
   },
   "devDependencies": {
+    "@assay/engine-duckdb": "workspace:*",
     "@duckdb/duckdb-wasm": "^1.32.0",
     "@types/node": "catalog:",
     "@types/vscode": "^1.90.0",
