@@ -88,6 +88,11 @@ mkdirSync(extensionsDir, { recursive: true })
 const extensionTestsEnv = {
   ASSAY_SPIKE_FIXTURE: fixturePath,
   ASSAY_SPIKE_RESULTS: resultsPath,
+  // ptv1-2 drill: 'missing-extension' skips the local Parquet install so the
+  // stock CDN autoload path runs into the network block — the harness then
+  // asserts the Q5b failure mode is REPRODUCED (the negative-proof that a
+  // non-vendored asset WOULD fetch and be caught).
+  ASSAY_SPIKE_DRILL: process.env['ASSAY_SPIKE_DRILL'] ?? '',
 }
 
 await runTests({
@@ -136,11 +141,26 @@ const artifactsPath = path.join(dist, 'spike-artifacts.json')
 if (existsSync(artifactsPath)) {
   report.packaging = readJson(artifactsPath)
 }
+// ptv1-2: the vendored-asset pin evidence emitted by the build (checksummed).
+const vendoredAssetsPath = path.join(dist, 'vendored-assets.json')
+if (existsSync(vendoredAssetsPath)) {
+  report.vendoredAssetsPin = readJson(vendoredAssetsPath)
+}
+const drillMode = extensionTestsEnv.ASSAY_SPIKE_DRILL === 'missing-extension'
 report.harness = {
   fixturePath,
   duckdbCli: process.env['DUCKDB'] ?? 'duckdb',
   node: process.version,
   vscodeExecutable: findVSCodeExecutable() ?? 'downloaded-managed-build',
+  // ptv1-2: the network block is IN-HARNESS (no proxy/hosts changes needed).
+  networkBlocked: {
+    blockedHost: 'extensions.duckdb.org',
+    layers: [
+      'CSP: connect-src excludes the host (browser refuses before the network)',
+      'in-worker interceptor: the vendored glue shim refuses fetch/XHR to the host (assay-netblock-refusal)',
+    ],
+    drillMode,
+  },
 }
 writeFileSync(resultsPath, JSON.stringify(report, null, 2) + '\n')
 
@@ -161,6 +181,26 @@ console.log(
 )
 console.log(`eh boot:                ok=${String(eh.ok === true)} ${String(eh.error ?? '')}`)
 console.log(`engine adapter:         ${String(mvp.adapter ?? 'spike-local (ptv1-1 seam missing)')}`)
+// ptv1-2: vendored assets, network block, package size.
+const vendored = report.vendoredAssets ?? {}
+const vendoredPin = report.vendoredAssetsPin
+const mb = (bytes) => (Number(bytes) / (1000 * 1000)).toFixed(2)
+if (vendoredPin !== undefined) {
+  const total = vendoredPin.files.reduce((sum, f) => sum + Number(f.bytes), 0)
+  const detail = vendoredPin.files.map((f) => `${f.name} ${mb(f.bytes)} MB`).join(', ')
+  console.log(
+    `vendored assets:        ${mb(total)} MB in ${vendoredPin.files.length} files (${detail}) — one mvp bundle + Parquet extension, zero network fetches`,
+  )
+  console.log(
+    `version pin:            @duckdb/duckdb-wasm ${String(vendoredPin.duckdbWasmVersion)} / DuckDB ${String(vendoredPin.duckdbVersion)} / ${String(vendoredPin.extensionPlatform)} (license: ${String(vendoredPin.license)})`,
+  )
+}
+console.log(
+  `network block:          armed on extensions.duckdb.org (CSP connect-src excludes it + in-worker fetch/XHR refusal)${drillMode ? ' — DRILL MODE: missing-extension' : ''}`,
+)
+console.log(
+  `parquet extension:      vendored local serve state=${String(vendored.shimState ?? 'n/a')} post-open loaded=${String(report.fixture?.parquetExtension?.loaded)} installed=${String(report.fixture?.parquetExtension?.installed)}${drillMode ? ' (drill: no vendored bytes)' : ''}`,
+)
 console.log(`fixture rows:           ${String(fixture.rows)} (${String(fixture.bytes)} bytes)`)
 console.log(`ttfrMs:                 ${String(fixture.ttfrMs)}`)
 console.log(`pickerToFirstRowMs:     ${String(fixture.pickerToFirstRowMs)}`)
@@ -180,23 +220,78 @@ console.log(`report:                 ${resultsPath}`)
 // succeeded: exit non-zero unless the evidence the report's headline claims
 // depend on is present and true. Without this a wedged boot (or a CSP/blob
 // regression) still exits 0 and looks green to CI.
-const headlineChecks = [
-  {
-    name: 'bundles.mvp.ok',
-    ok: report.bundles?.mvp?.ok === true,
-    value: report.bundles?.mvp?.ok,
-  },
-  {
-    name: 'fixture.rows',
-    ok: typeof report.fixture?.rows === 'number' && report.fixture.rows > 0,
-    value: report.fixture?.rows,
-  },
-  {
-    name: 'opfs.roundTrip',
-    ok: report.opfs?.roundTrip === true,
-    value: report.opfs?.roundTrip,
-  },
-]
+let headlineChecks
+if (drillMode) {
+  // Drill (ptv1-2): the Q5b failure mode must be REPRODUCED under the block —
+  // the boot succeeds (no extension needed), the fixture open FAILS, and the
+  // extension probe reports it never left the machine (installed=false,
+  // loaded=false). The refusal marker in the open error is the direct proof
+  // that the CDN fetch was ATTEMPTED and refused; if the engine surfaces the
+  // failure opaquely, the installed=false + open-failure pair still pins it.
+  const openError = String(
+    report.errors?.['open.million'] ?? report.fixture?.blockedBy ?? report.fixture?.error ?? '',
+  )
+  headlineChecks = [
+    {
+      name: 'bundles.mvp.ok',
+      ok: report.bundles?.mvp?.ok === true,
+      value: report.bundles?.mvp?.ok,
+    },
+    {
+      name: 'drill.open.failed',
+      ok: report.errors?.['open.million'] !== undefined,
+      value: openError,
+    },
+    {
+      name: 'drill.refusal.evidence',
+      ok:
+        openError.includes('assay-netblock-refusal') ||
+        (report.fixture?.parquetExtension?.loaded === false &&
+          report.vendoredAssets?.drill !== undefined),
+      value: openError,
+    },
+  ]
+} else {
+  headlineChecks = [
+    {
+      name: 'bundles.mvp.ok',
+      ok: report.bundles?.mvp?.ok === true,
+      value: report.bundles?.mvp?.ok,
+    },
+    {
+      name: 'fixture.rows',
+      ok: typeof report.fixture?.rows === 'number' && report.fixture.rows > 0,
+      value: report.fixture?.rows,
+    },
+    {
+      name: 'opfs.roundTrip',
+      ok: report.opfs?.roundTrip === true,
+      value: report.opfs?.roundTrip,
+    },
+    {
+      // ptv1-2: the vendored serve — the shim holds the vendored bytes and
+      // the fixture open LOADED parquet under the armed network block, i.e.
+      // the Q5b CDN dependency is served locally, not fetched.
+      name: 'vendored.parquet.servedLocally',
+      ok:
+        report.vendoredAssets?.drill === false &&
+        String(report.vendoredAssets?.shimState ?? '').startsWith('ready') &&
+        report.fixture?.parquetExtension?.loaded === true,
+      value: `shim=${String(report.vendoredAssets?.shimState)} loaded=${String(report.fixture?.parquetExtension?.loaded)}`,
+    },
+    {
+      // ptv1-2: the running engine must be the pinned DuckDB version the
+      // vendored extension binary was built for.
+      name: 'vendored.engineVersionPin',
+      ok:
+        typeof report.bundles?.mvp?.version === 'string' &&
+        report.bundles.mvp.version.startsWith(
+          String(report.vendoredAssetsPin?.duckdbVersion ?? 'v1.4.3'),
+        ),
+      value: report.bundles?.mvp?.version,
+    },
+  ]
+}
 const failedChecks = headlineChecks.filter((check) => !check.ok)
 if (failedChecks.length > 0) {
   console.error('\nheadline evidence: FAIL')
@@ -205,5 +300,5 @@ if (failedChecks.length > 0) {
   }
   process.exitCode = 1
 } else {
-  console.log('headline evidence:      PASS (bundles.mvp.ok, fixture.rows, opfs.roundTrip)')
+  console.log(`headline evidence:      PASS (${headlineChecks.map((c) => c.name).join(', ')})`)
 }

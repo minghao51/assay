@@ -2,17 +2,37 @@
 /* global process, console */
 
 /**
- * Spike build (ptv-1). esbuild-bundles the four spike entry points and copies
- * the two DuckDB-WASM bundle pairs into `dist/webview/` so the extension host
- * can hand their `vscode-webview-resource:` URIs to the webview. Emits
+ * Spike build (ptv-1, assets vendored by ptv1-2). esbuild-bundles the four
+ * spike entry points and copies the DuckDB-WASM bundle assets into
+ * `dist/webview/` so the extension host can hand their
+ * `vscode-webview-resource:` URIs to the webview. Emits
  * `dist/spike-artifacts.json` with exact byte sizes for the Q6 packaging
- * evidence (the runner merges it into the report).
+ * evidence and `dist/vendored-assets.json` with the version-pin evidence
+ * (the runner merges both into the report).
+ *
+ * ptv1-2 (vendored engine assets, local-first): the production `mvp` bundle
+ * (`duckdb-mvp.wasm` + `duckdb-browser-mvp.worker.js`) and the Parquet
+ * extension are COMMITTED under `assets/duckdb/` (with a `.pinned` suffix —
+ * formatters skip unknown extensions, so `pnpm format` can never rewrite the
+ * pinned bytes) and copied from there, NOT from node_modules — with two hard
+ * verifications before every build:
+ *   1. the committed bytes match the recorded SHA-256 checksums (pin drift
+ *      fails the build), and
+ *   2. the committed wasm/worker are byte-identical to the copy in the
+ *      lockfile-pinned `@duckdb/duckdb-wasm` package (the version pin is the
+ *      lockfile's; a bump without re-vendoring fails the build).
+ * The `eh` pair is harness-only (boot probe, never opens a dataset) and
+ * continues to come from the same pinned package. See
+ * `assets/duckdb/VENDORED_ASSETS.md` for the full pin, the one-time vendor
+ * fetch URL, and the DuckDB-WASM MIT license note (AGPL-compatible per
+ * AGENTS.md).
  *
  * Deliberately spike-local: no root config, no tsconfig changes, no build
  * integration into `pnpm build` (queue row ptv-1: scaffold + harness only).
  */
+import { createHash } from 'node:crypto'
 import { build } from 'esbuild'
-import { cp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,12 +45,48 @@ const webviewDist = path.join(dist, 'webview')
 const require = createRequire(import.meta.url)
 const duckdbDist = path.dirname(require.resolve('@duckdb/duckdb-wasm'))
 
-const WASM_ASSETS = [
-  'duckdb-browser-mvp.worker.js',
-  'duckdb-mvp.wasm',
-  'duckdb-browser-eh.worker.js',
-  'duckdb-eh.wasm',
-]
+/**
+ * The vendored-asset pin (ptv1-2) — the machine-readable half of
+ * `assets/duckdb/VENDORED_ASSETS.md`. sha256 values are of the COMMITTED
+ * files in `assets/duckdb/`; a mismatch fails the build.
+ */
+const VENDORED_ASSETS = {
+  /** @duckdb/duckdb-wasm version pinned in pnpm-lock.yaml — do NOT bump here alone. */
+  duckdbWasmVersion: '1.32.0',
+  /** The DuckDB runtime embedded in that bundle (asserted at runtime by run:spike). */
+  duckdbVersion: 'v1.4.3',
+  extensionPlatform: 'wasm_mvp',
+  files: [
+    {
+      name: 'duckdb-mvp.wasm',
+      committedName: 'duckdb-mvp.wasm.pinned',
+      sha256: '45d72a81fba8e57693d890da837c7041310e385e75619a8559839b15388dfe97',
+      // Present in the lockfile-pinned npm package: pin-equality is verified.
+      fromNpmPackage: true,
+    },
+    {
+      name: 'duckdb-browser-mvp.worker.js',
+      committedName: 'duckdb-browser-mvp.worker.js.pinned',
+      sha256: 'b0387027f174e2b60c2d5cfa31cecca9b89d8a9762346b6449a784cd1c4dde3c',
+      fromNpmPackage: true,
+    },
+    {
+      name: 'parquet.duckdb_extension.wasm',
+      committedName: 'parquet.duckdb_extension.wasm.pinned',
+      sha256: '0785c6c95d003eff4faa7b3b4b660f02c9c92f6d68d135ddf330d42e3a650600',
+      // Fetched ONCE at vendor time (2026-10-12, ptv1-2) from:
+      //   https://extensions.duckdb.org/v1.4.3/wasm_mvp/parquet.duckdb_extension.wasm
+      // Runtime NEVER fetches: the harness blocks extensions.duckdb.org
+      // (CSP + in-worker interceptor; see VENDORED_ASSETS.md).
+      fromNpmPackage: false,
+    },
+  ],
+  license:
+    'DuckDB-WASM is MIT-licensed — AGPL-compatible per AGENTS.md (repo is AGPL-3.0-or-later, ADR 0036)',
+}
+
+/** The eh pair stays a harness-only copy from the pinned package. */
+const WASM_ASSETS = ['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm']
 
 /** Shared browser build options for the webview main thread and its worker. */
 const browserBuild = {
@@ -85,6 +141,36 @@ async function main() {
   for (const asset of WASM_ASSETS) {
     await cp(path.join(duckdbDist, asset), path.join(webviewDist, asset))
   }
+
+  // ptv1-2: verify the vendored pin, then copy the committed assets. Any
+  // drift (edited binary, partial vendoring, package bump) fails the build.
+  const vendoredDir = path.join(appRoot, 'assets', 'duckdb')
+  const vendoredEvidence = []
+  for (const entry of VENDORED_ASSETS.files) {
+    const committed = await readFile(path.join(vendoredDir, entry.committedName))
+    const observed = createHash('sha256').update(committed).digest('hex')
+    if (observed !== entry.sha256) {
+      throw new Error(
+        `vendored asset drift: assets/duckdb/${entry.committedName} sha256 ${observed} != pinned ${entry.sha256} ` +
+          '(see assets/duckdb/VENDORED_ASSETS.md — re-vendor deliberately, never silently)',
+      )
+    }
+    if (entry.fromNpmPackage) {
+      const pinned = await readFile(path.join(duckdbDist, entry.name))
+      if (!pinned.equals(committed)) {
+        throw new Error(
+          `vendored asset is not byte-identical to the lockfile-pinned @duckdb/duckdb-wasm copy of ${entry.name} — ` +
+            'a version bump must go through a deliberate re-vendor (VENDORED_ASSETS.md), not a silent copy',
+        )
+      }
+    }
+    await cp(path.join(vendoredDir, entry.committedName), path.join(webviewDist, entry.name))
+    vendoredEvidence.push({ name: entry.name, bytes: committed.byteLength, sha256: observed })
+  }
+  await writeFile(
+    path.join(dist, 'vendored-assets.json'),
+    JSON.stringify({ ...VENDORED_ASSETS, files: vendoredEvidence }, null, 2) + '\n',
+  )
   await writeFile(path.join(webviewDist, 'probe.json'), '{"spike":true}\n')
 
   const files = [

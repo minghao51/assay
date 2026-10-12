@@ -43,6 +43,23 @@ interface SpikeWebviewConfig {
     readonly mvp: { readonly workerUrl: string; readonly wasmUrl: string }
     readonly eh: { readonly workerUrl: string; readonly wasmUrl: string }
   }
+  /** ptv1-2: the vendored Parquet extension (local-first; runtime never fetches). */
+  readonly vendoredExtension: {
+    readonly fileName: string
+    readonly url: string
+    readonly duckdbVersion: string
+    /** The CDN URL path the shim serves locally (DuckDB-version specific). */
+    readonly autoloadPath: string
+  }
+  /** ptv1-2: the CDN host the harness network-blocks (Q5b failure mode, pinned fixed). */
+  readonly blockedExtensionHost: string
+  /**
+   * ptv1-2 drill mode (ASSAY_SPIKE_DRILL=missing-extension): skip the local
+   * extension install so the stock CDN autoload path is exercised — the run
+   * must then FAIL with the refused fetch, reproducing the Q5b failure mode
+   * under the network block (structural proof the block would catch it).
+   */
+  readonly drill: boolean
 }
 
 /**
@@ -84,6 +101,16 @@ async function runSpike(context: vscode.ExtensionContext, fixturePath: string): 
         wasmUrl: asset('duckdb-eh.wasm'),
       },
     },
+    vendoredExtension: {
+      fileName: 'parquet.duckdb_extension.wasm',
+      url: asset('parquet.duckdb_extension.wasm'),
+      duckdbVersion: 'v1.4.3',
+      // The CDN URL path the shim serves locally (Q5b autoload URL of the
+      // pinned DuckDB version; must move with any deliberate re-vendor).
+      autoloadPath: '/v1.4.3/wasm_mvp/parquet.duckdb_extension.wasm',
+    },
+    blockedExtensionHost: 'extensions.duckdb.org',
+    drill: process.env['ASSAY_SPIKE_DRILL'] === 'missing-extension',
   }
   panel.webview.html = buildHtml(panel.webview, nonce, config)
 
@@ -132,13 +159,15 @@ function buildHtml(webview: vscode.Webview, nonce: string, config: SpikeWebviewC
     "default-src 'none'",
     // `blob:` is required: the worker bundle is loaded from a same-origin blob
     // URL (see webview/main.ts) and DuckDB-WASM fetches its WASM from a blob.
-    // `extensions.duckdb.org` is where DuckDB-WASM 1.32.0 fetches the Parquet
-    // extension at runtime (`read_parquet` is not statically linked) — a real
-    // PT-V consideration recorded in the feasibility report.
+    // ptv1-2: the Parquet extension is VENDORED (assets/duckdb/), so
+    // `extensions.duckdb.org` is deliberately NOT in connect-src anymore —
+    // the Q5b CDN allowance is gone and the browser refuses any autoload
+    // request before it reaches the network (the run:spike harness asserts
+    // the vendored run still passes and drills the refusal).
     `script-src 'nonce-${nonce}' 'wasm-unsafe-eval' blob:`,
     "style-src 'unsafe-inline'",
     `worker-src ${webview.cspSource} blob:`,
-    `connect-src ${webview.cspSource} blob: https://extensions.duckdb.org`,
+    `connect-src ${webview.cspSource} blob:`,
     `img-src ${webview.cspSource} data:`,
   ].join('; ')
   const serialized = JSON.stringify(config).replaceAll('<', '\\u003c')
