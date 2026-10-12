@@ -27,8 +27,12 @@
  * fetch URL, and the DuckDB-WASM MIT license note (AGPL-compatible per
  * AGENTS.md).
  *
- * Deliberately spike-local: no root config, no tsconfig changes, no build
- * integration into `pnpm build` (queue row ptv-1: scaffold + harness only).
+ * Deliberately outside the turbo build (no root config, no tsconfig changes,
+ * no `pnpm build` integration). Since ptv1-3 this build also emits the
+ * PRODUCTION dataset surface bundles: the dataset webview entry
+ * (`dist/webview/dataset.js`) and the ptv1-3 e2e test entry
+ * (`dist/e2e-test.cjs`), alongside the spike artifacts (ptv1-5's harness
+ * seed stays intact).
  */
 import { createHash } from 'node:crypto'
 import { build } from 'esbuild'
@@ -126,9 +130,30 @@ async function main() {
     outfile: path.join(webviewDist, 'worker.js'),
   })
 
+  // ptv1-3: the production dataset viewer webview (shared engine-boot module).
+  await build({
+    ...browserBuild,
+    entryPoints: [path.join(appRoot, 'webview/dataset.ts')],
+    outfile: path.join(webviewDist, 'dataset.js'),
+  })
+
   await build({
     entryPoints: [path.join(appRoot, 'test/spike-runner.ts')],
     outfile: path.join(dist, 'spike-test.cjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    external: ['vscode'],
+    sourcemap: false,
+    logLevel: 'warning',
+  })
+
+  // ptv1-3: the e2e test entry (real VS Code via @vscode/test-electron,
+  // launched by scripts/run-e2e.mjs).
+  await build({
+    entryPoints: [path.join(appRoot, 'test/e2e/dataset-runner.ts')],
+    outfile: path.join(dist, 'e2e-test.cjs'),
     bundle: true,
     platform: 'node',
     format: 'cjs',
@@ -176,6 +201,7 @@ async function main() {
   const files = [
     path.join(dist, 'extension.cjs'),
     path.join(dist, 'spike-test.cjs'),
+    path.join(dist, 'e2e-test.cjs'),
     ...(await readdir(webviewDist)).map((name) => path.join(webviewDist, name)),
   ]
   const artifacts = []

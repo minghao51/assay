@@ -3,13 +3,15 @@
 /**
  * PT-V R4 webview feasibility spike (queue row ptv-1) — extension host entry.
  *
- * This is a deliberately minimal, spike-labeled scaffold: one command that
- * opens a webview, hands it the 1M-row on-demand Parquet fixture, and resolves
- * with the machine-readable evidence the webview produces. There is NO product
- * UX here and nothing in this file is a PT-V commitment (ruling D15). The
- * reviewer re-runs it with `pnpm --filter @assay/vscode run:spike`; the evidence
- * and its honesty tags live in
- * `docs/engineering/08-vscode-webview-feasibility.md`.
+ * The spike command remains the slice-1 evidence harness (ptv1-5 hardens it;
+ * the reviewer re-runs it with `pnpm --filter @assay/vscode run:spike`; the
+ * evidence and its honesty tags live in
+ * `docs/engineering/08-vscode-webview-feasibility.md`). Since ptv1-3 the
+ * production dataset surface (command + custom read-only editor, the
+ * `workspace.fs` -> webview bytes bridge, typed error paths) is registered
+ * alongside it - see `src/dataset.ts`. The webview CSP is shared with the
+ * production panels (`src/webview-html.ts`) so the measured posture cannot
+ * drift; the vendored-runtime pin literals come from `src/assets.ts`.
  *
  * Security posture (engineering/04 §6): strict CSP set on the webview HTML,
  * scripts only from the extension's own `dist/webview` via `asWebviewUri`, a
@@ -17,6 +19,9 @@
  * webview DOM). No dataset values leave the machine.
  */
 import * as vscode from 'vscode'
+import { VENDORED_RUNTIME } from './assets'
+import { registerDatasetSurface } from './dataset'
+import { serializeConfig, webviewCsp } from './webview-html'
 
 /** The command the test host (and a human) invokes; returns the spike report. */
 const RUN_COMMAND = 'assay.spike.run'
@@ -27,6 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
       runSpike(context, fixturePath),
     ),
   )
+  registerDatasetSurface(context)
 }
 
 export function deactivate(): void {
@@ -102,14 +108,14 @@ async function runSpike(context: vscode.ExtensionContext, fixturePath: string): 
       },
     },
     vendoredExtension: {
-      fileName: 'parquet.duckdb_extension.wasm',
-      url: asset('parquet.duckdb_extension.wasm'),
-      duckdbVersion: 'v1.4.3',
+      fileName: VENDORED_RUNTIME.extensionFileName,
+      url: asset(VENDORED_RUNTIME.extensionFileName),
+      duckdbVersion: VENDORED_RUNTIME.duckdbVersion,
       // The CDN URL path the shim serves locally (Q5b autoload URL of the
       // pinned DuckDB version; must move with any deliberate re-vendor).
-      autoloadPath: '/v1.4.3/wasm_mvp/parquet.duckdb_extension.wasm',
+      autoloadPath: VENDORED_RUNTIME.autoloadPath,
     },
-    blockedExtensionHost: 'extensions.duckdb.org',
+    blockedExtensionHost: VENDORED_RUNTIME.blockedExtensionHost,
     drill: process.env['ASSAY_SPIKE_DRILL'] === 'missing-extension',
   }
   panel.webview.html = buildHtml(panel.webview, nonce, config)
@@ -153,24 +159,10 @@ async function runSpike(context: vscode.ExtensionContext, fixturePath: string): 
   })
 }
 
-/** Strict CSP: nonce scripts, wasm-unsafe-eval for DuckDB-WASM, own-origin + blob workers. */
+/** The spike document: shared measured CSP (see webview-html.ts) + config. */
 function buildHtml(webview: vscode.Webview, nonce: string, config: SpikeWebviewConfig): string {
-  const csp = [
-    "default-src 'none'",
-    // `blob:` is required: the worker bundle is loaded from a same-origin blob
-    // URL (see webview/main.ts) and DuckDB-WASM fetches its WASM from a blob.
-    // ptv1-2: the Parquet extension is VENDORED (assets/duckdb/), so
-    // `extensions.duckdb.org` is deliberately NOT in connect-src anymore —
-    // the Q5b CDN allowance is gone and the browser refuses any autoload
-    // request before it reaches the network (the run:spike harness asserts
-    // the vendored run still passes and drills the refusal).
-    `script-src 'nonce-${nonce}' 'wasm-unsafe-eval' blob:`,
-    "style-src 'unsafe-inline'",
-    `worker-src ${webview.cspSource} blob:`,
-    `connect-src ${webview.cspSource} blob:`,
-    `img-src ${webview.cspSource} data:`,
-  ].join('; ')
-  const serialized = JSON.stringify(config).replaceAll('<', '\\u003c')
+  const csp = webviewCsp(webview, nonce)
+  const serialized = serializeConfig(config)
   return `<!DOCTYPE html>
 <html lang="en">
   <head>

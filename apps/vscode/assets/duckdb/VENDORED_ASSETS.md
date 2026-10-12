@@ -95,7 +95,9 @@ extensions.duckdb.org) is **MIT-licensed — AGPL-compatible** per the license
 rule in `AGENTS.md` (the repository is AGPL-3.0-or-later, ADR 0036). The
 npm metadata declares `license: "MIT"`, but the 1.32.0 package ships no
 LICENSE file — the vendored binaries here are byte-identical to that MIT
-package (DuckDB's own MIT distribution); the full MIT text is to be
-committed alongside the binaries at the next in-scope touch (ptv1-3).
+package (DuckDB's own MIT distribution). Since ptv1-3 the full MIT text is
+committed alongside the binaries as
+[`LICENSE.duckdb-wasm.txt`](LICENSE.duckdb-wasm.txt) (verbatim from the
+`duckdb/duckdb-wasm` v1.32.0 source tag, © Stichting DuckDB Foundation).
 Committing these binaries does not change this repository's license
 obligations.

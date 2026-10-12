@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "displayName": "Assay (R4 webview spike)",
-  "description": "Assay VS Code extension — PT-V R4 webview feasibility spike (ptv-1); spike-only scaffold, not a product extension",
+  "displayName": "Assay dataset viewer",
+  "description": "Assay VS Code extension \u2014 production dataset surface (PT-V slice 1 ptv1-3): command + custom read-only editor for Parquet/CSV/JSONL/JSON/Arrow with a vendored local-first engine in the webview, plus the R4 webview feasibility spike harness (ptv-1)",
   "publisher": "assay-spike",
   "license": "AGPL-3.0-or-later",
   "engines": {
@@ -16,15 +16,54 @@
   "contributes": {
     "commands": [
       {
+        "command": "assay.dataset.open",
+        "title": "Assay: Open dataset"
+      },
+      {
         "command": "assay.spike.run",
         "title": "Assay: Run R4 webview feasibility spike"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "assay.datasetViewer",
+        "displayName": "Assay dataset viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.parquet"
+          },
+          {
+            "filenamePattern": "*.csv"
+          },
+          {
+            "filenamePattern": "*.jsonl"
+          },
+          {
+            "filenamePattern": "*.ndjson"
+          },
+          {
+            "filenamePattern": "*.json"
+          },
+          {
+            "filenamePattern": "*.arrow"
+          },
+          {
+            "filenamePattern": "*.feather"
+          },
+          {
+            "filenamePattern": "*.ipc"
+          }
+        ],
+        "priority": "option"
       }
     ]
   },
   "scripts": {
     "build:spike": "node scripts/build.mjs",
     "generate:fixture": "node scripts/generate-fixture.mjs",
+    "generate:fixtures": "node scripts/generate-fixtures.mjs",
     "run:spike": "node scripts/run-spike.mjs",
+    "e2e": "node scripts/run-e2e.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json"
   },
   "devDependencies": {

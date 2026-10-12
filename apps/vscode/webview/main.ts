@@ -50,6 +50,8 @@
  */
 import { DuckDbEngineClient } from '@assay/engine-duckdb'
 import type { EngineAssetsMessage } from '@assay/engine-duckdb/worker-core'
+import { bootAdapter, buildShimmedGlueBlobUrl, createAdapterClient, toBlobUrl } from './engine-boot'
+import type { WorkerDiagnostic } from './engine-boot'
 
 interface BundleUrls {
   readonly workerUrl: string
@@ -103,23 +105,8 @@ const heap: Record<string, Record<string, number>> = { preBoot: heapSample() }
 results['heap'] = heap
 
 /** Raw worker progress/error lines, kept so a wedged boot is diagnosable. */
-const diagnostics: Array<{ source: string; message: string }> = []
+const diagnostics: Array<WorkerDiagnostic> = []
 results['workerDiagnostics'] = diagnostics
-
-function attachDiagnostics(worker: Worker, label: string): void {
-  worker.addEventListener('message', (event) => {
-    const data = event.data as { kind?: string; message?: string }
-    if (data?.kind === 'progress' && data.message !== undefined) {
-      diagnostics.push({ source: label, message: data.message })
-    }
-  })
-  worker.addEventListener('error', (event) => {
-    diagnostics.push({ source: label, message: `error: ${event.message}` })
-  })
-  worker.addEventListener('messageerror', () => {
-    diagnostics.push({ source: label, message: 'messageerror' })
-  })
-}
 
 function setStatus(message: string): void {
   const el = document.getElementById('status')
@@ -160,21 +147,6 @@ async function step(name: string, attempt: () => Promise<unknown>): Promise<unkn
   }
 }
 
-/** Fetch a webview resource and re-expose it as a same-origin blob URL. */
-async function toBlobUrl(url: string, mimeType?: string): Promise<string> {
-  const response = await fetch(url, { cache: 'no-store' })
-  if (!response.ok) {
-    throw new Error(`fetch ${url} failed: ${String(response.status)}`)
-  }
-  // `response.blob()` keeps the bytes in the browser's blob store instead of a
-  // JS ArrayBuffer; `slice` re-types without copying, so the main-thread JS
-  // heap stays comparable to the G1-R web numbers.
-  const blob = await response.blob()
-  const typed =
-    mimeType === undefined || blob.type === mimeType ? blob : blob.slice(0, blob.size, mimeType)
-  return URL.createObjectURL(typed)
-}
-
 /** Same-origin fetch of a webview resource, read for the host's COOP/COEP headers. */
 async function probeResourceHeaders(url: string): Promise<unknown> {
   try {
@@ -190,226 +162,6 @@ async function probeResourceHeaders(url: string): Promise<unknown> {
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) }
   }
-}
-
-/**
- * The vendored-asset glue shim (ptv1-2). Emitted as SOURCE and APPENDED to
- * the unmodified vendored glue text — the pinned `duckdb-browser-mvp.worker.js`
- * bytes are never altered. Self-contained ES5-style code: it must survive as
- * verbatim text inside a classic worker.
- *
- * Local-first extension serving: when DuckDB requests the Parquet extension
- * binary from the CDN (the Q5b autoload URL), the shim answers the request
- * LOCALLY with the vendored bytes — `fetch` gets a synthesized `Response`,
- * the emscripten XHR helper gets a minimal synchronous fake — so the engine
- * consumes the official vendored binary with ZERO network traffic. Any other
- * request to the blocked host is refused outright (`assay-netblock-refusal`).
- * Drill mode has no vendored bytes: the CDN path runs into the refusal and
- * the fixture open reproduces the Q5b failure mode under the block.
- *
- * (Design note: registering the vendored binary into DuckDB's virtual
- * filesystem and running `INSTALL`/`LOAD` locally was tried first and works
- * for direct file reads (read_csv resolves registered buffers), but the
- * extension loader's own existence check does not see registered buffers in
- * DuckDB-WASM 1.32.0 and falls through to its HTTP filesystem. The local
- * serve answers at the network boundary instead — independent of the
- * engine's FS semantics, and the bytes on the wire are literally none.)
- */
-function buildGlueShimSource(constants: {
-  blockedHost: string
-  /** The autoload URL path the shim serves locally (engine-version specific). */
-  extensionPath: string
-  /** Blob URL of the vendored extension bytes ('' in drill mode). */
-  extensionUrl: string
-  drill: boolean
-}): string {
-  const config = JSON.stringify(constants)
-  return `;(function () {
-  var cfg = ${config}
-  var extensionBytes = null
-  var state = { status: 'pending', detail: '' }
-  function isBlocked(url) {
-    try {
-      return new URL(String(url), self.location.href).host === cfg.blockedHost
-    } catch (_e) {
-      return String(url).indexOf(cfg.blockedHost) !== -1
-    }
-  }
-  function isVendoredExtensionUrl(url) {
-    if (extensionBytes === null || cfg.drill) return false
-    try {
-      var u = new URL(String(url), self.location.href)
-      return u.host === cfg.blockedHost && u.pathname === cfg.extensionPath
-    } catch (_e) {
-      return false
-    }
-  }
-  function refuse(url) {
-    throw new Error('assay-netblock-refusal: network fetch refused by vendored-asset harness: ' + String(url))
-  }
-  function serveLocally() {
-    return new Response(extensionBytes.slice(0), {
-      status: 200,
-      headers: { 'Content-Type': 'application/wasm' },
-    })
-  }
-  var nativeFetch = self.fetch
-  self.fetch = function (input, init) {
-    var url = typeof input === 'string' ? input : (input && input.url) || String(input)
-    if (isVendoredExtensionUrl(url)) return Promise.resolve(serveLocally())
-    if (isBlocked(url)) refuse(url)
-    return nativeFetch.call(self, input, init)
-  }
-  if (typeof XMLHttpRequest !== 'undefined') {
-    // Minimal synchronous XHR fake for the vendored URL: the emscripten HTTP
-    // helper calls open(method,url,false) + send(null) and then reads
-    // status/response inline, so the fake can populate them synchronously.
-    function VendoredXHR() {}
-    VendoredXHR.prototype.open = function (method, url) {
-      this._blocked = isVendoredExtensionUrl(url)
-      if (!this._blocked && isBlocked(url)) refuse(url)
-    }
-    VendoredXHR.prototype.setRequestHeader = function () {}
-    VendoredXHR.prototype.send = function () {
-      if (this._blocked) {
-        this.status = 200
-        this.response = extensionBytes.slice(0)
-      }
-    }
-    VendoredXHR.prototype.getResponseHeader = function () {
-      return null
-    }
-    var nativeOpen = XMLHttpRequest.prototype.open
-    XMLHttpRequest.prototype.open = function (method, url) {
-      if (isVendoredExtensionUrl(url)) {
-        // Serve: swap in the fake instance semantics by rerouting open/send.
-        var fake = new VendoredXHR()
-        fake.open(method, url)
-        var nativeSend = XMLHttpRequest.prototype.send
-        this.send = function () {
-          fake.send()
-        }
-        this.setRequestHeader = function () {}
-        this.getResponseHeader = function () {
-          return null
-        }
-        var self2 = this
-        Object.defineProperty(this, 'status', { value: 200 })
-        Object.defineProperty(this, 'response', {
-          set: function (_v) {},
-          get: function () {
-            return fake.response
-          },
-        })
-        void nativeSend
-        return
-      }
-      if (isBlocked(url)) refuse(url)
-      try {
-        return nativeOpen.apply(this, arguments)
-      } catch (openError) {
-        // Diagnostic: the URL that failed native open reaches the report via
-        // the query error path (shim-thrown errors propagate to the client).
-        throw new Error(
-          'assay-xhr-open-failed url=' + String(url) + ' :: ' + String(openError && openError.message),
-        )
-      }
-    }
-  }
-  var originalOnMessage = self.onmessage
-  var gated = false
-  var gating = false
-  var queued = []
-  function writeStateFile() {
-    // Diagnostic channel: a tiny CSV the webview can read through DuckDB's
-    // (statically linked) read_csv, since shim globals are unreachable from
-    // the main thread. Registered through the glue's own protocol message.
-    try {
-      var csv = 'status,detail\\n' + JSON.stringify(state.status) + ',' + JSON.stringify(state.detail) + '\\n'
-      return originalOnMessage({
-        data: { type: 'REGISTER_FILE_BUFFER', data: ['/assay-shim-state.csv', new TextEncoder().encode(csv)] },
-      })
-    } catch (e) {
-      state.status = 'state-file-register-threw'
-      state.detail = String(e && e.message)
-      return Promise.resolve()
-    }
-  }
-  function loadVendoredBytes() {
-    if (cfg.drill || !cfg.extensionUrl) {
-      state.status = 'skipped-drill'
-      return writeStateFile()
-    }
-    return fetch(cfg.extensionUrl)
-      .then(function (r) {
-        if (!r.ok) throw new Error('vendored extension fetch failed: ' + String(r.status))
-        return r.arrayBuffer()
-      })
-      .then(function (bytes) {
-        extensionBytes = bytes
-        state.status = 'ready'
-        state.detail = 'vendored ' + String(bytes.byteLength) + ' bytes in hand (serve on ' + cfg.extensionPath + ')'
-      })
-      .then(
-        function () {
-          return writeStateFile()
-        },
-        function (error) {
-          state.status = 'failed'
-          state.detail = String(error && error.message)
-          return writeStateFile()
-        },
-      )
-  }
-  function dispatch(event) {
-    var type = event && event.data ? event.data.type : undefined
-    if (type === 'INSTANTIATE' && !gated && !gating) {
-      gating = true
-      Promise.resolve(originalOnMessage(event))
-        .then(loadVendoredBytes)
-        .catch(function (error) {
-          // Surface at the SQL/serve layer: without the vendored bytes the
-          // CDN path is refused and the fixture open fails loudly.
-          state.status = 'failed'
-          state.detail = String(error && error.message)
-        })
-        .then(function () {
-          gated = true
-          gating = false
-          var pending = queued.splice(0, queued.length)
-          for (var i = 0; i < pending.length; i++) originalOnMessage(pending[i])
-        })
-      return
-    }
-    originalOnMessage(event)
-  }
-  self.onmessage = function (event) {
-    if (gating) {
-      queued.push(event)
-      return
-    }
-    dispatch(event)
-  }
-})()`
-}
-
-/**
- * Build the mvp glue worker as a same-origin blob: the UNMODIFIED vendored
- * glue text with the ptv1-2 shim appended (see buildGlueShimSource). The
- * pinned asset bytes themselves are not altered — the shim is concatenation
- * only, and scripts/build.mjs verifies the committed bytes' checksums.
- */
-async function buildShimmedGlueBlobUrl(
-  glueUrl: string,
-  constants: Parameters<typeof buildGlueShimSource>[0],
-): Promise<string> {
-  const response = await fetch(glueUrl, { cache: 'no-store' })
-  if (!response.ok) {
-    throw new Error(`fetch ${glueUrl} failed: ${String(response.status)}`)
-  }
-  const glueText = await response.text()
-  const shimmed = glueText + '\n' + buildGlueShimSource(constants)
-  return URL.createObjectURL(new Blob([shimmed], { type: 'text/javascript' }))
 }
 
 /**
@@ -472,42 +224,6 @@ function waitForFixture(): Promise<{ name: string; bytes: ArrayBuffer }> {
       }
     })
   })
-}
-
-/**
- * Build the real adapter over a blob-URL-bootstrapped engine worker. This is
- * the host-side half of the ptv1-1 seam: the worker bundle is fetched from its
- * webview resource URI and re-exposed as a same-origin blob (a cross-origin
- * `new Worker(...)` throws in the webview — Q1a), and the DuckDB asset blob
- * URLs are posted as the FIRST message the worker receives, so the shared
- * core's injected mode resolves before the client's `engine/init`.
- */
-function createAdapterClient(
-  workerBlobUrl: string,
-  label: 'mvp' | 'eh',
-  assets: EngineAssetsMessage,
-): DuckDbEngineClient {
-  return new DuckDbEngineClient({
-    workerFactory: () => {
-      const worker = new Worker(workerBlobUrl, { type: 'module' })
-      attachDiagnostics(worker, label)
-      worker.postMessage(assets)
-      return worker
-    },
-  })
-}
-
-/** Boot the real adapter and time it (the Q1 boot envelope). */
-async function bootAdapter(client: DuckDbEngineClient): Promise<unknown> {
-  const started = performance.now()
-  const ready = await client.ensureReady()
-  return {
-    ok: true,
-    bootMs: performance.now() - started,
-    version: ready.duckdbVersion,
-    // Evidence that the harness exercised the real adapter, not spike-local code.
-    adapter: '@assay/engine-duckdb',
-  }
 }
 
 /**
@@ -705,7 +421,7 @@ async function run(): Promise<void> {
     duckdbWorkerUrl: mvpGlueBlobUrl,
     duckdbWasmUrl: await toBlobUrl(config.bundles.mvp.wasmUrl, 'application/wasm'),
   }
-  const mvpClient = createAdapterClient(workerUrl, 'mvp', mvpAssets)
+  const mvpClient = createAdapterClient(workerUrl, mvpAssets, 'mvp', diagnostics)
   const mvpBoot = await step('boot.mvp', () => bootAdapter(mvpClient))
   bundles['mvp'] = mvpBoot ?? { ok: false, note: 'see errors["boot.mvp"]' }
   URL.revokeObjectURL(mvpAssets.duckdbWorkerUrl)
@@ -743,7 +459,7 @@ async function run(): Promise<void> {
     duckdbWorkerUrl: await toBlobUrl(config.bundles.eh.workerUrl, 'text/javascript'),
     duckdbWasmUrl: await toBlobUrl(config.bundles.eh.wasmUrl, 'application/wasm'),
   }
-  const ehClient = createAdapterClient(workerUrl, 'eh', ehAssets)
+  const ehClient = createAdapterClient(workerUrl, ehAssets, 'eh', diagnostics)
   const ehBoot = await step('boot.eh', () => bootAdapter(ehClient))
   bundles['eh'] = ehBoot ?? { ok: false, note: 'see errors["boot.eh"]' }
   await step('dispose.eh', () => ehClient.dispose())
