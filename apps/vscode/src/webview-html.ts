@@ -37,7 +37,15 @@ export function serializeConfig(config: unknown): string {
   return JSON.stringify(config).replaceAll('<', '\\u003c')
 }
 
-/** The dataset viewer's static document (ptv1-3): status, error slot, counts. */
+/**
+ * The dataset viewer's static document (ptv1-3 bridge + ptv1-4 grid): the
+ * status line, error slot, value-free counts, a visually-hidden grid heading
+ * (the web app's a11y pattern: the grid section's heading sits OUTSIDE the
+ * role=grid element, whose owned children must be rows/rowgroups), and the
+ * ptv1-4 grid mount point. The grid's own DOM (role=grid viewport, toolbar,
+ * footer) is built by `webview/data-grid.ts` at runtime — textContent/
+ * setAttribute only, never innerHTML.
+ */
 export function buildDatasetHtml(
   webview: vscode.Webview,
   nonce: string,
@@ -63,6 +71,18 @@ export function buildDatasetHtml(
         <dt>columns</dt>
         <dd id="report-columns"></dd>
       </dl>
+      <style>
+        /* Minimal static style for the pre-mount hidden heading; the grid
+           injects its own stylesheet on mount (CSP: style-src 'unsafe-inline'
+           — the measured CSP string is untouched). */
+        .assay-visually-hidden {
+          position: absolute; width: 1px; height: 1px; padding: 0;
+          margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
+          white-space: nowrap; border: 0;
+        }
+      </style>
+      <h2 class="assay-visually-hidden">Grid</h2>
+      <div id="grid-root"></div>
     </main>
     <script nonce="${nonce}">
       window.__ASSAY_DATASET_CONFIG__ = ${serialized};

@@ -50,8 +50,13 @@
  */
 import { DuckDbEngineClient } from '@assay/engine-duckdb'
 import type { EngineAssetsMessage } from '@assay/engine-duckdb/worker-core'
+import { GridViewportModel } from '@assay/grid'
+import { WebviewDataGrid } from './data-grid'
 import { bootAdapter, buildShimmedGlueBlobUrl, createAdapterClient, toBlobUrl } from './engine-boot'
 import type { WorkerDiagnostic } from './engine-boot'
+import { EngineGridProvider } from './grid-provider'
+import { auditGridDom, probeKeyboardNavigation } from './grid-audit'
+import type { GridDomAudit, KeyboardProbeResult } from './grid-audit'
 
 interface BundleUrls {
   readonly workerUrl: string
@@ -136,7 +141,7 @@ function heapSample(): Record<string, number> {
       }
 }
 
-async function step(name: string, attempt: () => Promise<unknown>): Promise<unknown> {
+async function step<T>(name: string, attempt: () => Promise<T>): Promise<T | undefined> {
   try {
     setStatus(name)
     return await attempt()
@@ -226,6 +231,15 @@ function waitForFixture(): Promise<{ name: string; bytes: ArrayBuffer }> {
   })
 }
 
+/** The open envelope metrics plus what the ptv1-4 grid phase reuses. */
+interface OpenedFixture {
+  readonly metrics: Record<string, unknown>
+  /** The live engine handle (the grid phase mounts the surface over it). */
+  readonly handle: Awaited<ReturnType<DuckDbEngineClient['open']>>
+  /** performance.now() at open start (the grid TTFR's zero). */
+  readonly openedAt: number
+}
+
 /**
  * Register the fixture bytes through the real adapter and time
  * open → count → first row (the Q5 envelope, same methodology as the R4
@@ -234,7 +248,7 @@ function waitForFixture(): Promise<{ name: string; bytes: ArrayBuffer }> {
 async function openFixtureThroughAdapter(
   client: DuckDbEngineClient,
   fixture: { name: string; bytes: ArrayBuffer },
-): Promise<unknown> {
+): Promise<OpenedFixture> {
   const fixtureFile = new File([fixture.bytes], fixture.name)
   const bytes = fixture.bytes.byteLength
 
@@ -280,15 +294,220 @@ async function openFixtureThroughAdapter(
   }
 
   return {
-    bytes,
-    rows,
-    openMs,
-    rowCountMs,
-    ttfrMs,
-    ttfrRows: windowTable.batch.numRows,
-    firstRow,
-    pickerToFirstRowMs: openMs + rowCountMs + ttfrMs,
-    parquetExtension,
+    metrics: {
+      bytes,
+      rows,
+      openMs,
+      rowCountMs,
+      ttfrMs,
+      ttfrRows: windowTable.batch.numRows,
+      firstRow,
+      pickerToFirstRowMs: openMs + rowCountMs + ttfrMs,
+      parquetExtension,
+    },
+    handle,
+    openedAt: openStarted,
+  }
+}
+
+/**
+ * Poll the public model API until the row at `index` is served ready (the
+ * deterministic settle for sort/filter/scroll epochs — no fixed sleeps).
+ */
+async function waitForReadyRowAt(
+  model: GridViewportModel,
+  index: number,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = performance.now() + timeoutMs
+  for (;;) {
+    if (model.getRow(index).status === 'ready') return
+    if (performance.now() > deadline) {
+      const stats = model.stats
+      throw new Error(
+        `grid row ${String(index)} not ready within ${String(timeoutMs)}ms ` +
+          `(slot=${String(model.getRow(index).status)} fatalError=${String(stats.fatalError)} ` +
+          `failedSpans=${String(stats.failedSpans)} fetchCalls=${String(stats.fetchCalls)} ` +
+          `rowsRequested=${String(stats.rowsRequested)} rowsReceived=${String(stats.rowsReceived)})`,
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+/** Value-free probe outcomes (counts and indices only). */
+interface GridPhaseEvidence {
+  /** open start → first ready row's cells in the DOM (R4 envelope, boot excluded). */
+  readonly firstRowVisibleMs: number
+  readonly loadMs: number
+  readonly totalRows: number
+  readonly columnCount: number
+  readonly audit: GridDomAudit
+  readonly keyboard: KeyboardProbeResult
+  readonly virtualization: { readonly ok: boolean; readonly detail: string }
+  readonly sort: { readonly ok: boolean; readonly detail: string }
+  readonly filter: { readonly ok: boolean; readonly detail: string }
+  readonly stats: {
+    readonly fetchCalls: number
+    readonly rowsRequested: number
+    readonly rowsReceived: number
+    readonly cachedRows: number
+    readonly maxSpanRows: number
+  }
+}
+
+/**
+ * The ptv1-4 grid phase: mount the REAL dataset surface (the same
+ * `EngineGridProvider` + `WebviewDataGrid` modules the production webview
+ * uses) over the opened 1M-row handle, and collect the row's evidence —
+ * the TTFR envelope (open → first row visible), the harness-testable a11y
+ * audit + keyboard probe, the virtualization (scroll-sweep bounded-DOM)
+ * proof, and the sort/filter-lite contract wiring. Everything value-free.
+ */
+async function runGridPhase(
+  client: DuckDbEngineClient,
+  handle: Awaited<ReturnType<DuckDbEngineClient['open']>>,
+  openedAt: number,
+): Promise<GridPhaseEvidence> {
+  const provider = new EngineGridProvider(client, handle)
+  const model = new GridViewportModel(provider)
+  const loadStart = performance.now()
+  await model.load()
+  const loadMs = performance.now() - loadStart
+  const totalRows = model.totalRows ?? 0
+  const columnCount = model.schema?.length ?? 0
+
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const grid = new WebviewDataGrid(model, { ariaLabel: 'Assay spike dataset grid' })
+  grid.mount(host)
+  await grid.whenFirstRowVisible()
+  // TTFR (the row's envelope): client.open() start → first ready row's cells
+  // in the grid DOM. Engine boot is excluded (booted earlier — the R4
+  // methodology, bootMs reported separately); the raw 3-column probe fetch
+  // the spike ran in between is INCLUDED, so the number is conservative.
+  const firstRowVisibleMs = performance.now() - openedAt
+
+  const audit = auditGridDom(grid.element, {
+    totalRows,
+    columnCount,
+    expectToolbar: true,
+  })
+  const keyboard = probeKeyboardNavigation(grid)
+
+  // Virtualization proof: a scroll sweep to the middle of the 1M-row dataset
+  // must move the rendered window and keep the DOM bounded (never
+  // materialized) — then the fetches settle through the model.
+  const viewport = grid.gridElement
+  const mid = Math.floor(totalRows / 2)
+  const snapshot = (label: string, error: unknown): Error => {
+    const rendered = [
+      ...viewport.querySelectorAll<HTMLElement>('[role="row"][data-row-index]'),
+    ].map((row) => Number(row.dataset.rowIndex))
+    const stats = model.stats
+    return new Error(
+      `${label}: ${error instanceof Error ? error.message : String(error)} ` +
+        `[scrollTop=${String(viewport.scrollTop)} clientHeight=${String(viewport.clientHeight)} ` +
+        `scrollHeight=${String(viewport.scrollHeight)} totalRows=${String(model.totalRows)} ` +
+        `sort=${JSON.stringify(model.sort)} filters=${JSON.stringify(model.filters)} ` +
+        `fetchCalls=${String(stats.fetchCalls)} rowsRequested=${String(stats.rowsRequested)} ` +
+        `fatal=${String(stats.fatalError)} rendered=${JSON.stringify(rendered.slice(0, 4))}..${JSON.stringify(rendered.slice(-4))}]`,
+    )
+  }
+  const waitReady = async (index: number, label: string): Promise<void> => {
+    try {
+      await waitForReadyRowAt(model, index)
+    } catch (error: unknown) {
+      throw snapshot(label, error)
+    }
+  }
+  grid.scrollToRow(mid)
+  await grid.whenRendered()
+  await waitReady(mid, 'virtualization.scroll')
+  const renderedRows = [...viewport.querySelectorAll<HTMLElement>('[role="row"][data-row-index]')]
+  const renderedIndexes = renderedRows.map((row) => Number(row.dataset.rowIndex))
+  const minRendered = Math.min(...renderedIndexes)
+  const maxRendered = Math.max(...renderedIndexes)
+  const virtualization = {
+    ok:
+      renderedRows.length > 0 &&
+      renderedRows.length <= 64 &&
+      renderedRows.length < totalRows &&
+      minRendered <= mid &&
+      mid <= maxRendered,
+    detail: `mid=${String(mid)} rendered=${String(renderedRows.length)} [${String(minRendered)}..${String(maxRendered)}]`,
+  }
+
+  // Sort (the real header-button path): cycle asc → desc → cleared.
+  const firstToggle = viewport.querySelector<HTMLButtonElement>('button[data-sort]')
+  if (firstToggle === null) throw new Error('grid phase: no sort toggle found')
+  const sortColumn = firstToggle.dataset.colName ?? ''
+  firstToggle.click()
+  await grid.whenQuerySettled()
+  await waitReady(mid, 'sort.asc')
+  const ascOk =
+    model.sort !== null && model.sort.column === sortColumn && model.sort.direction === 'asc'
+  const ascAttrOk = firstToggle.dataset.sort === 'asc'
+  firstToggle.click()
+  await grid.whenQuerySettled()
+  await waitReady(mid, 'sort.desc')
+  const descOk = model.sort !== null && model.sort.direction === 'desc'
+  const descAttrOk = firstToggle.dataset.sort === 'desc'
+  firstToggle.click()
+  await grid.whenQuerySettled()
+  await waitReady(mid, 'sort.clear')
+  const clearOk = model.sort === null && firstToggle.dataset.sort === 'none'
+  const sort = {
+    ok: ascOk && ascAttrOk && descOk && descAttrOk && clearOk,
+    detail: `column=${sortColumn.length > 0 ? 'named' : 'unnamed'} asc=${String(ascOk && ascAttrOk)} desc=${String(descOk && descAttrOk)} cleared=${String(clearOk)}`,
+  }
+
+  // Filter-lite (the real toolbar path): the synthetic fixture's id column
+  // holds the row ordinal, so `id <= 9` filters 1,000,000 rows to exactly 10
+  // (a value-free COUNT assertion — no cell values cross the harness).
+  const select = host.querySelector<HTMLSelectElement>('select.assay-filter-column')
+  const input = host.querySelector<HTMLInputElement>('input.assay-filter-predicate')
+  const apply = host.querySelector<HTMLButtonElement>('button.assay-filter-apply')
+  const clear = host.querySelector<HTMLButtonElement>('button.assay-filter-clear')
+  if (select === null || input === null || apply === null || clear === null) {
+    throw new Error('grid phase: filter toolbar missing')
+  }
+  select.value = 'id'
+  input.value = '<= 9'
+  apply.click()
+  await grid.whenQuerySettled()
+  await waitReady(0, 'filter.apply')
+  const filteredOk = model.filters.length === 1 && model.totalRows === 10
+  const filteredRowsVisible = model.totalRows === 10
+  clear.click()
+  await grid.whenQuerySettled()
+  // The 10-row epoch clamped scrollTop to 0 (correct browser behavior), so
+  // the top window is what the refresh serves — settle on row 0, not mid.
+  await waitReady(0, 'filter.clear')
+  const clearedOk = model.filters.length === 0 && model.totalRows === totalRows
+  const filter = {
+    ok: filteredOk && filteredRowsVisible && clearedOk,
+    detail: `filtered=${String(filteredOk)} (${String(model.filters.length)} active after clear) cleared=${String(clearedOk)}`,
+  }
+
+  const stats = model.stats
+  return {
+    firstRowVisibleMs,
+    loadMs,
+    totalRows,
+    columnCount,
+    audit,
+    keyboard,
+    virtualization,
+    sort,
+    filter,
+    stats: {
+      fetchCalls: stats.fetchCalls,
+      rowsRequested: stats.rowsRequested,
+      rowsReceived: stats.rowsReceived,
+      cachedRows: stats.cachedRows,
+      maxSpanRows: stats.maxSpanRows,
+    },
   }
 }
 
@@ -441,13 +660,28 @@ async function run(): Promise<void> {
     const fixture = await fixturePromise
     const opened = await step('open.million', () => openFixtureThroughAdapter(mvpClient, fixture))
     if (opened !== undefined) {
-      results['fixture'] = opened
+      results['fixture'] = opened.metrics
+      // ptv1-4: the headless-grid dataset surface over the SAME handle — the
+      // row's perf envelope (TTFR picker→first-row) + a11y/virtualization/
+      // sort-filter evidence. Heap sampled after the phase (steady state).
+      const gridPhase = await step('grid.surface', () =>
+        runGridPhase(mvpClient, opened.handle, opened.openedAt),
+      )
+      if (gridPhase !== undefined) {
+        results['grid'] = gridPhase
+      } else {
+        results['grid'] = { blockedBy: 'grid.surface' }
+      }
     }
     heap['postFirstRow'] = heapSample()
   } else {
     results['fixture'] = { blockedBy: 'boot.mvp' }
   }
   results['opfs'] = await step('opfs', () => opfsProbe())
+  // ptv1-4: the live-heap sample for the grid budget — forced GC (the R4 Q5
+  // methodology), taken with the grid mounted and swept (bounded cache +
+  // window DOM = the surface's steady state).
+  heap['postGrid'] = heapSample()
   await step('dispose.mvp', () => mvpClient.dispose())
 
   // Q1d: probe the `eh` (exception-handling) bundle in a fresh adapter worker.

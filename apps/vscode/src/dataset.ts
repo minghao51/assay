@@ -1,18 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Production dataset surface (ptv1-3): the `assay.dataset.open` command and
- * the `assay.datasetViewer` custom (read-only) editor. Both funnel into one
- * bridge: read the file through `vscode.workspace.fs` (typed errors for
- * missing file, unsupported format, empty file, read failures), then hand the
- * BYTES to the dataset webview — no file paths cross into the webview and no
- * dataset values are rendered there (counts only; ptv1-4 owns the grid).
+ * Production dataset surface (ptv1-3 bridge + ptv1-4 grid): the
+ * `assay.dataset.open` command and the `assay.datasetViewer` custom
+ * (read-only) editor. Both funnel into one bridge: read the file through
+ * `vscode.workspace.fs` (typed errors for missing file, unsupported format,
+ * empty file, read failures), then hand the BYTES to the dataset webview.
+ *
+ * Posture (made literally true in ptv1-4 — the ptv1-3 carry-note): NO file
+ * paths cross into the webview. The bridge posts a FORMAT-DERIVED NEUTRAL
+ * name (`dataset.parquet`, for the engine's format detection — never the
+ * user's file or folder name), and typed errors surface in the webview as
+ * kind + PATH-FREE text (`WEBVIEW_ERROR_TEXT`); the full error message (with
+ * the URI, when one exists) stays host-side in the value-free report. The
+ * ptv1-4 grid renders dataset values as untrusted TEXT only (counts in the
+ * report; no values, no paths).
  *
  * Security posture (engineering/04 §6, AGENTS.md): dataset values are
  * untrusted content — the webview HTML is a static template, config is
  * JSON-serialized with `<` escaping, and every DOM update in the webview is
- * `textContent`/`hidden` (no `innerHTML` anywhere). No telemetry exists in
- * this extension and none may be added (ADR 0025/0037).
+ * `textContent`/`hidden`/`setAttribute` (no `innerHTML` anywhere). No
+ * telemetry exists in this extension and none may be added (ADR 0025/0037).
  */
 import * as vscode from 'vscode'
 import { VENDORED_RUNTIME } from './assets'
@@ -55,6 +63,15 @@ export const SUPPORTED_FILENAME_PATTERNS: readonly string[] = [
   '*.ipc',
 ]
 
+/**
+ * The NEUTRAL name the bridge posts to the webview for a format: carries the
+ * extension the engine's format detection needs and nothing else — the
+ * user's file/folder name never enters the webview (see the module doc).
+ */
+export function neutralDatasetName(format: DatasetFormat): string {
+  return `dataset.${format}`
+}
+
 /** Map a file name to its supported dataset format, or undefined. */
 export function formatFromName(name: string): DatasetFormat | undefined {
   const lower = name.toLowerCase()
@@ -80,6 +97,20 @@ export class DatasetOpenError extends Error {
   }
 }
 
+/**
+ * PATH-FREE webview text per typed error kind (the ptv1-3 carry-note fix):
+ * the webview renders THIS, never `DatasetOpenError.message`, which may
+ * embed the URI. The full message stays host-side (the report / diagnostics).
+ */
+const WEBVIEW_ERROR_TEXT: Readonly<Record<DatasetErrorKind, string>> = {
+  'missing-file': 'the file does not exist or is not accessible',
+  'unsupported-format':
+    'not a supported dataset format (supported: Parquet, CSV, JSONL/NDJSON, JSON, Arrow/Feather/IPC)',
+  'empty-file': 'the file is empty',
+  'read-failed': 'the file could not be read',
+  'engine-failed': 'the dataset could not be opened',
+}
+
 /** Value-free bridge report (counts and kinds only — never file contents). */
 export type DatasetReport =
   | {
@@ -88,6 +119,12 @@ export type DatasetReport =
       readonly byteLength: number
       readonly rows: number
       readonly columns: number
+      /** ptv1-4: the grid mounted and the first row rendered (webview-reported). */
+      readonly gridRendered: boolean
+      /** ptv1-4: the webview's own DOM-structure a11y audit held (see grid-audit.ts). */
+      readonly gridAuditOk: boolean
+      /** ptv1-4: open (bytes in hand) → first grid row visible, ms. */
+      readonly firstRowVisibleMs: number
     }
   | {
       readonly outcome: 'error'
@@ -198,6 +235,14 @@ const BRIDGE_TIMEOUT_MS = 240_000
  * Open (or reuse) a dataset panel for `uri` and bridge the file's bytes into
  * it. Resolves with the value-free report once the webview acknowledges the
  * opened state or the rendered typed error; rejects on timeout.
+ *
+ * This command path owns its panel and tears it down when the report
+ * resolves — the engine lives in the WEBVIEW session (webview/engine-session.ts:
+ * booted once per panel, disposed when the host posts `dispose` here or the
+ * page dies with the panel). The custom-editor path keeps the panel open
+ * instead; on both paths the webview holds the engine for the panel's whole
+ * life — the grid fetches windows through it as the user scrolls, sorts, and
+ * filters (the ptv1-3 carry-note: the panel owns the engine, now in code).
  */
 export async function openDatasetPanel(
   context: vscode.ExtensionContext,
@@ -216,6 +261,9 @@ export async function openDatasetPanel(
   try {
     return await bridgeDatasetIntoPanel(context, panel, uri)
   } finally {
+    // Host-orchestrated close: let the webview dispose its engine before the
+    // page goes away (best-effort — page teardown terminates the worker too).
+    void Promise.resolve(panel.webview.postMessage({ kind: 'dispose' })).catch(() => undefined)
     panel.dispose()
   }
 }
@@ -232,7 +280,10 @@ export function bridgeDatasetIntoPanel(
 ): Promise<DatasetReport> {
   const nonce = crypto.randomUUID().replaceAll('-', '')
   panel.webview.html = buildDatasetHtml(panel.webview, nonce, buildDatasetConfig(context, panel))
-  const name = uri.path.split('/').pop() ?? 'dataset'
+  // Neutral, format-derived name — never the user's file name (module doc).
+  const name = neutralDatasetName(
+    formatFromName(uri.path.split('/').pop() ?? uri.path) ?? 'parquet',
+  )
   return new Promise<DatasetReport>((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`dataset bridge timed out after ${String(BRIDGE_TIMEOUT_MS / 1000)}s`))
@@ -255,14 +306,22 @@ export function bridgeDatasetIntoPanel(
             void panel.webview.postMessage({
               kind: 'error',
               errorKind: datasetError.kind,
-              message: datasetError.message,
+              // Path-free text only — the URI never enters the webview (see
+              // WEBVIEW_ERROR_TEXT; the full message stays host-side).
+              message: WEBVIEW_ERROR_TEXT[datasetError.kind],
             })
           },
         )
         return
       }
       if (kind === 'opened') {
-        const opened = message as { rows?: unknown; columns?: unknown }
+        const opened = message as {
+          rows?: unknown
+          columns?: unknown
+          firstRowVisibleMs?: unknown
+          gridRendered?: unknown
+          gridAudit?: { ok?: unknown }
+        }
         void reading.then((read) => {
           finish({
             outcome: 'opened',
@@ -270,6 +329,9 @@ export function bridgeDatasetIntoPanel(
             byteLength: read.byteLength,
             rows: Number(opened.rows ?? -1),
             columns: Number(opened.columns ?? -1),
+            gridRendered: opened.gridRendered === true,
+            gridAuditOk: opened.gridAudit?.ok === true,
+            firstRowVisibleMs: Number(opened.firstRowVisibleMs ?? -1),
           })
         })
         return

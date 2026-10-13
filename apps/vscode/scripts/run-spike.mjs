@@ -59,6 +59,34 @@ function ensureFixture() {
 
 const fixturePath = ensureFixture()
 
+/**
+ * ptv1-4 live-heap budget for the grid surface (pinned; see README
+ * "ptv1-4 grid envelope"). Method note — this DIFFERS from R4's absolute
+ * figure, deliberately: R4's 1.14 MB was the ABSOLUTE post-first-row
+ * `performance.memory.usedJSHeapSize` (forced `window.gc()`, the harness
+ * launching VS Code with `--js-flags=--expose-gc`) of the PRE-ptv1-1 spike
+ * page. Since ptv1-2 the vendored-asset plumbing (blob bootstrap of the
+ * engine worker + glue shim + vendored extension serve) lives on the main
+ * thread too, and the absolute pre-grid baseline measured 2026-10-13 is
+ * ~5.7 MB — ptv1-2 state, not grid state. The honest grid-attributable
+ * measure is therefore the DELTA:
+ *
+ *     gridDelta = heap.postGrid.usedBytes - heap.postFirstRow.usedBytes
+ *
+ * both sampled with the SAME forced-GC methodology in the SAME run
+ * (postFirstRow = pre-grid baseline; postGrid = after the grid phase's
+ * scroll/sort/filter sweeps — the surface's bounded steady state). The
+ * budget pins R4's 1.14 MB figure with an explicit ONE-DOUBLING headroom
+ * policy: the grid renderer bundle plus the model's bounded LRU window cache
+ * are new live state, bounded by construction (windows ≤ 1000 rows, cache
+ * ≤ 10,000 rows), so the grid may add at most 2 × 1.14 MB = 2.28 MB of live
+ * main-thread heap over the pre-grid baseline.
+ */
+const R4_LIVE_HEAP_BYTES = 1_140_000
+const GRID_HEAP_DELTA_BUDGET_BYTES = 2 * R4_LIVE_HEAP_BYTES
+/** ptv1-4 TTFR envelope: picker→first-row (open start → first row visible) < 1 s. */
+const GRID_TTFR_BUDGET_MS = 1_000
+
 // Step 3: build.
 execFileSync(process.execPath, [path.join(here, 'build.mjs')], { stdio: 'inherit' })
 
@@ -208,6 +236,31 @@ const heap = report.heap?.postFirstRow ?? {}
 console.log(
   `post-first-row heap:    ${String(heap.usedBytes)} bytes used / ${String(heap.limitBytes)} limit`,
 )
+// ptv1-4: the headless-grid surface evidence.
+const grid = report.grid ?? {}
+const postGrid = report.heap?.postGrid ?? {}
+console.log(
+  `grid first row:         ${String(grid.firstRowVisibleMs)} ms (open→first row visible; budget ${String(GRID_TTFR_BUDGET_MS)} ms) · load ${String(grid.loadMs)} ms`,
+)
+const gridHeapDelta =
+  typeof postGrid.usedBytes === 'number' && typeof heap.usedBytes === 'number'
+    ? postGrid.usedBytes - heap.usedBytes
+    : undefined
+console.log(
+  `grid heap:              ${String(postGrid.usedBytes)} bytes used (pre-grid ${String(heap.usedBytes)}; grid delta ${String(gridHeapDelta)}; budget delta ≤ ${String(GRID_HEAP_DELTA_BUDGET_BYTES)} = R4 1.14 MB × 2)`,
+)
+console.log(
+  `grid a11y/keyboard:     audit ok=${String(grid.audit?.ok)} (${String(grid.audit?.checks?.length ?? 0)} checks) · keyboard ok=${String(grid.keyboard?.ok)} (${String(grid.keyboard?.detail ?? '')})`,
+)
+console.log(
+  `grid virtualization:    ok=${String(grid.virtualization?.ok)} (${String(grid.virtualization?.detail ?? '')})`,
+)
+console.log(
+  `grid sort/filter-lite:  sort ok=${String(grid.sort?.ok)} (${String(grid.sort?.detail ?? '')}) · filter ok=${String(grid.filter?.ok)} (${String(grid.filter?.detail ?? '')})`,
+)
+console.log(
+  `grid model stats:       requests=${String(grid.stats?.fetchCalls)} rowsRequested=${String(grid.stats?.rowsRequested)} rowsReceived=${String(grid.stats?.rowsReceived)} cached=${String(grid.stats?.cachedRows)}`,
+)
 console.log(`opfs available:         ${String(report.opfs?.available)}`)
 console.log(`showOpenFilePicker:     ${String(report.fileSystemAccess?.showOpenFilePicker)}`)
 console.log(`errors:                 ${JSON.stringify(report.errors ?? {})}`)
@@ -289,6 +342,47 @@ if (drillMode) {
           String(report.vendoredAssetsPin?.duckdbVersion ?? 'v1.4.3'),
         ),
       value: report.bundles?.mvp?.version,
+    },
+    // ptv1-4: the headless-grid dataset surface — the row's done-when pins.
+    {
+      name: 'grid.firstRowVisible',
+      ok:
+        typeof report.grid?.firstRowVisibleMs === 'number' &&
+        report.grid.firstRowVisibleMs >= 0 &&
+        report.grid.firstRowVisibleMs < GRID_TTFR_BUDGET_MS,
+      value: report.grid?.firstRowVisibleMs,
+    },
+    {
+      name: 'grid.heapWithinBudget',
+      ok:
+        typeof report.heap?.postGrid?.usedBytes === 'number' &&
+        typeof report.heap?.postFirstRow?.usedBytes === 'number' &&
+        report.heap.postGrid.usedBytes - report.heap.postFirstRow.usedBytes <=
+          GRID_HEAP_DELTA_BUDGET_BYTES,
+      value: `delta ${String(report.heap?.postGrid?.usedBytes - report.heap?.postFirstRow?.usedBytes)} <= ${String(GRID_HEAP_DELTA_BUDGET_BYTES)}`,
+    },
+    {
+      name: 'grid.domAudit',
+      ok: report.grid?.audit?.ok === true,
+      value: (report.grid?.audit?.checks ?? [])
+        .filter((c) => !c.ok)
+        .map((c) => c.name)
+        .join(','),
+    },
+    {
+      name: 'grid.keyboardNavigation',
+      ok: report.grid?.keyboard?.ok === true,
+      value: report.grid?.keyboard?.detail,
+    },
+    {
+      name: 'grid.virtualized',
+      ok: report.grid?.virtualization?.ok === true,
+      value: report.grid?.virtualization?.detail,
+    },
+    {
+      name: 'grid.sortFilterLite',
+      ok: report.grid?.sort?.ok === true && report.grid?.filter?.ok === true,
+      value: `sort=${String(report.grid?.sort?.detail)} filter=${String(report.grid?.filter?.detail)}`,
     },
   ]
 }
