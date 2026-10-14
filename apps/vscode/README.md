@@ -107,7 +107,7 @@ page delta. Existing limits below are unchanged:
   header-button sort cycle asc→desc→clear and the toolbar filter
   `id <= 9` → exactly 10 rows, then clear → 1,000,000 — value-free counts).
 
-## Pure bridge unit tests (ptv2-1)
+## Pure bridge and edit unit tests (ptv2-1/2)
 
 `src/pure/` owns format/name mapping, path-free bridge contracts, scalar draft
 capabilities and serialized edit history. `src/dataset.ts` retains compatibility

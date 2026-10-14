@@ -151,6 +151,14 @@ read-only-cell dirty-marker branch has a bounded real-renderer DOM assertion
 with a structural provider, in addition to real engine edit acceptance. No
 native dirty-document save or export delivery is promised by this row.
 
+**Push evidence / external blocker:** normal `main` push at `3a3a94b` verified
+remote SHA equality and 0/0 divergence, including 218 prior commits plus the
+five editing/closure commits. [CI run 38615821301](https://github.com/minghao51/assay/actions/runs/38615821301)
+has three failed jobs with **zero steps**: GitHub reports account payment or
+spending-limit restriction. No source gate ran remotely; local row verification
+is complete, remote-green evidence remains blocked on human
+[M6](../manual-actions.md). No workflow/secret/billing workaround authorized.
+
 ### ptv2-3 — Deliver edited exports to a new file
 
 **Depends on:** ptv2-2. **Scope:** app export controller/typed host bridge,

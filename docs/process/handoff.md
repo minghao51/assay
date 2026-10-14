@@ -36,23 +36,26 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, virtualized grid, offline engine             | PT-V slice 2: new-file export, validation, diff and Git workflows             |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                  | Private-dependency registry distribution policy + human release prerequisites |
 
-**Verified state (2026-10-15):** ptv2-2 integrated as `3ac2c63` + `0361e1b`
+**Verified state (2026-10-15):** ptv2-2 integrated as `3ac2c63`, `0361e1b`,
+`4c57032`, `0711b3c` after independent corrections → approve. All local core
+gates and forced typecheck **20 tasks** pass; **2977 tests / 184 files**, build
+**12**, coverage **89.22/83.31/89.26/90.81** (floors 83/76/80/84), **30 pure
+VS Code tests**, browser e2e **172 + 1 skip**, native runtime tests **9**,
+real-VSCode **6 scenarios**, offline **15 pins**. Merged core gates,
+real-host/offline runs green; old-history and full-cast mutations fail,
+restored source green. **156 pending changesets**, doc links **107/0**, ADRs
+**46**. Review/deviation evidence and editor limits live in the
+[slice-2 queue](handoff/20261014-ptv-slice2-queue.md); earlier packaging/CI/q-14
+proof lives in the closed maintenance queue.
 
-- `4c57032` + `0711b3c`, parent request-changes → corrections → approve.
-  All core gates and forced typecheck **20 tasks** pass; **2977 tests / 184 files**,
-  build **12**, coverage **89.22/83.31/89.26/90.81** (floors 83/76/80/84),
-  **30 pure VS Code tests**, browser e2e **172 + 1 skip**, native runtime tests
-  **9**, real-VSCode **6 scenarios** (repeated parent proof), offline **15 pins**.
-  Merged core gates, real-host and offline runs green; old-history and full-cast
-  mutations fail, restored source green. **156 pending changesets**, doc links
-  **107/0**, ADRs **46**. Detailed review/deviation evidence and scalar editor
-  limits live in the [slice-2 queue](handoff/20261014-ptv-slice2-queue.md).
-  Earlier packaging/CI/q-14 proof lives in the closed maintenance queue.
-
-**Remote boundary:** user authorized a normal `main` push after ptv2-2
-completion (2026-10-14). Initial fresh fetch: 218 ahead / 0 behind; the push
-includes that backlog. Current source CI is not yet claimed green remotely.
-No publication, public visibility change or force push is authorized.
+**Push / remote CI:** user-authorized normal `main` push succeeded at
+`3a3a94b` (2026-10-15), including 218 previously unpushed commits; remote SHA
+matched local, ahead/behind 0/0. [CI run 38615821301](https://github.com/minghao51/assay/actions/runs/38615821301)
+failed **before any steps ran** in all three jobs. GitHub annotations report
+account payments failed **or** spending limit needs increasing; no code/test
+check executed remotely. Human **[M6](manual-actions.md)** must restore Actions
+billing/limit access, then re-run latest `main` CI. No billing, visibility,
+publication or force-push change is authorized; local green is not remote green.
 
 **Release boundary:** complete local CLI tarball closure is verified, but
 registry distribution of private runtime dependencies remains an explicit
