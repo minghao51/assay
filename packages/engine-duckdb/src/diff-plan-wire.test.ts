@@ -114,6 +114,27 @@ describe('assertRowDiffPlanBinding (m6-2 belt 1)', () => {
         assertRowDiffPlanBinding({ ...compiledPlan(), addedSql: armSql }, REGISTERED),
       ).not.toThrow()
     }
+    expect(() =>
+      assertRowDiffPlanBinding(
+        {
+          ...compiledPlan(),
+          addedSql: `${UNION_FIXTURE.ordinaryArm}\nUNION DISTINCT\n${UNION_FIXTURE.ordinaryArm}`,
+        },
+        REGISTERED,
+      ),
+    ).not.toThrow()
+  })
+
+  it('does not treat bare identifiers ending in UNION or FROM as SQL keywords', () => {
+    for (const suffix of ['reunion', 'noise_from']) {
+      const arm = UNION_FIXTURE.ordinaryArm.replace('AS "noise"', `AS ${suffix}`)
+      expect(() =>
+        assertRowDiffPlanBinding(
+          { ...compiledPlan(), addedSql: `${arm}\nUNION ALL\n${UNION_FIXTURE.ordinaryArm}` },
+          REGISTERED,
+        ),
+      ).not.toThrow()
+    }
   })
 
   it.each(UNION_FIXTURE.invalidLaterArmIndices)(
@@ -162,6 +183,27 @@ describe('assertRowDiffPlanBinding (m6-2 belt 1)', () => {
     )
     expect(() =>
       assertRowDiffPlanBinding({ ...compiledPlan(), addedSql: arm }, REGISTERED),
+    ).not.toThrow()
+  })
+
+  it('ignores reserved aliases inside scalar subqueries but accepts genuine outer outputs', () => {
+    const spoof = UNION_FIXTURE.ordinaryArm.replace(
+      `'A' AS "assay_side"`,
+      `(SELECT 'A' AS "assay_side") AS "not_the_side"`,
+    )
+    expect(() =>
+      assertRowDiffPlanBinding(
+        { ...compiledPlan(), addedSql: `${UNION_FIXTURE.ordinaryArm} UNION ALL ${spoof}` },
+        REGISTERED,
+      ),
+    ).toThrow(/added query is missing its reserved result columns/)
+
+    const nestedAlongsideOutput = UNION_FIXTURE.ordinaryArm.replace(
+      'SELECT ',
+      `SELECT (SELECT 'nested' AS "assay_side") AS "scalar_noise", `,
+    )
+    expect(() =>
+      assertRowDiffPlanBinding({ ...compiledPlan(), addedSql: nestedAlongsideOutput }, REGISTERED),
     ).not.toThrow()
   })
 

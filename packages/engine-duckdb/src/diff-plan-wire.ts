@@ -286,6 +286,21 @@ function countCompilerFromOccurrences(
  * below the top-level FROM (a filter, a subquery body) is not an output
  * column and cannot satisfy the reserved-column gate.
  */
+function isSqlIdentifierCharacter(character: string | undefined): boolean {
+  return character !== undefined && /[A-Za-z0-9_$]/.test(character)
+}
+
+/** True only when `keyword` is a complete bare SQL token at this offset. */
+function isSqlKeywordAt(code: string, index: number, keyword: string): boolean {
+  const before = index > 0 ? code[index - 1] : undefined
+  const after = code[index + keyword.length]
+  return (
+    !isSqlIdentifierCharacter(before) &&
+    !isSqlIdentifierCharacter(after) &&
+    code.slice(index, index + keyword.length).toLowerCase() === keyword.toLowerCase()
+  )
+}
+
 function projectionIdentifiers(scan: PlanSqlScanOk): readonly PlanSqlIdentifier[] {
   const { code, identifiers } = scan
   const select = /^\s*select\b/i.exec(code)
@@ -295,21 +310,29 @@ function projectionIdentifiers(scan: PlanSqlScanOk): readonly PlanSqlIdentifier[
   let from = -1
   for (let index = start; index < code.length; index += 1) {
     const character = code[index]
-    if (character === '(') {
-      depth += 1
-    } else if (character === ')') {
-      depth -= 1
-    } else if (
-      depth === 0 &&
-      (character === 'F' || character === 'f') &&
-      /^from\b/i.test(code.slice(index, index + 4))
-    ) {
+    if (character === '(') depth += 1
+    else if (character === ')') depth -= 1
+    else if (depth === 0 && isSqlKeywordAt(code, index, 'FROM')) {
       from = index
       break
     }
   }
   if (from < 0) return []
-  return identifiers.filter((identifier) => identifier.start >= start && identifier.end <= from)
+
+  // A reserved alias inside a scalar subquery is not an output of this SELECT.
+  // Only identifier tokens at projection depth zero belong to the arm's output.
+  const projected: PlanSqlIdentifier[] = []
+  const identifiersByStart = new Map(
+    identifiers.map((identifier) => [identifier.start, identifier]),
+  )
+  depth = 0
+  for (let index = start; index < from; index += 1) {
+    const identifier = identifiersByStart.get(index)
+    if (identifier !== undefined && depth === 0) projected.push(identifier)
+    if (code[index] === '(') depth += 1
+    else if (code[index] === ')') depth -= 1
+  }
+  return projected
 }
 
 /** True when the scanned query projects `name` as a genuine output identifier. */
@@ -333,13 +356,13 @@ function splitTopLevelUnionArms(original: string, code: string): PlanSqlScanOk[]
       if (depth < 0) return null
       continue
     }
-    if (depth !== 0 || (character !== 'U' && character !== 'u')) continue
-    const union = /^UNION\b(?:\s+ALL\b)?/i.exec(code.slice(index))?.[0]
-    if (union === undefined) continue
+    if (depth !== 0 || !isSqlKeywordAt(code, index, 'UNION')) continue
+    const modifier = /^\s+(?:ALL|DISTINCT)\b/i.exec(code.slice(index + 'UNION'.length))?.[0] ?? ''
+    const separatorLength = 'UNION'.length + modifier.length
     const scanned = scanPlanSql(original.slice(start, index))
     if (!scanned.ok) return null
     arms.push(scanned)
-    index += union.length - 1
+    index += separatorLength - 1
     start = index + 1
   }
   if (depth !== 0) return null
@@ -362,10 +385,7 @@ function projectionArity(scan: PlanSqlScanOk): number | null {
     if (character === '(') depth += 1
     else if (character === ')') depth -= 1
     else if (depth === 0) {
-      if (
-        (character === 'F' || character === 'f') &&
-        /^from\b/i.test(code.slice(index, index + 4))
-      ) {
+      if (isSqlKeywordAt(code, index, 'FROM')) {
         return code.slice(start, index).trim().length === 0 ? null : commas + 1
       }
       if (character === ',') commas += 1
