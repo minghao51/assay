@@ -15,26 +15,46 @@ export const CACHED_VSCODE_EXECUTABLE = path.join(
   'code',
 )
 
-function systemExecutable() {
+function systemExecutable(exists = existsSync) {
   for (const candidate of ['/usr/share/code/code', '/usr/bin/code']) {
-    if (existsSync(candidate)) return candidate
+    if (exists(candidate)) return candidate
   }
   return undefined
 }
 
+function isStrictCI(value) {
+  const normalized = value?.toLowerCase()
+  return (
+    normalized !== undefined && normalized !== '' && normalized !== '0' && normalized !== 'false'
+  )
+}
+
 /**
  * Resolve the real test runtime. In CI only the exact pinned cache/download is
- * allowed; local machines retain an explicitly labeled system fallback.
- * VSCODE_EXECUTABLE is an intentional caller-supplied override in either mode.
+ * allowed; local machines retain an explicitly labeled system fallback and an
+ * explicit executable override. Dependencies are injectable for offline policy tests.
  */
-export async function resolveVSCodeRuntime() {
-  const explicit = process.env['VSCODE_EXECUTABLE']
+export async function resolveVSCodeRuntime({
+  env = process.env,
+  exists = existsSync,
+  download = async () => {
+    const { downloadAndUnzipVSCode } = await import('@vscode/test-electron')
+    return downloadAndUnzipVSCode({ version: PINNED_VSCODE_VERSION, cachePath: VSCODE_CACHE_PATH })
+  },
+} = {}) {
+  const strictCI = isStrictCI(env['CI'])
+  const explicit = env['VSCODE_EXECUTABLE']
+  if (strictCI && explicit !== undefined) {
+    throw new Error(
+      'VSCODE_EXECUTABLE overrides are not permitted in CI; use the pinned VS Code runtime',
+    )
+  }
   if (explicit !== undefined) {
-    if (!existsSync(explicit)) throw new Error(`VSCODE_EXECUTABLE does not exist: ${explicit}`)
+    if (!exists(explicit)) throw new Error(`VSCODE_EXECUTABLE does not exist: ${explicit}`)
     return { executable: explicit, source: `explicit VSCODE_EXECUTABLE override: ${explicit}` }
   }
 
-  if (existsSync(CACHED_VSCODE_EXECUTABLE)) {
+  if (exists(CACHED_VSCODE_EXECUTABLE)) {
     return {
       executable: CACHED_VSCODE_EXECUTABLE,
       source: `canonical pinned cache (offline-safe): ${CACHED_VSCODE_EXECUTABLE}`,
@@ -42,22 +62,15 @@ export async function resolveVSCodeRuntime() {
   }
 
   try {
-    const { downloadAndUnzipVSCode } = await import('@vscode/test-electron')
-    const executable = await downloadAndUnzipVSCode({
-      version: PINNED_VSCODE_VERSION,
-      cachePath: VSCODE_CACHE_PATH,
-    })
+    const executable = await download()
     return { executable, source: `downloaded pinned ${PINNED_VSCODE_VERSION}: ${executable}` }
   } catch (error) {
-    const ciValue = process.env['CI']?.toLowerCase()
-    const strictCI =
-      ciValue !== undefined && ciValue !== '' && ciValue !== '0' && ciValue !== 'false'
     if (strictCI) {
       throw new Error(
         `pinned VS Code ${PINNED_VSCODE_VERSION} unavailable in CI cache and download failed: ${error instanceof Error ? error.message : String(error)}`,
       )
     }
-    const system = systemExecutable()
+    const system = systemExecutable(exists)
     if (system !== undefined) {
       return { executable: system, source: `LOCAL SYSTEM FALLBACK (pin unavailable): ${system}` }
     }

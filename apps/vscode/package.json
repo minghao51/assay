@@ -66,6 +66,7 @@
     "generate:fixtures": "node scripts/generate-fixtures.mjs",
     "run:spike": "node scripts/run-spike.mjs",
     "e2e": "node scripts/run-e2e.mjs",
+    "test:runtime": "node --test test/vscode-runtime.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json"
   },
   "devDependencies": {

@@ -130,8 +130,10 @@ and writes `dist/spike-results.json`. Its VS Code executable resolution is share
 e2e through `scripts/vscode-runtime.mjs`: canonical pinned cache first, exact-version
 download only if absent, and no system/unpinned fallback when `CI=1`. Outside CI, a
 labeled system fallback is allowed only after pinned provisioning fails. Setting
-`VSCODE_EXECUTABLE=/path/to/code` is an intentional explicit override in all modes;
-it bypasses the pin and callers own its version. The CI job must not set this override.
+`VSCODE_EXECUTABLE=/path/to/code` is a local-only explicit override; CI rejects the
+variable before checking or launching it, so strict CI always uses the pinned
+1.130.0 cache/provisioning path. Runtime policy tests run without VS Code or network:
+`corepack pnpm --filter @assay/vscode run test:runtime`.
 
 Notable measured findings (full detail in the report):
 
