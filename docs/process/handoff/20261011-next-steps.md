@@ -1,4 +1,9 @@
-# What's next — post-queues state (2026-10-11)
+# What's Next — Historical Post-queues Snapshot (2026-10-11)
+
+> **Historical snapshot.** The [living handoff](../handoff.md) and its current
+> queue override lane, roster and release-readiness statements below.
+> Maintenance was authorized 2026-10-14; the former empty lane is not today's
+> dispatch state.
 
 **Orientation record, written 2026-10-11 at BOTH-QUEUES-CLOSED so the next human/agent session
 starts here.** Authority chain: [`handoff.md`](../handoff.md) (the living entry point) → **this

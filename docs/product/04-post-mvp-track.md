@@ -92,7 +92,10 @@ blocked and telemetry exists from the first public commit.
 
 ## 5. PT-V — VS Code extension (former M7)
 
-**Status:** **PT-V starts — D18 ruled 2026-10-02: slice 1 on the desktop-extension webview** (vscode-web stays RE-SCOPE and uncommitted; slice-1 planning next). R4 spike delivered 2026-10-02 — desktop-extension webview GO, vscode-web RE-SCOPE
+**Status (2026-10-14):** desktop **slice 1 closed 2026-10-11**. Slice-2
+edit/validate/diff/Git scope is recorded, with queue authoring next after the
+[maintenance queue](../process/handoff/20261014-repository-maintenance.md).
+vscode-web remains RE-SCOPE (D18). R4 spike delivered 2026-10-02 — desktop-extension webview GO, vscode-web RE-SCOPE
 (ruling D15, 2026-10-02 — [rulings file](../process/handoff/20260926-maintainer-rulings.md)): the spike landed as
 [ptv-m9 queue](../process/handoff/20261002-ptv-m9-queue.md) ptv-1 (`d76ff15`; report
 [`08-vscode-webview-feasibility.md`](../engineering/08-vscode-webview-feasibility.md)). Everything below is the recorded scope/entry text, unchanged.
@@ -112,6 +115,10 @@ queue-§5 carry list (`eh`-failure exit-code hardening, secondary timing envelop
 Exit: the docs 07 VS Code scenarios (open → edit → validate → diff in VS Code) pass as e2e.
 
 ## 6. PT-H — hardening & backlog inventory (recorded carry-overs)
+
+**Historical carry-over inventory; verify each item against today's tree before dispatch.**
+DCR generation (P3/M9) and a11y CI have since landed; neither is pending.
+Current pickup-ready maintenance is indexed by the [living handoff](../process/handoff.md).
 
 Everything below is already recorded in the handoff queue files (now
 [`docs/process/handoff/`](../process/handoff/), completed queues archived there) or in its

@@ -4,7 +4,15 @@ Authored 2026-09-26. The version cut was **dry-run validated** that day (`pnpm c
 over the full pending set in a throwaway worktree at the then-`main`: clean consumption, valid
 semver everywhere, well-formed CHANGELOGs, `workspace:*` ranges untouched, `.changeset/` left
 clean; nothing published, worktree discarded — handoff §9 bz). Everything below is executable by
-one maintainer + one agent lane; the only hard gate is **M1**.
+one maintainer + one agent lane at that historical baseline.
+
+> **2026-10-14: revalidation required; do not publish from this historical
+> recipe.** The CLI now depends on pipeline/telemetry omitted by the packed
+> smoke; pipeline lacks compiled packaging. The private runtime dependency
+> closure also needs an explicit registry-distribution decision before an
+> independently installable CLI can publish. Repair local artifacts and smoke
+> first ([maintenance queue](20261014-repository-maintenance.md)); preserve
+> private flags until a maintainer/ADR decision. M1 is not the only blocker.
 
 ## Preconditions (all must be ✅ before step 1)
 
@@ -17,7 +25,7 @@ one maintainer + one agent lane; the only hard gate is **M1**.
 | P5  | Six gates green on `main` + remote CI green on the last push                | handoff §2                                | ✅ as of authoring (`f1f74af` + paperwork)                                                     |
 | P6  | `pnpm changeset status` matches expectations                                | run it                                    | ✅ 90 pending (10 minor, 1+ patch — re-count on the day)                                       |
 
-## What publishes (ADR 0042 — exactly this set)
+## Historical release set (revalidate against ADR 0042 and current closure)
 
 `@assay/domain`, `@assay/contracts`, `@assay/validation`, `@assay/diff`, `@assay/grid`,
 `@assay/cli` — all currently `0.0.0`, all `private:false`. **Everything else stays private**
@@ -66,5 +74,6 @@ one maintainer + one agent lane; the only hard gate is **M1**.
 
 ## Status
 
-⏳ **waiting on P1 (M1)** — everything else is agent-side-ready; when M1 lands, one orchestrator
-lane executes this runbook with a reviewer verifying steps 4/6/8.
+⏳ **Blocked on M1 and current packaging/distribution revalidation.** The
+September dry-run is historical evidence only. Do not run publish/tag steps
+until the full runtime closure, release set and current remote CI are verified.

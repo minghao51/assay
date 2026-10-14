@@ -1,4 +1,9 @@
-# Pickup pack — P3 close-out + PT-V slice 1 (dispatch-ready prompts)
+# Historical Pickup Pack — P3 Close-out + PT-V Slice 1
+
+> **HISTORICAL — DO NOT DISPATCH.** All implementation rows below landed and
+> both queues closed 2026-10-11. Read [the living handoff](../handoff.md) for
+> active work. Old prompts/counts are preserved as evidence, not current
+> instructions; closure records override every "open" or "NEXT" below.
 
 **Reference pack — authored 2026-10-11 by the orchestrator session that landed p3-1…p3-3
 (2026-10-02 → 2026-10-10); for a NEW thread picking up the serialized lane.** This file is

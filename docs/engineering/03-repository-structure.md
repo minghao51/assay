@@ -25,6 +25,7 @@ assay/
 │   ├── security/
 │   ├── ai/
 │   ├── pipeline/
+│   ├── telemetry/
 │   └── testing/
 │
 ├── fixtures/
@@ -83,11 +84,10 @@ Interfaces only — the _target_ shapes:
 - TableHandle,
 - ArrowBatchStream.
 
-> **Honest status (audit AR-D7; decision D13 pending):** nothing implements
-> or imports these types today — the real engine surface is the
-> `@assay/engine-duckdb` client, and `@assay/testing`'s conformance suite
-> pins a mirror of _that_ interface, not `DataEngine`. Realigning, deleting,
-> or type-pinning the relationship is open decision D13.
+> **Current status (D13):** retained as a target, not the real engine's
+> complete runtime interface. `engine-target-compat.test.ts` pins documented
+> compatibility/divergences at compile time; `@assay/testing` conformance
+> exercises the real `@assay/engine-duckdb` client surface.
 
 ### `engine-duckdb`
 
@@ -126,7 +126,8 @@ Adapters for:
 - future remote systems.
 
 (Real today: `BrowserFileSource` + capability detection + fallback picker,
-with the `@assay/testing` behavior suite pinning the contract.)
+with the `@assay/testing` behavior suite pinning the contract. The desktop
+VS Code workspace byte bridge lives in `apps/vscode`, not this package.)
 
 > **Entry-point convention (raw-TS exports):** packages export TypeScript
 > source, so every importer type-checks the package under its own `tsconfig`
@@ -205,8 +206,8 @@ The domain package should remain highly portable.
 ## 4. Conformance Tests
 
 The parameterized suites in `@assay/testing` pin the **real engine client
-surface** (`engine-duckdb`) — a mirror of the intended `DataEngine` target
-interface (the type-level relationship is decision D13, see §2 `engine`).
+surface** (`engine-duckdb`), not full implementation of the `DataEngine`
+target. D13 retains the target and its compatibility pins (see §2 `engine`).
 
 Every DataSource adapter should pass the same source behavior suite.
 
@@ -218,11 +219,14 @@ This allows engines and adapters to evolve without changing product behavior.
 
 ## 5. Pipeline Package
 
-> **Scaffold today** — the P-stage pipeline tracks own its realization.
+> **Implemented:** P1 IR/DAG/compiler/runner integration, P2 gate and
+> materialization semantics, and P3 canonical local DCR artifact generation.
+> The package holds portable planning/building logic; engine execution lives
+> in `engine-duckdb`. Its compiled packaging is a current maintenance task.
 
 ### `pipeline`
 
-Intended to own:
+Owns:
 
 - Pipeline IR,
 - DAG validation,
@@ -234,3 +238,15 @@ Intended to own:
 It may depend on `domain`, `engine`, `contracts`, `validation`, and `transforms`.
 
 It must not depend directly on dbt, SQLMesh, or Dagster-specific runtime concepts.
+
+## 6. Telemetry Package
+
+`telemetry` owns the typed allowlisted operational-metadata schema, validation
+and privacy-safe transport helpers (ADRs 0025/0037/0045). Web/CLI provide the
+emission and opt-out integrations; collector deployment remains human-gated.
+
+## 7. Product Surfaces
+
+`web` and `cli` implement the local workbench plus pipeline/DCR workflows.
+`vscode` implements the desktop read-only dataset editor with a vendored engine
+and headless grid; edit/validate/diff/Git parity is PT-V slice-2 work.

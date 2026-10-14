@@ -11,7 +11,9 @@ products and an enterprise data control plane.
 **Status: MVP feature milestones complete (M0–M6, closed 2026-09-21).** The
 local-first core — inspect, nested data, edit, export, validate, and diff,
 with exact agreement between the browser app and the CLI — works end-to-end;
-the next milestone is launch readiness (PT-0 → gate G0). See the
+pipeline P1–P3 and local DCR generation are implemented, and desktop VS Code
+slice 1 opens/inspects datasets offline. Next: packaging/CI maintenance, then
+VS Code edit/validate/diff parity (slice 2), alongside launch readiness (G0). See the
 [execution roadmap](docs/product/03-execution-roadmap.md) and the
 [post-MVP track](docs/product/04-post-mvp-track.md).
 
@@ -63,18 +65,18 @@ Start at [`docs/README.md`](docs/README.md). Highlights:
 - [MVP scope and acceptance criteria](docs/product/02-mvp-scope-and-acceptance.md)
 - [Architecture](docs/architecture/01-architecture.md) · [Pipeline/DAG/ETL](docs/architecture/02-pipeline-dag-etl.md)
 - [Tech stack](docs/engineering/01-tech-stack.md) · [Repository structure](docs/engineering/03-repository-structure.md)
-- [ADRs](docs/adr/README.md) (43 records: 35 accepted, 8 proposed)
+- [ADRs](docs/adr/README.md) (generated decision index)
 - [Documentation & setup review (2026-09-14)](docs/reviews/2026-09-14-documentation-and-setup-review.md)
 
 ## Repository layout
 
 ```text
-apps/        web (Vite/React), cli, vscode (placeholder until PT-V)
+apps/        web (Vite/React), cli, vscode (desktop open/inspect; slice 2 pending)
 packages/    domain, core, ui, grid, engine family
              (engine + engine-duckdb + engine-parquet),
              data-sources,
              validation, diff, transforms, contracts, security,
-             ai, pipeline, testing
+             ai, pipeline, telemetry, testing
 fixtures/    golden datasets for tests
 docs/        product / architecture / engineering / process / reviews / adr
 ```

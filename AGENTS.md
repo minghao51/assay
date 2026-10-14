@@ -83,17 +83,17 @@ implement and approve the same change.
 ## Where things live
 
 ```text
-apps/{web,cli,vscode}     product surfaces (web + cli real; vscode is a PT-V placeholder — the
-                          VS Code surface moved post-MVP, decision D11)
+apps/{web,cli,vscode}     web + cli real; VS Code slice 1 is a real desktop dataset viewer
+                          (edit/validate/diff/Git integration are slice-2 work, decision D18)
 packages/domain           portable domain types (pure; real)
-packages/engine           DataEngine *target* interface — currently orphaned from the real
-                          engine client (decision D13 pending); the conformance suite pins
-                          the real engine-duckdb client surface, not this type
+packages/engine           DataEngine target interface retained per D13; compatibility pins
+                          record the relationship to the real engine-duckdb client
 packages/engine-duckdb    the real engine (DuckDB-WASM in a Web Worker)
 packages/engine-parquet   scaffold (post-MVP track owns any Parquet-native engine)
 packages/grid             headless grid model; rendering is replaceable (ADR 0022)
 packages/{validation,diff,contracts,data-sources,testing}   real
-packages/{transforms,security,ai,pipeline}                scaffolds (post-MVP/gated tracks own them)
+packages/{pipeline,telemetry}                            real (P1–P3 + local DCR; allowlisted telemetry)
+packages/{core,ui,transforms,security,ai}                 scaffolds (post-MVP/gated tracks own them)
 fixtures/                 golden datasets; parquet/ generated via DuckDB script
 docs/                     product / architecture / engineering / process / reviews / adr
 .changeset/               changesets config

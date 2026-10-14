@@ -12,6 +12,22 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Docs — current-state maintenance (2026-10-14)
+
+- Compact current-state handoff with preserved historical evidence; front-door
+  docs distinguish implemented pipeline/DCR and desktop VS Code viewing from
+  pending slice-2 parity. Obsolete pickup prompts are explicitly historical.
+- Release/CI gaps are recorded rather than hidden by older readiness claims:
+  packed CLI dependency closure needs repair and VS Code harnesses need CI.
+
+### Added — pipeline, local DCR and desktop VS Code (2026-09-30 → 2026-10-11)
+
+- Pipeline P1–P3: portable IR, compilation, local execution, validation/publish
+  gates, materialization, preview and canonical DCR v1 generation from web/CLI.
+- Desktop VS Code slice 1: supported-format read-only custom editor, offline
+  vendored engine, virtualized grid and sort/filter-lite, verified in the real
+  extension host. Edit/validate/diff and Git integration are still pending.
+
 ### Changed — audit round 2, AU-2 (2026-09-27)
 
 - **CI now gates what was honor-system:** `format:check` and `adr:index:check`

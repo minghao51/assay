@@ -27,7 +27,7 @@ per-package tests, revisit this decision.
 
 ## Repository layout
 
-See [`../engineering/03-repository-structure.md`](../engineering/03-repository-structure.md) for the authoritative layout and package responsibilities. In brief: `apps/` (web, cli, vscode placeholder), `packages/` (16 domain-to-testing packages), `fixtures/` (golden datasets, see `fixtures/README.md`), and `docs/`.
+See [`../engineering/03-repository-structure.md`](../engineering/03-repository-structure.md) for the authoritative layout and package responsibilities. In brief: `apps/` (web, cli, desktop VS Code viewer), `packages/` (17 packages including pipeline and telemetry), `fixtures/` (golden datasets, see `fixtures/README.md`), and `docs/`.
 
 ## Dependency rules (enforced by lint where practical)
 
@@ -56,10 +56,17 @@ If a core document and an ADR conflict, the ADR wins and the document must be up
 
 ## Release and versioning
 
-- Publishing is **npm-only** (decision D10). Since ar-5 (2026-09-23, ADR 0042) the five pure libraries (`@assay/domain`, `@assay/contracts`, `@assay/validation`, `@assay/diff`, `@assay/grid`) and the CLI are publish-ready — `0.x.y`, no longer `private`, compiled via tsc project references with a pack/consumer smoke harness. The remaining 11 packages stay private workspaces; nothing publishes until the npm org claim (manual-actions, pre-G0).
+- Publishing is **npm-only** (D10), with tsc project-reference artifacts (ADR 0042).
+  The five pure libraries and CLI have compiled packaging; their current runtime
+  closure needs revalidation after pipeline/telemetry additions. Local tarball
+  installation is not registry-distribution approval. Keep existing private
+  flags until release policy is settled; nothing publishes during maintenance.
 - **Changesets** manage package versions: run `pnpm changeset` in a PR that changes a workspace package and describe the change (patch/minor/major). `pnpm version-packages` consumes changesets and writes per-package changelogs.
 - Product-level narrative changes go into the root [`CHANGELOG.md`](../../CHANGELOG.md) (Keep a Changelog format).
-- The publishing workflow (npm publish, tags, GitHub Releases) lands with the first tagged release — the npm org claim is the remaining gate (roadmap §6, manual-actions).
+- Release prerequisites include the npm org claim, verified artifact/runtime
+  closure and an explicit distribution decision for private dependencies. Use
+  the [publish runbook](handoff/20260926-publish-runbook.md), but revalidate its
+  historical assumptions before the first tagged release.
 
 ## Review gates before implementing
 
