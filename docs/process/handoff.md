@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-14. **Current lane:** PT-V slice-2 implementation, starting with ptv2-1.
+**Last updated:** 2026-10-14. **Current lane:** PT-V slice-2 implementation; ptv2-1 closed, ptv2-2 next.
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -44,8 +44,12 @@ root build (12 tasks), 9 native runtime-policy tests and a dedicated real-host
 CI job. Parent reproduced e2e (5 scenarios), the 14-pin offline harness and
 negative drills locally. q-14 (`a60099c` + `356c20e`) closes the UNION-arm wire-gate gap; unit tests
 now **2947 / 180 files**, all gates + forced types + e2e + VS Code offline
-harness verified by parent. Coverage **89.16/83.33/89.22/90.73**, thresholds
-83/76/80/84. **154 pending changesets**. Workflow validates with actionlint;
+harness verified by parent. ptv2-1 (`dddd902`) adds pure bridge helpers and
+13 root-discovered regressions: **2960 tests / 182 files**, coverage
+**89.23/83.34/89.32/90.80**, thresholds 83/76/80/84. Parent independently
+reproduced all gates, forced types, browser/real-host tests and offline pins;
+merged core gates green after recorded host-contention timeouts (details in
+slice-2 row). **155 pending changesets**. Workflow validates with actionlint;
 remote execution awaits an authorized push, not a claimed remote-CI pass.
 
 **Release boundary:** complete local CLI tarball closure is verified, but
@@ -90,10 +94,10 @@ an ADR, never a silent rewrite of an accepted decision.
 ### Active
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
-rows authored, starting with pure bridge helpers/unit coverage, then overlay
-editing, new-file export, validation, shared report projection, staged diff,
-Git context/command and real-host exit acceptance. Features are not yet
-delivered. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
+rows authored. **ptv2-1 pure bridge helpers/unit coverage is DONE**;
+**ptv2-2 overlay editing is next**, followed by new-file export, validation,
+shared report projection, staged diff, Git context/command and real-host exit.
+Those user workflows are not yet delivered; slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
 is **closed**: docs, packaging, VS Code build/CI and q-14 all integrated.
 
 PT-Q residue remains pickup-ready under
@@ -141,6 +145,10 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-14 (**fb**) — ptv2-1 pure bridge helpers/test discovery integrated
+  after independent mutation + full gates/harnesses; 2960/182, coverage improves,
+  merged host-contention retries recorded, no limits loosened. ptv2-2 next;
+  no slice-2 exit claim, push or publication.
 - 2026-10-14 (**fa**) — PT-V slice-2 queue authored with bounded scopes,
   explicit new-file delivery/key-confirmation/privacy defaults and STOPs;
   execution begins with ptv2-1. No slice-2 exit claim or release authorization.

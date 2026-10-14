@@ -12,6 +12,13 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed — VS Code bridge unit coverage (2026-10-14)
+
+- Extracted pure dataset format/name and error contracts from the extension
+  host, keeping compatibility exports and I/O behavior. Root Vitest now runs
+  13 regression tests for aliases, neutral names and path-free error text;
+  coverage thresholds are unchanged. Slice-2 workflows remain queued.
+
 ### Fixed — diff UNION-arm wire gate (2026-10-14)
 
 - Every top-level UNION arm must provide the required reserved projections

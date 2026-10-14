@@ -82,7 +82,20 @@ vendor, CSP or real open-flow behavior change; existing real-host e2e/offline
 harness and native runtime-policy tests green. Keep coverage's broad include
 and thresholds; do not remove host modules from the denominator.
 
-**Status:** PENDING.
+**Status:** **DONE — `dddd902`, parent approve 2026-10-14.** Pure format/name
+and bridge contracts extracted with compatibility exports; 13 tests in two
+files really execute in root Vitest. Parent wrong-neutral-name mutation fails;
+all gates, forced types, 9 native policy tests, 5 real-host scenarios, 14
+headline pins and browser e2e 172+1 independently reproduced. Unit **2960/182**,
+coverage **89.23/83.34/89.32/90.80**, changesets 155; merged core gates green.
+
+Merged-run deviation: first default unit run had 2 CLI 5-second timeouts; the
+next had 8 existing CLI/fuzz/DuckDB 5-second timeouts during unrelated
+`rustc`/`cc1plus` host contention. Affected CLI suites passed isolated (41/41),
+the unchanged complete suite passed with `--maxWorkers=2`, then the normal
+default suite passed **2960/182** after contention subsided. No timeout,
+coverage threshold, test case or source fix was used to obtain green. Keep the
+recorded host-load watch; do not kill other users' jobs.
 
 ### ptv2-2 — Overlay editing, history and grid projection
 
@@ -215,8 +228,10 @@ slice 2 only after this row; remote CI status remains unclaimed until run.
 
 ## 4. Closure and next lane
 
-Not closed. No slice-2 features are delivered at queue authoring. Per-row
-status/evidence will be recorded here; closure updates the living handoff,
+**Not closed.** ptv2-1 foundation is integrated; ptv2-2…ptv2-8 remain pending.
+Next dispatch is ptv2-2 overlay editing, not the exit harness or PT-Q cleanup.
+No edit/validate/diff/Git workflow is delivered yet. Per-row evidence belongs
+here; closure updates the living handoff,
 roadmap, app README and changelog. After ptv2-8, dispatch **q-5b e2e helpers**
 and **q-7 slice-2 strictness** separately under
 [PT-Q §7](../../product/04-post-mvp-track.md#7-pt-q--quality--maintenance-lane).

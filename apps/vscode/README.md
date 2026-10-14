@@ -88,6 +88,17 @@ headline evidence:
   header-button sort cycle asc→desc→clear and the toolbar filter
   `id <= 9` → exactly 10 rows, then clear → 1,000,000 — value-free counts).
 
+## Pure bridge unit tests (ptv2-1)
+
+`src/pure/` owns format/name mapping and typed path-free webview error contracts;
+`src/dataset.ts` retains compatibility exports and host-only I/O. Root
+`corepack pnpm test` discovers the 13 Vitest regression cases without importing
+`vscode`. Coverage includes and thresholds are unchanged.
+
+The [desktop slice-2 queue](../../docs/process/handoff/20261014-ptv-slice2-queue.md)
+records implementation status. Only its foundation row is integrated so far;
+overlay editing, validation, diff and Git workflows are still pending.
+
 ## ptv1-3 e2e (real VS Code, `@vscode/test-electron`)
 
 ```bash
