@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type { DatasetFormat } from './dataset-format'
+
+/** Typed open failures used by the host bridge and the webview protocol. */
+export type DatasetErrorKind =
+  'missing-file' | 'unsupported-format' | 'empty-file' | 'read-failed' | 'engine-failed'
+
+/** Typed error contract. Host callers may retain a detailed, path-bearing message. */
+export class DatasetOpenError extends Error {
+  readonly kind: DatasetErrorKind
+
+  constructor(kind: DatasetErrorKind, message: string) {
+    super(message)
+    this.kind = kind
+    this.name = 'DatasetOpenError'
+  }
+}
+
+/** Fixed, path-free text for webview rendering; never interpolate host error messages. */
+export const WEBVIEW_ERROR_TEXT: Readonly<Record<DatasetErrorKind, string>> = {
+  'missing-file': 'the file does not exist or is not accessible',
+  'unsupported-format':
+    'not a supported dataset format (supported: Parquet, CSV, JSONL/NDJSON, JSON, Arrow/Feather/IPC)',
+  'empty-file': 'the file is empty',
+  'read-failed': 'the file could not be read',
+  'engine-failed': 'the dataset could not be opened',
+}
+
+/** Value-free bridge report (counts and kinds only — never file contents). */
+export type DatasetReport =
+  | {
+      readonly outcome: 'opened'
+      readonly format: DatasetFormat
+      readonly byteLength: number
+      readonly rows: number
+      readonly columns: number
+      /** The grid mounted and the first row rendered (webview-reported). */
+      readonly gridRendered: boolean
+      /** The webview's DOM-structure accessibility audit held. */
+      readonly gridAuditOk: boolean
+      /** Open (bytes in hand) to first grid row visible, in milliseconds. */
+      readonly firstRowVisibleMs: number
+    }
+  | {
+      readonly outcome: 'error'
+      readonly kind: DatasetErrorKind
+      readonly message: string
+      /** True when the webview acknowledged the error (it rendered the state). */
+      readonly shownInWebview: boolean
+    }
+
+export interface ReadDatasetResult {
+  readonly format: DatasetFormat
+  readonly byteLength: number
+  readonly bytes: ArrayBuffer
+}

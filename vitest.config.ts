@@ -37,7 +37,11 @@ export default defineConfig({
       {
         test: {
           name: 'node',
-          include: ['packages/*/src/**/*.test.ts', 'apps/cli/src/**/*.test.{ts,tsx}'],
+          include: [
+            'packages/*/src/**/*.test.ts',
+            'apps/cli/src/**/*.test.{ts,tsx}',
+            'apps/vscode/src/pure/**/*.test.ts',
+          ],
           environment: 'node',
         },
       },

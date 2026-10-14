@@ -25,6 +25,17 @@
 import * as vscode from 'vscode'
 import { VENDORED_RUNTIME } from './assets'
 import { buildDatasetHtml } from './webview-html'
+import {
+  formatFromName,
+  neutralDatasetName,
+  SUPPORTED_FILENAME_PATTERNS,
+} from './pure/dataset-format'
+import {
+  DatasetOpenError,
+  WEBVIEW_ERROR_TEXT,
+  type DatasetReport,
+  type ReadDatasetResult,
+} from './pure/bridge-contracts'
 
 /** The command that opens a dataset via `showOpenDialog` (or an explicit URI). */
 export const OPEN_COMMAND = 'assay.dataset.open'
@@ -33,112 +44,19 @@ export const VIEW_TYPE = 'assay.datasetViewer'
 /** Diagnostic/test surface: the latest bridge report (value-free counts). */
 export const LAST_REPORT_COMMAND = 'assay.dataset.lastReport'
 
-/**
- * The supported dataset formats — the web app's open set
- * (`apps/web/src/telemetry/emit.ts` formatKindFromName): Parquet, CSV,
- * JSONL/NDJSON, JSON, Arrow/Feather/IPC.
- */
-export type DatasetFormat = 'parquet' | 'csv' | 'jsonl' | 'json' | 'arrow'
-
-const SUPPORTED_EXTENSIONS: ReadonlyMap<string, DatasetFormat> = new Map([
-  ['.parquet', 'parquet'],
-  ['.csv', 'csv'],
-  ['.jsonl', 'jsonl'],
-  ['.ndjson', 'jsonl'],
-  ['.json', 'json'],
-  ['.arrow', 'arrow'],
-  ['.feather', 'arrow'],
-  ['.ipc', 'arrow'],
-])
-
-/** The filename patterns the custom editor contributes (same set). */
-export const SUPPORTED_FILENAME_PATTERNS: readonly string[] = [
-  '*.parquet',
-  '*.csv',
-  '*.jsonl',
-  '*.ndjson',
-  '*.json',
-  '*.arrow',
-  '*.feather',
-  '*.ipc',
-]
-
-/**
- * The NEUTRAL name the bridge posts to the webview for a format: carries the
- * extension the engine's format detection needs and nothing else — the
- * user's file/folder name never enters the webview (see the module doc).
- */
-export function neutralDatasetName(format: DatasetFormat): string {
-  return `dataset.${format}`
-}
-
-/** Map a file name to its supported dataset format, or undefined. */
-export function formatFromName(name: string): DatasetFormat | undefined {
-  const lower = name.toLowerCase()
-  for (const [extension, format] of SUPPORTED_EXTENSIONS) {
-    if (lower.endsWith(extension)) {
-      return format
-    }
-  }
-  return undefined
-}
-
-/** Typed open failures, surfaced verbatim in the webview's error state. */
-export type DatasetErrorKind =
-  'missing-file' | 'unsupported-format' | 'empty-file' | 'read-failed' | 'engine-failed'
-
-export class DatasetOpenError extends Error {
-  readonly kind: DatasetErrorKind
-
-  constructor(kind: DatasetErrorKind, message: string) {
-    super(message)
-    this.kind = kind
-    this.name = 'DatasetOpenError'
-  }
-}
-
-/**
- * PATH-FREE webview text per typed error kind (the ptv1-3 carry-note fix):
- * the webview renders THIS, never `DatasetOpenError.message`, which may
- * embed the URI. The full message stays host-side (the report / diagnostics).
- */
-const WEBVIEW_ERROR_TEXT: Readonly<Record<DatasetErrorKind, string>> = {
-  'missing-file': 'the file does not exist or is not accessible',
-  'unsupported-format':
-    'not a supported dataset format (supported: Parquet, CSV, JSONL/NDJSON, JSON, Arrow/Feather/IPC)',
-  'empty-file': 'the file is empty',
-  'read-failed': 'the file could not be read',
-  'engine-failed': 'the dataset could not be opened',
-}
-
-/** Value-free bridge report (counts and kinds only — never file contents). */
-export type DatasetReport =
-  | {
-      readonly outcome: 'opened'
-      readonly format: DatasetFormat
-      readonly byteLength: number
-      readonly rows: number
-      readonly columns: number
-      /** ptv1-4: the grid mounted and the first row rendered (webview-reported). */
-      readonly gridRendered: boolean
-      /** ptv1-4: the webview's own DOM-structure a11y audit held (see grid-audit.ts). */
-      readonly gridAuditOk: boolean
-      /** ptv1-4: open (bytes in hand) → first grid row visible, ms. */
-      readonly firstRowVisibleMs: number
-    }
-  | {
-      readonly outcome: 'error'
-      readonly kind: DatasetErrorKind
-      readonly message: string
-      /** True when the webview acknowledged the error (it rendered the state). */
-      readonly shownInWebview: boolean
-    }
-
-export interface ReadDatasetResult {
-  readonly format: DatasetFormat
-  readonly byteLength: number
-  readonly bytes: ArrayBuffer
-}
+export {
+  formatFromName,
+  neutralDatasetName,
+  SUPPORTED_FILENAME_PATTERNS,
+  type DatasetFormat,
+} from './pure/dataset-format'
+export {
+  DatasetOpenError,
+  WEBVIEW_ERROR_TEXT,
+  type DatasetErrorKind,
+  type DatasetReport,
+  type ReadDatasetResult,
+} from './pure/bridge-contracts'
 
 /**
  * Read a dataset through `workspace.fs` with typed failures. Order is the
