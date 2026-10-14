@@ -250,5 +250,6 @@ emission and opt-out integrations; collector deployment remains human-gated.
 ## 7. Product Surfaces
 
 `web` and `cli` implement the local workbench plus pipeline/DCR workflows.
-`vscode` implements the desktop read-only dataset editor with a vendored engine
-and headless grid; edit/validate/diff/Git parity is PT-V slice-2 work.
+`vscode` implements desktop viewing and session-only overlay editing/history
+with a vendored engine and headless grid. Sources stay immutable; new-file
+export, validation, diff and Git parity remain PT-V slice-2 work.

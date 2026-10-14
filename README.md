@@ -12,8 +12,9 @@ products and an enterprise data control plane.
 local-first core — inspect, nested data, edit, export, validate, and diff,
 with exact agreement between the browser app and the CLI — works end-to-end;
 pipeline P1–P3 and local DCR generation are implemented, and desktop VS Code
-slice 1 opens/inspects datasets offline. Next: packaging/CI maintenance, then
-VS Code edit/validate/diff parity (slice 2), alongside launch readiness (G0). See the
+opens/inspects datasets offline with session-only overlay editing and undo/redo.
+Packaging/CI maintenance is closed. Next: safe new-file export, validation,
+diff and Git workflows in VS Code (remaining slice 2), alongside launch readiness (G0). See the
 [execution roadmap](docs/product/03-execution-roadmap.md) and the
 [post-MVP track](docs/product/04-post-mvp-track.md).
 
@@ -71,7 +72,7 @@ Start at [`docs/README.md`](docs/README.md). Highlights:
 ## Repository layout
 
 ```text
-apps/        web (Vite/React), cli, vscode (desktop open/inspect; slice 2 pending)
+apps/        web (Vite/React), cli, vscode (desktop inspect + overlay edits; remaining slice 2 queued)
 packages/    domain, core, ui, grid, engine family
              (engine + engine-duckdb + engine-parquet),
              data-sources,

@@ -83,8 +83,8 @@ implement and approve the same change.
 ## Where things live
 
 ```text
-apps/{web,cli,vscode}     web + cli real; VS Code slice 1 is a real desktop dataset viewer
-                          (edit/validate/diff/Git integration are slice-2 work, decision D18)
+apps/{web,cli,vscode}     web + cli real; desktop VS Code viewing + session overlay edits real
+                          (new-file export/validation/diff/Git remain slice-2 work, D18)
 packages/domain           portable domain types (pure; real)
 packages/engine           DataEngine target interface retained per D13; compatibility pins
                           record the relationship to the real engine-duckdb client

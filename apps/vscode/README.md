@@ -23,11 +23,10 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
   size (1M rows → ~31 rendered). Sort (header toggles, asc → desc → clear)
   and filter-lite (column + engine-SQL predicate, Apply/Clear) go through the
   model's `setSort`/`setFilters` per the grid contracts; the provider is the
-  real `@assay/engine-duckdb` client (`webview/grid-provider.ts`, base read
-  path + the m2-1 sort/filter state; the `rowKeys` identity channel comes
-  from `@assay/domain`'s `baseRowId`). **Out of slice 1** (recorded in the
-  queue): edit/validate/diff in VS Code, Git context, the dataset diff
-  command, settings/UI polish.
+  real `@assay/engine-duckdb` client (`webview/grid-provider.ts`). Since
+  ptv2-2 it reads the effective overlay and engine-projected logical row IDs,
+  including before the first edit, so sorting/filtering cannot change edit
+  identity. Export delivery, validation, diff and Git workflows remain queued.
 - **Engine ownership** — the webview session boots the vendored engine ONCE
   per panel (`webview/engine-session.ts`) and the grid fetches windows
   through it for the panel's whole life; disposal is host-orchestrated (the
@@ -57,11 +56,31 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
   `innerHTML`), dataset values treated as untrusted content, **no telemetry**
   (ADR 0025/0037).
 
-## ptv1-4 grid envelope (the row's done-when, harness-asserted)
+## Session-only overlay editing (ptv2-2)
+
+- Double-click a supported cell, or focus it and press Enter/F2. Enter commits,
+  Escape cancels; Set NULL is separate from empty text. Editor navigation and
+  Delete remain native text-editing keys, not grid navigation/deletion.
+- Insert row, Delete row, Undo and Redo operate on logical IDs; cell/row dirty
+  markers track accepted edits, including inserted rows with read-only cells.
+  Whole-view engine cast refusal leaves the previous view/history intact.
+- Supported strings, booleans, finite floating inputs and exact integer text
+  (including BIGINT/UBIGINT) are editable. Binary, temporal, composite/enum,
+  unfamiliar and Arrow decimal/128-bit word-array types are read-only until
+  lossless codecs exist. Dataset values are always rendered as text.
+- **Source files are never saved in place.** The native custom editor remains
+  source-read-only; the overlay is temporary and closing loses unexported edits.
+  Safe new-file export delivery is the next queue row, not implemented yet.
+  No persistent/native dirty-document behavior is claimed.
+
+## Grid envelope (ptv1-4 limits retained for ptv2-2)
 
 `run:spike` mounts the REAL surface modules (`EngineGridProvider` +
-`WebviewDataGrid`) over the opened 1M-row fixture and asserts, in the
-headline evidence:
+`WebviewDataGrid`) with the production editing-enabled overlay/controller
+path over the 1M-row fixture. All 14 original pins remain; the fifteenth,
+`grid.productionEditingPathMounted`, rejects a read-only-path substitution.
+Parent 2026-10-15 measure: **236 ms**, **31 rendered rows**, **0 bytes** heap
+page delta. Existing limits below are unchanged:
 
 - **`grid.firstRowVisible`** — open (`client.open` start) → first ready row's
   cells in the grid DOM **< 1 s**. Method matches R4's `pickerToFirstRow`
@@ -90,14 +109,14 @@ headline evidence:
 
 ## Pure bridge unit tests (ptv2-1)
 
-`src/pure/` owns format/name mapping and typed path-free webview error contracts;
-`src/dataset.ts` retains compatibility exports and host-only I/O. Root
-`corepack pnpm test` discovers the 13 Vitest regression cases without importing
-`vscode`. Coverage includes and thresholds are unchanged.
+`src/pure/` owns format/name mapping, path-free bridge contracts, scalar draft
+capabilities and serialized edit history. `src/dataset.ts` retains compatibility
+exports and host-only I/O. Root `corepack pnpm test` discovers **30** Vitest
+cases without importing `vscode`; coverage includes/floors are unchanged.
 
 The [desktop slice-2 queue](../../docs/process/handoff/20261014-ptv-slice2-queue.md)
-records implementation status. Only its foundation row is integrated so far;
-overlay editing, validation, diff and Git workflows are still pending.
+records implementation status. Foundation and overlay editing are integrated;
+new-file export, validation, diff and Git workflows remain pending.
 
 ## ptv1-3 e2e (real VS Code, `@vscode/test-electron`)
 

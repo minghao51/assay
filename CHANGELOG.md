@@ -12,6 +12,19 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — VS Code session-only overlay editing (2026-10-15)
+
+- Inline scalar edits, insert/delete, dirty markers and undo/redo over an
+  immutable source. Logical row IDs preserve identity through sort/filter;
+  whole-view cast checks reject invalid candidates without advancing history.
+- Native draft keys/NULL actions are isolated from grid shortcuts. Unsupported
+  lossless codecs remain explicitly read-only; closing discards the temporary
+  overlay. New-file export delivery is next, not yet implemented.
+- Real-VSCode regression proofs include source immutability, hidden-row cast
+  refusal and dirty markers. The editing-enabled 1M-row offline harness keeps
+  the original limits and 14 pins, adding an editing-path pin; 30 pure unit
+  tests run in root Vitest. Independent mutations and final merged gates pass.
+
 ### Changed — VS Code bridge unit coverage (2026-10-14)
 
 - Extracted pure dataset format/name and error contracts from the extension

@@ -110,8 +110,9 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
   **closed 2026-10-14**: documentation, packed CLI closure, VS Code build/CI
   and q-14 integrated and independently verified.
 - Execute **[PT-V slice 2](../process/handoff/20261014-ptv-slice2-queue.md)**:
-  eight serialized rows for edit/validate/diff, safe new-file export, Git
-  context/command and real-host exit. Slice 1 closed 2026-10-11; its
+  ptv2-1/2 foundation + session overlay editing DONE; ptv2-3 safe new-file
+  export is next, then validation/diff/Git and real-host exit. Slice 1
+  closed 2026-10-11; its
   [closure](../process/handoff/20261002-ptv-slice1-queue.md#5-closure) records
   the scope. vscode-web remains RE-SCOPE (D18).
 - q-5b helper consolidation and q-7 slice-2 testing strictness are separate

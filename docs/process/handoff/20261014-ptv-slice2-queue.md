@@ -12,7 +12,9 @@ Serialized rows; `openai-codex/gpt-6-luna` implements in isolated worktrees,
 parent orchestrates, independently reviews, re-runs gates and cherry-picks.
 Follow [operating model](operating-model.md); never implement and approve the
 same code. Parent owns shared docs, root test/workflow integration and closure.
-No push, publication, credential work or human G0 actions authorized.
+Maintainer authorized a normal `main` push after ptv2-2 completion on
+2026-10-14. Publication, credential work and other human G0 actions remain
+unauthorized; workers still must not push.
 
 Baseline: **2947 tests / 180 files**, coverage **89.16/83.33/89.22/90.73**
 (thresholds unchanged), typecheck 20, build 12, browser e2e **172 + 1 skip**,
@@ -113,7 +115,41 @@ Source bytes remain unchanged. Session-only warning is visible. Existing
 keyboard/a11y, bounded DOM and measured grid envelope remain green; no claim
 of persistent overlays, schema editing or native save integration.
 
-**Status:** PENDING.
+**Status:** **DONE 2026-10-15 — `3ac2c63` + `0361e1b` + `4c57032` + `0711b3c`,
+parent request-changes → corrections → independent approve.** Real logical-id
+overlay reads, scalar edit/insert/delete, dirty cell/row markers, history and
+session-only warning integrated. Failed casts retain the previous view;
+preflight uses whole-view engine cast checks, not a sampled filtered window.
+Native editor keys cannot delete rows or navigate the grid; queued undo/redo
+steps resolve against current history. Host proof is test-mode-only and an
+exact boolean projection. No dependency, vendor, CSP or golden-fixture change.
+
+Parent reproduced all gates + forced types (20), unit **2977/184** including
+**30 pure app tests**, coverage **89.22/83.31/89.26/90.81**, build **12**,
+browser **172+1**, native **9**, real-host **6 scenarios**, offline **15 pins**
+(14 existing + editing-path assertion). Real-host source hash remains unchanged.
+Parent 1M-row editing-enabled measure: **236 ms** first row, **0 bytes** heap
+page delta against the unchanged **2.28 MB** ceiling, bounded **31 rows**.
+Final merged all core gates + real-host/offline green; changesets **156**.
+
+Failure sensitivity: parent restoring old history logic fails **2/10** tests;
+disabling full cast loop and rebuilding fails specifically the hidden 48-row
+cast-refusal invariant. Worker identity/undo/dirty-annotation mutants fail;
+restored source green. Early real-host helpers raced on refreshed row-cache
+readiness; initial parent cast mutant failed at that unrelated race, not the
+intended gate, and one worker intermediate mutant passed. None were accepted
+as proof: waits now consume rendered logical rows, before-action revisions
+and actual dirty markers; final worker repeated **6 times**, parent repeated
+**3 times** plus follow-up/main runs, all green. Nonfatal EMFILE watcher
+warnings retained in logs; no deadline, coverage or grid budget weakened.
+
+**Editor limits:** binary, temporal, composite/enum/unfamiliar scalar types and
+Arrow decimal/128-bit word-array types (DECIMAL/NUMERIC/HUGEINT/UHUGEINT)
+remain explicitly read-only pending lossless codecs. BIGINT/UBIGINT exact text
+and supported strings/booleans/finite floating inputs remain editable. The
+read-only-cell dirty-marker branch has a bounded real-renderer DOM assertion
+with a structural provider, in addition to real engine edit acceptance. No
+native dirty-document save or export delivery is promised by this row.
 
 ### ptv2-3 — Deliver edited exports to a new file
 
@@ -228,9 +264,10 @@ slice 2 only after this row; remote CI status remains unclaimed until run.
 
 ## 4. Closure and next lane
 
-**Not closed.** ptv2-1 foundation is integrated; ptv2-2…ptv2-8 remain pending.
-Next dispatch is ptv2-2 overlay editing, not the exit harness or PT-Q cleanup.
-No edit/validate/diff/Git workflow is delivered yet. Per-row evidence belongs
+**Not closed.** ptv2-1 foundation and ptv2-2 overlay editing are integrated;
+ptv2-3…ptv2-8 remain pending. Next dispatch is ptv2-3 safe new-file export,
+not the exit harness or PT-Q cleanup. Validation/diff/Git workflows and export
+delivery are not yet implemented. Per-row evidence belongs
 here; closure updates the living handoff,
 roadmap, app README and changelog. After ptv2-8, dispatch **q-5b e2e helpers**
 and **q-7 slice-2 strictness** separately under
