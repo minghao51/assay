@@ -5,3 +5,5 @@ dist/**
 coverage/**
 playwright-report/**
 test-results/**
+# Vendored runtime bytes are checksummed; never format third-party assets.
+apps/vscode/assets/duckdb/**

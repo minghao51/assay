@@ -12,6 +12,15 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed — VS Code build and CI verification (2026-10-14)
+
+- Root build includes the desktop extension/webview and checks vendored assets.
+  Both real-host runners share a pinned offline-first VS Code cache; CI rejects
+  executable overrides and unpinned fallback, guarded by native policy tests.
+- Dedicated headless CI job enforces real-VSCode e2e and the offline exit
+  harness. Local equivalents and negative drills pass; remote execution awaits
+  a push. Vendored runtime bytes are excluded from formatter rewriting.
+
 ### Fixed — packed CLI dependency closure (2026-10-14)
 
 - Metadata-derived local runtime closure includes pipeline and telemetry;

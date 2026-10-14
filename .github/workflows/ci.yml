@@ -165,3 +165,73 @@ jobs:
             playwright-report
           retention-days: 5
           if-no-files-found: ignore
+
+  vscode-verify:
+    name: VS Code real extension host / offline harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CI: '1'
+      DUCKDB: /tmp/duckdb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install VS Code desktop runtime libraries and xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 \
+            libgbm1 libatk-bridge2.0-0t64 libdrm2 libxkbcommon0 libatspi2.0-0t64
+
+      # The version comes from the same helper imported by both harnesses;
+      # no independent workflow pin can drift from the runner's cache name.
+      - name: Resolve pinned VS Code cache key
+        id: vscode-version
+        run: |
+          node --input-type=module -e "import { PINNED_VSCODE_VERSION, VSCODE_CACHE_PATH } from './apps/vscode/scripts/vscode-runtime.mjs'; console.log('version=' + PINNED_VSCODE_VERSION); console.log('cache=' + VSCODE_CACHE_PATH)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pinned VS Code runtime
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.vscode-version.outputs.cache }}
+          key: vscode-${{ runner.os }}-${{ steps.vscode-version.outputs.version }}
+
+      # On a cache miss, provision only the exact pinned test desktop runtime.
+      # Both runners independently prefer this canonical cache and CI rejects
+      # any fallback to a system or unpinned VS Code installation.
+      - name: Provision pinned VS Code runtime
+        run: pnpm --filter @assay/vscode run provision:vscode
+
+      - name: Install DuckDB CLI v1.5.5 (sha256-pinned)
+        uses: ./.github/actions/install-duckdb
+
+      - name: Test VS Code runtime selection policy
+        run: pnpm --filter @assay/vscode run test:runtime
+
+      - name: Run real VS Code dataset e2e
+        run: pnpm --filter @assay/vscode run e2e
+
+      - name: Run slice-1 offline exit harness
+        run: pnpm --filter @assay/vscode run:spike
+
+      - name: Upload VS Code failure results
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vscode-failure-results
+          path: apps/vscode/dist/*results.json
+          retention-days: 5
+          if-no-files-found: ignore

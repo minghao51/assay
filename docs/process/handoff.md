@@ -39,13 +39,16 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 **Verified state:** rm-2 integrated as `a7dfe35` + `111121f` (2026-10-14).
 Parent independently ran all gates, forced typecheck (20 tasks), **2938 tests /
 180 files**, build (11 tasks), packed-consumer smoke and **172 e2e + 1 skip**;
-merged core gates/smoke also pass. Coverage **89.17/83.33/89.2/90.72**, thresholds
-83/76/80/84. **152 pending changesets**. This is not fresh remote-CI evidence.
+merged core gates/smoke also pass. rm-3 (`78a4c94` + `c2ecc5f`) adds VS Code
+root build (12 tasks), 9 native runtime-policy tests and a dedicated real-host
+CI job. Parent reproduced e2e (5 scenarios), the 14-pin offline harness and
+negative drills locally. Coverage **89.17/83.33/89.2/90.72**, thresholds
+83/76/80/84. **153 pending changesets**. Workflow validates with actionlint;
+remote execution awaits an authorized push, not a claimed remote-CI pass.
 
-**Known verification gaps:** root build still skips VS Code (`build:spike`
-only), and CI runs neither its real-VSCode e2e nor the slice-1 exit harness.
-The complete local CLI tarball closure is now verified, but registry distribution
-of private runtime dependencies remains an explicit release-policy blocker.
+**Release boundary:** complete local CLI tarball closure is verified, but
+registry distribution of private runtime dependencies remains an explicit
+release-policy blocker. Local artifact/harness proof is not publication approval.
 
 ## 3. Decision ledger
 
@@ -133,6 +136,9 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-14 (**ey**) — rm-3 real-VSCode build/CI integrated after independent
+  policy/drill/harness verification; pinned runtime, unchanged vendored assets,
+  formatter exclusion. Remote workflow not yet run; maintenance queue holds evidence.
 - 2026-10-14 (**ex**) — rm-2 packed runtime closure integrated after independent
   review + mutation + full gates/e2e; local artifact proof does not authorize
   registry publication. Evidence in the maintenance queue.
