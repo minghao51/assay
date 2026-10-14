@@ -257,6 +257,14 @@ the 39.4 MB `mvp` WASM blob. The committed harness always launches VS Code with
 unreclaimed allocation, not live state. The harness records `preBoot`, `postBoot` and `postFirstRow`
 so the reviewer can see the delta; it cannot emit the no-GC number without a harness change.
 
+**Re-measured 2026-10-11 (the ptv1-5 slice-1 exit harness):** after slice 1 (vendored assets, the
+real adapter, the headless-grid surface), the same envelopes re-measure as — boot **592.5–649.4 ms**
+(`mvp`) / **492.8–542.4 ms** (`eh`); picker → first row **165.7–192.4 ms** (the CDN autoload is gone —
+the extension is served locally — and the harness now emits the decomposition
+`openMs + rowCountMs + ttfrMs`); grid first row **209–253.5 ms** against the slice-1 1 s budget; live
+main-thread heap pinned as the same-run forced-GC **delta**, measured 0 against the 2.28 MB budget
+(the R4 1.14 MB × 2). The spike figures above remain the historical R4 record.
+
 ### Q5b — the Parquet extension is a runtime network dependency (MEASURED — important)
 
 Opening Parquet requires `read_parquet`, which in DuckDB-WASM 1.32.0 **autoloads the Parquet
