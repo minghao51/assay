@@ -35,6 +35,7 @@ const cliManifest = readManifest(join(cliDir, 'package.json'))
 const keep = process.argv.includes('--keep')
 const REPRESENTATIVE_EXPORTS = {
   '@assay/contracts': ['.', 'parseContract'],
+  '@assay/grid': ['.', 'GridViewportModel'],
   '@assay/diff': ['.', 'diffDatasets'],
   '@assay/domain': ['.', 'baseRowId'],
   '@assay/engine-duckdb': ['./node', 'executePipeline'],
@@ -118,6 +119,8 @@ function visit(name) {
   closure.set(name, pkg)
 }
 visit('@assay/cli')
+const grid = workspace.get('@assay/grid')
+assert.ok(grid, 'standalone publishable package @assay/grid is missing')
 for (const name of closure.keys()) {
   if (name === '@assay/cli') continue
   const pkg = closure.get(name)
@@ -145,7 +148,8 @@ try {
   process.stdout.write(`runtime closure: ${[...closure.keys()].join(', ')}\n`)
   process.stdout.write(`version:         ${cliManifest.version}\ntemp:            ${tmpRoot}\n`)
 
-  process.stdout.write('\n[1/5] build the runtime closure in dependency order\n')
+  process.stdout.write('\n[1/5] build the runtime closure and standalone grid\n')
+  pnpm(['run', 'build'], { cwd: grid.dir })
   for (const [name, pkg] of closure) {
     if (name === '@assay/cli') continue
     process.stdout.write(`  build ${name}\n`)
@@ -153,9 +157,9 @@ try {
   }
   pnpm(['run', 'build'], { cwd: cli.dir })
 
-  process.stdout.write('\n[2/5] pack every package in the runtime closure\n')
+  process.stdout.write('\n[2/5] pack every package in the runtime closure plus standalone grid\n')
   const packed = []
-  for (const [name, pkg] of closure) {
+  for (const [name, pkg] of [...closure, ['@assay/grid', grid]]) {
     const manifest = pkg.manifest
     pnpm(['pack', '--pack-destination', tarballDir], { cwd: pkg.dir })
     const tarballPath = join(tarballDir, tarballName(name, manifest.version))
@@ -224,8 +228,10 @@ try {
     stdio: 'inherit',
   })
 
-  process.stdout.write('\n[4/5] import every closure package and run basic CLI legs\n')
-  const checks = Object.entries(REPRESENTATIVE_EXPORTS).filter(([name]) => closure.has(name))
+  process.stdout.write('\n[4/5] import closure packages + standalone grid and run CLI legs\n')
+  const checks = Object.entries(REPRESENTATIVE_EXPORTS).filter(
+    ([name]) => closure.has(name) || name === '@assay/grid',
+  )
   const smokePath = join(consumerDir, 'imports.mjs')
   writeFileSync(
     smokePath,
@@ -256,6 +262,7 @@ try {
   const fixtureRoot = join(consumerDir, 'fixtures')
   mkdirSync(join(fixtureRoot, 'pipeline', 'contracts'), { recursive: true })
   mkdirSync(join(fixtureRoot, 'csv'), { recursive: true })
+  mkdirSync(join(fixtureRoot, 'diff'), { recursive: true })
   for (const file of ['cli_run.yaml', 'cli_dcr_gated.yaml']) {
     copyFileSync(join(repoRoot, 'fixtures', 'pipeline', file), join(fixtureRoot, 'pipeline', file))
   }
@@ -274,6 +281,22 @@ try {
 
   const profile = run(binPath, ['profile', join(fixtureRoot, 'csv', 'customers.csv')])
   assert.ok(profile.trim().length > 0, 'profile returned empty output')
+  const dirtyCsv = join(consumerDir, 'dirty.csv')
+  const dirtyContract = join(consumerDir, 'dirty-contract.yaml')
+  writeFileSync(dirtyCsv, 'id,region,amount\n1,SG,10\n2,XX,-1\n')
+  writeFileSync(
+    dirtyContract,
+    'format: v1\nname: smoke-dirty\nversion: 1\ncolumns:\n  - name: region\n    allowed-values: [SG, US]\n  - name: amount\n    min: 0\n',
+  )
+  const dirtyValidate = runExpecting(
+    binPath,
+    ['validate', dirtyCsv, '--contract', dirtyContract, '--format', 'json'],
+    1,
+  )
+  const dirtyReport = JSON.parse(dirtyValidate.stdout)
+  assert.equal(dirtyReport.report, 'assay-validation-report')
+  assert.equal(dirtyReport.valid, false)
+  assert.equal(dirtyValidate.stderr, '', 'dirty validation wrote to stderr')
   const validate = runExpecting(binPath, ['validate', join(fixtureRoot, 'csv', 'customers.csv')], 2)
   assert.equal(validate.stdout, '', 'usage failure emitted a report')
   assert.equal(validate.stderr, 'validate requires --contract <file> (see --help)\n')
@@ -284,16 +307,65 @@ try {
     ['pipeline', 'validate', pipelinePath, '--format', 'json'],
     0,
   )
-  assert.ok(
-    pipelineValidate.stdout.includes('"report": "assay-pipeline-validate-report"'),
-    'pipeline validate did not return report',
-  )
+  const pipelineValidateReport = JSON.parse(pipelineValidate.stdout)
+  assert.equal(pipelineValidateReport.report, 'assay-pipeline-validate-report')
+  assert.equal(pipelineValidateReport.valid, true)
+  assert.equal(pipelineValidateReport.nodeCount, 4)
+  assert.deepEqual(pipelineValidateReport.order, ['customers', 'renamed', 'sg_only', 'by_country'])
+  assert.equal(pipelineValidate.stderr, '', 'pipeline validate wrote to stderr')
   const pipelineRun = runExpecting(
     binPath,
     ['pipeline', 'run', pipelinePath, '--format', 'json'],
     0,
   )
-  assert.ok(pipelineRun.stdout.includes('"status": "completed"'), 'pipeline run was not completed')
+  const pipelineRunReport = JSON.parse(pipelineRun.stdout)
+  assert.equal(pipelineRunReport.report, 'assay-pipeline-run-report')
+  assert.equal(pipelineRunReport.status, 'completed')
+  assert.equal(pipelineRunReport.nodeCount, 4)
+  assert.deepEqual(
+    pipelineRunReport.nodes.map(({ nodeId, status }) => [nodeId, status]),
+    [
+      ['customers', 'materialized'],
+      ['renamed', 'materialized'],
+      ['sg_only', 'materialized'],
+      ['by_country', 'materialized'],
+    ],
+  )
+  assert.deepEqual(pipelineRunReport.outputs, [
+    { nodeId: 'by_country', relation: 'by_country', rowCount: 1 },
+  ])
+  assert.equal(pipelineRun.stderr, '', 'pipeline run wrote to stderr')
+
+  const diffA = join(fixtureRoot, 'diff', 'a.csv')
+  const diffSame = join(fixtureRoot, 'diff', 'same.csv')
+  const diffChanged = join(fixtureRoot, 'diff', 'changed.csv')
+  writeFileSync(diffA, 'id,value\n1,alpha\n2,beta\n')
+  copyFileSync(diffA, diffSame)
+  writeFileSync(diffChanged, 'id,value\n1,alpha\n2,changed\n')
+  const sameDiff = runExpecting(
+    binPath,
+    ['diff', diffA, diffSame, '--key', 'id', '--format', 'json'],
+    0,
+  )
+  const sameReport = JSON.parse(sameDiff.stdout)
+  assert.equal(sameReport.report, 'assay-diff-report')
+  assert.equal(sameReport.identical, true)
+  assert.deepEqual(sameReport.rowDiff.changed.count, 0)
+  assert.deepEqual(sameReport.rowDiff.added.count, 0)
+  assert.deepEqual(sameReport.rowDiff.removed.count, 0)
+  assert.equal(sameDiff.stderr, '', 'identical diff wrote to stderr')
+  const changedDiff = runExpecting(
+    binPath,
+    ['diff', diffA, diffChanged, '--key', 'id', '--format', 'json'],
+    1,
+  )
+  const changedReport = JSON.parse(changedDiff.stdout)
+  assert.equal(changedReport.report, 'assay-diff-report')
+  assert.equal(changedReport.identical, false)
+  assert.equal(changedReport.rowDiff.changed.count, 1)
+  assert.deepEqual(changedReport.rowDiff.added.count, 0)
+  assert.deepEqual(changedReport.rowDiff.removed.count, 0)
+  assert.equal(changedDiff.stderr, '', 'changed diff wrote to stderr')
   const gatedPath = join(fixtureRoot, 'pipeline', 'cli_dcr_gated.yaml')
   const dcrOut = join(consumerDir, 'dcr.yaml')
   const dcr = runExpecting(
@@ -354,7 +426,7 @@ try {
     'failed DCR overwrite modified artifact',
   )
   process.stdout.write(
-    '  installed --version/--help/profile/validate/pipeline validate+run/DCR: PASS\n',
+    '  installed --version/--help/profile/validate/diff/pipeline validate+run/DCR: PASS\n',
   )
   process.stdout.write('\nPACK CONSUMER SMOKE: PASS\n')
 } finally {

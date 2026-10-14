@@ -1,5 +1,6 @@
 ---
 '@assay/cli': patch
+'@assay/engine-duckdb': patch
 '@assay/pipeline': patch
 ---
 
