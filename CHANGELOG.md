@@ -12,6 +12,14 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Fixed — diff UNION-arm wire gate (2026-10-14)
+
+- Every top-level UNION arm must provide the required reserved projections
+  with matching arity. Later-arm omissions and nested-subquery/literal spoofing
+  fail before diff SQL runs, with value-free errors and a synthetic golden
+  regression fixture. Real token boundaries preserve valid identifiers and
+  UNION/ALL/DISTINCT forms.
+
 ### Changed — VS Code build and CI verification (2026-10-14)
 
 - Root build includes the desktop extension/webview and checks vendored assets.

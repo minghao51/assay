@@ -1,7 +1,7 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-14. **Current lane:** repository maintenance, then PT-V
-slice 2. This is the current-state index, not the execution-history archive.
+**Last updated:** 2026-10-14. **Current lane:** PT-V slice-2 queue authoring.
+Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
 
@@ -42,8 +42,10 @@ Parent independently ran all gates, forced typecheck (20 tasks), **2938 tests /
 merged core gates/smoke also pass. rm-3 (`78a4c94` + `c2ecc5f`) adds VS Code
 root build (12 tasks), 9 native runtime-policy tests and a dedicated real-host
 CI job. Parent reproduced e2e (5 scenarios), the 14-pin offline harness and
-negative drills locally. Coverage **89.17/83.33/89.2/90.72**, thresholds
-83/76/80/84. **153 pending changesets**. Workflow validates with actionlint;
+negative drills locally. q-14 (`a60099c` + `356c20e`) closes the UNION-arm wire-gate gap; unit tests
+now **2947 / 180 files**, all gates + forced types + e2e + VS Code offline
+harness verified by parent. Coverage **89.16/83.33/89.22/90.73**, thresholds
+83/76/80/84. **154 pending changesets**. Workflow validates with actionlint;
 remote execution awaits an authorized push, not a claimed remote-CI pass.
 
 **Release boundary:** complete local CLI tarball closure is verified, but
@@ -87,9 +89,9 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ### Active
 
-[20261014-repository-maintenance.md](handoff/20261014-repository-maintenance.md):
-current-state docs → packed CLI closure → VS Code build/CI → q-14 correctness.
-After those rows, author and execute PT-V slice 2 from the recorded scope.
+PT-V slice-2 queue authoring is next, off the recorded slice-1 §5 scope.
+The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
+is **closed**: docs, packaging, VS Code build/CI and q-14 all integrated.
 
 PT-Q residue remains pickup-ready under
 [product/04 §7](../product/04-post-mvp-track.md): **q-5b** e2e helper
@@ -136,6 +138,9 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-14 (**ez**) — q-14 integrated after parent mutation + full gates,
+  e2e and VS Code harness verification; maintenance queue closed. Slice-2
+  authoring next; registry publication and human G0 work still not authorized.
 - 2026-10-14 (**ey**) — rm-3 real-VSCode build/CI integrated after independent
   policy/drill/harness verification; pinned runtime, unchanged vendored assets,
   formatter exclusion. Remote workflow not yet run; maintenance queue holds evidence.

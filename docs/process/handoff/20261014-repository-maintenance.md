@@ -1,6 +1,6 @@
 # Repository Maintenance Queue — 2026-10-14
 
-**ACTIVE.** Maintainer authorized the recommended sequence on 2026-10-14:
+**CLOSED 2026-10-14 — all four rows integrated and independently verified.** Maintainer authorized the recommended sequence on 2026-10-14:
 documentation truth pass → packaging and VS Code CI → q-14 → author/execute
 PT-V slice 2 → separate PT-Q maintenance. This queue is the first bounded batch;
 it does not authorize public release, hosted/AI work, or vscode-web.
@@ -21,7 +21,7 @@ integration. No push, publication, credential work or unrelated refactoring.
 | rm-1 — current-state docs    | Orchestrator-owned Markdown only. Compact handoff preserving old evidence; fix false scaffold/pending labels in front-door docs and roadmap; label old pickup pack historical; record release/CI gaps honestly. Links + ADR index + format pass; no accepted ADR changed.                                                                                                                                  | DONE — orchestrator solo maintenance per §7.5. Handoff 147 KB → 8 KB with historical snapshot preserved; front-door truth repaired. Format, doc links (106 files / 0 broken) and ADR index (46 records) pass; source untouched, baseline core gates green.                                                                                                                                                                                  |
 | rm-2 — packed CLI closure    | Worker: CLI smoke/build metadata + pipeline/telemetry/engine build references as needed, with an explicitly authorized package-boundary exception in the brief. Plain-node clean consumer installs the complete local runtime closure; pipeline + DCR command legs pinned. Source-checkout exports stay compatible; no runtime bundler/dependency additions. Package changesets; full gates + local smoke. | DONE — `a7dfe35` + `111121f`; parent request-changes → fix → approve. Complete 8-package runtime closure + standalone grid locally installed under plain Node; dirty validation/diff/pipeline/DCR pins, golden bytes and refusal semantics preserved. Parent export-path mutation fails; all gates green, 2938/180, e2e 172+1, coverage unchanged. Merged core gates + consumer smoke pass. Registry publication policy remains unresolved. |
 | rm-3 — VS Code build/CI      | Worker: bounded `apps/vscode/**` changes and proposed workflow/config hunks; parent owns root/workflow edits. Root build includes VS Code; real-VSCode e2e + slice-1 offline exit harness are enforced in CI, with pinned runtime/cache/headless prerequisites. Vendored asset digests unchanged; local equivalents pass.                                                                                  | DONE — `78a4c94` + `c2ecc5f`, parent request-changes → fix → approve. Root build includes VS Code (12 tasks); shared pinned runtime rejects CI overrides, 9 native policy tests pass. Parent reproduced real-VSCode e2e (5), offline 14-pin harness and both negative drills; all gates/coverage green, vendored bytes unchanged. CI job integrated with actionlint + configuration assertions; remote execution awaits authorized push.    |
-| q-14 — UNION projection gate | Worker: `packages/engine-duckdb/**`, minimal synthetic regression fixtures if needed and engine changeset. Every top-level UNION arm must satisfy required projection columns; literal/WHERE-only spoof and wrong arity rejected before execution, valid compiler SQL still accepted. Negative pins fail on old behavior; parent mutation drill + full gates/conformance.                                  | PENDING — after rm-3; existing PT-Q done-when applies.                                                                                                                                                                                                                                                                                                                                                                                      |
+| q-14 — UNION projection gate | Worker: `packages/engine-duckdb/**`, minimal synthetic regression fixtures if needed and engine changeset. Every top-level UNION arm must satisfy required projection columns; literal/WHERE-only spoof and wrong arity rejected before execution, valid compiler SQL still accepted. Negative pins fail on old behavior; parent mutation drill + full gates/conformance.                                  | DONE — `a60099c` + `356c20e`, parent request-changes → fix → approve. Independent old-gate mutation fails 7 pins; token boundaries, depth-zero aliases, later-arm omissions, wrong arity and zero-diff-SQL refusals covered by synthetic golden fixture. Parent full gates + forced types green; unit 2947/180, e2e 172+1, VS Code 14-pin harness green; merged core gates green.                                                           |
 
 ## 3. STOP boundaries and review
 
@@ -46,5 +46,12 @@ follow as separate tasks under [product/04 §7](../../product/04-post-mvp-track.
 
 ## 5. Closure
 
-Not closed. Record per-row integration/review evidence here; do not replace
-pending work with blanket claims that the repository is release-ready.
+Closed 2026-10-14. rm-1 docs, rm-2 packed closure, rm-3 VS Code build/CI and
+q-14 are integrated. Parent independently verified all code rows; counts at
+close: **2947 tests / 180 files**, **9 native runtime-policy tests**, typecheck
+20, build 12, Playwright **172 + 1 skip**, coverage
+**89.16/83.33/89.22/90.73**, **154 pending changesets**, doc links 106/0, ADRs 46.
+
+Private-dependency registry distribution and human G0 prerequisites remain
+blocked. New CI job is locally reproduced/actionlint-validated, not remotely
+run. VS Code slice-2 scope is NOT delivered by this maintenance batch.
