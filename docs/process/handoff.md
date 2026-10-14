@@ -29,24 +29,23 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 
 ## 2. Current state
 
-| Surface         | Implemented                                                                                    | Remaining                                                                    |
-| --------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Web + CLI       | Inspect, profile, query, edit/export, validate and diff; pipeline execution and DCR generation | Maintenance and launch readiness                                             |
-| Pipeline        | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                | P4 adapter priority is a later user-demand decision                          |
-| Desktop VS Code | Read-only custom editor, virtualized grid, sort/filter-lite, offline engine                    | PT-V slice 2: edit, validate, diff, Git context and diff command             |
-| Release         | Compiled artifacts and local consumer-smoke infrastructure exist                               | Current CLI dependency closure needs repair/revalidation; no npm publication |
+| Surface         | Implemented                                                                                    | Remaining                                                                     |
+| --------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Web + CLI       | Inspect, profile, query, edit/export, validate and diff; pipeline execution and DCR generation | Maintenance and launch readiness                                              |
+| Pipeline        | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                | P4 adapter priority is a later user-demand decision                           |
+| Desktop VS Code | Read-only custom editor, virtualized grid, sort/filter-lite, offline engine                    | PT-V slice 2: edit, validate, diff, Git context and diff command              |
+| Release         | Complete packed CLI runtime closure verified under plain Node                                  | Private-dependency registry distribution policy + human release prerequisites |
 
-**Verification baseline:** `1c4b50f` (2026-10-14): format, lint, typecheck
-(20 tasks), unit tests (**2938 / 180 files**) and build (10 tasks) passed.
-Typecheck/build used Turbo cache; this is not fresh remote-CI evidence. Last
-recorded coverage at slice-1 close: **89.17/83.33/89.2/90.72**, thresholds
-83/76/80/84. There are **151 pending changesets**. Recount after implementation.
+**Verified state:** rm-2 integrated as `a7dfe35` + `111121f` (2026-10-14).
+Parent independently ran all gates, forced typecheck (20 tasks), **2938 tests /
+180 files**, build (11 tasks), packed-consumer smoke and **172 e2e + 1 skip**;
+merged core gates/smoke also pass. Coverage **89.17/83.33/89.2/90.72**, thresholds
+83/76/80/84. **152 pending changesets**. This is not fresh remote-CI evidence.
 
-**Known verification gaps:** the consumer smoke omits CLI dependencies
-`@assay/pipeline` and `@assay/telemetry`; pipeline has no compiled build/export
-setup. Root build currently skips VS Code (`build:spike` only), and CI runs
-neither its real-VSCode e2e nor the slice-1 exit harness. These are maintenance
-queue tasks, not evidence that current publication is safe.
+**Known verification gaps:** root build still skips VS Code (`build:spike`
+only), and CI runs neither its real-VSCode e2e nor the slice-1 exit harness.
+The complete local CLI tarball closure is now verified, but registry distribution
+of private runtime dependencies remains an explicit release-policy blocker.
 
 ## 3. Decision ledger
 
@@ -134,6 +133,9 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-14 (**ex**) — rm-2 packed runtime closure integrated after independent
+  review + mutation + full gates/e2e; local artifact proof does not authorize
+  registry publication. Evidence in the maintenance queue.
 - 2026-10-14 (**ew**) — current-state truth pass and compact handoff; historical
   evidence preserved, obsolete dispatch prompts labeled, packaging/VS Code CI
   gaps recorded; [repository maintenance queue](handoff/20261014-repository-maintenance.md).

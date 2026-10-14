@@ -12,6 +12,15 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Fixed — packed CLI dependency closure (2026-10-14)
+
+- Metadata-derived local runtime closure includes pipeline and telemetry;
+  pipeline gains compiled tsc artifacts, engine tarballs carry the nested Node
+  runner graph, and CLI telemetry imports resolve under plain Node ESM.
+- Installed-consumer checks cover standalone grid, validation, diff, pipeline
+  execution and golden DCR bytes/refusals, without a TypeScript loader. Private
+  runtime-package registry distribution remains a separate release decision.
+
 ### Docs — current-state maintenance (2026-10-14)
 
 - Compact current-state handoff with preserved historical evidence; front-door

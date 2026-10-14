@@ -222,7 +222,9 @@ This allows engines and adapters to evolve without changing product behavior.
 > **Implemented:** P1 IR/DAG/compiler/runner integration, P2 gate and
 > materialization semantics, and P3 canonical local DCR artifact generation.
 > The package holds portable planning/building logic; engine execution lives
-> in `engine-duckdb`. Its compiled packaging is a current maintenance task.
+> in `engine-duckdb`. Compiled tsc packaging and the full local CLI runtime
+> closure are verified by the rm-2 consumer smoke; registry publication of
+> private dependencies is not authorized by that proof.
 
 ### `pipeline`
 
