@@ -38,6 +38,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveVSCodeRuntime } from './vscode-runtime.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(here, '..')
@@ -132,17 +133,14 @@ const extensionDevelopmentPath = appRoot
 const extensionTestsPath = path.join(dist, 'spike-test.cjs')
 const { runTests } = await import('@vscode/test-electron')
 
-function findVSCodeExecutable() {
-  if (process.env['VSCODE_EXECUTABLE'] !== undefined) {
-    return process.env['VSCODE_EXECUTABLE']
-  }
-  for (const candidate of ['/usr/share/code/code', '/usr/bin/code']) {
-    if (existsSync(candidate)) {
-      return candidate
-    }
-  }
-  return undefined // let @vscode/test-electron download a managed build
+let vscodeRuntime
+try {
+  vscodeRuntime = await resolveVSCodeRuntime()
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
 }
+console.log(`run:spike: VS Code executable — ${vscodeRuntime.source}`)
 
 const userDataDir = path.join(tmpdir(), `assay-spike-vscode-${String(process.pid)}`)
 const extensionsDir = path.join(tmpdir(), `assay-spike-vscode-ext-${String(process.pid)}`)
@@ -160,7 +158,7 @@ const extensionTestsEnv = {
 }
 
 await runTests({
-  vscodeExecutablePath: findVSCodeExecutable(),
+  vscodeExecutablePath: vscodeRuntime.executable,
   extensionDevelopmentPath,
   extensionTestsPath,
   extensionTestsEnv,
@@ -214,7 +212,7 @@ report.harness = {
   fixturePath,
   duckdbCli: process.env['DUCKDB'] ?? 'duckdb',
   node: process.version,
-  vscodeExecutable: findVSCodeExecutable() ?? 'downloaded-managed-build',
+  vscodeExecutable: vscodeRuntime.executable,
   // ptv1-2: the network block is IN-HARNESS (no proxy/hosts changes needed).
   networkBlocked: {
     blockedHost: 'extensions.duckdb.org',

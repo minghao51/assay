@@ -59,7 +59,9 @@
     ]
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
     "build:spike": "node scripts/build.mjs",
+    "provision:vscode": "node scripts/provision-vscode.mjs",
     "generate:fixture": "node scripts/generate-fixture.mjs",
     "generate:fixtures": "node scripts/generate-fixtures.mjs",
     "run:spike": "node scripts/run-spike.mjs",

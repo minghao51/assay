@@ -27,8 +27,9 @@
  * fetch URL, and the DuckDB-WASM MIT license note (AGPL-compatible per
  * AGENTS.md).
  *
- * Deliberately outside the turbo build (no root config, no tsconfig changes,
- * no `pnpm build` integration). Since ptv1-3 this build also emits the
+ * Invoked by the package's standard `build` script (and retained
+ * `build:spike` compatibility alias), so root Turbo build verifies production
+ * extension/webview outputs and vendored asset pins. Since ptv1-3 this build also emits the
  * PRODUCTION dataset surface bundles: the dataset webview entry
  * (`dist/webview/dataset.js`) and the ptv1-3 e2e test entry
  * (`dist/e2e-test.cjs`), alongside the spike artifacts (ptv1-5's harness

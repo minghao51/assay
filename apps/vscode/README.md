@@ -91,9 +91,10 @@ headline evidence:
 ## ptv1-3 e2e (real VS Code, `@vscode/test-electron`)
 
 ```bash
-# From the repo root. First run downloads VS Code 1.130.0 ONCE into the
-# canonical cache (~/.vscode-test); every later run is offline-safe.
-# (adds xvfb-run itself when headless)
+# From the repo root. Both real-VSCode runners share the pinned 1.130.0
+# runtime and canonical ~/.vscode-test/vscode-linux-x64-1.130.0 cache.
+# The cache is checked first (offline-safe); a pinned download provisions it
+# only when absent. Headless runs add xvfb-run themselves.
 corepack pnpm --filter @assay/vscode run e2e
 ```
 
@@ -125,7 +126,12 @@ DUCKDB=/tmp/duckdb corepack pnpm --filter @assay/vscode run:spike
 `run:spike` generates the fixture, esbuild-bundles the extension host, webview main
 thread and DuckDB worker (plus the `mvp`/`eh` WASM assets), launches the real VS Code
 desktop extension host via `@vscode/test-electron` (adding `xvfb-run` when headless),
-and writes `dist/spike-results.json`.
+and writes `dist/spike-results.json`. Its VS Code executable resolution is shared with
+e2e through `scripts/vscode-runtime.mjs`: canonical pinned cache first, exact-version
+download only if absent, and no system/unpinned fallback when `CI=1`. Outside CI, a
+labeled system fallback is allowed only after pinned provisioning fails. Setting
+`VSCODE_EXECUTABLE=/path/to/code` is an intentional explicit override in all modes;
+it bypasses the pin and callers own its version. The CI job must not set this override.
 
 Notable measured findings (full detail in the report):
 
@@ -174,8 +180,8 @@ corepack pnpm install
 # 3. The exit harness — expected: headline PASS, exit 0. DUCKDB points at a
 #    DuckDB CLI (used only to generate the 1M-row SYNTHETIC fixture on demand;
 #    the system `duckdb` is used when DUCKDB is unset). Headless boxes are
-#    handled: the script adds xvfb-run itself; VS Code comes from the system
-#    install or a managed download (cached in ~/.vscode-test after one run).
+#    handled: the script adds xvfb-run itself; both harnesses use the exact
+#    pinned 1.130.0 runtime in ~/.vscode-test (provisioned if absent).
 DUCKDB=/path/to/duckdb corepack pnpm --filter @assay/vscode run:spike
 
 # 4. The two drills (expected exits as annotated above):

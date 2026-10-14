@@ -26,6 +26,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveVSCodeRuntime } from './vscode-runtime.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(here, '..')
@@ -57,50 +58,15 @@ for (const name of ['synthetic-smoke.parquet', 'empty.csv']) {
   copyFileSync(path.join(fixturesDir, name), path.join(workspaceDir, name))
 }
 
-// 4. VS Code executable: canonical cache -> one download attempt -> system.
-const PINNED_VSCODE_VERSION = '1.130.0'
-const cachePath = path.join(process.env['HOME'] ?? tmpdir(), '.vscode-test')
-const cachedExecutable = path.join(cachePath, `vscode-linux-x64-${PINNED_VSCODE_VERSION}`, 'code')
-
-function findSystemVSCode() {
-  if (process.env['VSCODE_EXECUTABLE'] !== undefined) {
-    return process.env['VSCODE_EXECUTABLE']
-  }
-  for (const candidate of ['/usr/share/code/code', '/usr/bin/code']) {
-    if (existsSync(candidate)) {
-      return candidate
-    }
-  }
-  return undefined
+// 4. Resolve the pinned runtime through the shared cache/download policy.
+let vscodeRuntime
+try {
+  vscodeRuntime = await resolveVSCodeRuntime()
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
 }
-
-let vscodeExecutablePath
-let executableSource
-if (existsSync(cachedExecutable)) {
-  vscodeExecutablePath = cachedExecutable
-  executableSource = `canonical cache (offline-safe): ${cachedExecutable}`
-} else {
-  try {
-    const { downloadAndUnzipVSCode } = await import('@vscode/test-electron')
-    vscodeExecutablePath = await downloadAndUnzipVSCode({
-      version: PINNED_VSCODE_VERSION,
-      cachePath,
-    })
-    executableSource = `downloaded to canonical cache: ${vscodeExecutablePath}`
-  } catch (error) {
-    const system = findSystemVSCode()
-    if (system === undefined) {
-      console.error(
-        `VS Code download failed (${error instanceof Error ? error.message : String(error)}) ` +
-          'and no system VS Code was found — cannot run the e2e',
-      )
-      process.exit(1)
-    }
-    vscodeExecutablePath = system
-    executableSource = `SYSTEM FALLBACK (download failed): ${system}`
-  }
-}
-console.log(`e2e: VS Code executable — ${executableSource}`)
+console.log(`e2e: VS Code executable — ${vscodeRuntime.source}`)
 
 // 5. Launch the real VS Code extension host and run the scenarios.
 const resultsPath = path.join(dist, 'e2e-results.json')
@@ -112,7 +78,7 @@ mkdirSync(extensionsDir, { recursive: true })
 
 let failed = false
 await runTests({
-  vscodeExecutablePath,
+  vscodeExecutablePath: vscodeRuntime.executable,
   extensionDevelopmentPath: appRoot,
   extensionTestsPath: path.join(dist, 'e2e-test.cjs'),
   extensionTestsEnv: {
