@@ -43,11 +43,12 @@
  * 1. **Tightened static gate** — every per-aspect query must be lexically
  *    clean compiler SQL (comments refused outright, dollar-quoted and
  *    escape-string dialect forms refused — the compiler emits none) and a
- *    SINGLE `SELECT` statement; the totals query must be exactly three
- *    `UNION ALL`-joined single `SELECT` arms (the compiler's shape); and
- *    BOTH relation names must occur in the compiler's exact FROM renderings
- *    — `FROM "<rel>" AS "a"` / `FROM "<rel>" AS "b"` — in every aspect and
- *    every totals arm. The scan is fully SQL-aware (m5-2's `scanPlanSql`):
+ *    `SELECT` or top-level UNION of SELECT arms. Each arm independently
+ *    projects the required reserved columns, has matching projection arity,
+ *    and contains BOTH relation names in the compiler's exact FROM
+ *    renderings — `FROM "<rel>" AS "a"` / `FROM "<rel>" AS "b"`. The totals
+ *    query must be exactly three `UNION ALL`-joined single `SELECT` arms
+ *    (the compiler's shape). The scan is fully SQL-aware (m5-2's `scanPlanSql`):
  *    occurrences inside string literals or comments can never count, and
  *    comment-bearing SQL is refused outright, so a string-masked
  *    pseudo-reference is a malformed plan, not a binding. CREATE/CTAS
@@ -316,6 +317,63 @@ function projectsIdentifier(scan: PlanSqlScanOk, name: string): boolean {
   return projectionIdentifiers(scan).some((identifier) => identifier.value === name)
 }
 
+/** Split a scanned query at top-level UNION operators, retaining SQL-aware arm scans. */
+function splitTopLevelUnionArms(original: string, code: string): PlanSqlScanOk[] | null {
+  const arms: PlanSqlScanOk[] = []
+  let start = 0
+  let depth = 0
+  for (let index = 0; index < code.length; index += 1) {
+    const character = code[index]
+    if (character === '(') {
+      depth += 1
+      continue
+    }
+    if (character === ')') {
+      depth -= 1
+      if (depth < 0) return null
+      continue
+    }
+    if (depth !== 0 || (character !== 'U' && character !== 'u')) continue
+    const union = /^UNION\b(?:\s+ALL\b)?/i.exec(code.slice(index))?.[0]
+    if (union === undefined) continue
+    const scanned = scanPlanSql(original.slice(start, index))
+    if (!scanned.ok) return null
+    arms.push(scanned)
+    index += union.length - 1
+    start = index + 1
+  }
+  if (depth !== 0) return null
+  const last = scanPlanSql(original.slice(start))
+  if (!last.ok) return null
+  arms.push(last)
+  return arms
+}
+
+/** Count top-level output expressions in one SELECT projection. */
+function projectionArity(scan: PlanSqlScanOk): number | null {
+  const { code } = scan
+  const select = /^\s*select\b/i.exec(code)
+  if (select === null) return null
+  const start = select.index + select[0].length
+  let depth = 0
+  let commas = 0
+  for (let index = start; index < code.length; index += 1) {
+    const character = code[index]
+    if (character === '(') depth += 1
+    else if (character === ')') depth -= 1
+    else if (depth === 0) {
+      if (
+        (character === 'F' || character === 'f') &&
+        /^from\b/i.test(code.slice(index, index + 4))
+      ) {
+        return code.slice(start, index).trim().length === 0 ? null : commas + 1
+      }
+      if (character === ',') commas += 1
+    }
+  }
+  return null
+}
+
 /** Split the compiler's totals query into its three `UNION ALL` arms. */
 function splitTotalsArms(original: string, code: string): PlanSqlScanOk[] | null {
   // The compiler emits exactly `\nUNION ALL\n` between arms. The split runs
@@ -407,18 +465,37 @@ export function assertRowDiffPlanBinding(
         `row-diff ${aspect.label} query does not bind side B in the compiler's FROM shape`,
       )
     }
-    // Reserved-namespace spot checks: the readers require these result
-    // columns in EVERY aspect, and `changed` additionally requires its
-    // changed-column list. Identifier-aware (q-12 / AR-E7): the name must be
-    // projected as a genuine quoted identifier — a string literal that
-    // quotes it cannot spoof the check, and a name used only below the
-    // top-level projection is not an output column. The check is symmetric
-    // across the three aspect SQLs so a gutted `removed`/`changed` query
-    // fails THIS gate instead of surfacing a shape error mid-op (m6-2
-    // review round 1).
-    for (const column of aspect.requiredColumns) {
-      if (!projectsIdentifier(scanned, column)) {
-        throw new Error(`row-diff ${aspect.label} query is missing its reserved result columns`)
+    const arms = splitTopLevelUnionArms(aspect.sql, scanned.code)
+    if (arms === null || arms.length === 0) {
+      throw new Error(`row-diff ${aspect.label} query has malformed UNION arms`)
+    }
+    let expectedArity: number | null = null
+    for (const arm of arms) {
+      if (!isSingleSelectStatement(arm.code)) {
+        throw new Error(`row-diff ${aspect.label} query has a malformed UNION arm`)
+      }
+      const arity = projectionArity(arm)
+      if (arity === null || (expectedArity !== null && arity !== expectedArity)) {
+        throw new Error(`row-diff ${aspect.label} query has mismatched UNION projection arity`)
+      }
+      expectedArity = arity
+      if (countCompilerFromOccurrences(arm, plan.relationA, 'a') < 1) {
+        throw new Error(
+          `row-diff ${aspect.label} query arm does not bind side A in the compiler's FROM shape`,
+        )
+      }
+      if (countCompilerFromOccurrences(arm, plan.relationB, 'b') < 1) {
+        throw new Error(
+          `row-diff ${aspect.label} query arm does not bind side B in the compiler's FROM shape`,
+        )
+      }
+      // Reserved-namespace spot checks are arm-local: each SELECT output must
+      // independently provide every column consumed by the aspect reader.
+      // Literal/WHERE/subquery occurrences are not projected identifiers.
+      for (const column of aspect.requiredColumns) {
+        if (!projectsIdentifier(arm, column)) {
+          throw new Error(`row-diff ${aspect.label} query is missing its reserved result columns`)
+        }
       }
     }
   }

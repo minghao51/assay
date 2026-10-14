@@ -1,0 +1,10 @@
+{
+  "description": "Synthetic SQL arms for the engine row-diff wire-gate UNION regression matrix.",
+  "relationA": "ds_a",
+  "relationB": "scratch_ds_b",
+  "ordinaryArm": "SELECT 'FROM UNION ''literal''' AS \"noise\", 'A' AS \"assay_side\", 0 AS \"assay_row_ordinal\", 0 AS \"assay_count\" FROM \"ds_a\" AS \"a\" CROSS JOIN (SELECT * FROM \"scratch_ds_b\" AS \"b\") AS \"x\"",
+  "changedArm": "SELECT 'B' AS \"assay_side\", 0 AS \"assay_row_ordinal\", CAST([] AS VARCHAR[]) AS \"assay_changed\", 0 AS \"assay_count\" FROM \"ds_a\" AS \"a\" CROSS JOIN (SELECT * FROM \"scratch_ds_b\" AS \"b\") AS \"x\"",
+  "validTopLevelArmCounts": [1, 2, 3],
+  "invalidLaterArmIndices": [1, 2],
+  "subqueryUnion": "(SELECT 1 UNION ALL SELECT 2)"
+}

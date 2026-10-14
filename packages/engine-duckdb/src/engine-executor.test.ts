@@ -3165,6 +3165,28 @@ describe('EngineOpExecutor row-diff execution (m6-2; query lane)', () => {
     expect(deps.queryConn.sentSqls).toHaveLength(2)
   })
 
+  it('rejects a malformed later UNION arm before issuing any diff SQL', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    await stageComparison(executor, deps)
+    const plan = rowDiffPlanFixture()
+    const laterArm = plan.addedSql.replace(`'B' AS "assay_side"`, `'B' AS "not_the_side"`)
+    executor.accept(
+      diffRequest(3, {
+        ...plan,
+        addedSql: `${plan.addedSql} UNION ALL ${laterArm}`,
+      }),
+    )
+    const posted = await awaitPosted(deps, 3)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).not.toContain('UNION')
+      expect(posted.message).not.toContain('assay_side')
+    }
+    // Only comparison staging ran; the refused diff plan never reached SQL.
+    expect(deps.queryConn.sentSqls).toHaveLength(2)
+  })
+
   it('answers a malformed recognised diff request with one typed error (never a hang)', async () => {
     const { executor, deps } = makeExecutor()
     await openFlatTable(executor, deps)

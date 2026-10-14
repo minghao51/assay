@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compileRowDiffPlan } from '@assay/diff'
 import {
@@ -16,6 +17,23 @@ import type { EngineRowDiffPlan } from './diff-plan-wire'
  * accepted shape (the conformance scenario runs it through the boundary
  * end-to-end); the mutations below pin every rejection class in isolation.
  */
+
+interface UnionProjectionFixture {
+  readonly relationA: string
+  readonly relationB: string
+  readonly ordinaryArm: string
+  readonly changedArm: string
+  readonly validTopLevelArmCounts: readonly number[]
+  readonly invalidLaterArmIndices: readonly number[]
+  readonly subqueryUnion: string
+}
+
+const UNION_FIXTURE = JSON.parse(
+  readFileSync(
+    new URL('../../../fixtures/sql/diff-union-projections.json', import.meta.url),
+    'utf8',
+  ),
+) as UnionProjectionFixture
 
 const SCHEMA = [
   { name: 'id', type: 'BIGINT' },
@@ -85,6 +103,66 @@ describe('assertRowDiffPlanBinding (m6-2 belt 1)', () => {
 
   it('accepts real compiler output', () => {
     expect(() => assertRowDiffPlanBinding(compiledPlan(), REGISTERED)).not.toThrow()
+  })
+
+  it('validates each top-level UNION and UNION ALL projection arm independently', () => {
+    for (const count of UNION_FIXTURE.validTopLevelArmCounts) {
+      const armSql = Array.from({ length: count }, () => UNION_FIXTURE.ordinaryArm).join(
+        count === 2 ? '\nUNION\n' : '\nUNION ALL\n',
+      )
+      expect(() =>
+        assertRowDiffPlanBinding({ ...compiledPlan(), addedSql: armSql }, REGISTERED),
+      ).not.toThrow()
+    }
+  })
+
+  it.each(UNION_FIXTURE.invalidLaterArmIndices)(
+    'rejects a missing reserved output in later UNION arm %i before execution',
+    (laterIndex) => {
+      const arms = Array.from({ length: laterIndex + 1 }, () => UNION_FIXTURE.ordinaryArm)
+      arms[laterIndex] = (arms[laterIndex] as string)
+        .replace(`'A' AS "assay_side"`, `'A' AS "not_the_side"`)
+        .replace(`0 AS "assay_row_ordinal"`, `0 AS "not_the_ordinal"`)
+        .replace(`0 AS "assay_count"`, `0 AS "not_the_count"`)
+      const hostile = { ...compiledPlan(), addedSql: arms.join('\nUNION ALL\n') }
+      expect(() => assertRowDiffPlanBinding(hostile, REGISTERED)).toThrow(
+        /added query is missing its reserved result columns/,
+      )
+    },
+  )
+
+  it('rejects a wrong-arity later arm and requires assay_changed in every changed arm', () => {
+    const shortArm = UNION_FIXTURE.ordinaryArm.replace(', 0 AS "assay_count"', '')
+    expect(() =>
+      assertRowDiffPlanBinding(
+        { ...compiledPlan(), addedSql: `${UNION_FIXTURE.ordinaryArm} UNION ALL ${shortArm}` },
+        REGISTERED,
+      ),
+    ).toThrow(/mismatched UNION projection arity/)
+
+    const changedWithoutList = UNION_FIXTURE.changedArm.replace(
+      '"assay_changed"',
+      '"not_the_changed_list"',
+    )
+    expect(() =>
+      assertRowDiffPlanBinding(
+        {
+          ...compiledPlan(),
+          changedSql: `${UNION_FIXTURE.changedArm} UNION ${changedWithoutList}`,
+        },
+        REGISTERED,
+      ),
+    ).toThrow(/changed query is missing its reserved result columns/)
+  })
+
+  it('does not split literals, escaped quotes, or nested UNIONs as top-level arms', () => {
+    const arm = UNION_FIXTURE.ordinaryArm.replace(
+      'SELECT ',
+      `SELECT ${UNION_FIXTURE.subqueryUnion} AS "nested", `,
+    )
+    expect(() =>
+      assertRowDiffPlanBinding({ ...compiledPlan(), addedSql: arm }, REGISTERED),
+    ).not.toThrow()
   })
 
   it('refuses the same relation for both sides', () => {
