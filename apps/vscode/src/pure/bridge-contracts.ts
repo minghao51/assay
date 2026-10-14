@@ -41,6 +41,16 @@ export type DatasetReport =
       readonly gridAuditOk: boolean
       /** Open (bytes in hand) to first grid row visible, in milliseconds. */
       readonly firstRowVisibleMs: number
+      /** Test-mode only, value-free result of production DOM/engine edit assertions. */
+      readonly editProof?: {
+        readonly cellIdentity: boolean
+        readonly keyboardCancel: boolean
+        readonly undoRedo: boolean
+        readonly insertDelete: boolean
+        readonly branchTruncation: boolean
+        readonly queryStatePreserved: boolean
+        readonly sessionWarningVisible: boolean
+      }
     }
   | {
       readonly outcome: 'error'

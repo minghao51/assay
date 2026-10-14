@@ -121,6 +121,8 @@ export interface DatasetWebviewConfig {
     readonly duckdbVersion: string
   }
   readonly blockedExtensionHost: string
+  /** Internal real-host proof switch; unavailable to production extensions. */
+  readonly testHarness: boolean
 }
 
 /** Build the webview config for one panel: own-origin asset URIs only. */
@@ -144,6 +146,7 @@ export function buildDatasetConfig(
       duckdbVersion: VENDORED_RUNTIME.duckdbVersion,
     },
     blockedExtensionHost: VENDORED_RUNTIME.blockedExtensionHost,
+    testHarness: context.extensionMode === vscode.ExtensionMode.Test,
   }
 }
 
@@ -239,6 +242,7 @@ export function bridgeDatasetIntoPanel(
           firstRowVisibleMs?: unknown
           gridRendered?: unknown
           gridAudit?: { ok?: unknown }
+          editProof?: unknown
         }
         void reading.then((read) => {
           finish({
@@ -250,6 +254,7 @@ export function bridgeDatasetIntoPanel(
             gridRendered: opened.gridRendered === true,
             gridAuditOk: opened.gridAudit?.ok === true,
             firstRowVisibleMs: Number(opened.firstRowVisibleMs ?? -1),
+            ...(isEditProof(opened.editProof) ? { editProof: opened.editProof } : {}),
           })
         })
         return
@@ -280,6 +285,22 @@ export function bridgeDatasetIntoPanel(
 }
 
 /** Normalize any read failure into the typed error (unknown hosts included). */
+function isEditProof(
+  value: unknown,
+): value is NonNullable<Extract<DatasetReport, { outcome: 'opened' }>['editProof']> {
+  if (typeof value !== 'object' || value === null) return false
+  const proof = value as Record<string, unknown>
+  return [
+    'cellIdentity',
+    'keyboardCancel',
+    'undoRedo',
+    'insertDelete',
+    'branchTruncation',
+    'queryStatePreserved',
+    'sessionWarningVisible',
+  ].every((key) => typeof proof[key] === 'boolean')
+}
+
 function asDatasetError(error: unknown): DatasetOpenError {
   return error instanceof DatasetOpenError
     ? error

@@ -25,7 +25,9 @@
  * (no `innerHTML` anywhere) — same hard rule as the rest of the surface
  * (engineering/04 §6).
  */
+import type { CellValue, RowId } from '@assay/domain'
 import type { GridViewportModel, SortSpec } from '@assay/grid'
+import { parseCellDraft, supportsCellDraft } from '../src/pure/cell-input'
 
 /** Fixed row height for the DOM renderer (the web app's `GRID_ROW_HEIGHT_PX`). */
 export const GRID_ROW_HEIGHT_PX = 28
@@ -56,6 +58,20 @@ export interface WebviewDataGridOptions {
   readonly viewportHeightPx?: number
   /** Render the filter-lite toolbar (the spike harness mounts it too). Default true. */
   readonly showToolbar?: boolean
+  readonly editing?: {
+    readonly state: () => {
+      readonly busy: boolean
+      readonly dirty: boolean
+      readonly canUndo: boolean
+      readonly canRedo: boolean
+    }
+    readonly isDirty: (rowId: RowId, column: string) => boolean
+    readonly onInsert: () => void
+    readonly onUndo: () => void
+    readonly onRedo: () => void
+    readonly onCommitCell: (rowId: RowId, column: string, value: CellValue) => void
+    readonly onDeleteRow: (rowId: RowId) => void
+  }
 }
 
 /**
@@ -107,6 +123,7 @@ function injectStyle(): void {
 .assay-grid-row { position: absolute; left: 0; top: 0; }
 .assay-grid-row:focus, .assay-grid-cell:focus { outline: 2px solid var(--vscode-focusBorder, #007fd4); outline-offset: -2px; }
 .assay-grid-cell { display: flex; align-items: center; padding: 0 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border-right: 1px solid var(--vscode-panel-border, #222); }
+.assay-grid-cell[data-dirty="true"] { border-bottom: 2px solid var(--vscode-editorWarning-foreground, #cca700); }
 .assay-grid-row[data-status="loading"] .assay-grid-cell { color: var(--vscode-editorGhostText-foreground, #888); }
 .assay-grid-row[data-status="error"] .assay-grid-cell { color: var(--vscode-errorForeground, #f66); }
 .assay-grid-null-marker { color: var(--vscode-editorGhostText-foreground, #888); }
@@ -135,7 +152,8 @@ interface RenderedRow {
 
 export class WebviewDataGrid {
   private readonly model: GridViewportModel
-  private readonly options: Required<WebviewDataGridOptions>
+  private readonly options: Required<Omit<WebviewDataGridOptions, 'editing'>> &
+    Pick<WebviewDataGridOptions, 'editing'>
   private readonly rows = new Map<number, RenderedRow>()
   private readonly unsubscribe: () => void
   private readonly renderWaiters: Array<() => void> = []
@@ -159,6 +177,13 @@ export class WebviewDataGrid {
   private filterInput: HTMLInputElement | null = null
   private filterStatus: HTMLElement | null = null
   private commandError: HTMLElement | null = null
+  private editButtons: {
+    readonly undo: HTMLButtonElement
+    readonly redo: HTMLButtonElement
+    readonly insert: HTMLButtonElement
+    readonly deleteRow: HTMLButtonElement
+  } | null = null
+  private sessionWarning: HTMLElement | null = null
 
   constructor(model: GridViewportModel, options: WebviewDataGridOptions = {}) {
     this.model = model
@@ -166,6 +191,7 @@ export class WebviewDataGrid {
       ariaLabel: options.ariaLabel ?? 'Dataset grid',
       viewportHeightPx: options.viewportHeightPx ?? DEFAULT_VIEWPORT_HEIGHT_PX,
       showToolbar: options.showToolbar ?? true,
+      ...(options.editing === undefined ? {} : { editing: options.editing }),
     }
     this.unsubscribe = model.subscribe(() => {
       this.scheduleRender()
@@ -339,6 +365,48 @@ export class WebviewDataGrid {
     this.commandError = error
 
     toolbar.append(select, input, apply, clear, status, error)
+    const editing = this.options.editing
+    if (editing !== undefined) {
+      const insert = document.createElement('button')
+      insert.type = 'button'
+      insert.className = 'assay-edit-insert'
+      insert.textContent = 'Insert row'
+      insert.disabled = editing.state().busy
+      insert.addEventListener('click', editing.onInsert)
+      const deleteRow = document.createElement('button')
+      deleteRow.type = 'button'
+      deleteRow.className = 'assay-edit-delete'
+      deleteRow.textContent = 'Delete row'
+      deleteRow.disabled = editing.state().busy
+      deleteRow.addEventListener('click', () => {
+        const selected = this.focusedRowIndex ?? this.tabbableRowIndex()
+        if (selected === null) return
+        const slot = this.model.getRow(selected)
+        if (slot.status === 'ready' && slot.key !== undefined)
+          editing.onDeleteRow(slot.key as RowId)
+      })
+      const undo = document.createElement('button')
+      undo.type = 'button'
+      undo.className = 'assay-edit-undo'
+      undo.textContent = 'Undo'
+      undo.disabled = editing.state().busy || !editing.state().canUndo
+      undo.addEventListener('click', editing.onUndo)
+      const redo = document.createElement('button')
+      redo.type = 'button'
+      redo.className = 'assay-edit-redo'
+      redo.textContent = 'Redo'
+      redo.disabled = editing.state().busy || !editing.state().canRedo
+      redo.addEventListener('click', editing.onRedo)
+      const warning = document.createElement('span')
+      warning.className = 'assay-session-warning'
+      warning.setAttribute('role', 'note')
+      warning.textContent =
+        'Source is immutable. Unexported edits are session-only and lost when this view closes.'
+      this.editButtons = { insert, undo, redo, deleteRow }
+      this.sessionWarning = warning
+      toolbar.append(insert, deleteRow, undo, redo, warning)
+      this.refreshEditingState()
+    }
     return toolbar
   }
 
@@ -570,6 +638,15 @@ export class WebviewDataGrid {
       // Row-level focus (not a bubbled cell focus) drops the carried column.
       if (document.activeElement === row) this.focusedRowIndex = index
     })
+    if (this.options.editing !== undefined) {
+      row.addEventListener('keydown', (event) => {
+        if (event.key !== 'Delete' || !(event.target instanceof Element)) return
+        const slot = this.model.getRow(index)
+        if (slot.status !== 'ready' || slot.key === undefined) return
+        event.preventDefault()
+        this.options.editing?.onDeleteRow(slot.key as RowId)
+      })
+    }
     return row
   }
 
@@ -599,6 +676,26 @@ export class WebviewDataGrid {
       })
       if (slot.status === 'ready') {
         const value = slot.row[columnIndex]
+        if (
+          this.options.editing !== undefined &&
+          slot.key !== undefined &&
+          supportsCellDraft(schema[columnIndex]?.type ?? '')
+        ) {
+          cell.setAttribute('aria-label', `Edit ${schema[columnIndex]?.name ?? 'cell'}`)
+          cell.dataset.dirty = this.options.editing.isDirty(
+            slot.key as RowId,
+            schema[columnIndex]?.name ?? '',
+          )
+            ? 'true'
+            : 'false'
+          cell.addEventListener('dblclick', () => this.beginCellEdit(cell, index, columnIndex))
+          cell.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === 'F2') {
+              event.preventDefault()
+              this.beginCellEdit(cell, index, columnIndex)
+            }
+          })
+        }
         if (value === null || value === undefined) {
           cell.dataset.null = 'true'
           const marker = document.createElement('span')
@@ -613,6 +710,84 @@ export class WebviewDataGrid {
       }
       row.appendChild(cell)
     }
+  }
+
+  /** Refresh history controls and dirty markers after an accepted transition. */
+  refreshEditingState(): void {
+    const editing = this.options.editing
+    const buttons = this.editButtons
+    if (editing === undefined || buttons === null) return
+    const state = editing.state()
+    buttons.insert.disabled = state.busy
+    buttons.deleteRow.disabled = state.busy
+    buttons.undo.disabled = state.busy || !state.canUndo
+    buttons.redo.disabled = state.busy || !state.canRedo
+    if (this.sessionWarning !== null) {
+      this.sessionWarning.dataset.dirty = state.dirty ? 'true' : 'false'
+      this.sessionWarning.textContent = state.dirty
+        ? 'Source is immutable. Unexported edits are session-only and lost when this view closes.'
+        : 'Source is immutable. Edits are session-only; closing this view loses unexported changes.'
+    }
+    for (const row of this.rows.values()) row.paintedAtVersion = -1
+    this.scheduleRender()
+  }
+
+  private beginCellEdit(cell: HTMLElement, rowIndex: number, columnIndex: number): void {
+    const editing = this.options.editing
+    const slot = this.model.getRow(rowIndex)
+    const column = this.model.schema?.[columnIndex]
+    if (
+      editing === undefined ||
+      editing.state().busy ||
+      slot.status !== 'ready' ||
+      slot.key === undefined ||
+      column === undefined
+    )
+      return
+    if (!supportsCellDraft(column.type)) {
+      this.showCommandError('Nested values are not editable in this view.')
+      return
+    }
+    const original = slot.row[columnIndex]
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.className = 'assay-cell-editor'
+    input.setAttribute('aria-label', `Edit ${column.name}`)
+    input.value = original === null || original === undefined ? '' : formatCellValue(original)
+    const finish = (value: CellValue | null): void => {
+      if (value !== null) editing.onCommitCell(slot.key as RowId, column.name, value)
+      this.scheduleRender()
+      cell.focus()
+    }
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        const rendered = this.rows.get(rowIndex)
+        if (rendered !== undefined) rendered.paintedAtVersion = -1
+        this.scheduleRender()
+        requestAnimationFrame(() => {
+          const row = this.rows.get(rowIndex)
+          if (row !== undefined) this.focusInRow(row.element, columnIndex)
+        })
+      } else if (event.key === 'Enter') {
+        event.preventDefault()
+        const parsed = parseCellDraft(column.type, input.value)
+        if (!parsed.ok) {
+          this.showCommandError(parsed.message)
+          return
+        }
+        this.hideCommandError()
+        finish(parsed.value)
+      }
+    })
+    const nullButton = document.createElement('button')
+    nullButton.type = 'button'
+    nullButton.textContent = 'Set NULL'
+    nullButton.setAttribute('aria-label', `Set ${column.name} to NULL`)
+    nullButton.addEventListener('click', () => finish({ kind: 'null' }))
+    cell.replaceChildren(input, nullButton)
+    input.focus()
+    input.select()
   }
 
   private resolveFirstRowVisible(): void {

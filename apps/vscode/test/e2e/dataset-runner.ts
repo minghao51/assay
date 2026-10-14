@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { createHash } from 'node:crypto'
 
 /**
  * ptv1-3 e2e, extended by ptv1-4 (the rows' done-when verification): a REAL
@@ -38,6 +39,15 @@ interface DatasetReport {
   readonly gridAuditOk?: boolean
   /** ptv1-4: open (bytes in hand) → first grid row visible, ms. */
   readonly firstRowVisibleMs?: number
+  readonly editProof?: {
+    readonly cellIdentity: boolean
+    readonly keyboardCancel: boolean
+    readonly undoRedo: boolean
+    readonly insertDelete: boolean
+    readonly branchTruncation: boolean
+    readonly queryStatePreserved: boolean
+    readonly sessionWarningVisible: boolean
+  }
 }
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -88,7 +98,15 @@ export async function run(): Promise<void> {
   //    vendored engine boot + real open — counts asserted, values never.
   console.log('[e2e] 1/5 command open (synthetic-smoke.parquet)…')
   const fixtureUri = vscode.Uri.file(`${workspace}/synthetic-smoke.parquet`)
+  const sourceDigestBefore = createHash('sha256')
+    .update(await vscode.workspace.fs.readFile(fixtureUri))
+    .digest('hex')
   const opened = await executeOpen(fixtureUri)
+  const sourceDigestAfter = createHash('sha256')
+    .update(await vscode.workspace.fs.readFile(fixtureUri))
+    .digest('hex')
+  const sourceImmutable = sourceDigestBefore === sourceDigestAfter
+  assert(sourceImmutable, 'source fixture changed during session-only editing')
   assert(opened.outcome === 'opened', `command open did not open: ${JSON.stringify(opened)}`)
   assert(opened.rows === 5, `expected 5 rows, got ${String(opened.rows)}`)
   assert(opened.columns === 4, `expected 4 columns, got ${String(opened.columns)}`)
@@ -98,10 +116,23 @@ export async function run(): Promise<void> {
   assert(opened.gridRendered === true, `grid did not render: ${JSON.stringify(opened)}`)
   assert(opened.gridAuditOk === true, `grid a11y audit failed: ${JSON.stringify(opened)}`)
   assert(
+    opened.editProof?.cellIdentity === true,
+    'real DOM edit did not preserve logical row identity',
+  )
+  assert(opened.editProof.keyboardCancel === true, 'Escape did not cancel the cell edit')
+  assert(opened.editProof.undoRedo === true, 'real DOM undo/redo assertions failed')
+  assert(opened.editProof.insertDelete === true, 'real DOM insert/delete assertions failed')
+  assert(opened.editProof.branchTruncation === true, 'real DOM branch truncation assertion failed')
+  assert(
+    opened.editProof.queryStatePreserved === true,
+    'editing did not preserve sort/filter state',
+  )
+  assert(opened.editProof.sessionWarningVisible === true, 'session-only warning is not visible')
+  assert(
     typeof opened.firstRowVisibleMs === 'number' && opened.firstRowVisibleMs >= 0,
     `firstRowVisibleMs missing: ${JSON.stringify(opened)}`,
   )
-  scenarios['commandOpen'] = opened
+  scenarios['commandOpen'] = { ...opened, sourceImmutable }
   console.log(
     `[e2e] 1/5 OK rows=${String(opened.rows)} columns=${String(opened.columns)} gridAuditOk=${String(opened.gridAuditOk)} firstRowVisibleMs=${String(opened.firstRowVisibleMs)}`,
   )

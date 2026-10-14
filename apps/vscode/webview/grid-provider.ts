@@ -2,13 +2,11 @@
 
 /**
  * Adapter: `GridDataProvider` over the real `@assay/engine-duckdb` client for
- * the webview dataset surface (ptv1-4). Composition-root glue, engine-aware
- * by design — the headless grid model stays engine-free (`@assay/grid` knows
- * only the provider contract, ADR 0022). This is the webview twin of the web
- * app's `apps/web/src/grid/provider.ts` with the read-only narrowing this
- * surface owns in slice 1: the BASE engine path only (no overlay —
- * edit/validate/diff in VS Code is out of slice, recorded in the queue) plus
- * the m2-1 sort/filter provider state.
+ * the VS Code dataset webview. Composition-root glue, engine-aware by design
+ * — the headless grid model stays engine-free (`@assay/grid` knows only the
+ * provider contract, ADR 0022). The effective session overlay is installed
+ * from the initial read, so both cell values and logical row identities are
+ * engine-projected from the same immutable base version.
  *
  * Arrow never crosses this seam as a type: the engine window is projected to
  * row-major JS cells immediately — a bounded, small UI projection (visible
@@ -17,14 +15,10 @@
  * `apache-arrow` out of this surface's dependency tree; the real engine
  * `Table` satisfies them.
  *
- * Row identity (ADR 0011): the provider supplies the page's opaque `rowKeys`
- * channel via `baseRowId(anchor, ordinal)` — the same derivation the web app
- * uses in its base fast path. The anchor is the engine's table handle id (a
- * host token for the immutable base version opened this session); the
- * derivation is a function of (anchor, base ordinal), never of sort/filter/
- * window position. The read-only grid never consumes the keys; they keep the
- * identity channel honest for later slices' edit affordances (which stay
- * disabled without an overlay).
+ * Row identity (ADR 0011): edited reads carry the engine's row-id column
+ * through `fetchOverlayRange(includeRowIds: true)` and strip it only from
+ * displayed cells. Sort/filter/window position never substitutes for logical
+ * identity. The base fast path remains available to read-only spike callers.
  */
 import type {
   CellRange,
@@ -35,11 +29,21 @@ import type {
   SortSpec,
 } from '@assay/grid'
 import { baseRowId } from '@assay/domain'
-import type { EngineColumnSchema, EngineRangeWindow, EngineTableHandle } from '@assay/engine-duckdb'
+import type {
+  EngineColumnSchema,
+  EngineOverlay,
+  EngineOverlayWindow,
+  EngineRangeWindow,
+  EngineTableHandle,
+} from '@assay/engine-duckdb'
+
+/** Structural cell values Arrow exposes to this bounded grid projection. */
+export type ArrowCellValue =
+  string | number | bigint | boolean | null | undefined | Date | Uint8Array | object
 
 /** The slice of an Arrow vector the projection needs. */
 export interface ArrowVectorLike {
-  get(index: number): unknown
+  get(index: number): ArrowCellValue
 }
 
 /** The slice of an Arrow `Table` the projection needs (columnar access). */
@@ -63,6 +67,17 @@ export interface GridEngineClientSlice {
   fetchRange(
     handle: EngineTableHandle,
     window: EngineRangeWindow,
+  ): Promise<{ batch: ArrowTableLike; hasMore: boolean }>
+  overlaySchema(handle: EngineTableHandle, overlay: EngineOverlay): Promise<EngineColumnSchema[]>
+  overlayRowCount(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    options?: { readonly filters?: readonly { column: string; predicate: string }[] },
+  ): Promise<number>
+  fetchOverlayRange(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    window: EngineOverlayWindow,
   ): Promise<{ batch: ArrowTableLike; hasMore: boolean }>
 }
 
@@ -103,48 +118,140 @@ export class EngineGridProvider implements GridDataProvider {
   private sortKeys: { column: string; direction: 'asc' | 'desc' }[] = []
   /** Active predicates in push order; empty = unfiltered (`filter(null)`). */
   private filterPredicates: { column: string; predicate: string }[] = []
+  private overlay: EngineOverlay | null = null
 
-  constructor(client: GridEngineClientSlice, handle: EngineTableHandle) {
+  constructor(client: GridEngineClientSlice, handle: EngineTableHandle, overlay?: EngineOverlay) {
     this.client = client
     this.handle = handle
     this.anchor = handle.id
+    this.overlay = overlay ?? null
+  }
+
+  /** Install only a preflighted overlay; row identities always come from engine output. */
+  setOverlay(overlay: EngineOverlay): void {
+    this.overlay = overlay
+  }
+
+  /** Check the candidate's effective schema/count and a bounded effective window. */
+  async preflight(overlay: EngineOverlay): Promise<void> {
+    const schema = await this.client.overlaySchema(this.handle, overlay)
+    const filters = this.filterPredicates.length > 0 ? this.filterPredicates : undefined
+    const sort = this.sortKeys.length > 0 ? this.sortKeys : undefined
+    const count = await this.client.overlayRowCount(
+      this.handle,
+      overlay,
+      filters ? { filters } : undefined,
+    )
+    if (count > 0) {
+      await this.client.fetchOverlayRange(this.handle, overlay, {
+        startRow: 0,
+        endRow: Math.min(count, 32),
+        filters,
+        sort,
+        includeRowIds: true,
+      })
+    }
+    if (schema.length === 0) throw new Error('The effective view has no columns.')
+  }
+
+  /** Test-mode parity assertion for the identity carried by an effective engine row. */
+  async verifyRowId(
+    overlay: EngineOverlay,
+    rowIndex: number,
+    expectedId: string,
+  ): Promise<boolean> {
+    const filters = this.filterPredicates.length > 0 ? this.filterPredicates : undefined
+    const sort = this.sortKeys.length > 0 ? this.sortKeys : undefined
+    const result = await this.client.fetchOverlayRange(this.handle, overlay, {
+      startRow: rowIndex,
+      endRow: rowIndex + 1,
+      ...(filters === undefined ? {} : { filters }),
+      ...(sort === undefined ? {} : { sort }),
+      includeRowIds: true,
+    })
+    const row = projectBatchToRows(result.batch)[0]
+    return row?.[0] === expectedId
+  }
+
+  /** Small synthetic-fixture probe used only by the extension test-mode assertion. */
+  async verifyCellValue(
+    overlay: EngineOverlay,
+    rowId: string,
+    columnIndex: number,
+    expectedText: string,
+  ): Promise<boolean> {
+    const filters = this.filterPredicates.length > 0 ? this.filterPredicates : undefined
+    const sort = this.sortKeys.length > 0 ? this.sortKeys : undefined
+    const count = await this.client.overlayRowCount(
+      this.handle,
+      overlay,
+      filters === undefined ? undefined : { filters },
+    )
+    if (count < 1 || count > 32) return false
+    const result = await this.client.fetchOverlayRange(this.handle, overlay, {
+      startRow: 0,
+      endRow: count,
+      ...(filters === undefined ? {} : { filters }),
+      ...(sort === undefined ? {} : { sort }),
+      includeRowIds: true,
+    })
+    return projectBatchToRows(result.batch).some(
+      (row) => row[0] === rowId && String(row[columnIndex + 1]) === expectedText,
+    )
   }
 
   /** DuckDB's DESCRIBE name/type strings pass through unchanged (m1-4). */
   async schema(): Promise<ColumnSchema[]> {
-    const columns = await this.client.schema(this.handle)
+    const columns =
+      this.overlay === null
+        ? await this.client.schema(this.handle)
+        : await this.client.overlaySchema(this.handle, this.overlay)
     return columns.map((column) => ({ name: column.name, type: column.type }))
   }
 
-  /** Metadata-only `count(*)`, narrowed by the active filters (m2-2). */
+  /** Metadata-only effective count, narrowed by active filters. */
   async rowCount(): Promise<number> {
     const options =
       this.filterPredicates.length > 0 ? { filters: this.filterPredicates } : undefined
-    return this.client.rowCount(this.handle, options)
+    return this.overlay === null
+      ? this.client.rowCount(this.handle, options)
+      : this.client.overlayRowCount(this.handle, this.overlay, options)
   }
 
   async fetchRange(range: CellRange): Promise<GridDataPage> {
-    // Absent/empty = cleared (m2-2): cleared state is sent as absent fields,
-    // so the composed SQL stays byte-identical to the plain base query.
     const filters = this.filterPredicates.length > 0 ? this.filterPredicates : undefined
     const sort = this.sortKeys.length > 0 ? this.sortKeys : undefined
-    const result = await this.client.fetchRange(this.handle, {
-      startRow: range.startRow,
-      endRow: range.endRow,
-      ...(filters === undefined ? {} : { filters }),
-      ...(sort === undefined ? {} : { sort }),
-    })
-    const rows = projectBatchToRows(result.batch)
-    // Provider-clamp contract: the model never asks for more than
-    // `maxSpanRows` (≤ the engine's clamp), so an in-range request must be
-    // served exactly; a short page is a contract violation and surfaces as
-    // the model's fatal (non-retryable) error rather than a wrong row.
+    const result =
+      this.overlay === null
+        ? await this.client.fetchRange(this.handle, {
+            startRow: range.startRow,
+            endRow: range.endRow,
+            ...(filters === undefined ? {} : { filters }),
+            ...(sort === undefined ? {} : { sort }),
+          })
+        : await this.client.fetchOverlayRange(this.handle, this.overlay, {
+            startRow: range.startRow,
+            endRow: range.endRow,
+            ...(filters === undefined ? {} : { filters }),
+            ...(sort === undefined ? {} : { sort }),
+            includeRowIds: true,
+          })
+    const projected = projectBatchToRows(result.batch)
+    const rows = this.overlay === null ? projected : projected.map((row) => row.slice(1))
     if (rows.length !== range.endRow - range.startRow) {
       throw new Error(
         `engine window size mismatch: requested ${String(range.endRow - range.startRow)} rows, got ${String(rows.length)}`,
       )
     }
-    const rowKeys = rows.map((_, offset) => baseRowId(this.anchor, range.startRow + offset))
+    const rowKeys =
+      this.overlay === null
+        ? rows.map((_, offset) => baseRowId(this.anchor, range.startRow + offset))
+        : projected.map((row) => {
+            const key = row[0]
+            if (typeof key !== 'string')
+              throw new Error('engine returned an invalid logical row id')
+            return key
+          })
     return { startRow: range.startRow, rows, rowKeys }
   }
 
