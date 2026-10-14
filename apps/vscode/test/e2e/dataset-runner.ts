@@ -47,7 +47,25 @@ interface DatasetReport {
     readonly branchTruncation: boolean
     readonly queryStatePreserved: boolean
     readonly sessionWarningVisible: boolean
+    readonly fullViewCastRefusal: boolean
   }
+}
+
+function safeProofFailure(message: string | undefined): string {
+  const prefix = 'whole-view cast refusal invariant failed: '
+  if (message?.startsWith(prefix)) return message.slice(prefix.length)
+  if (message?.includes('test proof has no editable scalar column'))
+    return 'no editable scalar codec'
+  if (message?.includes('test proof column is unavailable')) return 'editable column missing'
+  if (message?.includes('whole-view cast refusal')) return 'cast-refusal proof failed'
+  if (message?.includes('Set NULL keyboard proof')) return 'Set NULL keyboard proof failed'
+  if (message?.includes('test proof timed out')) return 'proof timed out'
+  const stage =
+    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard)(?: category=(set-null-assertion|proof-timeout|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
+      message ?? '',
+    )
+  if (stage !== null) return `webview stage=${stage[1]}`
+  return 'details withheld'
 }
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -166,6 +184,29 @@ export async function run(): Promise<void> {
     gridAuditOk: editorReport.gridAuditOk,
   }
   console.log('[e2e] 2/5 OK (tab found, bridge opened, grid rendered)')
+
+  // Wide synthetic shape: the rejected cast is on the final logical row,
+  // outside the sampled preflight window, and hidden by an active filter.
+  console.log('[e2e] full-view cast refusal (synthetic 48-row CSV)…')
+  const wideEditUri = vscode.Uri.file(`${workspace}/wide-edit.csv`)
+  const wideLines = ['key,flag']
+  for (let index = 1; index <= 48; index++) {
+    wideLines.push(`${String(index)},${index === 48 ? 'hidden' : 'shown'}`)
+  }
+  await vscode.workspace.fs.writeFile(
+    wideEditUri,
+    new TextEncoder().encode(`${wideLines.join('\n')}\n`),
+  )
+  const wideEdit = await executeOpen(wideEditUri)
+  assert(
+    wideEdit.outcome === 'opened',
+    `wide cast proof dataset failed (kind=${String(wideEdit.kind ?? 'unknown')}; ${safeProofFailure(wideEdit.message)})`,
+  )
+  assert(wideEdit.editProof?.fullViewCastRefusal === true, 'full-view cast refusal was not proven')
+  scenarios['fullViewCastRefusal'] = { passed: true }
+  console.log(
+    '[e2e] full-view cast refusal OK (outside sample, filtered, previous state preserved)',
+  )
 
   // 3. Typed error: missing file — surfaces IN the webview (acknowledged).
   console.log('[e2e] 3/5 missing file…')

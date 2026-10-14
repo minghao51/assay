@@ -69,6 +69,7 @@ const engineSession = new EngineSession()
 const diagnostics: Array<WorkerDiagnostic> = []
 let activeController: EditController | null = null
 let activeGrid: WebviewDataGrid | null = null
+let activeOpenStage = 'engine-start'
 
 function elementOrThrow(id: string): HTMLElement {
   const el = document.getElementById(id)
@@ -79,7 +80,9 @@ function elementOrThrow(id: string): HTMLElement {
 }
 
 function setStatus(message: string): void {
-  elementOrThrow('status').textContent = message
+  const status = elementOrThrow('status')
+  status.textContent = message
+  status.setAttribute('role', message === 'error' ? 'alert' : 'status')
 }
 
 /** Render a typed error state (kind + path-free text) and acknowledge it. */
@@ -105,6 +108,7 @@ function renderReport(rows: number, columns: number): void {
  * error text see a stable, path-free token).
  */
 async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
+  activeOpenStage = 'engine-start'
   setStatus('booting engine…')
   const boot = await engineSession.acquire(
     {
@@ -117,6 +121,7 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     },
     diagnostics,
   )
+  activeOpenStage = 'engine-open'
   setStatus('opening dataset…')
   const started = performance.now()
   const file = new File([bytes], name)
@@ -131,6 +136,7 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     columns: baseSchema.map((column) => ({ name: column.name, type: column.type })),
     baseRowCount: await boot.client.rowCount(handle),
   }
+  activeOpenStage = 'effective-view-load'
   const provider = new EngineGridProvider(
     boot.client,
     handle,
@@ -155,6 +161,7 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     (snapshot) => {
       const status = document.getElementById('edit-status')
       if (status !== null) {
+        status.setAttribute('role', snapshot.error === null ? 'status' : 'alert')
         status.textContent =
           snapshot.error ??
           (snapshot.busy ? 'Checking edit…' : snapshot.revision > 0 ? 'Edit applied.' : '')
@@ -188,9 +195,11 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
   editStatus.setAttribute('role', 'status')
   elementOrThrow('grid-root').before(editStatus)
   activeGrid = grid
+  activeOpenStage = 'first-row-render'
   grid.mount(elementOrThrow('grid-root'))
   await grid.whenFirstRowVisible()
   const firstRowVisibleMs = performance.now() - started
+  activeOpenStage = 'edit-proof'
   const editProof = config.testHarness
     ? await exerciseRealEditor(grid, model, provider, controller, base)
     : undefined
@@ -227,12 +236,32 @@ async function exerciseRealEditor(
   queryStatePreserved: boolean
   sessionWarningVisible: boolean
   keyboardCancel: boolean
+  fullViewCastRefusal: boolean
 }> {
   const schema = model.schema ?? []
-  const columnIndex = schema.findIndex((column) => supportsCellDraft(column.type))
+  const fullViewCastRefusal =
+    base.baseRowCount > 32
+      ? await proveFullViewCastRefusal(model, provider, controller, base)
+      : false
+  if (base.baseRowCount > 32) {
+    return {
+      cellIdentity: false,
+      keyboardCancel: false,
+      undoRedo: false,
+      insertDelete: false,
+      branchTruncation: false,
+      queryStatePreserved: false,
+      sessionWarningVisible: false,
+      fullViewCastRefusal,
+    }
+  }
+  const columnIndex = schema.findIndex(
+    (column) => supportsCellDraft(column.type) && invalidDraftForTest(column.type) !== undefined,
+  )
   if (columnIndex < 0) throw new Error('test proof has no editable scalar column')
   const column = schema[columnIndex]
   if (column === undefined) throw new Error('test proof column is unavailable')
+  activeOpenStage = 'edit-proof-follow-up'
   await model.setSort({ column: column.name, direction: 'desc' })
   await model.setFilters([{ column: column.name, predicate: 'IS NOT NULL' }])
   await waitForReadyRow(model)
@@ -241,7 +270,7 @@ async function exerciseRealEditor(
     throw new Error('test proof could not resolve a logical row identity')
   }
   const targetId = firstSlot.key as RowId
-  const keyboardCancel = await dispatchCellCancel(grid, model, targetId, columnIndex)
+  const keyboardCancel = await dispatchCellCancel(grid, model, targetId, columnIndex, column.type)
   if (!keyboardCancel || controller.snapshot.history.entries.length !== 0) {
     throw new Error('Escape did not cancel the production cell editor')
   }
@@ -253,12 +282,17 @@ async function exerciseRealEditor(
   if (!identityMatchesEngine) throw new Error('test proof found a position-derived row identity')
   const initialRevision = controller.snapshot.revision
   const expected = draftForTest(column.type)
+  const entriesBefore = controller.currentHistory.entries.length
   await dispatchCellEdit(grid, model, targetId, columnIndex, expected)
   await waitForRevision(controller, initialRevision)
   const active = controller.currentHistory
   const lastOp = active.entries[active.cursor - 1]?.op
   const cellIdentity =
-    identityMatchesEngine && lastOp?.kind === 'cell-set' && lastOp.rowId === targetId
+    identityMatchesEngine &&
+    active.entries.length === entriesBefore + 1 &&
+    active.cursor === entriesBefore + 1 &&
+    lastOp?.kind === 'cell-set' &&
+    lastOp.rowId === targetId
   const editedView = await provider.verifyCellValue(
     overlaySnapshot(base, controller.currentHistory),
     targetId,
@@ -284,9 +318,14 @@ async function exerciseRealEditor(
   const alternate = draftForTest(column.type, true)
   await dispatchCellEdit(grid, model, targetId, columnIndex, alternate)
   await waitForRevision(controller, controller.snapshot.revision)
-  const branchTruncation =
+  const branchTruncationBase =
     Number(controller.snapshot.history.cursor) === controller.snapshot.history.entries.length &&
     Number(controller.snapshot.history.entries.length) === 1
+  activeOpenStage = 'set-null-keyboard'
+  const setNullKeyboard = await dispatchSetNull(grid, model, controller, targetId, columnIndex)
+  if (!setNullKeyboard)
+    throw new Error('Set NULL keyboard proof did not apply and undo exactly once')
+  const branchTruncation = branchTruncationBase && setNullKeyboard
 
   const queryStatePreserved = model.sort?.column === column.name && model.filters.length === 1
   await model.setFilters([])
@@ -326,7 +365,51 @@ async function exerciseRealEditor(
     branchTruncation,
     queryStatePreserved,
     sessionWarningVisible,
+    fullViewCastRefusal,
   }
+}
+
+async function proveFullViewCastRefusal(
+  model: GridViewportModel,
+  provider: EngineGridProvider,
+  controller: EditController,
+  base: OverlayBase,
+): Promise<boolean> {
+  const schema = model.schema ?? []
+  const numeric = schema.find((column) =>
+    /^(TINYINT|SMALLINT|INTEGER|INT|BIGINT)/i.test(column.type),
+  )
+  const visible = schema.find((column) => column.name !== numeric?.name)
+  if (numeric === undefined || visible === undefined || model.totalRows === null) return false
+  const hiddenOrdinal = base.baseRowCount - 1
+  activeOpenStage = 'wide-clear-filters'
+  await model.setFilters([])
+  activeOpenStage = 'wide-read-hidden-row'
+  const page = await provider.fetchRange({
+    startRow: hiddenOrdinal,
+    endRow: hiddenOrdinal + 1,
+    startCol: 0,
+    endCol: schema.length,
+  })
+  const hiddenRowId = page.rowKeys?.[0] as RowId | undefined
+  if (hiddenRowId === undefined) return false
+  activeOpenStage = 'wide-filter-hidden-row'
+  await model.setFilters([{ column: visible.name, predicate: "= 'shown'" }])
+  const filteredCount = model.totalRows
+  const cursorBefore = controller.snapshot.history.cursor
+  activeOpenStage = 'wide-candidate-preflight'
+  await controller.commitCell(hiddenRowId, numeric.name, { kind: 'text', text: 'invalid-cast' })
+  const status = document.getElementById('edit-status')
+  const cursorStable = controller.snapshot.history.cursor === cursorBefore
+  const historyEmpty = controller.snapshot.history.entries.length === 0
+  const errorAlert = controller.snapshot.error !== null && status?.getAttribute('role') === 'alert'
+  const filteredCountStable = model.totalRows === filteredCount
+  if (!(cursorStable && historyEmpty && errorAlert && filteredCountStable)) {
+    throw new Error(
+      `whole-view cast refusal invariant failed: cursor=${String(cursorStable)} historyEmpty=${String(historyEmpty)} errorAlert=${String(errorAlert)} filteredCountStable=${String(filteredCountStable)}`,
+    )
+  }
+  return true
 }
 
 async function dispatchCellCancel(
@@ -334,13 +417,9 @@ async function dispatchCellCancel(
   model: GridViewportModel,
   rowId: RowId,
   columnIndex: number,
+  type: string,
 ): Promise<boolean> {
-  const rowIndex = Array.from({ length: model.totalRows ?? 0 }, (_, index) => index).find(
-    (index) => {
-      const slot = model.getRow(index)
-      return slot.status === 'ready' && slot.key === rowId
-    },
-  )
+  const rowIndex = findVisibleRowIndex(grid, model, rowId)
   if (rowIndex === undefined) return false
   const selector = `[data-row-index="${String(rowIndex)}"] [data-col-index="${String(columnIndex)}"]`
   await waitUntil(
@@ -356,12 +435,45 @@ async function dispatchCellCancel(
   cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
   const input = cell.querySelector<HTMLInputElement>('.assay-cell-editor')
   if (input === null) return false
-  input.value = 'cancelled-draft'
+  const originalDraft = input.value
+  const invalidDraft = invalidDraftForTest(type)
+  if (invalidDraft === undefined) return false
+  input.value = invalidDraft
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  const invalidRetained =
+    input.isConnected &&
+    document.activeElement === input &&
+    input.value === invalidDraft &&
+    grid.element.querySelector<HTMLElement>('.assay-grid-command-error')?.hidden === false
+  for (const key of ['Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End']) {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+  }
+  const nativeKeysIsolated = input.isConnected && document.activeElement === input
+  input.value = originalDraft
   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   await waitUntil(
     () => grid.gridElement.querySelector(selector)?.querySelector('.assay-cell-editor') === null,
   )
+  if (!invalidRetained) {
+    throw new Error(
+      `invalid editor retention check failed: connected=${String(input.isConnected)} focused=${String(document.activeElement === input)} unchanged=${String(input.value === invalidDraft)} error=${String(grid.element.querySelector<HTMLElement>('.assay-grid-command-error')?.hidden === false)}`,
+    )
+  }
+  if (!nativeKeysIsolated) throw new Error('native editing keys escaped the cell editor')
   return true
+}
+
+function invalidDraftForTest(type: string): string | undefined {
+  const normalized = type.toUpperCase()
+  if (/^(BOOLEAN|BOOL|LOGICAL)$/.test(normalized)) return 'not-a-boolean'
+  if (
+    /^(TINYINT|SMALLINT|INTEGER|INT|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT|UHUGEINT|DECIMAL|NUMERIC|FLOAT|REAL|DOUBLE)/.test(
+      normalized,
+    )
+  ) {
+    return 'not-a-number'
+  }
+  return undefined
 }
 
 async function dispatchCellEdit(
@@ -371,19 +483,8 @@ async function dispatchCellEdit(
   columnIndex: number,
   draft: string,
 ): Promise<void> {
-  await waitUntil(() => {
-    for (let index = 0; index < (model.totalRows ?? 0); index++) {
-      const slot = model.getRow(index)
-      if (slot.status === 'ready' && slot.key === rowId) return true
-    }
-    return false
-  })
-  const rowIndex = Array.from({ length: model.totalRows ?? 0 }, (_, index) => index).find(
-    (index) => {
-      const slot = model.getRow(index)
-      return slot.status === 'ready' && slot.key === rowId
-    },
-  )
+  await waitUntil(() => findVisibleRowIndex(grid, model, rowId) !== undefined)
+  const rowIndex = findVisibleRowIndex(grid, model, rowId)
   if (rowIndex === undefined)
     throw new Error('test proof logical row is not in the effective viewport')
   const selector = `[data-row-index="${String(rowIndex)}"] [data-col-index="${String(columnIndex)}"]`
@@ -402,6 +503,51 @@ async function dispatchCellEdit(
   if (input === null) throw new Error('Enter did not open the production cell editor')
   input.value = draft
   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+}
+
+async function dispatchSetNull(
+  grid: WebviewDataGrid,
+  model: GridViewportModel,
+  controller: EditController,
+  rowId: RowId,
+  columnIndex: number,
+): Promise<boolean> {
+  const rowIndex = findVisibleRowIndex(grid, model, rowId)
+  if (rowIndex === undefined) throw new Error('set-null-row-not-visible')
+  const cell = grid.gridElement.querySelector<HTMLElement>(
+    `[data-row-index="${String(rowIndex)}"] [data-col-index="${String(columnIndex)}"]`,
+  )
+  if (cell === null) throw new Error('set-null-cell-not-rendered')
+  cell.focus()
+  cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  const button = cell.querySelector<HTMLButtonElement>('.assay-cell-set-null')
+  if (button === null) throw new Error('set-null-button-not-opened')
+  const revision = controller.snapshot.revision
+  button.focus()
+  button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  await waitForRevision(controller, revision)
+  const op = controller.currentHistory.entries.at(-1)?.op
+  const setNullApplied = op?.kind === 'cell-set' && op.value.kind === 'null'
+  const undoRevision = controller.snapshot.revision
+  grid.element.querySelector<HTMLButtonElement>('.assay-edit-undo')?.click()
+  await waitForRevision(controller, undoRevision)
+  if (!setNullApplied) throw new Error('set-null-operation-not-recorded')
+  if (controller.snapshot.history.cursor !== 1)
+    throw new Error('set-null-undo-did-not-restore-cursor')
+  return true
+}
+
+function findVisibleRowIndex(
+  grid: WebviewDataGrid,
+  model: GridViewportModel,
+  rowId: RowId,
+): number | undefined {
+  for (const row of grid.gridElement.querySelectorAll<HTMLElement>('[data-row-index]')) {
+    const index = Number(row.dataset.rowIndex)
+    const slot = model.getRow(index)
+    if (slot.status === 'ready' && slot.key === rowId) return index
+  }
+  return undefined
 }
 
 function draftForTest(type: string, alternate = false): string {
@@ -463,7 +609,21 @@ window.addEventListener('message', (event) => {
     // the panel's whole life (EngineSession) — the grid lives on it.
     datasetReceived = true
     openDataset(data.name ?? 'dataset', data.bytes).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
+      const testErrorCategory =
+        error instanceof Error && error.message.startsWith('set-null-')
+          ? error.message
+          : error instanceof Error && error.message.startsWith('Set NULL keyboard proof')
+            ? 'set-null-assertion'
+            : error instanceof Error && error.message === 'test proof timed out'
+              ? 'proof-timeout'
+              : error instanceof Error
+                ? 'operation-error'
+                : 'unknown'
+      const message = config.testHarness
+        ? `test-only open failure stage=${activeOpenStage} category=${testErrorCategory}`
+        : error instanceof Error
+          ? error.message
+          : String(error)
       renderError('engine-failed', message)
       vscodeApi.postMessage({ kind: 'engine-error', message })
     })

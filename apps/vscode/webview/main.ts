@@ -51,6 +51,10 @@
 import { DuckDbEngineClient } from '@assay/engine-duckdb'
 import type { EngineAssetsMessage } from '@assay/engine-duckdb/worker-core'
 import { GridViewportModel } from '@assay/grid'
+import { emptyHistory, overlayEdit, stateAtCursor } from '@assay/domain'
+import type { OverlayBase, RowId } from '@assay/domain'
+import { EditController } from '../src/pure/edit-controller'
+import { overlaySnapshot } from '../src/pure/overlay-snapshot'
 import { WebviewDataGrid } from './data-grid'
 import { bootAdapter, buildShimmedGlueBlobUrl, createAdapterClient, toBlobUrl } from './engine-boot'
 import type { WorkerDiagnostic } from './engine-boot'
@@ -342,6 +346,7 @@ interface GridPhaseEvidence {
   readonly loadMs: number
   readonly totalRows: number
   readonly columnCount: number
+  readonly editingPathMounted: boolean
   readonly audit: GridDomAudit
   readonly keyboard: KeyboardProbeResult
   readonly virtualization: { readonly ok: boolean; readonly detail: string }
@@ -369,7 +374,14 @@ async function runGridPhase(
   handle: Awaited<ReturnType<DuckDbEngineClient['open']>>,
   openedAt: number,
 ): Promise<GridPhaseEvidence> {
-  const provider = new EngineGridProvider(client, handle)
+  const schema = await client.schema(handle)
+  const base: OverlayBase = {
+    baseAnchor: handle.id,
+    overlayAnchor: crypto.randomUUID(),
+    columns: schema.map((column) => ({ name: column.name, type: column.type })),
+    baseRowCount: await client.rowCount(handle),
+  }
+  const provider = new EngineGridProvider(client, handle, overlaySnapshot(base, emptyHistory()))
   const model = new GridViewportModel(provider)
   const loadStart = performance.now()
   await model.load()
@@ -379,7 +391,38 @@ async function runGridPhase(
 
   const host = document.createElement('div')
   document.body.appendChild(host)
-  const grid = new WebviewDataGrid(model, { ariaLabel: 'Assay spike dataset grid' })
+  let grid: WebviewDataGrid | null = null
+  const controller = new EditController(
+    base,
+    {
+      preflight: (history) => provider.preflight(overlaySnapshot(base, history)),
+      activate: async (history) => {
+        provider.setOverlay(overlaySnapshot(base, history))
+        await model.refresh()
+      },
+    },
+    () => grid?.refreshEditingState(),
+  )
+  grid = new WebviewDataGrid(model, {
+    ariaLabel: 'Assay spike dataset grid',
+    editing: {
+      state: () => ({
+        busy: controller.snapshot.busy,
+        dirty: controller.snapshot.history.cursor > 0,
+        canUndo: controller.snapshot.history.cursor > 0,
+        canRedo: controller.snapshot.history.cursor < controller.snapshot.history.entries.length,
+      }),
+      isDirty: (rowId: RowId, column: string) => {
+        const overlay = stateAtCursor(base, controller.currentHistory)
+        return overlayEdit(overlay, rowId, column) !== null
+      },
+      onInsert: () => void controller.insertRow(),
+      onUndo: () => void controller.undo(),
+      onRedo: () => void controller.redo(),
+      onCommitCell: (rowId, column, value) => void controller.commitCell(rowId, column, value),
+      onDeleteRow: (rowId) => void controller.deleteRow(rowId),
+    },
+  })
   grid.mount(host)
   await grid.whenFirstRowVisible()
   // TTFR (the row's envelope): client.open() start → first ready row's cells
@@ -496,6 +539,10 @@ async function runGridPhase(
     loadMs,
     totalRows,
     columnCount,
+    editingPathMounted:
+      provider.editingEnabled &&
+      grid.element.querySelector('.assay-edit-insert') !== null &&
+      grid.element.querySelector('.assay-edit-undo') !== null,
     audit,
     keyboard,
     virtualization,

@@ -84,6 +84,7 @@ await runTests({
   extensionTestsEnv: {
     ASSAY_E2E_WORKSPACE: workspaceDir,
     ASSAY_E2E_RESULTS: resultsPath,
+    ASSAY_E2E_EDIT_PROOF: '1',
   },
   launchArgs: [
     '--disable-extensions',

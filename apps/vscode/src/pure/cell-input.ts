@@ -6,22 +6,28 @@ export type CellDraftResult =
   | { readonly ok: true; readonly value: CellValue }
   | { readonly ok: false; readonly message: string }
 
-/** Parse only scalar drafts; DuckDB remains the authority for type casts/ranges. */
+const LOSSLESS_TEXT_TYPES = /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|NVARCHAR|JSON|UUID)(\b|\s|\()/
+const LOSSLESS_NUMERIC_TYPES =
+  /^(TINYINT|SMALLINT|INTEGER|INT|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT|UHUGEINT|DECIMAL|NUMERIC)(\b|\s|\()/
+const LOSSLESS_FLOAT_TYPES = /^(FLOAT|REAL|DOUBLE)(\b|\s|\()/
+const UNSUPPORTED_COMPOSITE = /^(STRUCT|MAP|UNION)\s*\(/
+const ARRAY_TYPE = /\[[^\]]*\]$/
+
+/** Parse only scalar drafts whose displayed representation has a lossless codec. */
 export function parseCellDraft(type: string, draft: string): CellDraftResult {
   const normalized = type.trim().toUpperCase()
-  if (/^(STRUCT|MAP|UNION)\s*\(/.test(normalized) || /\[[^\]]*\]$/.test(normalized)) {
-    return { ok: false, message: 'Nested values are not editable in this view.' }
+  if (!supportsCellDraft(normalized)) {
+    return { ok: false, message: 'This scalar type has no lossless editor in this view.' }
   }
-  if (normalized === 'BOOLEAN' || normalized === 'BOOL' || normalized === 'LOGICAL') {
+  if (/^(BOOLEAN|BOOL|LOGICAL)(\b|\s|\()/.test(normalized)) {
     const value = draft.trim().toLowerCase()
     if (value === 'true') return { ok: true, value: { kind: 'boolean', value: true } }
     if (value === 'false') return { ok: true, value: { kind: 'boolean', value: false } }
     return { ok: false, message: 'Enter true or false, or choose NULL.' }
   }
-  if (/^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|NVARCHAR|JSON|UUID)/.test(normalized)) {
+  if (LOSSLESS_TEXT_TYPES.test(normalized))
     return { ok: true, value: { kind: 'string', value: draft } }
-  }
-  if (/^(FLOAT|REAL|DOUBLE)(\b|\s|\()/.test(normalized)) {
+  if (LOSSLESS_FLOAT_TYPES.test(normalized)) {
     const value = draft.trim()
     if (value === '' || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value)) {
       return { ok: false, message: 'Enter a finite number, or choose NULL.' }
@@ -33,13 +39,24 @@ export function parseCellDraft(type: string, draft: string): CellDraftResult {
   }
   if (draft.trim() === '')
     return { ok: false, message: 'Empty text is not NULL; choose NULL explicitly.' }
-  // Integers/decimals/date-time and unfamiliar scalar types stay exact text;
-  // the real engine's cast is the final authority, never JS floating point.
-  return { ok: true, value: { kind: 'text', text: draft.trim() } }
+  if (LOSSLESS_NUMERIC_TYPES.test(normalized)) {
+    const value = draft.trim()
+    if (!/^[+-]?(?:\d+|\d+\.\d*|\.\d+)$/.test(value)) {
+      return { ok: false, message: 'Enter a valid numeric literal, or choose NULL.' }
+    }
+    return { ok: true, value: { kind: 'text', text: value } }
+  }
+  return { ok: false, message: 'This scalar type has no lossless editor in this view.' }
 }
 
-/** Value-free editor capability check for composite DuckDB types. */
+/** Only types whose displayed scalar representation can be parsed losslessly. */
 export function supportsCellDraft(type: string): boolean {
   const normalized = type.trim().toUpperCase()
-  return !(/^(STRUCT|MAP|UNION)\s*\(/.test(normalized) || /\[[^\]]*\]$/.test(normalized))
+  if (UNSUPPORTED_COMPOSITE.test(normalized) || ARRAY_TYPE.test(normalized)) return false
+  return (
+    /^(BOOLEAN|BOOL|LOGICAL)(\b|\s|\()/.test(normalized) ||
+    LOSSLESS_TEXT_TYPES.test(normalized) ||
+    LOSSLESS_NUMERIC_TYPES.test(normalized) ||
+    LOSSLESS_FLOAT_TYPES.test(normalized)
+  )
 }

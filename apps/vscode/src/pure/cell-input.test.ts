@@ -17,6 +17,14 @@ describe('parseCellDraft', () => {
       value: { kind: 'string', value: '' },
     })
     expect(parseCellDraft('INTEGER', '')).toMatchObject({ ok: false })
+    expect(parseCellDraft('DECIMAL(18,2)', 'not-a-number')).toMatchObject({ ok: false })
+  })
+
+  it('refuses binary, temporal, and unfamiliar scalar codecs', () => {
+    for (const type of ['BLOB', 'DATE', 'TIMESTAMP', 'INTERVAL', 'GEOMETRY', 'ENUM']) {
+      expect(supportsCellDraft(type), type).toBe(false)
+      expect(parseCellDraft(type, 'unchanged preview').ok, type).toBe(false)
+    }
   })
 
   it('accepts only explicit boolean literals and declines nested values', () => {

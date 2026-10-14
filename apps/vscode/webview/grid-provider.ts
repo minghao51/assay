@@ -69,6 +69,11 @@ export interface GridEngineClientSlice {
     window: EngineRangeWindow,
   ): Promise<{ batch: ArrowTableLike; hasMore: boolean }>
   overlaySchema(handle: EngineTableHandle, overlay: EngineOverlay): Promise<EngineColumnSchema[]>
+  overlayCastCheck(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    check: { readonly column: string; readonly targetType: string },
+  ): Promise<{ readonly hasNonConvertibleValues: boolean }>
   overlayRowCount(
     handle: EngineTableHandle,
     overlay: EngineOverlay,
@@ -127,14 +132,28 @@ export class EngineGridProvider implements GridDataProvider {
     this.overlay = overlay ?? null
   }
 
+  /** Whether the production grid is using the logical-id overlay path. */
+  get editingEnabled(): boolean {
+    return this.overlay !== null
+  }
+
   /** Install only a preflighted overlay; row identities always come from engine output. */
   setOverlay(overlay: EngineOverlay): void {
     this.overlay = overlay
   }
 
-  /** Check the candidate's effective schema/count and a bounded effective window. */
+  /** Check schema and engine-side whole-view castability before publishing a candidate. */
   async preflight(overlay: EngineOverlay): Promise<void> {
     const schema = await this.client.overlaySchema(this.handle, overlay)
+    for (const column of schema) {
+      const cast = await this.client.overlayCastCheck(this.handle, overlay, {
+        column: column.name,
+        targetType: column.type,
+      })
+      if (cast.hasNonConvertibleValues) {
+        throw new Error('The effective view contains values that cannot be represented safely.')
+      }
+    }
     const filters = this.filterPredicates.length > 0 ? this.filterPredicates : undefined
     const sort = this.sortKeys.length > 0 ? this.sortKeys : undefined
     const count = await this.client.overlayRowCount(

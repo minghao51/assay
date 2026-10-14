@@ -99,6 +99,10 @@ export function formatCellValue(value: unknown): string {
   return String(value)
 }
 
+function isNativeControl(target: Element): boolean {
+  return target.closest('input, button, select, textarea, [contenteditable="true"]') !== null
+}
+
 const STYLE_ID = 'assay-grid-style'
 
 /** One-time style injection (textContent — never innerHTML; CSP-legal inline style). */
@@ -641,6 +645,7 @@ export class WebviewDataGrid {
     if (this.options.editing !== undefined) {
       row.addEventListener('keydown', (event) => {
         if (event.key !== 'Delete' || !(event.target instanceof Element)) return
+        if (isNativeControl(event.target)) return
         const slot = this.model.getRow(index)
         if (slot.status !== 'ready' || slot.key === undefined) return
         event.preventDefault()
@@ -676,6 +681,9 @@ export class WebviewDataGrid {
       })
       if (slot.status === 'ready') {
         const value = slot.row[columnIndex]
+        if (!supportsCellDraft(schema[columnIndex]?.type ?? '')) {
+          cell.title = 'Read-only: this value has no lossless editor in this view.'
+        }
         if (
           this.options.editing !== undefined &&
           slot.key !== undefined &&
@@ -754,12 +762,16 @@ export class WebviewDataGrid {
     input.className = 'assay-cell-editor'
     input.setAttribute('aria-label', `Edit ${column.name}`)
     input.value = original === null || original === undefined ? '' : formatCellValue(original)
+    let finished = false
     const finish = (value: CellValue | null): void => {
+      if (finished) return
+      finished = true
       if (value !== null) editing.onCommitCell(slot.key as RowId, column.name, value)
       this.scheduleRender()
       cell.focus()
     }
     input.addEventListener('keydown', (event) => {
+      event.stopPropagation()
       if (event.key === 'Escape') {
         event.preventDefault()
         const rendered = this.rows.get(rowIndex)
@@ -782,9 +794,20 @@ export class WebviewDataGrid {
     })
     const nullButton = document.createElement('button')
     nullButton.type = 'button'
+    nullButton.className = 'assay-cell-set-null'
     nullButton.textContent = 'Set NULL'
     nullButton.setAttribute('aria-label', `Set ${column.name} to NULL`)
-    nullButton.addEventListener('click', () => finish({ kind: 'null' }))
+    nullButton.addEventListener('keydown', (event) => {
+      event.stopPropagation()
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        finish({ kind: 'null' })
+      }
+    })
+    nullButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      finish({ kind: 'null' })
+    })
     cell.replaceChildren(input, nullButton)
     input.focus()
     input.select()
@@ -809,7 +832,7 @@ export class WebviewDataGrid {
 
   private onKeyDown(event: KeyboardEvent): void {
     const target = event.target
-    if (!(target instanceof Element)) return
+    if (!(target instanceof Element) || isNativeControl(target)) return
     // Row navigation only when the keydown originates in a BODY row (the
     // header's buttons keep native keyboard semantics).
     const rowElement = target.closest<HTMLElement>('[data-row-index]')

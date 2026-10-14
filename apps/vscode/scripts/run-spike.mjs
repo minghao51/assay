@@ -436,6 +436,11 @@ if (drillMode) {
     },
     // ptv1-4: the headless-grid dataset surface — the row's done-when pins.
     {
+      name: 'grid.productionEditingPathMounted',
+      ok: report.grid?.editingPathMounted === true,
+      value: report.grid?.editingPathMounted,
+    },
+    {
       name: 'grid.firstRowVisible',
       ok:
         typeof report.grid?.firstRowVisibleMs === 'number' &&

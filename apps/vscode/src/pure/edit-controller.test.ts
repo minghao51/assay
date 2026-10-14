@@ -119,6 +119,42 @@ describe('EditController', () => {
     expect([...state.inserts.keys()]).toEqual(['ins:session-one#0', 'ins:session-one#1'])
   })
 
+  it('resolves rapid undo and redo steps against queued current history', async () => {
+    const { controller } = harness()
+    await controller.commitCell(first, 'label', { kind: 'string', value: 'one' })
+    await controller.commitCell(first, 'id', { kind: 'text', text: '2' })
+    await Promise.all([controller.undo(), controller.undo()])
+    expect(controller.snapshot.history.cursor).toBe(0)
+    await Promise.all([controller.redo(), controller.redo()])
+    expect(controller.snapshot.history.cursor).toBe(2)
+  })
+
+  it('orders a queued commit before undo and fences midflight disposal', async () => {
+    const { controller } = harness()
+    await Promise.all([
+      controller.commitCell(first, 'label', { kind: 'string', value: 'one' }),
+      controller.undo(),
+    ])
+    expect(controller.snapshot.history.cursor).toBe(0)
+
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const delayed = new EditController(base, {
+      preflight: async () => {
+        await gate
+      },
+      activate: async () => undefined,
+    })
+    const operation = delayed.commitCell(first, 'label', { kind: 'string', value: 'late' })
+    await Promise.resolve()
+    delayed.dispose()
+    release?.()
+    await operation
+    expect(delayed.snapshot.history.entries).toHaveLength(0)
+  })
+
   it('fences queued work after disposal', async () => {
     const { controller } = harness()
     controller.dispose()

@@ -1,9 +1,41 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
-import { DatasetOpenError, WEBVIEW_ERROR_TEXT, type DatasetErrorKind } from './bridge-contracts'
+import {
+  DatasetOpenError,
+  normalizeEditProof,
+  WEBVIEW_ERROR_TEXT,
+  type DatasetErrorKind,
+} from './bridge-contracts'
 
 describe('desktop bridge error contracts', () => {
+  it('projects test proof to exact booleans and drops content-bearing properties', () => {
+    const proof = {
+      cellIdentity: true,
+      keyboardCancel: true,
+      undoRedo: false,
+      insertDelete: true,
+      branchTruncation: false,
+      queryStatePreserved: true,
+      sessionWarningVisible: true,
+      fullViewCastRefusal: false,
+      privateCell: 'synthetic-secret',
+      path: '/private/source.csv',
+    }
+    expect(normalizeEditProof(proof)).toEqual({
+      cellIdentity: true,
+      keyboardCancel: true,
+      undoRedo: false,
+      insertDelete: true,
+      branchTruncation: false,
+      queryStatePreserved: true,
+      sessionWarningVisible: true,
+      fullViewCastRefusal: false,
+    })
+    expect(normalizeEditProof({ ...proof, undoRedo: 'secret' })).toBeUndefined()
+    expect(normalizeEditProof('content-bearing')).toBeUndefined()
+  })
+
   it('preserves typed kind and host-side message semantics', () => {
     const error = new DatasetOpenError('missing-file', 'file not found: /private/source.csv')
     expect(error).toBeInstanceOf(Error)

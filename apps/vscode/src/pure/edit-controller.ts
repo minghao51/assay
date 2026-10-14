@@ -69,13 +69,11 @@ export class EditController {
   }
 
   undo(): Promise<void> {
-    const step = undo(this.history)
-    return step.entry === null ? Promise.resolve() : this.transition(step.history)
+    return this.transitionAtExecution(undo)
   }
 
   redo(): Promise<void> {
-    const step = redo(this.history)
-    return step.entry === null ? Promise.resolve() : this.transition(step.history)
+    return this.transitionAtExecution(redo)
   }
 
   dispose(): void {
@@ -103,11 +101,14 @@ export class EditController {
     })
   }
 
-  private transition(next: TransformationHistory): Promise<void> {
+  private transitionAtExecution(stepHistory: typeof undo): Promise<void> {
     const generation = this.generation
     return this.enqueue(async () => {
       if (!this.isCurrent(generation)) return
-      await this.commitCandidate(this.history, next, generation)
+      const previous = this.history
+      const step = stepHistory(previous)
+      if (step.entry === null) return
+      await this.commitCandidate(previous, step.history, generation)
     })
   }
 

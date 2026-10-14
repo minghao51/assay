@@ -50,6 +50,7 @@ export type DatasetReport =
         readonly branchTruncation: boolean
         readonly queryStatePreserved: boolean
         readonly sessionWarningVisible: boolean
+        readonly fullViewCastRefusal: boolean
       }
     }
   | {
@@ -59,6 +60,35 @@ export type DatasetReport =
       /** True when the webview acknowledged the error (it rendered the state). */
       readonly shownInWebview: boolean
     }
+
+/** Exact value-free projection for test-only edit evidence received from a webview. */
+export function normalizeEditProof(
+  value: unknown,
+): NonNullable<Extract<DatasetReport, { outcome: 'opened' }>['editProof']> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const input = value as Record<string, unknown>
+  const keys = [
+    'cellIdentity',
+    'keyboardCancel',
+    'undoRedo',
+    'insertDelete',
+    'branchTruncation',
+    'queryStatePreserved',
+    'sessionWarningVisible',
+    'fullViewCastRefusal',
+  ] as const
+  if (!keys.every((key) => typeof input[key] === 'boolean')) return undefined
+  return {
+    cellIdentity: input.cellIdentity as boolean,
+    keyboardCancel: input.keyboardCancel as boolean,
+    undoRedo: input.undoRedo as boolean,
+    insertDelete: input.insertDelete as boolean,
+    branchTruncation: input.branchTruncation as boolean,
+    queryStatePreserved: input.queryStatePreserved as boolean,
+    sessionWarningVisible: input.sessionWarningVisible as boolean,
+    fullViewCastRefusal: input.fullViewCastRefusal as boolean,
+  }
+}
 
 export interface ReadDatasetResult {
   readonly format: DatasetFormat
