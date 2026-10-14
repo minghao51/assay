@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "apache-arrow": "17.0.0",
+    "apache-arrow": "21.2.0",
     "@assay/contracts": "workspace:*",
     "@assay/diff": "workspace:*",
     "@assay/pipeline": "workspace:*",

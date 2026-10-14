@@ -39,7 +39,7 @@
     "@assay/telemetry": "workspace:*",
     "@assay/validation": "workspace:*",
     "@duckdb/node-api": "1.5.5-r.5",
-    "apache-arrow": "17.0.0"
+    "apache-arrow": "21.2.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

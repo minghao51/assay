@@ -56,7 +56,7 @@
   "dependencies": {
     "@assay/domain": "workspace:*",
     "@assay/pipeline": "workspace:*",
-    "apache-arrow": "17.0.0",
+    "apache-arrow": "21.2.0",
     "@duckdb/duckdb-wasm": "^1.32.0"
   },
   "license": "AGPL-3.0-or-later",
