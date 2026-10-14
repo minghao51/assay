@@ -2,20 +2,36 @@
 /* global process, console */
 
 /**
- * Spike runner (ptv-1) — the committed `run:spike` entry. One command that:
+ * Slice-1 exit harness (ptv1-5) — the committed `run:spike` entry, upgraded
+ * from the ptv-1 spike runner into the PT-V slice-1 pass/fail gate. One
+ * command that:
  *   1. re-execs under xvfb-run when headless (VS Code is an Electron GUI),
- *   2. generates the 1M-row on-demand fixture (unless DUCKDB is unavailable),
+ *   2. generates the 1M-row on-demand SYNTHETIC fixture (unless DUCKDB is
+ *      unavailable),
  *   3. builds the extension + webview + worker bundles,
  *   4. launches the real VS Code desktop extension host via @vscode/test-electron,
  *   5. merges the packaging artifact sizes and writes `dist/spike-results.json`,
- *   6. prints a value-free summary the reviewer can compare against the report,
- *   7. asserts the headline evidence is present and true and exits non-zero
- *      otherwise (a run that merely finishes is not a successful run).
+ *   6. prints a value-free summary — including the R2 timing envelopes (mvp/eh
+ *      boot ms, the open envelope, TTFR picker→first-row, live-heap delta) —
+ *      the reviewer can compare against the report,
+ *   7. asserts the headline evidence — the ptv1-1…ptv1-4 claims (real adapter
+ *      identity, vendored zero-network serve, boot pins mvp+eh, TTFR/heap
+ *      envelopes, grid a11y/keyboard/virtualization/sort-filter) — is present
+ *      and true, and exits non-zero otherwise (a run that merely finishes is
+ *      not a successful run; an eh-ONLY boot failure exits non-zero — the
+ *      ptv-1 review carry-over R1).
  *
- * The reviewer's reproduction command is exactly:
- *   xvfb-run -a corepack pnpm --filter @assay/vscode run:spike
- * (`run:spike` adds xvfb-run itself when DISPLAY is unset, so the bare script
- * works too on a headless box).
+ * Drills (ASSAY_SPIKE_DRILL=…), each a pass/fail harness mode:
+ *   - `missing-extension` (ptv1-2): no vendored Parquet bytes → the CDN
+ *     autoload path runs into the network block; the drill headline asserts
+ *     the Q5b failure mode is REPRODUCED (the offline negative proof).
+ *   - `eh-boot-failure` (ptv1-5, R1): sabotages ONLY the built `eh` glue
+ *     bundle so the mvp path stays green while the eh boot fails — the run
+ *     must then exit NON-ZERO via the `bundles.eh.ok` headline check.
+ *
+ * The reviewer's clean-worktree runbook — the exact committed commands,
+ * verified end-to-end from a fresh worktree — lives in
+ * apps/vscode/README.md ("Slice-1 exit harness — clean-worktree runbook").
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -90,6 +106,26 @@ const GRID_TTFR_BUDGET_MS = 1_000
 // Step 3: build.
 execFileSync(process.execPath, [path.join(here, 'build.mjs')], { stdio: 'inherit' })
 
+// Harness drill modes (selected by ASSAY_SPIKE_DRILL, threaded to the webview
+// through the extension host's webview config).
+const drillArg = process.env['ASSAY_SPIKE_DRILL'] ?? ''
+const drillMode = drillArg === 'missing-extension'
+const ehDrillMode = drillArg === 'eh-boot-failure'
+
+// R1 drill: corrupt ONLY the built `eh` glue bundle (the mvp bundle and the
+// vendored assets stay checksummed build output — build.mjs just verified
+// them). The webview then records a CONTAINED eh boot failure
+// (bundles.eh.ok=false) with the mvp path fully green, so the headline
+// assertion below — not a crashed process — decides the exit code. This is
+// the pin that an eh-ONLY boot failure exits non-zero (the ptv-1 review
+// carry-over: before the ptv1-5 hardening that scenario exited 0).
+if (ehDrillMode) {
+  writeFileSync(
+    path.join(dist, 'webview', 'duckdb-browser-eh.worker.js'),
+    'throw new Error("assay-eh-drill: injected eh boot failure (R1 exit-code pin)")\n',
+  )
+}
+
 // Step 4: launch the real VS Code extension host.
 const resultsPath = path.join(dist, 'spike-results.json')
 const extensionDevelopmentPath = appRoot
@@ -120,7 +156,7 @@ const extensionTestsEnv = {
   // stock CDN autoload path runs into the network block — the harness then
   // asserts the Q5b failure mode is REPRODUCED (the negative-proof that a
   // non-vendored asset WOULD fetch and be caught).
-  ASSAY_SPIKE_DRILL: process.env['ASSAY_SPIKE_DRILL'] ?? '',
+  ASSAY_SPIKE_DRILL: drillArg,
 }
 
 await runTests({
@@ -174,7 +210,6 @@ const vendoredAssetsPath = path.join(dist, 'vendored-assets.json')
 if (existsSync(vendoredAssetsPath)) {
   report.vendoredAssetsPin = readJson(vendoredAssetsPath)
 }
-const drillMode = extensionTestsEnv.ASSAY_SPIKE_DRILL === 'missing-extension'
 report.harness = {
   fixturePath,
   duckdbCli: process.env['DUCKDB'] ?? 'duckdb',
@@ -188,6 +223,7 @@ report.harness = {
       'in-worker interceptor: the vendored glue shim refuses fetch/XHR to the host (assay-netblock-refusal)',
     ],
     drillMode,
+    ehDrillMode,
   },
 }
 writeFileSync(resultsPath, JSON.stringify(report, null, 2) + '\n')
@@ -207,7 +243,9 @@ console.log(`SharedArrayBuffer:      ${String(environment.sharedArrayBuffer)}`)
 console.log(
   `mvp boot:               ok=${String(mvp.ok === true)} bootMs=${String(mvp.bootMs)} version=${String(mvp.version ?? '')}`,
 )
-console.log(`eh boot:                ok=${String(eh.ok === true)} ${String(eh.error ?? '')}`)
+console.log(
+  `eh boot:                ok=${String(eh.ok === true)} bootMs=${typeof eh.bootMs === 'number' ? String(eh.bootMs) : 'n/a'} ${String(eh.error ?? '')}`,
+)
 console.log(`engine adapter:         ${String(mvp.adapter ?? 'spike-local (ptv1-1 seam missing)')}`)
 // ptv1-2: vendored assets, network block, package size.
 const vendored = report.vendoredAssets ?? {}
@@ -224,7 +262,7 @@ if (vendoredPin !== undefined) {
   )
 }
 console.log(
-  `network block:          armed on extensions.duckdb.org (CSP connect-src excludes it + in-worker fetch/XHR refusal)${drillMode ? ' — DRILL MODE: missing-extension' : ''}`,
+  `network block:          armed on extensions.duckdb.org (CSP connect-src excludes it + in-worker fetch/XHR refusal)${drillMode ? ' — DRILL MODE: missing-extension' : ''}${ehDrillMode ? ' — DRILL MODE: eh-boot-failure (R1 pin: run must exit non-zero)' : ''}`,
 )
 console.log(
   `parquet extension:      vendored local serve state=${String(vendored.shimState ?? 'n/a')} post-open loaded=${String(report.fixture?.parquetExtension?.loaded)} installed=${String(report.fixture?.parquetExtension?.installed)}${drillMode ? ' (drill: no vendored bytes)' : ''}`,
@@ -232,6 +270,9 @@ console.log(
 console.log(`fixture rows:           ${String(fixture.rows)} (${String(fixture.bytes)} bytes)`)
 console.log(`ttfrMs:                 ${String(fixture.ttfrMs)}`)
 console.log(`pickerToFirstRowMs:     ${String(fixture.pickerToFirstRowMs)}`)
+console.log(
+  `open envelope (R2):     openMs=${String(fixture.openMs)} rowCountMs=${String(fixture.rowCountMs)} ttfrMs=${String(fixture.ttfrMs)} — sum = picker→first-row ${String(fixture.pickerToFirstRowMs)} ms`,
+)
 const heap = report.heap?.postFirstRow ?? {}
 console.log(
   `post-first-row heap:    ${String(heap.usedBytes)} bytes used / ${String(heap.limitBytes)} limit`,
@@ -277,10 +318,10 @@ let headlineChecks
 if (drillMode) {
   // Drill (ptv1-2): the Q5b failure mode must be REPRODUCED under the block —
   // the boot succeeds (no extension needed), the fixture open FAILS, and the
-  // extension probe reports it never left the machine (installed=false,
-  // loaded=false). The refusal marker in the open error is the direct proof
-  // that the CDN fetch was ATTEMPTED and refused; if the engine surfaces the
-  // failure opaquely, the installed=false + open-failure pair still pins it.
+  // refusal marker in the open error is REQUIRED (ptv1-5 carry b): it is the
+  // direct proof that the CDN fetch was ATTEMPTED and refused by the armed
+  // block, not an unrelated boot/open error. The drill also pins the shared
+  // boot invariants (mvp+eh) and the real-adapter identity.
   const openError = String(
     report.errors?.['open.million'] ?? report.fixture?.blockedBy ?? report.fixture?.error ?? '',
   )
@@ -291,16 +332,32 @@ if (drillMode) {
       value: report.bundles?.mvp?.ok,
     },
     {
+      // Same real-adapter identity invariant as normal mode (ptv1-1 carry b):
+      // the drill boots the real adapter too.
+      name: 'bundles.mvp.adapter',
+      ok: report.bundles?.mvp?.adapter === '@assay/engine-duckdb',
+      value: report.bundles?.mvp?.adapter,
+    },
+    {
+      // Boot pin (R1): the Q5b reproduction must not mask an eh boot failure —
+      // the drill's only permitted failure is the refused CDN fetch.
+      name: 'bundles.eh.ok',
+      ok: report.bundles?.eh?.ok === true,
+      value: report.bundles?.eh?.ok,
+    },
+    {
       name: 'drill.open.failed',
       ok: report.errors?.['open.million'] !== undefined,
       value: openError,
     },
     {
+      // ptv1-2 carry (b): the refusal marker is REQUIRED. (The pre-ptv1-5
+      // fallback disjunct — `fixture.parquetExtension.loaded === false &&
+      // vendoredAssets.drill !== undefined` — was unreachable: the open fails
+      // before any fixture evidence is recorded, so `report.fixture` is unset
+      // in drill mode and a check passable without the marker was vacuous.)
       name: 'drill.refusal.evidence',
-      ok:
-        openError.includes('assay-netblock-refusal') ||
-        (report.fixture?.parquetExtension?.loaded === false &&
-          report.vendoredAssets?.drill !== undefined),
+      ok: openError.includes('assay-netblock-refusal'),
       value: openError,
     },
   ]
@@ -310,6 +367,26 @@ if (drillMode) {
       name: 'bundles.mvp.ok',
       ok: report.bundles?.mvp?.ok === true,
       value: report.bundles?.mvp?.ok,
+    },
+    {
+      // ptv1-1 carry (b): the adapter IDENTITY is ASSERTED here, not merely
+      // printed in the summary — `bootAdapter` stamps '@assay/engine-duckdb'
+      // only when the boot ran through the real client's seam, so a
+      // faked/spike-local engine that manages to boot must still fail this
+      // headline check.
+      name: 'bundles.mvp.adapter',
+      ok: report.bundles?.mvp?.adapter === '@assay/engine-duckdb',
+      value: report.bundles?.mvp?.adapter,
+    },
+    {
+      // Boot pin, both engines — and the ptv-1 review carry-over R1: an
+      // eh-ONLY boot failure (mvp green, everything else green) must exit
+      // non-zero. Demonstrate with ASSAY_SPIKE_DRILL=eh-boot-failure (see the
+      // README runbook): the sabotage keeps the mvp path green, so this check
+      // is what fails the run.
+      name: 'bundles.eh.ok',
+      ok: report.bundles?.eh?.ok === true,
+      value: report.bundles?.eh?.ok,
     },
     {
       name: 'fixture.rows',
@@ -343,6 +420,22 @@ if (drillMode) {
         ),
       value: report.bundles?.mvp?.version,
     },
+    {
+      // ptv1-2 offline pin: the webview records the CDN host the block is
+      // armed against and BOTH block layers (the CSP connect-src exclusion +
+      // the in-worker fetch/XHR refusal). `vendored.parquet.servedLocally`
+      // above is the operative zero-network proof; this pins the armed
+      // block's identity, and the missing-extension drill is the negative
+      // proof (a non-vendored asset WOULD fetch — and be caught).
+      name: 'offline.blockedHostPinned',
+      ok:
+        report.vendoredAssets?.blockedHost === 'extensions.duckdb.org' &&
+        String(report.vendoredAssets?.networkBlock ?? '').includes('CSP connect-src') &&
+        String(report.vendoredAssets?.networkBlock ?? '').includes(
+          'in-worker fetch/XHR interceptor',
+        ),
+      value: `host=${String(report.vendoredAssets?.blockedHost)} layers=${String(report.vendoredAssets?.networkBlock)}`,
+    },
     // ptv1-4: the headless-grid dataset surface — the row's done-when pins.
     {
       name: 'grid.firstRowVisible',
@@ -361,6 +454,16 @@ if (drillMode) {
           GRID_HEAP_DELTA_BUDGET_BYTES,
       value: `delta ${String(report.heap?.postGrid?.usedBytes - report.heap?.postFirstRow?.usedBytes)} <= ${String(GRID_HEAP_DELTA_BUDGET_BYTES)}`,
     },
+    // ptv1-4 review (drills 4/4b): the next two checks are COMPLEMENTARY —
+    // each catches what the other misses — so future edits must keep BOTH in
+    // this headline set. `grid.domAudit` pins STRUCTURE (the roving-tabindex
+    // audit: exactly one rendered tab stop, tabindex="-1" cells,
+    // roles/aria counts/labels, bounded DOM, text-only cells), while
+    // `grid.keyboardNavigation` pins BEHAVIOR (real ArrowDown/ArrowRight
+    // keydowns move the roving focus and scroll). A structurally-perfect
+    // grid with a dead key handler fails only the probe; a probe that passes
+    // without honoring the roving contract fails only the audit. Dropping
+    // either weakens the slice-1 a11y pin.
     {
       name: 'grid.domAudit',
       ok: report.grid?.audit?.ok === true,

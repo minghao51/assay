@@ -137,9 +137,77 @@ Notable measured findings (full detail in the report):
 - `read_parquet` autoloads the Parquet extension from `extensions.duckdb.org` unless it
   is vendored — a PT-V slice-1 requirement.
 
-Later PT-V rows add the evidence-harness hardening (ptv1-5), a workspace
-filesystem adapter (`@assay/data-sources`), edit/validate/diff in VS Code
-(MVP scenario 11), Git context integration and a dataset diff command,
-reusing `@assay/core`, `@assay/ui` (ADR 0008), with the security constraints
-of `docs/engineering/04-testing-security-quality.md` §6 (minimal filesystem
+### Drills
+
+```bash
+# ptv1-2 offline drill — NO vendored Parquet bytes, so the stock CDN autoload
+# path runs into the armed network block; the harness then asserts the Q5b
+# failure mode is REPRODUCED (the open fails with the assay-netblock-refusal
+# marker). Expected: drill headline PASS, exit 0.
+ASSAY_SPIKE_DRILL=missing-extension DUCKDB=/path/to/duckdb \
+  corepack pnpm --filter @assay/vscode run:spike
+
+# R1 exit-code drill (ptv1-5) — sabotages ONLY the built `eh` glue bundle, so
+# the mvp path (boot, vendored serve, 1M open, grid surface) stays green while
+# the eh boot fails. Expected: headline FAIL naming `bundles.eh.ok`, NON-ZERO
+# exit (the ptv-1 review carry-over: an eh-only boot failure must not pass).
+ASSAY_SPIKE_DRILL=eh-boot-failure DUCKDB=/path/to/duckdb \
+  corepack pnpm --filter @assay/vscode run:spike
+```
+
+## Slice-1 exit harness — clean-worktree runbook (ptv1-5)
+
+`run:spike` is the PT-V slice-1 exit harness: it asserts the ptv1-1…ptv1-4
+headline claims and exits non-zero otherwise. The done-when bar is
+**reviewer-reproducible from a clean worktree via committed commands only** —
+verified end-to-end for this exact sequence (ptv1-5, 2026-10-13):
+
+```bash
+# 1. A clean tree — fresh clone, or a worktree pinned to the slice-1 tip:
+git clone <repo-url> /tmp/assay-slice1-verify
+#    (or: git worktree add /tmp/assay-slice1-verify <slice-1 tip>)
+cd /tmp/assay-slice1-verify
+
+# 2. Install (Node >= 22 via corepack; no other setup):
+corepack pnpm install
+
+# 3. The exit harness — expected: headline PASS, exit 0. DUCKDB points at a
+#    DuckDB CLI (used only to generate the 1M-row SYNTHETIC fixture on demand;
+#    the system `duckdb` is used when DUCKDB is unset). Headless boxes are
+#    handled: the script adds xvfb-run itself; VS Code comes from the system
+#    install or a managed download (cached in ~/.vscode-test after one run).
+DUCKDB=/path/to/duckdb corepack pnpm --filter @assay/vscode run:spike
+
+# 4. The two drills (expected exits as annotated above):
+ASSAY_SPIKE_DRILL=missing-extension DUCKDB=/path/to/duckdb \
+  corepack pnpm --filter @assay/vscode run:spike
+ASSAY_SPIKE_DRILL=eh-boot-failure DUCKDB=/path/to/duckdb \
+  corepack pnpm --filter @assay/vscode run:spike
+```
+
+Every run writes value-free evidence to `dist/spike-results.json` and prints
+the summary (including the R2 timing envelopes: mvp/eh boot ms, the open
+envelope, TTFR picker→first-row, the live-heap delta) plus a final
+`headline evidence: PASS (…)` line listing every asserted check.
+
+### Headline assertion inventory (claim → check)
+
+| Claim (row)                                                             | Headline check(s)                                                                                                          |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Real `@assay/engine-duckdb` adapter, not spike-local (ptv1-1)           | `bundles.mvp.adapter` (+ `bundles.mvp.ok`)                                                                                 |
+| Engine boots in the webview, BOTH bundles (ptv-1; R1 carry-over)        | `bundles.mvp.ok`, `bundles.eh.ok`                                                                                          |
+| Zero network fetches; vendored Parquet served locally (ptv1-2)          | `vendored.parquet.servedLocally`, `vendored.engineVersionPin`, `offline.blockedHostPinned` + the `missing-extension` drill |
+| 1M-row synthetic opens; rows > 0; OPFS round-trip (ptv-1/ptv1-3/ptv1-4) | `fixture.rows`, `opfs.roundTrip`                                                                                           |
+| TTFR open→first-row < 1 s (ptv1-4)                                      | `grid.firstRowVisible`                                                                                                     |
+| Live-heap delta within the pinned budget (ptv1-4)                       | `grid.heapWithinBudget`                                                                                                    |
+| Grid a11y STRUCTURE — roving-tabindex audit (ptv1-4)                    | `grid.domAudit`                                                                                                            |
+| Grid a11y BEHAVIOR — real-keydown probe (ptv1-4)                        | `grid.keyboardNavigation` — the audit + probe pair is COMPLEMENTARY (each catches what the other misses); keep BOTH        |
+| Virtualized bounded DOM (ptv1-4)                                        | `grid.virtualized`                                                                                                         |
+| Sort/filter-lite contracts (ptv1-4)                                     | `grid.sortFilterLite`                                                                                                      |
+
+Later PT-V rows add a workspace filesystem adapter (`@assay/data-sources`),
+edit/validate/diff in VS Code (MVP scenario 11), Git context integration and
+a dataset diff command, reusing `@assay/core`, `@assay/ui` (ADR 0008), with
+the security constraints of
+`docs/engineering/04-testing-security-quality.md` §6 (minimal filesystem
 permissions, strict CSP, validated webview messages).
