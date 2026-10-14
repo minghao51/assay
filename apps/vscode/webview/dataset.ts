@@ -22,6 +22,7 @@
  * (ADR 0025/0037).
  */
 import { GridViewportModel } from '@assay/grid'
+import type { GridDataProvider } from '@assay/grid'
 import { emptyHistory, isLiveRow, overlayEdit, stateAtCursor } from '@assay/domain'
 import type { OverlayBase, RowId } from '@assay/domain'
 import type { WorkerDiagnostic } from './engine-boot'
@@ -250,6 +251,7 @@ async function exerciseRealEditor(
   keyboardCancel: boolean
   fullViewCastRefusal: boolean
 }> {
+  const readonlyInsertedRowDirty = await proveReadonlyInsertedRowDirtyMarker()
   const schema = model.schema ?? []
   const fullViewCastRefusal =
     base.baseRowCount > 32
@@ -479,7 +481,11 @@ async function exerciseRealEditor(
   const deleteUndoRevision = controller.snapshot.revision
   grid.element.querySelector<HTMLButtonElement>('.assay-edit-undo')?.click()
   await waitForRevision(controller, deleteUndoRevision)
-  const insertDelete = inserted && deleted && (model.totalRows ?? 0) === rowCountBeforeInsert
+  const insertDelete =
+    inserted &&
+    deleted &&
+    (model.totalRows ?? 0) === rowCountBeforeInsert &&
+    readonlyInsertedRowDirty
   const sessionWarningVisible =
     grid.element
       .querySelector('.assay-session-warning')
@@ -493,6 +499,55 @@ async function exerciseRealEditor(
     queryStatePreserved,
     sessionWarningVisible,
     fullViewCastRefusal,
+  }
+}
+
+async function proveReadonlyInsertedRowDirtyMarker(): Promise<boolean> {
+  const insertedId = 'inserted-readonly-row' as RowId
+  const provider: GridDataProvider = {
+    rowCount: async () => 1,
+    fetchRange: async (range) => ({
+      startRow: range.startRow,
+      rows: [[new Uint8Array([1])]],
+      rowKeys: [insertedId],
+    }),
+    sort: async () => undefined,
+    filter: async () => undefined,
+    schema: async () => [{ name: 'payload', type: 'BLOB' }],
+  }
+  const model = new GridViewportModel(provider)
+  await model.load()
+  const grid = new WebviewDataGrid(model, {
+    showToolbar: false,
+    editing: {
+      state: () => ({ busy: false, dirty: true, canUndo: true, canRedo: false }),
+      isDirty: (rowId) => rowId === insertedId,
+      onInsert: () => undefined,
+      onUndo: () => undefined,
+      onRedo: () => undefined,
+      onCommitCell: () => undefined,
+      onDeleteRow: () => undefined,
+    },
+  })
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const firstRow = grid.whenFirstRowVisible()
+  grid.mount(container)
+  try {
+    await firstRow
+    const row = grid.gridElement.querySelector<HTMLElement>('[data-row-index="0"]')
+    const cell = row?.querySelector<HTMLElement>('[data-col-index="0"]')
+    const passed =
+      row?.dataset.rowId === insertedId &&
+      row.dataset.dirty === 'true' &&
+      cell?.dataset.dirty === 'true' &&
+      cell.title.startsWith('Read-only:') &&
+      !cell.hasAttribute('aria-label')
+    if (!passed) throw new Error('read-only inserted-row dirty annotation was not rendered')
+    return true
+  } finally {
+    grid.dispose()
+    container.remove()
   }
 }
 

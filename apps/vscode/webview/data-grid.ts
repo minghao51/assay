@@ -690,18 +690,20 @@ export class WebviewDataGrid {
         if (!supportsCellDraft(schema[columnIndex]?.type ?? '')) {
           cell.title = 'Read-only: this value has no lossless editor in this view.'
         }
-        if (
-          this.options.editing !== undefined &&
-          slot.key !== undefined &&
-          supportsCellDraft(schema[columnIndex]?.type ?? '')
-        ) {
-          cell.setAttribute('aria-label', `Edit ${schema[columnIndex]?.name ?? 'cell'}`)
+        if (this.options.editing !== undefined && slot.key !== undefined) {
           cell.dataset.dirty = this.options.editing.isDirty(
             slot.key as RowId,
             schema[columnIndex]?.name ?? '',
           )
             ? 'true'
             : 'false'
+        }
+        if (
+          this.options.editing !== undefined &&
+          slot.key !== undefined &&
+          supportsCellDraft(schema[columnIndex]?.type ?? '')
+        ) {
+          cell.setAttribute('aria-label', `Edit ${schema[columnIndex]?.name ?? 'cell'}`)
           cell.addEventListener('dblclick', () => this.beginCellEdit(cell, index, columnIndex))
           cell.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === 'F2') {
