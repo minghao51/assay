@@ -20,6 +20,20 @@ describe('parseCellDraft', () => {
     expect(parseCellDraft('DECIMAL(18,2)', 'not-a-number')).toMatchObject({ ok: false })
   })
 
+  it('keeps Arrow decimal and 128-bit integer word-array representations read-only', () => {
+    // Arrow Decimal(18,2) may return Uint32Array words, not a scalar decimal.
+    const arrowDecimalWords = new Uint32Array([12345, 0, 0, 0])
+    const arrowDecimalValue = { words: arrowDecimalWords }
+    expect(arrowDecimalValue.words).toBeInstanceOf(Uint32Array)
+    expect(String(arrowDecimalValue)).toBe('[object Object]')
+    for (const type of ['DECIMAL(18,2)', 'NUMERIC(18,2)', 'HUGEINT', 'UHUGEINT']) {
+      expect(supportsCellDraft(type), type).toBe(false)
+      expect(parseCellDraft(type, String(arrowDecimalValue)).ok, type).toBe(false)
+    }
+    expect(supportsCellDraft('BIGINT')).toBe(true)
+    expect(parseCellDraft('BIGINT', '9007199254740993').ok).toBe(true)
+  })
+
   it('refuses binary, temporal, and unfamiliar scalar codecs', () => {
     for (const type of ['BLOB', 'DATE', 'TIMESTAMP', 'INTERVAL', 'GEOMETRY', 'ENUM']) {
       expect(supportsCellDraft(type), type).toBe(false)

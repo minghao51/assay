@@ -53,7 +53,7 @@ interface DatasetReport {
 
 function safeProofFailure(message: string | undefined): string {
   const prefix = 'whole-view cast refusal invariant failed: '
-  if (message?.startsWith(prefix)) return message.slice(prefix.length)
+  if (message?.startsWith(prefix)) return 'whole-view cast refusal invariant failed'
   if (message?.includes('test proof has no editable scalar column'))
     return 'no editable scalar codec'
   if (message?.includes('test proof column is unavailable')) return 'editable column missing'
@@ -61,7 +61,7 @@ function safeProofFailure(message: string | undefined): string {
   if (message?.includes('Set NULL keyboard proof')) return 'Set NULL keyboard proof failed'
   if (message?.includes('test proof timed out')) return 'proof timed out'
   const stage =
-    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard)(?: category=(set-null-assertion|proof-timeout|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
+    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|proof-sort-filter|proof-editor-cancel|proof-identity-check|proof-cell-commit|proof-cell-await-row|proof-cell-await-editor-cell|proof-cell-editor-open|proof-cell-dispatch|proof-cell-await-commit|proof-cell-view-check|proof-undo-redo|proof-branch-and-null|proof-insert-delete|set-null-row-wait|set-null-editor-open|set-null-dispatch|set-null-await-commit|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-check-status|wide-check-history|wide-check-error|wide-check-count|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard)(?: category=(set-null-assertion|proof-timeout|proof-revision-timeout|candidate-cast-rejected|operation-rejected|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
       message ?? '',
     )
   if (stage !== null) return `webview stage=${stage[1]}`

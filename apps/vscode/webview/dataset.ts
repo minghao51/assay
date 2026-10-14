@@ -180,8 +180,10 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
         canRedo: controller.snapshot.history.cursor < controller.snapshot.history.entries.length,
       }),
       isDirty: (rowId: RowId, column: string) => {
-        const overlay = stateAtCursor(base, controller.currentHistory)
-        return overlayEdit(overlay, rowId, column) !== null
+        const overlay = currentOverlay()
+        return (
+          overlay.inserts.get(rowId)?.live === true || overlayEdit(overlay, rowId, column) !== null
+        )
       },
       onInsert: () => void controller.insertRow(),
       onUndo: () => void controller.undo(),
@@ -190,6 +192,16 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
       onDeleteRow: (rowId) => void controller.deleteRow(rowId),
     },
   })
+  let dirtyHistory = controller.currentHistory
+  let dirtyOverlay = stateAtCursor(base, dirtyHistory)
+  const currentOverlay = () => {
+    const history = controller.currentHistory
+    if (history !== dirtyHistory) {
+      dirtyHistory = history
+      dirtyOverlay = stateAtCursor(base, history)
+    }
+    return dirtyOverlay
+  }
   const editStatus = document.createElement('p')
   editStatus.id = 'edit-status'
   editStatus.setAttribute('role', 'status')
@@ -261,7 +273,7 @@ async function exerciseRealEditor(
   if (columnIndex < 0) throw new Error('test proof has no editable scalar column')
   const column = schema[columnIndex]
   if (column === undefined) throw new Error('test proof column is unavailable')
-  activeOpenStage = 'edit-proof-follow-up'
+  activeOpenStage = 'proof-sort-filter'
   await model.setSort({ column: column.name, direction: 'desc' })
   await model.setFilters([{ column: column.name, predicate: 'IS NOT NULL' }])
   await waitForReadyRow(model)
@@ -270,20 +282,23 @@ async function exerciseRealEditor(
     throw new Error('test proof could not resolve a logical row identity')
   }
   const targetId = firstSlot.key as RowId
+  activeOpenStage = 'proof-editor-cancel'
   const keyboardCancel = await dispatchCellCancel(grid, model, targetId, columnIndex, column.type)
   if (!keyboardCancel || controller.snapshot.history.entries.length !== 0) {
     throw new Error('Escape did not cancel the production cell editor')
   }
+  activeOpenStage = 'proof-identity-check'
   const identityMatchesEngine = await provider.verifyRowId(
     overlaySnapshot(base, emptyHistory()),
     0,
     targetId,
   )
   if (!identityMatchesEngine) throw new Error('test proof found a position-derived row identity')
-  const initialRevision = controller.snapshot.revision
+  activeOpenStage = 'proof-cell-commit'
   const expected = draftForTest(column.type)
   const entriesBefore = controller.currentHistory.entries.length
-  await dispatchCellEdit(grid, model, targetId, columnIndex, expected)
+  const initialRevision = await dispatchCellEdit(grid, model, targetId, columnIndex, expected)
+  activeOpenStage = 'proof-cell-await-commit'
   await waitForRevision(controller, initialRevision)
   const active = controller.currentHistory
   const lastOp = active.entries[active.cursor - 1]?.op
@@ -293,6 +308,27 @@ async function exerciseRealEditor(
     active.cursor === entriesBefore + 1 &&
     lastOp?.kind === 'cell-set' &&
     lastOp.rowId === targetId
+  await waitUntil(() => {
+    const index = findVisibleRowIndex(grid, model, targetId)
+    return (
+      index !== undefined &&
+      grid.gridElement.querySelector<HTMLElement>(
+        `[data-row-index="${String(index)}"] [data-col-index="${String(columnIndex)}"]`,
+      )?.dataset.dirty === 'true'
+    )
+  })
+  const dirtyIndex = findVisibleRowIndex(grid, model, targetId)
+  const dirtyCell =
+    dirtyIndex === undefined
+      ? null
+      : grid.gridElement.querySelector<HTMLElement>(
+          `[data-row-index="${String(dirtyIndex)}"] [data-col-index="${String(columnIndex)}"]`,
+        )
+  const dirtyCellMarked = dirtyCell?.dataset.dirty === 'true'
+  const dirtyRowMarked = findRenderedRow(grid, targetId)?.dataset.dirty === 'true'
+  if (!dirtyCellMarked || !dirtyRowMarked)
+    throw new Error('updated cell/row dirty markers were not rendered')
+  activeOpenStage = 'proof-cell-view-check'
   const editedView = await provider.verifyCellValue(
     overlaySnapshot(base, controller.currentHistory),
     targetId,
@@ -301,23 +337,66 @@ async function exerciseRealEditor(
   )
   if (!editedView) throw new Error('test proof did not observe the edited effective row')
 
+  activeOpenStage = 'proof-undo-redo'
   const beforeUndo = controller.snapshot.revision
   clickAndWait(grid, '.assay-edit-undo', controller, beforeUndo)
   await waitRevisionPromise(controller, beforeUndo)
   const undoWorked = controller.snapshot.history.cursor === 0
+  await waitUntil(() => {
+    const index = findVisibleRowIndex(grid, model, targetId)
+    return (
+      index !== undefined &&
+      grid.gridElement.querySelector<HTMLElement>(
+        `[data-row-index="${String(index)}"] [data-col-index="${String(columnIndex)}"]`,
+      )?.dataset.dirty === 'false'
+    )
+  })
+  const undoneIndex = findVisibleRowIndex(grid, model, targetId)
+  const undoneCell =
+    undoneIndex === undefined
+      ? null
+      : grid.gridElement.querySelector<HTMLElement>(
+          `[data-row-index="${String(undoneIndex)}"] [data-col-index="${String(columnIndex)}"]`,
+        )
+  const undoClearedDirtyMarker =
+    undoneCell?.dataset.dirty === 'false' &&
+    findRenderedRow(grid, targetId)?.dataset.dirty === 'false'
+  if (!undoClearedDirtyMarker) throw new Error('undo did not remove cell/row dirty markers')
   const afterUndo = controller.snapshot.revision
   if (controller.snapshot.history.cursor !== 0)
     throw new Error('test proof undo did not move history cursor')
   clickAndWait(grid, '.assay-edit-redo', controller, afterUndo)
   await waitRevisionPromise(controller, afterUndo)
-  const undoRedo = undoWorked && Number(controller.snapshot.history.cursor) === 1
+  await waitUntil(() => {
+    const index = findVisibleRowIndex(grid, model, targetId)
+    return (
+      index !== undefined &&
+      grid.gridElement.querySelector<HTMLElement>(
+        `[data-row-index="${String(index)}"] [data-col-index="${String(columnIndex)}"]`,
+      )?.dataset.dirty === 'true'
+    )
+  })
+  const redoneIndex = findVisibleRowIndex(grid, model, targetId)
+  const redoneCell =
+    redoneIndex === undefined
+      ? null
+      : grid.gridElement.querySelector<HTMLElement>(
+          `[data-row-index="${String(redoneIndex)}"] [data-col-index="${String(columnIndex)}"]`,
+        )
+  const redoRestoredDirtyMarker =
+    redoneCell?.dataset.dirty === 'true' &&
+    findRenderedRow(grid, targetId)?.dataset.dirty === 'true'
+  const undoRedo =
+    undoWorked && Number(controller.snapshot.history.cursor) === 1 && redoRestoredDirtyMarker
+  if (!redoRestoredDirtyMarker) throw new Error('redo did not restore cell dirty marker')
 
+  activeOpenStage = 'proof-branch-and-null'
   const beforeBranchUndo = controller.snapshot.revision
   clickAndWait(grid, '.assay-edit-undo', controller, beforeBranchUndo)
   await waitRevisionPromise(controller, beforeBranchUndo)
   const alternate = draftForTest(column.type, true)
-  await dispatchCellEdit(grid, model, targetId, columnIndex, alternate)
-  await waitForRevision(controller, controller.snapshot.revision)
+  const alternateRevision = await dispatchCellEdit(grid, model, targetId, columnIndex, alternate)
+  await waitForRevision(controller, alternateRevision)
   const branchTruncationBase =
     Number(controller.snapshot.history.cursor) === controller.snapshot.history.entries.length &&
     Number(controller.snapshot.history.entries.length) === 1
@@ -327,6 +406,7 @@ async function exerciseRealEditor(
     throw new Error('Set NULL keyboard proof did not apply and undo exactly once')
   const branchTruncation = branchTruncationBase && setNullKeyboard
 
+  activeOpenStage = 'proof-insert-delete'
   const queryStatePreserved = model.sort?.column === column.name && model.filters.length === 1
   await model.setFilters([])
   await waitForReadyRow(model)
@@ -334,10 +414,57 @@ async function exerciseRealEditor(
   const insertRevision = controller.snapshot.revision
   grid.element.querySelector<HTMLButtonElement>('.assay-edit-insert')?.click()
   await waitForRevision(controller, insertRevision)
-  const inserted = (model.totalRows ?? 0) === rowCountBeforeInsert + 1
+  const insertedState = stateAtCursor(base, controller.currentHistory)
+  const insertedId = [...insertedState.inserts.values()].find((record) => record.live)?.id
+  await waitUntil(
+    () => insertedId !== undefined && findVisibleRowIndex(grid, model, insertedId) !== undefined,
+  )
+  await waitUntil(
+    () => insertedId !== undefined && findRenderedRow(grid, insertedId)?.dataset.dirty === 'true',
+  )
+  const insertedIndex =
+    insertedId === undefined ? undefined : findVisibleRowIndex(grid, model, insertedId)
+  const insertedRow =
+    insertedIndex === undefined
+      ? null
+      : grid.gridElement.querySelector<HTMLElement>(`[data-row-index="${String(insertedIndex)}"]`)
+  const insertedDirty = insertedRow?.dataset.dirty === 'true'
+  const inserted = (model.totalRows ?? 0) === rowCountBeforeInsert + 1 && insertedDirty
+  if (!insertedDirty) throw new Error('inserted row dirty marker was not rendered')
   const insertUndoRevision = controller.snapshot.revision
   grid.element.querySelector<HTMLButtonElement>('.assay-edit-undo')?.click()
   await waitForRevision(controller, insertUndoRevision)
+  const insertUndoCleared =
+    insertedId !== undefined &&
+    !isLiveRow(base, stateAtCursor(base, controller.currentHistory), insertedId)
+  await waitUntil(
+    () =>
+      model.totalRows === rowCountBeforeInsert &&
+      (insertedId === undefined || findRenderedRow(grid, insertedId) === undefined),
+  )
+  if (!insertUndoCleared) throw new Error('undo did not remove inserted row')
+  const insertRedoRevision = controller.snapshot.revision
+  grid.element.querySelector<HTMLButtonElement>('.assay-edit-redo')?.click()
+  await waitForRevision(controller, insertRedoRevision)
+  await waitUntil(
+    () => insertedId !== undefined && findVisibleRowIndex(grid, model, insertedId) !== undefined,
+  )
+  await waitUntil(
+    () => insertedId !== undefined && findRenderedRow(grid, insertedId)?.dataset.dirty === 'true',
+  )
+  const redoneInsertIndex =
+    insertedId === undefined ? undefined : findVisibleRowIndex(grid, model, insertedId)
+  const redoneInsert =
+    redoneInsertIndex === undefined
+      ? null
+      : grid.gridElement.querySelector<HTMLElement>(
+          `[data-row-index="${String(redoneInsertIndex)}"]`,
+        )
+  if (redoneInsert?.dataset.dirty !== 'true')
+    throw new Error('redo did not restore inserted-row dirty marker')
+  const insertRedoUndoRevision = controller.snapshot.revision
+  grid.element.querySelector<HTMLButtonElement>('.assay-edit-undo')?.click()
+  await waitForRevision(controller, insertRedoUndoRevision)
   const deleteRevision = controller.snapshot.revision
   await waitForReadyRow(model)
   const firstDeleteSlot = model.getRow(0)
@@ -398,15 +525,31 @@ async function proveFullViewCastRefusal(
   const filteredCount = model.totalRows
   const cursorBefore = controller.snapshot.history.cursor
   activeOpenStage = 'wide-candidate-preflight'
-  await controller.commitCell(hiddenRowId, numeric.name, { kind: 'text', text: 'invalid-cast' })
+  try {
+    await controller.commitCell(hiddenRowId, numeric.name, { kind: 'text', text: 'invalid-cast' })
+  } catch {
+    // The proof below owns the value-free invariant outcome even if activation
+    // itself rejects; never forward an engine error that could include data.
+  }
+  activeOpenStage = 'wide-check-status'
   const status = document.getElementById('edit-status')
+  activeOpenStage = 'wide-check-history'
   const cursorStable = controller.snapshot.history.cursor === cursorBefore
   const historyEmpty = controller.snapshot.history.entries.length === 0
-  const errorAlert = controller.snapshot.error !== null && status?.getAttribute('role') === 'alert'
-  const filteredCountStable = model.totalRows === filteredCount
+  activeOpenStage = 'wide-check-error'
+  const castRefusalError =
+    controller.snapshot.error?.includes('cannot be represented safely') === true
+  const errorAlert = castRefusalError && status?.getAttribute('role') === 'alert'
+  activeOpenStage = 'wide-check-count'
+  let filteredCountStable = false
+  try {
+    filteredCountStable = model.totalRows === filteredCount
+  } catch {
+    // A poisoned effective view is a failed cast-refusal invariant too.
+  }
   if (!(cursorStable && historyEmpty && errorAlert && filteredCountStable)) {
     throw new Error(
-      `whole-view cast refusal invariant failed: cursor=${String(cursorStable)} historyEmpty=${String(historyEmpty)} errorAlert=${String(errorAlert)} filteredCountStable=${String(filteredCountStable)}`,
+      `whole-view cast refusal invariant failed: cursor=${String(cursorStable)} historyEmpty=${String(historyEmpty)} castRefusalError=${String(castRefusalError)} errorAlert=${String(errorAlert)} filteredCountStable=${String(filteredCountStable)}`,
     )
   }
   return true
@@ -419,20 +562,7 @@ async function dispatchCellCancel(
   columnIndex: number,
   type: string,
 ): Promise<boolean> {
-  const rowIndex = findVisibleRowIndex(grid, model, rowId)
-  if (rowIndex === undefined) return false
-  const selector = `[data-row-index="${String(rowIndex)}"] [data-col-index="${String(columnIndex)}"]`
-  await waitUntil(
-    () =>
-      grid.gridElement
-        .querySelector<HTMLElement>(selector)
-        ?.getAttribute('aria-label')
-        ?.startsWith('Edit ') === true,
-  )
-  const cell = grid.gridElement.querySelector<HTMLElement>(selector)
-  if (cell === null) return false
-  cell.focus()
-  cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  const { cell, selector } = await openCellEditor(grid, model, rowId, columnIndex)
   const input = cell.querySelector<HTMLInputElement>('.assay-cell-editor')
   if (input === null) return false
   const originalDraft = input.value
@@ -482,27 +612,16 @@ async function dispatchCellEdit(
   rowId: RowId,
   columnIndex: number,
   draft: string,
-): Promise<void> {
-  await waitUntil(() => findVisibleRowIndex(grid, model, rowId) !== undefined)
-  const rowIndex = findVisibleRowIndex(grid, model, rowId)
-  if (rowIndex === undefined)
-    throw new Error('test proof logical row is not in the effective viewport')
-  const selector = `[data-row-index="${String(rowIndex)}"] [data-col-index="${String(columnIndex)}"]`
-  await waitUntil(
-    () =>
-      grid.gridElement
-        .querySelector<HTMLElement>(selector)
-        ?.getAttribute('aria-label')
-        ?.startsWith('Edit ') === true,
-  )
-  const cell = grid.gridElement.querySelector<HTMLElement>(selector)
-  if (cell === null) throw new Error('test proof could not find the real rendered cell')
-  cell.focus()
-  cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+): Promise<number> {
+  const { cell } = await openCellEditor(grid, model, rowId, columnIndex)
   const input = cell.querySelector<HTMLInputElement>('.assay-cell-editor')
   if (input === null) throw new Error('Enter did not open the production cell editor')
+  activeOpenStage = 'proof-cell-dispatch'
+  const revision = activeController?.snapshot.revision
+  if (revision === undefined) throw new Error('test proof controller is unavailable')
   input.value = draft
   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  return revision
 }
 
 async function dispatchSetNull(
@@ -512,19 +631,16 @@ async function dispatchSetNull(
   rowId: RowId,
   columnIndex: number,
 ): Promise<boolean> {
-  const rowIndex = findVisibleRowIndex(grid, model, rowId)
-  if (rowIndex === undefined) throw new Error('set-null-row-not-visible')
-  const cell = grid.gridElement.querySelector<HTMLElement>(
-    `[data-row-index="${String(rowIndex)}"] [data-col-index="${String(columnIndex)}"]`,
-  )
-  if (cell === null) throw new Error('set-null-cell-not-rendered')
-  cell.focus()
-  cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  activeOpenStage = 'set-null-editor-open'
+  const { cell } = await openCellEditor(grid, model, rowId, columnIndex)
+  await waitUntil(() => cell.querySelector<HTMLButtonElement>('.assay-cell-set-null') !== null)
   const button = cell.querySelector<HTMLButtonElement>('.assay-cell-set-null')
   if (button === null) throw new Error('set-null-button-not-opened')
   const revision = controller.snapshot.revision
   button.focus()
+  activeOpenStage = 'set-null-dispatch'
   button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  activeOpenStage = 'set-null-await-commit'
   await waitForRevision(controller, revision)
   const op = controller.currentHistory.entries.at(-1)?.op
   const setNullApplied = op?.kind === 'cell-set' && op.value.kind === 'null'
@@ -535,6 +651,12 @@ async function dispatchSetNull(
   if (controller.snapshot.history.cursor !== 1)
     throw new Error('set-null-undo-did-not-restore-cursor')
   return true
+}
+
+function findRenderedRow(grid: WebviewDataGrid, rowId: RowId): HTMLElement | undefined {
+  return [...grid.gridElement.querySelectorAll<HTMLElement>('[data-row-id]')].find(
+    (row) => row.dataset.rowId === rowId,
+  )
 }
 
 function findVisibleRowIndex(
@@ -548,6 +670,35 @@ function findVisibleRowIndex(
     if (slot.status === 'ready' && slot.key === rowId) return index
   }
   return undefined
+}
+
+async function openCellEditor(
+  grid: WebviewDataGrid,
+  model: GridViewportModel,
+  rowId: RowId,
+  columnIndex: number,
+): Promise<{ readonly cell: HTMLElement; readonly selector: string }> {
+  const deadline = Date.now() + 15_000
+  while (Date.now() < deadline) {
+    const rowIndex = findVisibleRowIndex(grid, model, rowId)
+    if (rowIndex !== undefined) {
+      const selector = `[data-row-index="${String(rowIndex)}"] [data-col-index="${String(columnIndex)}"]`
+      const cell = grid.gridElement.querySelector<HTMLElement>(selector)
+      if (cell?.getAttribute('aria-label')?.startsWith('Edit ') === true) {
+        const input = cell.querySelector<HTMLInputElement>('.assay-cell-editor')
+        if (input !== null) return { cell, selector }
+        activeOpenStage = 'proof-cell-editor-open'
+        cell.focus()
+        cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+        if (cell.isConnected) {
+          const openedInput = cell.querySelector<HTMLInputElement>('.assay-cell-editor')
+          if (openedInput !== null) return { cell, selector }
+        }
+      }
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error('test proof editor did not render for the logical row')
 }
 
 function draftForTest(type: string, alternate = false): string {
@@ -565,7 +716,25 @@ async function waitForReadyRow(model: GridViewportModel): Promise<void> {
 }
 
 async function waitForRevision(controller: EditController, revision: number): Promise<void> {
-  await waitUntil(() => !controller.snapshot.busy && controller.snapshot.revision > revision)
+  try {
+    await waitUntil(
+      () =>
+        !controller.snapshot.busy &&
+        (controller.snapshot.revision > revision || controller.snapshot.error !== null),
+    )
+  } catch {
+    const snapshot = controller.snapshot
+    throw new Error(
+      `test proof revision timeout busy=${String(snapshot.busy)} advanced=${String(snapshot.revision > revision)} rejected=${String(snapshot.error !== null)}`,
+    )
+  }
+  if (controller.snapshot.revision <= revision) {
+    throw new Error(
+      controller.snapshot.error?.includes('cannot be represented safely')
+        ? 'test proof candidate cast was rejected'
+        : 'test proof operation was rejected',
+    )
+  }
 }
 
 async function waitRevisionPromise(controller: EditController, revision: number): Promise<boolean> {
@@ -610,20 +779,32 @@ window.addEventListener('message', (event) => {
     datasetReceived = true
     openDataset(data.name ?? 'dataset', data.bytes).catch((error: unknown) => {
       const testErrorCategory =
-        error instanceof Error && error.message.startsWith('set-null-')
-          ? error.message
-          : error instanceof Error && error.message.startsWith('Set NULL keyboard proof')
-            ? 'set-null-assertion'
-            : error instanceof Error && error.message === 'test proof timed out'
-              ? 'proof-timeout'
-              : error instanceof Error
-                ? 'operation-error'
-                : 'unknown'
-      const message = config.testHarness
-        ? `test-only open failure stage=${activeOpenStage} category=${testErrorCategory}`
-        : error instanceof Error
-          ? error.message
-          : String(error)
+        error instanceof Error && error.message === 'test proof candidate cast was rejected'
+          ? 'candidate-cast-rejected'
+          : error instanceof Error && error.message === 'test proof operation was rejected'
+            ? 'operation-rejected'
+            : error instanceof Error && error.message.startsWith('test proof revision timeout ')
+              ? 'proof-revision-timeout'
+              : error instanceof Error && error.message.startsWith('set-null-')
+                ? error.message
+                : error instanceof Error && error.message.startsWith('Set NULL keyboard proof')
+                  ? 'set-null-assertion'
+                  : error instanceof Error && error.message === 'test proof timed out'
+                    ? 'proof-timeout'
+                    : error instanceof Error
+                      ? 'operation-error'
+                      : 'unknown'
+      const castInvariantFailure =
+        error instanceof Error &&
+        error.message.startsWith('whole-view cast refusal invariant failed: ')
+      let message: string
+      if (config.testHarness && castInvariantFailure && error instanceof Error) {
+        message = error.message
+      } else if (config.testHarness) {
+        message = `test-only open failure stage=${activeOpenStage} category=${testErrorCategory}`
+      } else {
+        message = error instanceof Error ? error.message : String(error)
+      }
       renderError('engine-failed', message)
       vscodeApi.postMessage({ kind: 'engine-error', message })
     })

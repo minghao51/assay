@@ -403,6 +403,16 @@ async function runGridPhase(
     },
     () => grid?.refreshEditingState(),
   )
+  let dirtyHistory = controller.currentHistory
+  let dirtyOverlay = stateAtCursor(base, dirtyHistory)
+  const currentOverlay = () => {
+    const history = controller.currentHistory
+    if (history !== dirtyHistory) {
+      dirtyHistory = history
+      dirtyOverlay = stateAtCursor(base, history)
+    }
+    return dirtyOverlay
+  }
   grid = new WebviewDataGrid(model, {
     ariaLabel: 'Assay spike dataset grid',
     editing: {
@@ -413,8 +423,10 @@ async function runGridPhase(
         canRedo: controller.snapshot.history.cursor < controller.snapshot.history.entries.length,
       }),
       isDirty: (rowId: RowId, column: string) => {
-        const overlay = stateAtCursor(base, controller.currentHistory)
-        return overlayEdit(overlay, rowId, column) !== null
+        const overlay = currentOverlay()
+        return (
+          overlay.inserts.get(rowId)?.live === true || overlayEdit(overlay, rowId, column) !== null
+        )
       },
       onInsert: () => void controller.insertRow(),
       onUndo: () => void controller.undo(),

@@ -662,6 +662,12 @@ export class WebviewDataGrid {
     slot: ReturnType<GridViewportModel['getRow']>,
   ): void {
     row.dataset.status = slot.status
+    if (slot.status === 'ready' && slot.key !== undefined) {
+      row.dataset.rowId = slot.key
+    } else {
+      row.removeAttribute('data-row-id')
+      row.removeAttribute('data-dirty')
+    }
     row.replaceChildren()
     if (slot.status === 'error') {
       row.title = slot.message
@@ -717,6 +723,9 @@ export class WebviewDataGrid {
         cell.textContent = slot.status === 'loading' ? '…' : '!'
       }
       row.appendChild(cell)
+    }
+    if (slot.status === 'ready' && this.options.editing !== undefined) {
+      row.dataset.dirty = row.querySelector('[data-dirty="true"]') === null ? 'false' : 'true'
     }
   }
 

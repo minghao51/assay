@@ -7,8 +7,10 @@ export type CellDraftResult =
   | { readonly ok: false; readonly message: string }
 
 const LOSSLESS_TEXT_TYPES = /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|NVARCHAR|JSON|UUID)(\b|\s|\()/
+// Arrow decimal and 128-bit integer vectors may expose word-array objects rather
+// than a lossless scalar string; keep these types read-only until codecs cover them.
 const LOSSLESS_NUMERIC_TYPES =
-  /^(TINYINT|SMALLINT|INTEGER|INT|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT|UHUGEINT|DECIMAL|NUMERIC)(\b|\s|\()/
+  /^(TINYINT|SMALLINT|INTEGER|INT|BIGINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT)(\b|\s|\()/
 const LOSSLESS_FLOAT_TYPES = /^(FLOAT|REAL|DOUBLE)(\b|\s|\()/
 const UNSUPPORTED_COMPOSITE = /^(STRUCT|MAP|UNION)\s*\(/
 const ARRAY_TYPE = /\[[^\]]*\]$/
