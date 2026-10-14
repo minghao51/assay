@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-14. **Current lane:** PT-V slice-2 queue authoring.
+**Last updated:** 2026-10-14. **Current lane:** PT-V slice-2 implementation, starting with ptv2-1.
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -89,8 +89,11 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ### Active
 
-PT-V slice-2 queue authoring is next, off the recorded slice-1 §5 scope.
-The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
+[PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
+rows authored, starting with pure bridge helpers/unit coverage, then overlay
+editing, new-file export, validation, shared report projection, staged diff,
+Git context/command and real-host exit acceptance. Features are not yet
+delivered. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
 is **closed**: docs, packaging, VS Code build/CI and q-14 all integrated.
 
 PT-Q residue remains pickup-ready under
@@ -138,6 +141,9 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-14 (**fa**) — PT-V slice-2 queue authored with bounded scopes,
+  explicit new-file delivery/key-confirmation/privacy defaults and STOPs;
+  execution begins with ptv2-1. No slice-2 exit claim or release authorization.
 - 2026-10-14 (**ez**) — q-14 integrated after parent mutation + full gates,
   e2e and VS Code harness verification; maintenance queue closed. Slice-2
   authoring next; registry publication and human G0 work still not authorized.
