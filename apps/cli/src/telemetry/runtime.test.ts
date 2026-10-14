@@ -6,9 +6,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TelemetryEvent } from '@assay/telemetry'
 import { CLI_DISCLOSURE_COPY } from '@assay/telemetry'
-import { readConfig, writeConfig } from './config'
-import type { CliTelemetryTransport } from './transport'
-import { createCliTelemetry } from './runtime'
+import { readConfig, writeConfig } from './config.js'
+import type { CliTelemetryTransport } from './transport.js'
+import { createCliTelemetry } from './runtime.js'
 
 const tempDirs: string[] = []
 function tempEnv(extra: Record<string, string> = {}): Record<string, string> {

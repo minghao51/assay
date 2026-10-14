@@ -49,11 +49,11 @@ import {
   readEndpoint,
   readToken,
   writeConfig,
-} from './config'
-import type { CliEnv } from './config'
-import { createCliTransport } from './transport'
-import type { CliTelemetryTransport } from './transport'
-import { osFamilyFromPlatform, reasonFromCliError as reasonFromError } from './emit'
+} from './config.js'
+import type { CliEnv } from './config.js'
+import { createCliTransport } from './transport.js'
+import type { CliTelemetryTransport } from './transport.js'
+import { osFamilyFromPlatform, reasonFromCliError as reasonFromError } from './emit.js'
 
 const DAY_MS = 86_400_000
 const CLIENT_DAY_MIN = 19_000
@@ -90,7 +90,7 @@ export interface CliTelemetryOptions {
   readonly env: CliEnv
   /** The parsed `--no-telemetry` flag for this invocation. */
   readonly flagNoTelemetry: boolean
-  readonly stderr: { write(chunk: string): unknown }
+  readonly stderr: { write(chunk: string): void }
   /** Transport override (tests). */
   readonly transport?: CliTelemetryTransport | null
   readonly now?: () => number

@@ -28,12 +28,16 @@
       }
     }
   },
-  "//": "dist/ is shared by two builds (see vite.config.ts): the vite e2e harness emits index.html + assets/ + fixtures/ into dist/, while tsc emits the library at the dist root. The flat (non-recursive) files globs below are deliberate: they match only the library's top-level emit and exclude the harness's nested output, so the packed tarball stays library-only.",
+  "//": "dist/ is shared by two builds (see vite.config.ts): the vite e2e harness emits index.html + assets/ + fixtures/ into dist/, while tsc emits the library at the dist root. The files allowlist includes top-level library output and the nested pipeline-runner ESM graph used by the ./node CLI seam, while excluding the harness's nested assets.",
   "files": [
     "dist/*.js",
     "dist/*.js.map",
     "dist/*.d.ts",
-    "dist/*.d.ts.map"
+    "dist/*.d.ts.map",
+    "dist/pipeline-runner/**/*.js",
+    "dist/pipeline-runner/**/*.js.map",
+    "dist/pipeline-runner/**/*.d.ts",
+    "dist/pipeline-runner/**/*.d.ts.map"
   ],
   "scripts": {
     "build": "vite build && tsc --build tsconfig.build.json",
