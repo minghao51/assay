@@ -22,7 +22,7 @@
     "@assay/grid": "workspace:*",
     "@assay/pipeline": "workspace:*",
     "@assay/telemetry": "workspace:*",
-    "@tanstack/react-virtual": "^3.14.13",
+    "@tanstack/react-virtual": "^3.14.15",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
@@ -31,7 +31,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
-    "happy-dom": "^20.14.5",
+    "happy-dom": "^20.14.6",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
