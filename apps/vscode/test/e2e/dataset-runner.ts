@@ -155,6 +155,33 @@ export async function run(): Promise<void> {
     `[e2e] 1/5 OK rows=${String(opened.rows)} columns=${String(opened.columns)} gridAuditOk=${String(opened.gridAuditOk)} firstRowVisibleMs=${String(opened.firstRowVisibleMs)}`,
   )
 
+  // The test-only host provider is enabled only by the existing e2e gate.
+  // Opening the result through the real production webview/engine verifies
+  // the closed host file's format, schema and count rather than scratch alone.
+  const exportedUri = vscode.Uri.file(`${workspace}/assay-export-proof-1.parquet`)
+  const exportedBytes = await vscode.workspace.fs.readFile(exportedUri)
+  assert(exportedBytes.byteLength > 0, 'completed export file was not created')
+  const reopenedExport = await executeOpen(exportedUri)
+  assert(
+    reopenedExport.outcome === 'opened',
+    'delivered export did not reopen through the real engine',
+  )
+  assert(reopenedExport.rows === opened.rows, 'export row count differs from the accepted view')
+  assert(
+    reopenedExport.columns === opened.columns,
+    'export schema width differs from the accepted view',
+  )
+  scenarios['safeExport'] = {
+    created: true,
+    reopened: true,
+    rows: reopenedExport.rows,
+    columns: reopenedExport.columns,
+    bytes: exportedBytes.byteLength,
+  }
+  console.log(
+    `[e2e] safe export OK reopened rows=${String(reopenedExport.rows)} columns=${String(reopenedExport.columns)} bytes=${String(exportedBytes.byteLength)}`,
+  )
+
   // 2. Custom editor surface: the same file through the contributed read-only
   //    editor (vscode.openWith), tab visible, bridge resolves via lastReport.
   console.log('[e2e] 2/5 custom editor (assay.datasetViewer)…')

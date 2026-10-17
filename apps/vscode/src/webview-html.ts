@@ -71,6 +71,14 @@ export function buildDatasetHtml(
         <dt>columns</dt>
         <dd id="report-columns"></dd>
       </dl>
+      <p>Edits are session-only and are discarded when this view closes unless exported. Export writes the effective view in natural row order, independent of grid sort, filters, and viewport.</p>
+      <section id="export-controls" aria-label="Export dataset" hidden>
+        <label for="export-format">Format</label>
+        <select id="export-format"><option value="parquet">Parquet</option><option value="csv">CSV</option><option value="jsonl">JSONL</option><option value="json">JSON</option><option value="arrow">Arrow</option></select>
+        <button id="export-button" type="button">Export to new file…</button>
+        <button id="export-cancel" type="button">Cancel export</button>
+        <p id="export-status" role="status"></p>
+      </section>
       <style>
         /* Minimal static style for the pre-mount hidden heading; the grid
            injects its own stylesheet on mount (CSP: style-src 'unsafe-inline'

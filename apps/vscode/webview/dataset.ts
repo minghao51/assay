@@ -28,6 +28,11 @@ import type { OverlayBase, RowId } from '@assay/domain'
 import type { WorkerDiagnostic } from './engine-boot'
 import { EditController } from '../src/pure/edit-controller'
 import { overlaySnapshot } from '../src/pure/overlay-snapshot'
+import type {
+  ExportHostRequest,
+  ExportHostResponse,
+  SafeExportFormat,
+} from '../src/pure/export-transfer'
 import { supportsCellDraft } from '../src/pure/cell-input'
 import { EngineSession } from './engine-session'
 import { EngineGridProvider } from './grid-provider'
@@ -62,6 +67,10 @@ declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void
 }
 
+function postExportMessage(message: ExportHostRequest): void {
+  vscodeApi.postMessage(message)
+}
+
 const config = window.__ASSAY_DATASET_CONFIG__
 const vscodeApi = acquireVsCodeApi()
 
@@ -71,6 +80,157 @@ const diagnostics: Array<WorkerDiagnostic> = []
 let activeController: EditController | null = null
 let activeGrid: WebviewDataGrid | null = null
 let activeOpenStage = 'engine-start'
+let exportGeneration = 0
+let exportActive = false
+let activeExportId: string | undefined
+let exportCancelled = false
+const exportWaiters = new Map<string, (message: ExportHostResponse) => void>()
+
+function waitExport(id: string, kind: string): Promise<ExportHostResponse> {
+  return new Promise((resolve, reject) => {
+    const key = `${id}:${kind}`
+    const timeout = window.setTimeout(() => {
+      exportWaiters.delete(key)
+      reject(new Error('export-timeout'))
+    }, 120_000)
+    exportWaiters.set(key, (message) => {
+      window.clearTimeout(timeout)
+      exportWaiters.delete(key)
+      if (kind === 'export-error' || kind === 'export-cancelled') reject(new Error(kind))
+      else resolve(message)
+    })
+  })
+}
+
+async function startExport(
+  format: string,
+  client: import('@assay/engine-duckdb').DuckDbEngineClient,
+  handle: import('@assay/engine-duckdb').EngineTableHandle,
+  base: OverlayBase,
+  controller: EditController,
+): Promise<void> {
+  if (exportActive || !['parquet', 'jsonl', 'json', 'csv', 'arrow'].includes(format)) return
+  exportActive = true
+  const status = elementOrThrow('export-status')
+  const id = crypto.randomUUID()
+  activeExportId = id
+  exportCancelled = false
+  const generation = ++exportGeneration
+  let scratchPath: string | undefined
+  try {
+    status.textContent = 'Choose a new local file for export.'
+    const ready = waitExport(id, 'export-ready')
+    postExportMessage({
+      kind: 'export-request',
+      id,
+      generation,
+      format: format as SafeExportFormat,
+    })
+    await ready
+    if (exportCancelled) throw new Error('export-cancelled')
+    if (controller.snapshot.busy) throw new Error('edit-pending')
+    const revision = controller.snapshot.revision
+    status.textContent =
+      'Exporting the accepted overlay snapshot (natural row order; ignores viewport, sort, and filters)…'
+    const snapshot = overlaySnapshot(base, controller.currentHistory)
+    const result = await client.exportView(handle, {
+      format: format as 'parquet' | 'jsonl' | 'json' | 'csv' | 'arrow',
+      overlay: snapshot,
+    })
+    if (exportCancelled) throw new Error('export-cancelled')
+    if (controller.snapshot.revision !== revision) throw new Error('snapshot-changed')
+    if (
+      !Number.isSafeInteger(result.bytes) ||
+      result.bytes < 0 ||
+      result.bytes > 512 * 1024 * 1024 ||
+      !Number.isSafeInteger(result.rowCount) ||
+      result.rowCount < 0
+    )
+      throw new Error('invalid-export')
+    scratchPath = result.path
+    const parts = result.path.split('/').filter(Boolean)
+    if (parts.length === 0 || parts.some((part) => part === '.' || part === '..'))
+      throw new Error('invalid-export')
+    let directory = await navigator.storage.getDirectory()
+    for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part)
+    const scratch = await directory.getFileHandle(parts[parts.length - 1]!)
+    const file = await scratch.getFile()
+    if (file.size !== result.bytes) throw new Error('invalid-export')
+    if (config.testHarness && file.size <= 1024 * 1024 && result.rowCount <= 100) {
+      const reopened = await client.open({
+        name: `assay-export.${format}`,
+        getFile: () => Promise.resolve(file),
+      })
+      const expectedCount = await client.overlayRowCount(handle, snapshot)
+      const actualCount = await client.rowCount(reopened)
+      const expectedSchema = await client.overlaySchema(handle, snapshot)
+      const actualSchema = await client.schema(reopened)
+      if (
+        actualCount !== expectedCount ||
+        actualSchema.length !== expectedSchema.length ||
+        actualSchema.some(
+          (column, index) =>
+            column.name !== expectedSchema[index]?.name ||
+            column.type !== expectedSchema[index]?.type,
+        )
+      )
+        throw new Error('export-reopen-mismatch')
+      const expected = (
+        await client.fetchOverlayRange(handle, snapshot, { startRow: 0, endRow: expectedCount })
+      ).batch
+      const actual = (await client.fetchRange(reopened, { startRow: 0, endRow: actualCount })).batch
+      const stringify = (value: unknown): string =>
+        JSON.stringify(value, (_key, cell: unknown) =>
+          typeof cell === 'bigint' ? cell.toString() : cell,
+        )
+      if (stringify(expected.toArray()) !== stringify(actual.toArray()))
+        throw new Error('export-reopen-mismatch')
+    }
+    postExportMessage({ kind: 'export-start', id, generation, totalBytes: file.size })
+    await waitExport(id, 'export-credit')
+    let sequence = 0
+    for (let offset = 0; offset < file.size; offset += 64 * 1024) {
+      const chunk = new Uint8Array(
+        await file.slice(offset, Math.min(file.size, offset + 64 * 1024)).arrayBuffer(),
+      )
+      postExportMessage({
+        kind: 'export-chunk',
+        id,
+        generation,
+        sequence: sequence++,
+        offset,
+        totalBytes: file.size,
+        bytes: Array.from(chunk),
+      })
+      await waitExport(id, 'export-credit')
+      if (offset === 0 || offset % (1024 * 1024) === 0 || offset + chunk.byteLength === file.size) {
+        status.textContent = `Exporting: ${Math.min(offset + chunk.byteLength, file.size)} of ${file.size} bytes delivered.`
+      }
+    }
+    postExportMessage({ kind: 'export-finish', id, generation })
+    await waitExport(id, 'export-complete')
+    status.textContent = `Export complete: ${result.rowCount} rows, ${result.bytes} bytes. A new local file was created and closed.`
+  } catch {
+    postExportMessage({ kind: 'export-cancel', id, generation })
+    status.textContent = 'Export cancelled or failed. No success was reported.'
+  } finally {
+    exportActive = false
+    activeExportId = undefined
+    exportWaiters.delete(`${id}:export-ready`)
+    exportWaiters.delete(`${id}:export-credit`)
+    exportWaiters.delete(`${id}:export-complete`)
+    if (scratchPath !== undefined) {
+      try {
+        const parts = scratchPath.split('/').filter(Boolean)
+        let directory = await navigator.storage.getDirectory()
+        for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part)
+        await directory.removeEntry(parts[parts.length - 1]!)
+      } catch {
+        /* terminal cleanup is best effort; engine session owns OPFS cleanup too */
+      }
+    }
+  }
+}
 
 function elementOrThrow(id: string): HTMLElement {
   const el = document.getElementById(id)
@@ -216,6 +376,24 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
   const editProof = config.testHarness
     ? await exerciseRealEditor(grid, model, provider, controller, base)
     : undefined
+  if (config.testHarness) await startExport('parquet', boot.client, handle, base, controller)
+  elementOrThrow('export-controls').hidden = false
+  elementOrThrow('export-button').addEventListener('click', () => {
+    const format = (elementOrThrow('export-format') as HTMLSelectElement).value
+    void startExport(format, boot.client, handle, base, controller)
+  })
+  elementOrThrow('export-cancel').addEventListener('click', () => {
+    const current = activeExportId
+    if (current !== undefined) {
+      exportCancelled = true
+      postExportMessage({ kind: 'export-cancel', id: current, generation: exportGeneration })
+      for (const [key, reject] of exportWaiters) {
+        if (key.startsWith(`${current}:`))
+          reject({ kind: 'export-cancelled', id: current, generation: exportGeneration })
+      }
+    }
+    elementOrThrow('export-status').textContent = 'Export cancelled.'
+  })
   const audit = auditGridDom(grid.element, {
     totalRows: rows,
     columnCount: columns,
@@ -827,6 +1005,28 @@ window.addEventListener('message', (event) => {
     bytes?: ArrayBuffer
     errorKind?: string
     message?: string
+    id?: string
+    generation?: number
+  }
+  if (
+    typeof data?.id === 'string' &&
+    [
+      'export-ready',
+      'export-credit',
+      'export-complete',
+      'export-cancelled',
+      'export-error',
+    ].includes(String(data.kind))
+  ) {
+    const response = data as ExportHostResponse
+    if (data.kind === 'export-cancelled' || data.kind === 'export-error') {
+      for (const [key, reject] of exportWaiters) {
+        if (key.startsWith(`${data.id}:`)) reject(response)
+      }
+    } else {
+      exportWaiters.get(`${data.id}:${String(data.kind)}`)?.(response)
+    }
+    return
   }
   if (data?.kind === 'dataset' && !datasetReceived && data.bytes instanceof ArrayBuffer) {
     // One dataset per panel (the bridge's contract); the engine persists for
@@ -871,6 +1071,10 @@ window.addEventListener('message', (event) => {
     return
   }
   if (data?.kind === 'dispose') {
+    if (activeExportId !== undefined) {
+      exportCancelled = true
+      postExportMessage({ kind: 'export-cancel', id: activeExportId, generation: exportGeneration })
+    }
     // Host-orchestrated panel close (see EngineSession for the ownership
     // model; the custom-editor path tears the page — and the engine worker —
     // down with the panel regardless).

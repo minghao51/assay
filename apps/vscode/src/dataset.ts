@@ -23,6 +23,8 @@
  * telemetry exists in this extension and none may be added (ADR 0025/0037).
  */
 import * as vscode from 'vscode'
+import { createOnlyWriter } from './pure/create-only-writer'
+import { acceptExportFrame, EXPORT_MAX_BYTES } from './pure/export-transfer'
 import { VENDORED_RUNTIME } from './assets'
 import { buildDatasetHtml } from './webview-html'
 import {
@@ -44,6 +46,7 @@ export const OPEN_COMMAND = 'assay.dataset.open'
 export const VIEW_TYPE = 'assay.datasetViewer'
 /** Diagnostic/test surface: the latest bridge report (value-free counts). */
 export const LAST_REPORT_COMMAND = 'assay.dataset.lastReport'
+let testExportSequence = 0
 
 export {
   formatFromName,
@@ -209,17 +212,215 @@ export function bridgeDatasetIntoPanel(
     formatFromName(uri.path.split('/').pop() ?? uri.path) ?? 'parquet',
   )
   return new Promise<DatasetReport>((resolve, reject) => {
+    let exportWriter: Awaited<ReturnType<typeof createOnlyWriter>> | undefined
+    let exportState: import('./pure/export-transfer').ExportTransferState | undefined
+    let exportId: string | undefined
+    let exportGeneration = 0
+    let exportWritePending = false
+    const exportCleanup = async (): Promise<void> => {
+      await exportWriter?.cleanup()
+      exportWriter = undefined
+      exportState = undefined
+      exportId = undefined
+      exportWritePending = false
+    }
     const timeout = setTimeout(() => {
       reject(new Error(`dataset bridge timed out after ${String(BRIDGE_TIMEOUT_MS / 1000)}s`))
     }, BRIDGE_TIMEOUT_MS)
+    panel.onDidDispose(() => {
+      void exportCleanup()
+    })
     const finish = (report: DatasetReport): void => {
       clearTimeout(timeout)
+      void exportCleanup()
       lastReport = report
       resolve(report)
     }
     const reading = readDataset(uri)
     panel.webview.onDidReceiveMessage((message: unknown) => {
       const kind = (message as { kind?: unknown } | null)?.kind
+      if (kind === 'export-request') {
+        const request = message as { id?: unknown; generation?: unknown; format?: unknown }
+        if (
+          typeof request.id !== 'string' ||
+          request.id.length === 0 ||
+          request.id.length > 64 ||
+          !Number.isSafeInteger(request.generation) ||
+          Number(request.generation) < 0 ||
+          !['parquet', 'jsonl', 'json', 'csv', 'arrow'].includes(String(request.format))
+        )
+          return
+        const id = request.id
+        const generation = Number(request.generation)
+        if (exportWriter !== undefined || exportId !== undefined) {
+          void panel.webview.postMessage({
+            kind: 'export-error',
+            id,
+            generation,
+            errorKind: 'export-busy',
+          })
+          return
+        }
+        void (async () => {
+          const testHarness =
+            context.extensionMode === vscode.ExtensionMode.Test &&
+            process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
+          const target = testHarness
+            ? vscode.Uri.file(
+                `${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/assay-export-proof-${String(++testExportSequence)}.${String(request.format)}`,
+              )
+            : await vscode.window.showSaveDialog({
+                saveLabel: 'Export new dataset file',
+                filters: { 'Dataset export': [String(request.format)] },
+              })
+          if (target === undefined) {
+            void panel.webview.postMessage({ kind: 'export-cancelled', id, generation })
+            return
+          }
+          if (target.scheme !== 'file' || target.fsPath === uri.fsPath) {
+            void panel.webview.postMessage({
+              kind: 'export-error',
+              id,
+              generation,
+              errorKind: 'destination-refused',
+            })
+            return
+          }
+          try {
+            exportWriter = await createOnlyWriter(target.fsPath, [uri.fsPath])
+            exportId = id
+            exportGeneration = generation
+            void panel.webview.postMessage({ kind: 'export-ready', id, generation })
+          } catch {
+            void panel.webview.postMessage({
+              kind: 'export-error',
+              id,
+              generation,
+              errorKind: 'destination-refused',
+            })
+          }
+        })().catch(() => {
+          void panel.webview.postMessage({
+            kind: 'export-error',
+            id,
+            generation,
+            errorKind: 'export-failed',
+          })
+        })
+        return
+      }
+      if (kind === 'export-start') {
+        const start = message as { id?: unknown; generation?: unknown; totalBytes?: unknown }
+        if (
+          start.id !== exportId ||
+          start.generation !== exportGeneration ||
+          !Number.isSafeInteger(start.totalBytes) ||
+          Number(start.totalBytes) < 0 ||
+          Number(start.totalBytes) > EXPORT_MAX_BYTES
+        ) {
+          void exportCleanup()
+          return
+        }
+        if (typeof exportId !== 'string') return
+        exportState = {
+          id: exportId,
+          generation: exportGeneration,
+          totalBytes: Number(start.totalBytes),
+          nextSequence: 0,
+          nextOffset: 0,
+        }
+        void panel.webview.postMessage({
+          kind: 'export-credit',
+          id: exportId,
+          generation: exportGeneration,
+        })
+        return
+      }
+      if (kind === 'export-chunk') {
+        try {
+          if (exportState === undefined || exportWriter === undefined || exportWritePending)
+            throw new Error('invalid-frame')
+          const accepted = acceptExportFrame(exportState, message)
+          exportState = accepted.state
+          exportWritePending = true
+          void exportWriter.write(accepted.bytes).then(
+            () => {
+              exportWritePending = false
+              void panel.webview.postMessage({
+                kind: 'export-credit',
+                id: exportId,
+                generation: exportGeneration,
+              })
+            },
+            () => {
+              exportWritePending = false
+              void exportCleanup()
+              void panel.webview.postMessage({
+                kind: 'export-error',
+                id: exportId,
+                generation: exportGeneration,
+                errorKind: 'export-failed',
+              })
+            },
+          )
+        } catch {
+          void exportCleanup()
+          void panel.webview.postMessage({
+            kind: 'export-error',
+            id: exportId,
+            generation: exportGeneration,
+            errorKind: 'export-failed',
+          })
+        }
+        return
+      }
+      if (kind === 'export-finish') {
+        const done = message as { id?: unknown; generation?: unknown }
+        if (
+          done.id !== exportId ||
+          done.generation !== exportGeneration ||
+          exportState === undefined ||
+          exportWriter === undefined ||
+          exportState.nextOffset !== exportState.totalBytes
+        ) {
+          void exportCleanup()
+          return
+        }
+        void exportWriter
+          .close()
+          .then(() => {
+            exportWriter = undefined
+            void panel.webview.postMessage({
+              kind: 'export-complete',
+              id: exportId,
+              generation: exportGeneration,
+            })
+            exportState = undefined
+            exportId = undefined
+          })
+          .catch(() => {
+            void exportCleanup()
+            void panel.webview.postMessage({
+              kind: 'export-error',
+              id: done.id,
+              generation: done.generation,
+              errorKind: 'export-failed',
+            })
+          })
+        return
+      }
+      if (kind === 'export-cancel') {
+        const cancel = message as { id?: unknown; generation?: unknown }
+        if (cancel.id === exportId && cancel.generation === exportGeneration) {
+          void exportCleanup()
+          void panel.webview.postMessage({
+            kind: 'export-cancelled',
+            id: cancel.id,
+            generation: cancel.generation,
+          })
+        }
+        return
+      }
       if (kind === 'ready') {
         void reading.then(
           (read) => {
