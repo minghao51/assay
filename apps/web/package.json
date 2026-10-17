@@ -22,7 +22,7 @@
     "@assay/grid": "workspace:*",
     "@assay/pipeline": "workspace:*",
     "@assay/telemetry": "workspace:*",
-    "@tanstack/react-virtual": "^3.14.13",
+    "@tanstack/react-virtual": "^3.14.19",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
