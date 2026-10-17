@@ -88,7 +88,25 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
   512 MiB cap; cancel/dispose mid-write cleans up without a success message.
 - Exported copies are proven by reopening through the real engine (schema,
   count, values agreement) in the harness; the host e2e adds a `safeExport`
-  scenario. Validation, diff and Git workflows remain queued.
+  scenario.
+
+## Effective-view validation (ptv2-4)
+
+- Select a local contract file (`@assay/contracts` format); the host reads it
+  (≤1 MiB, typed errors, cancelled-dialog state) and hands path-free text to
+  the webview, which parses and compiles it with the existing
+  `@assay/validation` compiler — no parallel validator.
+- Validate runs `client.validate` against the **effective view** (accepted
+  overlay snapshot), serialized against pending edits: exact per-rule
+  fail counts/percent, total verdict, effective row count, and bounded
+  samples (engine max 100) rendered as untrusted text. Sample rows navigate
+  to their logical grid row; filtered-out rows produce an honest message.
+- Any later accepted edit marks the displayed report **stale** (visible, not
+  silently removed); revalidation is explicit. Late/cancelled results are
+  dropped by generation checks. The real-host proof shows effective-view
+  semantics: baseline 1 failure → 0 after a fixing edit, 2 after an inserting
+  edit, 0 after deleting the failing row. Diff and Git workflows remain
+  queued.
 
 ## Grid envelope (ptv1-4 limits retained for ptv2-2)
 

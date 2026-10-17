@@ -228,7 +228,36 @@ failure, cancelled selection, empty/bad inputs and late results are pinned;
 contents/errors cannot escape into operational logs. Real-host proof shows
 validation sees inserted/edited/deleted effective rows, not the base only.
 
-**Status:** PENDING.
+**Status:** **DONE 2026-10-18 — `b76312f` (worktree `95aab37`), parent approve
+after independent review.** Host bridge: correlated validate-request →
+showOpenDialog (production) / harness-fixed fixture (test-mode behind the
+existing gate) → stat/size/empty checks → path-free contract text (≤1 MiB,
+fatal-UTF-8) with typed cancelled/error states; dialog cancel is a state, not
+an error. Webview: parse + compile in the page (pure TS, `@assay/contracts` +
+`@assay/validation` declared as workspace bundling deps), execute via the real
+`client.validate(handle, plan, overlaySnapshot)` serialized against pending
+edits (busy refuse), id+generation correlation with late-frame drops and
+cancel bumps; exact-count verdicts, engine-bounded samples as untrusted text,
+logical-row navigation via row-key scan + scroll/focus with honest not-in-view
+message; a new accepted edit flips the displayed report to a visible STALE
+state (kept, not silently removed); revalidate explicit. No paths/contents in
+any status text or log; textContent only; no telemetry.
+
+Proof: webview harness exercises the effective view end-to-end — baseline
+failCount 1 → edit fixes → 0 → undo → insert violating row → 2 with rowCount
++1 → undo → delete failing row → 0 with rowCount −1 → undo → cursor restored;
+stale flip after edit; logical navigation verified. Runner asserts exact
+counts (validationProof inside `commandOpen`, normalized value-free
+host-side). e2e workspace writes a minimal contract fixture (value-benign,
+app-local). Parent re-ran all gates + forced types **20**, unit **2988/187**
+(default mode green this round), coverage **88.63/82.69/88.93/90.16** above
+floors, build **12**, browser **172+1**, native **9**, real-host **PASS with
+validationProof {1,0,2,0,stale,nav}**, spike **15 pins**. Parent drills:
+dropping the overlay from `validate` fails the proof at
+`stage=validation-navigation` (base-only samples misalign with the
+effective-view provider — the exact divergence this row guards); forcing
+`isValidationStale` false fails the stale unit pin; both restore green.
+Logs `/tmp/ptv2-4-*`.
 
 ### ptv2-5 — Share canonical diff report projection
 
@@ -308,10 +337,12 @@ slice 2 only after this row; remote CI status remains unclaimed until run.
 
 ## 4. Closure and next lane
 
-**Not closed.** ptv2-1 foundation, ptv2-2 overlay editing and ptv2-3 safe
-new-file export are integrated; ptv2-4…ptv2-8 remain pending. Next dispatch
-is ptv2-4 effective-view validation, not the exit harness or PT-Q cleanup.
-Validation/diff/Git workflows are not yet implemented. Per-row evidence belongs
+**Not closed.** ptv2-1/2/3/4 (foundation, overlay editing, create-only
+export, effective-view validation) are integrated; ptv2-5…ptv2-8 remain
+pending. Next dispatch is ptv2-5 shared
+canonical diff report projection (scope exception: `packages/diff` +
+CLI/web adapters), then staged diff, Git context/command and real-host exit.
+The desktop diff workflow itself is not yet implemented. Per-row evidence belongs
 here; closure updates the living handoff,
 roadmap, app README and changelog. After ptv2-8, dispatch **q-5b e2e helpers**
 and **q-7 slice-2 strictness** separately under

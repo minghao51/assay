@@ -12,6 +12,17 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — VS Code effective-view validation (2026-10-18)
+
+- The desktop editor validates the accepted overlay's effective view against
+  a locally selected contract using the existing parser/compiler and engine
+  `validate` — exact counts, bounded samples as untrusted text, logical-row
+  navigation, and a visible stale state when edits succeed a verdict.
+- Contract selection is host-side and path-free toward the webview; parse,
+  compile, engine, cancelled-selection and late-result failures are typed and
+  pinned; nothing escapes into logs. Real-host proof covers edited, inserted
+  and deleted effective rows.
+
 ### Added — VS Code create-only export of edited views (2026-10-17)
 
 - The desktop editor exports the accepted overlay snapshot's effective view
