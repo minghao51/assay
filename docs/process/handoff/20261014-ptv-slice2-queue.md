@@ -176,7 +176,43 @@ source aliases and raced destination creation are refused, never overwritten.
 Reopen exported copies to prove values/schema/count agreement; CSV formula
 safety preserved. Scratch generation alone never produces a success message.
 
-**Status:** PENDING.
+**Status:** **DONE 2026-10-17 — `aaf2cff` (worktree `e6441ad`), parent approve
+after independent review.** First milestone proven on the real vendored
+engine: the production webview reads and removes an actual `exportView`
+OPFS scratch (115/115 bytes, bounded slice) — no engine-owned seam needed.
+An earlier STOP on this row was based on real-host timeouts later shown to be
+a stale `dist` (clean-tree baseline green after rebuild); it was withdrawn.
+
+Delivery: accepted-overlay snapshot export serialized against pending
+edits/undo/redo (busy refuse + revision recheck), natural-order effective
+view disclosed in UI; host save dialog → `file:` scheme + source-alias checks
+→ exclusive `wx` create (0o600) with post-open inode/nlink verification;
+64 KiB bounded JSON-number[] frames (VS Code webview→host postMessage cannot
+transfer binaries) with id+generation correlation, strict sequence/offset/
+size validation, one-chunk-per-credit backpressure, 512 MiB cap both sides;
+short-write loop, fsync + double inode recheck before `export-complete` —
+never before close; cleanup unlinks only the owned partial inode, never a
+raced replacement; panel dispose/cancel mid-flight handled; success message
+only after host confirms the completed closed new file. Reopen proof compares
+schema/count/values through the real engine (harness-gated), host e2e reopens
+the delivered file via the real open flow (7th scenario `safeExport`, 668
+bytes vs 662 source proving overlay inclusion). CSV formula safety unchanged
+(engine-pinned export semantics reused). No engine/package/vendor/CSP change.
+
+Parent verification: all core gates, forced types **20**, unit **2982/186**
+(`--maxWorkers=2`; default-mode hits were the three documented CLI/contracts
+contention timeouts, reproduced on unmodified `ddd72f4` control — 3 failures
+there — so pre-existing, not a regression), coverage **88.75/82.84/88.96/
+90.29** above floors 83/76/80/84 (slightly below ptv2-2 levels: new host
+save-dialog branches are e2e-only), build **12**, browser **172+1**, native
+**9**, real-host **7 scenarios** (green across drill restores), spike **15
+pins**. Parent drills all bite and restore green: `wx→w` fails the
+existing-file refusal test; dropping `overlay` from `exportView` fails the
+webview real-engine reopen check → no delivered file → runner `EntryNotFound`;
+webview early `export-finish` (scratch-only) is refused by the host
+byte-accounting check, cleanup removes the partial, e2e fails. Deviation:
+worker's brief cited a stale native-test path; the real one
+(`apps/vscode/test/vscode-runtime.test.mjs`) was used. Logs `/tmp/ptv2-3-*`.
 
 ### ptv2-4 — Validate the effective view
 
@@ -272,10 +308,10 @@ slice 2 only after this row; remote CI status remains unclaimed until run.
 
 ## 4. Closure and next lane
 
-**Not closed.** ptv2-1 foundation and ptv2-2 overlay editing are integrated;
-ptv2-3…ptv2-8 remain pending. Next dispatch is ptv2-3 safe new-file export,
-not the exit harness or PT-Q cleanup. Validation/diff/Git workflows and export
-delivery are not yet implemented. Per-row evidence belongs
+**Not closed.** ptv2-1 foundation, ptv2-2 overlay editing and ptv2-3 safe
+new-file export are integrated; ptv2-4…ptv2-8 remain pending. Next dispatch
+is ptv2-4 effective-view validation, not the exit harness or PT-Q cleanup.
+Validation/diff/Git workflows are not yet implemented. Per-row evidence belongs
 here; closure updates the living handoff,
 roadmap, app README and changelog. After ptv2-8, dispatch **q-5b e2e helpers**
 and **q-7 slice-2 strictness** separately under

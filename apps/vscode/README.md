@@ -70,8 +70,25 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
   lossless codecs exist. Dataset values are always rendered as text.
 - **Source files are never saved in place.** The native custom editor remains
   source-read-only; the overlay is temporary and closing loses unexported edits.
-  Safe new-file export delivery is the next queue row, not implemented yet.
   No persistent/native dirty-document behavior is claimed.
+
+## Create-only export to a new local file (ptv2-3)
+
+- Export writes the accepted overlay snapshot's **effective view** in natural
+  row order — independent of viewport, sort and filters — through the pinned
+  engine export semantics (CSV stays formula-sanitized).
+- The host owns destination choice: save dialog → `file:` scheme only →
+  exclusive create (`wx`, never overwrite). Existing files, the source itself
+  and raced destinations are refused; cleanup removes only the partial file
+  this extension created, never a replacement. Success is reported only after
+  the host confirms the completed, closed, newly created file.
+- Transfer is bounded and correlated: 64 KiB frames (VS Code webview→host
+  messaging cannot carry binaries) with id+generation checks, strict
+  sequence/offset/size validation, one-frame-per-credit backpressure and a
+  512 MiB cap; cancel/dispose mid-write cleans up without a success message.
+- Exported copies are proven by reopening through the real engine (schema,
+  count, values agreement) in the harness; the host e2e adds a `safeExport`
+  scenario. Validation, diff and Git workflows remain queued.
 
 ## Grid envelope (ptv1-4 limits retained for ptv2-2)
 

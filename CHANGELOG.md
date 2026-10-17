@@ -12,6 +12,18 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — VS Code create-only export of edited views (2026-10-17)
+
+- The desktop editor exports the accepted overlay snapshot's effective view
+  (natural row order, engine-pinned formats, CSV still formula-sanitized) to a
+  **new local file**: host-chosen destination, exclusive create, existing
+  files/source aliases/raced targets refused, never overwritten.
+- Bounded, correlated transfer (64 KiB frames, id+generation, strict
+  sequence/offset/size validation, one-frame-per-credit backpressure, 512 MiB
+  cap); cancellation/disposal cleans only the owned partial file. Success is
+  reported only after the host confirms the completed, closed new file, and
+  harness proof reopens the delivered copy through the real engine.
+
 ### Added — VS Code session-only overlay editing (2026-10-15)
 
 - Inline scalar edits, insert/delete, dirty markers and undo/redo over an

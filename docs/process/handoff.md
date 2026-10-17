@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-15. **Current lane:** PT-V slice-2 implementation; ptv2-1/2 closed, ptv2-3 next.
+**Last updated:** 2026-10-17. **Current lane:** PT-V slice-2 implementation; ptv2-1/2/3 closed, ptv2-4 next.
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -22,40 +22,31 @@ Arrow/Feather. Dataset contents stay local by default; telemetry contains only
 allowlisted operational metadata (ADRs 0025/0037/0045).
 
 MVP M0–M6 is complete. Pipeline P1–P3 and local DCR artifact v1 generation are
-implemented. Desktop VS Code provides offline open/inspect and session-only
-overlay editing, row insertion/deletion and undo/redo. New-file export,
-validation, diff and Git integration remain pending; vscode-web remains **RE-SCOPE**, not authorized implementation (D18).
+implemented. Desktop VS Code provides offline open/inspect, session-only overlay editing
+with undo/redo, and create-only export of the effective view to a new local
+file. Validation, diff and Git integration remain pending; vscode-web remains **RE-SCOPE**, not authorized implementation (D18).
 Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 
 ## 2. Current state
 
-| Surface         | Implemented                                                                                    | Remaining                                                                     |
-| --------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Web + CLI       | Inspect, profile, query, edit/export, validate and diff; pipeline execution and DCR generation | Maintenance and launch readiness                                              |
-| Pipeline        | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                | P4 adapter priority is a later user-demand decision                           |
-| Desktop VS Code | Immutable-source editor, overlay editing/history, virtualized grid, offline engine             | PT-V slice 2: new-file export, validation, diff and Git workflows             |
-| Release         | Complete packed CLI runtime closure verified under plain Node                                  | Private-dependency registry distribution policy + human release prerequisites |
+| Surface         | Implemented                                                                                            | Remaining                                                                     |
+| --------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Web + CLI       | Inspect, profile, query, edit/export, validate and diff; pipeline execution and DCR generation         | Maintenance and launch readiness                                              |
+| Pipeline        | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                        | P4 adapter priority is a later user-demand decision                           |
+| Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, virtualized grid, offline engine | PT-V slice 2: validation, diff and Git workflows                              |
+| Release         | Complete packed CLI runtime closure verified under plain Node                                          | Private-dependency registry distribution policy + human release prerequisites |
 
-**Verified state (2026-10-15):** ptv2-2 integrated as `3ac2c63`, `0361e1b`,
-`4c57032`, `0711b3c` after independent corrections → approve. All local core
-gates and forced typecheck **20 tasks** pass; **2977 tests / 184 files**, build
-**12**, coverage **89.22/83.31/89.26/90.81** (floors 83/76/80/84), **30 pure
-VS Code tests**, browser e2e **172 + 1 skip**, native runtime tests **9**,
-real-VSCode **6 scenarios**, offline **15 pins**. Merged core gates,
-real-host/offline runs green; old-history and full-cast mutations fail,
-restored source green. **156 pending changesets**, doc links **107/0**, ADRs
-**46**. Review/deviation evidence and editor limits live in the
-[slice-2 queue](handoff/20261014-ptv-slice2-queue.md); earlier packaging/CI/q-14
-proof lives in the closed maintenance queue.
-
-**Push / remote CI:** user-authorized normal `main` push succeeded at
-`3a3a94b` (2026-10-15), including 218 previously unpushed commits; remote SHA
-matched local, ahead/behind 0/0. [CI run 38615821301](https://github.com/minghao51/assay/actions/runs/38615821301)
-failed **before any steps ran** in all three jobs. GitHub annotations report
-account payments failed **or** spending limit needs increasing; no code/test
-check executed remotely. Human **[M6](manual-actions.md)** must restore Actions
-billing/limit access, then re-run latest `main` CI. No billing, visibility,
-publication or force-push change is authorized; local green is not remote green.
+**Verified state (2026-10-17):** ptv2-3 integrated as `aaf2cff` after
+parent review (first-milestone scratch-read proof → implementation →
+request/approve with three parent mutation drills). Local core gates, forced
+typecheck **20**, unit **2982/186** (default-mode CLI/contracts timeouts
+proven pre-existing on an unmodified `ddd72f4` control), coverage
+**88.75/82.84/88.96/90.29** (floors 83/76/80/84), build **12**, browser e2e
+**172 + 1 skip**, native runtime **9**, real-VSCode **7 scenarios** (new
+`safeExport`), offline **15 pins**. Evidence and drill details in the
+[slice-2 queue](handoff/20261014-ptv-slice2-queue.md). ptv2-1/2 evidence:
+**2977/184**, real-host 6 scenarios, editing-path pin (also in the queue).
+**157 pending changesets**, doc links **107/0**, ADRs **46**.
 
 **Release boundary:** complete local CLI tarball closure is verified, but
 registry distribution of private runtime dependencies remains an explicit
@@ -100,10 +91,10 @@ an ADR, never a silent rewrite of an accepted decision.
 ### Active
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
-rows authored. **ptv2-1 foundation and ptv2-2 overlay editing are DONE**;
-**ptv2-3 safe new-file export is next**, followed by validation, shared report
-projection, staged diff, Git context/command and real-host exit. These
-remaining workflows are not yet delivered; slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
+rows authored. **ptv2-1 foundation, ptv2-2 overlay editing and ptv2-3
+new-file export are DONE**; **ptv2-4 effective-view validation is next**,
+followed by shared report projection, staged diff, Git context/command and
+real-host exit. These remaining workflows are not yet delivered; slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
 is **closed**: docs, packaging, VS Code build/CI and q-14 all integrated.
 
 PT-Q residue remains pickup-ready under
@@ -151,6 +142,12 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-17 (**fd**) — ptv2-3 create-only export integrated after a
+  withdrawn STOP (stale-dist timeout, not unreadable scratch), real scratch
+  read proof, parent drills (wx/overlay/early-finish) and full merged gates;
+  2982/186, 7 real-host scenarios, 15 pins. Pre-existing default-mode CLI/contracts
+  contention timeouts documented with an unmodified-main control. ptv2-4 next;
+  remote CI still blocked on human billing action (M6).
 - 2026-10-15 (**fc**) — ptv2-2 integrated after independent correction loops,
   cast/history mutants and full gates + real-host/offline proofs; 2977/184,
   15 pins, scalar codec limits disclosed. Session overlays do not save sources.
