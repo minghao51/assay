@@ -39,6 +39,14 @@ interface DatasetReport {
   readonly gridAuditOk?: boolean
   /** ptv1-4: open (bytes in hand) → first grid row visible, ms. */
   readonly firstRowVisibleMs?: number
+  readonly validationProof?: {
+    readonly baselineFailures: number
+    readonly editedFailures: number
+    readonly insertedFailures: number
+    readonly deletedFailures: number
+    readonly staleAfterEdit: boolean
+    readonly logicalNavigation: boolean
+  }
   readonly editProof?: {
     readonly cellIdentity: boolean
     readonly keyboardCancel: boolean
@@ -61,7 +69,7 @@ function safeProofFailure(message: string | undefined): string {
   if (message?.includes('Set NULL keyboard proof')) return 'Set NULL keyboard proof failed'
   if (message?.includes('test proof timed out')) return 'proof timed out'
   const stage =
-    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|proof-sort-filter|proof-editor-cancel|proof-identity-check|proof-cell-commit|proof-cell-await-row|proof-cell-await-editor-cell|proof-cell-editor-open|proof-cell-dispatch|proof-cell-await-commit|proof-cell-view-check|proof-undo-redo|proof-branch-and-null|proof-insert-delete|set-null-row-wait|set-null-editor-open|set-null-dispatch|set-null-await-commit|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-check-status|wide-check-history|wide-check-error|wide-check-count|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard)(?: category=(set-null-assertion|proof-timeout|proof-revision-timeout|candidate-cast-rejected|operation-rejected|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
+    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|proof-sort-filter|proof-editor-cancel|proof-identity-check|proof-cell-commit|proof-cell-await-row|proof-cell-await-editor-cell|proof-cell-editor-open|proof-cell-dispatch|proof-cell-await-commit|proof-cell-view-check|proof-undo-redo|proof-branch-and-null|proof-insert-delete|set-null-row-wait|set-null-editor-open|set-null-dispatch|set-null-await-commit|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-check-status|wide-check-history|wide-check-error|wide-check-count|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard|validation-contract-select|validation-baseline|validation-navigation|validation-edit|validation-insert|validation-delete-operation|validation-delete-run|validation-delete-assert|validation-delete-rowcount|validation-delete-failcount|validation-delete-check)(?: category=(set-null-assertion|proof-timeout|proof-revision-timeout|candidate-cast-rejected|operation-rejected|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
       message ?? '',
     )
   if (stage !== null) return `webview stage=${stage[1]}`
@@ -127,6 +135,25 @@ export async function run(): Promise<void> {
   assert(sourceImmutable, 'source fixture changed during session-only editing')
   assert(opened.outcome === 'opened', `command open did not open: ${JSON.stringify(opened)}`)
   assert(opened.rows === 5, `expected 5 rows, got ${String(opened.rows)}`)
+  assert(
+    opened.validationProof?.baselineFailures === 1,
+    `validation baseline count mismatch: ${JSON.stringify(opened.validationProof)}`,
+  )
+  assert(opened.validationProof.editedFailures === 0, 'effective edited row was not validated')
+  assert(opened.validationProof.insertedFailures === 2, 'effective inserted row was not validated')
+  assert(
+    opened.validationProof.deletedFailures === 0,
+    'effective deleted row was not removed from validation',
+  )
+  assert(
+    opened.validationProof.staleAfterEdit === true,
+    'validation report did not become stale after edit',
+  )
+  assert(
+    opened.validationProof.logicalNavigation === true,
+    'validation sample did not navigate by logical row key',
+  )
+  scenarios['effectiveValidation'] = opened.validationProof
   assert(opened.columns === 4, `expected 4 columns, got ${String(opened.columns)}`)
   assert(opened.format === 'parquet', `expected parquet format, got ${String(opened.format)}`)
   assert((opened.byteLength ?? 0) > 0, 'byteLength must be positive')
@@ -152,7 +179,7 @@ export async function run(): Promise<void> {
   )
   scenarios['commandOpen'] = { ...opened, sourceImmutable }
   console.log(
-    `[e2e] 1/5 OK rows=${String(opened.rows)} columns=${String(opened.columns)} gridAuditOk=${String(opened.gridAuditOk)} firstRowVisibleMs=${String(opened.firstRowVisibleMs)}`,
+    `[e2e] 1/5 OK rows=${String(opened.rows)} columns=${String(opened.columns)} validation=${String(opened.validationProof?.baselineFailures)}/${String(opened.validationProof?.editedFailures)}/${String(opened.validationProof?.insertedFailures)}/${String(opened.validationProof?.deletedFailures)} gridAuditOk=${String(opened.gridAuditOk)} firstRowVisibleMs=${String(opened.firstRowVisibleMs)}`,
   )
 
   // The test-only host provider is enabled only by the existing e2e gate.

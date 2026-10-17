@@ -72,6 +72,14 @@ export function buildDatasetHtml(
         <dd id="report-columns"></dd>
       </dl>
       <p>Edits are session-only and are discarded when this view closes unless exported. Export writes the effective view in natural row order, independent of grid sort, filters, and viewport.</p>
+      <section id="validation-controls" aria-label="Validate effective view" hidden>
+        <button id="contract-select" type="button">Select contract…</button>
+        <button id="validate-button" type="button" disabled>Validate effective view</button>
+        <button id="validate-cancel" type="button" hidden>Cancel validation</button>
+        <p id="validation-status" role="status"></p>
+        <p id="validation-stale" role="status" hidden>STALE — edits changed the effective view. Re-validate explicitly.</p>
+        <div id="validation-results"></div>
+      </section>
       <section id="export-controls" aria-label="Export dataset" hidden>
         <label for="export-format">Format</label>
         <select id="export-format"><option value="parquet">Parquet</option><option value="csv">CSV</option><option value="jsonl">JSONL</option><option value="json">JSON</option><option value="arrow">Arrow</option></select>

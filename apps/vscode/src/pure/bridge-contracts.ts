@@ -41,6 +41,15 @@ export type DatasetReport =
       readonly gridAuditOk: boolean
       /** Open (bytes in hand) to first grid row visible, in milliseconds. */
       readonly firstRowVisibleMs: number
+      /** Test-mode only, exact value-free effective-validation counts. */
+      readonly validationProof?: {
+        readonly baselineFailures: number
+        readonly editedFailures: number
+        readonly insertedFailures: number
+        readonly deletedFailures: number
+        readonly staleAfterEdit: boolean
+        readonly logicalNavigation: boolean
+      }
       /** Test-mode only, value-free result of production DOM/engine edit assertions. */
       readonly editProof?: {
         readonly cellIdentity: boolean
@@ -60,6 +69,34 @@ export type DatasetReport =
       /** True when the webview acknowledged the error (it rendered the state). */
       readonly shownInWebview: boolean
     }
+
+/** Exact value-free projection for test-only validation evidence received from a webview. */
+export function normalizeValidationProof(
+  value: unknown,
+): NonNullable<Extract<DatasetReport, { outcome: 'opened' }>['validationProof']> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const input = value as Record<string, unknown>
+  const counts = [
+    'baselineFailures',
+    'editedFailures',
+    'insertedFailures',
+    'deletedFailures',
+  ] as const
+  if (
+    !counts.every((key) => Number.isSafeInteger(input[key]) && Number(input[key]) >= 0) ||
+    typeof input['staleAfterEdit'] !== 'boolean' ||
+    typeof input['logicalNavigation'] !== 'boolean'
+  )
+    return undefined
+  return {
+    baselineFailures: Number(input['baselineFailures']),
+    editedFailures: Number(input['editedFailures']),
+    insertedFailures: Number(input['insertedFailures']),
+    deletedFailures: Number(input['deletedFailures']),
+    staleAfterEdit: input['staleAfterEdit'],
+    logicalNavigation: input['logicalNavigation'],
+  }
+}
 
 /** Exact value-free projection for test-only edit evidence received from a webview. */
 export function normalizeEditProof(

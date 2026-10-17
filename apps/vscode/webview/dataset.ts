@@ -28,6 +28,15 @@ import type { OverlayBase, RowId } from '@assay/domain'
 import type { WorkerDiagnostic } from './engine-boot'
 import { EditController } from '../src/pure/edit-controller'
 import { overlaySnapshot } from '../src/pure/overlay-snapshot'
+import {
+  acceptsValidationFrame,
+  isCurrentValidationGeneration,
+  isValidationStale,
+  parseAndCompileContract,
+  projectValidation,
+  VALIDATION_SAMPLE_LIMIT,
+} from '../src/pure/validation-controller'
+import type { ValidationProjection } from '../src/pure/validation-controller'
 import type {
   ExportHostRequest,
   ExportHostResponse,
@@ -84,6 +93,11 @@ let exportGeneration = 0
 let exportActive = false
 let activeExportId: string | undefined
 let exportCancelled = false
+let validationGeneration = 0
+let validationRequest: { readonly id: string; readonly generation: number } | null = null
+let contractText: string | null = null
+let validationReport: ValidationProjection | null = null
+let validationBusy = false
 const exportWaiters = new Map<string, (message: ExportHostResponse) => void>()
 
 function waitExport(id: string, kind: string): Promise<ExportHostResponse> {
@@ -328,9 +342,120 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
           (snapshot.busy ? 'Checking edit…' : snapshot.revision > 0 ? 'Edit applied.' : '')
       }
       grid?.refreshEditingState()
+      setValidationStale()
     },
   )
   activeController = controller
+  const validationStatus = elementOrThrow('validation-status')
+  const validationResults = elementOrThrow('validation-results')
+  const setValidationStale = (): void => {
+    elementOrThrow('validation-stale').hidden = !isValidationStale(
+      validationReport,
+      controller.snapshot.revision,
+    )
+  }
+  const renderValidation = (report: ValidationProjection): void => {
+    validationResults.replaceChildren()
+    const summary = document.createElement('p')
+    summary.textContent = `${report.valid ? 'VALID' : 'INVALID'} — ${report.rowCount} effective rows.`
+    validationResults.appendChild(summary)
+    for (const rule of report.rules) {
+      const section = document.createElement('section')
+      const heading = document.createElement('p')
+      heading.textContent = `${rule.ruleId}: ${rule.failCount} failures (${rule.failPercent}%).`
+      section.appendChild(heading)
+      for (const sample of rule.samples) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.textContent = `Go to row ${sample.rowKey} — ${String(sample.value)}`
+        button.addEventListener('click', () => {
+          void (async () => {
+            const total = await provider.rowCount()
+            for (let start = 0; start < total; start += 128) {
+              const page = await provider.fetchRange({
+                startRow: start,
+                endRow: Math.min(total, start + 128),
+                startCol: 0,
+                endCol: (await provider.schema()).length,
+              })
+              const offset = (page.rowKeys ?? []).indexOf(sample.rowKey)
+              if (offset >= 0) {
+                grid?.scrollToRow(start + offset)
+                grid?.focusGrid()
+                return
+              }
+            }
+            validationStatus.textContent =
+              'That logical row is not in the current grid view. Clear filters or re-validate.'
+          })().catch(() => {
+            validationStatus.textContent = 'Could not navigate to that logical row.'
+          })
+        })
+        section.appendChild(button)
+      }
+      validationResults.appendChild(section)
+    }
+    setValidationStale()
+  }
+  const validateEffectiveView = async (): Promise<void> => {
+    if (validationBusy || contractText === null || controller.snapshot.busy) return
+    validationBusy = true
+    const generation = ++validationGeneration
+    const revision = controller.snapshot.revision
+    const status = elementOrThrow('validation-status')
+    status.textContent = 'Compiling contract and validating the effective view…'
+    elementOrThrow('validate-button').setAttribute('disabled', 'true')
+    elementOrThrow('validate-cancel').hidden = false
+    try {
+      const effective = stateAtCursor(base, controller.currentHistory)
+      const compiled = parseAndCompileContract(contractText, effective.columns)
+      if (compiled.kind !== 'compiled') {
+        status.textContent =
+          compiled.kind === 'empty'
+            ? 'Contract is empty.'
+            : compiled.kind === 'parse-error'
+              ? 'Contract could not be parsed.'
+              : compiled.kind === 'compile-error'
+                ? 'Contract does not bind to the effective schema.'
+                : 'Contract exceeds the size limit.'
+        return
+      }
+      const overlay = overlaySnapshot(base, controller.currentHistory)
+      const result = await boot.client.validate(handle, compiled.plan, overlay)
+      if (!isCurrentValidationGeneration(generation, validationGeneration)) return
+      validationReport = projectValidation(result, revision, VALIDATION_SAMPLE_LIMIT)
+      renderValidation(validationReport)
+      status.textContent = 'Validation complete.'
+    } catch {
+      if (isCurrentValidationGeneration(generation, validationGeneration))
+        status.textContent = 'Validation failed. The previous report, if any, is unchanged.'
+    } finally {
+      if (isCurrentValidationGeneration(generation, validationGeneration)) {
+        validationBusy = false
+        elementOrThrow('validate-button').removeAttribute('disabled')
+        elementOrThrow('validate-cancel').hidden = true
+      }
+    }
+  }
+  const requestContract = (): void => {
+    if (validationRequest !== null) return
+    const request = { id: crypto.randomUUID(), generation: ++validationGeneration }
+    validationRequest = request
+    vscodeApi.postMessage({ kind: 'validate-request', ...request })
+    validationStatus.textContent = 'Select a local contract file…'
+  }
+  elementOrThrow('contract-select').addEventListener('click', requestContract)
+  elementOrThrow('validate-button').addEventListener('click', () => {
+    void validateEffectiveView()
+  })
+  elementOrThrow('validate-cancel').addEventListener('click', () => {
+    validationGeneration++
+    validationBusy = false
+    elementOrThrow('validate-button').removeAttribute('disabled')
+    elementOrThrow('validate-cancel').hidden = true
+    validationStatus.textContent = 'Validation cancelled; any late result will be ignored.'
+  })
+  elementOrThrow('validation-controls').hidden = false
   grid = new WebviewDataGrid(model, {
     ariaLabel: 'Assay dataset grid',
     editing: {
@@ -376,6 +501,13 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
   const editProof = config.testHarness
     ? await exerciseRealEditor(grid, model, provider, controller, base)
     : undefined
+  activeOpenStage = 'validation-proof'
+  const validationProof =
+    config.testHarness &&
+    rows === 5 &&
+    baseSchema.some((column) => column.name === 'value_maybe_null')
+      ? await exerciseEffectiveValidation(validateEffectiveView, controller, provider, grid, model)
+      : undefined
   if (config.testHarness) await startExport('parquet', boot.client, handle, base, controller)
   elementOrThrow('export-controls').hidden = false
   elementOrThrow('export-button').addEventListener('click', () => {
@@ -410,7 +542,102 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     gridRendered: true,
     gridAudit: audit,
     ...(editProof === undefined ? {} : { editProof }),
+    ...(validationProof === undefined ? {} : { validationProof }),
   })
+}
+
+async function exerciseEffectiveValidation(
+  validate: () => Promise<void>,
+  controller: EditController,
+  provider: EngineGridProvider,
+  grid: WebviewDataGrid,
+  model: GridViewportModel,
+): Promise<{
+  readonly baselineFailures: number
+  readonly editedFailures: number
+  readonly insertedFailures: number
+  readonly deletedFailures: number
+  readonly staleAfterEdit: boolean
+  readonly logicalNavigation: boolean
+}> {
+  activeOpenStage = 'validation-contract-select'
+  elementOrThrow('contract-select').dispatchEvent(new Event('click'))
+  await waitUntil(() => contractText !== null || validationRequest === null)
+  if (contractText === null) throw new Error('validation contract selection failed')
+  const startingCursor = controller.snapshot.history.cursor
+  const run = async (): Promise<ValidationProjection> => {
+    await validate()
+    if (validationReport === null || validationReport.revision !== controller.snapshot.revision)
+      throw new Error('validation controller did not publish a current verdict')
+    return validationReport
+  }
+  activeOpenStage = 'validation-baseline'
+  const baseline = await run()
+  const rule = baseline.rules[0]
+  const sample = rule?.samples[0]
+  if (rule === undefined || sample === undefined || rule.failCount !== 1)
+    throw new Error('validation baseline invariant failed')
+  activeOpenStage = 'validation-navigation'
+  let logicalNavigation = false
+  const count = await provider.rowCount()
+  for (let start = 0; start < count; start += 128) {
+    const page = await provider.fetchRange({
+      startRow: start,
+      endRow: Math.min(count, start + 128),
+      startCol: 0,
+      endCol: (await provider.schema()).length,
+    })
+    const offset = (page.rowKeys ?? []).indexOf(sample.rowKey)
+    if (offset >= 0) {
+      grid.scrollToRow(start + offset)
+      logicalNavigation = true
+      break
+    }
+  }
+  if (!logicalNavigation) throw new Error('validation logical-row navigation failed')
+  activeOpenStage = 'validation-edit'
+  await controller.commitCell(sample.rowKey as RowId, 'value_maybe_null', {
+    kind: 'number',
+    value: 9.5,
+  })
+  validationReport = baseline
+  const staleAfterEdit = isValidationStale(baseline, controller.snapshot.revision)
+  elementOrThrow('validation-stale').hidden = !staleAfterEdit
+  if (!staleAfterEdit || elementOrThrow('validation-stale').hidden)
+    throw new Error('validation stale invariant failed')
+  const edited = await run()
+  if (edited.rules[0]?.failCount !== 0)
+    throw new Error('validation effective edit invariant failed')
+  await controller.undo()
+  activeOpenStage = 'validation-insert'
+  await controller.insertRow()
+  const inserted = await run()
+  if (inserted.rowCount !== baseline.rowCount + 1 || inserted.rules[0]?.failCount !== 2)
+    throw new Error('validation effective insert invariant failed')
+  await controller.undo()
+  activeOpenStage = 'validation-delete-operation'
+  await controller.deleteRow(sample.rowKey as RowId)
+  activeOpenStage = 'validation-delete-run'
+  const deleted = await run()
+  activeOpenStage = 'validation-delete-check'
+  if (deleted.rowCount !== baseline.rowCount - 1 || deleted.rules[0]?.failCount !== 0)
+    throw new Error('validation effective delete invariant failed')
+  await controller.undo()
+  if (controller.snapshot.history.cursor !== startingCursor)
+    throw new Error('validation proof did not restore the original overlay')
+  await model.setSort(null)
+  await model.setFilters([])
+  await model.refresh()
+  grid.scrollToRow(0)
+  await grid.whenFirstRowVisible()
+  return {
+    baselineFailures: rule.failCount,
+    editedFailures: edited.rules[0]!.failCount,
+    insertedFailures: inserted.rules[0]!.failCount,
+    deletedFailures: deleted.rules[0]!.failCount,
+    staleAfterEdit,
+    logicalNavigation,
+  }
 }
 
 async function exerciseRealEditor(
@@ -1009,6 +1236,44 @@ window.addEventListener('message', (event) => {
     generation?: number
   }
   if (
+    data?.kind === 'contract-loaded' ||
+    data?.kind === 'contract-cancelled' ||
+    data?.kind === 'contract-error'
+  ) {
+    const expected = validationRequest
+    if (expected === null) return
+    const correlated =
+      acceptsValidationFrame(expected, data) ||
+      ((data.kind === 'contract-cancelled' || data.kind === 'contract-error') &&
+        data.id === expected.id &&
+        data.generation === expected.generation)
+    if (!correlated) return
+    validationRequest = null
+    if (data.kind === 'contract-loaded' && acceptsValidationFrame(expected, data)) {
+      contractText = data.text
+      validationReport = null
+      elementOrThrow('validation-results').replaceChildren()
+      elementOrThrow('validation-stale').hidden = true
+      elementOrThrow('validate-button').removeAttribute('disabled')
+      elementOrThrow('validation-status').textContent =
+        'Contract selected. Validate the effective view when ready.'
+    } else if (
+      data.kind === 'contract-cancelled' &&
+      data.id === expected.id &&
+      data.generation === expected.generation
+    ) {
+      elementOrThrow('validation-status').textContent = 'Contract selection cancelled.'
+    } else if (
+      data.kind === 'contract-error' &&
+      data.id === expected.id &&
+      data.generation === expected.generation
+    ) {
+      elementOrThrow('validation-status').textContent =
+        'Contract could not be read (empty, too large, or unavailable).'
+    }
+    return
+  }
+  if (
     typeof data?.id === 'string' &&
     [
       'export-ready',
@@ -1071,6 +1336,8 @@ window.addEventListener('message', (event) => {
     return
   }
   if (data?.kind === 'dispose') {
+    validationGeneration++
+    validationRequest = null
     if (activeExportId !== undefined) {
       exportCancelled = true
       postExportMessage({ kind: 'export-cancel', id: activeExportId, generation: exportGeneration })

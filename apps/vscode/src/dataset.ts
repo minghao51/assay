@@ -35,6 +35,7 @@ import {
 import {
   DatasetOpenError,
   normalizeEditProof,
+  normalizeValidationProof,
   WEBVIEW_ERROR_TEXT,
   type DatasetReport,
   type ReadDatasetResult,
@@ -239,6 +240,73 @@ export function bridgeDatasetIntoPanel(
     const reading = readDataset(uri)
     panel.webview.onDidReceiveMessage((message: unknown) => {
       const kind = (message as { kind?: unknown } | null)?.kind
+      if (kind === 'validate-request') {
+        const request = message as { id?: unknown; generation?: unknown }
+        if (
+          typeof request.id !== 'string' ||
+          request.id.length === 0 ||
+          request.id.length > 64 ||
+          !Number.isSafeInteger(request.generation) ||
+          Number(request.generation) < 0
+        )
+          return
+        const id = request.id
+        const generation = Number(request.generation)
+        void (async () => {
+          const testHarness =
+            context.extensionMode === vscode.ExtensionMode.Test &&
+            process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
+          const selected = testHarness
+            ? vscode.Uri.file(
+                `${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/validation-contract.yaml`,
+              )
+            : (
+                await vscode.window.showOpenDialog({
+                  canSelectMany: false,
+                  openLabel: 'Select validation contract',
+                  filters: { 'Assay contracts': ['yaml', 'yml'] },
+                })
+              )?.[0]
+          if (selected === undefined) {
+            void panel.webview.postMessage({ kind: 'contract-cancelled', id, generation })
+            return
+          }
+          const stat = await vscode.workspace.fs.stat(selected)
+          if ((stat.type & vscode.FileType.Directory) !== 0 || stat.size > 1024 * 1024) {
+            void panel.webview.postMessage({
+              kind: 'contract-error',
+              id,
+              generation,
+              errorKind: 'contract-invalid',
+            })
+            return
+          }
+          const bytes = await vscode.workspace.fs.readFile(selected)
+          if (bytes.byteLength === 0 || bytes.byteLength > 1024 * 1024) {
+            void panel.webview.postMessage({
+              kind: 'contract-error',
+              id,
+              generation,
+              errorKind: 'contract-invalid',
+            })
+            return
+          }
+          void panel.webview.postMessage({
+            kind: 'contract-loaded',
+            id,
+            generation,
+            text: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+          })
+        })().catch(() => {
+          void panel.webview.postMessage({
+            kind: 'contract-error',
+            id,
+            generation,
+            errorKind: 'contract-read-failed',
+          })
+        })
+        return
+      }
       if (kind === 'export-request') {
         const request = message as { id?: unknown; generation?: unknown; format?: unknown }
         if (
@@ -447,6 +515,7 @@ export function bridgeDatasetIntoPanel(
           gridRendered?: unknown
           gridAudit?: { ok?: unknown }
           editProof?: unknown
+          validationProof?: unknown
         }
         void reading.then((read) => {
           finish({
@@ -461,7 +530,11 @@ export function bridgeDatasetIntoPanel(
             ...(context.extensionMode === vscode.ExtensionMode.Test
               ? (() => {
                   const proof = normalizeEditProof(opened.editProof)
-                  return proof === undefined ? {} : { editProof: proof }
+                  const validation = normalizeValidationProof(opened.validationProof)
+                  return {
+                    ...(proof === undefined ? {} : { editProof: proof }),
+                    ...(validation === undefined ? {} : { validationProof: validation }),
+                  }
                 })()
               : {}),
           })

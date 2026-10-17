@@ -132,6 +132,9 @@ importers:
 
   apps/vscode:
     devDependencies:
+      '@assay/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@assay/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -141,6 +144,9 @@ importers:
       '@assay/grid':
         specifier: workspace:*
         version: link:../../packages/grid
+      '@assay/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@duckdb/duckdb-wasm':
         specifier: ^1.32.0
         version: 1.32.0

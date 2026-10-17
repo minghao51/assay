@@ -22,7 +22,7 @@
  * this script; override the executable with VSCODE_EXECUTABLE=/path/to/code.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -57,6 +57,18 @@ mkdirSync(workspaceDir, { recursive: true })
 for (const name of ['synthetic-smoke.parquet', 'empty.csv']) {
   copyFileSync(path.join(fixturesDir, name), path.join(workspaceDir, name))
 }
+writeFileSync(
+  path.join(workspaceDir, 'validation-contract.yaml'),
+  [
+    'format: v1',
+    'name: desktop-validation-proof',
+    'version: 1',
+    'columns:',
+    '  - name: value_maybe_null',
+    '    required: true',
+    '',
+  ].join('\n'),
+)
 
 // 4. Resolve the pinned runtime through the shared cache/download policy.
 let vscodeRuntime

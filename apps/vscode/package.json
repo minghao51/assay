@@ -70,8 +70,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json"
   },
   "devDependencies": {
+    "@assay/contracts": "workspace:*",
     "@assay/domain": "workspace:*",
     "@assay/engine-duckdb": "workspace:*",
+    "@assay/validation": "workspace:*",
     "@assay/grid": "workspace:*",
     "@duckdb/duckdb-wasm": "^1.32.0",
     "@types/node": "catalog:",

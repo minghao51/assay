@@ -4,11 +4,36 @@ import { describe, expect, it } from 'vitest'
 import {
   DatasetOpenError,
   normalizeEditProof,
+  normalizeValidationProof,
   WEBVIEW_ERROR_TEXT,
   type DatasetErrorKind,
 } from './bridge-contracts'
 
 describe('desktop bridge error contracts', () => {
+  it('projects validation proof to bounded value-free counts and flags', () => {
+    const proof = {
+      baselineFailures: 1,
+      editedFailures: 0,
+      insertedFailures: 2,
+      deletedFailures: 0,
+      staleAfterEdit: true,
+      logicalNavigation: true,
+      sampleValue: 'private-content',
+    }
+    expect(normalizeValidationProof(proof)).toEqual({
+      baselineFailures: 1,
+      editedFailures: 0,
+      insertedFailures: 2,
+      deletedFailures: 0,
+      staleAfterEdit: true,
+      logicalNavigation: true,
+    })
+    expect(normalizeValidationProof({ ...proof, insertedFailures: -1 })).toBeUndefined()
+    expect(
+      normalizeValidationProof({ ...proof, sampleValue: undefined, deletedFailures: 'secret' }),
+    ).toBeUndefined()
+  })
+
   it('projects test proof to exact booleans and drops content-bearing properties', () => {
     const proof = {
       cellIdentity: true,
