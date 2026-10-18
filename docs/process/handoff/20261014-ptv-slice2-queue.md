@@ -324,7 +324,54 @@ profile-only, added/removed/changed, empty/no-comparable and nested fixtures.
 Edited-view reports set `baseViewOnly: false`; compare CLI against the exported
 effective copy for that leg. Staleness is disclosed, not silently removed.
 
-**Status:** PENDING.
+**Status:** **DONE 2026-10-19 — `80d2033…c2dff94` (worktree `2aa650b…9082d9d`), independent
+reviewer approve after one request-changes round.** Worker delivered phases
+A (pure `diff-controller` + tests) and B (host comparison/report-export
+bridges + webview flow, `@assay/diff` dep); the parent implemented phase C
+after three worker stalls (role-flip per operating model) and an independent
+reviewer session approved after fixes. Surface: typed comparison-file
+bridge (dialog → stat/size checks → path-free frames; cancelled = state),
+report export via the ptv2-3 create-only writer, disclosure UI (schema
+findings, divergent deltas, issues, inference candidates + evidence),
+EXPLICIT key confirmation gate (multi-select; empty/dup/unknown/null keys
+typed-refused; key names are arrays — commas legal), `compileRowDiffPlan` +
+`client.diff(handle, comparison, plan, overlaySnapshot)` serialized against
+pending edits, aspects in documented order, A-side sample navigation,
+visible stale marking on later edits, re-run explicit. Desktop default
+sample limit now single-sourced from `DEFAULT_SAMPLE_LIMIT` (CLI parity).
+Real-host e2e (8th scenario, `diffProof` normalized host-side) proves:
+unconfirmed refusal (pre-staging + empty-keys), baseline 1/1/1 with
+navigation, four agreement classes (identical / schema-only /
+no-comparable / nested-presence — pristine view, reports 2-5), then the
+edit narrative (stale flip, edited re-diff `baseViewOnly:false`, changed
+1→2, report 6 + effective copy). The runner packs the recursive CLI
+closure into an npm consumer (the installed shape) and compares every
+leg on common semantic fields with required-shape validation (a missing
+field is disagreement, never vacuous equality); edited-leg exclusions
+(`baseViewOnly`, `columnDeltas`) are construction-justified and documented;
+profile-only as a STANDALONE pair is impossible with a fully-matching key
+(covered field-for-field on the baseline leg). Reviewer drills: dropping
+the key-confirmation validation fails e2e at `diff-unconfirmed-keys`;
+sampleLimit mutation fails naming the field; identical-invariant mutation
+fails its class — all restored green. Fixed en route: a real staging
+deadlock (`comparisonBusy` latch set by the initiating click, never
+cleared on the early refuse), JSONL fixtures swapped for CSV/parquet
+(see discovered gaps). Gates: types **20** forced, unit **3014/190**,
+coverage **88.18/82.29/88.90/89.64** above floors, build **12**, browser
+**172+1**, native **9**, spike **15 pins**, real-host **8 scenarios +
+six-leg CLI agreement**. Logs `/tmp/ptv2-6-*`.
+
+**Discovered gaps (recorded, out of row scope):** (1) opening JSON/JSONL
+on the desktop requires DuckDB's `json` extension, which the offline
+netblock refuses to fetch — vendoring it is a follow-up (JSONL e2e
+fixtures use CSV/parquet meanwhile); (2) externally written parquet
+(DuckDB 1.5.x CLI) with DOUBLE columns shows an engine row-diff quirk
+(equal values reported changed — both surfaces agree, so agreement
+holds, but the quirk deserves an engine-side look); (3) `node
+apps/cli/dist/index.js` from the repo root fails opaquely
+("internal error (no details)") — workspace exports resolve to src TS;
+the supported consumable is the packed tarball (a friendlier dev error
+is a q-candidate).
 
 ### ptv2-7 — Git context and dataset diff command
 

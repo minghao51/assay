@@ -105,8 +105,25 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
   silently removed); revalidation is explicit. Late/cancelled results are
   dropped by generation checks. The real-host proof shows effective-view
   semantics: baseline 1 failure → 0 after a fixing edit, 2 after an inserting
-  edit, 0 after deleting the failing row. Diff and Git workflows remain
-  queued.
+  edit, 0 after deleting the failing row.
+
+## Staged diff with confirmed keys (ptv2-6)
+
+- Stage a comparison dataset (host-picked, path-free toward the webview);
+  the panel discloses schema findings, divergent profile deltas, issues and
+  key-inference evidence. NOTHING runs until keys are explicitly confirmed
+  (multi-select; empty/duplicate/unknown keys are typed-refused; key names
+  are arrays, so commas and quotes in names are safe).
+- The confirmed diff executes `compileRowDiffPlan` + the engine diff against
+  the current effective view (session overlay), serialized against pending
+  edits. Aspects render in documented order with exact counts and bounded
+  samples; A-side samples navigate the grid; later edits mark the report
+  stale (kept, visible) until an explicit re-run.
+- The JSON report (shared canonical projection, `baseViewOnly:false` when
+  edits are in view) exports to a NEW local file through the create-only
+  writer. The real-host e2e proves semantic agreement with the INSTALLED
+  packed CLI across baseline, edited, identical, schema-only,
+  no-comparable and nested-presence legs. Git workflows remain queued.
 
 ## Grid envelope (ptv1-4 limits retained for ptv2-2)
 

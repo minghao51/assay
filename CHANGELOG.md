@@ -12,6 +12,19 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — VS Code staged diff with confirmed keys (2026-10-19)
+
+- The desktop editor stages a comparison dataset, discloses schema/profile
+  findings and key inference evidence, and requires EXPLICIT key confirmation
+  before any row diff runs; the diff executes against the current effective
+  view, navigates bounded samples, keeps stale marking on later edits, and
+  exports the shared-projection JSON report to a new local file via the
+  create-only path. Desktop and CLI now share one default sample limit.
+- Real-host e2e proves agreement with the INSTALLED (packed-consumer) CLI on
+  common semantic fields across baseline, edited-view, identical,
+  schema-only, no-comparable and nested-presence legs, with required-shape
+  validation so a missing field can never compare equal.
+
 ### Changed — shared canonical diff report projection (2026-10-18)
 
 - `@assay/diff` now owns the canonical pure report projection: schema/column
