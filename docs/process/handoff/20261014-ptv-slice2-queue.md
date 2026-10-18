@@ -279,7 +279,32 @@ No package→app or engine/browser/React imports; no copied third serializer in
 VS Code. Existing cross-surface agreement, real-DuckDB fixtures, packed CLI
 consumer and browser exports remain green. Parent byte/metric mutation bites.
 
-**Status:** PENDING.
+**Status:** **DONE 2026-10-18 — `2d37af5`+`cb4620f` (worktree `6a9d0f9`+`5783aef`),
+parent approve after independent review.** New pure module
+`packages/diff/src/report-projection.ts` (+153-line test): the projectors
+(schema finding, column delta, issue, sample with undefined/null
+changedColumns collapse, aspect, inference evidence), `roundReportMetric`
+(`-0`-normalized), `columnDeltaDiffers`/`divergentColumnDeltas`, the one
+`diffReportIdentical` verdict predicate, `DIFF_REPORT_MARKER`, and the
+diff-sample key grammar (`diffSampleExportKey`/`diffSampleDisplayKey`,
+`b:` passthrough + `@assay/domain` delegation — `@assay/domain` added as
+the package's one new workspace dep). Serialized key ORDER is pinned by
+string-comparison tests in the package (adapter tests parse JSON and are
+order-blind by design). CLI `report-diff.ts` (+41/−161) and web
+`diff-model.ts`/`diff-export.ts` (+63/−145) now consume the shared module,
+deleting their duplicated copies while keeping each envelope's surface head
+byte-identical (CLI: `reportVersion`, `a`/`b` basenames, `baseViewOnly:true`;
+web: `stale`, no file names); −306 net duplication lines, no VS Code
+serializer. Worker phases A/B/C serialized (Luna; GLM lane now 401
+api_key_expired — credential renewal is a human action); parent re-ran
+core gates + forced types **20**, unit **2993/188**, coverage
+**88.68/82.84/89.05/90.19** above floors, build **12**, browser **172+1**,
+packed-CLI consumer smoke **PASS**, links/ADR checks green; merged-main unit
+run hit the documented pre-existing `diff.integration` usage-error timeout
+once and passed isolated (20/20). Parent drills: D1 key-order swap fails
+the package order pin (33-test file, 1 failed) and restores green; D2 raw
+rounding fails 3 pins across CLI+package; D3 verdict-ignores-changed fails
+the verdict pin — all restored green. Logs `/tmp/ptv2-5-*`.
 
 ### ptv2-6 — Staged diff with confirmed keys and report agreement
 

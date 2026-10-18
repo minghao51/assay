@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-18. **Current lane:** PT-V slice-2 implementation; ptv2-1/2/3/4 closed, ptv2-5 next.
+**Last updated:** 2026-10-18. **Current lane:** PT-V slice-2 implementation; ptv2-1/2/3/4/5 closed, ptv2-6 next.
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -37,15 +37,16 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, virtualized grid, offline engine | PT-V slice 2: diff and Git workflows                                          |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                     | Private-dependency registry distribution policy + human release prerequisites |
 
-**Verified state (2026-10-18):** ptv2-4 integrated as `b76312f` after parent
-review (drills: overlay-drop fails at validation-navigation; stale-flip
-false fails the stale pin). Local core gates, forced typecheck **20**, unit
-**2988/187** (default mode green), coverage **88.63/82.69/88.93/90.16**
-(floors 83/76/80/84), build **12**, browser e2e **172 + 1 skip**, native
-runtime **9**, real-VSCode **PASS incl. validationProof {baseline 1, edited
-0, inserted 2, deleted 0, stale, navigation}**, offline **15 pins**.
-Details in the [slice-2 queue](handoff/20261014-ptv-slice2-queue.md).
-**158 pending changesets**, doc links **107/0**, ADRs **46**.
+**Verified state (2026-10-18):** ptv2-5 shared canonical diff report projection
+integrated as `2d37af5`+`cb4620f` after parent review (three drills: key
+order, raw rounding, verdict aspect — all bite, all restore). Forced
+typecheck **20**, unit **2993/188**, coverage **88.68/82.84/89.05/90.19**
+above floors, build **12**, browser **172 + 1 skip**, packed-CLI consumer
+smoke **PASS**, links **107/0**, ADRs **46**. ptv2-4 evidence in the
+[slice-2 queue](handoff/20261014-ptv-slice2-queue.md). **159 pending
+changesets** (ptv2-5 added one). GLM worker lane regressed to 401
+api_key_expired — renewal is human-owned; Luna fallback executed this row
+in three serialized phases.
 
 **Push / remote CI:** user-authorized normal `main` pushes verified at
 `3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence). CI
@@ -108,11 +109,11 @@ an ADR, never a silent rewrite of an accepted decision.
 ### Active
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
-rows authored. **ptv2-1 foundation, ptv2-2 overlay editing and ptv2-3
-new-file export and ptv2-4 effective-view validation are DONE**; **ptv2-5
-shared diff report projection is next**, followed by staged diff, Git
-context/command and real-host exit. These remaining workflows are not yet
-delivered; slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
+rows authored. **ptv2-1 foundation, ptv2-2 overlay editing, ptv2-3
+new-file export, ptv2-4 effective-view validation and ptv2-5 shared diff
+report projection are DONE**; **ptv2-6 staged diff with confirmed keys is
+next**, followed by Git context/command and real-host exit. These remaining
+workflows are not yet delivered; slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
 is **closed**: docs, packaging, VS Code build/CI and q-14 all integrated.
 
 PT-Q residue remains pickup-ready under
@@ -160,6 +161,12 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-18 (**fg**) — ptv2-5 shared diff report projection integrated
+  (new pure `report-projection` module in `@assay/diff`; CLI/web adapters
+  consume it, −306 duplication lines, byte contracts pinned unchanged;
+  serialized key-order pins added at package level). Full merged gates;
+  three parent drills bite. GLM lane now 401 api_key_expired (human
+  renewal); ptv2-6 next.
 - 2026-10-18 (**ff**) — roster/plan refresh before ptv2-5 dispatch:
   operating-model §7.6 re-pinned to the maintainer's GLM-first worker /
   Luna-reviewer preference with Luna-worker/parent-reviewer fallback

@@ -12,6 +12,16 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed — shared canonical diff report projection (2026-10-18)
+
+- `@assay/diff` now owns the canonical pure report projection: schema/column
+  delta/issue/sample/aspect/inference JSON projectors with fixed key order,
+  `-0`-normalized metric rounding, the divergent-delta list, the single
+  `identical` verdict predicate, the report marker, and the anchor-free
+  diff-sample key grammar. CLI and web diff exports consume it instead of
+  their duplicated copies; both surfaces' JSON byte contracts are unchanged
+  and now additionally pinned by serialized key-order tests.
+
 ### Added — VS Code effective-view validation (2026-10-18)
 
 - The desktop editor validates the accepted overlay's effective view against
