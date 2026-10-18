@@ -22,6 +22,7 @@
  * this script; override the executable with VSCODE_EXECUTABLE=/path/to/code.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -57,6 +58,16 @@ mkdirSync(workspaceDir, { recursive: true })
 for (const name of ['synthetic-smoke.parquet', 'empty.csv']) {
   copyFileSync(path.join(fixturesDir, name), path.join(workspaceDir, name))
 }
+const comparisonA = path.join(workspaceDir, 'comparison-a.jsonl')
+const comparisonB = path.join(workspaceDir, 'comparison-b.jsonl')
+const rowsA = Array.from({ length: 12 }, (_, index) => ({ id: index + 1, value: index * 10 }))
+const rowsB = Array.from({ length: 11 }, (_, index) => ({
+  id: index + 1,
+  value: index === 0 ? 999 : index * 10,
+}))
+rowsB.push({ id: 13, value: 120 })
+writeFileSync(comparisonA, `${rowsA.map((row) => JSON.stringify(row)).join('\n')}\n`)
+writeFileSync(comparisonB, `${rowsB.map((row) => JSON.stringify(row)).join('\n')}\n`)
 writeFileSync(
   path.join(workspaceDir, 'validation-contract.yaml'),
   [
@@ -139,6 +150,55 @@ rmSync(userDataDir, { recursive: true, force: true })
 rmSync(extensionsDir, { recursive: true, force: true })
 
 if (failed) {
+  process.exit(1)
+}
+
+// C1 runner-side CLI reports are prepared as inputs for the later harness phase.
+const cliPath = path.resolve(appRoot, '..', 'cli', 'dist', 'index.js')
+if (!existsSync(cliPath)) {
+  console.error(`CLI build not found at ${cliPath}; run corepack pnpm build first`)
+  process.exit(1)
+}
+const safeExport = results.scenarios?.safeExport
+const exportedEffectiveCopy = safeExport?.exportedEffectiveCopy
+if (typeof exportedEffectiveCopy !== 'string' || !existsSync(exportedEffectiveCopy)) {
+  console.error(
+    'safeExport result is missing exportedEffectiveCopy; rebuild the VS Code extension and run e2e',
+  )
+  process.exit(1)
+}
+try {
+  const require = createRequire(import.meta.url)
+  const { runCliDiffReport } = require(path.join(dist, 'cli-agreement.cjs'))
+  const expectedBaseline = path.join(workspaceDir, 'expected-baseline.json')
+  const expectedEdited = path.join(workspaceDir, 'expected-edited.json')
+  writeFileSync(
+    expectedBaseline,
+    `${JSON.stringify(runCliDiffReport(cliPath, comparisonA, comparisonB, 'id'), null, 2)}\\n`,
+  )
+  writeFileSync(
+    expectedEdited,
+    `${JSON.stringify(runCliDiffReport(cliPath, exportedEffectiveCopy, comparisonB, 'id'), null, 2)}\\n`,
+  )
+  writeFileSync(
+    path.join(workspaceDir, 'diff-manifest.json'),
+    `${JSON.stringify(
+      {
+        comparisonA,
+        comparisonB,
+        key: 'id',
+        expectedBaseline,
+        expectedEdited,
+      },
+      null,
+      2,
+    )}\\n`,
+  )
+  console.log(`CLI expected reports written (baseline + edited); workspace=${workspaceDir}`)
+} catch (error) {
+  console.error(
+    `CLI diff report generation failed: ${error instanceof Error ? error.message : String(error)}`,
+  )
   process.exit(1)
 }
 console.log('e2e: PASS')

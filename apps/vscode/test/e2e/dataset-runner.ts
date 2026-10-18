@@ -200,6 +200,7 @@ export async function run(): Promise<void> {
   )
   scenarios['safeExport'] = {
     created: true,
+    exportedEffectiveCopy: exportedUri.fsPath,
     reopened: true,
     rows: reopenedExport.rows,
     columns: reopenedExport.columns,

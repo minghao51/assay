@@ -150,6 +150,17 @@ async function main() {
     logLevel: 'warning',
   })
 
+  await build({
+    entryPoints: [path.join(appRoot, 'src/pure/cli-agreement.ts')],
+    outfile: path.join(dist, 'cli-agreement.cjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    sourcemap: false,
+    logLevel: 'warning',
+  })
+
   // ptv1-3: the e2e test entry (real VS Code via @vscode/test-electron,
   // launched by scripts/run-e2e.mjs).
   await build({
