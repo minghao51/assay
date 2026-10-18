@@ -22,11 +22,25 @@
  * (ADR 0025/0037).
  */
 import { GridViewportModel } from '@assay/grid'
+import { diffDatasets, inferRowDiffKeys } from '@assay/diff'
+import type { DatasetProfile, DiffReport, KeyInferenceResult } from '@assay/diff'
+import type { EngineComparisonHandle, EngineDatasetProfile } from '@assay/engine-duckdb'
 import type { GridDataProvider } from '@assay/grid'
 import { emptyHistory, isLiveRow, overlayEdit, stateAtCursor } from '@assay/domain'
 import type { OverlayBase, RowId } from '@assay/domain'
 import type { WorkerDiagnostic } from './engine-boot'
 import { EditController } from '../src/pure/edit-controller'
+import {
+  buildDiffReport,
+  compileConfirmedDiff,
+  describeDiffCompileFailure,
+  isCurrentDiffRequest,
+  isDiffStale,
+  projectDiffReport,
+  selectDiffSampleNavigation,
+  validateConfirmedKeys,
+} from '../src/pure/diff-controller'
+import type { DiffReportView, DiffColumn } from '../src/pure/diff-controller'
 import { overlaySnapshot } from '../src/pure/overlay-snapshot'
 import {
   acceptsValidationFrame,
@@ -98,6 +112,30 @@ let validationRequest: { readonly id: string; readonly generation: number } | nu
 let contractText: string | null = null
 let validationReport: ValidationProjection | null = null
 let validationBusy = false
+let comparisonGeneration = 0
+let comparisonRequest: { readonly id: string; readonly generation: number } | null = null
+let comparisonHandle: EngineComparisonHandle | null = null
+let comparisonSchema: DiffColumn[] = []
+let comparisonDiff: DiffReport | null = null
+let comparisonInference: KeyInferenceResult | null = null
+let comparisonProfile: DatasetProfile | null = null
+let comparisonDisplayName = ''
+let comparisonBusy = false
+let diffGeneration = 0
+let diffBusy = false
+let diffConfirmed = false
+let diffReport: DiffReportView | null = null
+let diffKeySource: 'explicit' | 'inferred' = 'explicit'
+let reportExportRequest: { readonly id: string; readonly generation: number } | null = null
+let stageComparisonHandler:
+  | ((data: {
+      id: string
+      generation: number
+      name: string
+      displayName: string
+      bytes: ArrayBuffer
+    }) => void)
+  | null = null
 const exportWaiters = new Map<string, (message: ExportHostResponse) => void>()
 
 function waitExport(id: string, kind: string): Promise<ExportHostResponse> {
@@ -343,6 +381,7 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
       }
       grid?.refreshEditingState()
       setValidationStale()
+      elementOrThrow('diff-stale').hidden = !isDiffStale(diffReport, snapshot.revision)
     },
   )
   activeController = controller
@@ -456,6 +495,307 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     validationStatus.textContent = 'Validation cancelled; any late result will be ignored.'
   })
   elementOrThrow('validation-controls').hidden = false
+  elementOrThrow('diff-controls').hidden = false
+  const toDiffProfile = (profile: EngineDatasetProfile): DatasetProfile => ({
+    rowCount: profile.rowCount,
+    columns: profile.columns.map((column) => ({ ...column })),
+  })
+  const renderDiffStaged = (): void => {
+    const disclosure = elementOrThrow('diff-disclosure')
+    const candidates = elementOrThrow('diff-candidates')
+    const select = elementOrThrow('diff-keys') as HTMLSelectElement
+    disclosure.replaceChildren()
+    candidates.replaceChildren()
+    select.replaceChildren()
+    elementOrThrow('diff-results').replaceChildren()
+    diffReport = null
+    diffConfirmed = false
+    elementOrThrow('diff-export').setAttribute('disabled', 'true')
+    elementOrThrow('diff-stale').hidden = true
+    if (comparisonDiff === null || comparisonInference === null) return
+    const meta = document.createElement('p')
+    meta.textContent = `Comparison staged: ${comparisonDisplayName} (${comparisonSchema.length} columns; ${comparisonProfile?.rowCount ?? 0} rows).`
+    disclosure.appendChild(meta)
+    const schema = document.createElement('p')
+    schema.textContent = `Schema/profile findings: ${comparisonDiff.schemaDrift.length} schema drift findings; ${comparisonDiff.columnDeltas.length} column distribution deltas; ${comparisonDiff.issues.length} issues. Row-level comparison has not run.`
+    disclosure.appendChild(schema)
+    for (const [title, entries] of [
+      ['Schema drift', comparisonDiff.schemaDrift],
+      ['Column distribution deltas', comparisonDiff.columnDeltas],
+      ['Profile issues', comparisonDiff.issues],
+    ] as const) {
+      const heading = document.createElement('h3')
+      heading.textContent = title
+      disclosure.appendChild(heading)
+      for (const entry of entries) {
+        const item = document.createElement('p')
+        item.textContent = JSON.stringify(entry)
+        disclosure.appendChild(item)
+      }
+    }
+    const inferenceOutcome = document.createElement('p')
+    inferenceOutcome.textContent = comparisonInference.disclosure
+    disclosure.appendChild(inferenceOutcome)
+    const intro = document.createElement('p')
+    intro.textContent =
+      'Inferred keys are proposals only. Select a candidate or choose columns, then explicitly confirm; no row diff runs before confirmation.'
+    disclosure.appendChild(intro)
+    for (const column of comparisonSchema) {
+      const option = document.createElement('option')
+      option.value = column.name
+      option.textContent = `${column.name} (${column.type})`
+      select.appendChild(option)
+    }
+    comparisonInference.candidates.forEach((candidate, index) => {
+      const section = document.createElement('section')
+      const text = document.createElement('p')
+      text.textContent = `${candidate.disclosure} — key columns ${JSON.stringify(candidate.columns)}; evidence: ${JSON.stringify(candidate.evidence)}`
+      section.appendChild(text)
+      const choose = document.createElement('button')
+      choose.type = 'button'
+      choose.textContent = `Select candidate ${String(index + 1)}`
+      choose.addEventListener('click', () => {
+        const names = new Set(candidate.columns)
+        for (const option of [...select.options]) option.selected = names.has(option.value)
+        diffKeySource = 'inferred'
+        diffConfirmed = false
+        elementOrThrow('diff-status').textContent =
+          'Candidate selected as a proposal. Confirm explicitly to run.'
+      })
+      section.appendChild(choose)
+      candidates.appendChild(section)
+    })
+    elementOrThrow('diff-status').textContent = 'Comparison ready. Choose keys and confirm to run.'
+    elementOrThrow('diff-confirm').removeAttribute('disabled')
+  }
+  const renderDiffResult = (report: DiffReportView): void => {
+    const root = elementOrThrow('diff-results')
+    root.replaceChildren()
+    const verdict = document.createElement('h3')
+    verdict.textContent = report.identical
+      ? 'IDENTICAL across schema, profile, and row diff'
+      : 'DIFFERENCES found'
+    root.appendChild(verdict)
+    const metadata = document.createElement('p')
+    metadata.textContent = `Keys: ${JSON.stringify(report.keys)} (${report.keySource}); effective rows A ${report.rowCountA}, B ${report.rowCountB}; base view only: ${String(report.baseViewOnly)}.`
+    root.appendChild(metadata)
+    const sections: Array<{ name: string; entries: readonly unknown[] }> = [
+      { name: 'Schema drift', entries: report.drift },
+      { name: 'Column deltas', entries: report.divergentDeltas },
+    ]
+    for (const group of sections) {
+      const title = document.createElement('h4')
+      title.textContent = `${group.name} (${group.entries.length})`
+      root.appendChild(title)
+      for (const entry of group.entries) {
+        const line = document.createElement('p')
+        line.textContent = JSON.stringify(entry)
+        root.appendChild(line)
+      }
+    }
+    for (const aspect of report.aspects) {
+      const title = document.createElement('h4')
+      title.textContent = `${aspect.aspect}: ${aspect.count} exact rows; ${aspect.samplesReturned} samples returned${aspect.samplesComplete ? ' (complete)' : ' (truncated)'}`
+      root.appendChild(title)
+      for (const sample of aspect.samples) {
+        const line = document.createElement('p')
+        line.textContent = `${sample.side} ${sample.displayKey}${sample.changedColumns ? ` — changed columns ${JSON.stringify(sample.changedColumns)}` : ''}`
+        root.appendChild(line)
+        if (selectDiffSampleNavigation(sample).kind === 'navigate') {
+          const jump = document.createElement('button')
+          jump.type = 'button'
+          jump.textContent = `Go to A row ${sample.displayKey}`
+          jump.addEventListener('click', () => {
+            void (async () => {
+              const total = await provider.rowCount()
+              for (let start = 0; start < total; start += 128) {
+                const page = await provider.fetchRange({
+                  startRow: start,
+                  endRow: Math.min(total, start + 128),
+                  startCol: 0,
+                  endCol: (await provider.schema()).length,
+                })
+                const offset = (page.rowKeys ?? []).indexOf(sample.rowKey)
+                if (offset >= 0) {
+                  grid?.scrollToRow(start + offset)
+                  grid?.focusGrid()
+                  return
+                }
+              }
+              elementOrThrow('diff-status').textContent =
+                'That A-side logical row is not in the current grid view. Clear filters or re-run the diff.'
+            })().catch(() => {
+              elementOrThrow('diff-status').textContent =
+                'Could not navigate to that A-side logical row.'
+            })
+          })
+          root.appendChild(jump)
+        }
+      }
+    }
+    const issues = document.createElement('p')
+    issues.textContent = `Issues: ${report.issues.length}${report.issues.length ? ` — ${JSON.stringify(report.issues)}` : ''}`
+    root.appendChild(issues)
+    elementOrThrow('diff-stale').hidden = !isDiffStale(report, controller.snapshot.revision)
+    elementOrThrow('diff-export').removeAttribute('disabled')
+  }
+  stageComparisonHandler = (data: {
+    id: string
+    generation: number
+    name: string
+    displayName: string
+    bytes: ArrayBuffer
+  }): void => {
+    if (comparisonBusy || controller.snapshot.busy) {
+      elementOrThrow('diff-status').textContent = 'Cannot stage while an edit or diff is pending.'
+      return
+    }
+    comparisonBusy = true
+    const generation = data.generation
+    const request = { id: data.id, generation }
+    const file = new File([data.bytes], data.name)
+    void (async () => {
+      try {
+        const source = { name: data.name, getFile: () => Promise.resolve(file) }
+        const staged = await boot.client.stageComparison(source)
+        const handleB = await boot.client.open(source)
+        const [schemaA, schemaB, profileA, profileB] = await Promise.all([
+          boot.client.schema(handle),
+          boot.client.schema(handleB),
+          boot.client.profile(handle),
+          boot.client.profile(handleB),
+        ])
+        if (comparisonRequest === null || !isCurrentDiffRequest(request, comparisonRequest)) return
+        comparisonHandle = staged
+        comparisonSchema = schemaB.map((column) => ({ name: column.name, type: column.type }))
+        const a = toDiffProfile(profileA)
+        const b = toDiffProfile(profileB)
+        comparisonProfile = b
+        comparisonDiff = diffDatasets({ schemaA, schemaB, profileA: a, profileB: b })
+        comparisonInference = inferRowDiffKeys(a, b)
+        comparisonDisplayName = data.displayName
+        renderDiffStaged()
+      } catch {
+        if (comparisonRequest !== null && isCurrentDiffRequest(request, comparisonRequest))
+          elementOrThrow('diff-status').textContent = 'Comparison could not be staged or profiled.'
+      } finally {
+        if (comparisonRequest !== null && isCurrentDiffRequest(request, comparisonRequest))
+          comparisonBusy = false
+      }
+    })()
+  }
+  elementOrThrow('comparison-select').addEventListener('click', () => {
+    if (comparisonBusy || diffBusy || controller.snapshot.busy) {
+      elementOrThrow('diff-status').textContent =
+        'Comparison cannot be replaced while an operation is pending.'
+      return
+    }
+    const request = { id: crypto.randomUUID(), generation: ++comparisonGeneration }
+    comparisonRequest = request
+    comparisonBusy = true
+    elementOrThrow('diff-status').textContent = 'Select a local comparison dataset…'
+    vscodeApi.postMessage({ kind: 'comparison-select-request', ...request })
+  })
+  elementOrThrow('diff-confirm').addEventListener('click', () => {
+    if (
+      comparisonDiff === null ||
+      comparisonHandle === null ||
+      diffBusy ||
+      controller.snapshot.busy
+    ) {
+      elementOrThrow('diff-status').textContent = 'Diff refused: busy or comparison unavailable.'
+      return
+    }
+    const keys = [...(elementOrThrow('diff-keys') as HTMLSelectElement).selectedOptions].map(
+      (option) => option.value,
+    )
+    const validation = validateConfirmedKeys(keys, comparisonSchema)
+    if (!validation.ok) {
+      elementOrThrow('diff-status').textContent =
+        `Diff refused: invalid keys (${validation.error}).`
+      return
+    }
+    diffConfirmed = true
+    diffBusy = true
+    const generation = ++diffGeneration
+    const revision = controller.snapshot.revision
+    const effective = stateAtCursor(base, controller.currentHistory)
+    const compiled = compileConfirmedDiff(validation.keys, effective.columns, comparisonSchema)
+    if (!compiled.ok) {
+      diffBusy = false
+      elementOrThrow('diff-status').textContent = compiled.errors
+        .map(describeDiffCompileFailure)
+        .join('; ')
+      return
+    }
+    const overlay = overlaySnapshot(base, controller.currentHistory)
+    elementOrThrow('diff-status').textContent = 'Running confirmed row diff…'
+    elementOrThrow('diff-confirm').setAttribute('disabled', 'true')
+    elementOrThrow('diff-cancel').hidden = false
+    const comparison = comparisonHandle
+    const rowRevision = revision
+    void boot.client
+      .diff(handle, comparison, compiled.plan, overlay)
+      .then((result) => {
+        if (generation !== diffGeneration || !diffConfirmed) return
+        diffReport = buildDiffReport({
+          comparison: comparisonDiff!,
+          result,
+          keys: validation.keys,
+          keySource: diffKeySource,
+          inference: comparisonInference?.candidates[0]
+            ? {
+                columns: comparisonInference.candidates[0].columns,
+                candidateDisclosure: comparisonInference.candidates[0].disclosure,
+                outcomeDisclosure: comparisonInference.disclosure,
+                evidence: comparisonInference.candidates[0].evidence,
+              }
+            : null,
+          sharedColumns: compiled.plan.sharedColumns,
+          baseViewOnly: (overlay.ops?.length ?? 0) === 0,
+          revision: rowRevision,
+        })
+        renderDiffResult(diffReport)
+        elementOrThrow('diff-status').textContent = 'Diff complete.'
+      })
+      .catch(() => {
+        if (generation === diffGeneration)
+          elementOrThrow('diff-status').textContent =
+            'Diff failed. The previous report, if any, is unchanged.'
+      })
+      .finally(() => {
+        if (generation === diffGeneration) {
+          diffBusy = false
+          elementOrThrow('diff-confirm').removeAttribute('disabled')
+          elementOrThrow('diff-cancel').hidden = true
+        }
+      })
+  })
+  elementOrThrow('diff-cancel').addEventListener('click', () => {
+    diffGeneration++
+    diffBusy = false
+    diffConfirmed = false
+    elementOrThrow('diff-confirm').removeAttribute('disabled')
+    elementOrThrow('diff-cancel').hidden = true
+    elementOrThrow('diff-status').textContent = 'Diff cancelled; any late result will be ignored.'
+  })
+  elementOrThrow('diff-export').addEventListener('click', () => {
+    if (diffReport === null) return
+    const id = crypto.randomUUID()
+    const generation = diffGeneration
+    reportExportRequest = { id, generation }
+    const report = {
+      ...projectDiffReport(diffReport),
+      stale: isDiffStale(diffReport, controller.snapshot.revision),
+    }
+    vscodeApi.postMessage({
+      kind: 'report-export-request',
+      id,
+      generation,
+      json: JSON.stringify(report, null, 2),
+    })
+    elementOrThrow('diff-status').textContent = 'Choose a new local file for the JSON report…'
+  })
   grid = new WebviewDataGrid(model, {
     ariaLabel: 'Assay dataset grid',
     editing: {
@@ -1234,6 +1574,60 @@ window.addEventListener('message', (event) => {
     message?: string
     id?: string
     generation?: number
+    displayName?: string
+    status?: string
+  }
+  if (
+    (data?.kind === 'comparison-loaded' ||
+      data?.kind === 'comparison-cancelled' ||
+      data?.kind === 'comparison-error') &&
+    typeof data.id === 'string' &&
+    Number.isSafeInteger(data.generation)
+  ) {
+    const expected = comparisonRequest
+    if (expected === null || data.id !== expected.id || data.generation !== expected.generation)
+      return
+    if (
+      data.kind === 'comparison-loaded' &&
+      data.bytes instanceof ArrayBuffer &&
+      typeof data.name === 'string' &&
+      typeof data.displayName === 'string'
+    ) {
+      stageComparisonHandler?.({
+        id: data.id,
+        generation: data.generation!,
+        name: data.name,
+        displayName: data.displayName,
+        bytes: data.bytes,
+      })
+    } else {
+      comparisonBusy = false
+      elementOrThrow('diff-status').textContent =
+        data.kind === 'comparison-cancelled'
+          ? 'Comparison selection cancelled.'
+          : 'Comparison file is unsupported, empty, too large, or could not be read.'
+    }
+    return
+  }
+  if (
+    data?.kind === 'report-export-result' &&
+    reportExportRequest !== null &&
+    data.id === reportExportRequest.id &&
+    data.generation === reportExportRequest.generation
+  ) {
+    reportExportRequest = null
+    const message =
+      data.status === 'created'
+        ? 'JSON report created as a new local file.'
+        : data.status === 'cancelled'
+          ? 'Report export cancelled.'
+          : data.status === 'busy'
+            ? 'Report export refused: another export is pending.'
+            : data.status === 'refused'
+              ? 'Report export refused: destination exists, aliases a source, or is not a local file.'
+              : 'Report export failed; no success was reported.'
+    elementOrThrow('diff-status').textContent = message
+    return
   }
   if (
     data?.kind === 'contract-loaded' ||
@@ -1342,6 +1736,15 @@ window.addEventListener('message', (event) => {
       exportCancelled = true
       postExportMessage({ kind: 'export-cancel', id: activeExportId, generation: exportGeneration })
     }
+    comparisonGeneration++
+    if (comparisonRequest !== null)
+      vscodeApi.postMessage({ kind: 'comparison-cancel', ...comparisonRequest })
+    comparisonRequest = null
+    diffGeneration++
+    diffBusy = false
+    if (reportExportRequest !== null)
+      vscodeApi.postMessage({ kind: 'report-export-cancel', ...reportExportRequest })
+    reportExportRequest = null
     // Host-orchestrated panel close (see EngineSession for the ownership
     // model; the custom-editor path tears the page — and the engine worker —
     // down with the panel regardless).

@@ -5,6 +5,8 @@ import {
   buildDiffReport,
   canRunDiff,
   cancelDiffGeneration,
+  compileConfirmedDiff,
+  describeDiffCompileFailure,
   decideDiffRun,
   isCurrentDiffRequest,
   isDiffStale,
@@ -45,6 +47,11 @@ describe('desktop staged-diff controller', () => {
   it('requires explicit confirmation and validates names as an array without comma splitting', () => {
     expect(validateConfirmedKeys([], schema)).toEqual({ ok: false, error: 'empty' })
     expect(validateConfirmedKeys([null], schema)).toEqual({ ok: false, error: 'null-key' })
+    expect(validateConfirmedKeys(['   '], schema)).toEqual({ ok: false, error: 'empty-key' })
+    expect(validateConfirmedKeys([42 as unknown as string], schema)).toEqual({
+      ok: false,
+      error: 'null-key',
+    })
     expect(validateConfirmedKeys(['id,"part"'], schema)).toEqual({ ok: true, keys: ['id,"part"'] })
     expect(validateConfirmedKeys(['id,"part"', 'ID,"PART"'], schema)).toEqual({
       ok: false,
@@ -63,7 +70,68 @@ describe('desktop staged-diff controller', () => {
       makeKeyDisclosure(inference.candidates[0]!, inference.disclosure).candidateDisclosure,
     ).toBe(inference.candidates[0]!.disclosure)
     expect(canRunDiff({ kind: 'idle' }, true)).toBe(false)
+    expect(
+      canRunDiff(
+        {
+          kind: 'staged',
+          metadata: { id: 'c', generation: 1, basename: 'b', format: 'parquet', byteLength: 1 },
+          schema,
+          rowCount: 2,
+          comparison: diffDatasets({
+            schemaA: schema,
+            schemaB: schema,
+            profileA: profile,
+            profileB: profile,
+          }),
+          inference,
+        },
+        true,
+      ),
+    ).toBe(true)
     expect(canRunDiff({ kind: 'idle' }, false)).toBe(false)
+    expect(
+      decideDiffRun({ kind: 'staging', id: 's', generation: 2 }, true, ['id,"part"'], schema),
+    ).toEqual({ kind: 'refused', reason: 'busy' })
+    expect(
+      decideDiffRun(
+        {
+          kind: 'staged',
+          metadata: { id: 'c', generation: 1, basename: 'b', format: 'parquet', byteLength: 1 },
+          schema,
+          rowCount: 2,
+          comparison: diffDatasets({
+            schemaA: schema,
+            schemaB: schema,
+            profileA: profile,
+            profileB: profile,
+          }),
+          inference,
+        },
+        true,
+        [],
+        schema,
+      ),
+    ).toEqual({ kind: 'refused', reason: 'invalid-keys' })
+    expect(
+      decideDiffRun(
+        {
+          kind: 'staged',
+          metadata: { id: 'c', generation: 1, basename: 'b', format: 'parquet', byteLength: 1 },
+          schema,
+          rowCount: 2,
+          comparison: diffDatasets({
+            schemaA: schema,
+            schemaB: schema,
+            profileA: profile,
+            profileB: profile,
+          }),
+          inference,
+        },
+        true,
+        ['id,"part"'],
+        schema,
+      ),
+    ).toEqual({ kind: 'run' })
   })
 
   it('correlates by id and generation, and retains old reports as stale after revision changes', () => {
@@ -74,6 +142,12 @@ describe('desktop staged-diff controller', () => {
       false,
     )
     expect(cancelDiffGeneration(4)).toBe(5)
+    expect(cancelDiffGeneration(-1)).toBe(1)
+    expect(isCurrentDiffRequest({ id: 'd1', generation: 4 }, { id: 'd2', generation: 4 })).toBe(
+      false,
+    )
+    expect(isDiffStale(null, 3)).toBe(false)
+    expect(isDiffStale({ revision: 3 } as Parameters<typeof isDiffStale>[0], 3)).toBe(false)
     expect(
       decideDiffRun({ kind: 'running', id: 'd1', generation: 4 }, true, ['id'], schema),
     ).toEqual({ kind: 'refused', reason: 'busy' })
@@ -92,11 +166,18 @@ describe('desktop staged-diff controller', () => {
       profileA: profile,
       profileB: profile,
     })
+    const inference = inferRowDiffKeys(profile, profile)
+    const compiledGood = compileConfirmedDiff(['id,"part"'], schema, schema)
+    expect(compiledGood.ok).toBe(true)
+    const compiledBad = compileConfirmedDiff(['missing'], schema, schema)
+    expect(compiledBad.ok).toBe(false)
+    if (!compiledBad.ok)
+      expect(describeDiffCompileFailure(compiledBad.errors[0]!)).toContain('missing')
     const result: EngineDiffResult = {
       rowCountA: 2,
       rowCountB: 1,
       aspects: [
-        { aspect: 'added', count: 1, samples: [{ side: 'B', rowKey: 'b:1' }] },
+        { aspect: 'added', count: 2, samples: [{ side: 'B', rowKey: 'b:1' }] },
         { aspect: 'removed', count: 0, samples: [] },
         { aspect: 'changed', count: 0, samples: [] },
       ],
@@ -106,7 +187,9 @@ describe('desktop staged-diff controller', () => {
       result,
       keys: ['id,"part"'],
       keySource: 'explicit',
-      inference: null,
+      inference: inference.candidates[0]
+        ? makeKeyDisclosure(inference.candidates[0], inference.disclosure)
+        : null,
       sharedColumns: ['value'],
       baseViewOnly: false,
       stale: true,
@@ -114,6 +197,21 @@ describe('desktop staged-diff controller', () => {
     })
     expect(report.aspects.map((aspect) => aspect.aspect)).toEqual(['added', 'removed', 'changed'])
     expect(report.aspects[0]?.samples[0]?.displayKey).toBe('b #1')
+    expect(report.aspects[0]?.samplesComplete).toBe(false)
+    expect(report.sampleLimitRequested).toBe(100)
+    expect(report.sampleLimitEffective).toBe(100)
+    expect(
+      buildDiffReport({
+        comparison,
+        result: { rowCountA: 0, rowCountB: 0, aspects: [] },
+        keys: ['id,"part"'],
+        keySource: 'inferred',
+        inference: null,
+        sharedColumns: [],
+        baseViewOnly: true,
+        revision: 0,
+      }).identical,
+    ).toBe(true)
     expect(selectDiffSampleNavigation(report.aspects[0]!.samples[0]!)).toEqual({
       kind: 'display-only',
     })

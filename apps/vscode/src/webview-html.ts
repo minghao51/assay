@@ -80,6 +80,20 @@ export function buildDatasetHtml(
         <p id="validation-stale" role="status" hidden>STALE — edits changed the effective view. Re-validate explicitly.</p>
         <div id="validation-results"></div>
       </section>
+      <section id="diff-controls" aria-label="Compare dataset" hidden>
+        <h2>Compare with another dataset</h2>
+        <button id="comparison-select" type="button">Select or replace comparison…</button>
+        <p id="diff-status" role="status"></p>
+        <div id="diff-disclosure"></div>
+        <label for="diff-keys">Comparison keys (select one or more columns)</label>
+        <select id="diff-keys" multiple size="6"></select>
+        <div id="diff-candidates"></div>
+        <button id="diff-confirm" type="button" disabled>Confirm keys and run diff</button>
+        <button id="diff-cancel" type="button" hidden>Cancel diff</button>
+        <p id="diff-stale" role="status" hidden>STALE — accepted edits changed the effective view. The shown report is retained; run the diff again explicitly.</p>
+        <button id="diff-export" type="button" disabled>Export JSON report to new file…</button>
+        <div id="diff-results"></div>
+      </section>
       <section id="export-controls" aria-label="Export dataset" hidden>
         <label for="export-format">Format</label>
         <select id="export-format"><option value="parquet">Parquet</option><option value="csv">CSV</option><option value="jsonl">JSONL</option><option value="json">JSON</option><option value="arrow">Arrow</option></select>

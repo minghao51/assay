@@ -48,6 +48,9 @@ export const VIEW_TYPE = 'assay.datasetViewer'
 /** Diagnostic/test surface: the latest bridge report (value-free counts). */
 export const LAST_REPORT_COMMAND = 'assay.dataset.lastReport'
 let testExportSequence = 0
+let testReportSequence = 0
+const COMPARISON_MAX_BYTES = 512 * 1024 * 1024
+const REPORT_MAX_BYTES = 16 * 1024 * 1024
 
 export {
   formatFromName,
@@ -218,6 +221,12 @@ export function bridgeDatasetIntoPanel(
     let exportId: string | undefined
     let exportGeneration = 0
     let exportWritePending = false
+    let comparisonGeneration = 0
+    let comparisonRequest: { readonly id: string; readonly generation: number } | undefined
+    let comparisonUri: vscode.Uri | undefined
+    let reportWriter: Awaited<ReturnType<typeof createOnlyWriter>> | undefined
+    let reportRequest: { readonly id: string; readonly generation: number } | undefined
+    let panelDisposed = false
     const exportCleanup = async (): Promise<void> => {
       await exportWriter?.cleanup()
       exportWriter = undefined
@@ -229,7 +238,13 @@ export function bridgeDatasetIntoPanel(
       reject(new Error(`dataset bridge timed out after ${String(BRIDGE_TIMEOUT_MS / 1000)}s`))
     }, BRIDGE_TIMEOUT_MS)
     panel.onDidDispose(() => {
+      panelDisposed = true
+      comparisonGeneration++
+      comparisonRequest = undefined
+      reportRequest = undefined
       void exportCleanup()
+      void reportWriter?.cleanup()
+      reportWriter = undefined
     })
     const finish = (report: DatasetReport): void => {
       clearTimeout(timeout)
@@ -240,6 +255,240 @@ export function bridgeDatasetIntoPanel(
     const reading = readDataset(uri)
     panel.webview.onDidReceiveMessage((message: unknown) => {
       const kind = (message as { kind?: unknown } | null)?.kind
+      if (kind === 'comparison-select-request') {
+        const request = message as { id?: unknown; generation?: unknown }
+        if (
+          typeof request.id !== 'string' ||
+          request.id.length === 0 ||
+          request.id.length > 64 ||
+          !Number.isSafeInteger(request.generation) ||
+          Number(request.generation) < 0
+        )
+          return
+        const id = request.id
+        const generation = Number(request.generation)
+        const hostGeneration = ++comparisonGeneration
+        const token = { id, generation }
+        comparisonRequest = token
+        const valid = (): boolean =>
+          !panelDisposed && comparisonGeneration === hostGeneration && comparisonRequest === token
+        void (async () => {
+          const testHarness =
+            context.extensionMode === vscode.ExtensionMode.Test &&
+            process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
+          const selected = testHarness
+            ? vscode.Uri.file(`${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/diff-comparison.parquet`)
+            : (
+                await vscode.window.showOpenDialog({
+                  canSelectMany: false,
+                  openLabel: 'Select comparison dataset',
+                  filters: {
+                    'Dataset files (Parquet, CSV, JSONL, JSON, Arrow)': [
+                      ...SUPPORTED_FILENAME_PATTERNS,
+                    ],
+                  },
+                })
+              )?.[0]
+          if (!valid()) return
+          if (selected === undefined) {
+            void panel.webview.postMessage({
+              kind: 'comparison-cancelled',
+              id,
+              generation: token.generation,
+            })
+            return
+          }
+          const format = formatFromName(selected.path.split('/').pop() ?? selected.path)
+          if (format === undefined) {
+            void panel.webview.postMessage({
+              kind: 'comparison-error',
+              id,
+              generation: token.generation,
+              errorKind: 'unsupported-format',
+            })
+            return
+          }
+          const stat = await vscode.workspace.fs.stat(selected)
+          if (
+            (stat.type & vscode.FileType.Directory) !== 0 ||
+            stat.size <= 0 ||
+            stat.size > COMPARISON_MAX_BYTES
+          ) {
+            void panel.webview.postMessage({
+              kind: 'comparison-error',
+              id,
+              generation: token.generation,
+              errorKind: 'comparison-invalid',
+            })
+            return
+          }
+          const bytes = await vscode.workspace.fs.readFile(selected)
+          if (!valid()) return
+          if (bytes.byteLength <= 0 || bytes.byteLength > COMPARISON_MAX_BYTES) {
+            void panel.webview.postMessage({
+              kind: 'comparison-error',
+              id,
+              generation: token.generation,
+              errorKind: 'comparison-invalid',
+            })
+            return
+          }
+          comparisonUri = selected
+          const clean = bytes.buffer.slice(
+            bytes.byteOffset,
+            bytes.byteOffset + bytes.byteLength,
+          ) as ArrayBuffer
+          void panel.webview.postMessage({
+            kind: 'comparison-loaded',
+            id,
+            generation: token.generation,
+            name: neutralDatasetName(format),
+            displayName: selected.path.split('/').pop() ?? 'comparison dataset',
+            format,
+            byteLength: bytes.byteLength,
+            bytes: clean,
+          })
+        })().catch(() => {
+          if (valid())
+            void panel.webview.postMessage({
+              kind: 'comparison-error',
+              id,
+              generation: token.generation,
+              errorKind: 'comparison-read-failed',
+            })
+        })
+        return
+      }
+      if (kind === 'comparison-cancel') {
+        const cancel = message as { id?: unknown; generation?: unknown }
+        if (
+          comparisonRequest !== undefined &&
+          comparisonRequest.id === cancel.id &&
+          comparisonRequest.generation === cancel.generation
+        ) {
+          comparisonGeneration++
+          comparisonRequest = undefined
+        }
+        return
+      }
+      if (kind === 'report-export-request') {
+        const request = message as { id?: unknown; generation?: unknown; json?: unknown }
+        if (
+          typeof request.id !== 'string' ||
+          request.id.length === 0 ||
+          request.id.length > 64 ||
+          !Number.isSafeInteger(request.generation) ||
+          Number(request.generation) < 0 ||
+          typeof request.json !== 'string' ||
+          new TextEncoder().encode(request.json).byteLength > REPORT_MAX_BYTES
+        )
+          return
+        const id = request.id
+        const generation = Number(request.generation)
+        if (reportRequest !== undefined) {
+          void panel.webview.postMessage({
+            kind: 'report-export-result',
+            id,
+            generation,
+            status: 'busy',
+          })
+          return
+        }
+        const token = { id, generation }
+        const reportJson = request.json
+        reportRequest = token
+        void (async () => {
+          const testHarness =
+            context.extensionMode === vscode.ExtensionMode.Test &&
+            process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
+          const target = testHarness
+            ? vscode.Uri.file(
+                `${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/assay-diff-report-${String(++testReportSequence)}.json`,
+              )
+            : await vscode.window.showSaveDialog({
+                saveLabel: 'Export diff report to new file',
+                filters: { 'JSON report': ['json'] },
+              })
+          if (!target) {
+            if (reportRequest === token)
+              void panel.webview.postMessage({
+                kind: 'report-export-result',
+                id,
+                generation,
+                status: 'cancelled',
+              })
+            return
+          }
+          if (
+            target.scheme !== 'file' ||
+            target.fsPath === uri.fsPath ||
+            target.fsPath === comparisonUri?.fsPath
+          ) {
+            void panel.webview.postMessage({
+              kind: 'report-export-result',
+              id,
+              generation,
+              status: 'refused',
+            })
+            return
+          }
+          let writer: Awaited<ReturnType<typeof createOnlyWriter>> | undefined
+          try {
+            writer = await createOnlyWriter(target.fsPath, [
+              uri.fsPath,
+              ...(comparisonUri ? [comparisonUri.fsPath] : []),
+            ])
+            reportWriter = writer
+            if (reportRequest !== token || panelDisposed) {
+              await writer.cleanup()
+              return
+            }
+            await writer.write(new TextEncoder().encode(reportJson))
+            await writer.close()
+            reportWriter = undefined
+            void panel.webview.postMessage({
+              kind: 'report-export-result',
+              id,
+              generation,
+              status: 'created',
+            })
+          } catch {
+            await writer?.cleanup()
+            if (reportWriter === writer) reportWriter = undefined
+            void panel.webview.postMessage({
+              kind: 'report-export-result',
+              id,
+              generation,
+              status: 'refused',
+            })
+          }
+        })()
+          .catch(() => {
+            void panel.webview.postMessage({
+              kind: 'report-export-result',
+              id,
+              generation,
+              status: 'failed',
+            })
+          })
+          .finally(() => {
+            if (reportRequest === token) reportRequest = undefined
+          })
+        return
+      }
+      if (kind === 'report-export-cancel') {
+        const cancel = message as { id?: unknown; generation?: unknown }
+        if (
+          reportRequest !== undefined &&
+          reportRequest.id === cancel.id &&
+          reportRequest.generation === cancel.generation
+        ) {
+          reportRequest = undefined
+          void reportWriter?.cleanup()
+          reportWriter = undefined
+        }
+        return
+      }
       if (kind === 'validate-request') {
         const request = message as { id?: unknown; generation?: unknown }
         if (
