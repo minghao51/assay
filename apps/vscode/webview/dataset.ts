@@ -1872,6 +1872,7 @@ let datasetReceived = false
 window.addEventListener('message', (event) => {
   const data = event.data as {
     kind?: string
+    context?: unknown
     name?: string
     bytes?: ArrayBuffer
     errorKind?: string
@@ -1880,6 +1881,22 @@ window.addEventListener('message', (event) => {
     generation?: number
     displayName?: string
     status?: string
+  }
+  if (data?.kind === 'comparison-stage-request') {
+    elementOrThrow('comparison-select').dispatchEvent(new Event('click'))
+    return
+  }
+  if (data?.kind === 'git-context') {
+    const block = document.getElementById('git-context')
+    const context = data.context as
+      { state?: unknown; detail?: unknown; branch?: unknown } | undefined
+    if (block !== null && typeof context?.detail === 'string') {
+      const state = typeof context.state === 'string' ? context.state : 'unknown'
+      const branch = typeof context.branch === 'string' ? ` · ${context.branch}` : ''
+      block.textContent = `${context.detail}${branch}`
+      block.hidden = state === 'no-git' || state === 'no-repository'
+    }
+    return
   }
   if (
     (data?.kind === 'comparison-loaded' ||

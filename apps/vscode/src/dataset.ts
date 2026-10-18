@@ -27,6 +27,8 @@ import { createOnlyWriter } from './pure/create-only-writer'
 import { acceptExportFrame, EXPORT_MAX_BYTES } from './pure/export-transfer'
 import { VENDORED_RUNTIME } from './assets'
 import { buildDatasetHtml } from './webview-html'
+import { gitContextFor } from './git-adapter'
+import { normalizeDiffCommandArgs } from './pure/git-context'
 import {
   formatFromName,
   neutralDatasetName,
@@ -210,9 +212,22 @@ export function bridgeDatasetIntoPanel(
   context: vscode.ExtensionContext,
   panel: vscode.WebviewPanel,
   uri: vscode.Uri,
+  stagedComparison?: vscode.Uri,
 ): Promise<DatasetReport> {
   const nonce = crypto.randomUUID().replaceAll('-', '')
   panel.webview.html = buildDatasetHtml(panel.webview, nonce, buildDatasetConfig(context, panel))
+  let contextGeneration = 0
+  const postGitContext = (): void => {
+    const generation = ++contextGeneration
+    const projected = gitContextFor(uri)
+    if (generation === contextGeneration)
+      void panel.webview.postMessage({ kind: 'git-context', context: projected })
+  }
+  const workspaceListener = vscode.workspace.onDidChangeWorkspaceFolders(postGitContext)
+  panel.onDidDispose(() => {
+    contextGeneration++
+    workspaceListener.dispose()
+  })
   // Neutral, format-derived name — never the user's file name (module doc).
   const name = neutralDatasetName(
     formatFromName(uri.path.split('/').pop() ?? uri.path) ?? 'parquet',
@@ -283,21 +298,23 @@ export function bridgeDatasetIntoPanel(
           const testHarness =
             context.extensionMode === vscode.ExtensionMode.Test &&
             process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
-          const selected = testHarness
-            ? vscode.Uri.file(
-                `${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/${harnessFixture ?? 'comparison-b.csv'}`,
-              )
-            : (
-                await vscode.window.showOpenDialog({
-                  canSelectMany: false,
-                  openLabel: 'Select comparison dataset',
-                  filters: {
-                    'Dataset files (Parquet, CSV, JSONL, JSON, Arrow)': [
-                      ...SUPPORTED_FILENAME_PATTERNS,
-                    ],
-                  },
-                })
-              )?.[0]
+          const selected =
+            stagedComparison ??
+            (testHarness
+              ? vscode.Uri.file(
+                  `${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/${harnessFixture ?? 'comparison-b.csv'}`,
+                )
+              : (
+                  await vscode.window.showOpenDialog({
+                    canSelectMany: false,
+                    openLabel: 'Select comparison dataset',
+                    filters: {
+                      'Dataset files (Parquet, CSV, JSONL, JSON, Arrow)': [
+                        ...SUPPORTED_FILENAME_PATTERNS,
+                      ],
+                    },
+                  })
+                )?.[0])
           if (!valid()) return
           if (selected === undefined) {
             void panel.webview.postMessage({
@@ -748,9 +765,12 @@ export function bridgeDatasetIntoPanel(
         return
       }
       if (kind === 'ready') {
+        postGitContext()
         void reading.then(
           (read) => {
             void panel.webview.postMessage({ kind: 'dataset', name, bytes: read.bytes })
+            if (stagedComparison !== undefined)
+              void panel.webview.postMessage({ kind: 'comparison-stage-request' })
           },
           (error: unknown) => {
             const datasetError = asDatasetError(error)
@@ -877,6 +897,41 @@ export function registerDatasetSurface(context: vscode.ExtensionContext): void {
         target = picked[0]
       }
       return openDatasetPanel(context, target)
+    }),
+    vscode.commands.registerCommand('assay.dataset.diff', async (...args: unknown[]) => {
+      const normalized = normalizeDiffCommandArgs(args.length === 0 ? undefined : args)
+      if (normalized.kind === 'invalid') return { kind: 'invalid-arguments' as const }
+      let a: vscode.Uri
+      let b: vscode.Uri
+      if (normalized.kind === 'two-uris') {
+        a = normalized.a as vscode.Uri
+        b = normalized.b as vscode.Uri
+      } else {
+        const options: vscode.OpenDialogOptions = {
+          canSelectMany: false,
+          openLabel: 'Select first dataset',
+          filters: { 'Dataset files': [...SUPPORTED_FILENAME_PATTERNS] },
+        }
+        const first = (await vscode.window.showOpenDialog(options))?.[0]
+        if (first === undefined) return { kind: 'cancelled' as const }
+        const second = (
+          await vscode.window.showOpenDialog({ ...options, openLabel: 'Select comparison dataset' })
+        )?.[0]
+        if (second === undefined) return { kind: 'cancelled' as const }
+        a = first
+        b = second
+      }
+      const panel = vscode.window.createWebviewPanel(
+        VIEW_TYPE,
+        'Assay dataset',
+        vscode.ViewColumn.One,
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist')],
+        },
+      )
+      return bridgeDatasetIntoPanel(context, panel, a, b)
     }),
     vscode.commands.registerCommand(LAST_REPORT_COMMAND, () => lastDatasetReport()),
     vscode.window.registerCustomEditorProvider(VIEW_TYPE, new DatasetViewerProvider(context), {

@@ -64,6 +64,7 @@ export function buildDatasetHtml(
     <main>
       <h1>Assay dataset</h1>
       <p id="status">connecting…</p>
+      <p id="git-context" role="status" hidden></p>
       <p id="error" role="alert" hidden></p>
       <dl id="report" hidden>
         <dt>rows</dt>

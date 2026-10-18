@@ -20,6 +20,10 @@
         "title": "Assay: Open dataset"
       },
       {
+        "command": "assay.dataset.diff",
+        "title": "Assay: Compare datasets"
+      },
+      {
         "command": "assay.spike.run",
         "title": "Assay: Run R4 webview feasibility spike"
       }
