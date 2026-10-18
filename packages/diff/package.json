@@ -35,6 +35,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@assay/domain": "workspace:*",
     "@assay/validation": "workspace:*"
   },
   "devDependencies": {

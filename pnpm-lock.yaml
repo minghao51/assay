@@ -272,6 +272,9 @@ importers:
 
   packages/diff:
     dependencies:
+      '@assay/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@assay/validation':
         specifier: workspace:*
         version: link:../validation

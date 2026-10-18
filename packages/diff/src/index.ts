@@ -72,6 +72,27 @@ export type {
   ProfileColumnKind,
 } from './profile.js'
 export { REPORT_DECIMALS, roundForReport } from './rounding.js'
+export {
+  DIFF_REPORT_MARKER,
+  columnDeltaDiffers,
+  diffReportIdentical,
+  diffSampleDisplayKey,
+  diffSampleExportKey,
+  divergentColumnDeltas,
+  projectAspect,
+  projectColumnDelta,
+  projectInference,
+  projectIssue,
+  projectSample,
+  projectSchemaFinding,
+  roundReportMetric,
+} from './report-projection.js'
+export type {
+  DiffInferenceInput,
+  DiffReportIdentityInput,
+  ProjectAspectInput,
+  ProjectSampleInput,
+} from './report-projection.js'
 export { diffDatasets, hasSchemaOrProfileDifferences } from './report.js'
 export type { DiffInput, DiffReport } from './report.js'
 export { nullabilityDrift, schemaDrift } from './schema-drift.js'
