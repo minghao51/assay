@@ -22,8 +22,11 @@ import type {
   RowDiffAspect,
   SchemaDriftFinding,
 } from '@assay/diff'
+import { DEFAULT_SAMPLE_LIMIT } from '@assay/validation'
 
-export const DIFF_SAMPLE_LIMIT = 100
+// The same user-facing default the CLI resolves for --sample-limit; both
+// surfaces must request the same K or their reports disagree on the nose.
+export const DIFF_SAMPLE_LIMIT = DEFAULT_SAMPLE_LIMIT
 export const DIFF_PLAN_RELATION_A = 'assay_vscode_diff_a'
 export const DIFF_PLAN_RELATION_B = 'assay_vscode_diff_b'
 export const DIFF_ASPECT_ORDER = [

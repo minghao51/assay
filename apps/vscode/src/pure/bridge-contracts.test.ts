@@ -4,12 +4,73 @@ import { describe, expect, it } from 'vitest'
 import {
   DatasetOpenError,
   normalizeEditProof,
+  normalizeDiffProof,
   normalizeValidationProof,
+  validateTestComparisonFixture,
   WEBVIEW_ERROR_TEXT,
   type DatasetErrorKind,
 } from './bridge-contracts'
 
 describe('desktop bridge error contracts', () => {
+  it('accepts only bare harness fixture names with known dataset extensions', () => {
+    expect(validateTestComparisonFixture('comparison-b.csv')).toBe('comparison-b.csv')
+    expect(validateTestComparisonFixture('nested.parquet')).toBe('nested.parquet')
+    expect(validateTestComparisonFixture('a-b_2.jsonl')).toBe('a-b_2.jsonl')
+    expect(validateTestComparisonFixture('../escape.csv')).toBeUndefined()
+    expect(validateTestComparisonFixture('/abs/path.csv')).toBeUndefined()
+    expect(validateTestComparisonFixture('dir/name.csv')).toBeUndefined()
+    expect(validateTestComparisonFixture('no-extension')).toBeUndefined()
+    expect(validateTestComparisonFixture('evil.txt')).toBeUndefined()
+    expect(validateTestComparisonFixture('')).toBeUndefined()
+    expect(validateTestComparisonFixture(42)).toBeUndefined()
+  })
+  it('projects staged-diff proof to value-free flags and bounded counts', () => {
+    const proof = {
+      unconfirmedRefused: true,
+      staleAfterEdit: true,
+      baseViewOnlyFalse: true,
+      navigation: true,
+      baselineCounts: [1, 1, 1],
+      editedChangedCount: 2,
+      sampleValue: 'private-content',
+    }
+    expect(normalizeDiffProof(proof)).toEqual({
+      unconfirmedRefused: true,
+      staleAfterEdit: true,
+      baseViewOnlyFalse: true,
+      navigation: true,
+      baselineCounts: [1, 1, 1],
+      editedChangedCount: 2,
+    })
+  })
+  it('drops staged-diff proof with missing flags or malformed counts', () => {
+    const proof = {
+      unconfirmedRefused: true,
+      staleAfterEdit: true,
+      baseViewOnlyFalse: true,
+      navigation: true,
+    }
+    expect(normalizeDiffProof(proof)).toEqual({
+      unconfirmedRefused: true,
+      staleAfterEdit: true,
+      baseViewOnlyFalse: true,
+      navigation: true,
+    })
+    expect(normalizeDiffProof({ ...proof, navigation: 'yes' })).toBeUndefined()
+    expect(normalizeDiffProof({ ...proof, baselineCounts: [1, -1, 1] })).toEqual({
+      unconfirmedRefused: true,
+      staleAfterEdit: true,
+      baseViewOnlyFalse: true,
+      navigation: true,
+    })
+    expect(normalizeDiffProof({ ...proof, editedChangedCount: 1.5 })).toEqual({
+      unconfirmedRefused: true,
+      staleAfterEdit: true,
+      baseViewOnlyFalse: true,
+      navigation: true,
+    })
+    expect(normalizeDiffProof('not-an-object')).toBeUndefined()
+  })
   it('projects validation proof to bounded value-free counts and flags', () => {
     const proof = {
       baselineFailures: 1,

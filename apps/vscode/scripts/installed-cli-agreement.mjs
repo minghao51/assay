@@ -55,34 +55,6 @@ export function installCliConsumer() {
   return { tempRoot, cliPath, packageCount: packages.size }
 }
 
-export function writeExpectedReports({
-  cliPath,
-  workspaceDir,
-  comparisonA,
-  comparisonB,
-  editedPath,
-}) {
-  const require = createRequire(import.meta.url)
-  const { runCliDiffReport } = require(
-    path.join(workspaceRoot, 'apps/vscode/dist/cli-agreement.cjs'),
-  )
-  const expectedBaseline = path.join(workspaceDir, 'expected-baseline.json')
-  const expectedEdited = path.join(workspaceDir, 'expected-edited.json')
-  writeFileSync(
-    expectedBaseline,
-    `${JSON.stringify(runCliDiffReport(cliPath, comparisonA, comparisonB, 'id'), null, 2)}\n`,
-  )
-  writeFileSync(
-    expectedEdited,
-    `${JSON.stringify(runCliDiffReport(cliPath, editedPath, comparisonB, 'id'), null, 2)}\n`,
-  )
-  writeFileSync(
-    path.join(workspaceDir, 'diff-manifest.json'),
-    `${JSON.stringify({ comparisonA, comparisonB, key: 'id', expectedBaseline, expectedEdited }, null, 2)}\n`,
-  )
-  return { expectedBaseline, expectedEdited }
-}
-
 export function cleanupCliConsumer(tempRoot) {
   rmSync(tempRoot, { recursive: true, force: true })
 }

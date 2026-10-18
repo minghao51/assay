@@ -57,6 +57,19 @@ interface DatasetReport {
     readonly sessionWarningVisible: boolean
     readonly fullViewCastRefusal: boolean
   }
+  /** ptv2-6: staged-diff proof from the comparison-fixture open (12 rows). */
+  readonly diffProof?: {
+    readonly unconfirmedRefused: boolean
+    readonly staleAfterEdit: boolean
+    readonly baseViewOnlyFalse: boolean
+    readonly navigation: boolean
+    readonly baselineCounts?: readonly [number, number, number]
+    readonly editedChangedCount?: number
+    readonly identicalCase?: boolean
+    readonly schemaOnlyCase?: boolean
+    readonly noComparableCase?: boolean
+    readonly nestedCase?: boolean
+  }
 }
 
 function safeProofFailure(message: string | undefined): string {
@@ -69,7 +82,7 @@ function safeProofFailure(message: string | undefined): string {
   if (message?.includes('Set NULL keyboard proof')) return 'Set NULL keyboard proof failed'
   if (message?.includes('test proof timed out')) return 'proof timed out'
   const stage =
-    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|proof-sort-filter|proof-editor-cancel|proof-identity-check|proof-cell-commit|proof-cell-await-row|proof-cell-await-editor-cell|proof-cell-editor-open|proof-cell-dispatch|proof-cell-await-commit|proof-cell-view-check|proof-undo-redo|proof-branch-and-null|proof-insert-delete|set-null-row-wait|set-null-editor-open|set-null-dispatch|set-null-await-commit|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-check-status|wide-check-history|wide-check-error|wide-check-count|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard|validation-contract-select|validation-baseline|validation-navigation|validation-edit|validation-insert|validation-delete-operation|validation-delete-run|validation-delete-assert|validation-delete-rowcount|validation-delete-failcount|validation-delete-check)(?: category=(set-null-assertion|proof-timeout|proof-revision-timeout|candidate-cast-rejected|operation-rejected|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
+    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|proof-sort-filter|proof-editor-cancel|proof-identity-check|proof-cell-commit|proof-cell-await-row|proof-cell-await-editor-cell|proof-cell-editor-open|proof-cell-dispatch|proof-cell-await-commit|proof-cell-view-check|proof-undo-redo|proof-branch-and-null|proof-insert-delete|set-null-row-wait|set-null-editor-open|set-null-dispatch|set-null-await-commit|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-check-status|wide-check-history|wide-check-error|wide-check-count|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard|validation-contract-select|validation-baseline|validation-navigation|validation-edit|validation-insert|validation-delete-operation|validation-delete-run|validation-delete-assert|validation-delete-rowcount|validation-delete-failcount|validation-delete-check|diff-reset-overlay|diff-restage-primary|diff-case-identical|diff-case-schema|diff-case-onlykey|diff-case-nested|diff-unconfirmed-refusal|diff-comparison-select|diff-unconfirmed-keys|diff-baseline|diff-navigation|diff-export-baseline|diff-edit-stale|diff-edited|diff-export-edited|diff-export-copy)(?: category=(set-null-assertion|proof-timeout|proof-revision-timeout|candidate-cast-rejected|operation-rejected|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
       message ?? '',
     )
   if (stage !== null) return `webview stage=${stage[1]}`
@@ -303,6 +316,85 @@ export async function run(): Promise<void> {
   assert(empty.shownInWebview === true, 'empty-file error was not acknowledged by the webview')
   scenarios['emptyFile'] = { kind: empty.kind, shownInWebview: empty.shownInWebview }
   console.log('[e2e] 5/5 OK (empty-file surfaced in webview)')
+
+  // 6. ptv2-6 staged diff: open the comparison A fixture; the webview
+  //    harness drives stage → disclosure → confirm → diff → navigate →
+  //    export → edit → stale → re-diff → export. The desktop's reports and
+  //    effective copy land at fixed workspace paths; the node runner later
+  //    checks them against the INSTALLED CLI on common semantic fields.
+  console.log('[e2e] 6/6 staged diff (comparison-a.csv)…')
+  const diffUri = vscode.Uri.file(`${workspace}/comparison-a.csv`)
+  const diffOpened = await executeOpen(diffUri)
+  assert(
+    diffOpened.outcome === 'opened',
+    `comparison fixture open failed: ${String(diffOpened.message)}`,
+  )
+  assert(diffOpened.rows === 12, `staged diff rows: ${String(diffOpened.rows)}`)
+  assert(diffOpened.columns === 2, `staged diff columns: ${String(diffOpened.columns)}`)
+  assert(
+    diffOpened.diffProof?.unconfirmedRefused === true,
+    'unconfirmed diff execution was not refused',
+  )
+  assert(
+    diffOpened.diffProof.staleAfterEdit === true,
+    'diff report did not become stale after edit',
+  )
+  assert(diffOpened.diffProof.baseViewOnlyFalse === true, 'edited diff kept baseViewOnly=true')
+  assert(diffOpened.diffProof.navigation === true, 'diff sample navigation failed')
+  assert(
+    Array.isArray(diffOpened.diffProof.baselineCounts) &&
+      diffOpened.diffProof.baselineCounts.join('/') === '1/1/1',
+    `baseline counts: ${JSON.stringify(diffOpened.diffProof.baselineCounts)}`,
+  )
+  assert(
+    diffOpened.diffProof.editedChangedCount === 2,
+    `edited changed count: ${String(diffOpened.diffProof.editedChangedCount)}`,
+  )
+  assert(diffOpened.diffProof.identicalCase === true, 'identical-case agreement class failed')
+  assert(diffOpened.diffProof.schemaOnlyCase === true, 'schema-only agreement class failed')
+  assert(diffOpened.diffProof.noComparableCase === true, 'no-comparable agreement class failed')
+  assert(diffOpened.diffProof.nestedCase === true, 'nested agreement class failed')
+  const baselineReport = `${workspace}/assay-diff-report-1.json`
+  const identicalReport = `${workspace}/assay-diff-report-2.json`
+  const schemaReport = `${workspace}/assay-diff-report-3.json`
+  const onlyKeyReport = `${workspace}/assay-diff-report-4.json`
+  const nestedReport = `${workspace}/assay-diff-report-5.json`
+  const editedReport = `${workspace}/assay-diff-report-6.json`
+  for (const reportPath of [
+    baselineReport,
+    editedReport,
+    identicalReport,
+    schemaReport,
+    onlyKeyReport,
+    nestedReport,
+  ]) {
+    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(reportPath))
+    assert(bytes.byteLength > 0, `diff report export missing: ${reportPath}`)
+  }
+  // The exercise's effective-copy export is the LAST assay-export-proof-*
+  // artifact. It is not reopened through another engine session here (each
+  // open keeps a webview + engine worker alive for the whole run; a sixth
+  // session exhausted host resources in CI). The installed-CLI agreement
+  // leg opens the copy for real and asserts its shape from the CLI report.
+  const exportEntries = (await vscode.workspace.fs.readDirectory(vscode.Uri.file(workspace)))
+    .map(([name]) => /^assay-export-proof-(\d+)\.parquet$/.exec(name))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .sort((a, b) => Number(a[1]) - Number(b[1]))
+  assert(exportEntries.length > 0, 'no assay-export-proof artifacts found')
+  const exportedEffectiveCopy = `${workspace}/${exportEntries[exportEntries.length - 1]![0]}`
+  results['diffProof'] = diffOpened.diffProof
+  scenarios['stagedDiff'] = {
+    baselineReport,
+    editedReport,
+    identicalReport,
+    schemaReport,
+    onlyKeyReport,
+    nestedReport,
+    exportedEffectiveCopy,
+  }
+  console.log(
+    `[e2e] 6/6 OK staged diff baseline=1/1/1 editedChanged=2 navigation=${String(diffOpened.diffProof.navigation)}`,
+  )
 
   results['finishedAt'] = new Date().toISOString()
   await vscode.workspace.fs.writeFile(

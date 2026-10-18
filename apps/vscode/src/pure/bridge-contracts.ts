@@ -50,6 +50,19 @@ export type DatasetReport =
         readonly staleAfterEdit: boolean
         readonly logicalNavigation: boolean
       }
+      /** Test-mode only, value-free staged-diff evidence. */
+      readonly diffProof?: {
+        readonly unconfirmedRefused: boolean
+        readonly staleAfterEdit: boolean
+        readonly baseViewOnlyFalse: boolean
+        readonly navigation: boolean
+        readonly baselineCounts?: readonly [number, number, number]
+        readonly editedChangedCount?: number
+        readonly identicalCase?: boolean
+        readonly schemaOnlyCase?: boolean
+        readonly noComparableCase?: boolean
+        readonly nestedCase?: boolean
+      }
       /** Test-mode only, value-free result of production DOM/engine edit assertions. */
       readonly editProof?: {
         readonly cellIdentity: boolean
@@ -99,6 +112,53 @@ export function normalizeValidationProof(
 }
 
 /** Exact value-free projection for test-only edit evidence received from a webview. */
+/**
+ * Test-mode only: validate a harness-named comparison fixture before the
+ * host honors it. Strict allowlist — a bare basename with no traversal,
+ * no separators, and a known dataset extension. Production never sends a
+ * fixture name; the field exists so the e2e harness can stage several
+ * comparison classes through the REAL select flow.
+ */
+export function validateTestComparisonFixture(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 128) return undefined
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) return undefined
+  if (value.includes('..')) return undefined
+  if (!/\.(csv|jsonl|json|parquet|arrow)$/.test(value)) return undefined
+  return value
+}
+
+export function normalizeDiffProof(
+  value: unknown,
+): NonNullable<Extract<DatasetReport, { outcome: 'opened' }>['diffProof']> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const input = value as Record<string, unknown>
+  const flags = ['unconfirmedRefused', 'staleAfterEdit', 'baseViewOnlyFalse', 'navigation'] as const
+  if (!flags.every((key) => typeof input[key] === 'boolean')) return undefined
+  const caseFlags = ['identicalCase', 'schemaOnlyCase', 'noComparableCase', 'nestedCase'] as const
+  const cases = caseFlags.filter((key) => input[key] === true)
+  const counts = input['baselineCounts']
+  const baselineCounts =
+    Array.isArray(counts) && counts.length === 3 && counts.every(isCount)
+      ? ([Number(counts[0]), Number(counts[1]), Number(counts[2])] as [number, number, number])
+      : undefined
+  const editedChangedCount = isCount(input['editedChangedCount'])
+    ? Number(input['editedChangedCount'])
+    : undefined
+  return {
+    unconfirmedRefused: input['unconfirmedRefused'] === true,
+    staleAfterEdit: input['staleAfterEdit'] === true,
+    baseViewOnlyFalse: input['baseViewOnlyFalse'] === true,
+    navigation: input['navigation'] === true,
+    ...(baselineCounts === undefined ? {} : { baselineCounts }),
+    ...(editedChangedCount === undefined ? {} : { editedChangedCount }),
+    ...(cases.length === 0 ? {} : Object.fromEntries(cases.map((key) => [key, true as const]))),
+  }
+}
+
+function isCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0
+}
+
 export function normalizeEditProof(
   value: unknown,
 ): NonNullable<Extract<DatasetReport, { outcome: 'opened' }>['editProof']> | undefined {

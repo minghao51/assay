@@ -34,7 +34,9 @@ import {
 } from './pure/dataset-format'
 import {
   DatasetOpenError,
+  normalizeDiffProof,
   normalizeEditProof,
+  validateTestComparisonFixture,
   normalizeValidationProof,
   WEBVIEW_ERROR_TEXT,
   type DatasetReport,
@@ -256,7 +258,7 @@ export function bridgeDatasetIntoPanel(
     panel.webview.onDidReceiveMessage((message: unknown) => {
       const kind = (message as { kind?: unknown } | null)?.kind
       if (kind === 'comparison-select-request') {
-        const request = message as { id?: unknown; generation?: unknown }
+        const request = message as { id?: unknown; generation?: unknown; fixture?: unknown }
         if (
           typeof request.id !== 'string' ||
           request.id.length === 0 ||
@@ -265,6 +267,11 @@ export function bridgeDatasetIntoPanel(
           Number(request.generation) < 0
         )
           return
+        // Test-mode only: the e2e harness may name a comparison fixture so
+        // several agreement classes run through the REAL select flow.
+        // Production never sends this field; an invalid name falls back to
+        // the default harness fixture rather than failing the pick.
+        const harnessFixture = validateTestComparisonFixture(request.fixture)
         const id = request.id
         const generation = Number(request.generation)
         const hostGeneration = ++comparisonGeneration
@@ -277,7 +284,9 @@ export function bridgeDatasetIntoPanel(
             context.extensionMode === vscode.ExtensionMode.Test &&
             process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
           const selected = testHarness
-            ? vscode.Uri.file(`${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/diff-comparison.parquet`)
+            ? vscode.Uri.file(
+                `${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/${harnessFixture ?? 'comparison-b.csv'}`,
+              )
             : (
                 await vscode.window.showOpenDialog({
                   canSelectMany: false,
@@ -765,6 +774,7 @@ export function bridgeDatasetIntoPanel(
           gridAudit?: { ok?: unknown }
           editProof?: unknown
           validationProof?: unknown
+          diffProof?: unknown
         }
         void reading.then((read) => {
           finish({
@@ -780,9 +790,11 @@ export function bridgeDatasetIntoPanel(
               ? (() => {
                   const proof = normalizeEditProof(opened.editProof)
                   const validation = normalizeValidationProof(opened.validationProof)
+                  const diff = normalizeDiffProof(opened.diffProof)
                   return {
                     ...(proof === undefined ? {} : { editProof: proof }),
                     ...(validation === undefined ? {} : { validationProof: validation }),
+                    ...(diff === undefined ? {} : { diffProof: diff }),
                   }
                 })()
               : {}),

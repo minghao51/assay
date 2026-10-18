@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from 'vitest'
 import { diffDatasets, inferRowDiffKeys } from '@assay/diff'
+import { DEFAULT_SAMPLE_LIMIT } from '@assay/validation'
 import {
   buildDiffReport,
   canRunDiff,
@@ -198,8 +199,8 @@ describe('desktop staged-diff controller', () => {
     expect(report.aspects.map((aspect) => aspect.aspect)).toEqual(['added', 'removed', 'changed'])
     expect(report.aspects[0]?.samples[0]?.displayKey).toBe('b #1')
     expect(report.aspects[0]?.samplesComplete).toBe(false)
-    expect(report.sampleLimitRequested).toBe(100)
-    expect(report.sampleLimitEffective).toBe(100)
+    expect(report.sampleLimitRequested).toBe(DEFAULT_SAMPLE_LIMIT)
+    expect(report.sampleLimitEffective).toBe(DEFAULT_SAMPLE_LIMIT)
     expect(
       buildDiffReport({
         comparison,

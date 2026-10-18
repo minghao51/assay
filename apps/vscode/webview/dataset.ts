@@ -123,6 +123,9 @@ let comparisonDisplayName = ''
 let comparisonBusy = false
 let diffGeneration = 0
 let diffBusy = false
+// Test-harness only: names the comparison fixture the NEXT select pick
+// stages (validated host-side); production never sets it.
+let testComparisonFixture: string | undefined
 let diffConfirmed = false
 let diffReport: DiffReportView | null = null
 let diffKeySource: 'explicit' | 'inferred' = 'explicit'
@@ -646,8 +649,13 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     displayName: string
     bytes: ArrayBuffer
   }): void => {
-    if (comparisonBusy || controller.snapshot.busy) {
-      elementOrThrow('diff-status').textContent = 'Cannot stage while an edit or diff is pending.'
+    // The in-flight latch (comparisonBusy) was set by the select click that
+    // CAUSED this frame; refusing on it here deadlocked staging forever
+    // (the early return skipped the only finally that clears it). Only a
+    // pending edit refuses — and it must release the latch.
+    if (controller.snapshot.busy) {
+      comparisonBusy = false
+      elementOrThrow('diff-status').textContent = 'Cannot stage while an edit is pending.'
       return
     }
     comparisonBusy = true
@@ -693,8 +701,14 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     const request = { id: crypto.randomUUID(), generation: ++comparisonGeneration }
     comparisonRequest = request
     comparisonBusy = true
+    const fixture = testComparisonFixture
+    testComparisonFixture = undefined
     elementOrThrow('diff-status').textContent = 'Select a local comparison dataset…'
-    vscodeApi.postMessage({ kind: 'comparison-select-request', ...request })
+    vscodeApi.postMessage({
+      kind: 'comparison-select-request',
+      ...request,
+      ...(fixture === undefined ? {} : { fixture }),
+    })
   })
   elementOrThrow('diff-confirm').addEventListener('click', () => {
     if (
@@ -848,6 +862,16 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     baseSchema.some((column) => column.name === 'value_maybe_null')
       ? await exerciseEffectiveValidation(validateEffectiveView, controller, provider, grid, model)
       : undefined
+  const diffProof =
+    config.testHarness &&
+    rows === 12 &&
+    baseSchema.length === 2 &&
+    baseSchema[0]?.name === 'id' &&
+    baseSchema[1]?.name === 'value'
+      ? await exerciseStagedDiff(controller, provider, grid, () =>
+          startExport('parquet', boot.client, handle, base, controller),
+        )
+      : undefined
   if (config.testHarness) await startExport('parquet', boot.client, handle, base, controller)
   elementOrThrow('export-controls').hidden = false
   elementOrThrow('export-button').addEventListener('click', () => {
@@ -883,6 +907,7 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     gridAudit: audit,
     ...(editProof === undefined ? {} : { editProof }),
     ...(validationProof === undefined ? {} : { validationProof }),
+    ...(diffProof === undefined ? {} : { diffProof }),
   })
 }
 
@@ -977,6 +1002,285 @@ async function exerciseEffectiveValidation(
     deletedFailures: deleted.rules[0]!.failCount,
     staleAfterEdit,
     logicalNavigation,
+  }
+}
+
+async function exerciseStagedDiff(
+  controller: EditController,
+  provider: EngineGridProvider,
+  grid: WebviewDataGrid,
+  exportEffectiveCopy: () => Promise<void>,
+): Promise<{
+  readonly unconfirmedRefused: boolean
+  readonly staleAfterEdit: boolean
+  readonly baseViewOnlyFalse: boolean
+  readonly navigation: boolean
+  readonly baselineCounts: readonly [number, number, number]
+  readonly editedChangedCount: number
+  readonly identicalCase: boolean
+  readonly schemaOnlyCase: boolean
+  readonly noComparableCase: boolean
+  readonly nestedCase: boolean
+}> {
+  const status = (): string => elementOrThrow('diff-status').textContent ?? ''
+  // The editor harness that ran first leaves net-neutral ops (insert/delete
+  // pairs) in the session; a base-view baseline diff needs the pristine
+  // overlay, so undo to the session's base state before proving anything.
+  activeOpenStage = 'diff-reset-overlay'
+  while (controller.snapshot.history.cursor > 0) await controller.undo()
+  // Refusal before any staging: the confirm button cannot run anything while
+  // no comparison is staged (the gate is explicit confirmation, not selection).
+  activeOpenStage = 'diff-unconfirmed-refusal'
+  if (!elementOrThrow('diff-confirm').hasAttribute('disabled'))
+    throw new Error('diff confirm is enabled before a comparison is staged')
+  elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+  if (!status().startsWith('Diff refused'))
+    throw new Error('unconfirmed diff execution was not refused before staging')
+  // Refusal after staging with no keys selected (the multi-select starts empty).
+  activeOpenStage = 'diff-comparison-select'
+  elementOrThrow('comparison-select').dispatchEvent(new Event('click'))
+  await waitUntil(() => comparisonDiff !== null || status().includes('not be staged'))
+  if (comparisonDiff === null) throw new Error('staged-diff comparison staging failed')
+  activeOpenStage = 'diff-unconfirmed-keys'
+  elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+  if (!status().startsWith('Diff refused: invalid keys'))
+    throw new Error('diff ran (or was refused for the wrong reason) without confirmed keys')
+  const unconfirmedRefused = true
+  // Baseline: confirm the fixture key explicitly and wait for the report.
+  activeOpenStage = 'diff-baseline'
+  const select = elementOrThrow('diff-keys') as HTMLSelectElement
+  for (const option of [...select.options]) option.selected = option.value === 'id'
+  elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+  try {
+    await waitUntil(
+      () =>
+        diffReport !== null && !diffBusy && diffReport.revision === controller.snapshot.revision,
+    )
+  } catch (error) {
+    throw new Error(
+      `staged-diff baseline wait failed (status=${status().slice(0, 140)}): ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  const baseline = diffReport
+  if (baseline === null) throw new Error('confirmed diff did not publish a report')
+  const baselineCounts = baseline.aspects.map((aspect) => aspect.count) as [number, number, number]
+  if (
+    baselineCounts[0] !== 1 ||
+    baselineCounts[1] !== 1 ||
+    baselineCounts[2] !== 1 ||
+    baseline.identical ||
+    !baseline.baseViewOnly
+  ) {
+    throw new Error(
+      `staged-diff baseline counts/verdict invariant failed: counts=${baselineCounts.join('/')} identical=${String(baseline.identical)} baseViewOnly=${String(baseline.baseViewOnly)}`,
+    )
+  }
+  // Navigation: an A-side changed sample must resolve to a live grid row.
+  activeOpenStage = 'diff-navigation'
+  const changed = baseline.aspects[2]
+  const sample = changed.samples.find((entry) => entry.side === 'A')
+  if (sample === undefined) throw new Error('staged-diff changed aspect has no A-side sample')
+  let navigation = false
+  const total = await provider.rowCount()
+  for (let start = 0; start < total; start += 128) {
+    const page = await provider.fetchRange({
+      startRow: start,
+      endRow: Math.min(total, start + 128),
+      startCol: 0,
+      endCol: (await provider.schema()).length,
+    })
+    const offset = (page.rowKeys ?? []).indexOf(sample.rowKey)
+    if (offset >= 0) {
+      grid.scrollToRow(start + offset)
+      navigation = true
+      break
+    }
+  }
+  if (!navigation) throw new Error('staged-diff sample navigation failed')
+  // Export the baseline report (host writes it as a new local file).
+  activeOpenStage = 'diff-export-baseline'
+  elementOrThrow('diff-export').dispatchEvent(new Event('click'))
+  await waitUntil(() => reportExportRequest === null && status().includes('created'))
+  if (!status().includes('JSON report created'))
+    throw new Error('baseline report export did not complete')
+  // Agreement fixture classes (queue done-when): identical, schema-only,
+  // no-comparable, and nested-presence pairs, all staged through the REAL
+  // select flow against the SAME opened A, all on the PRISTINE base view
+  // (their reports claim baseViewOnly). A standalone profile-only pair is
+  // impossible with a fully-matching confirmed key (any value change also
+  // changes the row diff); the main pair already compares columnDeltas
+  // field-for-field, so the profile aspect is covered there.
+  const stageFixture = async (name: string): Promise<void> => {
+    testComparisonFixture = name
+    elementOrThrow('comparison-select').dispatchEvent(new Event('click'))
+    // comparisonDiff keeps the PREVIOUS staging until the new one renders,
+    // so completion is keyed on the staged-status line the renderer emits.
+    await waitUntil(
+      () =>
+        status() === 'Comparison ready. Choose keys and confirm to run.' ||
+        status().includes('not be staged') ||
+        status().includes('could not be staged'),
+    )
+    if (!status().startsWith('Comparison ready'))
+      throw new Error(
+        `staged-diff fixture staging failed: ${name} (status=${status().slice(0, 120)})`,
+      )
+  }
+  const runConfirmed = async (): Promise<void> => {
+    // Wait for a NEW report object — not merely a different-from-baseline
+    // one: an identity check against a fixed earlier report can pass on a
+    // stale report before this run finishes.
+    const before = diffReport
+    for (const option of [...select.options]) option.selected = option.value === 'id'
+    elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+    await waitUntil(
+      () =>
+        diffReport !== null &&
+        !diffBusy &&
+        diffReport !== before &&
+        diffReport.revision === controller.snapshot.revision,
+    )
+  }
+  const exportReport = async (stageLabel: string): Promise<void> => {
+    activeOpenStage = stageLabel
+    elementOrThrow('diff-export').dispatchEvent(new Event('click'))
+    await waitUntil(() => reportExportRequest === null && status().includes('created'))
+    if (!status().includes('JSON report created'))
+      throw new Error(`staged-diff report export failed: ${stageLabel}`)
+  }
+  const classCheck = (
+    label: string,
+    check: (caseReport: NonNullable<typeof diffReport>) => void,
+  ): boolean => {
+    const caseReport = diffReport
+    if (caseReport === null) throw new Error(`staged-diff class report missing: ${label}`)
+    check(caseReport)
+    return true
+  }
+  activeOpenStage = 'diff-case-identical'
+  await stageFixture('comparison-identical.csv')
+  await runConfirmed()
+  const identicalCase = classCheck('identical', (caseReport) => {
+    if (
+      !caseReport.identical ||
+      caseReport.aspects.some((aspect) => aspect.count !== 0) ||
+      caseReport.drift.length !== 0
+    ) {
+      throw new Error('staged-diff identical-case invariant failed')
+    }
+  })
+  await exportReport('diff-case-identical')
+  activeOpenStage = 'diff-case-schema'
+  await stageFixture('comparison-schema.csv')
+  await runConfirmed()
+  const schemaOnlyCase = classCheck('schema-only', (caseReport) => {
+    if (
+      caseReport.identical ||
+      caseReport.drift.length !== 1 ||
+      caseReport.aspects.some((aspect) => aspect.count !== 0)
+    ) {
+      throw new Error('staged-diff schema-only-case invariant failed')
+    }
+  })
+  await exportReport('diff-case-schema')
+  activeOpenStage = 'diff-case-onlykey'
+  await stageFixture('comparison-onlykey.csv')
+  await runConfirmed()
+  const noComparableCase = classCheck('no-comparable', (caseReport) => {
+    if (caseReport.changedComparable || caseReport.aspects[2].count !== 0)
+      throw new Error('staged-diff no-comparable-case invariant failed')
+  })
+  await exportReport('diff-case-onlykey')
+  activeOpenStage = 'diff-case-nested'
+  await stageFixture('comparison-nested.parquet')
+  await runConfirmed()
+  const nestedCase = classCheck('nested', (caseReport) => {
+    if (
+      caseReport.identical ||
+      caseReport.drift.length < 2 ||
+      caseReport.aspects.some((aspect) => aspect.count !== 0) ||
+      caseReport.changedComparable
+    ) {
+      throw new Error(
+        `staged-diff nested-case invariant failed: identical=${String(caseReport.identical)} drift=${String(caseReport.drift.length)} counts=${caseReport.aspects.map((aspect) => aspect.count).join('/')} comparable=${String(caseReport.changedComparable)}`,
+      )
+    }
+  })
+  await exportReport('diff-case-nested')
+  // Re-stage the primary comparison so the edit narrative runs against the
+  // row-diff fixture, not the last class fixture.
+  activeOpenStage = 'diff-restage-primary'
+  await stageFixture('comparison-b.csv')
+  await runConfirmed()
+  // Accept an edit on the row with id=2 (currently equal to B): its value
+  // change makes the changed aspect grow from 1 to 2 and flips the report stale.
+  activeOpenStage = 'diff-edit-stale'
+  const schema = await provider.schema()
+  const idColumn = schema.findIndex((column) => column.name === 'id')
+  const valueColumn = schema.findIndex((column) => column.name === 'value')
+  if (idColumn < 0 || valueColumn < 0) throw new Error('staged-diff edit columns unavailable')
+  let editedRowKey: string | undefined
+  for (let start = 0; start < total; start += 128) {
+    const page = await provider.fetchRange({
+      startRow: start,
+      endRow: Math.min(total, start + 128),
+      startCol: 0,
+      endCol: schema.length,
+    })
+    const offset = (page.rows ?? []).findIndex((row) => String(row[idColumn]) === '2')
+    if (offset >= 0) {
+      editedRowKey = page.rowKeys?.[offset]
+      break
+    }
+  }
+  if (editedRowKey === undefined) throw new Error('staged-diff edit target row not found')
+  await controller.commitCell(editedRowKey as RowId, 'value', { kind: 'number', value: 555 })
+  if (!isDiffStale(diffReport, controller.snapshot.revision))
+    throw new Error('staged-diff stale predicate did not flip after edit')
+  await waitUntil(() => !elementOrThrow('diff-stale').hidden)
+  const staleAfterEdit = true
+  // Re-diff the effective view: baseViewOnly must flip to false and the
+  // changed aspect must reflect the accepted edit (1 -> 2).
+  activeOpenStage = 'diff-edited'
+  const preEditReport = diffReport
+  for (const option of [...select.options]) option.selected = option.value === 'id'
+  elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+  await waitUntil(
+    () =>
+      diffReport !== null &&
+      !diffBusy &&
+      diffReport !== preEditReport &&
+      diffReport.revision === controller.snapshot.revision,
+  )
+  const edited = diffReport
+  if (edited === null) throw new Error('edited diff did not publish a report')
+  if (edited.baseViewOnly || edited.aspects[2].count !== 2)
+    throw new Error('staged-diff edited baseViewOnly/changed-count invariant failed')
+  await waitUntil(() => Boolean(elementOrThrow('diff-stale').hidden))
+  const baseViewOnlyFalse = true
+  const editedChangedCount = edited.aspects[2].count
+  // Export the edited report, then the effective copy for the CLI agreement
+  // leg — the copy must be the LAST parquet artifact of this open so the
+  // runner's max-index pick is the edited view (a later unconditional
+  // export would re-export the same accepted state, so order is safe).
+  activeOpenStage = 'diff-export-edited'
+  elementOrThrow('diff-export').dispatchEvent(new Event('click'))
+  await waitUntil(() => reportExportRequest === null && status().includes('created'))
+  if (!status().includes('JSON report created'))
+    throw new Error('edited report export did not complete')
+  activeOpenStage = 'diff-export-copy'
+  await exportEffectiveCopy()
+  return {
+    unconfirmedRefused,
+    staleAfterEdit,
+    baseViewOnlyFalse,
+    navigation,
+    baselineCounts,
+    editedChangedCount,
+    identicalCase,
+    schemaOnlyCase,
+    noComparableCase,
+    nestedCase,
   }
 }
 
