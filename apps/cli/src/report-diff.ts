@@ -16,7 +16,20 @@
 // changed-column names (the product); stderr never carries a value.
 // ---------------------------------------------------------------------------
 
-import { describeDiffIssue, roundForReport } from '@assay/diff'
+import {
+  describeDiffIssue,
+  diffReportIdentical as projectDiffReportIdentical,
+  diffSampleDisplayKey,
+  diffSampleExportKey,
+  divergentColumnDeltas,
+  projectAspect,
+  projectColumnDelta,
+  projectInference,
+  projectIssue,
+  projectSchemaFinding,
+  roundReportMetric as roundMetric,
+} from '@assay/diff'
+import { columnDeltaDiffers } from '@assay/diff'
 import type {
   ColumnDistributionDelta,
   DiffIssue,
@@ -30,7 +43,7 @@ import type {
   EngineRowDiffSample,
 } from '@assay/engine-duckdb/node'
 import { ROW_DIFF_SAMPLE_HARD_MAX } from '@assay/engine-duckdb/node'
-import { displayRowKey, exportRowKey, REPORT_VERSION } from './report-shared.js'
+import { REPORT_VERSION } from './report-shared.js'
 import { plainStyle } from './style.js'
 import type { ReportStyle } from './style.js'
 
@@ -133,41 +146,12 @@ export function buildDiffRowDiffReport(
 
 /** Anchor-free display key for a row-diff sample (`base #12` / `b #3`). */
 export function displayDiffRowKey(rowKey: string): string {
-  if (rowKey.startsWith('b:')) return `b #${rowKey.slice(2)}`
-  return displayRowKey(rowKey)
+  return diffSampleDisplayKey(rowKey)
 }
 
 /** Anchor-free export key for a row-diff sample (`base:12` / `b:3`). */
 export function exportDiffRowKey(rowKey: string): string {
-  if (rowKey.startsWith('b:')) return rowKey
-  return exportRowKey(rowKey)
-}
-
-/** Exact `-0`-normalized report rounding for a finite-or-null metric. */
-function roundMetric(value: number | null | undefined): number | null {
-  if (value === null || value === undefined) return null
-  return roundForReport(value)
-}
-
-/** Whether a column's distribution delta reports any defined non-zero signal. */
-export function columnDeltaDiffers(delta: ColumnDistributionDelta): boolean {
-  if (delta.numeric !== undefined) {
-    for (const metric of [
-      delta.numeric.meanShiftStandardized,
-      delta.numeric.varianceShiftStandardized,
-      delta.numeric.p50Shift,
-      delta.numeric.p90Shift,
-    ]) {
-      if (metric !== null && Number.isFinite(metric) && metric !== 0) return true
-    }
-  }
-  if (delta.categorical !== undefined) {
-    const tv = delta.categorical.totalVariation
-    if (tv !== null && Number.isFinite(tv) && tv !== 0) return true
-    if (delta.categorical.newCategories.length > 0) return true
-    if (delta.categorical.vanishedCategories.length > 0) return true
-  }
-  return false
+  return diffSampleExportKey(rowKey)
 }
 
 /** English pluralization helper for the human report (byte-pinned). */
@@ -181,11 +165,7 @@ function plural(count: number, singular: string): string {
  * and list, the JSON `identical` verdict, and the exit code all read THIS
  * list, so they cannot drift apart.
  */
-export function divergentColumnDeltas(
-  deltas: readonly ColumnDistributionDelta[],
-): readonly ColumnDistributionDelta[] {
-  return deltas.filter(columnDeltaDiffers)
-}
+export { columnDeltaDiffers, divergentColumnDeltas }
 
 /**
  * The one identity verdict over the aspects that ran — schema drift, any
@@ -194,13 +174,13 @@ export function divergentColumnDeltas(
  * independently in two places).
  */
 export function diffReportIdentical(report: DiffCommandReport): boolean {
-  return (
-    report.diff.schemaDrift.length === 0 &&
-    divergentColumnDeltas(report.diff.columnDeltas).length === 0 &&
-    report.rowDiff.added.count === 0 &&
-    report.rowDiff.removed.count === 0 &&
-    report.rowDiff.changed.count === 0
-  )
+  return projectDiffReportIdentical({
+    schemaDrift: report.diff.schemaDrift,
+    columnDeltas: report.diff.columnDeltas,
+    addedCount: report.rowDiff.added.count,
+    removedCount: report.rowDiff.removed.count,
+    changedCount: report.rowDiff.changed.count,
+  })
 }
 
 /** One schema-drift finding as a human line (aspect order is the sort order). */
@@ -368,85 +348,6 @@ export function renderHumanDiffReport(
   return lines.join('\n') + '\n'
 }
 
-/** A schema-drift finding projected for JSON (fixed keys; rounded shares). */
-function schemaFindingJson(finding: SchemaDriftFinding): Record<string, unknown> {
-  return {
-    kind: finding.kind,
-    column: finding.column,
-    typeA: finding.typeA ?? null,
-    typeB: finding.typeB ?? null,
-    familyA: finding.familyA ?? null,
-    familyB: finding.familyB ?? null,
-    nullShareA: roundMetric(finding.nullShareA),
-    nullShareB: roundMetric(finding.nullShareB),
-  }
-}
-
-/** One column delta projected for JSON (rounded metrics; fixed keys). */
-function columnDeltaJson(delta: ColumnDistributionDelta): Record<string, unknown> {
-  return {
-    column: delta.column,
-    typeA: delta.typeA,
-    typeB: delta.typeB,
-    kindA: delta.kindA,
-    kindB: delta.kindB,
-    numeric:
-      delta.numeric === undefined
-        ? null
-        : {
-            meanShiftStandardized: roundMetric(delta.numeric.meanShiftStandardized),
-            varianceShiftStandardized: roundMetric(delta.numeric.varianceShiftStandardized),
-            p50Shift: roundMetric(delta.numeric.p50Shift),
-            p90Shift: roundMetric(delta.numeric.p90Shift),
-          },
-    categorical:
-      delta.categorical === undefined
-        ? null
-        : {
-            totalVariation: roundMetric(delta.categorical.totalVariation),
-            newCategories: delta.categorical.newCategories.map((entry) => ({
-              value: entry.value,
-              count: entry.count,
-            })),
-            vanishedCategories: delta.categorical.vanishedCategories.map((entry) => ({
-              value: entry.value,
-              count: entry.count,
-            })),
-          },
-  }
-}
-
-/** One input issue projected for JSON (fixed keys). */
-function issueJson(issue: DiffIssue): Record<string, unknown> {
-  return {
-    code: issue.code,
-    message: issue.message,
-    side: issue.side ?? null,
-    column: issue.column ?? null,
-  }
-}
-
-/** One row-diff sample projected for JSON (anchor-free export key). */
-function sampleJson(sample: EngineRowDiffSample): Record<string, unknown> {
-  return sample.changedColumns === undefined
-    ? { side: sample.side, rowKey: exportDiffRowKey(sample.rowKey) }
-    : {
-        side: sample.side,
-        rowKey: exportDiffRowKey(sample.rowKey),
-        changedColumns: [...sample.changedColumns],
-      }
-}
-
-/** One row-diff aspect projected for JSON. */
-function aspectJson(aspect: DiffAspectReport): Record<string, unknown> {
-  return {
-    count: aspect.count,
-    samplesReturned: aspect.samplesReturned,
-    samplesComplete: aspect.samplesComplete,
-    samples: aspect.samples.map(sampleJson),
-  }
-}
-
 /**
  * The `--format json` envelope — the byte-stable reference shape for m6-5's
  * cross-surface agreement:
@@ -477,38 +378,41 @@ export function renderJsonDiffReport(report: DiffCommandReport, meta: DiffReport
     b: { name: meta.nameB, format: meta.formatB },
     keys: [...meta.keys],
     keySource: meta.keySource,
-    inference:
-      meta.inference === null
-        ? null
-        : {
-            columns: [...meta.inference.columns],
-            candidateDisclosure: meta.inference.candidateDisclosure,
-            outcomeDisclosure: meta.inference.outcomeDisclosure,
-            evidence: {
-              column: meta.inference.evidence.column,
-              typeA: meta.inference.evidence.typeA,
-              typeB: meta.inference.evidence.typeB,
-              rowCountA: meta.inference.evidence.rowCountA,
-              rowCountB: meta.inference.evidence.rowCountB,
-              nullCountA: meta.inference.evidence.nullCountA,
-              nullCountB: meta.inference.evidence.nullCountB,
-              distinctCountA: meta.inference.evidence.distinctCountA,
-              distinctCountB: meta.inference.evidence.distinctCountB,
-            },
-          },
+    inference: projectInference(meta.inference),
     sampleLimitRequested: meta.sampleLimitRequested,
     sampleLimitEffective: meta.sampleLimitEffective,
-    schemaDrift: report.diff.schemaDrift.map(schemaFindingJson),
-    columnDeltas: report.diff.columnDeltas.map(columnDeltaJson),
+    schemaDrift: report.diff.schemaDrift.map(projectSchemaFinding),
+    columnDeltas: report.diff.columnDeltas.map(projectColumnDelta),
     rowDiff: {
       rowCountA: report.rowDiff.rowCountA,
       rowCountB: report.rowDiff.rowCountB,
       changedComparable: report.rowDiff.changedComparable,
-      added: aspectJson(added),
-      removed: aspectJson(removed),
-      changed: aspectJson(changed),
+      added: projectAspect({
+        ...added,
+        samples: added.samples.map((sample) => ({
+          side: sample.side,
+          exportKey: diffSampleExportKey(sample.rowKey),
+          changedColumns: sample.changedColumns,
+        })),
+      }),
+      removed: projectAspect({
+        ...removed,
+        samples: removed.samples.map((sample) => ({
+          side: sample.side,
+          exportKey: diffSampleExportKey(sample.rowKey),
+          changedColumns: sample.changedColumns,
+        })),
+      }),
+      changed: projectAspect({
+        ...changed,
+        samples: changed.samples.map((sample) => ({
+          side: sample.side,
+          exportKey: diffSampleExportKey(sample.rowKey),
+          changedColumns: sample.changedColumns,
+        })),
+      }),
     },
-    issues: report.diff.issues.map(issueJson),
+    issues: report.diff.issues.map(projectIssue),
     identical,
   }
   return JSON.stringify(payload, null, 2) + '\n'

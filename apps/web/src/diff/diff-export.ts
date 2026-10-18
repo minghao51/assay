@@ -42,20 +42,21 @@
  * is download-only by construction. The result lines always say the opened
  * file is unchanged and use no banned overwrite/in-place language.
  */
-import type {
-  ColumnDistributionDelta,
-  DiffIssue,
-  KeyCandidateEvidence,
-  SchemaDriftFinding,
+import {
+  projectAspect,
+  projectColumnDelta,
+  projectInference,
+  projectIssue,
+  projectSchemaFinding,
+  roundReportMetric,
 } from '@assay/diff'
-import { roundForReport } from '@assay/diff'
 import type {
   SaveDestination,
   SaveStrategy,
   WritableSaveDestination,
 } from '../export/save-destination'
 import { detectSaveCapabilities } from '../export/save-destination'
-import type { DiffAspectView, DiffPanelReport, DiffSampleView } from './diff-model'
+import type { DiffPanelReport, DiffSampleView } from './diff-model'
 
 /** The two report formats. */
 export type DiffReportFormat = 'csv' | 'json'
@@ -93,106 +94,9 @@ export interface DiffReportExportMeta {
   readonly stale: boolean
 }
 
-/** Exact `-0`-normalized report rounding for a finite-or-null metric. */
-function roundMetric(value: number | null | undefined): number | null {
-  if (value === null || value === undefined) return null
-  return roundForReport(value)
-}
-
-/** A schema-drift finding projected for JSON (fixed keys; rounded shares). */
-function schemaFindingJson(finding: SchemaDriftFinding): Record<string, unknown> {
-  return {
-    kind: finding.kind,
-    column: finding.column,
-    typeA: finding.typeA ?? null,
-    typeB: finding.typeB ?? null,
-    familyA: finding.familyA ?? null,
-    familyB: finding.familyB ?? null,
-    nullShareA: roundMetric(finding.nullShareA),
-    nullShareB: roundMetric(finding.nullShareB),
-  }
-}
-
-/** One column delta projected for JSON (rounded metrics; fixed keys). */
-function columnDeltaJson(delta: ColumnDistributionDelta): Record<string, unknown> {
-  return {
-    column: delta.column,
-    typeA: delta.typeA,
-    typeB: delta.typeB,
-    kindA: delta.kindA,
-    kindB: delta.kindB,
-    numeric:
-      delta.numeric === undefined
-        ? null
-        : {
-            meanShiftStandardized: roundMetric(delta.numeric.meanShiftStandardized),
-            varianceShiftStandardized: roundMetric(delta.numeric.varianceShiftStandardized),
-            p50Shift: roundMetric(delta.numeric.p50Shift),
-            p90Shift: roundMetric(delta.numeric.p90Shift),
-          },
-    categorical:
-      delta.categorical === undefined
-        ? null
-        : {
-            totalVariation: roundMetric(delta.categorical.totalVariation),
-            newCategories: delta.categorical.newCategories.map((entry) => ({
-              value: entry.value,
-              count: entry.count,
-            })),
-            vanishedCategories: delta.categorical.vanishedCategories.map((entry) => ({
-              value: entry.value,
-              count: entry.count,
-            })),
-          },
-  }
-}
-
-/** One input issue projected for JSON (fixed keys). */
-function issueJson(issue: DiffIssue): Record<string, unknown> {
-  return {
-    code: issue.code,
-    message: issue.message,
-    side: issue.side ?? null,
-    column: issue.column ?? null,
-  }
-}
-
-/** One row-diff sample projected for JSON (anchor-free export key). */
-function sampleJson(sample: DiffSampleView): Record<string, unknown> {
-  return sample.changedColumns === null
-    ? { side: sample.side, rowKey: sample.exportKey }
-    : { side: sample.side, rowKey: sample.exportKey, changedColumns: [...sample.changedColumns] }
-}
-
-/** One row-diff aspect projected for JSON. */
-function aspectJson(aspect: DiffAspectView): Record<string, unknown> {
-  return {
-    count: aspect.count,
-    samplesReturned: aspect.samplesReturned,
-    samplesComplete: aspect.samplesComplete,
-    samples: aspect.samples.map(sampleJson),
-  }
-}
-
-function inferenceJson(inference: DiffPanelReport['inference']): Record<string, unknown> | null {
-  if (inference === null) return null
-  const evidence: KeyCandidateEvidence = inference.evidence
-  return {
-    columns: [...inference.columns],
-    candidateDisclosure: inference.candidateDisclosure,
-    outcomeDisclosure: inference.outcomeDisclosure,
-    evidence: {
-      column: evidence.column,
-      typeA: evidence.typeA,
-      typeB: evidence.typeB,
-      rowCountA: evidence.rowCountA,
-      rowCountB: evidence.rowCountB,
-      nullCountA: evidence.nullCountA,
-      nullCountB: evidence.nullCountB,
-      distinctCountA: evidence.distinctCountA,
-      distinctCountB: evidence.distinctCountB,
-    },
-  }
+/** Adapt a rendered web sample to the shared JSON projector's input shape. */
+function projectExportSample(sample: DiffSampleView) {
+  return { side: sample.side, exportKey: sample.exportKey, changedColumns: sample.changedColumns }
 }
 
 /** The `--format json`-shaped envelope (see the module doc). */
@@ -206,20 +110,29 @@ export function buildDiffReportJson(
     stale: meta.stale,
     keys: [...report.keys],
     keySource: report.keySource,
-    inference: inferenceJson(report.inference),
+    inference: projectInference(report.inference),
     sampleLimitRequested: report.sampleLimitRequested,
     sampleLimitEffective: report.sampleLimitEffective,
-    schemaDrift: report.drift.map(schemaFindingJson),
-    columnDeltas: report.deltas.map(columnDeltaJson),
+    schemaDrift: report.drift.map(projectSchemaFinding),
+    columnDeltas: report.deltas.map(projectColumnDelta),
     rowDiff: {
       rowCountA: report.rowCountA,
       rowCountB: report.rowCountB,
       changedComparable: report.changedComparable,
-      added: aspectJson(report.added),
-      removed: aspectJson(report.removed),
-      changed: aspectJson(report.changed),
+      added: projectAspect({
+        ...report.added,
+        samples: report.added.samples.map(projectExportSample),
+      }),
+      removed: projectAspect({
+        ...report.removed,
+        samples: report.removed.samples.map(projectExportSample),
+      }),
+      changed: projectAspect({
+        ...report.changed,
+        samples: report.changed.samples.map(projectExportSample),
+      }),
     },
-    issues: report.issues.map(issueJson),
+    issues: report.issues.map(projectIssue),
     identical: report.identical,
   }
   return new TextEncoder().encode(JSON.stringify(payload, null, 2) + '\n')
@@ -290,8 +203,8 @@ export function buildDiffReportCsv(
       ['typeB', finding.typeB ?? null],
       ['familyA', finding.familyA ?? null],
       ['familyB', finding.familyB ?? null],
-      ['nullShareA', roundMetric(finding.nullShareA)],
-      ['nullShareB', roundMetric(finding.nullShareB)],
+      ['nullShareA', roundReportMetric(finding.nullShareA)],
+      ['nullShareB', roundReportMetric(finding.nullShareB)],
     ]
     for (const [field, value] of fields) {
       lines.push(csvRow(['schema-drift', finding.column, 'finding', field, value]))
@@ -306,7 +219,7 @@ export function buildDiffReportCsv(
           delta.column,
           'numeric',
           'meanShiftStandardized',
-          roundMetric(numeric.meanShiftStandardized),
+          roundReportMetric(numeric.meanShiftStandardized),
         ]),
       )
       lines.push(
@@ -315,7 +228,7 @@ export function buildDiffReportCsv(
           delta.column,
           'numeric',
           'varianceShiftStandardized',
-          roundMetric(numeric.varianceShiftStandardized),
+          roundReportMetric(numeric.varianceShiftStandardized),
         ]),
       )
       lines.push(
@@ -324,7 +237,7 @@ export function buildDiffReportCsv(
           delta.column,
           'numeric',
           'p50Shift',
-          roundMetric(numeric.p50Shift),
+          roundReportMetric(numeric.p50Shift),
         ]),
       )
       lines.push(
@@ -333,7 +246,7 @@ export function buildDiffReportCsv(
           delta.column,
           'numeric',
           'p90Shift',
-          roundMetric(numeric.p90Shift),
+          roundReportMetric(numeric.p90Shift),
         ]),
       )
     }
@@ -345,7 +258,7 @@ export function buildDiffReportCsv(
           delta.column,
           'categorical',
           'totalVariation',
-          roundMetric(categorical.totalVariation),
+          roundReportMetric(categorical.totalVariation),
         ]),
       )
       lines.push(

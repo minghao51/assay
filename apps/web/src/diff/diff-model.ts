@@ -51,6 +51,12 @@ import type {
   RowDiffAspect,
   SchemaDriftFinding,
 } from '@assay/diff'
+import {
+  diffReportIdentical as projectDiffReportIdentical,
+  diffSampleDisplayKey,
+  diffSampleExportKey,
+  columnDeltaDiffers,
+} from '@assay/diff'
 import { roundForReport } from '@assay/diff'
 import type {
   EngineDatasetProfile,
@@ -58,7 +64,6 @@ import type {
   EngineRowDiffSample,
 } from '@assay/engine-duckdb'
 import { ROW_DIFF_SAMPLE_HARD_MAX } from '@assay/engine-duckdb'
-import { displayRowKey, exportRowKey } from '../validation/report-model'
 
 /** The sample bound the panel compiles plans with (the engine hard max). */
 export const DIFF_SAMPLE_LIMIT = ROW_DIFF_SAMPLE_HARD_MAX
@@ -133,16 +138,10 @@ export interface DiffPanelReport {
 }
 
 /** Anchor-free display key for a diff sample (`base #12` / `b #3`). */
-export function displayDiffRowKey(rowKey: string): string {
-  if (rowKey.startsWith('b:')) return `b #${rowKey.slice(2)}`
-  return displayRowKey(rowKey)
-}
+export const displayDiffRowKey = diffSampleDisplayKey
 
 /** Anchor-free export key for a diff sample (`base:12` / `b:3`). */
-export function exportDiffRowKey(rowKey: string): string {
-  if (rowKey.startsWith('b:')) return rowKey
-  return exportRowKey(rowKey)
-}
+export const exportDiffRowKey = diffSampleExportKey
 
 /** Project one engine sample into its render/export view. */
 export function diffSampleView(sample: EngineRowDiffSample): DiffSampleView {
@@ -150,7 +149,7 @@ export function diffSampleView(sample: EngineRowDiffSample): DiffSampleView {
     side: sample.side,
     rowKey: sample.rowKey,
     displayKey: displayDiffRowKey(sample.rowKey),
-    exportKey: exportDiffRowKey(sample.rowKey),
+    exportKey: diffSampleExportKey(sample.rowKey),
     changedColumns: sample.changedColumns === undefined ? null : [...sample.changedColumns],
   }
 }
@@ -183,25 +182,7 @@ export function buildDiffAspectViews(result: EngineRowDiffResult): {
 }
 
 /** Whether a column's distribution delta reports any defined non-zero signal. */
-export function columnDeltaDiffers(delta: ColumnDistributionDelta): boolean {
-  if (delta.numeric !== undefined) {
-    for (const metric of [
-      delta.numeric.meanShiftStandardized,
-      delta.numeric.varianceShiftStandardized,
-      delta.numeric.p50Shift,
-      delta.numeric.p90Shift,
-    ]) {
-      if (metric !== null && Number.isFinite(metric) && metric !== 0) return true
-    }
-  }
-  if (delta.categorical !== undefined) {
-    const tv = delta.categorical.totalVariation
-    if (tv !== null && Number.isFinite(tv) && tv !== 0) return true
-    if (delta.categorical.newCategories.length > 0) return true
-    if (delta.categorical.vanishedCategories.length > 0) return true
-  }
-  return false
-}
+export { columnDeltaDiffers }
 
 /** The CLI's exact `identical` predicate, over the assembled aspects. */
 export function diffReportIdentical(input: {
@@ -211,13 +192,13 @@ export function diffReportIdentical(input: {
   readonly removed: DiffAspectView
   readonly changed: DiffAspectView
 }): boolean {
-  return (
-    input.drift.length === 0 &&
-    !input.deltas.some(columnDeltaDiffers) &&
-    input.added.count === 0 &&
-    input.removed.count === 0 &&
-    input.changed.count === 0
-  )
+  return projectDiffReportIdentical({
+    schemaDrift: input.drift,
+    columnDeltas: input.deltas,
+    addedCount: input.added.count,
+    removedCount: input.removed.count,
+    changedCount: input.changed.count,
+  })
 }
 
 /** Input to {@link buildDiffPanelReport}. */
