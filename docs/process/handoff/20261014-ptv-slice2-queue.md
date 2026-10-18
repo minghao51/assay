@@ -8,8 +8,11 @@ This queue is not a declaration that slice 2 or the PT-V exit is delivered.
 
 ## 1. Execution and evidence
 
-Serialized rows; `openai-codex/gpt-6-luna` implements in isolated worktrees,
-parent orchestrates, independently reviews, re-runs gates and cherry-picks.
+Serialized rows; the implementer is `zai/glm-5.3-flash` first (maintainer
+preference 2026-10-17) with `openai-codex/gpt-6-luna` as worker fallback
+while the GLM lane is 429-blocked — in isolated worktrees; the parent (or a
+fresh Luna reviewer session when GLM implements) orchestrates, independently
+reviews, re-runs gates and cherry-picks.
 Follow [operating model](operating-model.md); never implement and approve the
 same code. Parent owns shared docs, root test/workflow integration and closure.
 Maintainer authorized a normal `main` push after ptv2-2 completion on

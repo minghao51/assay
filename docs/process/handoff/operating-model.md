@@ -65,18 +65,25 @@ orchestrator session using these artifacts. Everything is reproducible from this
 exercised for M2 (7 tasks) and M3 (6 tasks) with 4 request-changes loops, 3 provider-429
 interruptions, and zero lost work.
 
-**Agents** (user scope, `~/.pi/agent/agents/`): `worker`, `reviewer` (also `planner`/`scout`,
-unused so far). **Current roster (re-pinned 2026-09-28):** `worker` = `opencode-go/deepseek-v4.1-flash`
-(OpenCode Go lane); `reviewer` = `opencode-go/mimo-v2.6-pro` (fresh session, adversarial
-requirements-over-implementation prompt; bash is verification-only — gates + temporary mutants,
-clean tree required; never the implementing session). **Fallback for agents without a `model:` pin
-= `opencode-go/mimo-v2.6-pro`.** Known provider limits: zai 5-hour 429 windows; OpenAI credit exhaustion;
-OpenCode Go lane limits — check availability before dispatching. Dispatch one subagent at a time
-(provider rate limits); parallel _tasks_ run in separate git worktrees instead.
+**Agents** (user scope, `~/.pi/agent/agents/`): `worker`, `reviewer`, plus the
+repo-local `assay-luna-worker` (pinned to `openai-codex/gpt-6-luna`). **Current
+roster (maintainer preference, recorded 2026-10-17; supersedes the 2026-09-28
+pin):** implementer `zai/glm-5.3-flash` **first**, ideally reviewed by
+`openai-codex/gpt-6-luna` as a fresh reviewer session; **fallback when the GLM
+lane is unavailable** (Go-lane usage-limit 429s, current since 2026-10-17):
+Luna implements via `assay-luna-worker` and the **parent orchestrator
+independently reviews** (gates + temporary mutants, clean tree, never the
+implementing session). The same model never both implements and reviews a
+change. **Fallback for agents without a `model:` pin = `opencode-go/mimo-v2.6-pro`.**
+Known provider limits: zai 5-hour 429 windows; OpenAI credit exhaustion;
+OpenCode Go lane limits — check availability before dispatching. Dispatch one
+subagent at a time (provider rate limits); parallel _tasks_ run in separate
+git worktrees instead.
 **Roster history:** GLM → `openai-codex/gpt-5.6-sol` → GLM (provider-diversity suspended 2026-09-19
 after a Codex usage-limit block) → deepseek-v4.1-flash worker switch 2026-09-20 → reviewer
-GLM-5.3-Flash → **MiMo-V2.6-Pro 2026-09-28**; per-episode
-rosters are recorded in this file's git history.
+GLM-5.3-Flash → **MiMo-V2.6-Pro 2026-09-28** → Luna-worker/parent-reviewer episode roster
+2026-10-14 (rm-3 through ptv2-4) → **GLM-first/Luna-reviewer preference with Luna-worker/
+parent-reviewer fallback 2026-10-17**; per-episode rosters are recorded in this file's git history.
 
 **Queue format (canonical):** queue files use the 3-column shape `| task | scope/done-when | status/narrative |` (the AR and doc queues); the M4–M6-era 4-column shape is historical.
 

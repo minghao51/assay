@@ -56,7 +56,10 @@ account payments failed **or** spending limit needs increasing. No code gate
 ran remotely; user deferred this blocker 2026-10-15. Human **[M6](manual-actions.md)**
 must restore Actions billing/limit access, then re-run latest `main` CI.
 No billing, visibility, publication or force-push change is authorized; local
-green is not remote green.
+green is not remote green. Remote hygiene: four dependabot branches were
+force-updated on the origin remote 2026-10-17 (github-actions pin,
+apache-arrow 21, vite plugin-react, npm minor-patch); triage is pending and
+none are merged.
 
 **Release boundary:** complete local CLI tarball closure is verified, but
 registry distribution of private runtime dependencies remains an explicit
@@ -82,10 +85,14 @@ these or widen publication/telemetry boundaries in a packaging fix.
 - Host-load timeout flakes are recorded in the
   [October 11 snapshot](handoff/20261011-next-steps.md) §5. Re-run isolated and
   escalate recurring signatures; do not silently ignore failures.
-- Current session: worker **`openai-codex/gpt-6-luna`**, parent orchestrator +
-  independent reviewer, explicitly selected by the maintainer 2026-10-14.
-  Serialized dispatches; briefs/logs in `/tmp`; parent push authorized after
-  ptv2-2 verification, publication remains unauthorized.
+- Worker roster (maintainer preference, recorded 2026-10-17): implementer
+  **`zai/glm-5.3-flash` first**, ideally reviewed by **`openai-codex/gpt-6-luna`**;
+  when the GLM lane is unavailable (Go-lane usage-limit 429s, as throughout
+  ptv2-3/4), **Luna implements and the parent orchestrator independently
+  reviews** — the same model never both implements and reviews a change.
+  Serialized dispatches; briefs/logs in `/tmp`; normal `main` pushes follow
+  each independently verified row (ptv2-2/3/4 pushed); publication remains
+  unauthorized.
 
 ## 5. Definition of done
 
@@ -153,6 +160,11 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-18 (**ff**) — roster/plan refresh before ptv2-5 dispatch:
+  operating-model §7.6 re-pinned to the maintainer's GLM-first worker /
+  Luna-reviewer preference with Luna-worker/parent-reviewer fallback
+  (Go-lane 429s current); queue §1 and this handoff aligned; dependabot
+  remote-hygiene note added. No code change.
 - 2026-10-18 (**fe**) — ptv2-4 effective-view validation integrated after
   parent drills (overlay drop, stale flip) and full merged gates; 2988/187,
   validationProof on the real host, 15 pins. GLM lane still 429-blocked;
