@@ -22,7 +22,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { main } from './index.js'
+import { main, reportEntryError } from './index.js'
+import { CliError } from './errors.js'
 import { SMALL_DIRTY_CONTRACT, SMALL_DIRTY_CSV } from './test-datasets.js'
 
 const CLI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -205,6 +206,30 @@ describe('q-4 progress stays on stderr (silent under a pipe)', () => {
   })
 })
 
+describe('q-4 entry error handling through CliIo', () => {
+  it('writes authored CliError text through injected stderr and preserves its exit code', () => {
+    const stderr = fakeSink(false)
+    const code = reportEntryError(new CliError(1, 'safe fixed error'), {
+      stdout: fakeSink(false),
+      stderr,
+      env: {},
+    })
+    expect(code).toBe(1)
+    expect(stderr.chunks.join('')).toBe('safe fixed error\n')
+  })
+
+  it('sanitizes unexpected errors through CliIo', () => {
+    const stderr = fakeSink(false)
+    const code = reportEntryError(new Error('untrusted value'), {
+      stdout: fakeSink(false),
+      stderr,
+      env: {},
+    })
+    expect(code).toBe(2)
+    expect(stderr.chunks.join('')).toBe('internal error (no details)\n')
+  })
+})
+
 describe('q-4 --version/--help as global options', () => {
   it('--version prints the package.json version (single source of truth)', () => {
     const run = runCli(['--version'])
@@ -218,6 +243,8 @@ describe('q-4 --version/--help as global options', () => {
     expect(run.exitCode).toBe(0)
     expect(run.stdout).toContain('global options:')
     expect(run.stdout).toContain('--quiet')
+    expect(run.stdout).toContain('suppress progress on stderr')
+    expect(run.stdout).not.toContain('hints on stderr')
     expect(run.stdout).toContain('--version')
     expect(run.stdout).toContain('--help')
     expect(run.stdout).toContain('NO_COLOR')

@@ -36,7 +36,9 @@ import type { DuckDbType } from '../schema/parseType'
  * q-1: callers that already hold the column's parsed type tree (the grid
  * precomputes one per column) may pass it as `parsedType`, which skips the
  * per-cell `parseDuckDbType` on the decimal and object paths. When omitted,
- * `type` is parsed as before.
+ * `type` is parsed as before. Explicit `null` is equivalent to omission here:
+ * the `??` fallback reparses `type`; callers that need to suppress parsing
+ * must provide no `type` (the current callers never pass explicit null).
  */
 export function formatCell(value: unknown, type?: string, parsedType?: DuckDbType | null): string {
   if (value === null || value === undefined) return ''

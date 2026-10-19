@@ -19,11 +19,14 @@
   --color-surface-subtle: #fafafa;
   --color-surface-alt: #f7f7f8;
   --color-surface-elevated: #fbfcfe;
+  /* General hover and subtle borders are separate semantics that share a value deliberately. */
   --color-hover: #eee;
+  /* Row hover and accent surfaces are separate semantics that share a value deliberately. */
   --color-row-hover: #eef3f9;
   --color-history-hover: #f6f9fc;
   --color-editor-null: #f0f0f0;
   --color-chart-track: #eef2f7;
+  /* Dirty-cell hover specificity is a known pre-existing caveat; keep this token/rule unchanged. */
   --color-dirty-cell: #fff5cc;
   --color-dirty-row: #fffaf0;
   --color-dirty-row-alt: #faf5e8;
@@ -520,6 +523,7 @@ h1 {
   cursor: pointer;
 }
 
+/* Known specificity caveat: this row-hover selector can override dirty-cell backgrounds; retained unchanged per q-2c. */
 .grid-row-openable:hover .grid-cell {
   background: var(--color-row-hover);
 }

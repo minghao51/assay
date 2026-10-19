@@ -112,6 +112,7 @@ test('theme: light and dark schemes resolve distinct token values', async ({ pag
     expect(dark[key].background, `${key} background must change with the scheme`).not.toBe(
       light[key].background,
     )
+    expect(dark[key].color, `${key} text must change with the scheme`).not.toBe(light[key].color)
   }
   expect(dark.body.color, 'body text must change with the scheme').not.toBe(light.body.color)
 

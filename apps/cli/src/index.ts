@@ -61,7 +61,7 @@ export function helpText(): string {
     '  help              show this help',
     '',
     'global options:',
-    '  --quiet             suppress progress and hints on stderr; the report',
+    '  --quiet             suppress progress on stderr; the report',
     '                      on stdout (human or JSON) is unchanged. Progress is',
     '                      written only when stderr is a terminal, so piped',
     '                      runs are already quiet.',
@@ -332,21 +332,24 @@ function isEntryModule(): boolean {
   }
 }
 
+export function reportEntryError(error: unknown, io: CliIo): CliExitCode {
+  if (error instanceof CliError) {
+    io.stderr.write(error.message + '\n')
+    return error.exitCode
+  }
+  // Untrusted error text is never echoed (ADR 0025 discipline): an
+  // unexpected exception's message could embed dataset content.
+  io.stderr.write('internal error (no details)\n')
+  return 2
+}
+
 if (isEntryModule()) {
   main(process.argv.slice(2)).then(
     (code) => {
       process.exitCode = code
     },
     (error: unknown) => {
-      if (error instanceof CliError) {
-        process.stderr.write(error.message + '\n')
-        process.exitCode = error.exitCode
-      } else {
-        // Untrusted error text is never echoed (ADR 0025 discipline): an
-        // unexpected exception's message could embed dataset content.
-        process.stderr.write('internal error (no details)\n')
-        process.exitCode = 2
-      }
+      process.exitCode = reportEntryError(error, processIo())
     },
   )
 }

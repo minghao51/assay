@@ -341,8 +341,11 @@ class TypeParser {
  * from the schema (a bounded per-column vocabulary), but the parser is called
  * on the hot render path — per cell per render via editor-kind, decimal, and
  * nested-preview paths. The cache turns that O(cells × renders) work into
- * O(distinct type strings). Returned trees are readonly and must never be
- * mutated by callers; sharing one reference is therefore safe.
+ * O(distinct type strings). The bounded cache deliberately evicts FIFO, not
+ * LRU: type strings are schema metadata, so a simple value-independent policy
+ * keeps the hot path predictable without recency bookkeeping. Returned trees
+ * are readonly and must never be mutated by callers; sharing one reference is
+ * therefore safe.
  */
 const PARSE_CACHE_LIMIT = 1024
 const parseCache = new Map<string, DuckDbType>()
