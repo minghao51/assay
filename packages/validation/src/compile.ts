@@ -244,7 +244,13 @@ function pushError(
   message: string,
   extra?: { readonly ruleId?: string; readonly column?: string },
 ): void {
-  ctx.errors.push({ code, message, path, ruleId: extra?.ruleId, column: extra?.column })
+  ctx.errors.push({
+    code,
+    message,
+    path,
+    ...(extra?.ruleId !== undefined ? { ruleId: extra.ruleId } : {}),
+    ...(extra?.column !== undefined ? { column: extra.column } : {}),
+  })
 }
 
 /**

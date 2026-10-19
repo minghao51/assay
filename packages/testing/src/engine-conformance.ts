@@ -2542,7 +2542,9 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       'overlay live row count',
     )
     expectEqual(
-      await client.overlayRowCount(handle, dataset, { filters: dataset.filtered.filters }),
+      await client.overlayRowCount(handle, dataset, {
+        ...(dataset.filtered.filters !== undefined ? { filters: dataset.filtered.filters } : {}),
+      }),
       dataset.filtered.expectRowCount,
       `[${dataset.filtered.label}] filtered row count`,
     )
@@ -2578,7 +2580,7 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
     const filtered = await client.fetchOverlayRange(handle, dataset, {
       startRow: 0,
       endRow: subject.maxWindowRows,
-      filters: dataset.filtered.filters,
+      ...(dataset.filtered.filters !== undefined ? { filters: dataset.filtered.filters } : {}),
     })
     expectEqual(
       filtered.batch.numRows,
@@ -2596,7 +2598,7 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
     const sorted = await client.fetchOverlayRange(handle, dataset, {
       startRow: 0,
       endRow: subject.maxWindowRows,
-      sort: dataset.sorted.sort,
+      ...(dataset.sorted.sort !== undefined ? { sort: dataset.sorted.sort } : {}),
     })
     expectEqual(
       sorted.batch.numRows,
@@ -3127,8 +3129,8 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
     await client.fetchOverlayRange(handle, dataset, {
       startRow: 0,
       endRow: subject.maxWindowRows,
-      filters: dataset.filtered.filters,
-      sort: dataset.sorted.sort,
+      ...(dataset.filtered.filters !== undefined ? { filters: dataset.filtered.filters } : {}),
+      ...(dataset.sorted.sort !== undefined ? { sort: dataset.sorted.sort } : {}),
     })
 
     // Exports of every declared format, each to its own generated destination.

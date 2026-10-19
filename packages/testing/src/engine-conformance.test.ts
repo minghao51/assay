@@ -1448,11 +1448,13 @@ const FAKE_VALIDATION_DATASET: ConformanceValidationDataset = {
           if (rule.ruleId === 'columns[1].regex')
             return { ...rule, failCount: 0, failPercent: 0, samples: [] }
           if (rule.ruleId === 'columns[1].allowed-values') {
+            const ruleWithoutSamples = Object.fromEntries(
+              Object.entries(rule).filter(([key]) => key !== 'samples'),
+            ) as typeof rule
             return {
-              ...rule,
+              ...ruleWithoutSamples,
               failCount: 4,
               failPercent: 80,
-              samples: undefined,
               firstSample: { rowKey: fakeValKey(0), value: 'x' },
             }
           }

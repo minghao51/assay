@@ -590,7 +590,8 @@ function walkRoot(ctx: WalkContext, root: YamlNode): RootBuild | null {
         break
       }
       case 'dataset': {
-        build.dataset = walkDataset(ctx, entry, seen)
+        const dataset = walkDataset(ctx, entry, seen)
+        if (dataset !== undefined) build.dataset = dataset
         break
       }
       default:

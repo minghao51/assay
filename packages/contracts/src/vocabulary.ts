@@ -102,5 +102,6 @@ export const CONTRACT_TYPE_ALIASES: Readonly<Record<string, ContractTypeSpelling
  * `vocabulary.test.ts`.
  */
 export function contractTypeHint(spelling: string): ContractTypeSpelling | null {
-  return Object.hasOwn(CONTRACT_TYPE_ALIASES, spelling) ? CONTRACT_TYPE_ALIASES[spelling] : null
+  if (!Object.hasOwn(CONTRACT_TYPE_ALIASES, spelling)) return null
+  return CONTRACT_TYPE_ALIASES[spelling] ?? null
 }

@@ -278,21 +278,21 @@ function scanEscape(cursor: Cursor, inClass: boolean): EscapeResolution {
 function quantifierFactorAt(cursor: Cursor): number | null {
   let i = cursor.at + 1
   let minDigits = ''
-  while (i < cursor.src.length && cursor.src[i] >= '0' && cursor.src[i] <= '9') {
-    minDigits += cursor.src[i]
+  while (i < cursor.src.length && /[0-9]/.test(cursor.src[i] ?? '')) {
+    minDigits += cursor.src[i] ?? ''
     i += 1
   }
   if (minDigits.length === 0) return null
   let maxDigits: string | null = null
-  if (cursor.src[i] === ',') {
+  if ((cursor.src[i] ?? '') === ',') {
     i += 1
     maxDigits = ''
-    while (i < cursor.src.length && cursor.src[i] >= '0' && cursor.src[i] <= '9') {
-      maxDigits += cursor.src[i]
+    while (i < cursor.src.length && /[0-9]/.test(cursor.src[i] ?? '')) {
+      maxDigits += cursor.src[i] ?? ''
       i += 1
     }
   }
-  if (cursor.src[i] !== '}') return null
+  if ((cursor.src[i] ?? '') !== '}') return null
   const min = Number(minDigits)
   const max = maxDigits === null || maxDigits === '' ? null : Number(maxDigits)
   if (min > MAX_REPEAT) refuse(`repetition count ${min} exceeds the RE2 limit of ${MAX_REPEAT}`)

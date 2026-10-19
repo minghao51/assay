@@ -311,7 +311,10 @@ function validateSchemaSide(ctx: Ctx, schema: unknown, side: 'A' | 'B'): Validat
   for (const issue of issues) {
     const code: RowDiffBindingErrorCode =
       issue.code === 'duplicate-column-name' ? 'duplicate-schema-column' : 'invalid-schema-input'
-    pushError(ctx, code, issue.message, { side: issue.side, column: issue.column })
+    pushError(ctx, code, issue.message, {
+      ...(issue.side !== undefined ? { side: issue.side } : {}),
+      ...(issue.column !== undefined ? { column: issue.column } : {}),
+    })
   }
   return validated
 }
