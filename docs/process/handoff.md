@@ -1,7 +1,7 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-19. **Current lane:** maintenance queue — q-5b DONE; q-7 (testing-package
-TS strictness) next.
+**Last updated:** 2026-10-19. **Current lane:** maintenance batch CLOSED (q-5b, q-7); PT-V slice 2
+closed — next lane is track planning (PT-Q remaining items / G0 tail).
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -161,6 +161,10 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fl**) — q-7 slice 2 done: strict indexed/optional TS
+  checks on packages/testing; 17 value-preserving fallout fixes across
+  testing/contracts/validation/diff (`a52ab8b`); violation + revert drills
+  verified by parent; full suite 3021/3021 in one invocation; q-7 CLOSED.
 - 2026-10-19 (**fk**) — q-5b done: remaining spec-local e2e helpers
   consolidated to one definition each (`ac992e4`); `beforeOpen` generalized
   into the shared open flow; parent drills all bite; e2e green ×2

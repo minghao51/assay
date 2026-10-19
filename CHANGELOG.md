@@ -12,6 +12,16 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed — packages/testing adopts strict TS checks (2026-10-19)
+
+- `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` are now on
+  for `packages/testing`, completing the q-7 strictness rollout across all
+  four pure packages. All 17 surfaced diagnostics (5 testing, 6 contracts,
+  5 validation, 1 diff — compiled through testing's program) were fixed
+  value-preserving; optional request/error fields are now omitted when
+  absent instead of carrying explicit `undefined` (JSON-equivalent, no
+  key-presence consumers).
+
 ### Changed — e2e helper consolidation completed (2026-10-19)
 
 - The last spec-local browser-e2e helpers (`openFlatFixture`,
