@@ -54,6 +54,17 @@ interface DatasetReport {
     readonly hasBranch: boolean
   }
   /** ptv2-7: reduced compare-command proof (staged + refusal + baseline). */
+  /** ptv2-8: value-free acceptance-chain proof (scenario 11 on desktop). */
+  readonly acceptanceProof?: {
+    readonly validatedCounts: readonly [number, number, number, number]
+    readonly staleAfterEdit: boolean
+    readonly unconfirmedRefused: boolean
+    readonly diffCounts: readonly [number, number, number]
+    readonly baseViewOnlyFalse: boolean
+    readonly navigation: boolean
+    readonly reportDelivered: boolean
+    readonly copyDelivered: boolean
+  }
   readonly diffCommandProof?: {
     readonly staged: boolean
     readonly unconfirmedRefused: boolean
@@ -94,7 +105,7 @@ function safeProofFailure(message: string | undefined): string {
   if (message?.includes('Set NULL keyboard proof')) return 'Set NULL keyboard proof failed'
   if (message?.includes('test proof timed out')) return 'proof timed out'
   const stage =
-    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|proof-sort-filter|proof-editor-cancel|proof-identity-check|proof-cell-commit|proof-cell-await-row|proof-cell-await-editor-cell|proof-cell-editor-open|proof-cell-dispatch|proof-cell-await-commit|proof-cell-view-check|proof-undo-redo|proof-branch-and-null|proof-insert-delete|set-null-row-wait|set-null-editor-open|set-null-dispatch|set-null-await-commit|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-check-status|wide-check-history|wide-check-error|wide-check-count|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard|validation-contract-select|validation-baseline|validation-navigation|validation-edit|validation-insert|validation-delete-operation|validation-delete-run|validation-delete-assert|validation-delete-rowcount|validation-delete-failcount|validation-delete-check|diff-reset-overlay|diff-restage-primary|diff-case-identical|diff-case-schema|diff-case-onlykey|diff-case-nested|diff-unconfirmed-refusal|diff-comparison-select|diff-unconfirmed-keys|diff-baseline|diff-navigation|diff-export-baseline|diff-edit-stale|diff-edited|diff-export-edited|diff-export-copy)(?: category=(set-null-assertion|proof-timeout|proof-revision-timeout|candidate-cast-rejected|operation-rejected|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
+    /^test-only open failure stage=(engine-start|engine-open|effective-view-load|first-row-render|edit-proof|proof-sort-filter|proof-editor-cancel|proof-identity-check|proof-cell-commit|proof-cell-await-row|proof-cell-await-editor-cell|proof-cell-editor-open|proof-cell-dispatch|proof-cell-await-commit|proof-cell-view-check|proof-undo-redo|proof-branch-and-null|proof-insert-delete|set-null-row-wait|set-null-editor-open|set-null-dispatch|set-null-await-commit|wide-clear-filters|wide-read-hidden-row|wide-filter-hidden-row|wide-candidate-preflight|wide-check-status|wide-check-history|wide-check-error|wide-check-count|wide-clear-filter-after|edit-proof-follow-up|set-null-keyboard|validation-contract-select|validation-baseline|validation-navigation|validation-edit|validation-insert|validation-delete-operation|validation-delete-run|validation-delete-assert|validation-delete-rowcount|validation-delete-failcount|validation-delete-check|acceptance-reset|acceptance-contract|acceptance-validate-baseline|acceptance-edit|acceptance-validate-edited|acceptance-undo|acceptance-redo|acceptance-stage|acceptance-refusal|acceptance-diff|acceptance-navigation|acceptance-report|acceptance-copy|diff-reset-overlay|diff-restage-primary|diff-case-identical|diff-case-schema|diff-case-onlykey|diff-case-nested|diff-unconfirmed-refusal|diff-comparison-select|diff-unconfirmed-keys|diff-baseline|diff-navigation|diff-export-baseline|diff-edit-stale|diff-edited|diff-export-edited|diff-export-copy)(?: category=(set-null-assertion|proof-timeout|proof-revision-timeout|candidate-cast-rejected|operation-rejected|operation-error|unknown|set-null-row-not-visible|set-null-cell-not-rendered|set-null-button-not-opened|set-null-operation-not-recorded|set-null-undo-did-not-restore-cursor))?$/.exec(
       message ?? '',
     )
   if (stage !== null) return `webview stage=${stage[1]}`
@@ -519,6 +530,66 @@ export async function run(): Promise<void> {
   }
   scenarios['datasetDiffCommand'] = { passed: true }
   console.log('[e2e] 8/8 OK compare command (staged, unconfirmed refused, git rendered)')
+
+  // 9. ptv2-8 acceptance (MVP scenario 11 on the desktop): ONE dataset
+  //    through the whole chained workflow — validate -> edit -> undo ->
+  //    redo -> confirmed-key diff -> report + copy delivery. The runner
+  //    script later checks the delivered report and copy against the
+  //    INSTALLED CLI (edited-view leg).
+  console.log('[e2e] 9/9 acceptance chain (acceptance.csv)…')
+  const acceptanceUri = vscode.Uri.file(`${workspace}/acceptance.csv`)
+  const acceptanceDigestBefore = createHash('sha256')
+    .update(await vscode.workspace.fs.readFile(acceptanceUri))
+    .digest('hex')
+  const acceptanceOpened = await executeOpen(acceptanceUri)
+  assert(
+    acceptanceOpened.outcome === 'opened',
+    `acceptance open failed: ${safeProofFailure(acceptanceOpened.message)}`,
+  )
+  const acceptance = acceptanceOpened.acceptanceProof
+  assert(acceptance !== undefined, 'acceptance chain produced no proof')
+  assert(
+    (acceptance.validatedCounts ?? []).join('/') === '1/0/1/0',
+    `acceptance validation counts: ${JSON.stringify(acceptance.validatedCounts)}`,
+  )
+  assert(acceptance.staleAfterEdit === true, 'acceptance stale marking missing')
+  assert(acceptance.unconfirmedRefused === true, 'acceptance diff bypassed confirmation')
+  assert(
+    (acceptance as unknown as { refusalKind?: string }).refusalKind === 'invalid-keys',
+    'acceptance refusal not independently evidenced',
+  )
+  assert(
+    (acceptance.diffCounts ?? []).join('/') === '1/1/1',
+    `acceptance diff counts: ${JSON.stringify(acceptance.diffCounts)}`,
+  )
+  assert(acceptance.baseViewOnlyFalse === true, 'acceptance diff not effective-view')
+  assert(acceptance.navigation === true, 'acceptance navigation failed')
+  assert(acceptance.reportDelivered === true, 'acceptance report not delivered')
+  assert(acceptance.copyDelivered === true, 'acceptance copy not delivered')
+  const acceptanceDigestAfter = createHash('sha256')
+    .update(await vscode.workspace.fs.readFile(acceptanceUri))
+    .digest('hex')
+  assert(
+    acceptanceDigestBefore === acceptanceDigestAfter,
+    'acceptance source fixture mutated during the chained workflow',
+  )
+  // The acceptance report/copy are the LAST artifacts of the run.
+  const reportEntries = (await vscode.workspace.fs.readDirectory(vscode.Uri.file(workspace)))
+    .map(([name]) => /^assay-diff-report-(\d+)\.json$/.exec(name))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .sort((a, b) => Number(a[1]) - Number(b[1]))
+  const exportEntries2 = (await vscode.workspace.fs.readDirectory(vscode.Uri.file(workspace)))
+    .map(([name]) => /^assay-export-proof-(\d+)\.parquet$/.exec(name))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .sort((a, b) => Number(a[1]) - Number(b[1]))
+  assert(reportEntries.length > 0 && exportEntries2.length > 0, 'acceptance artifacts missing')
+  const acceptanceReport = `${workspace}/${reportEntries[reportEntries.length - 1]![0]}`
+  const acceptanceCopy = `${workspace}/${exportEntries2[exportEntries2.length - 1]![0]}`
+  results['acceptanceProof'] = acceptance
+  scenarios['acceptance'] = { acceptanceReport, acceptanceCopy }
+  console.log(
+    '[e2e] 9/9 OK acceptance chain (validate 1/0/1/0, diff 1/1/1, report + copy delivered)',
+  )
 
   results['finishedAt'] = new Date().toISOString()
   await vscode.workspace.fs.writeFile(

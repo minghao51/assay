@@ -125,6 +125,29 @@ writeFileSync(
   path.join(workspaceDir, 'comparison-schema.csv'),
   `${['id,value,score', ...rowsA.map((row) => [row[0], row[1], `${String(row[0])}9`].join(','))].join('\n')}\n`,
 )
+// ptv2-8 acceptance chain fixture: ONE dataset exercising the full
+// workflow — validation (value_maybe_null required, one null row),
+// edit/undo/redo, confirmed-key diff (1 added / 1 removed / 1 changed on
+// the EDITED view), report + effective-copy delivery.
+const acceptanceRows = Array.from({ length: 12 }, (_, index) => {
+  const id = index + 1
+  return [id, `${String(index * 10)}.0`, id === 6 ? '' : `${String(id)}.0`]
+})
+const acceptanceBRows = Array.from({ length: 11 }, (_, index) => {
+  const id = index + 1
+  return [id, id === 1 ? '999.0' : `${String(index * 10)}.0`, id === 6 ? '9.5' : `${String(id)}.0`]
+})
+acceptanceBRows.push([13, '120.0', '13.0'])
+const csvWith = (header, rows) => `${[header, ...rows.map((row) => row.join(','))].join('\n')}\n`
+writeFileSync(
+  path.join(workspaceDir, 'acceptance.csv'),
+  csvWith('id,value,value_maybe_null', acceptanceRows),
+)
+writeFileSync(
+  path.join(workspaceDir, 'acceptance-b.csv'),
+  csvWith('id,value,value_maybe_null', acceptanceBRows),
+)
+
 const outsideDir = path.join(tmpdir(), `assay-e2e-outside-${String(process.pid)}`)
 mkdirSync(outsideDir, { recursive: true })
 const outsideFixture = path.join(outsideDir, 'outside-repo.csv')
@@ -232,6 +255,7 @@ if (
 }
 let baselineAgreed = false
 let editedAgreed = false
+let acceptanceAgreed = false
 let cliConsumer
 try {
   cliConsumer = installCliConsumer()
@@ -327,6 +351,58 @@ try {
         failed = true
       }
     }
+    // ptv2-8 acceptance chain: the delivered report and effective copy are
+    // checked against the same installed CLI (edited-view leg exclusions).
+    const acceptancePaths = results.scenarios?.acceptance
+    if (
+      typeof acceptancePaths?.acceptanceReport !== 'string' ||
+      typeof acceptancePaths?.acceptanceCopy !== 'string' ||
+      !existsSync(acceptancePaths.acceptanceReport) ||
+      !existsSync(acceptancePaths.acceptanceCopy) ||
+      !Array.isArray(results.acceptanceProof?.validatedCounts) ||
+      results.acceptanceProof.validatedCounts.join('/') !== '1/0/1/0' ||
+      results.acceptanceProof.diffCounts.join('/') !== '1/1/1' ||
+      results.acceptanceProof.baseViewOnlyFalse !== true
+    ) {
+      console.error('acceptance proof/artifacts missing or wrong shape')
+      failed = true
+    } else {
+      const desktopReport = JSON.parse(readFileSync(acceptancePaths.acceptanceReport, 'utf8'))
+      if (desktopReport.baseViewOnly !== false || desktopReport.stale !== false) {
+        console.error('acceptance report honesty failed (baseViewOnly/stale)')
+        failed = true
+      } else {
+        const cliAcceptance = agreement.runCliDiffReport(
+          cliConsumer.cliPath,
+          acceptancePaths.acceptanceCopy,
+          path.join(workspaceDir, 'acceptance-b.csv'),
+          'id',
+        )
+        const copyRows = (cliAcceptance.rowDiff ?? {}).rowCountA
+        if (copyRows !== 12) {
+          console.error(`acceptance copy shape via CLI: rows=${String(copyRows)}`)
+          failed = true
+        }
+        // Edited-view exclusions, all construction-justified: baseViewOnly
+        // (desktop marks the edited view; CLI diffs a plain file),
+        // columnDeltas AND schemaDrift (both feed from base-only profile
+        // data — the engine has no overlay profiling, so the base view's
+        // null shares leak into the desktop report while the CLI profiles
+        // the exported copy; structure/type drift and ALL row-level aspects
+        // remain compared — the staged-diff edited leg proves schemaDrift
+        // agreement when nullability is not in play).
+        const acceptanceCheck = agreement.agreeSemantics(desktopReport, cliAcceptance, {
+          excludeFields: ['baseViewOnly', 'columnDeltas', 'schemaDrift'],
+        })
+        acceptanceAgreed = acceptanceCheck.agreed
+        if (!acceptanceCheck.agreed) {
+          console.error(
+            `acceptance CLI agreement mismatched fields: ${acceptanceCheck.mismatchedFields.join(', ')}`,
+          )
+          failed = true
+        }
+      }
+    }
     console.log(
       `CLI agreement: baseline=${String(baselineAgreed)} edited=${String(editedAgreed)} ${classResults.join(' ')} packages=${String(cliConsumer.packageCount)}`,
     )
@@ -352,9 +428,9 @@ if (missingDiffProof.length > 0) {
   console.error(`diffProof missing or false fields: ${missingDiffProof.join(', ')}`)
   failed = true
 }
-if (!baselineAgreed || !editedAgreed) {
+if (!baselineAgreed || !editedAgreed || !acceptanceAgreed) {
   console.error(
-    `CLI agreement missing: baseline=${String(baselineAgreed)} edited=${String(editedAgreed)}`,
+    `CLI agreement missing: baseline=${String(baselineAgreed)} edited=${String(editedAgreed)} acceptance=${String(acceptanceAgreed)}`,
   )
   failed = true
 }

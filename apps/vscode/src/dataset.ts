@@ -36,6 +36,7 @@ import {
 } from './pure/dataset-format'
 import {
   DatasetOpenError,
+  normalizeAcceptanceProof,
   normalizeDiffCommandProof,
   normalizeDiffProof,
   normalizeEditProof,
@@ -806,6 +807,7 @@ export function bridgeDatasetIntoPanel(
           validationProof?: unknown
           diffProof?: unknown
           diffCommandProof?: unknown
+          acceptanceProof?: unknown
           gitContext?: unknown
         }
         void reading.then((read) => {
@@ -824,12 +826,14 @@ export function bridgeDatasetIntoPanel(
                   const validation = normalizeValidationProof(opened.validationProof)
                   const diff = normalizeDiffProof(opened.diffProof)
                   const diffCommand = normalizeDiffCommandProof(opened.diffCommandProof)
+                  const acceptance = normalizeAcceptanceProof(opened.acceptanceProof)
                   const git = normalizeGitContext(opened.gitContext)
                   return {
                     ...(proof === undefined ? {} : { editProof: proof }),
                     ...(validation === undefined ? {} : { validationProof: validation }),
                     ...(diff === undefined ? {} : { diffProof: diff }),
                     ...(diffCommand === undefined ? {} : { diffCommandProof: diffCommand }),
+                    ...(acceptance === undefined ? {} : { acceptanceProof: acceptance }),
                     ...(git === undefined ? {} : { gitContext: git }),
                   }
                 })()

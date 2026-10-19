@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,6 +39,14 @@ export function installCliConsumer() {
     }
   }
 
+  // The runner assumes `corepack pnpm build` ran first: packing a package
+  // whose dist/ is missing silently produces an empty tarball and the
+  // consumer install fails far away with a confusing module error.
+  for (const relativeDir of [...packages.keys()].sort()) {
+    if (!existsSync(path.join(workspaceRoot, relativeDir, 'dist'))) {
+      throw new Error(`${relativeDir} has no dist/ — run \`corepack pnpm build\` before the e2e`)
+    }
+  }
   const tarballs = []
   for (const relativeDir of [...packages.keys()].sort()) {
     execFileSync('corepack', ['pnpm', 'pack', '--pack-destination', tarballsDir], {

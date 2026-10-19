@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DatasetOpenError,
   normalizeEditProof,
+  normalizeAcceptanceProof,
   normalizeDiffCommandProof,
   normalizeDiffProof,
   normalizeGitContext,
@@ -14,6 +15,37 @@ import {
 } from './bridge-contracts'
 
 describe('desktop bridge error contracts', () => {
+  it('projects acceptance proof only with full flags and exact counts', () => {
+    const proof = {
+      validatedCounts: [1, 0, 1, 0],
+      staleAfterEdit: true,
+      unconfirmedRefused: true,
+      refusalKind: 'invalid-keys',
+      diffCounts: [1, 1, 1],
+      baseViewOnlyFalse: true,
+      navigation: true,
+      reportDelivered: true,
+      copyDelivered: true,
+      sampleValue: 'private',
+    }
+    expect(normalizeAcceptanceProof(proof)).toEqual({
+      validatedCounts: [1, 0, 1, 0],
+      staleAfterEdit: true,
+      unconfirmedRefused: true,
+      refusalKind: 'invalid-keys',
+      diffCounts: [1, 1, 1],
+      baseViewOnlyFalse: true,
+      navigation: true,
+      reportDelivered: true,
+      copyDelivered: true,
+    })
+    expect(normalizeAcceptanceProof({ ...proof, navigation: false })).toBeUndefined()
+    expect(normalizeAcceptanceProof({ ...proof, refusalKind: 'not-observed' })).toBeUndefined()
+    expect(normalizeAcceptanceProof({ ...proof, refusalKind: undefined })).toBeUndefined()
+    expect(normalizeAcceptanceProof({ ...proof, validatedCounts: [1, 0, 1] })).toBeUndefined()
+    expect(normalizeAcceptanceProof({ ...proof, diffCounts: [1, -1, 1] })).toBeUndefined()
+    expect(normalizeAcceptanceProof(null)).toBeUndefined()
+  })
   it('projects compare-command proof only with staged, refused and exact counts', () => {
     const proof = { staged: true, unconfirmedRefused: true, baselineCounts: [1, 1, 1] }
     expect(normalizeDiffCommandProof(proof)).toEqual({

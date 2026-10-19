@@ -63,6 +63,18 @@ export type DatasetReport =
         readonly noComparableCase?: boolean
         readonly nestedCase?: boolean
       }
+      /** Test-mode only, value-free acceptance-chain evidence (scenario 11). */
+      readonly acceptanceProof?: {
+        readonly validatedCounts: readonly [number, number, number, number]
+        readonly staleAfterEdit: boolean
+        readonly unconfirmedRefused: boolean
+        readonly refusalKind: 'invalid-keys'
+        readonly diffCounts: readonly [number, number, number]
+        readonly baseViewOnlyFalse: boolean
+        readonly navigation: boolean
+        readonly reportDelivered: boolean
+        readonly copyDelivered: boolean
+      }
       /** Test-mode only, value-free compare-command evidence (reduced proof). */
       readonly diffCommandProof?: {
         readonly staged: boolean
@@ -130,6 +142,46 @@ export function normalizeValidationProof(
  * fixture name; the field exists so the e2e harness can stage several
  * comparison classes through the REAL select flow.
  */
+/** Value-free acceptance-chain evidence from a webview (counts + flags only). */
+export function normalizeAcceptanceProof(
+  value: unknown,
+): NonNullable<Extract<DatasetReport, { outcome: 'opened' }>['acceptanceProof']> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const input = value as Record<string, unknown>
+  const validated = input['validatedCounts']
+  const diffCounts = input['diffCounts']
+  const flags = [
+    'staleAfterEdit',
+    'unconfirmedRefused',
+    'baseViewOnlyFalse',
+    'navigation',
+    'reportDelivered',
+    'copyDelivered',
+  ] as const
+  if (
+    input['refusalKind'] !== 'invalid-keys' ||
+    !flags.every((key) => input[key] === true) ||
+    !Array.isArray(validated) ||
+    validated.length !== 4 ||
+    !validated.every((count) => Number.isSafeInteger(count) && Number(count) >= 0) ||
+    !Array.isArray(diffCounts) ||
+    diffCounts.length !== 3 ||
+    !diffCounts.every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
+  )
+    return undefined
+  return {
+    validatedCounts: validated.map((count) => Number(count)) as [number, number, number, number],
+    staleAfterEdit: true,
+    unconfirmedRefused: true,
+    refusalKind: 'invalid-keys',
+    baseViewOnlyFalse: true,
+    navigation: true,
+    reportDelivered: true,
+    copyDelivered: true,
+    diffCounts: diffCounts.map((count) => Number(count)) as [number, number, number],
+  }
+}
+
 /** Value-free compare-command evidence from a webview. */
 export function normalizeDiffCommandProof(
   value: unknown,

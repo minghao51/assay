@@ -880,6 +880,18 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     config.testHarness && commandOpenedDataset && rows === 12 && baseSchema.length === 2
       ? await exerciseCommandDiff(controller, provider)
       : undefined
+  const acceptanceProof =
+    config.testHarness &&
+    !commandOpenedDataset &&
+    rows === 12 &&
+    baseSchema.length === 3 &&
+    baseSchema[0]?.name === 'id' &&
+    baseSchema[1]?.name === 'value' &&
+    baseSchema[2]?.name === 'value_maybe_null'
+      ? await exerciseAcceptance(validateEffectiveView, controller, provider, grid, () =>
+          startExport('parquet', boot.client, handle, base, controller),
+        )
+      : undefined
   if (config.testHarness) await startExport('parquet', boot.client, handle, base, controller)
   elementOrThrow('export-controls').hidden = false
   elementOrThrow('export-button').addEventListener('click', () => {
@@ -917,6 +929,7 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     ...(validationProof === undefined ? {} : { validationProof }),
     ...(diffProof === undefined ? {} : { diffProof }),
     ...(diffCommandProof === undefined ? {} : { diffCommandProof }),
+    ...(acceptanceProof === undefined ? {} : { acceptanceProof }),
     ...(gitContextView === undefined ? {} : { gitContext: gitContextView }),
   })
 }
@@ -1012,6 +1025,157 @@ async function exerciseEffectiveValidation(
     deletedFailures: deleted.rules[0]!.failCount,
     staleAfterEdit,
     logicalNavigation,
+  }
+}
+
+async function exerciseAcceptance(
+  validate: () => Promise<void>,
+  controller: EditController,
+  provider: EngineGridProvider,
+  grid: WebviewDataGrid,
+  exportEffectiveCopy: () => Promise<void>,
+): Promise<{
+  readonly validatedCounts: readonly [number, number, number, number]
+  readonly staleAfterEdit: boolean
+  readonly unconfirmedRefused: boolean
+  readonly refusalKind: 'invalid-keys' | 'not-observed'
+  readonly diffCounts: readonly [number, number, number]
+  readonly baseViewOnlyFalse: boolean
+  readonly navigation: boolean
+  readonly reportDelivered: boolean
+  readonly copyDelivered: boolean
+}> {
+  const status = (): string => elementOrThrow('diff-status').textContent ?? ''
+  // One dataset, one chained workflow (MVP scenario 11 on the desktop):
+  // validate -> edit -> undo -> redo -> confirmed-key diff -> report + copy.
+  activeOpenStage = 'acceptance-reset'
+  while (controller.snapshot.history.cursor > 0) await controller.undo()
+  activeOpenStage = 'acceptance-contract'
+  elementOrThrow('contract-select').dispatchEvent(new Event('click'))
+  await waitUntil(() => contractText !== null || validationRequest === null)
+  if (contractText === null) throw new Error('acceptance contract selection failed')
+  const run = async (): Promise<number> => {
+    await validate()
+    if (validationReport === null || validationReport.revision !== controller.snapshot.revision)
+      throw new Error('acceptance validation did not publish a current verdict')
+    return validationReport.rules[0]?.failCount ?? -1
+  }
+  activeOpenStage = 'acceptance-validate-baseline'
+  const baselineFailures = await run()
+  if (baselineFailures !== 1) throw new Error('acceptance validation baseline invariant failed')
+  // Edit the null row's value_maybe_null; the effective view becomes valid.
+  activeOpenStage = 'acceptance-edit'
+  const schema = await provider.schema()
+  const idColumn = schema.findIndex((column) => column.name === 'id')
+  if (idColumn < 0) throw new Error('acceptance id column unavailable')
+  const total = await provider.rowCount()
+  let targetKey: string | undefined
+  for (let start = 0; start < total; start += 128) {
+    const page = await provider.fetchRange({
+      startRow: start,
+      endRow: Math.min(total, start + 128),
+      startCol: 0,
+      endCol: schema.length,
+    })
+    const offset = (page.rows ?? []).findIndex((row) => String(row[idColumn]) === '6')
+    if (offset >= 0) {
+      targetKey = page.rowKeys?.[offset]
+      break
+    }
+  }
+  if (targetKey === undefined) throw new Error('acceptance edit target row not found')
+  await controller.commitCell(targetKey as RowId, 'value_maybe_null', {
+    kind: 'number',
+    value: 9.5,
+  })
+  if (!isValidationStale(validationReport, controller.snapshot.revision))
+    throw new Error('acceptance stale invariant failed after edit')
+  const staleAfterEdit = true
+  activeOpenStage = 'acceptance-validate-edited'
+  const editedFailures = await run()
+  if (editedFailures !== 0) throw new Error('acceptance edited validation invariant failed')
+  activeOpenStage = 'acceptance-undo'
+  await controller.undo()
+  const undoneFailures = await run()
+  if (undoneFailures !== 1) throw new Error('acceptance undone validation invariant failed')
+  activeOpenStage = 'acceptance-redo'
+  await controller.redo()
+  const redoneFailures = await run()
+  if (redoneFailures !== 0) throw new Error('acceptance redone validation invariant failed')
+  // Confirmed-key diff against the staged comparison — B mirrors the
+  // EDITED view except one changed, one removed, one added row.
+  activeOpenStage = 'acceptance-stage'
+  testComparisonFixture = 'acceptance-b.csv'
+  elementOrThrow('comparison-select').dispatchEvent(new Event('click'))
+  await waitUntil(() => comparisonDiff !== null || status().includes('could not be staged'))
+  if (comparisonDiff === null) throw new Error('acceptance comparison staging failed')
+  activeOpenStage = 'acceptance-refusal'
+  elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+  const refusalStatus = status()
+  const unconfirmedRefused = refusalStatus.startsWith('Diff refused: invalid keys')
+  // A SECOND, independently-normalized derivation of the same observation:
+  // deleting the observation (and hardcoding the boolean above) leaves this
+  // field 'not-observed' and the host normalizer rejects the whole proof.
+  const refusalKind: 'invalid-keys' | 'not-observed' = refusalStatus.startsWith('Diff refused')
+    ? 'invalid-keys'
+    : 'not-observed'
+  if (refusalKind !== 'invalid-keys') throw new Error('acceptance diff ran without confirmed keys')
+  activeOpenStage = 'acceptance-diff'
+  const select = elementOrThrow('diff-keys') as HTMLSelectElement
+  for (const option of [...select.options]) option.selected = option.value === 'id'
+  elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+  await waitUntil(
+    () =>
+      diffReport !== null &&
+      !diffBusy &&
+      diffReport.revision === controller.snapshot.revision &&
+      diffReport.baseViewOnly === false,
+  )
+  const report = diffReport
+  if (report === null) throw new Error('acceptance diff did not publish a report')
+  const diffCounts = report.aspects.map((aspect) => aspect.count) as [number, number, number]
+  if (diffCounts[0] !== 1 || diffCounts[1] !== 1 || diffCounts[2] !== 1 || report.identical)
+    throw new Error('acceptance diff counts invariant failed')
+  const baseViewOnlyFalse = !report.baseViewOnly
+  activeOpenStage = 'acceptance-navigation'
+  const changedAspect = report.aspects[2]
+  const sample = changedAspect.samples.find((entry) => entry.side === 'A')
+  if (sample === undefined) throw new Error('acceptance diff has no A-side sample')
+  let navigation = false
+  for (let start = 0; start < total; start += 128) {
+    const page = await provider.fetchRange({
+      startRow: start,
+      endRow: Math.min(total, start + 128),
+      startCol: 0,
+      endCol: schema.length,
+    })
+    const offset = (page.rowKeys ?? []).indexOf(sample.rowKey)
+    if (offset >= 0) {
+      grid.scrollToRow(start + offset)
+      navigation = true
+      break
+    }
+  }
+  if (!navigation) throw new Error('acceptance sample navigation failed')
+  // Deliver the report (create-only) and the effective copy.
+  activeOpenStage = 'acceptance-report'
+  elementOrThrow('diff-export').dispatchEvent(new Event('click'))
+  await waitUntil(() => reportExportRequest === null && status().includes('created'))
+  const reportDelivered = status().includes('JSON report created')
+  if (!reportDelivered) throw new Error('acceptance report export did not complete')
+  activeOpenStage = 'acceptance-copy'
+  await exportEffectiveCopy()
+  const copyDelivered = true
+  return {
+    validatedCounts: [baselineFailures, editedFailures, undoneFailures, redoneFailures],
+    staleAfterEdit,
+    unconfirmedRefused,
+    refusalKind,
+    diffCounts,
+    baseViewOnlyFalse,
+    navigation,
+    reportDelivered,
+    copyDelivered,
   }
 }
 
