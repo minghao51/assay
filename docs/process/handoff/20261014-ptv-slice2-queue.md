@@ -367,7 +367,16 @@ netblock refuses to fetch — vendoring it is a follow-up (JSONL e2e
 fixtures use CSV/parquet meanwhile) — CLOSED by commit ref `gb-3` (the `feat(vscode): vendor json extension for offline JSON/JSONL open (gb-3)` implementation commit; both formats now pass the real-host e2e under the network block); (2) externally written parquet
 (DuckDB 1.5.x CLI) with DOUBLE columns shows an engine row-diff quirk
 (equal values reported changed — both surfaces agree, so agreement
-holds, but the quirk deserves an engine-side look); (3) `node
+holds) — INVESTIGATED by gb-4: the false-changed shape did NOT
+reproduce across a value-shape matrix (self-diff, non-DOUBLE differ,
+plain/extreme/denormal/signed-zero DOUBLEs; guarded by
+`tests/e2e/engine-external-parquet-diff.spec.ts`), but the
+investigation found and pinned an adjacent v1.4.3-WASM reader
+limitation: a DOUBLE column whose parquet statistics span a real range
+with max near DBL_MAX (≈5e307, v1.5.5-written) crashes staging with an
+internal glue error — pinned as honest typed failure + rollback +
+restage; degenerate statistics (min==max) read and diff correctly.
+Revisit on a deliberate DuckDB-WASM upgrade; (3) `node
 apps/cli/dist/index.js` from the repo root fails opaquely
 ("internal error (no details)") — workspace exports resolve to src TS;
 the supported consumable is the packed tarball (a friendlier dev error
