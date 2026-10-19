@@ -1,7 +1,10 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-19. **Current lane:** maintenance batch CLOSED (q-5b, q-7); PT-V slice 2
-closed — next lane is track planning (PT-Q remaining items / G0 tail).
+**Last updated:** 2026-10-19. **Current lane:** G0-readiness and recorded-gap batch
+([queue](handoff/20261019-g0-readiness-queue.md)): gb-1 telemetry
+disclosure doc → gb-2 PT-Q carry-over pack → gb-3 desktop JSON/JSONL
+vendoring → gb-4 DOUBLE row-diff quirk → gb-5 CLI dev error; human inputs
+listed in queue §5.
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -153,6 +156,10 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fm**) — lane planned: G0-readiness and recorded-gap
+  batch queued (gb-1…gb-5) from the PT-0 agent tail + slice-2 recorded
+  gaps; handoff table corruption from the fj edit repaired (`8018ba3`,
+  `116b8fb` for the pt-q table).
 - 2026-10-19 (**fl**) — q-7 slice 2 done: strict indexed/optional TS
   checks on packages/testing; 17 value-preserving fallout fixes across
   testing/contracts/validation/diff (`a52ab8b`); violation + revert drills
