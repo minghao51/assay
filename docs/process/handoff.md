@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-19. **Current lane:** G0-readiness and recorded-gap batch
+**Last updated:** 2026-10-19. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record); next is track planning against the roadmap (PT-Q remainder is q-6a only) with the human G0 tail outstanding (§5).
 ([queue](handoff/20261019-g0-readiness-queue.md)): gb-1 telemetry
 disclosure doc → gb-2 PT-Q carry-over pack → gb-3 desktop JSON/JSONL
 vendoring → gb-4 DOUBLE row-diff quirk → gb-5 CLI dev error; human inputs
@@ -156,6 +156,9 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fr**) — gb-5 done + G0-readiness batch CLOSED: honest
+  repo-root CLI dev error (`60a3fcd`, boundary-pinned); all five rows
+  integrated; all three slice-2 recorded gaps closed.
 - 2026-10-19 (**fq**) — gb-4 done: external-parquet DOUBLE quirk
   investigated — false-changed NOT reproducible (guarded by 3 new
   browser-engine journeys); adjacent REAL limitation found + pinned

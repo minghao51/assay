@@ -12,6 +12,15 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Fixed — honest dev error for repo-root CLI dist invocation (2026-10-19)
+
+- Running the workspace checkout's built CLI entry from the repo root now
+  prints an actionable, value-free hint (build and pack first; the
+  packed-consumer flow is the supported runtime) instead of only the
+  sanitized `internal error (no details)`. Detection matches the error
+  code and workspace path shape — raw error text is never echoed, and
+  foreign-path failures keep the sanitized fallback.
+
 ### Changed — packages/testing adopts strict TS checks (2026-10-19)
 
 - `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` are now on
