@@ -156,6 +156,12 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fq**) — gb-4 done: external-parquet DOUBLE quirk
+  investigated — false-changed NOT reproducible (guarded by 3 new
+  browser-engine journeys); adjacent REAL limitation found + pinned
+  (near-DBL_MAX stats ranges crash the v1.4.3 reader at staging; typed
+  failure + rollback). Role-flip row; reviewer 2 rounds. Browser e2e now
+  175+1.
 - 2026-10-19 (**fp**) — gb-3 done: DuckDB json extension vendored
   (v1.4.3/wasm_mvp, digest-pinned); desktop JSON/JSONL opens offline —
   slice-2 gap (1) closed; real-host e2e 10/10; digest + deregistration
