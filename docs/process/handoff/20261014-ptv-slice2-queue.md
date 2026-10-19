@@ -388,7 +388,36 @@ confirmed-key diff controller. No comparison runs before confirmation; no
 Git/source mutation, implicit revision fetch or stale cross-panel context.
 Real-host test uses a synthetic local repository and checks source bytes.
 
-**Status:** PENDING.
+**Status:** **DONE 2026-10-19 — `cc4066b…28c2972` (worktree `7097db1…47366bb`), independent
+reviewer approve after one request-changes round.** Worker delivered the
+pure projection (states no-git/no-repository/untracked/clean/dirty;
+sanitized bounded branch label; no-path guarantee pinned by tests), the
+host adapter (built-in `vscode.git` API only — `getExtension('vscode.git')`
+-> `getAPI(1)` -> `getRepository(uri)`, every field structurally validated,
+read-only, no shell, no mutation), the `assay.dataset.diff` command
+(two-URI or two cancellable picks; stages B through the REAL comparison
+bridge; never auto-confirms) with package contributes, and the `#git-context`
+status line. The parent implemented the e2e phase after a worker
+resource-block (four extra full opens hit the host fd/inotify ceiling) as
+HOST-SIDE adapter asserts — synthetic local repository (fixed argv, no
+shell strings, test-only identity) with tracked-clean/untracked/dirty
+fixtures plus an outside-repo file; the workspace opens as the VS Code
+folder so the git extension discovers the repo; sha256 digests prove
+nothing mutated — plus one command-panel open carrying a REDUCED proof
+(staged -> refusal -> one confirmed 1/1/1 baseline; the full exercise stays
+on the direct-open scenario). Two worker adapter bugs found and fixed en
+route: a scrape of a nonexistent `untrackedChanges` array, and string 'U'
+vs the API's NUMERIC Status enum (`UNTRACKED = 7`, pinned from the 1.130.0
+bundle). Reviewer round 1 caught the reduced proof returning
+`unconfirmedRefused` as a constant; the value is now DERIVED from the
+observed refusal status (observation-skipping mutations fail e2e — drill
+verified). Drills: unsanitized branch fails the no-path unit pin; skipping
+the refusal observation fails scenario 8; un-dirtied fixture fails scenario
+7 — all restored green. Gates: types **20** forced, unit **3020/191**,
+coverage **87.83/82.04/88.63/89.28** above floors, build **12**, browser
+**172+1**, native **9**, spike **15 pins**, real-host **10 scenario groups
+
+- six-leg CLI agreement**. Logs `/tmp/ptv2-7-*`.
 
 ### ptv2-8 — Desktop exit acceptance and small UI polish
 

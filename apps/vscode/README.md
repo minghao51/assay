@@ -123,7 +123,17 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
   edits are in view) exports to a NEW local file through the create-only
   writer. The real-host e2e proves semantic agreement with the INSTALLED
   packed CLI across baseline, edited, identical, schema-only,
-  no-comparable and nested-presence legs. Git workflows remain queued.
+  no-comparable and nested-presence legs.
+
+## Git context and the compare command (ptv2-7)
+
+- The panel shows a path-free Git context line (branch · state) from the
+  built-in Git extension API — read-only, structurally validated, honest
+  about absent Git, no repository, untracked and dirty files.
+- `Assay: Compare datasets` takes two URIs (or two cancellable picks),
+  opens side A, stages side B through the real bridge, and stops at the
+  same explicit key-confirmation gate. The e2e proves it against a
+  synthetic local repository with byte-level source-integrity checks.
 
 ## Grid envelope (ptv1-4 limits retained for ptv2-2)
 

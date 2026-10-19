@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-19. **Current lane:** PT-V slice-2 implementation; ptv2-1…6 closed, ptv2-7 next.
+**Last updated:** 2026-10-19. **Current lane:** PT-V slice-2 implementation; ptv2-1…7 closed, ptv2-8 (exit) next.
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -30,25 +30,23 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 
 ## 2. Current state
 
-| Surface         | Implemented                                                                                                                                                                                  | Remaining                                                                     |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Web + CLI       | Inspect, profile, query, edit/export, validate and diff; pipeline execution and DCR generation                                                                                               | Maintenance and launch readiness                                              |
-| Pipeline        | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                                                                                                              | P4 adapter priority is a later user-demand decision                           |
-| Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, virtualized grid, offline engine | PT-V slice 2: Git workflows                                                   |
-| Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                | Private-dependency registry distribution policy + human release prerequisites |
+| Surface                                                                     | Implemented                                                                                                                                                                                                                 | Remaining                                                                                                                                                    |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Web + CLI                                                                   | Inspect, profile, query, edit/export, validate and diff; pipeline execution and DCR generation                                                                                                                              | Maintenance and launch readiness                                                                                                                             |
+| Pipeline                                                                    | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                                                                                                                                             | P4 adapter priority is a later user-demand decision                                                                                                          |
+| Desktop VS Code                                                             | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, virtualized grid, offline engine | PT-V slice 2: exit acceptance                                                                                                                                |
+| Release                                                                     | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                               | Private-dependency registry distribution policy + human release prerequisite**Verified state (2026-10-19):** ptv2-7 Git context + compare command integrated |
+| as `cc4066b…28c2972` after an independent reviewer approve (one             |
+| request-changes round made the reduced command proof observation-derived).  |
+| Forced typecheck **20**, unit **3020/191**, coverage **87.83/82.04/88.63/   |
+| 89.28** above floors, build **12**, browser **172 + 1 skip**, native **9**, |
+| spike **15 pins**, real-VSCode **10 scenario groups + six-leg installed-CLI |
+| agreement** (synthetic git repository: clean/untracked/dirty/no-repository, |
+| no paths, source bytes unchanged; compare command staged + refusal-gated).  |
+| Details in the [slice-2 queue](handoff/20261014-ptv-slice2-queue.md).       |
+| **161 pending changesets**, doc links **107/0**, ADRs **46**.               |
 
-**Verified state (2026-10-19):** ptv2-6 staged diff integrated as `80d2033…c2dff94`
-after an independent reviewer approve (one request-changes round fixed:
-fixture-class agreement legs identical/schema-only/no-comparable/nested,
-required-shape validation in `agreeSemantics`). Forced typecheck **20**,
-unit **3014/190**, coverage **88.18/82.29/88.90/89.64** above floors,
-build **12**, browser **172 + 1 skip**, native **9**, spike **15 pins**,
-real-VSCode **8 scenarios + six-leg installed-CLI agreement** (baseline,
-edited, and four fixture classes all true). Details + three discovered
-gaps (JSONL json-extension vendoring, external-parquet DOUBLE row-diff
-quirk, opaque repo-root CLI dist error) in the
-[slice-2 queue](handoff/20261014-ptv-slice2-queue.md). **160 pending
-changesets**, doc links **107/0**, ADRs **46**.
+**.
 
 **Push / remote CI:** user-authorized normal `main` pushes verified at
 `3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence). CI
@@ -111,11 +109,11 @@ an ADR, never a silent rewrite of an accepted decision.
 ### Active
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
-rows authored. **ptv2-1 foundation, ptv2-2 overlay editing, ptv2-3
-new-file export, ptv2-4 effective-view validation, ptv2-5 shared diff
-report projection and ptv2-6 staged diff with confirmed keys are DONE**;
-**ptv2-7 Git context and dataset diff command is next**, followed by
-real-host exit. These remaining workflows are not yet delivered; slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
+rows authored. **ptv2-1…7 are DONE** (foundation, overlay editing,
+new-file export, effective-view validation, shared diff projection,
+staged diff with confirmed keys, Git context + compare command);
+**ptv2-8 exit acceptance is the last row**. The exit workflow itself is
+not yet delivered; slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
 is **closed**: docs, packaging, VS Code build/CI and q-14 all integrated.
 
 PT-Q residue remains pickup-ready under
@@ -163,6 +161,11 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fi**) — ptv2-7 Git context + compare command integrated:
+  worker A/B, parent e2e (host-side adapter asserts after a resource
+  block; reduced command proof), reviewer approve after the
+  observation-derived fix; two adapter bugs fixed (nonexistent API field,
+  numeric Status enum). ptv2-8 exit acceptance next.
 - 2026-10-19 (**fh**) — ptv2-6 staged diff integrated: worker phases A/B,
   parent-implemented phase C after three worker stalls (role-flip),
   independent reviewer approve after fixes (fixture-class agreement legs,

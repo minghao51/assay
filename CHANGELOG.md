@@ -12,6 +12,18 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — VS Code Git context and compare command (2026-10-19)
+
+- The dataset panel shows an honest, path-free Git context (branch label +
+  clean/untracked/dirty state, or absent-Git/no-repository) derived from
+  the built-in Git extension API, read-only, with every field structurally
+  validated as untrusted input.
+- `Assay: Compare datasets` accepts two explicit URIs or two cancellable
+  picks, opens side A and stages side B through the real comparison bridge,
+  and never runs a comparison before explicit key confirmation. Real-host
+  proof uses a synthetic local repository and verifies source bytes are
+  untouched.
+
 ### Added — VS Code staged diff with confirmed keys (2026-10-19)
 
 - The desktop editor stages a comparison dataset, discloses schema/profile
