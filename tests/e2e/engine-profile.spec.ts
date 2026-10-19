@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { clickAndGetJson } from './support/fixtures'
 
 // Task m2-5 (handoff §6): dataset profiling through the REAL DuckDB-WASM
 // client on golden fixtures. The harness (packages/engine-duckdb) opens the
@@ -48,17 +49,6 @@ interface ProfileEvidence {
   fatal?: string
 }
 
-async function clickAndGetJson(
-  page: Page,
-  buttonLabel: string,
-  testId: string,
-): Promise<ProfileEvidence> {
-  await page.getByRole('button', { name: buttonLabel }).click()
-  const element = page.getByTestId(testId)
-  await expect(element).not.toHaveText('not run')
-  return JSON.parse((await element.textContent())!) as ProfileEvidence
-}
-
 /** Open a fixture via the harness and wait until the engine reports it. */
 async function openHarnessFixture(
   page: Page,
@@ -77,7 +67,7 @@ test('profile of the flat fixture returns the exact pinned stats (numeric, top-k
   page,
 }) => {
   await openHarnessFixture(page, 'flat', 't1')
-  const evidence = await clickAndGetJson(
+  const evidence = await clickAndGetJson<ProfileEvidence>(
     page,
     'Profile flat fixture via engine',
     'profile-flat-result',
@@ -154,7 +144,7 @@ test('profile of the nested fixture degrades gracefully on STRUCT (kind other, n
   page,
 }) => {
   await openHarnessFixture(page, 'nested', 't1')
-  const evidence = await clickAndGetJson(
+  const evidence = await clickAndGetJson<ProfileEvidence>(
     page,
     'Profile nested fixture via engine',
     'profile-nested-result',
@@ -194,7 +184,7 @@ test('profile of an unknown handle rejects with an engine error and the engine s
   page,
 }) => {
   await openHarnessFixture(page, 'flat', 't1')
-  const evidence = await clickAndGetJson(
+  const evidence = await clickAndGetJson<ProfileEvidence>(
     page,
     'Profile unknown handle, then flat fixture again',
     'profile-error-reuse-result',

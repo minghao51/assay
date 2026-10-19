@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import path from 'node:path'
+import { openNestedFixture } from './support/fixtures'
 import { readGridFetchCache } from './support/grid-stats'
 
 // Task m3-2 (handoff §6): nested cell previews in the grid. Opens the
@@ -29,8 +29,6 @@ import { readGridFetchCache } from './support/grid-stats'
 // does not fire Playwright's filechooser (probed in m1-5), so the FSA global
 // is removed via an init script and the app takes its hidden-input fallback
 // (m1-3 style), which IS interceptable.
-const FIXTURE_PATH = path.resolve(import.meta.dirname, '../../fixtures/jsonl/nested.jsonl')
-
 const HEADER_NAMES = [
   'id',
   'kind',
@@ -96,24 +94,6 @@ test.beforeEach(async ({ page }) => {
     }
   })
 })
-
-async function openNestedFixture(page: Page): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
-    timeout: 20_000,
-  })
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(FIXTURE_PATH)
-  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
-    timeout: 20_000,
-  })
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
-  await expect(page.getByTestId('grid-column-count')).toHaveText('10')
-  // Privacy (ADR 0025): the picked file name is never rendered.
-  await expect(page.getByTestId('table-info')).not.toContainText('nested.jsonl')
-}
 
 test('nested cells render pinned, bounded previews (structs, lists, NULLs, hostile key)', async ({
   page,

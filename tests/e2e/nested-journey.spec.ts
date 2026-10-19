@@ -1,7 +1,6 @@
-import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
-import { openFixtureAndGetTableId } from './support/fixtures'
+import { openNestedFixture } from './support/fixtures'
 
 // Task m3-5 (handoff §6, FINAL M3 task): the exit-criterion journey. M3's exit
 // criterion (impl-plan §5) is: "JSONL with nested fields is materially easier
@@ -60,8 +59,6 @@ import { openFixtureAndGetTableId } from './support/fixtures'
 // every action the gated UI offers composes, and the rejection path's
 // reasons are pinned at the unit level (nested-actions.test.ts).
 
-const FIXTURE_PATH = path.resolve(import.meta.dirname, '../../fixtures/jsonl/nested.jsonl')
-
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
@@ -72,16 +69,6 @@ test.beforeEach(async ({ page }) => {
     }
   })
 })
-
-/** Cold start → open the nested fixture → fully loaded ready phase. */
-async function openNestedFixture(page: Page): Promise<{ tableId: string; viewName: string }> {
-  const tableId = await openFixtureAndGetTableId(page, FIXTURE_PATH)
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
-  await expect(page.getByTestId('grid-column-count')).toHaveText('10')
-  // Privacy (ADR 0025): the picked file name is never rendered anywhere.
-  await expect(page.getByTestId('table-info')).not.toContainText('nested.jsonl')
-  return { tableId, viewName: `assay_${tableId}` }
-}
 
 /** One result column of the SQL pane, addressed positionally like sql-editor.spec. */
 function resultColumn(page: Page, columnIndex: number): Locator {

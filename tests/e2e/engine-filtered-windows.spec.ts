@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import { clickAndGetJson, openFlatFixture } from './support/fixtures'
 
 // Task m2-2 (handoff §6): filtered/sorted windows over REAL DuckDB-WASM on a
 // golden fixture. The harness (packages/engine-duckdb) opens customers.parquet
@@ -16,8 +16,6 @@ import type { Page } from '@playwright/test'
 // Harness served from packages/engine-duckdb by the second webServer in
 // playwright.config.ts; port env-overridable for parallel worktree batches
 // (default 4179).
-const HARNESS_URL = `http://localhost:${process.env['ASSAY_E2E_PORT_ENGINE'] ?? 4179}/`
-
 interface WindowEvidence {
   rows?: number
   customerIds?: string[]
@@ -29,32 +27,11 @@ interface WindowEvidence {
   fatal?: string
 }
 
-/** Open the flat golden fixture and wait until the engine reports it opened. */
-async function openFlatFixture(page: Page): Promise<void> {
-  await page.goto(HARNESS_URL)
-  // Laziness: loading the harness must not boot the engine.
-  await expect(page.getByTestId('engine-status')).toHaveText('idle')
-  await page.getByRole('button', { name: 'Open flat fixture via engine' }).click()
-  await expect(page.getByTestId('open-status-flat')).toHaveText('opened', { timeout: 20_000 })
-  await expect(page.getByTestId('open-table-id-flat')).toHaveText('t1')
-}
-
-async function clickAndGetJson(
-  page: Page,
-  buttonLabel: string | RegExp,
-  testId: string,
-): Promise<WindowEvidence> {
-  await page.getByRole('button', { name: buttonLabel }).click()
-  const element = page.getByTestId(testId)
-  await expect(element).not.toHaveText('not run')
-  return JSON.parse((await element.textContent())!) as WindowEvidence
-}
-
 test('filtered window: income > 50000 returns exactly the matching rows (NULL excluded)', async ({
   page,
 }) => {
   await openFlatFixture(page)
-  const evidence = await clickAndGetJson(
+  const evidence = await clickAndGetJson<WindowEvidence>(
     page,
     'Filtered window: income > 50000',
     'filtered-window-result',
@@ -70,7 +47,11 @@ test('sorted window: income desc orders with the NULL last (DuckDB default null 
   page,
 }) => {
   await openFlatFixture(page)
-  const evidence = await clickAndGetJson(page, 'Sorted window: income desc', 'sorted-window-result')
+  const evidence = await clickAndGetJson<WindowEvidence>(
+    page,
+    'Sorted window: income desc',
+    'sorted-window-result',
+  )
   expect(evidence.error).toBeUndefined()
   expect(evidence.rows).toBe(5)
   expect(evidence.incomes).toEqual(['75000', '61000', '52000', '48000', null])
@@ -80,7 +61,7 @@ test('filter + sort compose: country = US, income desc returns exactly the match
   page,
 }) => {
   await openFlatFixture(page)
-  const evidence = await clickAndGetJson(
+  const evidence = await clickAndGetJson<WindowEvidence>(
     page,
     "Filter + sort window: country = 'US', income desc",
     'filter-sort-window-result',
@@ -101,7 +82,7 @@ test('invalid predicate rejects with an engine error and the engine stays reusab
   page,
 }) => {
   await openFlatFixture(page)
-  const evidence = await clickAndGetJson(
+  const evidence = await clickAndGetJson<WindowEvidence>(
     page,
     'Invalid predicate, then filtered rowCount again',
     'predicate-error-result',

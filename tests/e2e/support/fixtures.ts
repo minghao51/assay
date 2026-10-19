@@ -12,9 +12,12 @@ import type { Page } from '@playwright/test'
 
 /** The committed customers fixture (5 rows) opened by three grid specs. */
 const CUSTOMERS_FIXTURE = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
+const NESTED_FIXTURE = path.join(process.cwd(), 'fixtures', 'jsonl', 'nested.jsonl')
 
 /** Ready-frame assertions some surfaces add on top of the shared open flow. */
 export interface OpenFixtureOptions {
+  /** Run after the idle frame and immediately before the picker gesture. */
+  readonly beforeOpen?: (page: Page) => Promise<void>
   /** Also assert the schema panel rendered (schema-panel's ready bar). */
   readonly requireSchemaPanel?: boolean
   /** Also assert the picked name never renders in `table-info` (ADR 0025). */
@@ -75,6 +78,7 @@ export async function openFixture(
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
     timeout: 20_000,
   })
+  if (options.beforeOpen !== undefined) await options.beforeOpen(page)
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   const chooser = await chooserPromise
@@ -113,10 +117,50 @@ export async function openCustomersFixture(
  * because the ux-2 info line no longer exposes the engine handle; the pane
  * keeps rendering the `assay_t…` view name that SQL specs need.
  */
-export async function openFixtureAndGetTableId(page: Page, fixturePath: string): Promise<string> {
-  await openFixture(page, fixturePath)
+export async function openFixtureAndGetTableId(
+  page: Page,
+  fixturePath: string,
+  options: OpenFixtureOptions = {},
+): Promise<string> {
+  await openFixture(page, fixturePath, options)
   await expect(page.getByTestId('sql-panel')).not.toContainText(fixturePath)
   return page.getByTestId('sql-table-id').innerText()
+}
+
+/** Open the shared nested JSONL fixture and pin its rows, columns, and privacy. */
+export async function openNestedFixture(
+  page: Page,
+  options: { readonly beforeOpen?: (page: Page) => Promise<void> } = {},
+): Promise<{ tableId: string; viewName: string }> {
+  const tableId = await openFixtureAndGetTableId(page, NESTED_FIXTURE, options)
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
+  await expect(page.getByTestId('grid-column-count')).toHaveText('10')
+  await expect(page.getByTestId('table-info')).not.toContainText(path.basename(NESTED_FIXTURE))
+  return { tableId, viewName: `assay_${tableId}` }
+}
+
+/** Open the flat engine-harness fixture and wait until it reports opened. */
+export async function openFlatFixture(
+  page: Page,
+  harnessUrl: string = `http://localhost:${process.env['ASSAY_E2E_PORT_ENGINE'] ?? 4179}/`,
+): Promise<void> {
+  await page.goto(harnessUrl)
+  await expect(page.getByTestId('engine-status')).toHaveText('idle')
+  await page.getByRole('button', { name: 'Open flat fixture via engine' }).click()
+  await expect(page.getByTestId('open-status-flat')).toHaveText('opened', { timeout: 20_000 })
+  await expect(page.getByTestId('open-table-id-flat')).toHaveText('t1')
+}
+
+/** Click a harness action and parse its JSON evidence once the result is ready. */
+export async function clickAndGetJson<T>(
+  page: Page,
+  buttonLabel: string | RegExp,
+  testId: string,
+): Promise<T> {
+  await page.getByRole('button', { name: buttonLabel }).click()
+  const element = page.getByTestId(testId)
+  await expect(element).not.toHaveText('not run')
+  return JSON.parse((await element.textContent())!) as T
 }
 
 /**

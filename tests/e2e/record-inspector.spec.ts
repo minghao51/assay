@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
-import path from 'node:path'
+import { openNestedFixture } from './support/fixtures'
 import { row } from './support/grid'
 
 // Task m3-3 (handoff §6): the record inspector — a row-level panel showing the
@@ -27,8 +27,6 @@ import { row } from './support/grid'
 // in v1) CLOSES the inspector; it never re-resolves the position and never
 // renders a stale snapshot as if current.
 
-const FIXTURE_PATH = path.resolve(import.meta.dirname, '../../fixtures/jsonl/nested.jsonl')
-
 test.beforeEach(async ({ page }) => {
   // Inject "no FSA picker" capabilities so the app takes its hidden-input
   // fallback; the filechooser event then carries the file (m1-5 precedent).
@@ -41,27 +39,6 @@ test.beforeEach(async ({ page }) => {
     }
   })
 })
-
-async function openNestedFixture(
-  page: Page,
-  beforeOpen?: (page: Page) => Promise<void>,
-): Promise<void> {
-  await page.goto('/')
-  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
-    timeout: 20_000,
-  })
-  if (beforeOpen !== undefined) await beforeOpen(page)
-  const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByTestId('open-button').click()
-  const chooser = await chooserPromise
-  await chooser.setFiles(FIXTURE_PATH)
-  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
-    timeout: 20_000,
-  })
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
-  // Privacy (ADR 0025): the picked file name is never rendered anywhere.
-  await expect(page.getByTestId('table-info')).not.toContainText('nested.jsonl')
-}
 
 /** Opens the inspector for a grid row via the click affordance. */
 async function openRow(page: Page, rowIndex: number): Promise<Locator> {
@@ -308,27 +285,29 @@ test(
 test('a click on a still-loading row opens the inspector once it is ready (uxc-2)', async ({
   page,
 }) => {
-  await openNestedFixture(page, async (target) => {
-    await target.evaluate(() => {
-      interface ClickedRow {
-        index: number
-        status: string
-      }
-      type ClickedGlobal = typeof window & { __assayClickedLoadingRow?: ClickedRow }
-      const observer = new MutationObserver(() => {
-        const candidate = document.querySelector<HTMLElement>(
-          '[data-testid="grid-row"][data-status="loading"]',
-        )
-        if (candidate === null) return
-        observer.disconnect()
-        ;(window as ClickedGlobal).__assayClickedLoadingRow = {
-          index: Number(candidate.dataset['rowIndex']),
-          status: candidate.dataset['status'] ?? '',
+  await openNestedFixture(page, {
+    beforeOpen: async (target) => {
+      await target.evaluate(() => {
+        interface ClickedRow {
+          index: number
+          status: string
         }
-        candidate.click()
+        type ClickedGlobal = typeof window & { __assayClickedLoadingRow?: ClickedRow }
+        const observer = new MutationObserver(() => {
+          const candidate = document.querySelector<HTMLElement>(
+            '[data-testid="grid-row"][data-status="loading"]',
+          )
+          if (candidate === null) return
+          observer.disconnect()
+          ;(window as ClickedGlobal).__assayClickedLoadingRow = {
+            index: Number(candidate.dataset['rowIndex']),
+            status: candidate.dataset['status'] ?? '',
+          }
+          candidate.click()
+        })
+        observer.observe(document.body, { childList: true, subtree: true })
       })
-      observer.observe(document.body, { childList: true, subtree: true })
-    })
+    },
   })
 
   // The observed click provably landed on a loading row (not a ready one) —
