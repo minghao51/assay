@@ -12,6 +12,15 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed — e2e helper consolidation completed (2026-10-19)
+
+- The last spec-local browser-e2e helpers (`openFlatFixture`,
+  `clickAndGetJson`, `openNestedFixture`) now have exactly one definition
+  each in `tests/e2e/support/fixtures.ts`. The nested-fixture helper keeps
+  the cold-start `beforeOpen` hook (generalized into the shared open-flow
+  options) and the row/column/privacy pins; evidence contracts stay
+  spec-local. Test-only refactor — no product code changed.
+
 ### Added — VS Code exit acceptance: full workflow chain (2026-10-19)
 
 - A single real-host acceptance scenario now chains MVP scenario 11 on the

@@ -1,6 +1,7 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-19. **Current lane:** PT-V slice 2 CLOSED (all eight rows); maintenance queue (q-5b, q-7) next.
+**Last updated:** 2026-10-19. **Current lane:** maintenance queue — q-5b DONE; q-7 (testing-package
+TS strictness) next.
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -160,6 +161,10 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fk**) — q-5b done: remaining spec-local e2e helpers
+  consolidated to one definition each (`ac992e4`); `beforeOpen` generalized
+  into the shared open flow; parent drills all bite; e2e green ×2
+  back-to-back + parent re-verify.
 - 2026-10-19 (**fj**) — ptv2-8 exit acceptance integrated (parent-
   implemented, reviewer approve after the refusal-evidence fix); SLICE 2
   CLOSED — all eight rows done. En-route fixes: proof polarity bug, loud
