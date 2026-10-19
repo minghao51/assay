@@ -591,6 +591,34 @@ export async function run(): Promise<void> {
     '[e2e] 9/9 OK acceptance chain (validate 1/0/1/0, diff 1/1/1, report + copy delivered)',
   )
 
+  // gb-3: both JSONL and JSON use the matching vendored v1.4.3 json
+  // extension while the real-host network block remains armed.
+  console.log('[e2e] 10/10 offline JSON/JSONL opens…')
+  const jsonlUri = vscode.Uri.file(`${workspace}/nested.jsonl`)
+  const jsonlOpened = await executeOpen(jsonlUri)
+  assert(jsonlOpened.outcome === 'opened', 'JSONL did not open through the vendored json extension')
+  assert(jsonlOpened.rows === 12, `JSONL row count: ${String(jsonlOpened.rows)}`)
+  assert(jsonlOpened.columns === 10, `JSONL column count: ${String(jsonlOpened.columns)}`)
+  assert(jsonlOpened.gridRendered === true, 'JSONL grid did not render')
+  assert(jsonlOpened.gridAuditOk === true, 'JSONL grid audit failed')
+  const jsonUri = vscode.Uri.file(`${workspace}/synthetic.json`)
+  const jsonOpened = await executeOpen(jsonUri)
+  assert(jsonOpened.outcome === 'opened', 'JSON did not open through the vendored json extension')
+  assert(jsonOpened.rows === 3, `JSON row count: ${String(jsonOpened.rows)}`)
+  assert(jsonOpened.columns === 3, `JSON column count: ${String(jsonOpened.columns)}`)
+  assert(jsonOpened.gridRendered === true, 'JSON grid did not render')
+  assert(jsonOpened.gridAuditOk === true, 'JSON grid audit failed')
+  const safeOpenEvidence = JSON.stringify({ jsonlOpened, jsonOpened })
+  assert(!safeOpenEvidence.includes(workspace), 'JSON/JSONL open report exposed a raw path')
+  assert(!safeOpenEvidence.includes('nested.jsonl'), 'JSONL open report exposed a raw filename')
+  assert(!safeOpenEvidence.includes('synthetic.json'), 'JSON open report exposed a raw filename')
+  scenarios['offlineJsonJsonl'] = {
+    jsonl: { rows: jsonlOpened.rows, columns: jsonlOpened.columns },
+    json: { rows: jsonOpened.rows, columns: jsonOpened.columns },
+    noRawPath: true,
+  }
+  console.log('[e2e] 10/10 OK offline JSONL rows=12 columns=10; JSON rows=3 columns=3; no raw path')
+
   results['finishedAt'] = new Date().toISOString()
   await vscode.workspace.fs.writeFile(
     vscode.Uri.file(resultsPath),

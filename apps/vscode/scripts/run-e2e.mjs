@@ -65,9 +65,15 @@ mkdirSync(workspaceDir, { recursive: true })
 for (const name of ['synthetic-smoke.parquet', 'empty.csv']) {
   copyFileSync(path.join(fixturesDir, name), path.join(workspaceDir, name))
 }
-// CSV, not JSONL: the vendored offline engine refuses to fetch DuckDB's json
-// extension, so json/jsonl open needs a vendored-extension row of its own
-// (recorded in the slice-2 queue). CSV reads with the built-in scanner.
+copyFileSync(
+  path.resolve(appRoot, '../../fixtures/jsonl/nested.jsonl'),
+  path.join(workspaceDir, 'nested.jsonl'),
+)
+// Minimal synthetic JSON fixture; no real dataset content is used.
+writeFileSync(
+  path.join(workspaceDir, 'synthetic.json'),
+  `${JSON.stringify({ id: 1, label: 'alpha', score: 10 })}\n${JSON.stringify({ id: 2, label: 'beta', score: 20 })}\n${JSON.stringify({ id: 3, label: 'gamma', score: 30 })}\n`,
+)
 const comparisonA = path.join(workspaceDir, 'comparison-a.csv')
 const comparisonB = path.join(workspaceDir, 'comparison-b.csv')
 // Decimal literals so DuckDB infers DOUBLE for `value` (edit-codec friendly;

@@ -8,7 +8,7 @@
  * The host-side seam is exactly what production uses: the extension's engine
  * worker bundle is fetched and re-exposed as a same-origin `blob:` URL (a
  * cross-origin `new Worker(...)` throws in the desktop webview — R4 Q1a), the
- * DuckDB glue + WASM + vendored Parquet extension likewise, and the blob URLs
+ * DuckDB glue + WASM + vendored extensions likewise, and the blob URLs
  * are posted to the worker as one `engine/assets` control message BEFORE the
  * client's first `engine/init` (the ptv1-1 injected mode). The mvp glue worker
  * is the UNMODIFIED vendored binary with the ptv1-2 vendored-asset shim
@@ -44,8 +44,8 @@ export async function toBlobUrl(url: string, mimeType?: string): Promise<string>
  * bytes are never altered. Self-contained ES5-style code: it must survive as
  * verbatim text inside a classic worker.
  *
- * Local-first extension serving: when DuckDB requests the Parquet extension
- * binary from the CDN (the Q5b autoload URL), the shim answers the request
+ * Local-first extension serving: when DuckDB requests a vendored extension
+ * binary from the CDN autoload URL, the shim answers the request
  * LOCALLY with the vendored bytes — `fetch` gets a synthesized `Response`,
  * the emscripten XHR helper gets a minimal synchronous fake — so the engine
  * consumes the official vendored binary with ZERO network traffic. Any other
@@ -63,16 +63,22 @@ export async function toBlobUrl(url: string, mimeType?: string): Promise<string>
  */
 export function buildGlueShimSource(constants: {
   blockedHost: string
-  /** The autoload URL path the shim serves locally (engine-version specific). */
-  extensionPath: string
-  /** Blob URL of the vendored extension bytes ('' in drill mode). */
-  extensionUrl: string
+  /** Vendored extension URLs and their engine-version-specific autoload paths. */
+  extensions?: readonly { extensionPath: string; extensionUrl: string }[]
+  /** Legacy single-extension fields used by the Parquet-only spike harness. */
+  extensionPath?: string
+  extensionUrl?: string
   drill: boolean
 }): string {
-  const config = JSON.stringify(constants)
+  const extensions =
+    constants.extensions ??
+    (constants.extensionPath !== undefined && constants.extensionUrl !== undefined
+      ? [{ extensionPath: constants.extensionPath, extensionUrl: constants.extensionUrl }]
+      : [])
+  const config = JSON.stringify({ ...constants, extensions })
   return `;(function () {
   var cfg = ${config}
-  var extensionBytes = null
+  var extensionBytes = Object.create(null)
   var state = { status: 'pending', detail: '' }
   function isBlocked(url) {
     try {
@@ -81,20 +87,25 @@ export function buildGlueShimSource(constants: {
       return String(url).indexOf(cfg.blockedHost) !== -1
     }
   }
-  function isVendoredExtensionUrl(url) {
-    if (extensionBytes === null || cfg.drill) return false
+  function extensionForUrl(url) {
+    if (cfg.drill) return null
     try {
       var u = new URL(String(url), self.location.href)
-      return u.host === cfg.blockedHost && u.pathname === cfg.extensionPath
+      if (u.host !== cfg.blockedHost) return null
+      for (var i = 0; i < cfg.extensions.length; i++) {
+        if (u.pathname === cfg.extensions[i].extensionPath) return cfg.extensions[i]
+      }
+      return null
     } catch (_e) {
-      return false
+      return null
     }
   }
   function refuse(url) {
     throw new Error('assay-netblock-refusal: network fetch refused by vendored-asset harness: ' + String(url))
   }
-  function serveLocally() {
-    return new Response(extensionBytes.slice(0), {
+  function serveLocally(extension) {
+    var bytes = extensionBytes[extension.extensionPath]
+    return new Response(bytes.slice(0), {
       status: 200,
       headers: { 'Content-Type': 'application/wasm' },
     })
@@ -102,7 +113,8 @@ export function buildGlueShimSource(constants: {
   var nativeFetch = self.fetch
   self.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) || String(input)
-    if (isVendoredExtensionUrl(url)) return Promise.resolve(serveLocally())
+    var extension = extensionForUrl(url)
+    if (extension !== null && extensionBytes[extension.extensionPath]) return Promise.resolve(serveLocally(extension))
     if (isBlocked(url)) refuse(url)
     return nativeFetch.call(self, input, init)
   }
@@ -112,14 +124,15 @@ export function buildGlueShimSource(constants: {
     // status/response inline, so the fake can populate them synchronously.
     function VendoredXHR() {}
     VendoredXHR.prototype.open = function (method, url) {
-      this._blocked = isVendoredExtensionUrl(url)
+      this._extension = extensionForUrl(url)
+      this._blocked = this._extension !== null && !!extensionBytes[this._extension.extensionPath]
       if (!this._blocked && isBlocked(url)) refuse(url)
     }
     VendoredXHR.prototype.setRequestHeader = function () {}
     VendoredXHR.prototype.send = function () {
       if (this._blocked) {
         this.status = 200
-        this.response = extensionBytes.slice(0)
+        this.response = extensionBytes[this._extension.extensionPath].slice(0)
       }
     }
     VendoredXHR.prototype.getResponseHeader = function () {
@@ -127,7 +140,7 @@ export function buildGlueShimSource(constants: {
     }
     var nativeOpen = XMLHttpRequest.prototype.open
     XMLHttpRequest.prototype.open = function (method, url) {
-      if (isVendoredExtensionUrl(url)) {
+      if (extensionForUrl(url) !== null) {
         // Serve: swap in the fake instance semantics by rerouting open/send.
         var fake = new VendoredXHR()
         fake.open(method, url)
@@ -182,30 +195,28 @@ export function buildGlueShimSource(constants: {
     }
   }
   function loadVendoredBytes() {
-    if (cfg.drill || !cfg.extensionUrl) {
+    if (cfg.drill || cfg.extensions.length === 0) {
       state.status = 'skipped-drill'
       return writeStateFile()
     }
-    return fetch(cfg.extensionUrl)
-      .then(function (r) {
+    return Promise.all(cfg.extensions.map(function (extension) {
+      return fetch(extension.extensionUrl).then(function (r) {
         if (!r.ok) throw new Error('vendored extension fetch failed: ' + String(r.status))
         return r.arrayBuffer()
+      }).then(function (bytes) {
+        extensionBytes[extension.extensionPath] = bytes
       })
-      .then(function (bytes) {
-        extensionBytes = bytes
-        state.status = 'ready'
-        state.detail = 'vendored ' + String(bytes.byteLength) + ' bytes in hand (serve on ' + cfg.extensionPath + ')'
-      })
-      .then(
-        function () {
-          return writeStateFile()
-        },
-        function (error) {
-          state.status = 'failed'
-          state.detail = String(error && error.message)
-          return writeStateFile()
-        },
-      )
+    })).then(function () {
+      state.status = 'ready'
+      state.detail = 'vendored ' + String(cfg.extensions.length) + ' extensions in hand'
+    }).then(
+      function () { return writeStateFile() },
+      function (error) {
+        state.status = 'failed'
+        state.detail = String(error && error.message)
+        return writeStateFile()
+      },
+    )
   }
   function dispatch(event) {
     var type = event && event.data ? event.data.type : undefined
@@ -322,10 +333,11 @@ export interface EngineBootSpec {
   readonly mvpGlueUrl: string
   /** Webview URI of the vendored duckdb-mvp.wasm. */
   readonly mvpWasmUrl: string
-  /** Webview URI of the vendored Parquet extension binary. */
-  readonly vendoredExtensionUrl: string
-  /** The CDN URL path the shim serves locally (engine-version specific). */
-  readonly autoloadPath: string
+  /** Webview URIs and CDN paths for the vendored DuckDB extensions. */
+  readonly vendoredExtensions: readonly {
+    readonly url: string
+    readonly autoloadPath: string
+  }[]
   /** The CDN host that must never be fetched (the ptv1-2 block). */
   readonly blockedHost: string
 }
@@ -350,11 +362,15 @@ export async function bootVendoredEngine(
   diagnostics: Array<WorkerDiagnostic> = [],
 ): Promise<VendoredEngineBoot> {
   const workerBlobUrl = await toBlobUrl(spec.workerEntryUrl, 'text/javascript')
-  const extensionBlobUrl = await toBlobUrl(spec.vendoredExtensionUrl, 'application/wasm')
+  const extensionBlobUrls = await Promise.all(
+    spec.vendoredExtensions.map((extension) => toBlobUrl(extension.url, 'application/wasm')),
+  )
   const glueBlobUrl = await buildShimmedGlueBlobUrl(spec.mvpGlueUrl, {
     blockedHost: spec.blockedHost,
-    extensionPath: spec.autoloadPath,
-    extensionUrl: extensionBlobUrl,
+    extensions: spec.vendoredExtensions.map((extension, index) => ({
+      extensionPath: extension.autoloadPath,
+      extensionUrl: extensionBlobUrls[index]!,
+    })),
     drill: false,
   })
   const wasmBlobUrl = await toBlobUrl(spec.mvpWasmUrl, 'application/wasm')
@@ -368,7 +384,7 @@ export async function bootVendoredEngine(
     'mvp',
     diagnostics,
   )
-  const blobUrls = [workerBlobUrl, extensionBlobUrl, glueBlobUrl, wasmBlobUrl]
+  const blobUrls = [workerBlobUrl, ...extensionBlobUrls, glueBlobUrl, wasmBlobUrl]
   try {
     await client.ensureReady()
   } catch (error) {

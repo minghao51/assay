@@ -1,9 +1,10 @@
 # Vendored engine assets (ptv1-2)
 
 The webview boots DuckDB-WASM and opens datasets with **ZERO network fetches**.
-The three binaries in this directory are committed verbatim and pinned; the
-build (`scripts/build.mjs`) verifies their SHA-256 checksums and byte-equality
-with the lockfile-pinned npm package before copying them to `dist/webview/`
+The DuckDB runtime and both extension binaries in this directory are committed
+verbatim and pinned; the build (`scripts/build.mjs`) verifies their SHA-256
+checksums and byte-equality with the lockfile-pinned npm package for runtime
+files before copying them to `dist/webview/`
 (under their canonical names — the mapping lives in `scripts/build.mjs`).
 
 **Why the `.pinned` suffix:** the committed files carry an extra extension so
@@ -25,9 +26,11 @@ any deliberate re-vendor goes through the documented flow below.
 | `duckdb-mvp.wasm`               | 39,362,651 | `45d72a81fba8e57693d890da837c7041310e385e75619a8559839b15388dfe97` | `@duckdb/duckdb-wasm@1.32.0` (byte-identical to the lockfile package)                                          |
 | `duckdb-browser-mvp.worker.js`  | 844,644    | `b0387027f174e2b60c2d5cfa31cecca9b89d8a9762346b6449a784cd1c4dde3c` | `@duckdb/duckdb-wasm@1.32.0` (byte-identical to the lockfile package)                                          |
 | `parquet.duckdb_extension.wasm` | 2,867,304  | `0785c6c95d003eff4faa7b3b4b660f02c9c92f6d68d135ddf330d42e3a650600` | fetched ONCE at vendor time from `https://extensions.duckdb.org/v1.4.3/wasm_mvp/parquet.duckdb_extension.wasm` |
+| `json.duckdb_extension.wasm`    | 722,006    | `5771b6d57335eca8e2ba4fdaacb491a53b49577bd7f1b0c39e2cd7a39b4e9313` | fetched ONCE at vendor time from `https://extensions.duckdb.org/v1.4.3/wasm_mvp/json.duckdb_extension.wasm` |
 
 The machine-readable pin (checksums + versions + source URLs) is the
-`VENDORED_ASSETS` constant in `scripts/build.mjs`; the build FAILS on any
+`VENDORED_ASSETS` constant in `scripts/build.mjs`; both Parquet and JSON
+extensions are locally served at their exact DuckDB 1.4.3 autoload paths; the build FAILS on any
 drift between this directory, those checksums, and the lockfile package.
 The runtime pin is asserted by the harness: the report's `bundles.mvp.version`
 must be `v1.4.3`, matching the vendored extension's version.

@@ -130,11 +130,11 @@ export interface DatasetWebviewConfig {
   readonly workerEntryUrl: string
   readonly mvpGlueUrl: string
   readonly mvpWasmUrl: string
-  readonly vendoredExtension: {
+  readonly vendoredExtensions: readonly {
     readonly url: string
     readonly autoloadPath: string
-    readonly duckdbVersion: string
-  }
+  }[]
+  readonly duckdbVersion: string
   readonly blockedExtensionHost: string
   /** Internal real-host proof switch; unavailable to production extensions. */
   readonly testHarness: boolean
@@ -155,11 +155,11 @@ export function buildDatasetConfig(
     workerEntryUrl: asset('worker.js'),
     mvpGlueUrl: asset('duckdb-browser-mvp.worker.js'),
     mvpWasmUrl: asset('duckdb-mvp.wasm'),
-    vendoredExtension: {
-      url: asset(VENDORED_RUNTIME.extensionFileName),
-      autoloadPath: VENDORED_RUNTIME.autoloadPath,
-      duckdbVersion: VENDORED_RUNTIME.duckdbVersion,
-    },
+    vendoredExtensions: VENDORED_RUNTIME.extensions.map((extension) => ({
+      url: asset(extension.fileName),
+      autoloadPath: extension.autoloadPath,
+    })),
+    duckdbVersion: VENDORED_RUNTIME.duckdbVersion,
     blockedExtensionHost: VENDORED_RUNTIME.blockedExtensionHost,
     testHarness:
       context.extensionMode === vscode.ExtensionMode.Test &&

@@ -18,8 +18,8 @@ import type { DatasetWebviewConfig } from './dataset'
  * Strict CSP: nonce scripts, wasm-unsafe-eval for DuckDB-WASM, own-origin +
  * blob workers. This string construction is the R4-measured posture (report
  * §8): `blob:` is required for the same-origin worker/WASM bootstrap, and
- * `extensions.duckdb.org` is deliberately NOT in connect-src since ptv1-2 —
- * the Parquet extension is vendored and any CDN request must be refused.
+ * `extensions.duckdb.org` is deliberately NOT in connect-src — DuckDB
+ * extensions are vendored and any CDN request must be refused.
  */
 export function webviewCsp(webview: vscode.Webview, nonce: string): string {
   return [

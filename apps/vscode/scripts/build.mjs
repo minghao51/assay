@@ -11,8 +11,8 @@
  * (the runner merges both into the report).
  *
  * ptv1-2 (vendored engine assets, local-first): the production `mvp` bundle
- * (`duckdb-mvp.wasm` + `duckdb-browser-mvp.worker.js`) and the Parquet
- * extension are COMMITTED under `assets/duckdb/` (with a `.pinned` suffix —
+ * (`duckdb-mvp.wasm` + `duckdb-browser-mvp.worker.js`) and the Parquet/JSON
+ * extensions are COMMITTED under `assets/duckdb/` (with a `.pinned` suffix —
  * formatters skip unknown extensions, so `pnpm format` can never rewrite the
  * pinned bytes) and copied from there, NOT from node_modules — with two hard
  * verifications before every build:
@@ -83,6 +83,15 @@ const VENDORED_ASSETS = {
       //   https://extensions.duckdb.org/v1.4.3/wasm_mvp/parquet.duckdb_extension.wasm
       // Runtime NEVER fetches: the harness blocks extensions.duckdb.org
       // (CSP + in-worker interceptor; see VENDORED_ASSETS.md).
+      fromNpmPackage: false,
+    },
+    {
+      name: 'json.duckdb_extension.wasm',
+      committedName: 'json.duckdb_extension.wasm.pinned',
+      sha256: '5771b6d57335eca8e2ba4fdaacb491a53b49577bd7f1b0c39e2cd7a39b4e9313',
+      // Fetched ONCE at vendor time from:
+      //   https://extensions.duckdb.org/v1.4.3/wasm_mvp/json.duckdb_extension.wasm
+      // Runtime NEVER fetches: the harness blocks extensions.duckdb.org.
       fromNpmPackage: false,
     },
   ],

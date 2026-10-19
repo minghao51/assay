@@ -364,7 +364,7 @@ six-leg CLI agreement**. Logs `/tmp/ptv2-6-*`.
 **Discovered gaps (recorded, out of row scope):** (1) opening JSON/JSONL
 on the desktop requires DuckDB's `json` extension, which the offline
 netblock refuses to fetch — vendoring it is a follow-up (JSONL e2e
-fixtures use CSV/parquet meanwhile); (2) externally written parquet
+fixtures use CSV/parquet meanwhile) — CLOSED by commit ref `gb-3` (the `feat(vscode): vendor json extension for offline JSON/JSONL open (gb-3)` implementation commit; both formats now pass the real-host e2e under the network block); (2) externally written parquet
 (DuckDB 1.5.x CLI) with DOUBLE columns shows an engine row-diff quirk
 (equal values reported changed — both surfaces agree, so agreement
 holds, but the quirk deserves an engine-side look); (3) `node

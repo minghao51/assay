@@ -71,11 +71,11 @@ interface DatasetWebviewConfig {
   readonly workerEntryUrl: string
   readonly mvpGlueUrl: string
   readonly mvpWasmUrl: string
-  readonly vendoredExtension: {
+  readonly vendoredExtensions: readonly {
     readonly url: string
     readonly autoloadPath: string
-    readonly duckdbVersion: string
-  }
+  }[]
+  readonly duckdbVersion: string
   readonly blockedExtensionHost: string
   readonly testHarness: boolean
 }
@@ -333,8 +333,7 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
       workerEntryUrl: config.workerEntryUrl,
       mvpGlueUrl: config.mvpGlueUrl,
       mvpWasmUrl: config.mvpWasmUrl,
-      vendoredExtensionUrl: config.vendoredExtension.url,
-      autoloadPath: config.vendoredExtension.autoloadPath,
+      vendoredExtensions: config.vendoredExtensions,
       blockedHost: config.blockedExtensionHost,
     },
     diagnostics,
