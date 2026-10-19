@@ -38,6 +38,9 @@ Every other task is a root script: `pnpm build`, `pnpm typecheck`, `pnpm lint`, 
 `bash fixtures/parquet/generate.sh` (regenerate Parquet fixtures). The full command table with
 descriptions is the single source of truth at [AGENTS.md § Commands](AGENTS.md#commands).
 
+**Telemetry:** see [Telemetry and your privacy](docs/telemetry-disclosure.md) for what is
+collected and how to opt out.
+
 ## Command-line interface
 
 The `assay` CLI shares the core packages with the browser app (ADR 0008) and runs
