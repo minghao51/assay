@@ -110,9 +110,11 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
   **closed 2026-10-14**: documentation, packed CLI closure, VS Code build/CI
   and q-14 integrated and independently verified.
 - Execute **[PT-V slice 2](../process/handoff/20261014-ptv-slice2-queue.md)**:
-  ptv2-1/2/3/4 foundation + overlay editing + create-only export +
-  effective-view validation DONE; ptv2-5 shared diff report projection is
-  next, then staged diff/Git and real-host exit. Slice 1 closed 2026-10-11; its
+  PT-V slice 2 CLOSED 2026-10-19: all eight rows delivered (foundation,
+  overlay editing, create-only export, effective-view validation, shared
+  diff projection, confirmed-key staged diff, Git context + compare
+  command, exit acceptance with installed-CLI agreement). Slice 1 closed
+  2026-10-11; its
   [closure](../process/handoff/20261002-ptv-slice1-queue.md#5-closure) records
   the scope. vscode-web remains RE-SCOPE (D18).
 - q-5b helper consolidation and q-7 slice-2 testing strictness are separate

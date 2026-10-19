@@ -83,8 +83,9 @@ implement and approve the same change.
 ## Where things live
 
 ```text
-apps/{web,cli,vscode}     web + cli real; desktop VS Code viewing + session overlay edits real
-                          (new-file export/validation/diff/Git remain slice-2 work, D18)
+apps/{web,cli,vscode}     web + cli real; desktop VS Code slice 2 closed 2026-10-19
+                          (viewing, session editing, validation, confirmed-key
+                          diff with CLI agreement, Git context, export)
 packages/domain           portable domain types (pure; real)
 packages/engine           DataEngine target interface retained per D13; compatibility pins
                           record the relationship to the real engine-duckdb client

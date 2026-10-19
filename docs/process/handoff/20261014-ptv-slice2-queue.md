@@ -437,13 +437,48 @@ CI's real-host job, not an unattached local script. Record exact counts,
 limits, commits, deviations and independent reviewer approval. Parent closes
 slice 2 only after this row; remote CI status remains unclaimed until run.
 
-**Status:** PENDING.
+**Status:** **DONE 2026-10-19 — `bce449f` (worktree `33ad7b8`), independent
+reviewer approve after one request-changes round — SLICE 2 CLOSED.** The
+parent implemented the row (worker lane rate-limited; role-flip per the
+operating model) and an independent reviewer session approved after the
+refusal-evidence fix. A purpose-built acceptance fixture (12 rows,
+id/value/value_maybe_null with one null) chains MVP scenario 11 through ONE
+open: validation 1 → edit → 0 → stale flip → undo → 1 → redo → 0; unconfirmed
+execution refused (two independently-normalized observation derivations —
+`unconfirmedRefused` + `refusalKind`; observation-skipping mutations fail);
+confirmed-key diff on the effective view 1/1/1 with `baseViewOnly:false`;
+A-side navigation; report + effective-copy delivery via the create-only
+paths; source digest unchanged. The runner checks the delivered report and
+copy against the INSTALLED packed CLI (edited-view exclusions for
+baseViewOnly/columnDeltas/schemaDrift — all construction-justified by the
+engine's base-only profiling; nullability drift is the same class as the
+ptv2-6 columnDeltas gap). Reviewer drills: editing disabled → fails at
+`acceptance-edit`; overlay dropped from the diff → fails (stagedDiff
+navigation leg); sampleLimitEffective corrupted → CLI agreement names the
+field; confirmation bypass → fails at `acceptance-refusal` after the
+refusalKind fix. En-route fixes: a polarity bug (`baseViewOnlyFalse` was
+assigned the raw flag) and a silent empty-tarball pack when a package lacks
+dist/ (now a loud guard — the e2e requires the documented full build first).
+Acceptance assertions ride the existing vscode e2e, which CI's
+`vscode-verify` job runs (not an unattached script). Gates: types **20**
+forced, unit **3021/191** (one known pre-existing diff.usage flake passed
+isolated), coverage **87.84/82.05/88.65/89.28** above floors, build **12**,
+browser **172+1**, native **9**, spike **15 pins**, real-host **11 scenario
+groups + six staged-diff CLI legs + the acceptance agreement leg**.
+Logs `/tmp/ptv2-8-*`.
 
 ## 4. Closure and next lane
 
-**Not closed.** ptv2-1/2/3/4 (foundation, overlay editing, create-only
-export, effective-view validation) are integrated; ptv2-5…ptv2-8 remain
-pending. Next dispatch is ptv2-5 shared
+**CLOSED 2026-10-19.** All eight rows are integrated and independently
+reviewed: foundation, session overlay editing, create-only export,
+effective-view validation, shared canonical report projection, staged diff
+with confirmed keys + installed-CLI agreement, Git context + compare
+command, and the exit-acceptance chain. The desktop surface now reproduces
+MVP scenario 11 end-to-end with immutable sources, the offline vendored
+engine, text-only cells and byte-verified deliveries. Next lane: the
+maintenance queue (q-5b e2e helper consolidation, q-7 testing-package
+strictness), then PT-V track planning. Remote CI status remains unclaimed
+until billing is restored and a run executes. Next dispatch is ptv2-5 shared
 canonical diff report projection (scope exception: `packages/diff` +
 CLI/web adapters), then staged diff, Git context/command and real-host exit.
 The desktop diff workflow itself is not yet implemented. Per-row evidence belongs

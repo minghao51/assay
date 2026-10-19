@@ -135,6 +135,17 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
   same explicit key-confirmation gate. The e2e proves it against a
   synthetic local repository with byte-level source-integrity checks.
 
+## Exit acceptance (ptv2-8)
+
+- One chained real-host scenario reproduces MVP scenario 11 end-to-end:
+  validate (1 → edit → 0 → stale → undo → 1 → redo → 0), confirmed-key
+  diff on the effective view (refusal-gated, 1/1/1), report + effective
+  copy delivery through the create-only paths, source bytes unchanged.
+- The delivered report and copy are compared against the INSTALLED packed
+  CLI on common semantic fields (edited-view exclusions documented at the
+  call site). Refusal evidence is independently normalized, so proofs that
+  skip the observation cannot pass. This scenario closes PT-V slice 2.
+
 ## Grid envelope (ptv1-4 limits retained for ptv2-2)
 
 `run:spike` mounts the REAL surface modules (`EngineGridProvider` +

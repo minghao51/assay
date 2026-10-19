@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-19. **Current lane:** PT-V slice-2 implementation; ptv2-1…7 closed, ptv2-8 (exit) next.
+**Last updated:** 2026-10-19. **Current lane:** PT-V slice 2 CLOSED (all eight rows); maintenance queue (q-5b, q-7) next.
 Repository maintenance is closed. This is the current-state index, not the execution-history archive.
 
 ## 0. How to use this document
@@ -22,31 +22,31 @@ Arrow/Feather. Dataset contents stay local by default; telemetry contains only
 allowlisted operational metadata (ADRs 0025/0037/0045).
 
 MVP M0–M6 is complete. Pipeline P1–P3 and local DCR artifact v1 generation are
-implemented. Desktop VS Code provides offline open/inspect, session-only overlay editing
-with undo/redo, create-only export of the effective view to a new local file,
-and contract validation of the effective view with stale marking. Diff and
-Git integration remain pending; vscode-web remains **RE-SCOPE**, not authorized implementation (D18).
+implemented. Desktop VS Code reproduces the full MVP workflow end-to-end (slice 2
+closed 2026-10-19): offline open/inspect, session-only overlay editing with
+undo/redo, create-only export, effective-view validation with stale
+marking, confirmed-key staged diff with report delivery, Git context and
+the compare command — all proven against the installed CLI; vscode-web remains **RE-SCOPE**, not authorized implementation (D18).
 Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 
 ## 2. Current state
 
-| Surface                                                                     | Implemented                                                                                                                                                                                                                 | Remaining                                                                                                                                                    |
-| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Web + CLI                                                                   | Inspect, profile, query, edit/export, validate and diff; pipeline execution and DCR generation                                                                                                                              | Maintenance and launch readiness                                                                                                                             |
-| Pipeline                                                                    | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                                                                                                                                             | P4 adapter priority is a later user-demand decision                                                                                                          |
-| Desktop VS Code                                                             | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, virtualized grid, offline engine | PT-V slice 2: exit acceptance                                                                                                                                |
-| Release                                                                     | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                               | Private-dependency registry distribution policy + human release prerequisite**Verified state (2026-10-19):** ptv2-7 Git context + compare command integrated |
-| as `cc4066b…28c2972` after an independent reviewer approve (one             |
-| request-changes round made the reduced command proof observation-derived).  |
-| Forced typecheck **20**, unit **3020/191**, coverage **87.83/82.04/88.63/   |
+| Surface                                                                     | Implemented                                                                                                                                                                                                                                        | Remaining                                                                                                                                                 |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web + CLI                                                                   | Inspect, profile, query, edit/export, validate and diff; pipeline execution and DCR generation                                                                                                                                                     | Maintenance and launch readiness                                                                                                                          |
+| Pipeline                                                                    | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                                                                                                                                                                    | P4 adapter priority is a later user-demand decision                                                                                                       |
+| Desktop VS Code                                                             | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning                                                                                                         |
+| Release                                                                     | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release prerequisite**Verified state (2026-10-19):** slice 2 CLOSED with ptv2-8 (exit acceptance) |
+| integrated as `bce449f` after an independent reviewer approve (one          |
+| request-changes round added independently-normalized refusal evidence).     |
+| Forced typecheck **20**, unit **3021/191**, coverage **87.84/82.05/88.65/   |
 | 89.28** above floors, build **12**, browser **172 + 1 skip**, native **9**, |
-| spike **15 pins**, real-VSCode **10 scenario groups + six-leg installed-CLI |
-| agreement** (synthetic git repository: clean/untracked/dirty/no-repository, |
-| no paths, source bytes unchanged; compare command staged + refusal-gated).  |
-| Details in the [slice-2 queue](handoff/20261014-ptv-slice2-queue.md).       |
-| **161 pending changesets**, doc links **107/0**, ADRs **46**.               |
-
-**.
+| spike **15 pins**, real-VSCode **11 scenario groups: full MVP-scenario-11   |
+| chain (validate 1/0/1/0 → confirmed-key diff 1/1/1 → report + copy          |
+| delivery) + six staged-diff installed-CLI legs + acceptance agreement**.    |
+| Details + the slice-2 closure record in the                                 |
+| [slice-2 queue](handoff/20261014-ptv-slice2-queue.md). **162 pending        |
+| changesets**, doc links **107/0**, ADRs **46**.                             |
 
 **Push / remote CI:** user-authorized normal `main` pushes verified at
 `3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence). CI
@@ -109,11 +109,10 @@ an ADR, never a silent rewrite of an accepted decision.
 ### Active
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
-rows authored. **ptv2-1…7 are DONE** (foundation, overlay editing,
-new-file export, effective-view validation, shared diff projection,
-staged diff with confirmed keys, Git context + compare command);
-**ptv2-8 exit acceptance is the last row**. The exit workflow itself is
-not yet delivered; slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
+rows CLOSED 2026-10-19 — all eight rows integrated and independently
+reviewed (the exit-acceptance chain reproduces MVP scenario 11 with
+installed-CLI agreement). Next: the maintenance queue (q-5b e2e helper
+consolidation, q-7 testing-package strictness); slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
 is **closed**: docs, packaging, VS Code build/CI and q-14 all integrated.
 
 PT-Q residue remains pickup-ready under
@@ -161,6 +160,11 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fj**) — ptv2-8 exit acceptance integrated (parent-
+  implemented, reviewer approve after the refusal-evidence fix); SLICE 2
+  CLOSED — all eight rows done. En-route fixes: proof polarity bug, loud
+  dist/ pack guard; nullability-drift exclusion documented (same class as
+  the ptv2-6 columnDeltas gap). Maintenance queue next.
 - 2026-10-19 (**fi**) — ptv2-7 Git context + compare command integrated:
   worker A/B, parent e2e (host-side adapter asserts after a resource
   block; reduced command proof), reviewer approve after the

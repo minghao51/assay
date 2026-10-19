@@ -12,6 +12,18 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — VS Code exit acceptance: full workflow chain (2026-10-19)
+
+- A single real-host acceptance scenario now chains MVP scenario 11 on the
+  desktop: validate (exact fail-count transitions with stale marking) →
+  edit → undo → redo → confirmed-key diff on the effective view → report and
+  effective-copy delivery, with byte-verified immutable sources and
+  refusal evidence that is independently normalized (observation-skipping
+  mutations fail the suite). The delivered report and copy are checked
+  against the installed packed CLI; edited-view exclusions are
+  construction-justified by the engine's base-only profiling. Slice 2 is
+  closed.
+
 ### Added — VS Code Git context and compare command (2026-10-19)
 
 - The dataset panel shows an honest, path-free Git context (branch label +
