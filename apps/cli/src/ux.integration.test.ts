@@ -19,10 +19,10 @@
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { main, reportEntryError } from './index.js'
+import { main, reportEntryError, workspaceResolutionDiagnostic } from './index.js'
 import { CliError } from './errors.js'
 import { SMALL_DIRTY_CONTRACT, SMALL_DIRTY_CSV } from './test-datasets.js'
 
@@ -227,6 +227,67 @@ describe('q-4 entry error handling through CliIo', () => {
     })
     expect(code).toBe(2)
     expect(stderr.chunks.join('')).toBe('internal error (no details)\n')
+  })
+})
+
+describe('gb-5 workspace dist resolution diagnostics', () => {
+  const packagesPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../packages')
+  const diagnostic =
+    'Running the workspace checkout dist directly is unsupported; build and pack first: `corepack pnpm build`, then `apps/cli/scripts/pack-consumer-smoke.mjs`.'
+
+  it('recognizes an unknown-extension failure for a workspace TypeScript source path', () => {
+    expect(
+      workspaceResolutionDiagnostic({
+        code: 'ERR_UNKNOWN_FILE_EXTENSION',
+        message: `Unknown file extension for ${join(packagesPath, 'contracts/src/index.ts')}`,
+      }),
+    ).toBe(diagnostic)
+  })
+
+  it('recognizes module-not-found for a path under workspace packages', () => {
+    expect(
+      workspaceResolutionDiagnostic({
+        code: 'ERR_MODULE_NOT_FOUND',
+        message: `Cannot find module ${join(packagesPath, 'contracts/dist/index.js')}`,
+      }),
+    ).toBe(diagnostic)
+  })
+
+  it('does not recognize unknown-extension failures outside workspace packages', () => {
+    expect(
+      workspaceResolutionDiagnostic({
+        code: 'ERR_UNKNOWN_FILE_EXTENSION',
+        message: 'Unknown file extension /elsewhere/local/mod.ts',
+      }),
+    ).toBeNull()
+  })
+
+  it('does not recognize module-not-found failures outside workspace packages', () => {
+    expect(
+      workspaceResolutionDiagnostic({
+        code: 'ERR_MODULE_NOT_FOUND',
+        message: 'Cannot find module /elsewhere/lib/x.js',
+      }),
+    ).toBeNull()
+  })
+
+  it('leaves unrelated errors on the sanitized fallback', () => {
+    expect(workspaceResolutionDiagnostic(new Error('untrusted value'))).toBeNull()
+  })
+
+  it('writes only the authored diagnostic before the sanitized fallback through CliIo', () => {
+    const stderr = fakeSink(false)
+    const code = reportEntryError(
+      {
+        code: 'ERR_UNKNOWN_FILE_EXTENSION',
+        message: `Unknown file extension for ${join(packagesPath, 'contracts/src/index.ts')}: private value`,
+      },
+      { stdout: fakeSink(false), stderr, env: {} },
+      true,
+    )
+    expect(code).toBe(2)
+    expect(stderr.chunks.join('')).toBe(`${diagnostic}\ninternal error (no details)\n`)
+    expect(stderr.chunks.join('')).not.toContain('private value')
   })
 })
 

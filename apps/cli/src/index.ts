@@ -18,7 +18,8 @@
  * modules are imported lazily so `--help`/`--version` never load the engine.
  */
 import { realpathSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { assertNoDcrFlags, parseArgs } from './args.js'
 import type { CommandContext } from './context.js'
 import { CliError } from './errors.js'
@@ -332,24 +333,68 @@ function isEntryModule(): boolean {
   }
 }
 
-export function reportEntryError(error: unknown, io: CliIo): CliExitCode {
+const WORKSPACE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
+const WORKSPACE_PACKAGES = resolve(WORKSPACE_ROOT, 'packages')
+const WORKSPACE_DIST_DIAGNOSTIC =
+  'Running the workspace checkout dist directly is unsupported; build and pack first: `corepack pnpm build`, then `apps/cli/scripts/pack-consumer-smoke.mjs`.\n'
+
+/** Return an authored hint only for known workspace source-resolution failures. */
+export function workspaceResolutionDiagnostic(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null) return null
+  try {
+    const candidate = error as { readonly code?: unknown; readonly message?: unknown }
+    const code = candidate.code
+    const message = candidate.message
+    if (typeof code !== 'string' || typeof message !== 'string') return null
+    const packagePath = message.indexOf(WORKSPACE_PACKAGES)
+    const underWorkspacePackages =
+      packagePath >= 0 &&
+      (message[packagePath + WORKSPACE_PACKAGES.length] === '/' ||
+        message[packagePath + WORKSPACE_PACKAGES.length] === '\\')
+    const sourcePath = underWorkspacePackages && /\.ts(?:['"\\s:]|$)/i.test(message)
+    if (
+      (code === 'ERR_UNKNOWN_FILE_EXTENSION' && sourcePath) ||
+      (code === 'ERR_MODULE_NOT_FOUND' && underWorkspacePackages)
+    ) {
+      return WORKSPACE_DIST_DIAGNOSTIC.trimEnd()
+    }
+  } catch {
+    // Malformed or hostile error objects remain on the sanitized fallback.
+  }
+  return null
+}
+
+export function reportEntryError(
+  error: unknown,
+  io: CliIo,
+  isEntry = isEntryModule(),
+): CliExitCode {
   if (error instanceof CliError) {
     io.stderr.write(error.message + '\n')
     return error.exitCode
   }
   // Untrusted error text is never echoed (ADR 0025 discipline): an
   // unexpected exception's message could embed dataset content.
+  if (isEntry) {
+    const diagnostic = workspaceResolutionDiagnostic(error)
+    if (diagnostic !== null) io.stderr.write(diagnostic + '\n')
+  }
   io.stderr.write('internal error (no details)\n')
   return 2
 }
 
 if (isEntryModule()) {
+  // The repo-root dist is not a supported runtime: workspace package exports
+  // point at TypeScript sources. Warn on this direct invocation even when an
+  // early option (such as --version) avoids loading those packages.
+  const repoRootDistInvocation = process.cwd() === WORKSPACE_ROOT
+  if (repoRootDistInvocation) process.stderr.write(WORKSPACE_DIST_DIAGNOSTIC)
   main(process.argv.slice(2)).then(
     (code) => {
       process.exitCode = code
     },
     (error: unknown) => {
-      process.exitCode = reportEntryError(error, processIo())
+      process.exitCode = reportEntryError(error, processIo(), !repoRootDistInvocation)
     },
   )
 }
