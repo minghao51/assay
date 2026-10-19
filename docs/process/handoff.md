@@ -156,6 +156,10 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fn**) — gb-1 done: public telemetry disclosure doc
+  (`docs/telemetry-disclosure.md`) with claim→source appendix; every
+  load-bearing claim parent-verified against code; README front-door
+  linked.
 - 2026-10-19 (**fm**) — lane planned: G0-readiness and recorded-gap
   batch queued (gb-1…gb-5) from the PT-0 agent tail + slice-2 recorded
   gaps; handoff table corruption from the fj edit repaired (`8018ba3`,
