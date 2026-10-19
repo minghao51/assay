@@ -153,6 +153,12 @@ Created 2026-09-22 when the whole-repo audit's findings were split: everything t
 everything that is **quality-of-life, performance, polish, or tooling headroom** lives here —
 as one coherent thread a fresh agent session can pick up without further triage.
 
+**Carry-over status (2026-10-19, gb-2):** all §7 carry-overs are landed
+or re-recorded — q-1a/b, q-2a/b/c, q-3a (pin pre-existed; carry-over was
+stale), q-4a/b landed; **q-6a perf probe harness remains open** (the
+historical probe was never committed and cannot be reconstructed without
+fabricating provenance — recreate it on the next genuine engine-perf pass).
+
 **Pickup protocol (for any new agent session):**
 
 1. Read `docs/process/handoff.md` (§2 state, §5 definition of done),

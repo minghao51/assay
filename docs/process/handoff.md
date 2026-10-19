@@ -42,7 +42,7 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
-**Verified state (2026-10-19):** slice 2 CLOSED with ptv2-8 (exit acceptance) integrated as `bce449f` after an independent reviewer approve (one request-changes round added independently-normalized refusal evidence). Forced typecheck **20**, unit **3021/191**, coverage **87.84/82.05/88.65/ 89.28** above floors, build **12**, browser **172 + 1 skip**, native **9**, spike **15 pins**, real-VSCode **11 scenario groups: full MVP-scenario-11 chain (validate 1/0/1/0 → confirmed-key diff 1/1/1 → report + copy delivery) + six staged-diff installed-CLI legs + acceptance agreement**. Details + the slice-2 closure record in the [slice-2 queue](handoff/20261014-ptv-slice2-queue.md). **162 pending changesets**, doc links **107/0**, ADRs **46**.
+**Verified state (2026-10-19):** slice 2 CLOSED with ptv2-8 (exit acceptance) integrated as `bce449f` after an independent reviewer approve (one request-changes round added independently-normalized refusal evidence). Forced typecheck **20**, unit **3023/191**, coverage **87.84/82.05/88.65/ 89.28** above floors, build **12**, browser **172 + 1 skip**, native **9**, spike **15 pins**, real-VSCode **11 scenario groups: full MVP-scenario-11 chain (validate 1/0/1/0 → confirmed-key diff 1/1/1 → report + copy delivery) + six staged-diff installed-CLI legs + acceptance agreement**. Details + the slice-2 closure record in the [slice-2 queue](handoff/20261014-ptv-slice2-queue.md). **162 pending changesets**, doc links **107/0**, ADRs **46**.
 
 **Push / remote CI:** user-authorized normal `main` pushes verified at
 `3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence). CI
@@ -156,6 +156,9 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-19 (**fo**) — gb-2 done: PT-Q carry-over pack landed
+  (`2e990db`); 8 items + q-6a re-recorded open (probe absent); +2 CliIo
+  pins; unit now 3023/3023.
 - 2026-10-19 (**fn**) — gb-1 done: public telemetry disclosure doc
   (`docs/telemetry-disclosure.md`) with claim→source appendix; every
   load-bearing claim parent-verified against code; README front-door
