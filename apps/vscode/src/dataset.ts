@@ -36,8 +36,10 @@ import {
 } from './pure/dataset-format'
 import {
   DatasetOpenError,
+  normalizeDiffCommandProof,
   normalizeDiffProof,
   normalizeEditProof,
+  normalizeGitContext,
   validateTestComparisonFixture,
   normalizeValidationProof,
   WEBVIEW_ERROR_TEXT,
@@ -768,7 +770,15 @@ export function bridgeDatasetIntoPanel(
         postGitContext()
         void reading.then(
           (read) => {
-            void panel.webview.postMessage({ kind: 'dataset', name, bytes: read.bytes })
+            void panel.webview.postMessage({
+              kind: 'dataset',
+              name,
+              bytes: read.bytes,
+              // Test-mode marker: a compare-command open runs a REDUCED
+              // harness proof (staging + refusal + one confirmed baseline);
+              // the full exercise belongs to the direct-open scenario.
+              ...(stagedComparison !== undefined ? { commandOpened: true } : {}),
+            })
             if (stagedComparison !== undefined)
               void panel.webview.postMessage({ kind: 'comparison-stage-request' })
           },
@@ -795,6 +805,8 @@ export function bridgeDatasetIntoPanel(
           editProof?: unknown
           validationProof?: unknown
           diffProof?: unknown
+          diffCommandProof?: unknown
+          gitContext?: unknown
         }
         void reading.then((read) => {
           finish({
@@ -811,10 +823,14 @@ export function bridgeDatasetIntoPanel(
                   const proof = normalizeEditProof(opened.editProof)
                   const validation = normalizeValidationProof(opened.validationProof)
                   const diff = normalizeDiffProof(opened.diffProof)
+                  const diffCommand = normalizeDiffCommandProof(opened.diffCommandProof)
+                  const git = normalizeGitContext(opened.gitContext)
                   return {
                     ...(proof === undefined ? {} : { editProof: proof }),
                     ...(validation === undefined ? {} : { validationProof: validation }),
                     ...(diff === undefined ? {} : { diffProof: diff }),
+                    ...(diffCommand === undefined ? {} : { diffCommandProof: diffCommand }),
+                    ...(git === undefined ? {} : { gitContext: git }),
                   }
                 })()
               : {}),

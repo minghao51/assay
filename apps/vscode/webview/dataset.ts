@@ -126,6 +126,8 @@ let diffBusy = false
 // Test-harness only: names the comparison fixture the NEXT select pick
 // stages (validated host-side); production never sets it.
 let testComparisonFixture: string | undefined
+// The latest projected git context (value-free) received from the host.
+let gitContextView: { readonly state: string; readonly hasBranch: boolean } | undefined
 let diffConfirmed = false
 let diffReport: DiffReportView | null = null
 let diffKeySource: 'explicit' | 'inferred' = 'explicit'
@@ -862,15 +864,21 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     baseSchema.some((column) => column.name === 'value_maybe_null')
       ? await exerciseEffectiveValidation(validateEffectiveView, controller, provider, grid, model)
       : undefined
-  const diffProof =
+  const diffFullGate =
     config.testHarness &&
+    !commandOpenedDataset &&
     rows === 12 &&
     baseSchema.length === 2 &&
     baseSchema[0]?.name === 'id' &&
     baseSchema[1]?.name === 'value'
-      ? await exerciseStagedDiff(controller, provider, grid, () =>
-          startExport('parquet', boot.client, handle, base, controller),
-        )
+  const diffProof = diffFullGate
+    ? await exerciseStagedDiff(controller, provider, grid, () =>
+        startExport('parquet', boot.client, handle, base, controller),
+      )
+    : undefined
+  const diffCommandProof =
+    config.testHarness && commandOpenedDataset && rows === 12 && baseSchema.length === 2
+      ? await exerciseCommandDiff(controller, provider)
       : undefined
   if (config.testHarness) await startExport('parquet', boot.client, handle, base, controller)
   elementOrThrow('export-controls').hidden = false
@@ -908,6 +916,8 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
     ...(editProof === undefined ? {} : { editProof }),
     ...(validationProof === undefined ? {} : { validationProof }),
     ...(diffProof === undefined ? {} : { diffProof }),
+    ...(diffCommandProof === undefined ? {} : { diffCommandProof }),
+    ...(gitContextView === undefined ? {} : { gitContext: gitContextView }),
   })
 }
 
@@ -1003,6 +1013,49 @@ async function exerciseEffectiveValidation(
     staleAfterEdit,
     logicalNavigation,
   }
+}
+
+async function exerciseCommandDiff(
+  controller: EditController,
+  provider: EngineGridProvider,
+): Promise<{
+  readonly staged: boolean
+  readonly unconfirmedRefused: boolean
+  readonly baselineCounts: readonly [number, number, number]
+}> {
+  // The compare COMMAND opened this panel: prove it reached the SAME
+  // confirmed-key controller — comparison staged through the real bridge,
+  // execution refused without confirmed keys, then ONE confirmed baseline
+  // run with exact counts. Edits/classes/exports belong to the full
+  // scenario, not this reduced proof.
+  activeOpenStage = 'diff-command-wait-staged'
+  await waitUntil(
+    () =>
+      comparisonDiff !== null ||
+      (elementOrThrow('diff-status').textContent ?? '').includes('could not be staged'),
+  )
+  if (comparisonDiff === null) throw new Error('compare command did not stage the comparison')
+  activeOpenStage = 'diff-command-refusal'
+  elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+  // The proof value is DERIVED from the observed refusal — a harness that
+  // skips the observation cannot report the gate as proven.
+  const refusalStatus = elementOrThrow('diff-status').textContent ?? ''
+  const unconfirmedRefused = refusalStatus.startsWith('Diff refused: invalid keys')
+  if (!unconfirmedRefused) throw new Error('compare command path ran a diff without confirmed keys')
+  activeOpenStage = 'diff-command-baseline'
+  const select = elementOrThrow('diff-keys') as HTMLSelectElement
+  for (const option of [...select.options]) option.selected = option.value === 'id'
+  elementOrThrow('diff-confirm').dispatchEvent(new Event('click'))
+  await waitUntil(
+    () => diffReport !== null && !diffBusy && diffReport.revision === controller.snapshot.revision,
+  )
+  const report = diffReport
+  if (report === null) throw new Error('compare command confirmed diff did not publish a report')
+  const counts = report.aspects.map((aspect) => aspect.count) as [number, number, number]
+  if (counts[0] !== 1 || counts[1] !== 1 || counts[2] !== 1 || report.identical)
+    throw new Error('compare command baseline counts invariant failed')
+  void provider
+  return { staged: comparisonDiff !== null, unconfirmedRefused, baselineCounts: counts }
 }
 
 async function exerciseStagedDiff(
@@ -1868,6 +1921,9 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 }
 
 let datasetReceived = false
+// True when this panel was opened by the compare COMMAND (test mode): the
+// harness runs a REDUCED diff proof instead of the full exercise.
+let commandOpenedDataset = false
 
 window.addEventListener('message', (event) => {
   const data = event.data as {
@@ -1881,15 +1937,38 @@ window.addEventListener('message', (event) => {
     generation?: number
     displayName?: string
     status?: string
+    commandOpened?: boolean
   }
   if (data?.kind === 'comparison-stage-request') {
-    elementOrThrow('comparison-select').dispatchEvent(new Event('click'))
+    // The compare command stages as soon as the panel is ready, but the
+    // open-flow harness exercises may still hold busy states — a click can
+    // be accepted (request sent) and the staging still refused later while
+    // an edit is pending, with nobody left to re-click. Gate on completion:
+    // re-click whenever idle and no comparison is staged yet, until the
+    // staging actually lands (or the bounded window closes; the reduced
+    // command proof's own wait then surfaces the honest failure).
+    void (async () => {
+      const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+      const deadline = Date.now() + 15_000
+      while (Date.now() < deadline && comparisonDiff === null) {
+        if (!comparisonBusy && !diffBusy) {
+          elementOrThrow('comparison-select').dispatchEvent(new Event('click'))
+        }
+        await sleep(200)
+      }
+    })()
     return
   }
   if (data?.kind === 'git-context') {
     const block = document.getElementById('git-context')
     const context = data.context as
       { state?: unknown; detail?: unknown; branch?: unknown } | undefined
+    if (context !== null && typeof context === 'object') {
+      gitContextView = {
+        state: typeof context.state === 'string' ? context.state : 'unknown',
+        hasBranch: typeof context.branch === 'string' && context.branch.length > 0,
+      }
+    }
     if (block !== null && typeof context?.detail === 'string') {
       const state = typeof context.state === 'string' ? context.state : 'unknown'
       const branch = typeof context.branch === 'string' ? ` · ${context.branch}` : ''
@@ -2012,6 +2091,7 @@ window.addEventListener('message', (event) => {
     // One dataset per panel (the bridge's contract); the engine persists for
     // the panel's whole life (EngineSession) — the grid lives on it.
     datasetReceived = true
+    commandOpenedDataset = data.commandOpened === true
     openDataset(data.name ?? 'dataset', data.bytes).catch((error: unknown) => {
       const testErrorCategory =
         error instanceof Error && error.message === 'test proof candidate cast was rejected'

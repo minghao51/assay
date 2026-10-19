@@ -63,6 +63,17 @@ export type DatasetReport =
         readonly noComparableCase?: boolean
         readonly nestedCase?: boolean
       }
+      /** Test-mode only, value-free compare-command evidence (reduced proof). */
+      readonly diffCommandProof?: {
+        readonly staged: boolean
+        readonly unconfirmedRefused: boolean
+        readonly baselineCounts: readonly [number, number, number]
+      }
+      /** Test-mode only, value-free git-context evidence (state word + branch presence). */
+      readonly gitContext?: {
+        readonly state: string
+        readonly hasBranch: boolean
+      }
       /** Test-mode only, value-free result of production DOM/engine edit assertions. */
       readonly editProof?: {
         readonly cellIdentity: boolean
@@ -119,6 +130,40 @@ export function normalizeValidationProof(
  * fixture name; the field exists so the e2e harness can stage several
  * comparison classes through the REAL select flow.
  */
+/** Value-free compare-command evidence from a webview. */
+export function normalizeDiffCommandProof(
+  value: unknown,
+): NonNullable<Extract<DatasetReport, { outcome: 'opened' }>['diffCommandProof']> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const input = value as Record<string, unknown>
+  const counts = input['baselineCounts']
+  if (
+    input['staged'] !== true ||
+    input['unconfirmedRefused'] !== true ||
+    !Array.isArray(counts) ||
+    counts.length !== 3 ||
+    !counts.every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
+  )
+    return undefined
+  return {
+    staged: true,
+    unconfirmedRefused: true,
+    baselineCounts: [Number(counts[0]), Number(counts[1]), Number(counts[2])],
+  }
+}
+
+/** Value-free git-context evidence from a webview (state word + branch presence only). */
+export function normalizeGitContext(
+  value: unknown,
+): NonNullable<Extract<DatasetReport, { outcome: 'opened' }>['gitContext']> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const input = value as Record<string, unknown>
+  const state = input['state']
+  if (typeof state !== 'string' || state.length === 0 || state.length > 40) return undefined
+  if (/[\\/\\s]/.test(state)) return undefined
+  return { state, hasBranch: input['hasBranch'] === true }
+}
+
 export function validateTestComparisonFixture(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0 || value.length > 128) return undefined
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) return undefined

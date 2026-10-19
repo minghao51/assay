@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto'
  * only — never file contents or names beyond the synthetic fixture names.
  */
 import * as vscode from 'vscode'
+import { gitContextFor } from '../../src/git-adapter'
 
 interface DatasetReport {
   readonly outcome: 'opened' | 'error'
@@ -46,6 +47,17 @@ interface DatasetReport {
     readonly deletedFailures: number
     readonly staleAfterEdit: boolean
     readonly logicalNavigation: boolean
+  }
+  /** ptv2-7: value-free git context rendered in the command-opened panel. */
+  readonly gitContext?: {
+    readonly state: string
+    readonly hasBranch: boolean
+  }
+  /** ptv2-7: reduced compare-command proof (staged + refusal + baseline). */
+  readonly diffCommandProof?: {
+    readonly staged: boolean
+    readonly unconfirmedRefused: boolean
+    readonly baselineCounts: readonly [number, number, number]
   }
   readonly editProof?: {
     readonly cellIdentity: boolean
@@ -395,6 +407,118 @@ export async function run(): Promise<void> {
   console.log(
     `[e2e] 6/6 OK staged diff baseline=1/1/1 editedChanged=2 navigation=${String(diffOpened.diffProof.navigation)}`,
   )
+
+  // 7. ptv2-7 Git context: HOST-SIDE adapter asserts (no extra engine
+  //    sessions — each open keeps a webview + worker alive for the whole
+  //    run, and the resource ceiling is real). The runner script built a
+  //    synthetic repository around the fixtures; every assertion is on the
+  //    projected, value-free state words.
+  console.log('[e2e] 7/7 git context (synthetic repository)…')
+  const gitFixtures = {
+    clean: `${workspace}/comparison-a.csv`,
+    untracked: `${workspace}/comparison-b.csv`,
+    dirty: `${workspace}/comparison-schema.csv`,
+    outside: process.env['ASSAY_E2E_OUTSIDE_REPO'] ?? '',
+  }
+  assert(gitFixtures.outside.length > 0, 'ASSAY_E2E_OUTSIDE_REPO is not set')
+  const digestOf = async (path: string): Promise<string> =>
+    createHash('sha256')
+      .update(await vscode.workspace.fs.readFile(vscode.Uri.file(path)))
+      .digest('hex')
+  const gitDigestsBefore = await Promise.all(Object.values(gitFixtures).map(digestOf))
+  // The git extension discovers the workspace repository asynchronously
+  // after the folder opens; poll the adapter (bounded) until it reports a
+  // repository for the tracked fixture.
+  const deadline = Date.now() + 15_000
+  let discovered = false
+  for (;;) {
+    const probe = gitContextFor(vscode.Uri.file(gitFixtures.clean))
+    if (probe.state !== 'no-git' && probe.state !== 'no-repository') {
+      discovered = true
+      break
+    }
+    if (Date.now() > deadline) break
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  assert(discovered, 'git extension did not discover the synthetic repository')
+  const cleanContext = gitContextFor(vscode.Uri.file(gitFixtures.clean))
+  const untrackedContext = gitContextFor(vscode.Uri.file(gitFixtures.untracked))
+  const dirtyContext = gitContextFor(vscode.Uri.file(gitFixtures.dirty))
+  const outsideContext = gitContextFor(vscode.Uri.file(gitFixtures.outside))
+  const noRawPath = (context: ReturnType<typeof gitContextFor>): boolean =>
+    Object.values(context)
+      .filter((value): value is string => typeof value === 'string')
+      .every((value) => !value.includes('/'))
+  assert(cleanContext.state === 'clean', `clean fixture state: ${cleanContext.state}`)
+  assert(
+    untrackedContext.state === 'untracked',
+    `untracked fixture state: ${untrackedContext.state}`,
+  )
+  assert(dirtyContext.state === 'dirty', `dirty fixture state: ${dirtyContext.state}`)
+  assert(outsideContext.state === 'no-repository', `outside fixture state: ${outsideContext.state}`)
+  assert(
+    [cleanContext, untrackedContext, dirtyContext, outsideContext].every(noRawPath),
+    'git context leaked a path-like string',
+  )
+  const gitDigestsAfter = await Promise.all(Object.values(gitFixtures).map(digestOf))
+  const sourcesUnchanged = gitDigestsBefore.every(
+    (digest, index) => digest === gitDigestsAfter[index],
+  )
+  assert(sourcesUnchanged, 'git context probing mutated a fixture')
+  results['gitContextProof'] = {
+    clean: cleanContext.state,
+    untracked: untrackedContext.state,
+    dirty: dirtyContext.state,
+    outside: outsideContext.state,
+    branchKind: typeof cleanContext.branch === 'string' ? 'string' : 'absent',
+    noRawPath: true,
+    sourcesUnchanged,
+  }
+  scenarios['gitContext'] = { passed: true }
+  console.log('[e2e] 7/7 OK git context (clean/untracked/dirty/no-repository, no paths)')
+
+  // 8. ptv2-7 dataset diff command: two explicit URIs reach the SAME
+  //    confirmed-key controller — the panel opens, the comparison stages,
+  //    and the in-open harness re-proves that nothing ran before explicit
+  //    key confirmation. The command-opened panel also proves the webview
+  //    renders the git context (tracked-clean fixture).
+  console.log('[e2e] 8/8 dataset diff command (two URIs)…')
+  const commandReport: unknown = await vscode.commands.executeCommand(
+    'assay.dataset.diff',
+    vscode.Uri.file(`${workspace}/comparison-a.csv`),
+    vscode.Uri.file(`${workspace}/comparison-b.csv`),
+  )
+  const diffCommandOpened = commandReport as DatasetReport | undefined
+  assert(
+    diffCommandOpened !== undefined && diffCommandOpened.outcome === 'opened',
+    `assay.dataset.diff did not open the dataset: ${JSON.stringify(commandReport)}`,
+  )
+  assert(
+    diffCommandOpened.diffCommandProof?.staged === true,
+    'compare command did not stage the comparison',
+  )
+  assert(
+    diffCommandOpened.diffCommandProof.unconfirmedRefused === true,
+    'compare command bypassed the key-confirmation gate',
+  )
+  assert(
+    (diffCommandOpened.diffCommandProof.baselineCounts ?? []).join('/') === '1/1/1',
+    `compare command baseline counts: ${JSON.stringify(
+      diffCommandOpened.diffCommandProof.baselineCounts,
+    )}`,
+  )
+  assert(
+    diffCommandOpened.gitContext?.state === 'clean',
+    `compare command panel git context: ${JSON.stringify(diffCommandOpened.gitContext)}`,
+  )
+  results['diffCommandProof'] = {
+    opened: true,
+    staged: diffCommandOpened.diffCommandProof.staged,
+    unconfirmedRefused: diffCommandOpened.diffCommandProof.unconfirmedRefused,
+    gitRendered: diffCommandOpened.gitContext.state,
+  }
+  scenarios['datasetDiffCommand'] = { passed: true }
+  console.log('[e2e] 8/8 OK compare command (staged, unconfirmed refused, git rendered)')
 
   results['finishedAt'] = new Date().toISOString()
   await vscode.workspace.fs.writeFile(

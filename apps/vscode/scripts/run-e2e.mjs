@@ -112,6 +112,23 @@ execFileSync(
   ],
   { stdio: 'pipe' },
 )
+// ptv2-7: synthetic LOCAL repository (fixed argv, no shell strings, test-only
+// identity): comparison-a.csv tracked clean, comparison-b.csv untracked,
+// comparison-schema.csv tracked dirty. Plus one fixture OUTSIDE any repo.
+const runGit = (args) => execFileSync('git', ['-C', workspaceDir, ...args], { stdio: 'pipe' })
+runGit(['init'])
+runGit(['config', 'user.name', 'assay-e2e'])
+runGit(['config', 'user.email', 'assay-e2e@example.invalid'])
+runGit(['add', 'comparison-a.csv', 'comparison-schema.csv'])
+runGit(['commit', '-m', 'assay e2e synthetic repository'])
+writeFileSync(
+  path.join(workspaceDir, 'comparison-schema.csv'),
+  `${['id,value,score', ...rowsA.map((row) => [row[0], row[1], `${String(row[0])}9`].join(','))].join('\n')}\n`,
+)
+const outsideDir = path.join(tmpdir(), `assay-e2e-outside-${String(process.pid)}`)
+mkdirSync(outsideDir, { recursive: true })
+const outsideFixture = path.join(outsideDir, 'outside-repo.csv')
+writeFileSync(outsideFixture, 'id,value\n1,1.0\n')
 writeFileSync(
   path.join(workspaceDir, 'validation-contract.yaml'),
   [
@@ -152,8 +169,10 @@ await runTests({
     ASSAY_E2E_WORKSPACE: workspaceDir,
     ASSAY_E2E_RESULTS: resultsPath,
     ASSAY_E2E_EDIT_PROOF: '1',
+    ASSAY_E2E_OUTSIDE_REPO: outsideFixture,
   },
   launchArgs: [
+    workspaceDir,
     '--disable-extensions',
     '--disable-gpu',
     '--disable-dev-shm-usage',

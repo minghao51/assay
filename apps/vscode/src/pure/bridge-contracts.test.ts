@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest'
 import {
   DatasetOpenError,
   normalizeEditProof,
+  normalizeDiffCommandProof,
   normalizeDiffProof,
+  normalizeGitContext,
   normalizeValidationProof,
   validateTestComparisonFixture,
   WEBVIEW_ERROR_TEXT,
@@ -12,6 +14,33 @@ import {
 } from './bridge-contracts'
 
 describe('desktop bridge error contracts', () => {
+  it('projects compare-command proof only with staged, refused and exact counts', () => {
+    const proof = { staged: true, unconfirmedRefused: true, baselineCounts: [1, 1, 1] }
+    expect(normalizeDiffCommandProof(proof)).toEqual({
+      staged: true,
+      unconfirmedRefused: true,
+      baselineCounts: [1, 1, 1],
+    })
+    expect(normalizeDiffCommandProof({ ...proof, staged: false })).toBeUndefined()
+    expect(normalizeDiffCommandProof({ ...proof, unconfirmedRefused: 'yes' })).toBeUndefined()
+    expect(normalizeDiffCommandProof({ ...proof, baselineCounts: [1, -1, 1] })).toBeUndefined()
+    expect(normalizeDiffCommandProof({ ...proof, baselineCounts: [1, 1] })).toBeUndefined()
+  })
+  it('projects git context to a bounded state word and branch presence', () => {
+    expect(normalizeGitContext({ state: 'clean', hasBranch: true })).toEqual({
+      state: 'clean',
+      hasBranch: true,
+    })
+    expect(normalizeGitContext({ state: 'dirty', hasBranch: false })).toEqual({
+      state: 'dirty',
+      hasBranch: false,
+    })
+    expect(normalizeGitContext({ state: '/var/tmp/x', hasBranch: true })).toBeUndefined()
+    expect(normalizeGitContext({ state: 'has space', hasBranch: true })).toBeUndefined()
+    expect(normalizeGitContext({ state: '', hasBranch: true })).toBeUndefined()
+    expect(normalizeGitContext({ hasBranch: true })).toBeUndefined()
+    expect(normalizeGitContext('nope')).toBeUndefined()
+  })
   it('accepts only bare harness fixture names with known dataset extensions', () => {
     expect(validateTestComparisonFixture('comparison-b.csv')).toBe('comparison-b.csv')
     expect(validateTestComparisonFixture('nested.parquet')).toBe('nested.parquet')

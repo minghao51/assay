@@ -63,15 +63,21 @@ export function gitContextFor(uri: vscode.Uri): GitContextView {
     const branch = field(head, 'name')
     const root = field(repository, 'rootUri')
     const targetPath = uri.fsPath
-    const all = [
-      ...entries(field(state, 'untrackedChanges')),
+    // In the vscode.git API, untracked files appear INSIDE workingTreeChanges
+    // with status 'U' (there is no separate untrackedChanges array — an
+    // earlier draft scraped a nonexistent field and every untracked file
+    // classified as dirty). Statuses are untrusted strings; treat anything
+    // not string-typed as an unknown change.
+    const matching = [
       ...entries(field(state, 'workingTreeChanges')),
       ...entries(field(state, 'indexChanges')),
-    ]
-    const matching = all.filter((change) => safePath(change) === targetPath)
-    const untracked = entries(field(state, 'untrackedChanges')).some(
-      (change) => safePath(change) === targetPath,
-    )
+    ].filter((change) => safePath(change) === targetPath)
+    // The vscode.git API's Change.status is the NUMERIC Status enum of the
+    // pinned runtime (UNTRACKED = 7, read from the 1.130.0 extension bundle;
+    // a string comparison against 'U' matched nothing). Untrusted input:
+    // only the exact untracked value classifies a file untracked — every
+    // other numeric status is a tracked change.
+    const untracked = matching.some((change) => field(change, 'status') === 7)
     return projectGitContext({
       extensionPresent: true,
       repositoryRootPresent: typeof field(root, 'fsPath') === 'string',
