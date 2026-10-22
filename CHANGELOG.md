@@ -12,6 +12,31 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Added — offline JSON/JSONL open in the desktop reader (2026-10-19)
+
+- The VS Code surface now vendors DuckDB's matching `json` extension
+  (v1.4.3/wasm_mvp, digest-pinned like the parquet extension), so `.json`,
+  `.jsonl` and `.ndjson` datasets open offline under the network block —
+  previously those opens failed on the refused extension fetch. Proven by a
+  real-host e2e scenario; the build fails if a pinned binary is tampered.
+
+### Added — public telemetry disclosure (2026-10-19)
+
+- `docs/telemetry-disclosure.md` documents exactly what the implemented
+  telemetry collects (the event allowlist, bounded fields), what it never
+  collects (ADR 0025), how to opt out (`ASSAY_NO_TELEMETRY`,
+  `--no-telemetry`, the Settings toggle) and where data goes (self-hosted
+  collector; no default endpoint). Linked from the README front door.
+
+### Tests — external-writer DOUBLE agreement pinned (2026-10-19)
+
+- Browser-engine journeys now guard externally written (DuckDB CLI)
+  parquet with DOUBLE columns: self-agreement reports no differences and a
+  non-DOUBLE edit never lists a DOUBLE column as changed. The investigation
+  also pinned an upstream v1.4.3-WASM limitation (DOUBLE statistics ranges
+  near DBL_MAX fail staging with a typed, value-free error) so it cannot
+  regress silently.
+
 ### Fixed — honest dev error for repo-root CLI dist invocation (2026-10-19)
 
 - Running the workspace checkout's built CLI entry from the repo root now

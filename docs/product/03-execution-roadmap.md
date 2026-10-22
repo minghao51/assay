@@ -117,8 +117,9 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
   2026-10-11; its
   [closure](../process/handoff/20261002-ptv-slice1-queue.md#5-closure) records
   the scope. vscode-web remains RE-SCOPE (D18).
-- q-5b helper consolidation and q-7 slice-2 testing strictness are separate
-  pickup-ready maintenance tasks. Current dispatch state lives in the
+- q-5b helper consolidation and q-7 slice-2 testing strictness **landed
+  2026-10-19** (`ac992e4`, `a52ab8b`); the PT-Q remainder is only the q-6a
+  perf-probe harness (see product/04 §7). Current dispatch state lives in the
   [handoff](../process/handoff.md).
 - Finish human G0 prerequisites and revalidate release packaging before
   publishing; the npm org claim alone does not prove current artifacts safe.

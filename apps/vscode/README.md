@@ -14,7 +14,9 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
 - **`assay.datasetViewer` custom read-only editor** for the web app's supported
   open set: `*.parquet`, `*.csv`, `*.jsonl`, `*.ndjson`, `*.json`, `*.arrow`,
   `*.feather`, `*.ipc` (contributed with `priority: option`, so VS Code's text
-  editor stays the default for text formats).
+  editor stays the default for text formats). Every format opens **offline**:
+  the engine's `parquet` and `json` extensions are vendored, digest-pinned
+  build assets (a tampered binary fails the build).
 - **The grid (ptv1-4)** — the headless `GridViewportModel` (`@assay/grid`,
   ADR 0022: rendering replaceable) drives a dependency-free virtualized DOM
   renderer (`webview/data-grid.ts`, the webview twin of the web app's

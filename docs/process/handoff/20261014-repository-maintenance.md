@@ -42,7 +42,9 @@ Author PT-V slice 2 from [slice-1 §5](20261002-ptv-slice1-queue.md#5-closure):
 edit + undo/redo, validation, staged diff/export agreement, Git context/diff
 command and final real-VSCode acceptance evidence. Define narrow tasks and STOP
 boundaries before dispatch; vscode-web remains RE-SCOPE. q-5b and q-7 slice 2
-follow as separate tasks under [product/04 §7](../../product/04-post-mvp-track.md).
+follow as separate tasks under [product/04 §7](../../product/04-post-mvp-track.md)
+— **both delivered 2026-10-19** (q-5b `ac992e4`; q-7 slice 2 `a52ab8b`), and
+PT-V slice 2 closed the same day ([slice-2 queue](20261014-ptv-slice2-queue.md)).
 
 ## 5. Closure
 
