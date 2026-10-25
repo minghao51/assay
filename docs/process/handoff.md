@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-19. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record); next is track planning against the roadmap (PT-Q remainder is q-6a only) with the human G0 tail outstanding (§5).
+**Last updated:** 2026-10-19. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record). Everything waiting on a human, a decision, or a remote operation is consolidated in the [open-asks checklist](handoff/20261019-open-asks.md); no authorized agent lane is queued.
 ([queue](handoff/20261019-g0-readiness-queue.md)): gb-1 telemetry
 disclosure doc → gb-2 PT-Q carry-over pack → gb-3 desktop JSON/JSONL
 vendoring → gb-4 DOUBLE row-diff quirk → gb-5 CLI dev error; human inputs
