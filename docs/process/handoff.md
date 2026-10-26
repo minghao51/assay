@@ -114,8 +114,9 @@ claiming. **UX/UI pickup pack (2026-10-26, docs only):**
 [visual execution queue](handoff/20261026-ux-ui-execution-queue.md) and
 [next-agent prompts](handoff/20261026-ux-ui-pickup-prompts.md#1-next-ai-orchestrator-start-here).
 Baseline **recorded 2026-10-26 at `7d8e1ca`** (clean tree; six gates, coverage, docs/ADR checks
-green: 3029 unit / 175 e2e passed); no implementation row is claimed yet. ug-1 is the next
-eligible row, then ug-2 with ug-7 eligible in isolated worktrees. ug-10 is decision-blocked
+green: 3029 unit / 175 e2e passed). **ug-1 integrated at `e92c0dd`** after an independent
+review request-changes→approve cycle; merged gates 3034 unit / 179 e2e + 1 skip, coverage
+87.87/82.03/88.70/89.33. ug-2 and ug-7 are now eligible in isolated worktrees. ug-10 is decision-blocked
 (UX-D1), and SQL sizing remains deferred design-only. The visual queue does not replace ug
 ownership.
 
@@ -170,6 +171,14 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-26 (**fu**) — **ug-1 integrated** (`e92c0dd`): nested Flatten/Explode now opens the
+  SQL section through the existing seam, scrolls and focuses the matching populated/empty/error
+  outcome; composition rejection opens nothing and manual runs/paging never steal focus.
+  Fresh-session review found empty/error focus unpinned, requested a test-only amendment, and
+  approved after the named pins failed under mutation. Merged gates: 192 unit files / 3034
+  tests, e2e 179 passed + 1 skipped, coverage 87.87/82.03/88.70/89.33, docs 116/0, ADR 46;
+  logs `/tmp/assay-ux-ug-1-merged/`. Model diversity unavailable in this runtime
+  (deepseek-flash only); independent session separation used and disclosed.
 - 2026-10-26 (**ft**) — integrated the reviewed UX/UI documentation pack (`7d8e1ca`) and
   recorded the **uxv-0 clean-main baseline** at that revision: format/lint/typecheck/build exit 0,
   **191 unit files / 3029 tests passed**, **175 e2e passed + 1 skipped**, coverage 87.85/81.98/
