@@ -49,7 +49,8 @@
    worktree after ug-1. Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
    [visual queue](20261026-ux-ui-execution-queue.md) and
    [pickup prompts](20261026-ux-ui-pickup-prompts.md) now carry bounded scopes and role briefs.
-   Baseline remains unrecorded; ug-10 is decision-blocked (UX-D1), not silently runnable.
+   Baseline recorded 2026-10-26 at `7d8e1ca`; ug-10 is decision-blocked (UX-D1), not silently
+   runnable.
 
 ## 2. Open threads (authoritative pointers)
 

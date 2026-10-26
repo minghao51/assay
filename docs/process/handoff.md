@@ -113,9 +113,11 @@ claiming. **UX/UI pickup pack (2026-10-26, docs only):**
 [implementation spec](../product/09-ux-ui-implementation-spec.md),
 [visual execution queue](handoff/20261026-ux-ui-execution-queue.md) and
 [next-agent prompts](handoff/20261026-ux-ui-pickup-prompts.md#1-next-ai-orchestrator-start-here).
-Baseline is **not recorded**, no implementation row claimed; start ug-1 only after clean-main
-gates, then ug-2 with ug-7 eligible in isolated worktrees. ug-10 is decision-blocked (UX-D1),
-and SQL sizing remains deferred design-only. The visual queue does not replace ug ownership.
+Baseline **recorded 2026-10-26 at `7d8e1ca`** (clean tree; six gates, coverage, docs/ADR checks
+green: 3029 unit / 175 e2e passed); no implementation row is claimed yet. ug-1 is the next
+eligible row, then ug-2 with ug-7 eligible in isolated worktrees. ug-10 is decision-blocked
+(UX-D1), and SQL sizing remains deferred design-only. The visual queue does not replace ug
+ownership.
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
 rows CLOSED 2026-10-19 — all eight rows integrated and independently
@@ -168,6 +170,11 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-26 (**ft**) — integrated the reviewed UX/UI documentation pack (`7d8e1ca`) and
+  recorded the **uxv-0 clean-main baseline** at that revision: format/lint/typecheck/build exit 0,
+  **191 unit files / 3029 tests passed**, **175 e2e passed + 1 skipped**, coverage 87.85/81.98/
+  88.63/89.31, docs links 116/0, ADR index 46; logs in `/tmp/assay-ux-uxv-0-orchestrator/`.
+  No implementation row was claimed by this record; ug-1 is next eligible.
 - 2026-10-26 (**fs**) — authored the
   [UX/UI executable pickup pack](handoff/20261026-ux-ui-pickup-prompts.md): requirement spec,
   four light/dark reference frames, uxv queue and role prompts; ug scope clarifications and
