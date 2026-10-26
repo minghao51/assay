@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TelemetryProvider } from '../telemetry/TelemetryContext'
 import type { WebTelemetryRuntime } from '../telemetry/runtime'
 import { SqlPanel } from './SqlPanel'
+import type { SqlRunRequest } from './SqlPanel'
 import { SQL_PAGE_SIZE } from './paged-query'
 
 const h = vi.hoisted(() => ({ query: vi.fn() }))
@@ -42,13 +43,12 @@ function result(rows: number) {
   }
 }
 
-function renderPanel(
-  runtime: WebTelemetryRuntime,
-  runRequest = null as null | { sql: string; seq: number },
-) {
+const allowRequest = (): boolean => true
+
+function renderPanel(runtime: WebTelemetryRuntime, runRequest: SqlRunRequest | null = null) {
   render(
     <TelemetryProvider runtime={runtime}>
-      <SqlPanel tableId="t1" runRequest={runRequest} />
+      <SqlPanel tableId="t1" runRequest={runRequest} claimRequest={allowRequest} />
     </TelemetryProvider>,
   )
 }
@@ -77,7 +77,7 @@ describe('SqlPanel telemetry — query_run (design §2/Appendix C)', () => {
 
   it('emits nested_action for a composed external request', async () => {
     const runtime = fakeRuntime()
-    renderPanel(runtime, { sql: 'SELECT 1', seq: 1 })
+    renderPanel(runtime, { sql: 'SELECT 1', seq: 1, session: 1 })
     await waitFor(() => {
       expect(runtime.emit).toHaveBeenCalledWith(
         'query_run',

@@ -76,6 +76,55 @@ import { TelemetryDisclosure } from './telemetry/TelemetryDisclosure'
 import { TelemetrySettings } from './telemetry/TelemetrySettings'
 
 /**
+ * R-07 request-consumption ledger. App owns exactly one ledger for the
+ * dataset session; the SQL pane only asks it whether a request is new.
+ *
+ * The claim is synchronous and happens in the pane's effect BEFORE the
+ * external engine query is issued. Because this state lives in App (not a
+ * panel-local ref), a true panel remount — a boundary retry, a StrictMode
+ * double effect, a close/reopen — sees the earlier claim and runs ZERO
+ * additional queries for the same sequence. A genuinely newer sequence is
+ * claimed exactly once.
+ *
+ * The ledger never clears an individual claim: a consumed sequence can only
+ * be superseded by a higher one (or dropped wholesale on a new dataset
+ * session, where `reset()` runs from `beginSession`). A late acknowledgment
+ * of an older request therefore cannot erase a newer request's claim.
+ */
+export interface SqlRequestLedger {
+  /**
+   * Claim a request for the live session token. Returns `true` only when the
+   * request belongs to that session and its sequence has not been consumed.
+   */
+  claim(request: SqlRunRequest, sessionToken: number): boolean
+  /** Drop every claim when a new dataset session starts. */
+  reset(): void
+}
+
+export function createSqlRequestLedger(): SqlRequestLedger {
+  let claimedSession: number | null = null
+  let claimedSeq = 0
+  return {
+    claim(request, sessionToken) {
+      // Requests composed in a replaced dataset are stale by construction:
+      // their carried session token no longer matches the live one.
+      if (request.session !== sessionToken) return false
+      if (claimedSession !== sessionToken) {
+        claimedSession = sessionToken
+        claimedSeq = 0
+      }
+      if (request.seq <= claimedSeq) return false
+      claimedSeq = request.seq
+      return true
+    },
+    reset() {
+      claimedSession = null
+      claimedSeq = 0
+    },
+  }
+}
+
+/**
  * Live summary line for the opened table (m2-3 row-count truth): the total
  * is read from the model — which re-reads it from the provider after every
  * accepted filter change and every overlay epoch.
@@ -180,6 +229,19 @@ const WORKBENCH_SECTIONS: ReadonlyArray<{
   { id: 'pipeline', title: 'Pipeline' },
 ]
 
+/**
+ * Tool sections whose own component already owns an `aria-expanded`
+ * disclosure (Schema/Filters/Profile — the ux-3/ux-4 pattern). The shell adds
+ * no second toggle for these, so ug-7's recoverable close needs a
+ * recovery-only parent visibility override instead of the managed open set.
+ * Record is deliberately NOT part of this task's tool-body boundary work.
+ */
+const INNER_DISCLOSURE_SECTIONS: ReadonlySet<WorkbenchSectionId> = new Set<WorkbenchSectionId>([
+  'schema',
+  'filters',
+  'profile',
+])
+
 interface WorkbenchSectionProps {
   readonly id: WorkbenchSectionId
   readonly children: ReactNode
@@ -244,6 +306,34 @@ function WorkbenchSection({
         {children}
       </div>
     </section>
+  )
+}
+
+/**
+ * ug-7/R-06: one panel-scope boundary around a tool section's body. The
+ * boundary itself owns only the failed/retry state; App owns the section's
+ * visibility (managed open set or the inner-disclosure override) and the
+ * focus move to the section's existing nav link on close.
+ */
+function PanelBoundary({
+  id,
+  onClose,
+  children,
+}: {
+  readonly id: WorkbenchSectionId
+  readonly onClose: (id: WorkbenchSectionId) => void
+  readonly children: ReactNode
+}) {
+  return (
+    <ErrorBoundary
+      scope="panel"
+      sectionId={id}
+      onClose={() => {
+        onClose(id)
+      }}
+    >
+      {children}
+    </ErrorBoundary>
   )
 }
 
@@ -350,6 +440,47 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     setOpenSections((previous) => (previous.has(id) ? previous : new Set(previous).add(id)))
   }, [])
   /**
+   * ug-7/R-07 recovery-only visibility override for inner-disclosure sections
+   * (Schema/Filters/Profile). Their own control remains the normal disclosure;
+   * this set exists only so a failed panel's "Close section" can hide the
+   * parent body without adding a duplicate shell toggle. A new dataset clears
+   * it and the section's existing nav link clears it on reopen.
+   */
+  const [recoveryHiddenSections, setRecoveryHiddenSections] = useState<
+    ReadonlySet<WorkbenchSectionId>
+  >(() => new Set<WorkbenchSectionId>())
+  const closeSection = useCallback((id: WorkbenchSectionId) => {
+    if (INNER_DISCLOSURE_SECTIONS.has(id)) {
+      setRecoveryHiddenSections((previous) => {
+        if (previous.has(id)) return previous
+        return new Set(previous).add(id)
+      })
+    } else {
+      setOpenSections((previous) => {
+        if (!previous.has(id)) return previous
+        const next = new Set(previous)
+        next.delete(id)
+        return next
+      })
+    }
+    // "Close section" hands focus to the section's EXISTING nav link; the
+    // retained fallback stays mounted (hidden) so reopening never retries
+    // implicitly.
+    document.querySelector<HTMLElement>(`[data-testid="section-nav-${id}"]`)?.focus()
+  }, [])
+  const revealSectionFromNav = useCallback(
+    (id: WorkbenchSectionId) => {
+      setRecoveryHiddenSections((previous) => {
+        if (!previous.has(id)) return previous
+        const next = new Set(previous)
+        next.delete(id)
+        return next
+      })
+      openSection(id)
+    },
+    [openSection],
+  )
+  /**
    * q-15 pane rail state: ≥1024px the tool pane collapses to a rail (the
    * center column stays put). Below 1024px the pane head is hidden and the
    * single-column stack always shows every section.
@@ -378,6 +509,29 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */ const [sqlRequest, setSqlRequest] = useState<SqlRunRequest | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const requestSeq = useRef(0)
+  /**
+   * R-07: App-owned, session-scoped consumption state. The ledger instance
+   * (not the SQL pane) decides whether an external request is new; see the
+   * `SqlRequestLedger` contract above. It is stable for the App lifetime.
+   */
+  const sqlRequestLedger = useMemo(() => createSqlRequestLedger(), [])
+  const claimSqlRequest = useCallback(
+    (request: SqlRunRequest) => sqlRequestLedger.claim(request, datasetSession.tokenRef.current),
+    [datasetSession, sqlRequestLedger],
+  )
+  useEffect(
+    () =>
+      datasetSession.registerReset(() => {
+        // A replacement dataset drops every claim and every recovery-only
+        // visibility override. The request state itself is nulled by the open
+        // flow, so a stale request can never be replayed in the new session.
+        sqlRequestLedger.reset()
+        setRecoveryHiddenSections((previous) =>
+          previous.size === 0 ? previous : new Set<WorkbenchSectionId>(),
+        )
+      }),
+    [datasetSession, sqlRequestLedger],
+  )
 
   /**
    * m5-3/m6-4 jump-to-row gesture. Owned by the composition root because the
@@ -580,9 +734,15 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       openSection('sql')
       setPaneCollapsed(false)
       requestSeq.current += 1
-      setSqlRequest({ sql: composed.sql, seq: requestSeq.current })
+      setSqlRequest({
+        sql: composed.sql,
+        seq: requestSeq.current,
+        // Stamped with the live dataset session: a request that outlives its
+        // session can be rejected synchronously by the App-owned ledger.
+        session: datasetSession.tokenRef.current,
+      })
     },
-    [phase, nestedSpecs, openSection],
+    [datasetSession, nestedSpecs, openSection, phase],
   )
 
   /**
@@ -940,7 +1100,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                             href={`#section-${section.id}`}
                             data-testid={`section-nav-${section.id}`}
                             onClick={() => {
-                              openSection(section.id)
+                              revealSectionFromNav(section.id)
                             }}
                           >
                             {section.title}
@@ -949,80 +1109,92 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                       ))}
                     </ul>
                   </nav>
-                  <WorkbenchSection id="schema" disclosure="inner" open>
-                    <MemoSchemaPanel
-                      columns={schemaColumns}
-                      onAction={runNestedAction}
-                      onRenameColumn={handleRenameColumn}
-                      onCastColumn={handleCastColumn}
-                      castPendingColumn={castPendingColumn}
-                    />
+                  <WorkbenchSection
+                    id="schema"
+                    disclosure="inner"
+                    open={!recoveryHiddenSections.has('schema')}
+                  >
+                    <PanelBoundary id="schema" onClose={closeSection}>
+                      <MemoSchemaPanel
+                        columns={schemaColumns}
+                        onAction={runNestedAction}
+                        onRenameColumn={handleRenameColumn}
+                        onCastColumn={handleCastColumn}
+                        castPendingColumn={castPendingColumn}
+                      />
+                    </PanelBoundary>
                   </WorkbenchSection>
                   <WorkbenchSection
                     id="editing"
                     open={openSections.has('editing')}
                     onToggle={toggleSection}
                   >
-                    <EditToolbar
-                      onInsertRow={handleInsertRow}
-                      pendingSummary={pendingChangesSummary(activeOps(history))}
-                      error={editError}
-                    />
+                    <PanelBoundary id="editing" onClose={closeSection}>
+                      <EditToolbar
+                        onInsertRow={handleInsertRow}
+                        pendingSummary={pendingChangesSummary(activeOps(history))}
+                        error={editError}
+                      />
+                    </PanelBoundary>
                   </WorkbenchSection>
                   <WorkbenchSection
                     id="export"
                     open={openSections.has('export')}
                     onToggle={toggleSection}
                   >
-                    <section className="export-actions" aria-label="Export">
-                      <h2 className="visually-hidden">Export</h2>
-                      <button
-                        type="button"
-                        className="export-open"
-                        data-testid="export-open"
-                        onClick={() => {
-                          setExportOpen(true)
-                        }}
-                      >
-                        Export a copy…
-                      </button>
-                      {exportOpen && (
-                        <ExportDialog
-                          // The effective (unfiltered) count at the history cursor —
-                          // never the grid's filtered `totalRows` (m4-5 review
-                          // finding): `exportView` exports every row in natural order.
-                          // The memo is null only pre-ready; this branch is ready.
-                          rowCount={liveRowCount(
-                            phase.base,
-                            overlayState ?? stateAtCursor(phase.base, history),
-                          )}
-                          // Filtering and sorting tracked separately (m4-5 fix
-                          // round 2): a sort-only view must not claim a "filtered
-                          // subset"; the dialog describes only the active state.
-                          viewFiltered={modelFilters.length > 0}
-                          viewSorted={modelSort !== null}
-                          runEngineExport={runExport}
-                          requestDestination={requestExportDestination}
-                          writeCopy={deliverExportCopy}
-                          onClose={() => {
-                            setExportOpen(false)
+                    <PanelBoundary id="export" onClose={closeSection}>
+                      <section className="export-actions" aria-label="Export">
+                        <h2 className="visually-hidden">Export</h2>
+                        <button
+                          type="button"
+                          className="export-open"
+                          data-testid="export-open"
+                          onClick={() => {
+                            setExportOpen(true)
                           }}
-                        />
-                      )}
-                    </section>
+                        >
+                          Export a copy…
+                        </button>
+                        {exportOpen && (
+                          <ExportDialog
+                            // The effective (unfiltered) count at the history cursor —
+                            // never the grid's filtered `totalRows` (m4-5 review
+                            // finding): `exportView` exports every row in natural order.
+                            // The memo is null only pre-ready; this branch is ready.
+                            rowCount={liveRowCount(
+                              phase.base,
+                              overlayState ?? stateAtCursor(phase.base, history),
+                            )}
+                            // Filtering and sorting tracked separately (m4-5 fix
+                            // round 2): a sort-only view must not claim a "filtered
+                            // subset"; the dialog describes only the active state.
+                            viewFiltered={modelFilters.length > 0}
+                            viewSorted={modelSort !== null}
+                            runEngineExport={runExport}
+                            requestDestination={requestExportDestination}
+                            writeCopy={deliverExportCopy}
+                            onClose={() => {
+                              setExportOpen(false)
+                            }}
+                          />
+                        )}
+                      </section>
+                    </PanelBoundary>
                   </WorkbenchSection>
                   <WorkbenchSection
                     id="history"
                     open={openSections.has('history')}
                     onToggle={toggleSection}
                   >
-                    <HistoryPanel
-                      entries={history.entries}
-                      cursor={history.cursor}
-                      onSelectCursor={handleSelectCursor}
-                      onUndo={handleUndo}
-                      onRedo={handleRedo}
-                    />
+                    <PanelBoundary id="history" onClose={closeSection}>
+                      <HistoryPanel
+                        entries={history.entries}
+                        cursor={history.cursor}
+                        onSelectCursor={handleSelectCursor}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                      />
+                    </PanelBoundary>
                   </WorkbenchSection>
                   {/*
                    * Placement (m5-3): the validation panel's sample lists and filter
@@ -1035,22 +1207,24 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     open={openSections.has('validation')}
                     onToggle={toggleSection}
                   >
-                    {panelModules === null ? null : (
-                      <panelModules.ValidationPanel
-                        contractState={contractState}
-                        runState={validationRun}
-                        stale={validationStale}
-                        jumpError={jumpError}
-                        filterError={filterToFailuresError}
-                        onContractFile={handleContractFile}
-                        onValidate={handleValidate}
-                        onCancelValidate={handleCancelValidate}
-                        onJumpToSample={handleJumpToSample}
-                        onFilterToFailures={handleFilterToFailures}
-                        requestReportDestination={requestReportDestinationForPanel}
-                        deliverReportCopy={writeReportCopy}
-                      />
-                    )}
+                    <PanelBoundary id="validation" onClose={closeSection}>
+                      {panelModules === null ? null : (
+                        <panelModules.ValidationPanel
+                          contractState={contractState}
+                          runState={validationRun}
+                          stale={validationStale}
+                          jumpError={jumpError}
+                          filterError={filterToFailuresError}
+                          onContractFile={handleContractFile}
+                          onValidate={handleValidate}
+                          onCancelValidate={handleCancelValidate}
+                          onJumpToSample={handleJumpToSample}
+                          onFilterToFailures={handleFilterToFailures}
+                          requestReportDestination={requestReportDestinationForPanel}
+                          deliverReportCopy={writeReportCopy}
+                        />
+                      )}
+                    </PanelBoundary>
                   </WorkbenchSection>
                   {/*
                    * Placement (m6-4): the comparison panel sits beside the validation
@@ -1065,37 +1239,57 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     open={openSections.has('compare')}
                     onToggle={toggleSection}
                   >
-                    {panelModules === null ? null : (
-                      <panelModules.DiffPanel
-                        comparison={comparisonState}
-                        runState={diffRun}
-                        stale={diffStale}
-                        jumpError={diffJumpError}
-                        onComparisonFile={handleComparisonFile}
-                        onRunDiff={handleRunDiff}
-                        onCancelDiff={handleCancelDiff}
-                        onJumpToSample={handleJumpToDiffSample}
-                        requestReportDestination={requestDiffReportDestinationForPanel}
-                        deliverReportCopy={writeDiffReportCopy}
-                      />
-                    )}
+                    <PanelBoundary id="compare" onClose={closeSection}>
+                      {panelModules === null ? null : (
+                        <panelModules.DiffPanel
+                          comparison={comparisonState}
+                          runState={diffRun}
+                          stale={diffStale}
+                          jumpError={diffJumpError}
+                          onComparisonFile={handleComparisonFile}
+                          onRunDiff={handleRunDiff}
+                          onCancelDiff={handleCancelDiff}
+                          onJumpToSample={handleJumpToDiffSample}
+                          requestReportDestination={requestDiffReportDestinationForPanel}
+                          deliverReportCopy={writeDiffReportCopy}
+                        />
+                      )}
+                    </PanelBoundary>
                   </WorkbenchSection>
-                  <WorkbenchSection id="filters" disclosure="inner" open>
-                    <FilterBar model={phase.model} />
+                  <WorkbenchSection
+                    id="filters"
+                    disclosure="inner"
+                    open={!recoveryHiddenSections.has('filters')}
+                  >
+                    <PanelBoundary id="filters" onClose={closeSection}>
+                      <FilterBar model={phase.model} />
+                    </PanelBoundary>
                   </WorkbenchSection>
                   <WorkbenchSection
                     id="sql"
                     open={openSections.has('sql')}
                     onToggle={toggleSection}
                   >
-                    {panelModules === null ? null : (
-                      <panelModules.SqlPanel tableId={phase.tableId} runRequest={sqlRequest} />
-                    )}
+                    <PanelBoundary id="sql" onClose={closeSection}>
+                      {panelModules === null ? null : (
+                        <panelModules.SqlPanel
+                          tableId={phase.tableId}
+                          runRequest={sqlRequest}
+                          claimRequest={claimSqlRequest}
+                        />
+                      )}
+                    </PanelBoundary>
                   </WorkbenchSection>
-                  <WorkbenchSection id="profile" disclosure="inner" open>
-                    {panelModules === null ? null : (
-                      <panelModules.ProfilePanel handle={phase.handle} />
-                    )}
+                  <WorkbenchSection
+                    id="profile"
+                    disclosure="inner"
+                    open={!recoveryHiddenSections.has('profile')}
+                  >
+                    <PanelBoundary id="profile" onClose={closeSection}>
+                      {panelModules === null ? null : (
+                        <panelModules.ProfilePanel handle={phase.handle} />
+                      )}
+                    </PanelBoundary>
                   </WorkbenchSection>
                   {/*
                    * Panel-placement ruling (queue 2026-10-02): the pipeline panel
@@ -1109,24 +1303,26 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     open={openSections.has('pipeline')}
                     onToggle={toggleSection}
                   >
-                    {panelModules === null ? null : (
-                      <panelModules.PipelinePanel
-                        fileState={pipeline.fileState}
-                        bindings={pipeline.bindings}
-                        contractBindings={pipeline.contractBindings}
-                        runState={pipeline.runState}
-                        preview={pipeline.preview}
-                        onOpenPipelineFile={pipeline.openPipelineFile}
-                        onBindSource={pipeline.bindSourceDataset}
-                        onBindContract={pipeline.bindContract}
-                        onRun={pipeline.run}
-                        onCancel={pipeline.cancelRun}
-                        onOpenPreview={pipeline.openPreview}
-                        onClosePreview={pipeline.closePreview}
-                        dcrExport={pipeline.dcrExport}
-                        onExportDcr={pipeline.exportDcr}
-                      />
-                    )}
+                    <PanelBoundary id="pipeline" onClose={closeSection}>
+                      {panelModules === null ? null : (
+                        <panelModules.PipelinePanel
+                          fileState={pipeline.fileState}
+                          bindings={pipeline.bindings}
+                          contractBindings={pipeline.contractBindings}
+                          runState={pipeline.runState}
+                          preview={pipeline.preview}
+                          onOpenPipelineFile={pipeline.openPipelineFile}
+                          onBindSource={pipeline.bindSourceDataset}
+                          onBindContract={pipeline.bindContract}
+                          onRun={pipeline.run}
+                          onCancel={pipeline.cancelRun}
+                          onOpenPreview={pipeline.openPreview}
+                          onClosePreview={pipeline.closePreview}
+                          dcrExport={pipeline.dcrExport}
+                          onExportDcr={pipeline.exportDcr}
+                        />
+                      )}
+                    </PanelBoundary>
                   </WorkbenchSection>
                 </div>
               </div>
@@ -1136,7 +1332,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                   open={openSections.has('grid')}
                   onToggle={toggleSection}
                 >
-                  <ErrorBoundary scope="grid">
+                  <ErrorBoundary scope="grid" sectionId="grid">
                     <DataGrid
                       model={phase.model}
                       overlayState={overlayState}

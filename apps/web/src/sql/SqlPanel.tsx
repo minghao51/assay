@@ -58,6 +58,12 @@ export interface SqlRunRequest {
   readonly sql: string
   /** Monotonic per-app counter; the pane runs a request when `seq` advances. */
   readonly seq: number
+  /**
+   * Dataset-session token captured when App composed the request (R-07). The
+   * App-owned ledger rejects a request whose session has been replaced, so a
+   * stale request can never run against a new dataset.
+   */
+  readonly session: number
 }
 
 interface SqlPanelProps {
@@ -65,6 +71,13 @@ interface SqlPanelProps {
   readonly tableId: string
   /** Latest external run request, or `null` while there is none. */
   readonly runRequest: SqlRunRequest | null
+  /**
+   * Synchronous App-owned consumption claim (R-07). Called BEFORE the
+   * external query is issued; `false` means this sequence was already
+   * consumed in this session (StrictMode double effect, boundary retry,
+   * close/reopen) and must run ZERO additional queries.
+   */
+  readonly claimRequest: (request: SqlRunRequest) => boolean
 }
 
 /** Run lifecycle of the pane (shown as the section's `data-state`). */
@@ -88,7 +101,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
+export function SqlPanel({ tableId, runRequest, claimRequest }: SqlPanelProps) {
   const sqlTable = viewNameForTableId(tableId)
   const telemetry = useTelemetry()
   const [draft, setDraft] = useState('')
@@ -194,9 +207,14 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
   executeRef.current = execute
   useEffect(() => {
     if (runRequest === null) return
+    // Keep the composed statement visible even when the sequence was already
+    // consumed (e.g. a boundary retry after the query settled); the user can
+    // explicitly Run it again, but the remount itself is not permission to
+    // replay it.
     setDraft(runRequest.sql)
+    if (!claimRequest(runRequest)) return
     executeRef.current(runRequest.sql, 0, 'nested_action', runRequest.seq)
-  }, [runRequest])
+  }, [claimRequest, runRequest])
 
   /**
    * ug-1/R-01–R-02: after the matching request has rendered its outcome,
