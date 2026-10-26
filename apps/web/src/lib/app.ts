@@ -7,13 +7,15 @@ export const APP_NAME = 'Assay' as const
 /** The descriptive tagline — "data workbench" is the category, Assay is the product (ADR 0039). */
 export const TAGLINE = 'The local-first data workbench' as const
 
-/** Keep in sync with the roadmap status (docs/product/03-execution-roadmap.md §4 and
- * docs/product/04-post-mvp-track.md). Honest as of 2026-09-22 (audit AR-W6): the MVP
- * (M0–M6) is complete; the post-MVP track is underway. */
-export const SCAFFOLD_STATUS = 'MVP complete (M0–M6) — post-MVP track in progress' as const
+/**
+ * R-03 idle capability sentence (exact copy). The first-run screen states what
+ * the product does, not where the project is in its milestone plan.
+ */
+export const IDLE_CAPABILITY =
+  'Inspect, query, validate, compare, and repair local datasets.' as const
 
-export const NEXT_MILESTONE =
-  'PT-0: launch readiness to gate G0 (then the D12-chosen engineering track)' as const
+/** R-03 supported-format line (exact copy). Mirrors the picker's accept list. */
+export const IDLE_FORMATS = 'Opens .parquet · .csv · .jsonl · .json' as const
 
 /**
  * Human copy for the open-flow status span (ux-2/UX-2). The machine token

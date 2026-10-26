@@ -29,9 +29,30 @@ export interface PickedDataFile {
   readonly source: BrowserFileSource
 }
 
+/** The four advertised input extensions, in advertised order (R-04). */
+export const DATA_FILE_EXTENSIONS = ['.parquet', '.csv', '.jsonl', '.json'] as const
+
+/** accept value shared by the hidden-input fallback and the FSA hints. */
+export const DATA_FILE_ACCEPT = DATA_FILE_EXTENSIONS.join(',')
+
+/**
+ * File System Access types hints: one standards-valid MIME key per advertised
+ * extension (never the invalid wildcard key). The map is hints only — no data
+ * validation happens here.
+ */
+export const DATA_FILE_PICKER_TYPES: readonly FilePickerAcceptType[] = [
+  { description: 'Parquet', accept: { 'application/vnd.apache.parquet': ['.parquet'] } },
+  { description: 'CSV', accept: { 'text/csv': ['.csv'] } },
+  { description: 'JSON Lines', accept: { 'application/x-ndjson': ['.jsonl'] } },
+  { description: 'JSON', accept: { 'application/json': ['.json'] } },
+]
+
 /** Options the picker passes to the File System Access API. */
 export interface ShowOpenFilePickerOptions {
   readonly multiple: false
+  readonly types: readonly FilePickerAcceptType[]
+  /** Explicit false: keep the picker's standards-valid All files option. */
+  readonly excludeAcceptAllOption: false
 }
 
 export interface PickerDependencies {
@@ -56,7 +77,11 @@ export async function pickDataFile(deps: PickerDependencies = {}): Promise<Picke
     const showPicker = deps.showOpenFilePicker ?? defaultShowOpenFilePicker
     let handles: FileSystemFileHandle[]
     try {
-      handles = await showPicker({ multiple: false })
+      handles = await showPicker({
+        multiple: false,
+        types: DATA_FILE_PICKER_TYPES,
+        excludeAcceptAllOption: false,
+      })
     } catch (error) {
       if (isAbortError(error)) return null // user dismissed the native dialog
       throw error
@@ -99,6 +124,7 @@ function pickFileWithHiddenInput(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
+    input.accept = DATA_FILE_ACCEPT
     input.style.display = 'none'
     let settled = false
     const settle = (file: File | null) => {

@@ -99,8 +99,12 @@ export function createBrowserFileSourceBehaviorSubject(
         // package's own — no adaptation needed beyond the handle/file seams.
         capabilities: steps.capabilities,
         showOpenFilePicker: fsaPicker
-          ? async (pickerOptions: ShowOpenFilePickerOptions) =>
-              (await fsaPicker(pickerOptions)).map(asFileSystemHandle)
+          ? // The suite's picker seam models only the single-file contract
+            // (`BehaviorPickerOptions`). Project the shipped options onto it so
+            // the 1.0.0 suite still sees exactly `{ multiple: false }`; the
+            // R-04 accept hints are pinned by the package's own unit test.
+            async (pickerOptions: ShowOpenFilePickerOptions) =>
+              (await fsaPicker({ multiple: pickerOptions.multiple })).map(asFileSystemHandle)
           : undefined,
         pickViaHiddenInput: inputPick
           ? async () => {

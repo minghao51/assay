@@ -16,9 +16,17 @@
  * exact file from their tsconfig instead of keeping a mirrored copy.
  */
 
+/** One picker type hint: a MIME key mapped to the extensions it admits. */
+interface FilePickerAcceptType {
+  readonly description?: string
+  readonly accept: Readonly<Record<string, readonly string[]>>
+}
+
 /** Options of `window.showOpenFilePicker` — only what this package uses. */
 interface OpenFilePickerOptions {
-  multiple?: boolean
+  readonly multiple?: boolean
+  readonly types?: readonly FilePickerAcceptType[]
+  readonly excludeAcceptAllOption?: boolean
 }
 
 /** File System Access API picker global (Chromium; feature-detected at runtime). */

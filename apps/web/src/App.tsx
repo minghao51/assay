@@ -36,8 +36,8 @@ import { pendingChangesSummary } from './edit/op-summary'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
 import {
   APP_NAME,
-  NEXT_MILESTONE,
-  SCAFFOLD_STATUS,
+  IDLE_CAPABILITY,
+  IDLE_FORMATS,
   TAGLINE,
   openAnnouncementText,
   openStatusCopy,
@@ -808,6 +808,13 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           />
         )}
 
+        {phase.kind === 'idle' && (
+          <div className="idle-intro" data-testid="idle-intro">
+            <p data-testid="idle-capability">{IDLE_CAPABILITY}</p>
+            <p data-testid="idle-formats">{IDLE_FORMATS}</p>
+          </div>
+        )}
+
         <section data-testid="open-flow">
           <button
             type="button"
@@ -1164,18 +1171,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
               </div>
             </div>
           </>
-        ) : (
-          <>
-            <p>{SCAFFOLD_STATUS}</p>
-            <p>
-              Next: <strong>{NEXT_MILESTONE}</strong>
-            </p>
-            <p>
-              Documentation lives in <code>docs/</code> — start with{' '}
-              <code>docs/process/handoff.md</code>.
-            </p>
-          </>
-        )}
+        ) : null}
       </main>
     </TelemetryProvider>
   )

@@ -36,6 +36,7 @@ const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
  */
 const h = vi.hoisted(() => ({
   deferOpen: false,
+  openError: false,
   openResolvers: [] as Array<(value: unknown) => void>,
 }))
 
@@ -68,6 +69,7 @@ vi.mock('./lib/engine', () => ({
       if (h.deferOpen) {
         await new Promise<unknown>((resolve) => h.openResolvers.push(resolve))
       }
+      if (h.openError) throw new Error('corrupt dataset')
       return FAKE_HANDLE
     },
     schema: async () => FAKE_SCHEMA,
@@ -85,6 +87,7 @@ vi.mock('./profile/ProfilePanel', () => ({ ProfilePanel: () => null }))
 afterEach(() => {
   cleanup()
   h.deferOpen = false
+  h.openError = false
   h.openResolvers = []
 })
 
@@ -95,6 +98,75 @@ async function open(): Promise<void> {
   })
   await screen.findByTestId('schema-section')
 }
+
+describe('R-03 — first-run idle screen copy', () => {
+  it('renders the capability sentence and format line and no scaffold/roadmap copy', () => {
+    render(<App />)
+
+    expect(screen.getByTestId('idle-capability').textContent).toBe(
+      'Inspect, query, validate, compare, and repair local datasets.',
+    )
+    expect(screen.getByTestId('idle-formats').textContent).toBe(
+      'Opens .parquet · .csv · .jsonl · .json',
+    )
+
+    // The primary control is unchanged.
+    const button = screen.getByTestId('open-button')
+    expect(button.textContent).toBe('Open a data file…')
+    expect(button.hasAttribute('disabled')).toBe(false)
+
+    // The old scaffold/roadmap/docs block is gone, including the raw
+    // constants and the milestone language they carried.
+    const visible = document.body.textContent ?? ''
+    for (const forbidden of [
+      'MVP complete',
+      'PT-0',
+      'G0',
+      'D12',
+      'docs/',
+      'Documentation lives',
+      'Next:',
+      'post-MVP',
+      'milestone',
+      'roadmap',
+    ]) {
+      expect(visible).not.toContain(forbidden)
+    }
+  })
+
+  it('does not render the welcome copy while opening', async () => {
+    h.deferOpen = true
+    render(<App />)
+    expect(screen.getByTestId('idle-capability')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    expect(screen.queryByTestId('idle-intro')).toBeNull()
+    expect(screen.queryByTestId('idle-capability')).toBeNull()
+    const opening = screen.getByTestId('open-status')
+    expect(opening.getAttribute('data-phase')).toBe('opening')
+    expect(opening.textContent).toBe('Opening…')
+  })
+
+  it('does not render the welcome copy on an open error and keeps the alert', async () => {
+    h.openError = true
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    const alert = await screen.findByTestId('open-error')
+    expect(alert.getAttribute('role')).toBe('alert')
+    expect(alert.textContent).toContain('corrupt dataset')
+    expect(screen.queryByTestId('idle-intro')).toBeNull()
+    expect(screen.queryByTestId('idle-capability')).toBeNull()
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
+    expect(screen.getByTestId('open-button').hasAttribute('disabled')).toBe(false)
+  })
+})
 
 describe('ux-2 — human open/status copy', () => {
   it('pins the opening state: human copy + the raw phase token on data-phase only', async () => {
