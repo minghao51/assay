@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-26. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record). Everything waiting on a human, a decision, or a remote operation is consolidated in the [open-asks checklist](handoff/20261019-open-asks.md). **Pickup-ready (authored 2026-10-26, no row claimed):** the [usability queue](handoff/20261026-usability-queue.md), owning the 37 findings (UG-1…UG-37) of the [usability gap review](../reviews/2026-10-26-usability-gap-review.md) — dispatch from the queue, not the review.
+**Last updated:** 2026-10-27. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record). Everything waiting on a human, a decision, or a remote operation is consolidated in the [open-asks checklist](handoff/20261019-open-asks.md). **Pickup-ready (authored 2026-10-26; ug-1/ug-2/ug-7 integrated, next ug-3/ug-8):** the [usability queue](handoff/20261026-usability-queue.md), owning the 37 findings (UG-1…UG-37) of the [usability gap review](../reviews/2026-10-26-usability-gap-review.md) — dispatch from the queue, not the review.
 ([queue](handoff/20261019-g0-readiness-queue.md)): gb-1 telemetry
 disclosure doc → gb-2 PT-Q carry-over pack → gb-3 desktop JSON/JSONL
 vendoring → gb-4 DOUBLE row-diff quirk → gb-5 CLI dev error; human inputs
@@ -114,11 +114,12 @@ claiming. **UX/UI pickup pack (2026-10-26, docs only):**
 [visual execution queue](handoff/20261026-ux-ui-execution-queue.md) and
 [next-agent prompts](handoff/20261026-ux-ui-pickup-prompts.md#1-next-ai-orchestrator-start-here).
 Baseline **recorded 2026-10-26 at `7d8e1ca`** (clean tree; six gates, coverage, docs/ADR checks
-green: 3029 unit / 175 e2e passed). **ug-1 integrated at `e92c0dd`** after an independent
-review request-changes→approve cycle; merged gates 3034 unit / 179 e2e + 1 skip, coverage
-87.87/82.03/88.70/89.33. ug-2 and ug-7 are now eligible in isolated worktrees. ug-10 is decision-blocked
-(UX-D1), and SQL sizing remains deferred design-only. The visual queue does not replace ug
-ownership.
+green: 3029 unit / 175 e2e passed). **ug-1 integrated at `e92c0dd`, ug-2 at `8e5fd62`, ug-7 at
+`9c29da4`** after independent review (ug-7 needed a test-only amendment for the new-dataset
+recovery-reset pin); merged gates 193 unit files / 3056 tests, e2e 180 passed + 1 skipped,
+coverage 87.98/82.08/88.89/89.46. **ug-3 (Shell)** and **ug-8 (Panels)** are the next eligible
+rows in isolated worktrees. ug-10 is decision-blocked (UX-D1), and SQL sizing remains deferred
+design-only. The visual queue does not replace ug ownership.
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
 rows CLOSED 2026-10-19 — all eight rows integrated and independently
@@ -171,6 +172,14 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-27 (**fv**) — **ug-2 + ug-7 integrated** (`8e5fd62`, `9c29da4`): first-run idle
+  contract + standards-valid picker hints; panel-scoped error boundaries with recoverable
+  close/reopen and an App-owned session-scoped SQL request ledger. ug-2 approved directly
+  (the `behavior-subject.ts` test adapter was proven necessary and behavior-preserving);
+  ug-7 review requested a missing new-dataset reset pin → test-only amendment (`c15d618`) →
+  approve. Merged gates: 193 unit files / 3056 tests, e2e 180 passed + 1 skipped, coverage
+  87.98/82.08/88.89/89.46, docs 116/0, ADR 46; logs `/tmp/assay-ux-merged/`. Model diversity
+  unavailable (deepseek-flash only); independent session separation disclosed.
 - 2026-10-26 (**fu**) — **ug-1 integrated** (`e92c0dd`): nested Flatten/Explode now opens the
   SQL section through the existing seam, scrolls and focuses the matching populated/empty/error
   outcome; composition rejection opens nothing and manual runs/paging never steal focus.

@@ -6,6 +6,9 @@ row. The planning session changed documentation only. No clean-main baseline or 
 implementation was completed. Prompts do not authorize publication, remote changes or discarding
 work. Runtime rows require the existing worker → independent reviewer → orchestrator protocol.
 
+> **Status 2026-10-27:** ug-1, ug-2 and ug-7 are integrated. The live queue's next eligible rows
+> are **ug-3** (Shell) and **ug-8** (Panels); the prompts below remain the dispatch pattern.
+
 ## 1. Next AI: orchestrator (start here)
 
 Paste this entire block into the next agent's session:
