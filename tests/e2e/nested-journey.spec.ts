@@ -353,3 +353,147 @@ test('tree flatten is keyboard operable too and composes the other struct column
   await expect(page.locator('[data-testid="sql-result-row"]')).toHaveCount(12)
   await expect(page.getByTestId('nested-action-error')).toHaveCount(0)
 })
+
+// ---------------------------------------------------------------------------
+// ug-1 / R-01–R-02: nested one-click actions reveal their SQL outcome.
+//
+// These scenarios start at the shell's REAL collapsed defaults
+// (`expandSections: false`), unlike the m3-5 journey above: a successful
+// action must open SQL through the existing section seam, scroll it into view
+// and focus the outcome that belongs to that request — with no nav click.
+// ---------------------------------------------------------------------------
+
+/** The composed flatten statement for the STRUCT column `meta`. */
+function flattenMetaSql(viewName: string): string {
+  return (
+    'SELECT "id", "kind", "label", "score", "deep", "tags", "events", "hole", ' +
+    '"weird ""quoted"" key", "meta"."src" AS "meta.src", "meta"."ver" AS "meta.ver" ' +
+    `FROM "${viewName}"`
+  )
+}
+
+/** Count direct activations of the shell nav links (any counts as a nav click). */
+async function trackNavClicks(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const state = window as unknown as { __assayNavClicks?: number }
+    state.__assayNavClicks = 0
+    for (const link of document.querySelectorAll('[data-testid^="section-nav-"]')) {
+      link.addEventListener('click', () => {
+        state.__assayNavClicks = (state.__assayNavClicks ?? 0) + 1
+      })
+    }
+  })
+}
+
+async function navClickCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as unknown as { __assayNavClicks?: number }).__assayNavClicks ?? 0,
+  )
+}
+
+test('collapsed defaults: tags header Explode opens SQL, scrolls and focuses the populated result (R-01/R-02)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const { viewName } = await openNestedFixture(page, { expandSections: false })
+
+  const sqlToggle = page.getByTestId('section-toggle-sql')
+  await expect(sqlToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.locator('#section-sql-content')).toBeHidden()
+  await trackNavClicks(page)
+
+  await page.locator('[data-testid="grid-header-nested-action"][data-col-name="tags"]').click()
+
+  // Revealed without a nav click; the section toggle reports the expansion.
+  await expect(sqlToggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('#section-sql-content')).toBeVisible()
+  await expect(page.getByTestId('sql-panel')).toHaveAttribute('data-state', 'done')
+  expect(await navClickCount(page)).toBe(0)
+
+  await expect(page.getByTestId('sql-input')).toHaveValue(explodeTagsSql(viewName))
+  await expect(page.locator('[data-testid="sql-result-row"]')).toHaveCount(20)
+  await expect(page.getByTestId('sql-page-info')).toHaveText('rows 1–20')
+
+  // The outcome itself is the named, keyboard-scrollable focus target.
+  const result = page.getByTestId('sql-result')
+  await expect(page.locator('#section-sql')).toBeInViewport()
+  await expect(result).toBeFocused()
+  await expect(result).toHaveAttribute('role', 'region')
+  await expect(result).toHaveAttribute('aria-label', 'SQL result — rows 1–20')
+  const metrics = await result.evaluate((el) => ({
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  }))
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+  await page.keyboard.press('PageDown')
+  await expect.poll(async () => result.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+
+  // The main grid is unchanged: same row/column identity and data.
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
+  await expect(page.getByTestId('grid-column-count')).toHaveText('10')
+  await expect(
+    page.locator('[data-testid="grid-row"][data-row-index="0"]').getByTestId('grid-cell').nth(5),
+  ).toHaveText('{"src":"sensor-a","ver":1}')
+})
+
+test('collapsed defaults: schema-tree STRUCT Flatten opens SQL and focuses its result (R-01/R-02)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const { viewName } = await openNestedFixture(page, { expandSections: false })
+  await expect(page.getByTestId('section-toggle-sql')).toHaveAttribute('aria-expanded', 'false')
+
+  await page
+    .getByTestId('schema-panel')
+    .getByRole('button', { name: 'Flatten struct column meta' })
+    .click()
+
+  await expect(page.getByTestId('section-toggle-sql')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByTestId('sql-panel')).toHaveAttribute('data-state', 'done')
+  await expect(page.getByTestId('sql-input')).toHaveValue(flattenMetaSql(viewName))
+  await expect(page.locator('[data-testid="sql-result-row"]')).toHaveCount(12)
+  await expect(page.getByTestId('sql-result')).toBeFocused()
+  await expect(page.getByTestId('sql-result')).toHaveAttribute(
+    'aria-label',
+    'SQL result — rows 1–12',
+  )
+})
+
+test('rail-collapsed pane expands for a header Explode and focuses the result (R-01)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openNestedFixture(page, { expandSections: false })
+
+  await page.getByTestId('pane-toggle').click()
+  await expect(page.locator('.workbench-layout')).toHaveAttribute('data-pane', 'collapsed')
+  await expect(page.locator('#workbench-tools-body')).toHaveAttribute('hidden', '')
+
+  await page.locator('[data-testid="grid-header-nested-action"][data-col-name="tags"]').click()
+
+  await expect(page.locator('.workbench-layout')).toHaveAttribute('data-pane', 'expanded')
+  await expect(page.locator('#workbench-tools-body')).not.toHaveAttribute('hidden', '')
+  await expect(page.locator('#section-sql-content')).toBeVisible()
+  await expect(page.locator('#section-sql')).toBeInViewport()
+  await expect(page.getByTestId('sql-panel')).toHaveAttribute('data-state', 'done')
+  await expect(page.getByTestId('sql-result')).toBeFocused()
+})
+
+test('900px fallback: schema Explode reveals SQL, focuses the result and scrolls the page (R-01/R-02)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 900 })
+  const { viewName } = await openNestedFixture(page, { expandSections: false })
+  await expect(page.getByTestId('section-toggle-sql')).toHaveAttribute('aria-expanded', 'false')
+
+  await page
+    .getByTestId('schema-panel')
+    .getByRole('button', { name: 'Explode list column tags' })
+    .click()
+
+  await expect(page.getByTestId('section-toggle-sql')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('#section-sql-content')).toBeVisible()
+  await expect(page.getByTestId('sql-input')).toHaveValue(explodeTagsSql(viewName))
+  await expect(page.getByTestId('sql-result')).toBeFocused()
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+})

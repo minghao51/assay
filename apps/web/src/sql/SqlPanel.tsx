@@ -97,6 +97,20 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
   const lastRunSql = useRef<string | null>(null)
   const guard = useRef(new RunGuard())
   const startedAtRef = useRef<number | null>(null)
+  /**
+   * ug-1/R-01–R-02 reveal seam. A *successful nested action* (external
+   * `runRequest`) records its sequence here when its run settles; the
+   * effect below then scrolls the section into view and focuses the outcome
+   * that was just rendered. Manual Run and paging pass `null`, so they never
+   * move focus. The token is cleared after the one reveal, and the settle
+   * callback only runs while the `RunGuard` token is active — a superseded
+   * request can never reveal an older result.
+   */
+  const pendingRevealRef = useRef<number | null>(null)
+  const sectionRef = useRef<HTMLElement | null>(null)
+  const resultRef = useRef<HTMLDivElement | null>(null)
+  const emptyRef = useRef<HTMLParagraphElement | null>(null)
+  const errorRef = useRef<HTMLParagraphElement | null>(null)
 
   const running = runState.kind === 'running'
   const runnable = composePageQuery(draft, { limit: SQL_PAGE_SIZE, offset: 0 }).ok
@@ -108,9 +122,15 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
    * superseded run's late result/rejection is discarded and can never
    * clobber the pane's current state.
    */
-  const execute = (userSql: string, offset: number, kind: QueryKind): void => {
+  const execute = (
+    userSql: string,
+    offset: number,
+    kind: QueryKind,
+    revealSeq: number | null = null,
+  ): void => {
     const composed = composePageQuery(userSql, { limit: SQL_PAGE_SIZE, offset })
     if (!composed.ok) {
+      pendingRevealRef.current = revealSeq
       setRunState({ kind: 'error', message: composed.reason })
       return
     }
@@ -121,6 +141,9 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
     runGuarded(guard.current, engineClient.query(composed.sql), {
       onResult: (result) => {
         const rows = projectBatchToRows(result.batch)
+        // Only a nested-action request arms a reveal; the token is
+        // consumed by the post-render effect below.
+        pendingRevealRef.current = revealSeq
         setPage({
           columns: resultColumnNames(result.batch),
           rows,
@@ -139,7 +162,9 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
       },
       onError: (cause: unknown) => {
         // Engine errors (EngineQueryError & co.) surface as readable alert
-        // text; the pane (and engine) stay usable for the next run.
+        // text; the pane (and engine) stay usable for the next run. A nested
+        // action still reveals its own error target.
+        pendingRevealRef.current = revealSeq
         setRunState({ kind: 'error', message: errorMessage(cause) })
         telemetry.emit('query_run', {
           query_kind: kind,
@@ -170,8 +195,35 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
   useEffect(() => {
     if (runRequest === null) return
     setDraft(runRequest.sql)
-    executeRef.current(runRequest.sql, 0, 'nested_action')
+    executeRef.current(runRequest.sql, 0, 'nested_action', runRequest.seq)
   }, [runRequest])
+
+  /**
+   * ug-1/R-01–R-02: after the matching request has rendered its outcome,
+   * scroll the SQL section into view and focus that outcome. Depends only on
+   * the settle state — not on draft edits or unrelated rerenders — and the
+   * token is armed exclusively by an external request's settle (manual runs
+   * and paging pass `null`). `scrollIntoView` is feature-checked because
+   * happy-dom does not implement layout scrolling.
+   */
+  useEffect(() => {
+    if (pendingRevealRef.current === null) return
+    const target =
+      runState.kind === 'error'
+        ? errorRef.current
+        : runState.kind === 'done' && page !== null
+          ? page.rows.length === 0
+            ? emptyRef.current
+            : resultRef.current
+          : null
+    if (target === null) return
+    pendingRevealRef.current = null
+    const section = sectionRef.current
+    if (section !== null && typeof section.scrollIntoView === 'function') {
+      section.scrollIntoView({ block: 'start' })
+    }
+    target.focus()
+  }, [runState, page])
 
   const cancel = (): void => {
     if (!running) return
@@ -212,6 +264,7 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
 
   return (
     <section
+      ref={sectionRef}
       className="sql"
       data-testid="sql-panel"
       aria-label="SQL query"
@@ -265,7 +318,9 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
         </span>
       </div>
       {runState.kind === 'error' && (
-        <p className="sql-error" role="alert" data-testid="sql-error">
+        // Programmatic focus target for a nested action's execution error
+        // (R-02); the alert role is the pre-existing visible contract.
+        <p className="sql-error" role="alert" data-testid="sql-error" ref={errorRef} tabIndex={-1}>
           {runState.message}
         </p>
       )}
@@ -279,13 +334,28 @@ export function SqlPanel({ tableId, runRequest }: SqlPanelProps) {
       {page !== null && summary !== null && (
         <>
           {page.rows.length === 0 ? (
-            <p className="sql-result-empty" data-testid="sql-result-empty">
+            // Programmatic focus target for a nested action's empty result
+            // (R-02); also the polite status for the outcome.
+            <p
+              className="sql-result-empty"
+              data-testid="sql-result-empty"
+              ref={emptyRef}
+              tabIndex={-1}
+              role="status"
+            >
               {page.offset === 0
                 ? 'The query returned no rows.'
                 : 'No rows on this page — the result set ended before it.'}
             </p>
           ) : (
-            <div className="sql-result" data-testid="sql-result">
+            <div
+              className="sql-result"
+              data-testid="sql-result"
+              ref={resultRef}
+              role="region"
+              tabIndex={0}
+              aria-label={`SQL result — ${summary.label}`}
+            >
               <table className="sql-result-table">
                 <thead>
                   <tr>

@@ -572,10 +572,17 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         return
       }
       setActionError(null)
+      // ug-1/R-01: a successful one-click nested action must reveal its
+      // outcome. Reuse the shell's existing section seam and rail state — no
+      // nav click, no DOM relocation. The request itself is still what the
+      // SQL pane runs; the pane owns the post-render scroll/focus (sequence
+      // tied, see SqlPanel).
+      openSection('sql')
+      setPaneCollapsed(false)
       requestSeq.current += 1
       setSqlRequest({ sql: composed.sql, seq: requestSeq.current })
     },
-    [phase, nestedSpecs],
+    [phase, nestedSpecs, openSection],
   )
 
   /**

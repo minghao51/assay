@@ -114,13 +114,17 @@ describe('nested-action compose-failure alert (m4-0)', () => {
     expect(screen.getByRole('alert').textContent).toBe(
       'column "tags" is a fixed-size array ([3]); DuckDB UNNEST cannot explode it',
     )
+    // ug-1/R-02: a rejected composition must not open SQL as a side effect.
+    expect(screen.getByTestId('section-toggle-sql').getAttribute('aria-expanded')).toBe('false')
 
     // 2. Success: flattening the well-formed struct composes and dispatches;
-    // the prior error is cleared — the alert disappears.
+    // the prior error is cleared — the alert disappears and the SQL section
+    // is revealed (ug-1/R-01).
     await act(async () => {
       fireEvent.click(schemaPanel.getByRole('button', { name: 'Flatten struct column meta' }))
     })
     expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByTestId('section-toggle-sql').getAttribute('aria-expanded')).toBe('true')
 
     // 3. A fresh failure renders a fresh alert — the clear was real state.
     await act(async () => {

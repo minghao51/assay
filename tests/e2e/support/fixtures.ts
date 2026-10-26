@@ -127,10 +127,15 @@ export async function openFixtureAndGetTableId(
   return page.getByTestId('sql-table-id').innerText()
 }
 
-/** Open the shared nested JSONL fixture and pin its rows, columns, and privacy. */
+/**
+ * Open the shared nested JSONL fixture and pin its rows, columns, and privacy.
+ * `expandSections: false` keeps the real collapsed shell defaults (ug-1's
+ * reveal acceptance starts there); every other option passes through to
+ * `openFixture`.
+ */
 export async function openNestedFixture(
   page: Page,
-  options: { readonly beforeOpen?: (page: Page) => Promise<void> } = {},
+  options: OpenFixtureOptions = {},
 ): Promise<{ tableId: string; viewName: string }> {
   const tableId = await openFixtureAndGetTableId(page, NESTED_FIXTURE, options)
   await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
