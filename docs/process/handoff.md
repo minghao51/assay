@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-19. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record). Everything waiting on a human, a decision, or a remote operation is consolidated in the [open-asks checklist](handoff/20261019-open-asks.md); no authorized agent lane is queued.
+**Last updated:** 2026-10-26. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record). Everything waiting on a human, a decision, or a remote operation is consolidated in the [open-asks checklist](handoff/20261019-open-asks.md). **Pickup-ready (authored 2026-10-26, no row claimed):** the [usability queue](handoff/20261026-usability-queue.md), owning the 37 findings (UG-1…UG-37) of the [usability gap review](../reviews/2026-10-26-usability-gap-review.md) — dispatch from the queue, not the review.
 ([queue](handoff/20261019-g0-readiness-queue.md)): gb-1 telemetry
 disclosure doc → gb-2 PT-Q carry-over pack → gb-3 desktop JSON/JSONL
 vendoring → gb-4 DOUBLE row-diff quirk → gb-5 CLI dev error; human inputs
@@ -103,6 +103,12 @@ an ADR, never a silent rewrite of an accepted decision.
 ## 6. Task queues
 
 ### Active
+
+[Usability queue](handoff/20261026-usability-queue.md): **opened 2026-10-26, pickup-ready** —
+23 rows (ug-1…ug-23) across three lanes (Shell / Grid / Panels) owning the
+[usability gap review](../reviews/2026-10-26-usability-gap-review.md) findings UG-1…UG-37
+(first-run contract, affordance visibility, failure containment, journey coherence). Read
+the queue's §2 lane rules and §3 standing constraints before claiming.
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
 rows CLOSED 2026-10-19 — all eight rows integrated and independently

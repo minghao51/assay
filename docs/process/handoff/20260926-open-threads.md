@@ -41,6 +41,11 @@
    v1 accepted (ADR 0046)** → P3 queue authoring unblocked; **PT-V slice 1 GO on the
    desktop-extension webview** (vscode-web stays RE-SCOPE) → PT-V slice-1 planning next. No active
    queue. G0 tail stays human-only (§3).
+7. **Now (2026-10-26): the usability queue is the active pickup** —
+   [handoff/20261026-usability-queue.md](20261026-usability-queue.md) (23 rows, ug-1…ug-23,
+   three lanes) owning the [usability gap review](../../reviews/2026-10-26-usability-gap-review.md)
+   findings UG-1…UG-37. Start at **ug-1** (hidden nested-action result — smallest trust repair),
+   then ug-2 (first-run idle screen); Panels lane ug-7 (error boundaries) runs in parallel.
 
 ## 2. Open threads (authoritative pointers)
 
