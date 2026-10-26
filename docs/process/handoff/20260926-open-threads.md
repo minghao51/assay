@@ -45,7 +45,11 @@
    [handoff/20261026-usability-queue.md](20261026-usability-queue.md) (23 rows, ug-1…ug-23,
    three lanes) owning the [usability gap review](../../reviews/2026-10-26-usability-gap-review.md)
    findings UG-1…UG-37. Start at **ug-1** (hidden nested-action result — smallest trust repair),
-   then ug-2 (first-run idle screen); Panels lane ug-7 (error boundaries) runs in parallel.
+   then ug-2 (first-run idle screen); Panels lane ug-7 (error boundaries) is eligible in an isolated
+   worktree after ug-1. Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
+   [visual queue](20261026-ux-ui-execution-queue.md) and
+   [pickup prompts](20261026-ux-ui-pickup-prompts.md) now carry bounded scopes and role briefs.
+   Baseline remains unrecorded; ug-10 is decision-blocked (UX-D1), not silently runnable.
 
 ## 2. Open threads (authoritative pointers)
 

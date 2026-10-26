@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc"><title id="title">Assay ready dark reference</title><desc id="desc">Design reference, not a screenshot. Existing DOM and behavior remain authoritative; feature ownership is in implementation spec section 2.</desc><rect width="1440" height="900" fill="#17191c"/><g font-family="system-ui, sans-serif">
+<text x="24" y="42" font-size="24" fill="#e8eaed" font-weight="650">Assay</text>
+<rect x="1304" y="17" width="112" height="36" rx="6" fill="#17191c" stroke="#3a3f46"/>
+<text x="1316" y="40" font-size="14" fill="#e8eaed" font-weight="500">Settings</text>
+<rect x="130" y="19" width="180" height="36" rx="6" fill="#26313d" stroke="#6ea8e0"/>
+<text x="142" y="42" font-size="14" fill="#a8c7e8" font-weight="500">Open a data file…</text>
+<text x="334" y="43" font-size="14" fill="#b0b6bd" font-weight="400">Dataset · 12 rows · 10 columns</text>
+<text x="24" y="92" font-size="13" fill="#a8c7e8" font-weight="400">[A] Compact header; workspace starts at 130px. 24px gutters · 360px pane · 16px gap.</text>
+<rect x="24" y="130" width="360" height="710" rx="6" fill="#1f2226" stroke="#3a3f46"/>
+<text x="42" y="158" font-size="14" fill="#e8eaed" font-weight="600">Workbench sections</text>
+<text x="355" y="158" font-size="18" fill="#b0b6bd" font-weight="400">‹</text>
+<text x="42" y="190" font-size="12" fill="#a8c7e8" font-weight="400">Schema  Grid  Editing  Export  History</text>
+<text x="42" y="215" font-size="12" fill="#a8c7e8" font-weight="400">Validation  Compare  Filters  Record</text>
+<text x="42" y="240" font-size="12" fill="#a8c7e8" font-weight="400">SQL  Profile  Pipeline</text>
+<text x="42" y="281" font-size="14" fill="#e8eaed" font-weight="600">▸ Schema</text>
+<text x="56" y="301" font-size="12" fill="#b0b6bd" font-weight="400">10 columns · inspect types and nested fields</text>
+<text x="42" y="335" font-size="14" fill="#e8eaed" font-weight="600">▸ Editing</text>
+<text x="56" y="355" font-size="12" fill="#b0b6bd" font-weight="400">Stage changes; the opened file stays unchanged</text>
+<text x="42" y="389" font-size="14" fill="#e8eaed" font-weight="600">▸ Export</text>
+<text x="56" y="409" font-size="12" fill="#b0b6bd" font-weight="400">Write a copy of the edited dataset</text>
+<text x="42" y="443" font-size="14" fill="#e8eaed" font-weight="600">▸ History</text>
+<text x="56" y="463" font-size="12" fill="#b0b6bd" font-weight="400">No staged changes</text>
+<text x="42" y="497" font-size="14" fill="#e8eaed" font-weight="600">▸ Validation</text>
+<text x="56" y="517" font-size="12" fill="#b0b6bd" font-weight="400">Load a contract to check this dataset</text>
+<text x="42" y="551" font-size="14" fill="#e8eaed" font-weight="600">▸ Compare</text>
+<text x="56" y="571" font-size="12" fill="#b0b6bd" font-weight="400">Inspect changes against another dataset</text>
+<text x="42" y="605" font-size="14" fill="#e8eaed" font-weight="600">▸ Filters</text>
+<text x="56" y="625" font-size="12" fill="#b0b6bd" font-weight="400">Narrow the grid view</text>
+<text x="42" y="672" font-size="14" fill="#e8eaed" font-weight="600">▾ SQL</text>
+<rect x="42" y="689" width="324" height="48" rx="6" fill="#17191c" stroke="#3a3f46"/>
+<text x="54" y="709" font-size="13" fill="#e8eaed" font-weight="400">SELECT … UNNEST(…)</text>
+<text x="54" y="727" font-size="12" fill="#b0b6bd" font-weight="400">Generated query · grid unchanged</text>
+<text x="42" y="763" font-size="13" fill="#a8c7e8" font-weight="500">Result page: rows 1–20</text>
+<text x="42" y="791" font-size="13" fill="#b0b6bd" font-weight="400">Profile  ·  Pipeline</text>
+<text x="400" y="153" font-size="18" fill="#e8eaed" font-weight="600">Grid</text>
+<text x="400" y="179" font-size="13" fill="#a8c7e8" font-weight="400">[B] 1016px column; own scroll, 28px data rows.</text>
+<rect x="400" y="195" width="1016" height="640" rx="6" fill="#17191c" stroke="#3a3f46"/>
+<text x="414" y="219" font-size="14" fill="#e8eaed" font-weight="600">id</text>
+<text x="554" y="219" font-size="14" fill="#e8eaed" font-weight="600">kind</text>
+<text x="694" y="219" font-size="14" fill="#e8eaed" font-weight="600">label</text>
+<text x="834" y="219" font-size="14" fill="#e8eaed" font-weight="600">score</text>
+<text x="974" y="219" font-size="14" fill="#e8eaed" font-weight="600">deep</text>
+<text x="1114" y="219" font-size="14" fill="#e8eaed" font-weight="600">meta</text>
+<text x="1254" y="219" font-size="14" fill="#e8eaed" font-weight="600">tags</text>
+<text x="414" y="251" font-size="14" fill="#e8eaed" font-weight="400">1</text>
+<text x="554" y="251" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="251" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="251" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="251" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="251" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="251" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<rect x="401" y="260" width="1014" height="28" fill="#1f2226"/>
+<text x="414" y="279" font-size="14" fill="#e8eaed" font-weight="400">2</text>
+<text x="554" y="279" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="279" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="279" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="279" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="279" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="279" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<text x="414" y="307" font-size="14" fill="#e8eaed" font-weight="400">3</text>
+<text x="554" y="307" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="307" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="307" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="307" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="307" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="307" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<rect x="401" y="316" width="1014" height="28" fill="#1f2226"/>
+<text x="414" y="335" font-size="14" fill="#e8eaed" font-weight="400">4</text>
+<text x="554" y="335" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="335" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="335" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="335" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="335" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="335" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<text x="414" y="363" font-size="14" fill="#e8eaed" font-weight="400">5</text>
+<text x="554" y="363" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="363" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="363" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="363" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="363" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="363" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<rect x="401" y="372" width="1014" height="28" fill="#1f2226"/>
+<text x="414" y="391" font-size="14" fill="#e8eaed" font-weight="400">6</text>
+<text x="554" y="391" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="391" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="391" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="391" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="391" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="391" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<text x="414" y="419" font-size="14" fill="#e8eaed" font-weight="400">7</text>
+<text x="554" y="419" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="419" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="419" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="419" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="419" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="419" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<rect x="401" y="428" width="1014" height="28" fill="#1f2226"/>
+<text x="414" y="447" font-size="14" fill="#e8eaed" font-weight="400">8</text>
+<text x="554" y="447" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="447" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="447" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="447" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="447" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="447" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<text x="414" y="475" font-size="14" fill="#e8eaed" font-weight="400">9</text>
+<text x="554" y="475" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="475" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="475" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="475" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="475" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="475" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<rect x="401" y="484" width="1014" height="28" fill="#1f2226"/>
+<text x="414" y="503" font-size="14" fill="#e8eaed" font-weight="400">10</text>
+<text x="554" y="503" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="503" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="503" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="503" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="503" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="503" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<text x="414" y="531" font-size="14" fill="#e8eaed" font-weight="400">11</text>
+<text x="554" y="531" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="531" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="531" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="531" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="531" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="531" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<rect x="401" y="540" width="1014" height="28" fill="#1f2226"/>
+<text x="414" y="559" font-size="14" fill="#e8eaed" font-weight="400">12</text>
+<text x="554" y="559" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="694" y="559" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="834" y="559" font-size="14" fill="#e8eaed" font-weight="400">…</text>
+<text x="974" y="559" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1114" y="559" font-size="14" fill="#b0b6bd" font-weight="400">{…}</text>
+<text x="1254" y="559" font-size="14" fill="#b0b6bd" font-weight="400">[…]</text>
+<text x="400" y="858" font-size="12" fill="#a8c7e8" font-weight="400">[C] Focus/dirty/NULL states retain existing semantics. Data cells here are schematic.</text>
+<text x="400" y="882" font-size="12" fill="#b0b6bd" font-weight="400">Record inspector dock stays below the grid; no new result workspace or DOM reorder.</text>
+</g></svg>

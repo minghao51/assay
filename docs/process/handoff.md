@@ -108,19 +108,25 @@ an ADR, never a silent rewrite of an accepted decision.
 23 rows (ug-1…ug-23) across three lanes (Shell / Grid / Panels) owning the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) findings UG-1…UG-37
 (first-run contract, affordance visibility, failure containment, journey coherence). Read
-the queue's §2 lane rules and §3 standing constraints before claiming.
+the queue's §2 lane rules, §3 standing constraints and §5 execution clarifications before
+claiming. **UX/UI pickup pack (2026-10-26, docs only):**
+[implementation spec](../product/09-ux-ui-implementation-spec.md),
+[visual execution queue](handoff/20261026-ux-ui-execution-queue.md) and
+[next-agent prompts](handoff/20261026-ux-ui-pickup-prompts.md#1-next-ai-orchestrator-start-here).
+Baseline is **not recorded**, no implementation row claimed; start ug-1 only after clean-main
+gates, then ug-2 with ug-7 eligible in isolated worktrees. ug-10 is decision-blocked (UX-D1),
+and SQL sizing remains deferred design-only. The visual queue does not replace ug ownership.
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
 rows CLOSED 2026-10-19 — all eight rows integrated and independently
 reviewed (the exit-acceptance chain reproduces MVP scenario 11 with
-installed-CLI agreement). Next: the maintenance queue (q-5b e2e helper
-consolidation, q-7 testing-package strictness); slice 2 is not closed. The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
+installed-CLI agreement). Do not redispatch slice 2 or its completed q-5b/q-7 maintenance.
+The [repository maintenance queue](handoff/20261014-repository-maintenance.md)
 is **closed**: docs, packaging, VS Code build/CI and q-14 all integrated.
 
-PT-Q residue remains pickup-ready under
-[product/04 §7](../product/04-post-mvp-track.md): **q-5b** e2e helper
-consolidation and **q-7 slice 2** testing-package strictness. These are separate
-maintenance tasks, not scope riders on an engine feature change.
+PT-Q q-5b and q-7 **landed 2026-10-19** (records fk/fl below). The remaining q-6a
+performance-probe harness is tracked under [product/04 §7](../product/04-post-mvp-track.md);
+it is separate maintenance, not a rider on this UX/UI batch.
 
 ### Closed and historical
 
@@ -162,6 +168,11 @@ Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.
 
+- 2026-10-26 (**fs**) — authored the
+  [UX/UI executable pickup pack](handoff/20261026-ux-ui-pickup-prompts.md): requirement spec,
+  four light/dark reference frames, uxv queue and role prompts; ug scope clarifications and
+  explicit ug-10 profiling decision block. Docs only; no baseline/runtime/remote-green claim.
+  Removed stale §6 instructions to repeat already-closed PT-V/q-5b/q-7 work.
 - 2026-10-19 (**fr**) — gb-5 done + G0-readiness batch CLOSED: honest
   repo-root CLI dev error (`60a3fcd`, boundary-pinned); all five rows
   integrated; all three slice-2 recorded gaps closed.
