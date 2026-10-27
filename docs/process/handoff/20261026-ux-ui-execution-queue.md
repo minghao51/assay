@@ -1,6 +1,8 @@
 # UX/UI Execution Queue — visual polish and engine showcase
 
-**Authored 2026-10-26; baseline recorded; ug-1/ug-2/ug-7 integrated.** The user requested an executable spec,
+**Authored 2026-10-26; continuation 2026-10-28:** baseline recorded; ug-1/ug-2/ug-7,
+ug-7 evidence follow-up and ug-3 integrated. ug-8 approved/code-integrated but merged verification
+is blocked; no further runtime dispatch until usability queue §5 blocker resolves. The user requested an executable spec,
 handoff and next-agent prompts after the investigation. This queue owns **uxv-0…uxv-6 only**;
 [ug-1…ug-23](20261026-usability-queue.md) retain their own status and feature ownership.
 Requirements/copy/geometry: [implementation spec](../../product/09-ux-ui-implementation-spec.md).
@@ -115,7 +117,11 @@ Active Markdown diagnostics reported no warnings/errors. The Node command genera
 local synthetic inputs; it was not a browser/CLI rehearsal or source change. Render artifacts
 are ephemeral in `/tmp/assay-ux-reference-review/` and are not required for future pickup.
 
-**Integration status:** documentation remains uncommitted in the authoring checkout. No runtime
-row is claimed/completed, no six-gate baseline is recorded, and no feature/release approval is
-implied by the documentation review. Next orchestrator must inspect and preserve current work,
-complete docs integration, then run uxv-0 before dispatching ug-1.
+**Historical authoring status (superseded by live rows):** the documentation was uncommitted
+when reviewed; it was subsequently integrated at `7d8e1ca`, followed by uxv-0 and ug-1/ug-2/ug-7.
+2026-10-28 continuation integrated ug-7 evidence follow-up `8367fbd` and ug-3 `5253c06`. ug-8
+`cb64c32` is independently approved/code-integrated, but its merged unit gate is blocked by
+recurring CLI timeout / pinned DuckDB assertion failures; it is not closed. No uxv runtime row
+was claimed by this continuation; uxv-2/uxv-5 ug-8 prerequisites are not satisfied until closure.
+Next lane candidates ug-13/ug-9 stay unclaimed while verification is blocked. The usability queue
+§5 owns exact evidence/logs. These local records imply no remote/publication approval.

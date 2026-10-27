@@ -46,8 +46,10 @@
    three lanes) owning the [usability gap review](../../reviews/2026-10-26-usability-gap-review.md)
    findings UG-1…UG-37. **ug-1**, **ug-2** (first-run idle screen + picker hints) and Panels
    lane **ug-7** (panel/grid recovery + SQL request lifetime) are integrated at `e92c0dd`,
-   `8e5fd62` and `9c29da4`; **ug-3 (Shell)** and **ug-8 (Panels)** are the next eligible rows
-   in isolated worktrees. Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
+   `8e5fd62` and `9c29da4`. **2026-10-28 continuation:** ug-7 evidence follow-up `8367fbd` and
+   ug-3 `5253c06` integrated; ug-8 `cb64c32` is approved/code-integrated but not closed because
+   merged unit verification repeatedly failed. Runtime dispatch paused; usability queue §5 owns
+   exact blocker/logs. Next lane candidates ug-13 (Shell) / ug-9 (Panels) remain unclaimed. Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
    [visual queue](20261026-ux-ui-execution-queue.md) and
    [pickup prompts](20261026-ux-ui-pickup-prompts.md) carry bounded scopes and role briefs.
    Baseline recorded 2026-10-26 at `7d8e1ca`; merged gates after ug-2/ug-7 are 193 unit files /

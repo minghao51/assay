@@ -6,8 +6,11 @@ row. The planning session changed documentation only. No clean-main baseline or 
 implementation was completed. Prompts do not authorize publication, remote changes or discarding
 work. Runtime rows require the existing worker → independent reviewer → orchestrator protocol.
 
-> **Status 2026-10-27:** ug-1, ug-2 and ug-7 are integrated. The live queue's next eligible rows
-> are **ug-3** (Shell) and **ug-8** (Panels); the prompts below remain the dispatch pattern.
+> **Status 2026-10-28:** ug-1/ug-2/ug-7, the ug-7 evidence follow-up, and ug-3 are integrated.
+> ug-8 is approved/code-integrated but **not closed**: recurring merged unit-gate failures block
+> further runtime dispatch (live usability queue §5). Next lane candidates ug-13 (Shell) and
+> ug-9 (Panels) remain unclaimed. ug-10 stays UX-D1 blocked. Historical prompts below are
+> dispatch patterns, not instructions to repeat completed rows or bypass verification.
 
 ## 1. Next AI: orchestrator (start here)
 
