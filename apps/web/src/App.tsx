@@ -1195,6 +1195,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                               phase.base,
                               overlayState ?? stateAtCursor(phase.base, history),
                             )}
+                            activeOperationCount={activeOps(history).length}
                             // Filtering and sorting tracked separately (m4-5 fix
                             // round 2): a sort-only view must not claim a "filtered
                             // subset"; the dialog describes only the active state.

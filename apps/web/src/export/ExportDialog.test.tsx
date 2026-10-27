@@ -11,6 +11,7 @@ afterEach(cleanup)
 function renderDialog(overrides: Partial<ExportDialogProps> = {}) {
   const props: ExportDialogProps = {
     rowCount: 6,
+    activeOperationCount: 0,
     viewFiltered: false,
     viewSorted: false,
     runEngineExport: vi.fn(async (format) => ({
@@ -35,6 +36,25 @@ describe('ExportDialog — copy-vs-rewrite wording (ADR 0012)', () => {
     expect(notice.textContent).toContain('new file')
     expect(notice.textContent).toContain('The opened file is not changed')
     expect(document.body.textContent ?? '').not.toMatch(/overwrit|in place|in-place/i)
+  })
+
+  it('omits the staged-operation line when the active history prefix is empty', () => {
+    renderDialog({ activeOperationCount: 0 })
+    expect(screen.queryByTestId('export-staged-count')).toBeNull()
+  })
+
+  it('uses singular grammar for one staged operation', () => {
+    renderDialog({ activeOperationCount: 1 })
+    expect(screen.getByTestId('export-staged-count').textContent).toBe(
+      'Includes 1 staged change — review in History',
+    )
+  })
+
+  it('uses plural grammar for multiple staged operations', () => {
+    renderDialog({ activeOperationCount: 7 })
+    expect(screen.getByTestId('export-staged-count').textContent).toBe(
+      'Includes 7 staged changes — review in History',
+    )
   })
 
   it('describes the current edited view using the engine-backed row count', () => {

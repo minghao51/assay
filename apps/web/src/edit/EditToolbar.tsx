@@ -32,6 +32,9 @@ export function EditToolbar({ onInsertRow, pendingSummary, error }: EditToolbarP
   return (
     <section className="edit-toolbar" data-testid="edit-toolbar" aria-label="Editing">
       <h2 className="visually-hidden">Editing</h2>
+      <p className="edit-overlay-explanation" data-testid="edit-overlay-explanation">
+        Edits are staged in this session; the opened file is never modified. Export writes a copy.
+      </p>
       <button
         type="button"
         className="edit-insert-row"

@@ -42,6 +42,8 @@ export interface ExportDialogProps {
    * grid's filtered count while the export contained every row).
    */
   readonly rowCount: number
+  /** Number of edit operations in the active history prefix. */
+  readonly activeOperationCount: number
   /**
    * True when the grid view currently applies at least one filter. Tracked
    * separately from sorting (m4-5 fix round 2) so the dialog describes only
@@ -82,6 +84,7 @@ type ExportPhase =
 
 export function ExportDialog({
   rowCount,
+  activeOperationCount,
   viewFiltered,
   viewSorted,
   runEngineExport,
@@ -259,6 +262,12 @@ export function ExportDialog({
         Writes a <strong>new file</strong> with the current edited view. The opened file is not
         changed — Assay never rewrites the source.
       </p>
+      {activeOperationCount > 0 && (
+        <p className="export-staged-count" data-testid="export-staged-count">
+          Includes {activeOperationCount} staged {activeOperationCount === 1 ? 'change' : 'changes'}
+          {' — review in History'}
+        </p>
+      )}
 
       <fieldset className="export-formats" disabled={working}>
         <legend>Format</legend>

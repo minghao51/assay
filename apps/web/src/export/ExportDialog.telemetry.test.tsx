@@ -29,6 +29,7 @@ function renderDialog(
 ): ExportDialogProps {
   const props: ExportDialogProps = {
     rowCount: 6,
+    activeOperationCount: 0,
     viewFiltered: false,
     viewSorted: false,
     runEngineExport: vi.fn(async (format) => ({

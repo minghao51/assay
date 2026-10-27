@@ -227,6 +227,59 @@ describe('column rename affordance (m4-4)', () => {
     expect(screen.getByTestId('pending-changes').textContent).toBe('No pending changes.')
   })
 
+  it('exports the active history-prefix operation count through undo, redo, and truncation', async () => {
+    await openFixture()
+
+    const readStagedCount = async (): Promise<string | null> => {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('export-open'))
+      })
+      const count = screen.queryByTestId('export-staged-count')?.textContent ?? null
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('export-close'))
+      })
+      return count
+    }
+    const renameColumn = async (from: string, to: string): Promise<void> => {
+      const panel = within(screen.getByTestId('schema-panel'))
+      await act(async () => {
+        fireEvent.click(panel.getByRole('button', { name: `Rename column ${from}` }))
+      })
+      const input = panel.getByTestId('column-rename-input')
+      await act(async () => {
+        fireEvent.change(input, { target: { value: to } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+      })
+    }
+
+    expect(await readStagedCount()).toBeNull()
+
+    await renameColumn('country', 'nation')
+    await renameColumn('income', 'salary')
+    expect(await readStagedCount()).toBe('Includes 2 staged changes — review in History')
+
+    // The full history still has two entries, but only the first remains active.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('history-undo'))
+    })
+    expect(await readStagedCount()).toBe('Includes 1 staged change — review in History')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('history-redo'))
+    })
+    expect(await readStagedCount()).toBe('Includes 2 staged changes — review in History')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('history-undo'))
+      fireEvent.click(screen.getByTestId('history-undo'))
+    })
+    expect(await readStagedCount()).toBeNull()
+
+    // A new op after undo truncates the two-entry redo tail.
+    await renameColumn('country', 'territory')
+    expect(await readStagedCount()).toBe('Includes 1 staged change — review in History')
+  })
+
   it('surfaces a rename collision as a typed conflict and changes nothing', async () => {
     await openFixture()
     const panel = within(screen.getByTestId('schema-panel'))

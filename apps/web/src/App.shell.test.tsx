@@ -234,6 +234,9 @@ describe('q-15 — workbench two-pane shell', () => {
     expect(body?.hasAttribute('hidden')).toBe(false)
     // CSS-only collapse: the child is still mounted (grid/fetch + memo invariants).
     expect(screen.getByTestId('edit-toolbar')).toBeTruthy()
+    expect(screen.getByTestId('edit-overlay-explanation').textContent).toBe(
+      'Edits are staged in this session; the opened file is never modified. Export writes a copy.',
+    )
 
     await act(async () => {
       fireEvent.click(toggle)
