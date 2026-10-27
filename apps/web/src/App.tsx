@@ -23,6 +23,7 @@ import { emptyHistory, liveRowCount, stateAtCursor } from '@assay/domain'
 import { GridViewportModel } from '@assay/grid'
 import type { ColumnSchema } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
+import nestedFixtureText from '../../../fixtures/jsonl/nested.jsonl?raw'
 import { DataGrid } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -37,6 +38,8 @@ import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
 import {
   APP_NAME,
   IDLE_CAPABILITY,
+  IDLE_EXAMPLE_ACTION,
+  IDLE_EXAMPLE_HELPER,
   IDLE_FORMATS,
   TAGLINE,
   openAnnouncementText,
@@ -824,11 +827,16 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     setRecordRequest(null)
   }, [])
 
+  /** One-shot file source consumed by the normal open flow for the idle example action. */
+  const exampleFileRef = useRef<File | null>(null)
+
   const openDataFile = useCallback(async () => {
     // AR-W13: generation guard. `beginSession` bumps the shared session token
     // and runs every per-domain reset (f-1), so a picker/open chain that
     // resolves after a newer open (or any newer phase transition) is discarded
     // rather than clobbering the newer phase.
+    const exampleFile = exampleFileRef.current
+    exampleFileRef.current = null
     const session = datasetSession.beginSession()
     // au3-12: warm the below-fold panel chunks in parallel with the open flow
     // so they are resident by `ready` (see `lib/bottom-panels.ts`).
@@ -856,26 +864,33 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     // the closure assignment.
     const openCapture: { handle: FileSystemFileHandle | null } = { handle: null }
     try {
-      const picked = await pickDataFile({
-        showOpenFilePicker: async (options) => {
-          const handles = await showOpenFilePicker(options)
-          openCapture.handle = handles[0] ?? null
-          return handles
-        },
-      })
-      if (datasetSession.tokenRef.current !== session) return
-      if (picked === null) {
-        // User dismissed the picker — back to idle, nothing opened.
-        setPhase({ kind: 'idle' })
-        return
+      let file: File
+      if (exampleFile === null) {
+        const picked = await pickDataFile({
+          showOpenFilePicker: async (options) => {
+            const handles = await showOpenFilePicker(options)
+            openCapture.handle = handles[0] ?? null
+            return handles
+          },
+        })
+        if (datasetSession.tokenRef.current !== session) return
+        if (picked === null) {
+          // User dismissed the picker — back to idle, nothing opened.
+          setPhase({ kind: 'idle' })
+          return
+        }
+        // BrowserFileSource exposes getFile() but not its input's name, and the
+        // EngineFileSource seam needs the name for extension detection only.
+        // Resolving the File here is a cheap reference (no dataset bytes read,
+        // ADR 0001); the name is transported per protocol but never rendered or
+        // logged (ADR 0025).
+        file = await picked.source.getFile()
+        if (datasetSession.tokenRef.current !== session) return
+      } else {
+        // The bundled synthetic example skips only picker acquisition. It
+        // rejoins the exact same guarded engine/session open path below.
+        file = exampleFile
       }
-      // BrowserFileSource exposes getFile() but not its input's name, and the
-      // EngineFileSource seam needs the name for extension detection only.
-      // Resolving the File here is a cheap reference (no dataset bytes read,
-      // ADR 0001); the name is transported per protocol but never rendered or
-      // logged (ADR 0025).
-      const file = await picked.source.getFile()
-      if (datasetSession.tokenRef.current !== session) return
       // Export same-source guard identity (m4-5 fix round, hardened in
       // round 2). FSA opens retain the handle — the platform's
       // authoritative `isSameEntry` verdict, so a picked save destination
@@ -886,7 +901,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       // missed a source externally touched after opening. Such a session is
       // therefore never offered the direct-write picker at all; its exports
       // ride the browser download (see `save-destination.ts`).
-      const pickedHandle = openCapture.handle
+      const pickedHandle = exampleFile === null ? openCapture.handle : null
       sourceIdentityRef.current =
         pickedHandle !== null ? { isSameEntry: pickedHandle.isSameEntry.bind(pickedHandle) } : null
       const handle = await engineClient.open({
@@ -986,6 +1001,21 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           >
             Open a data file…
           </button>{' '}
+          {phase.kind === 'idle' && (
+            <div data-testid="example-data-entry">
+              <button
+                type="button"
+                data-testid="example-data-button"
+                onClick={() => {
+                  exampleFileRef.current = new File([nestedFixtureText], 'nested.jsonl')
+                  void openDataFile()
+                }}
+              >
+                {IDLE_EXAMPLE_ACTION}
+              </button>
+              <p data-testid="example-data-helper">{IDLE_EXAMPLE_HELPER}</p>
+            </div>
+          )}
           <span data-testid="open-status" data-phase={phase.kind}>
             {openStatusCopy(phase.kind)}
           </span>

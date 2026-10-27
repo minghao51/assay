@@ -8,6 +8,30 @@ test('web app renders the scaffold landing page', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Assay')
 })
 
+test('cold start example CTA opens the bundled nested fixture through the ready path', async ({
+  page,
+}) => {
+  const fixtureRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('nested.jsonl')) fixtureRequests.push(request.url())
+  })
+  await page.goto('/')
+
+  await expect(page.getByTestId('example-data-button')).toHaveText('Try with example data')
+  await expect(page.getByTestId('example-data-helper')).toHaveText(
+    'Explore nested fields with a small synthetic example.',
+  )
+  await page.getByTestId('example-data-button').click()
+
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
+  await expect(page.getByTestId('grid')).toBeVisible()
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('12')
+  await expect(page.getByTestId('grid-column-count')).toHaveText('10')
+  expect(fixtureRequests).toEqual([])
+})
+
 test('cold start shows task-oriented idle copy, not roadmap/docs copy', async ({ page }) => {
   await page.goto('/')
 

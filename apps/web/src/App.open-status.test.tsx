@@ -38,6 +38,8 @@ const h = vi.hoisted(() => ({
   deferOpen: false,
   openError: false,
   openResolvers: [] as Array<(value: unknown) => void>,
+  openCalls: [] as Array<{ name: string; getFile: () => Promise<File> }>,
+  pickerCalls: 0,
 }))
 
 /** DESCRIBE-shaped fake schema: three columns so the plural copy is exercised. */
@@ -58,14 +60,16 @@ function fakeBatch(): ArrowTableLike {
 }
 
 vi.mock('@assay/data-sources/browser', () => ({
-  pickDataFile: async (): Promise<{ source: { getFile: () => Promise<File> } }> => ({
-    source: { getFile: async () => new File(['id\n1\n'], 'open-status.jsonl') },
-  }),
+  pickDataFile: async (): Promise<{ source: { getFile: () => Promise<File> } }> => {
+    h.pickerCalls += 1
+    return { source: { getFile: async () => new File(['id\n1\n'], 'open-status.jsonl') } }
+  },
 }))
 
 vi.mock('./lib/engine', () => ({
   engineClient: {
-    open: async () => {
+    open: async (source: { name: string; getFile: () => Promise<File> }) => {
+      h.openCalls.push(source)
       if (h.deferOpen) {
         await new Promise<unknown>((resolve) => h.openResolvers.push(resolve))
       }
@@ -89,6 +93,8 @@ afterEach(() => {
   h.deferOpen = false
   h.openError = false
   h.openResolvers = []
+  h.openCalls = []
+  h.pickerCalls = 0
 })
 
 /** Open the faked fixture through the real flow and wait for the ready UI. */
@@ -145,6 +151,8 @@ describe('R-03 — first-run idle screen copy', () => {
 
     expect(screen.queryByTestId('idle-intro')).toBeNull()
     expect(screen.queryByTestId('idle-capability')).toBeNull()
+    expect(screen.queryByTestId('example-data-button')).toBeNull()
+    expect(screen.queryByTestId('example-data-helper')).toBeNull()
     const opening = screen.getByTestId('open-status')
     expect(opening.getAttribute('data-phase')).toBe('opening')
     expect(opening.textContent).toBe('Opening…')
@@ -163,8 +171,45 @@ describe('R-03 — first-run idle screen copy', () => {
     expect(alert.textContent).toContain('corrupt dataset')
     expect(screen.queryByTestId('idle-intro')).toBeNull()
     expect(screen.queryByTestId('idle-capability')).toBeNull()
+    expect(screen.queryByTestId('example-data-button')).toBeNull()
+    expect(screen.queryByTestId('example-data-helper')).toBeNull()
     expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
     expect(screen.getByTestId('open-button').hasAttribute('disabled')).toBe(false)
+  })
+})
+
+describe('R-05 — bundled example entry', () => {
+  it('offers the exact idle copy and opens the bundled file without invoking the picker', async () => {
+    render(<App />)
+
+    expect(screen.getByTestId('example-data-button').textContent).toBe('Try with example data')
+    expect(screen.getByTestId('example-data-helper').textContent).toBe(
+      'Explore nested fields with a small synthetic example.',
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('example-data-button'))
+    })
+    await screen.findByTestId('schema-section')
+
+    expect(h.pickerCalls).toBe(0)
+    expect(h.openCalls).toHaveLength(1)
+    const opened = h.openCalls[0]
+    expect(opened?.name).toBe('nested.jsonl')
+    const file = await opened?.getFile()
+    expect(file?.name).toBe('nested.jsonl')
+    expect(file?.size).toBeGreaterThan(0)
+    expect(screen.queryByTestId('example-data-button')).toBeNull()
+    expect(screen.queryByTestId('example-data-helper')).toBeNull()
+  })
+
+  it('keeps the primary control on the existing picker path', async () => {
+    render(<App />)
+    await open()
+
+    expect(h.pickerCalls).toBe(1)
+    expect(h.openCalls).toHaveLength(1)
+    expect(h.openCalls[0]?.name).toBe('open-status.jsonl')
   })
 })
 
@@ -199,6 +244,7 @@ describe('ux-2 — human open/status copy', () => {
 
     const ready = screen.getByTestId('open-status')
     expect(ready.getAttribute('data-phase')).toBe('ready')
+    expect(screen.queryByTestId('example-data-button')).toBeNull()
     // The raw token must never reach visible copy (`ready` folds into the
     // info line below).
     expect(ready.textContent).toBe('')

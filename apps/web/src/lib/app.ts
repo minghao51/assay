@@ -17,6 +17,10 @@ export const IDLE_CAPABILITY =
 /** R-03 supported-format line (exact copy). Mirrors the picker's accept list. */
 export const IDLE_FORMATS = 'Opens .parquet · .csv · .jsonl · .json' as const
 
+/** R-05 idle example action and helper (exact copy). */
+export const IDLE_EXAMPLE_ACTION = 'Try with example data' as const
+export const IDLE_EXAMPLE_HELPER = 'Explore nested fields with a small synthetic example.' as const
+
 /**
  * Human copy for the open-flow status span (ux-2/UX-2). The machine token
  * lives on `data-phase`; these strings are the only visible copy, so raw
