@@ -168,6 +168,13 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-10-27 (**fw**) — ug-7 residual review evidence closed by test-only `8367fbd`
+  (Luna xhigh worker → independent GLM Flash approve). All ten panel crashes, independent copy
+  pins and two native-keyboard recovery journeys; merged 3064 unit / 180 e2e + 1 skip,
+  coverage 87.98/82.09/88.89/89.46. Exact-main-revision verification used a clean isolated
+  worktree, preserving another agent's uncommitted work. Foreign server occupied 4173;
+  identity-checked full rerun on 4573/4579/4580 passed. Detailed evidence in usability queue §5.
+
 Historical codes through **ev** are in the
 [preserved snapshot §9](handoff-snapshot-20261014.md#9-changelog-for-this-document).
 New codes continue sequentially; link to queue evidence instead of duplicating it.

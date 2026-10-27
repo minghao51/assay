@@ -105,13 +105,20 @@ DuckDB 1.5.5; stock telemetry environment names unset, default ports. Logs:
 Initial DuckDB row-diff assertion and grid-virtualization fetch-count mismatch passed isolated
 reproduction and full-suite reruns; failures retained, not silently skipped or weakened.
 
-**ug-7 review follow-up — in progress:** user authorized closing residual test-evidence gaps
-before next rows: all ten mounted panel wrappers, independent app-scope static-copy expectations,
-and keyboard-driven managed/inner Close → nav reopen → explicit retry. Luna xhigh worker,
-fresh GLM Flash reviewer (user-requested roster override for this continuation; sessions serialized).
-Reserved: `App.panel-boundary.test.tsx`, `ErrorBoundary.test.tsx`, focused recovery tests only;
-no runtime/shared-doc edits by worker. Isolated `ux-ug7-review-followup` worktree; ports
-4473/4479/4480. ug-3/ug-8 remain open and unclaimed until this follow-up is reviewed/integrated.
+**ug-7 review follow-up — integrated at `8367fbd`:** Luna xhigh worker `85f5809` → fresh GLM
+Flash reviewer **approve**, including independent full gates and wrapper/copy/keyboard-close/retry
+mutations (restored). All ten mounted panel wrappers, literal static-copy expectations and two
+native-keyboard managed/inner Close → nav reopen → explicit retry journeys now pinned. Test-only;
+no production behavior, dependencies or copy changed. User-requested roster override applies to
+this continuation; provider sessions serialize. Review `/tmp/assay-ux-ug7-followup-review/report.md`.
+Merged verification at the exact main revision in a clean isolated worktree: 193 files / 3064 unit
+tests; 180 e2e + 1 skip; 2 isolated browser keyboard journeys; coverage 87.98/82.09/88.89/89.46;
+format/lint/typecheck/build/coverage/docs (116/0)/ADR (46) exit 0. Logs
+`/tmp/assay-ux-ug7-followup-merged/`. Default port 4173 was occupied by another project's server:
+initial e2e incorrectly reused it (Cogniwork heading, not Assay); preserved failure output, verified
+Assay smoke, reran full e2e on free ports 4573/4579/4580. Do not reuse that foreign server.
+Other agent's uncommitted README/assets/provenance work is preserved in the main checkout;
+verification used isolated `ux-merged-verification` at `8367fbd`, not a false clean-main claim.
 
 The [implementation spec](../../product/09-ux-ui-implementation-spec.md) supplies stable
 requirements R-01…R-13, exact copy/states, recovery semantics and verification commands;
