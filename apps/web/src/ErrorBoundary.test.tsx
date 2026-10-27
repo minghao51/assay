@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ERROR_BOUNDARY_COPY, ErrorBoundary } from './ErrorBoundary'
+import { ErrorBoundary } from './ErrorBoundary'
 
 /**
  * AR-W4 + ug-7/R-06 pins: a throwing render subtree surfaces the matching
@@ -75,10 +75,14 @@ describe('ErrorBoundary (AR-W4 / ug-7)', () => {
       </ErrorBoundary>,
     )
     const fallback = screen.getByTestId('error-boundary-app')
-    const copy = ERROR_BOUNDARY_COPY.app
-    // Exact static copy — no interpolated error text or values.
+    // Independent literal copy expectation: this must fail if the app fallback
+    // changes unexpectedly, rather than deriving its expected value from the
+    // same production constant used to render it.
     expect(fallback.textContent).toBe(
-      `${copy.title}${copy.body}${copy.recovery}Reload the workbench`,
+      'Assay hit an unexpected error' +
+        'The workbench could not render. Nothing was sent anywhere and the opened file was not changed.' +
+        'Reload the page to start a fresh session. Any unsaved edits in this session are lost.' +
+        'Reload the workbench',
     )
     expect(fallback.textContent).not.toContain('dataset-value-should-not-render')
     expect(screen.getByTestId('error-boundary-reload')).toBeTruthy()
@@ -95,9 +99,11 @@ describe('ErrorBoundary (AR-W4 / ug-7)', () => {
       </GridHarness>,
     )
     const fallback = screen.getByTestId('error-boundary-grid')
-    const copy = ERROR_BOUNDARY_COPY.grid
     expect(fallback.textContent).toBe(
-      `${copy.title}${copy.body}${copy.recovery}Try againReload the workbench`,
+      'The data grid could not render' +
+        'The rest of the workbench and committed staged changes remain available. The opened file was not changed.' +
+        'Try again resets the grid view; an uncommitted cell draft, focus and scroll position may be lost. Reload starts a fresh session and loses session edits.' +
+        'Try againReload the workbench',
     )
     expect(fallback.textContent).not.toContain('dataset-value-should-not-render')
     const actions = fallback.querySelectorAll('button')
@@ -116,9 +122,11 @@ describe('ErrorBoundary (AR-W4 / ug-7)', () => {
       </PanelHarness>,
     )
     const fallback = screen.getByTestId('error-boundary-panel')
-    const copy = ERROR_BOUNDARY_COPY.panel
     expect(fallback.textContent).toBe(
-      `${copy.title}${copy.body}${copy.recovery}Try againClose section`,
+      'This section could not render' +
+        'The grid and staged changes remain available. The opened file was not changed.' +
+        "Try again resets this section's local state. If the error returns, close the section and use another tool." +
+        'Try againClose section',
     )
     expect(fallback.textContent).not.toContain('dataset-value-should-not-render')
     expect(fallback.getAttribute('data-section')).toBe('demo')

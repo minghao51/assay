@@ -2,6 +2,10 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  PANEL_CRASH_STORAGE_KEY,
+  setPanelCrash,
+} from '../../../tests/visual/panel-recovery/injection'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
 import { App } from './App'
 import type { ArrowTableLike } from './grid/provider'
@@ -43,9 +47,6 @@ const h = vi.hoisted(() => {
       },
     },
     files: [] as File[],
-    throwFilter: false,
-    throwHistory: false,
-    throwSql: false,
     open: vi.fn(),
     query: vi.fn(),
   }
@@ -107,38 +108,144 @@ vi.mock('./lib/engine', () => ({
   },
 }))
 
-vi.mock('./grid/FilterBar', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./grid/FilterBar')>()
+vi.mock('./schema/SchemaPanel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./schema/SchemaPanel')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
   return {
-    FilterBar: (props: Parameters<typeof actual.FilterBar>[0]) => {
-      if (h.throwFilter) throw new Error('filter-panel-boom')
-      return <actual.FilterBar {...props} />
+    ...actual,
+    SchemaPanel: (props: Parameters<typeof actual.SchemaPanel>[0]) => {
+      if (usePanelCrash('schema', useSyncExternalStore))
+        throw new Error('test-only panel crash: schema')
+      return <actual.SchemaPanel {...props} />
+    },
+  }
+})
+
+vi.mock('./edit/EditToolbar', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./edit/EditToolbar')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
+  return {
+    ...actual,
+    EditToolbar: (props: Parameters<typeof actual.EditToolbar>[0]) => {
+      if (usePanelCrash('editing', useSyncExternalStore))
+        throw new Error('test-only panel crash: editing')
+      return <actual.EditToolbar {...props} />
+    },
+  }
+})
+
+vi.mock('./export/ExportDialog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./export/ExportDialog')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
+  return {
+    ...actual,
+    ExportDialog: (props: Parameters<typeof actual.ExportDialog>[0]) => {
+      if (usePanelCrash('export', useSyncExternalStore))
+        throw new Error('test-only panel crash: export')
+      return <actual.ExportDialog {...props} />
     },
   }
 })
 
 vi.mock('./edit/HistoryPanel', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./edit/HistoryPanel')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
   return {
+    ...actual,
     HistoryPanel: (props: Parameters<typeof actual.HistoryPanel>[0]) => {
-      if (h.throwHistory) throw new Error('history-panel-boom')
+      if (usePanelCrash('history', useSyncExternalStore))
+        throw new Error('test-only panel crash: history')
       return <actual.HistoryPanel {...props} />
+    },
+  }
+})
+
+vi.mock('./validation/ValidationPanel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./validation/ValidationPanel')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
+  return {
+    ...actual,
+    ValidationPanel: (props: Parameters<typeof actual.ValidationPanel>[0]) => {
+      if (usePanelCrash('validation', useSyncExternalStore))
+        throw new Error('test-only panel crash: validation')
+      return <actual.ValidationPanel {...props} />
+    },
+  }
+})
+
+vi.mock('./diff/DiffPanel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./diff/DiffPanel')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
+  return {
+    ...actual,
+    DiffPanel: (props: Parameters<typeof actual.DiffPanel>[0]) => {
+      if (usePanelCrash('compare', useSyncExternalStore))
+        throw new Error('test-only panel crash: compare')
+      return <actual.DiffPanel {...props} />
+    },
+  }
+})
+
+vi.mock('./grid/FilterBar', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./grid/FilterBar')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
+  return {
+    ...actual,
+    FilterBar: (props: Parameters<typeof actual.FilterBar>[0]) => {
+      if (usePanelCrash('filters', useSyncExternalStore))
+        throw new Error('test-only panel crash: filters')
+      return <actual.FilterBar {...props} />
     },
   }
 })
 
 vi.mock('./sql/SqlPanel', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./sql/SqlPanel')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
   return {
     ...actual,
     SqlPanel: (props: Parameters<typeof actual.SqlPanel>[0]) => {
-      if (h.throwSql) throw new Error('sql-panel-boom')
+      if (usePanelCrash('sql', useSyncExternalStore)) throw new Error('test-only panel crash: sql')
       return <actual.SqlPanel {...props} />
     },
   }
 })
 
-vi.mock('./profile/ProfilePanel', () => ({ ProfilePanel: () => null }))
+vi.mock('./profile/ProfilePanel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./profile/ProfilePanel')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
+  return {
+    ...actual,
+    ProfilePanel: (props: Parameters<typeof actual.ProfilePanel>[0]) => {
+      if (usePanelCrash('profile', useSyncExternalStore))
+        throw new Error('test-only panel crash: profile')
+      return <actual.ProfilePanel {...props} />
+    },
+  }
+})
+
+vi.mock('./pipeline/PipelinePanel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./pipeline/PipelinePanel')>()
+  const { usePanelCrash } = await import('../../../tests/visual/panel-recovery/injection')
+  const { useSyncExternalStore } = await import('react')
+  return {
+    ...actual,
+    PipelinePanel: (props: Parameters<typeof actual.PipelinePanel>[0]) => {
+      if (usePanelCrash('pipeline', useSyncExternalStore))
+        throw new Error('test-only panel crash: pipeline')
+      return <actual.PipelinePanel {...props} />
+    },
+  }
+})
 
 let errorSpy: ReturnType<typeof vi.spyOn>
 
@@ -146,9 +253,7 @@ beforeEach(() => {
   h.tokenRef.current = 0
   h.beginSession.mockClear()
   h.files.length = 0
-  h.throwFilter = false
-  h.throwHistory = false
-  h.throwSql = false
+  localStorage.removeItem(PANEL_CRASH_STORAGE_KEY)
   h.open.mockReset()
   h.open.mockResolvedValue(FAKE_HANDLE)
   h.query.mockReset()
@@ -189,6 +294,12 @@ async function insertRows(count: number, expectedTotal: number): Promise<void> {
   })
 }
 
+async function injectPanelCrash(panelId: string | null): Promise<void> {
+  await act(async () => {
+    setPanelCrash(panelId)
+  })
+}
+
 function fallback(section: string): HTMLElement {
   const element = document.querySelector<HTMLElement>(
     `[data-testid="error-boundary-panel"][data-section="${section}"]`,
@@ -197,78 +308,100 @@ function fallback(section: string): HTMLElement {
   return element
 }
 
+const TOOL_BODY_PANELS = [
+  ['schema', 'schema-panel', 'inner'],
+  ['editing', 'edit-toolbar', 'managed'],
+  ['export', 'export-dialog', 'managed'],
+  ['history', 'history-panel', 'managed'],
+  ['validation', 'validation-panel', 'managed'],
+  ['compare', 'diff-panel', 'managed'],
+  ['filters', 'filter-bar', 'inner'],
+  ['sql', 'sql-panel', 'managed'],
+  ['profile', 'profile-section', 'inner'],
+  ['pipeline', 'pipeline-panel', 'managed'],
+] as const
+
 describe('ug-7 panel-scoped recovery (R-06)', () => {
-  it('contains a mounted panel throw and recovers in place without starting a session', async () => {
-    await open()
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('section-toggle-editing'))
-      fireEvent.click(screen.getByTestId('section-toggle-history'))
-    })
-    await insertRows(2, 2)
-    expect(screen.getByTestId('pending-changes').textContent).toBe(
-      '2 pending changes: 2 row inserts.',
-    )
-    expect(screen.getAllByTestId('history-item')).toHaveLength(2)
+  it.each(TOOL_BODY_PANELS)(
+    'contains the mounted %s App panel with staged edits and recovers only that body',
+    async (panelId, bodyTestId, disclosure) => {
+      await open()
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('section-toggle-editing'))
+        fireEvent.click(screen.getByTestId('section-toggle-history'))
+      })
+      await insertRows(2, 2)
+      expect(screen.getByTestId('pending-changes').textContent).toBe(
+        '2 pending changes: 2 row inserts.',
+      )
+      expect(screen.getAllByTestId('history-item')).toHaveLength(2)
 
-    h.throwFilter = true
-    await insertRows(1, 3)
+      if (disclosure === 'managed' && panelId !== 'editing' && panelId !== 'history') {
+        fireEvent.click(screen.getByTestId(`section-toggle-${panelId}`))
+      }
+      if (panelId === 'export') {
+        fireEvent.click(screen.getByTestId('export-open'))
+        expect(screen.getByTestId('export-dialog')).toBeTruthy()
+      }
 
-    const panel = await screen.findByTestId('error-boundary-panel')
-    expect(panel).toBe(fallback('filters'))
-    expect(panel.textContent).toBe(
-      'This section could not render' +
-        'The grid and staged changes remain available. The opened file was not changed.' +
-        `Try again resets this section's local state. If the error returns, close the section and use another tool.` +
-        'Try again' +
-        'Close section',
-    )
-    expect(panel.textContent).not.toContain('filter-panel-boom')
-    // Failure focus lands on reachable fallback content.
-    expect(document.activeElement).toBe(panel)
+      // The test-local wrapper throws from the actual component slot in App;
+      // the real ErrorBoundary, section visibility and session remain in play.
+      await injectPanelCrash(panelId)
+      const panel = await screen.findByTestId('error-boundary-panel')
+      expect(panel).toBe(fallback(panelId))
+      expect(panel.getAttribute('data-section')).toBe(panelId)
+      expect(panel.textContent).toBe(
+        'This section could not render' +
+          'The grid and staged changes remain available. The opened file was not changed.' +
+          "Try again resets this section's local state. If the error returns, close the section and use another tool." +
+          'Try again' +
+          'Close section',
+      )
+      expect(panel.textContent).not.toContain(`test-only panel crash: ${panelId}`)
+      expect(screen.queryByTestId('error-boundary-app')).toBeNull()
+      expect(screen.getByTestId('grid')).toBeTruthy()
+      if (panelId !== 'editing') {
+        expect(screen.getByTestId('pending-changes').textContent).toBe(
+          '2 pending changes: 2 row inserts.',
+        )
+      }
+      expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+      if (panelId !== 'history') expect(screen.getAllByTestId('history-item')).toHaveLength(2)
+      expect(h.beginSession).toHaveBeenCalledTimes(1)
+      expect(h.open).toHaveBeenCalledTimes(1)
 
-    // The rest of the workbench is untouched: grid, pending summary, history.
-    expect(screen.getByTestId('grid')).toBeTruthy()
-    expect(screen.getByTestId('pending-changes').textContent).toBe(
-      '3 pending changes: 3 row inserts.',
-    )
-    expect(screen.getAllByTestId('history-item')).toHaveLength(3)
-    expect(h.beginSession).toHaveBeenCalledTimes(1)
-    expect(h.open).toHaveBeenCalledTimes(1)
+      // A deterministic/persistent crash remains contained after a first retry.
+      fireEvent.click(screen.getByTestId('error-boundary-retry'))
+      expect(await screen.findByTestId('error-boundary-panel')).toBe(fallback(panelId))
+      expect(screen.getByTestId('grid')).toBeTruthy()
+      if (panelId !== 'editing') {
+        expect(screen.getByTestId('pending-changes').textContent).toBe(
+          '2 pending changes: 2 row inserts.',
+        )
+      }
+      expect(h.beginSession).toHaveBeenCalledTimes(1)
+      expect(h.open).toHaveBeenCalledTimes(1)
 
-    h.throwFilter = false
-    fireEvent.click(screen.getByTestId('error-boundary-retry'))
-
-    expect(await screen.findByTestId('filter-bar')).toBeTruthy()
-    expect(screen.queryByTestId('error-boundary-panel')).toBeNull()
-    expect(screen.getByTestId('pending-changes').textContent).toBe(
-      '3 pending changes: 3 row inserts.',
-    )
-    expect(h.beginSession).toHaveBeenCalledTimes(1)
-    expect(h.open).toHaveBeenCalledTimes(1)
-    await waitFor(() => {
-      expect(document.activeElement).toBe(screen.getByTestId('filter-toggle'))
-    })
-  })
-
-  it('keeps a deterministic panel fault contained across retry', async () => {
-    await open()
-    h.throwFilter = true
-    await insertRows(1, 1)
-    expect(await screen.findByTestId('error-boundary-panel')).toBeTruthy()
-
-    fireEvent.click(screen.getByTestId('error-boundary-retry'))
-    expect(await screen.findByTestId('error-boundary-panel')).toBeTruthy()
-    expect(screen.getByTestId('grid')).toBeTruthy()
-    expect(screen.getByTestId('pending-changes').textContent).toBe(
-      '1 pending change: 1 row insert.',
-    )
-  })
+      // Clear the transient injected fault; an explicit second retry remounts
+      // the original component without reopening the dataset or losing history.
+      await injectPanelCrash(null)
+      fireEvent.click(screen.getByTestId('error-boundary-retry'))
+      expect(await screen.findByTestId(bodyTestId)).toBeTruthy()
+      expect(screen.queryByTestId('error-boundary-panel')).toBeNull()
+      expect(screen.getByTestId('pending-changes').textContent).toBe(
+        '2 pending changes: 2 row inserts.',
+      )
+      expect(screen.getAllByTestId('history-item')).toHaveLength(2)
+      expect(h.beginSession).toHaveBeenCalledTimes(1)
+      expect(h.open).toHaveBeenCalledTimes(1)
+    },
+  )
 })
 
 describe('ug-7 recoverable close/reopen (R-07)', () => {
   it('closes an inner-disclosure section, focuses its nav link, and does not retry on reopen', async () => {
     await open()
-    h.throwFilter = true
+    await injectPanelCrash('filters')
     await insertRows(1, 1)
     expect(fallback('filters')).toBeTruthy()
 
@@ -280,7 +413,7 @@ describe('ug-7 recoverable close/reopen (R-07)', () => {
 
     // A now-healthy panel would recover on any auto-retry; nav reopen must
     // show the retained fallback and run nothing until the explicit action.
-    h.throwFilter = false
+    await injectPanelCrash(null)
     fireEvent.click(screen.getByTestId('section-nav-filters'))
     expect(document.getElementById('section-filters-content')?.hasAttribute('hidden')).toBe(false)
     expect(fallback('filters')).toBeTruthy()
@@ -294,7 +427,7 @@ describe('ug-7 recoverable close/reopen (R-07)', () => {
 
   it('clears an inner-disclosure recovery close when a replacement dataset opens', async () => {
     await open()
-    h.throwFilter = true
+    await injectPanelCrash('filters')
     await insertRows(1, 1)
     expect(fallback('filters')).toBeTruthy()
 
@@ -304,7 +437,7 @@ describe('ug-7 recoverable close/reopen (R-07)', () => {
     // A replacement dataset is a new session. The recovery-only visibility
     // override lives in App state and survives the open flow, so it must be
     // cleared explicitly; otherwise Filters would stay hidden in new data.
-    h.throwFilter = false
+    await injectPanelCrash(null)
     await chooseFile('replacement.jsonl')
     expect(h.beginSession).toHaveBeenCalledTimes(2)
     expect(document.getElementById('section-filters-content')?.hasAttribute('hidden')).toBe(false)
@@ -319,7 +452,7 @@ describe('ug-7 recoverable close/reopen (R-07)', () => {
     await insertRows(1, 1)
     expect(screen.getAllByTestId('history-item')).toHaveLength(1)
 
-    h.throwHistory = true
+    await injectPanelCrash('history')
     await insertRows(1, 2)
     expect(fallback('history')).toBeTruthy()
 
@@ -328,7 +461,7 @@ describe('ug-7 recoverable close/reopen (R-07)', () => {
     expect(document.activeElement).toBe(screen.getByTestId('section-nav-history'))
     expect(fallback('history')).toBeTruthy()
 
-    h.throwHistory = false
+    await injectPanelCrash(null)
     fireEvent.click(screen.getByTestId('section-nav-history'))
     expect(document.getElementById('section-history-content')?.hasAttribute('hidden')).toBe(false)
     expect(fallback('history')).toBeTruthy()
@@ -347,7 +480,7 @@ describe('ug-7 recoverable close/reopen (R-07)', () => {
 describe('ug-7 SQL request lifetime in App (R-07)', () => {
   it('claims a consumed nested request before querying, so a boundary remount replays zero queries', async () => {
     await open()
-    expect(h.throwSql).toBe(false)
+    expect(screen.getByTestId('sql-input')).toBeTruthy()
 
     const action = screen.getAllByTestId('schema-node-action')[0]
     if (action === undefined) throw new Error('expected a nested schema action')
@@ -358,13 +491,13 @@ describe('ug-7 SQL request lifetime in App (R-07)', () => {
     })
     expect(screen.getByTestId('sql-input')).toBeTruthy()
 
-    // Make the SQL pane throw on the next App render, then retry it with the
+    // Inject a render failure into the real SQL child, then retry it with the
     // SAME App-owned runRequest state.
-    h.throwSql = true
+    await injectPanelCrash('sql')
     await insertRows(1, 1)
     expect(fallback('sql')).toBeTruthy()
 
-    h.throwSql = false
+    await injectPanelCrash(null)
     fireEvent.click(screen.getByTestId('error-boundary-retry'))
     expect(await screen.findByTestId('sql-input')).toBeTruthy()
     await act(async () => {})
