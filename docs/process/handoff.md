@@ -168,6 +168,11 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-10-28 (**fx**) — ug-3 integrated at `5253c06`: idle-only bundled synthetic nested
+  example through the guarded open chain, 12 rows / 10 columns, no picker or fixture fetch.
+  Luna xhigh worker → independent GLM Flash approve; merged 3067 unit / 181 e2e + 1 skip,
+  coverage87.99/82.09/88.93/89.47. ug-8 claimed in isolated Panels worktree; ug-10 stays UX-D1 blocked.
+
 - 2026-10-27 (**fw**) — ug-7 residual review evidence closed by test-only `8367fbd`
   (Luna xhigh worker → independent GLM Flash approve). All ten panel crashes, independent copy
   pins and two native-keyboard recovery journeys; merged 3064 unit / 180 e2e + 1 skip,
