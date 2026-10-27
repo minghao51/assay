@@ -96,6 +96,23 @@ and annotate this file per the queue convention (the 2026-09-29 UX queue is the 
 
 ## 5. Executable pickup clarifications (2026-10-26)
 
+**2026-10-27 continuation preflight:** clean `main` at `f45bb33`; format/lint/typecheck/unit/build/e2e,
+coverage and docs/ADR checks exit 0 (193 files / 3056 unit tests; 180 e2e passed + 1 skipped;
+coverage 87.98/82.08/88.89/89.46; docs 116/0; ADR 46). Node 24.13.0, pnpm 11.26.0,
+DuckDB 1.5.5; stock telemetry environment names unset, default ports. Logs:
+`/tmp/assay-ux-pickup-baseline/`. Initial dependency-tree reconciliation required
+`CI=true pnpm install --frozen-lockfile --prefer-offline` (no manifest/lockfile changes).
+Initial DuckDB row-diff assertion and grid-virtualization fetch-count mismatch passed isolated
+reproduction and full-suite reruns; failures retained, not silently skipped or weakened.
+
+**ug-7 review follow-up — in progress:** user authorized closing residual test-evidence gaps
+before next rows: all ten mounted panel wrappers, independent app-scope static-copy expectations,
+and keyboard-driven managed/inner Close → nav reopen → explicit retry. Luna xhigh worker,
+fresh GLM Flash reviewer (user-requested roster override for this continuation; sessions serialized).
+Reserved: `App.panel-boundary.test.tsx`, `ErrorBoundary.test.tsx`, focused recovery tests only;
+no runtime/shared-doc edits by worker. Isolated `ux-ug7-review-followup` worktree; ports
+4473/4479/4480. ug-3/ug-8 remain open and unclaimed until this follow-up is reviewed/integrated.
+
 The [implementation spec](../../product/09-ux-ui-implementation-spec.md) supplies stable
 requirements R-01…R-13, exact copy/states, recovery semantics and verification commands;
 [visual work](20261026-ux-ui-execution-queue.md) retains separate uxv IDs.
