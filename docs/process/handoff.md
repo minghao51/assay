@@ -45,7 +45,10 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 **Verified state (2026-10-19):** slice 2 CLOSED with ptv2-8 (exit acceptance) integrated as `bce449f` after an independent reviewer approve (one request-changes round added independently-normalized refusal evidence). Forced typecheck **20**, unit **3027/191**, coverage **87.84/81.97/88.65/89.29** above floors, build **12**, browser **175 + 1 skip**, native **9**, spike **15 pins**, real-VSCode **10/10 scenarios** (full MVP-scenario-11 chain: validate 1/0/1/0 → confirmed-key diff 1/1/1 → report + copy delivery; offline JSON/JSONL opens; six staged-diff installed-CLI legs; acceptance agreement). Closure records: [slice-2 queue](handoff/20261014-ptv-slice2-queue.md) and the [G0-readiness/recorded-gap batch](handoff/20261019-g0-readiness-queue.md). **164 pending changesets**, doc links **107/0**, ADRs **46**.
 
 **Push / remote CI:** user-authorized normal `main` pushes verified at
-`3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence). CI
+`3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence), and again
+on 2026-10-28 for the UX batch: `a3f2733..0bd9866` (18 commits: ug-1/ug-2/ug-7/
+ug-3/ug-8 + gd-1 + their process records), `git rev-parse HEAD origin/main`
+equal, 0/0 divergence. CI
 runs [38615821301](https://github.com/minghao51/assay/actions/runs/38615821301),
 [38616340554](https://github.com/minghao51/assay/actions/runs/38616340554)
 and later runs on `1f6cbb9` failed **before any steps ran**: GitHub reports
@@ -181,8 +184,9 @@ implementation task; parent independently reviews, verifies and integrates.
   `/tmp/assay-gd1-worker/`, `/tmp/assay-gd1-evidence/`). No assertion, byte pin, threshold or engine contract
   changed. Residual (recorded, not hidden): the pinned DuckDB 1.5.5 row-diff agreement internal assertion
   still surfaces occasionally — separate engine-side class, tracked in open-asks §5. Next eligible rows
-  ug-13 (Shell) / ug-9 (Panels); ug-10 stays UX-D1 blocked. Local green is not remote green: 17 commits
-  remain unpushed and remote CI is still M6-blocked.
+  ug-13 (Shell) / ug-9 (Panels); ug-10 stays UX-D1 blocked. **Pushed 2026-10-28:** `a3f2733..0bd9866`
+  (18 commits) with remote SHA equality 0/0; remote CI is still M6-blocked, so the green baseline above
+  remains locally verified only.
 - 2026-10-28 (**fy**) — ug-8 approved by independent GLM Flash after Luna xhigh implementation;
   code integrated at `cb64c32`, but **merged verification blocked**, not closed. Independent
   reviewer green: 3071 unit / 181 e2e + 1 skip, coverage88.03/82.12/89.00/89.51; copy/count mutants
