@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-27. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record). Everything waiting on a human, a decision, or a remote operation is consolidated in the [open-asks checklist](handoff/20261019-open-asks.md). **UX continuation (2026-10-28; ug-3 integrated, ug-8 approved/integrated but merged verification blocked):** the [usability queue](handoff/20261026-usability-queue.md), owning the 37 findings (UG-1…UG-37) of the [usability gap review](../reviews/2026-10-26-usability-gap-review.md) — dispatch from the queue, not the review.
+**Last updated:** 2026-10-28. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record). Everything waiting on a human, a decision, or a remote operation is consolidated in the [open-asks checklist](handoff/20261019-open-asks.md). **UX continuation (2026-10-28; ug-1/2/3/7/8 CLOSED — ug-8 closed after the harness-budget fix gd-1):** the [usability queue](handoff/20261026-usability-queue.md), owning the 37 findings (UG-1…UG-37) of the [usability gap review](../reviews/2026-10-26-usability-gap-review.md) — dispatch from the queue, not the review.
 ([queue](handoff/20261019-g0-readiness-queue.md)): gb-1 telemetry
 disclosure doc → gb-2 PT-Q carry-over pack → gb-3 desktop JSON/JSONL
 vendoring → gb-4 DOUBLE row-diff quirk → gb-5 CLI dev error; human inputs
@@ -118,13 +118,7 @@ green: 3029 unit / 175 e2e passed). **ug-1 integrated at `e92c0dd`, ug-2 at `8e5
 `9c29da4`** after independent review (ug-7 needed a test-only amendment for the new-dataset
 recovery-reset pin); merged gates 193 unit files / 3056 tests, e2e 180 passed + 1 skipped,
 coverage 87.98/82.08/88.89/89.46 at that historical checkpoint. **ug-7 evidence follow-up** landed
-at `8367fbd`; **ug-3** at `5253c06` (last fully green merged runtime: 3067 unit / 181 e2e + 1 skip,
-coverage87.99/82.09/88.93/89.47). **ug-8** code is approved/integrated at `cb64c32`, but its merged
-unit gate repeatedly hit CLI timeout / pinned DuckDB assertion failures; **not closed; runtime
-dispatch paused**. See usability queue §5 for exact failures/logs. Next lane candidates ug-13
-(Shell) and ug-9 (Panels) remain unclaimed. ug-10 is decision-blocked (UX-D1); SQL sizing remains
-deferred design-only. Other agent's uncommitted files are preserved, with exact-revision checks
-in a clean isolated worktree. The visual queue does not replace ug ownership.
+at `8367fbd`; **ug-3** at `5253c06`. **ug-8** is **CLOSED 2026-10-28** — code `cb64c32` was independently approved, and its merged gate was unblocked by test-only **gd-1** `b6fb78a` (dedicated `cli-integration` vitest project budget + contracts fuzz budget; the failure was a 5000 ms harness ceiling against six compiled-CLI spawns, proven by `--maxWorkers=4` green and a 5000 ms mutation drill). **Current fully green merged baseline (main tip `b6fb78a`, clean isolated worktree, free ports 4573/4579/4580): 193 unit files / 3071 tests, e2e 181 passed + 1 skipped, coverage 88.03/82.12/89.00/89.51, docs links 116/0, ADR 46 — all gates exit 0** (`/tmp/assay-merged-48/`). Next lane candidates **ug-13 (Shell)** and **ug-9 (Panels)** are unclaimed and now eligible. ug-10 is decision-blocked (UX-D1); SQL sizing remains deferred design-only. Other agent's uncommitted files (README, `docs/assets/`, `.dsh/`) are preserved; verification runs use a clean isolated worktree at the exact main revision. The visual queue does not replace ug ownership.
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
 rows CLOSED 2026-10-19 — all eight rows integrated and independently
@@ -173,6 +167,22 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-10-28 (**fz**) — **ug-8 CLOSED; gate determinism fixed (gd-1).** The "merged verification blocked"
+  state was a harness-budget defect, not a UI regression: one compiled-CLI spawn costs ≈300 ms, the grouped
+  `diff` usage-error test spawns six times (1.75 s solo) against vitest's 5000 ms default at `maxWorkers=16`,
+  and `pnpm exec vitest run --maxWorkers=4` was green at `46abebd` (193 files / 3071 tests) while the default
+  failed twice (3070/1). Test-only **gd-1** `b6fb78a` adds a dedicated `cli-integration` vitest project
+  (commented 20 s budget; `node` project keeps 5000 ms and excludes the glob) plus the same budget for the
+  contracts 2500-case round-trip fuzz (4864–5092 ms in-suite). Worker `deepseek-v4.1-flash` → independent
+  `gpt-6-luna` reviewer **approve**: collection counts unchanged (193/3071), disjoint projects, mutation to
+  5000 ms reproduced the timeout (5805 ms), a non-CLI probe still failed at 5000 ms. Merged verification at
+  `b6fb78a`: format/lint/typecheck(forced)/build/unit/e2e/coverage/docs/ADR all exit 0 — 193f/3071t,
+  e2e 181p+1s, coverage 88.03/82.12/89.00/89.51, docs 116/0, ADR 46 (`/tmp/assay-merged-48/`, gd-1 evidence
+  `/tmp/assay-gd1-worker/`, `/tmp/assay-gd1-evidence/`). No assertion, byte pin, threshold or engine contract
+  changed. Residual (recorded, not hidden): the pinned DuckDB 1.5.5 row-diff agreement internal assertion
+  still surfaces occasionally — separate engine-side class, tracked in open-asks §5. Next eligible rows
+  ug-13 (Shell) / ug-9 (Panels); ug-10 stays UX-D1 blocked. Local green is not remote green: 17 commits
+  remain unpushed and remote CI is still M6-blocked.
 - 2026-10-28 (**fy**) — ug-8 approved by independent GLM Flash after Luna xhigh implementation;
   code integrated at `cb64c32`, but **merged verification blocked**, not closed. Independent
   reviewer green: 3071 unit / 181 e2e + 1 skip, coverage88.03/82.12/89.00/89.51; copy/count mutants
