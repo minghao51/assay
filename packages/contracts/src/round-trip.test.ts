@@ -102,5 +102,12 @@ describe('property: parseContract is total under fuzzing', () => {
     // for the exactness gate to reject (that gate is covered by the
     // dedicated pins in `parse.test.ts`, not by this corpus).
     expect(parsedCount).toBeGreaterThan(FUZZ_CASES / 10)
-  })
+    // gd-1: 2500-case fuzz corpus = 1.46–1.51 s solo (n=2) but 4.86–5.09 s at
+    // vitest's default 16 workers, so a 5000 ms default timed the test out and
+    // blocked the unit gate (reproduced 2026-10-28: 3070 passed / 1 failed).
+    // 20 s is ~4x the failing ceiling and matches the budget the pipeline
+    // round-trip fuzz siblings already carry (parsePipeline / parseDcr). The
+    // budget absorbs scheduler contention only — the corpus size, seed and
+    // every assertion above are unchanged (never 0/Infinity).
+  }, 20_000)
 })

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
@@ -25,7 +25,7 @@ export default defineConfig({
     },
     // f-7: environment by glob instead of per-file happy-dom docblocks — a
     // forgotten docblock can no longer silently run a DOM test in Node. The
-    // two include sets are disjoint, so no test is double-run.
+    // include sets are disjoint, so no test is double-run.
     projects: [
       {
         test: {
@@ -42,7 +42,34 @@ export default defineConfig({
             'apps/cli/src/**/*.test.{ts,tsx}',
             'apps/vscode/src/pure/**/*.test.ts',
           ],
+          // gd-1: keep the include sets disjoint — the spawn-heavy CLI
+          // integration files belong to the `cli-integration` project below
+          // (running them here too would double-run them and re-mix budgets).
+          exclude: [...configDefaults.exclude, 'apps/cli/src/**/*.integration.test.ts'],
           environment: 'node',
+        },
+      },
+      {
+        // gd-1 (2026-10-28): the CLI integration gate is the only spawn-heavy
+        // suite. Every test shells out to the COMPILED CLI in a fresh process
+        // (`node --import tsx dist/index.js …`, ADR 0042), and the tsx + module
+        // load costs ≈300 ms per spawn solo (measured n=3: 306/310/330 ms).
+        // The grouped `diff` usage-error test (six spawns) measures 1.75–1.80 s
+        // solo, so at vitest's default 16 workers on this host peak contention
+        // pushed the SAME test past the 5000 ms default ceiling (reproduced
+        // 2026-10-28: 3070 passed / 1 failed; neighbours with three and six
+        // spawns measured 1.2 s and 1.5 s in that run ⇒ ≥2.8x per-spawn
+        // inflation). A 20 s budget is ~4x the failing ceiling and ~11x the
+        // solo cost — a budget, never 0/Infinity, and scoped to this project
+        // only (every other project keeps the 5000 ms default). It absorbs
+        // scheduler contention; it relaxes no expected byte, exit code, stream
+        // or assertion. 20 s matches the already-documented budget of
+        // `test:coverage` (`--testTimeout=20000`).
+        test: {
+          name: 'cli-integration',
+          include: ['apps/cli/src/**/*.integration.test.ts'],
+          environment: 'node',
+          testTimeout: 20_000,
         },
       },
     ],

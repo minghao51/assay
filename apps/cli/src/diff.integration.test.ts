@@ -10,6 +10,13 @@
  * The `tsx` loader is a test-harness concession (workspace packages still
  * export `src/*.ts`); the CLI's own entry is the compiled artifact.
  *
+ * Spawn cost (gd-1): one `runCli` is ≈300 ms solo, so the heaviest grouped
+ * test here (six spawns) needs ≈1.8 s solo and can exceed vitest's 5000 ms
+ * default under full-suite contention. This file is therefore in the
+ * `cli-integration` vitest project, which carries the documented 20 s budget
+ * (see `vitest.config.ts`); the budget absorbs scheduler contention only —
+ * every expected byte below stays exact.
+ *
  * The cross-surface agreement test (§"agreement") executes the SAME compiled
  * DiffPlan through the Node executor in-process — the m6-2 engine path, via
  * the `./node` seam — and asserts per-aspect `{count, samples}` equality
