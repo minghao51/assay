@@ -2,7 +2,12 @@ import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { row, waitForReadyRow } from './support/grid'
-import { expandAllSections, openFixture } from './support/fixtures'
+import {
+  RECORD_CLOSED_HINT,
+  SECTION_PURPOSES,
+  expandAllSections,
+  openFixture,
+} from './support/fixtures'
 
 // q-15 — workbench shell slice 2, the ≥1024px grid-centric two-pane shell
 // (spec docs/product/05-workbench-shell.md §3; ADR 0044). This journey pins
@@ -237,4 +242,45 @@ test('every section renders in the two-pane DOM order with matching anchors', as
     .locator('.workbench-section')
     .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-section')))
   expect(rendered).toEqual([...DOM_ORDER])
+})
+
+// ug-13 / R-14 (a): the purpose subtitle is visible on a COLLAPSED section
+// immediately after open, with no expansion gesture. Managed sections keep
+// their `Expand <Title>` accessible name (the subtitle is a description).
+test('collapsed sections show their purpose subtitle right after open (no expansion)', async ({
+  page,
+}) => {
+  await openDefault(page)
+
+  const validationToggle = page.getByTestId('section-toggle-validation')
+  await expect(validationToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByTestId('section-purpose-validation')).toBeVisible()
+  await expect(page.getByTestId('section-purpose-validation')).toHaveText(
+    SECTION_PURPOSES.validation,
+  )
+  // Name stays `Expand <Title>`; the subtitle is exposed as the description.
+  await expect(page.getByRole('button', { name: 'Expand Validation' })).toBeVisible()
+  await expect(validationToggle).toHaveAttribute('aria-describedby', 'section-validation-purpose')
+
+  // All twelve subtitles are present post-open without any user expansion.
+  for (const [id, copy] of Object.entries(SECTION_PURPOSES)) {
+    await expect(page.getByTestId(`section-purpose-${id}`)).toHaveText(copy)
+  }
+})
+
+// ug-13 / R-14 (b): the Record dock is not a dead end — its value-free
+// closed-state hint is visible before any row is selected, then disappears
+// once the real row gesture opens the inspector (no duplicate guidance).
+test('record dock shows the closed-state hint until a row is selected', async ({ page }) => {
+  await openDefault(page)
+
+  const hint = page.getByTestId('record-hint')
+  await expect(hint).toBeVisible()
+  await expect(hint).toHaveText(RECORD_CLOSED_HINT)
+  await expect(page.getByTestId('record-inspector')).toHaveCount(0)
+
+  await waitForReadyRow(page, 0)
+  await row(page, 0).click()
+  await expect(page.getByTestId('record-inspector')).toBeVisible()
+  await expect(hint).toHaveCount(0)
 })

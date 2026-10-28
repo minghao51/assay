@@ -44,6 +44,30 @@ const MANAGED_SECTION_IDS = [
   'pipeline',
 ] as const
 
+/**
+ * ug-13 / R-14: verbatim purpose subtitle per tool section (implementation
+ * spec §2). Held here with the other open-flow copy so specs assert one
+ * authority instead of re-typing strings.
+ */
+export const SECTION_PURPOSES = {
+  schema: 'Fields and types',
+  grid: 'Browse the rows',
+  filters: 'Show only matching rows',
+  validation: 'Check data against rules',
+  compare: 'Diff two datasets by key',
+  sql: 'Query with DuckDB SQL',
+  editing: 'Stage edits in this session',
+  history: 'Review and undo staged edits',
+  export: 'Write a reviewed copy',
+  record: 'Inspect one row in full',
+  profile: 'Column statistics summary',
+  pipeline: 'Chained contract checks',
+} as const
+
+/** ug-13 / R-14: the Record dock's closed-state hint (value-free, ADR 0025). */
+export const RECORD_CLOSED_HINT =
+  'Select a row to inspect it here — press Enter or double-click a row.'
+
 /** Expand one shell-managed section (idempotent). */
 export async function openSection(page: Page, id: string): Promise<void> {
   const toggle = page.getByTestId(`section-toggle-${id}`)

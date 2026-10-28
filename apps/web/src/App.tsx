@@ -233,6 +233,29 @@ const WORKBENCH_SECTIONS: ReadonlyArray<{
 ]
 
 /**
+ * ug-13 / R-14: one-line purpose subtitle per tool section. `WorkbenchSection`
+ * renders it in the section header so it is visible while the section is
+ * COLLAPSED (the pane opens with only Schema expanded); the copy is verbatim
+ * from the implementation spec §2 R-14 and value-free (ADR 0025). The ids and
+ * titles in `WORKBENCH_SECTIONS` are unchanged — this map only adds the
+ * subtitle, it never renames or reorders the sections (ADR 0044 / q-15).
+ */
+const WORKBENCH_SECTION_PURPOSES: Readonly<Record<WorkbenchSectionId, string>> = {
+  schema: 'Fields and types',
+  grid: 'Browse the rows',
+  filters: 'Show only matching rows',
+  validation: 'Check data against rules',
+  compare: 'Diff two datasets by key',
+  sql: 'Query with DuckDB SQL',
+  editing: 'Stage edits in this session',
+  history: 'Review and undo staged edits',
+  export: 'Write a reviewed copy',
+  record: 'Inspect one row in full',
+  profile: 'Column statistics summary',
+  pipeline: 'Chained contract checks',
+}
+
+/**
  * Tool sections whose own component already owns an `aria-expanded`
  * disclosure (Schema/Filters/Profile — the ux-3/ux-4 pattern). The shell adds
  * no second toggle for these, so ug-7's recoverable close needs a
@@ -282,7 +305,9 @@ function WorkbenchSection({
   onToggle,
 }: WorkbenchSectionProps) {
   const title = WORKBENCH_SECTIONS.find((section) => section.id === id)?.title ?? id
+  const purpose = WORKBENCH_SECTION_PURPOSES[id]
   const contentId = `section-${id}-content`
+  const purposeId = `section-${id}-purpose`
   const toggleLabel = `${open ? 'Collapse' : 'Expand'} ${title}`
   return (
     <section className="workbench-section" id={`section-${id}`} data-section={id}>
@@ -293,6 +318,10 @@ function WorkbenchSection({
           data-testid={`section-toggle-${id}`}
           aria-expanded={open}
           aria-controls={contentId}
+          /* ug-13/R-14: the purpose line is the toggle's DESCRIPTION, not its
+             name — `Expand/Collapse <Title>` stays the accessible name the
+             existing specs and pins query (the ug-4 hint pattern). */
+          aria-describedby={purposeId}
           aria-label={toggleLabel}
           title={toggleLabel}
           onClick={() => {
@@ -302,8 +331,33 @@ function WorkbenchSection({
           <span className="workbench-section-marker" aria-hidden="true">
             {open ? '▾' : '▸'}
           </span>
-          <span className="workbench-section-label">{title}</span>
+          <span className="workbench-section-text">
+            <span className="workbench-section-label">{title}</span>
+            <span
+              className="workbench-section-purpose"
+              id={purposeId}
+              data-testid={`section-purpose-${id}`}
+            >
+              {purpose}
+            </span>
+          </span>
         </button>
+      )}
+      {/*
+       * Inner-disclosure sections (Schema/Filters/Profile/Record) own their
+       * own toggle, so the shell renders the same purpose line directly above
+       * the body instead of inside a shell button. It stays visible while the
+       * inner panel is collapsed (the bodies it describes are the panel's own)
+       * and the nav link below points at this stable id.
+       */}
+      {disclosure === 'inner' && (
+        <p
+          className="workbench-section-purpose"
+          id={purposeId}
+          data-testid={`section-purpose-${id}`}
+        >
+          {purpose}
+        </p>
       )}
       <div id={contentId} className="workbench-section-body" hidden={!open}>
         {children}
@@ -1129,6 +1183,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                             className="workbench-nav-link"
                             href={`#section-${section.id}`}
                             data-testid={`section-nav-${section.id}`}
+                            /* ug-13/R-14: same purpose as a description for
+                               the anchors too, so the four inner-disclosure
+                               sections (whose toggles the shell does not own)
+                               still expose it to assistive tech. */
+                            aria-describedby={`section-${section.id}-purpose`}
                             onClick={() => {
                               revealSectionFromNav(section.id)
                             }}
@@ -1388,6 +1447,17 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                  * closes on epoch shift). No shell toggle: it is a dock.
                  */}
                 <WorkbenchSection id="record" disclosure="inner" open>
+                  {/*
+                   * ug-13/R-14: the dock returns `null` while closed, so the
+                   * shell owns the closed-state hint. It appears only while
+                   * no record is requested, so the open inspector never shows
+                   * duplicate guidance. Value-free (ADR 0025).
+                   */}
+                  {recordRequest === null && (
+                    <p className="record-closed-hint" data-testid="record-hint">
+                      Select a row to inspect it here — press Enter or double-click a row.
+                    </p>
+                  )}
                   <MemoRecordInspector
                     model={phase.model}
                     request={recordRequest}

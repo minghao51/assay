@@ -129,6 +129,22 @@ const SECTION_TITLES: Record<(typeof NAV_ORDER)[number], string> = {
   pipeline: 'Pipeline',
 }
 
+/** ug-13/R-14: purpose subtitle per section (spec §2, verbatim). */
+const SECTION_PURPOSES: Record<(typeof NAV_ORDER)[number], string> = {
+  schema: 'Fields and types',
+  grid: 'Browse the rows',
+  editing: 'Stage edits in this session',
+  export: 'Write a reviewed copy',
+  history: 'Review and undo staged edits',
+  validation: 'Check data against rules',
+  compare: 'Diff two datasets by key',
+  filters: 'Show only matching rows',
+  record: 'Inspect one row in full',
+  sql: 'Query with DuckDB SQL',
+  profile: 'Column statistics summary',
+  pipeline: 'Chained contract checks',
+}
+
 /**
  * The shared shell toggle testid for each managed section (the four
  * inner-disclosure sections — Schema/Filters/Profile/Record — have no shell
@@ -251,6 +267,8 @@ describe('q-15 — workbench two-pane shell', () => {
     for (const id of ['grid', ...MANAGED_TOOL_SECTIONS] as const) {
       const toggle = screen.getByTestId(SECTION_TOGGLE_TESTIDS[id])
       expect(toggle.textContent).toContain(SECTION_TITLES[id])
+      // ug-13/R-14: the collapsed toggle ALSO carries the purpose subtitle.
+      expect(toggle.querySelector(`#section-${id}-purpose`)?.textContent).toBe(SECTION_PURPOSES[id])
     }
   })
 
