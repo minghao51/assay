@@ -20,9 +20,13 @@ import type { ArrowTableLike } from './grid/provider'
  *    points `aria-describedby` at its purpose element's stable id, while the
  *    accessible name stays exactly `Expand <Title>` / `Collapse <Title>` (the
  *    purpose is never part of the name).
- * 3. **Record closed-state hint.** While no record is requested the dock shows
- *    the value-free hint; once a row opens through the real grid gesture the
- *    hint is gone (no duplicate guidance beside the inspector).
+ * 3. **Record closed-state hint, full lifecycle.** While no record is
+ *    requested the dock shows the value-free hint; once a row opens through
+ *    the real grid gesture the hint is absent (no duplicate guidance beside
+ *    the inspector), and it returns — with byte-exact copy — when the
+ *    inspector is closed and when an epoch shift opens a new dataset. The
+ *    shell already owns both clears (`onClosed`, the open flow's
+ *    `setRecordRequest(null)`); these pins prove it, they add no logic.
  * 4. **No Record rename.** Nav link, section heading and inspector label all
  *    agree on "Record" (R-14 keeps the name; the hint disambiguates).
  *
@@ -56,6 +60,8 @@ interface VirtualItem {
 
 const h = vi.hoisted(() => ({
   rows: [] as VirtualItem[],
+  /** Pick count — a re-open must resolve a genuinely different dataset. */
+  picks: 0,
 }))
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -67,9 +73,11 @@ vi.mock('@tanstack/react-virtual', () => ({
 }))
 
 vi.mock('@assay/data-sources/browser', () => ({
-  pickDataFile: async (): Promise<{ source: { getFile: () => Promise<File> } }> => ({
-    source: { getFile: async () => new File(['id\n1\n'], 'purposes-pin.jsonl') },
-  }),
+  pickDataFile: async (): Promise<{ source: { getFile: () => Promise<File> } }> => {
+    h.picks += 1
+    const name = `purposes-pin-${String(h.picks)}.jsonl`
+    return { source: { getFile: async () => new File(['id\n1\n'], name) } }
+  },
 }))
 
 vi.mock('./lib/engine', () => ({
@@ -130,6 +138,7 @@ const RECORD_CLOSED_HINT = 'Select a row to inspect it here — press Enter or d
 
 beforeEach(() => {
   h.rows = [{ index: 0, key: 'row-0', start: 0, size: 28 }]
+  h.picks = 0
 })
 
 afterEach(() => {
@@ -162,6 +171,35 @@ async function openRecord(): Promise<void> {
     fireEvent.click(row())
   })
   await screen.findByTestId('record-inspector', {}, { timeout: 5_000 })
+}
+
+/**
+ * Open a second, different dataset through the app's normal open path (the
+ * picker fake hands back a new filename per pick). `openDataFile` bumps the
+ * dataset-session epoch, which is the shell's stated close-on-epoch-shift
+ * rule for the record dock.
+ */
+async function openDifferentDataset(): Promise<void> {
+  const picksBefore = h.picks
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('open-button'))
+  })
+  // The fake picker really ran again: this is a session bump, not a no-op.
+  expect(h.picks).toBe(picksBefore + 1)
+  await waitFor(
+    () => {
+      expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    },
+    { timeout: 5_000 },
+  )
+  await screen.findByTestId('schema-section')
+  // The new session's grid must be live before the dock state is meaningful.
+  await waitFor(
+    () => {
+      expect(screen.getByTestId('grid-row').getAttribute('data-status')).toBe('ready')
+    },
+    { timeout: 5_000 },
+  )
 }
 
 describe('ug-13 — section purpose subtitles (R-14)', () => {
@@ -236,9 +274,50 @@ describe('ug-13 — Record dock closed-state hint (R-14)', () => {
 
     await openRecord()
 
-    // The open inspector is the guidance now — no duplicate line remains.
-    expect(screen.getByTestId('record-inspector')).toBeTruthy()
-    expect(screen.queryByTestId('record-hint')).toBeNull()
+    // The open inspector is the guidance now — exactly ONE guidance surface:
+    // the hint renders zero times (count, not just absence-of-first).
+    const inspector = screen.getByTestId('record-inspector')
+    expect(inspector.closest('[hidden]')).toBeNull()
+    expect(screen.queryAllByTestId('record-hint')).toHaveLength(0)
+  })
+
+  it('restores the hint with byte-exact copy once the inspector is closed', async () => {
+    await open()
+
+    await openRecord()
+    expect(screen.queryAllByTestId('record-hint')).toHaveLength(0)
+
+    // Close through the inspector's own close control (not a shell hack).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('record-close'))
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('record-inspector')).toBeNull()
+    })
+
+    const hint = screen.getByTestId('record-hint')
+    expect(hint.textContent).toBe(RECORD_CLOSED_HINT)
+    expect(hint.closest('[hidden]')).toBeNull()
+  })
+
+  it('restores the hint and drops the stale inspector on an epoch shift to a new dataset', async () => {
+    await open()
+
+    await openRecord()
+    // Stale-inspector guard: the open record belongs to the OLD dataset.
+    expect(screen.getByTestId('record-inspector').getAttribute('aria-label')).toBe(
+      'Record inspector — row 0',
+    )
+    expect(screen.queryAllByTestId('record-hint')).toHaveLength(0)
+
+    await openDifferentDataset()
+
+    // No stale inspector survives the session bump, and the dock is back to
+    // its closed state with the same copy.
+    expect(screen.queryByTestId('record-inspector')).toBeNull()
+    const hint = screen.getByTestId('record-hint')
+    expect(hint.textContent).toBe(RECORD_CLOSED_HINT)
+    expect(hint.closest('[hidden]')).toBeNull()
   })
 
   it('keeps the name "Record" across nav link, section heading and inspector label', async () => {
