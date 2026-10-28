@@ -50,8 +50,12 @@
    `5253c06` and ug-8 `cb64c32` are integrated, and ug-8 is **CLOSED** after test-only gd-1
    `b6fb78a` fixed the harness budget that blocked its merged gate (merged baseline at `b6fb78a`:
    193 unit files / 3071 tests, e2e 181 passed + 1 skipped, coverage 88.03/82.12/89.00/89.51,
-   docs 116/0, ADR 46, all gates exit 0). Runtime dispatch is open; next lane candidates
-   **ug-13 (Shell)** and **ug-9 (Panels)** are unclaimed. Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
+   docs 116/0, ADR 46, all gates exit 0). Runtime dispatch is open; **ug-13 (Shell) is CLOSED**
+   (2026-10-29): R-14 purpose subtitles on all twelve collapsed section headers + the Record dock
+   closed-state hint, `36cead3` + test-only amendment `793ba90`, two independent reviews and a
+   merged green baseline of 194 unit files / 3077 tests, e2e 183 passed + 1 skipped, coverage
+   88.07/82.15/89.07/89.55. Next lane candidates **ug-14 (Shell)** and **ug-9 (Panels)** are
+   unclaimed. Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
    [visual queue](20261026-ux-ui-execution-queue.md) and
    [pickup prompts](20261026-ux-ui-pickup-prompts.md) carry bounded scopes and role briefs.
    Baseline recorded 2026-10-26 at `7d8e1ca`; merged gates after ug-2/ug-7 are 193 unit files /
