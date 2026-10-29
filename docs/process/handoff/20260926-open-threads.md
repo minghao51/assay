@@ -54,8 +54,14 @@
    (2026-10-29): R-14 purpose subtitles on all twelve collapsed section headers + the Record dock
    closed-state hint, `36cead3` + test-only amendment `793ba90`, two independent reviews and a
    merged green baseline of 194 unit files / 3077 tests, e2e 183 passed + 1 skipped, coverage
-   88.07/82.15/89.07/89.55. Next lane candidates **ug-14 (Shell)** and **ug-9 (Panels)** are
-   unclaimed. Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
+   88.07/82.15/89.07/89.55. **ug-9 (Panels) is CLOSED** (2026-10-29): R-15 pipeline continuation —
+   source/validate primaries bind from App-held state with a zero-picker proof, the failed-gate
+   cross-link loads the run-start contract snapshot (the reviewer's rebind defect closed), and the
+   first DCR mention expands with a purpose sentence; `71fa03a` + `385649b`, merged baseline
+   195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage 88.08/82.24/89.08/89.60.
+   Next lane candidates are **ug-14 (Shell)** and **ug-4 (Grid)**; the remainder of the Panels lane
+   (ug-16/ug-20) stays behind ug-10, which needs a maintainer-approved UX-D1 amendment.
+   Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
    [visual queue](20261026-ux-ui-execution-queue.md) and
    [pickup prompts](20261026-ux-ui-pickup-prompts.md) carry bounded scopes and role briefs.
    Baseline recorded 2026-10-26 at `7d8e1ca`; merged gates after ug-2/ug-7 are 193 unit files /
