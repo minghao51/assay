@@ -60,7 +60,10 @@
    first DCR mention expands with a purpose sentence; `71fa03a` + `385649b`, merged baseline
    195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage 88.08/82.24/89.08/89.60.
    Next lane candidates are **ug-14 (Shell)** and **ug-4 (Grid)**; the remainder of the Panels lane
-   (ug-16/ug-20) stays behind ug-10, which needs a maintainer-approved UX-D1 amendment.
+   (ug-16/ug-20) stays behind ug-10, which needs a maintainer-approved UX-D1 amendment — a drafted
+   brief with verified evidence, Options A/B/C and a decision block exists at
+   [20261029-ux-d1-amendment.md](20261029-ux-d1-amendment.md); a draft is not a ruling and no agent
+   may tick it.
    Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
    [visual queue](20261026-ux-ui-execution-queue.md) and
    [pickup prompts](20261026-ux-ui-pickup-prompts.md) carry bounded scopes and role briefs.

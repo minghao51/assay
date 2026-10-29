@@ -6,11 +6,14 @@ row. The planning session changed documentation only. No clean-main baseline or 
 implementation was completed. Prompts do not authorize publication, remote changes or discarding
 work. Runtime rows require the existing worker → independent reviewer → orchestrator protocol.
 
-> **Status 2026-10-28:** ug-1/ug-2/ug-7, the ug-7 evidence follow-up, and ug-3 are integrated.
-> ug-8 is approved/code-integrated but **not closed**: recurring merged unit-gate failures block
-> further runtime dispatch (live usability queue §5). Next lane candidates ug-13 (Shell) and
-> ug-9 (Panels) remain unclaimed. ug-10 stays UX-D1 blocked. Historical prompts below are
-> dispatch patterns, not instructions to repeat completed rows or bypass verification.
+> **Status 2026-10-29:** ug-1/ug-2/ug-7, the ug-7 evidence follow-up, ug-3, ug-8, ug-13 and ug-9 are
+> integrated and merged-verified; current green baseline is 195 unit files / 3089 tests, e2e 185
+> passed + 1 skipped, coverage 88.08/82.24/89.08/89.60, docs 116/0, ADR 46. The ug-8 "merged gate"
+> blocker was a vitest harness budget fixed test-only as gd-1 (`b6fb78a`). Remaining eligible rows
+> are **ug-14** (Shell) and **ug-4** (Grid). **ug-10 stays UX-D1 blocked** — an amendment brief is
+> drafted but is NOT authorization: [20261029-ux-d1-amendment.md](20261029-ux-d1-amendment.md)
+> (maintainer must tick §7 first). Historical prompts below are dispatch patterns, not instructions
+> to repeat completed rows or bypass verification.
 
 ## 1. Next AI: orchestrator (start here)
 
@@ -61,8 +64,11 @@ remains handoff §4 / operating-model §7.6: GLM-first, Luna reviewer; documente
 No implementing session may approve its own change; honor the model-separation constraint too.
 If an independent eligible reviewer is unavailable, stop at review rather than self-approve.
 
-Do not implement ug-10 until UX-D1 has a recorded brief amendment. Re-running base profiling
-cannot show staged-edit statistics. uxv-6 SQL sizing is design-only/deferred, not a code task.
+Do not implement ug-10 until UX-D1 has a recorded maintainer ruling. A draft amendment brief now
+lives at docs/process/handoff/20261029-ux-d1-amendment.md (Options A/B/C, recommended C) but a
+draft is not authorization: no agent may tick the decision block, and re-running base profiling
+still cannot show staged-edit statistics. Panels successors ug-16/ug-20 sit behind that ruling.
+uxv-6 SQL sizing is design-only/deferred, not a code task.
 No DOM reorder, engine/grid API changes, new telemetry/dependencies, real collectors, new input
 formats, export/report byte changes, AI/hosted work or publication. Do not infer current push
 authority from an old handoff episode; workers never push.

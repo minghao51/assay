@@ -97,6 +97,12 @@ baseline merely because a doc review passed.
 
 No UX-D1/UX-D2 decision has been recorded by authoring this queue. The spec is sufficient to
 start bounded existing tasks after baseline, not sufficient to bypass those explicit decisions.
+
+**2026-10-29 update:** UX-D1 now has a **drafted** amendment brief
+([20261029-ux-d1-amendment.md](20261029-ux-d1-amendment.md)) — verified evidence, Options A/B/C
+(recommended C), the proposed R-16 copy/acceptance, and a maintainer decision block. It is **not a
+ruling**: ug-10 and the Panels successors (ug-16 → ug-20) remain blocked until the maintainer ticks
+it and the ruling is recorded in spec §7. UX-D2/uxv-6 remain design-only and unchanged.
 Do not mark any row green until independent review and merged verification finish. Integration
 resolves ug-2/ug-7 `App.tsx` overlaps and re-runs merged gates; update the matching queue row,
 `handoff.md` index/changelog and relevant roadmap/product narrative without duplicating history.
