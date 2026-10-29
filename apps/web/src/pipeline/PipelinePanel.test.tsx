@@ -24,8 +24,9 @@ import type {
  *     the exact R-15 labels (the existing picker behaviour is untouched —
  *     the App-level pins prove the picker is never called);
  * (b) the failed validate gate offers "Inspect this contract in Validation",
- *     and only when the run's node actually has a bound contract (never a
- *     load that cannot happen);
+ *     and only when the run's captured snapshot holds that node's contract
+ *     (never a load that cannot happen, never a silent fallback to the live
+ *     binding after a post-run re-bind);
  * (c) the first DCR mention is the export legend "Export the Dataset Change
  *     Request (DCR)", the purpose sentence renders verbatim, and no bare
  *     "DCR" precedes the expansion anywhere in the panel's rendered text.
@@ -103,6 +104,22 @@ function loadedContract(): ContractV1 {
   return parsed.contract
 }
 
+/**
+ * The contract a validate node is RE-BOUND to after a failed run — distinct
+ * from the snapshot contract so the cross-link's resolution is observable.
+ */
+function reboundContract(): ContractV1 {
+  const parsed = parseContract(CONTRACT_YAML.replace('name: r15-strict', 'name: r15-rebound'))
+  if (!parsed.ok) throw new Error('component rebound contract fixture must parse')
+  return parsed.contract
+}
+
+/** The contract the run STARTED with (captured at run start, never re-read). */
+const SNAPSHOT_CONTRACT = loadedContract()
+
+/** The node's live binding AFTER the user re-binds it post-run. */
+const REBOUND_CONTRACT = reboundContract()
+
 const FAILED_VALIDATE: PipelineRunOutcome = {
   nodeId: 'gate',
   relation: 'sg',
@@ -117,6 +134,9 @@ const GATED_RUN: PipelineRunState = {
   gate: 'validation-failed',
   nextNodeId: 'out',
   outcomes: [FAILED_VALIDATE],
+  // ug-9/R-15 (b): the contract the run started with. The panel must read
+  // the cross-link's contract from HERE, not from the live bindings.
+  contracts: { gate: SNAPSHOT_CONTRACT },
 }
 
 /**
@@ -139,6 +159,7 @@ const PUBLISH_BLOCKED_RUN: PipelineRunState = {
       gate: { class: 'publish', input: 'sg', blockedGates: ['gate'] },
     },
   ],
+  contracts: { gate: SNAPSHOT_CONTRACT },
 }
 
 const COMPLETED_RUN: PipelineRunState = {
@@ -250,9 +271,10 @@ describe('pipeline panel — R-15 (a) binding continues the journey', () => {
 describe('pipeline panel — R-15 (b) gate-failure cross-link', () => {
   it('offers "Inspect this contract in Validation" for a failed validate gate', () => {
     const contractBindings: Readonly<Record<string, ContractBindingState>> = {
-      gate: { kind: 'bound', contract: loadedContract() },
+      gate: { kind: 'bound', contract: SNAPSHOT_CONTRACT },
     }
-    const props = panelProps({ runState: GATED_RUN, contractBindings })
+    const onInspectContract = vi.fn<(contract: ContractV1) => void>()
+    const props = panelProps({ runState: GATED_RUN, contractBindings, onInspectContract })
     render(<PipelinePanel {...props} />)
 
     const crossLink = screen.getByTestId('pipeline-inspect-contract')
@@ -263,13 +285,41 @@ describe('pipeline panel — R-15 (b) gate-failure cross-link', () => {
       'The contract failed 1 rule',
     )
     fireEvent.click(crossLink)
-    expect(props.onInspectContract).toHaveBeenCalledWith('gate')
+    expect(onInspectContract.mock.calls[0]?.[0]).toBe(SNAPSHOT_CONTRACT)
+  })
+
+  /**
+   * ug-9/R-15 (b) regression pin (review round): the user re-binds the
+   * validate node to a DIFFERENT contract after the run settled. The gated
+   * detail still belongs to the OLD run, so the cross-link must load the
+   * contract THAT RUN used — never the new live binding.
+   */
+  it('loads the run snapshot contract after the node is re-bound post-run', () => {
+    const onInspectContract = vi.fn<(contract: ContractV1) => void>()
+    const props = panelProps({
+      runState: GATED_RUN,
+      contractBindings: { gate: { kind: 'bound', contract: REBOUND_CONTRACT } },
+      onInspectContract,
+    })
+    render(<PipelinePanel {...props} />)
+
+    // The gated detail still describes the settled run...
+    expect(screen.getByTestId('pipeline-run-gated-detail').textContent).toContain(
+      'The contract failed 1 rule',
+    )
+    fireEvent.click(screen.getByTestId('pipeline-inspect-contract'))
+
+    // ...so the loaded contract is the run's snapshot, not the new binding.
+    expect(onInspectContract.mock.calls[0]?.[0]).toBe(SNAPSHOT_CONTRACT)
+    expect(onInspectContract.mock.calls[0]?.[0]).not.toBe(REBOUND_CONTRACT)
   })
 
   it('offers the cross-link when the run stops at a publish gate whose validate gate failed', () => {
+    const onInspectContract = vi.fn<(contract: ContractV1) => void>()
     const props = panelProps({
       runState: PUBLISH_BLOCKED_RUN,
-      contractBindings: { gate: { kind: 'bound', contract: loadedContract() } },
+      contractBindings: { gate: { kind: 'bound', contract: REBOUND_CONTRACT } },
+      onInspectContract,
     })
     render(<PipelinePanel {...props} />)
     // The publish block is disclosed AND the failing validate is walkable.
@@ -278,14 +328,30 @@ describe('pipeline panel — R-15 (b) gate-failure cross-link', () => {
       'The contract failed 1 rule',
     )
     fireEvent.click(screen.getByTestId('pipeline-inspect-contract'))
-    expect(props.onInspectContract).toHaveBeenCalledWith('gate')
+    expect(onInspectContract.mock.calls[0]?.[0]).toBe(SNAPSHOT_CONTRACT)
   })
 
-  it('never offers the cross-link without a bound contract or without a failed gate', () => {
-    // No bound contract for the failed node ⇒ nothing to load, no control.
-    const unbound = render(<PipelinePanel {...panelProps({ runState: GATED_RUN })} />)
+  it('never offers the cross-link without a run snapshot entry or without a failed gate', () => {
+    // No snapshot entry for the failed node ⇒ nothing honest to load, no
+    // control — NEVER a silent fallback to the node's current binding.
+    const unbound = render(
+      <PipelinePanel
+        {...panelProps({
+          runState: { ...GATED_RUN, contracts: {} },
+          contractBindings: { gate: { kind: 'bound', contract: REBOUND_CONTRACT } },
+        })}
+      />,
+    )
     expect(screen.queryByTestId('pipeline-inspect-contract')).toBeNull()
     unbound.unmount()
+
+    // The run's snapshot is authoritative even when the live binding is gone:
+    // the failed run still used a contract, so the cross-link stays offered.
+    const snapshotOnly = render(
+      <PipelinePanel {...panelProps({ runState: GATED_RUN, contractBindings: {} })} />,
+    )
+    expect(screen.getByTestId('pipeline-inspect-contract')).toBeTruthy()
+    snapshotOnly.unmount()
 
     // A completed run has no failed gate.
     render(

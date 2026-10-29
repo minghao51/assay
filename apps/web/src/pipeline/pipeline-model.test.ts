@@ -256,6 +256,7 @@ describe('node statuses', () => {
       gate: 'validation-failed',
       outcomes: [outcome('customers', 5), outcome('renamed', 5), outcome('sg_only', 2)],
       nextNodeId: 'by_country',
+      contracts: {},
     }
     expect(nodeStatusesForRun(gated, ORDER)).toEqual({
       customers: 'done',
@@ -341,6 +342,7 @@ describe('viewable relations, previewability, and gate verdicts', () => {
         },
       ],
       nextNodeId: null,
+      contracts: {},
     }
     expect(gateVerdictForRun(gated, 'gate')).toEqual({
       class: 'validate',

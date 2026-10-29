@@ -20,6 +20,7 @@ import {
 } from '@assay/telemetry'
 import type { OverlayBase } from '@assay/domain'
 import { emptyHistory, liveRowCount, stateAtCursor } from '@assay/domain'
+import type { ContractV1 } from '@assay/contracts'
 import { GridViewportModel } from '@assay/grid'
 import type { ColumnSchema } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
@@ -719,21 +720,21 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
 
   /**
    * ug-9/R-15 (b): "Inspect this contract in Validation" from a failed
-   * validate gate. It loads the RUN's bound contract into the validation
-   * session with no picker, reveals + expands the Validation section, and
-   * focuses it — so the user's next Validate names the failing ruleIds instead
-   * of re-picking artifacts. Loading is NOT validating: `handleValidate` stays
-   * the explicit click and no engine call happens here.
+   * validate gate. It loads the RUN's snapshot contract (the one the run
+   * started with, passed in by the panel) into the validation session with no
+   * picker, reveals + expands the Validation section, and focuses it — so the
+   * user's next Validate names the failing ruleIds instead of re-picking
+   * artifacts. Resolving the live node binding here would load a NEW binding
+   * after a re-bind and misattribute the failure. Loading is NOT validating:
+   * `handleValidate` stays the explicit click and no engine call happens here.
    */
   const inspectPipelineContractInValidation = useCallback(
-    (nodeId: string) => {
-      const binding = pipeline.contractBindings[nodeId]
-      if (binding?.kind !== 'bound') return
-      handleContractDocument(binding.contract)
+    (contract: ContractV1) => {
+      handleContractDocument(contract)
       revealSectionFromNav('validation')
       setValidationFocusSeq((seq) => seq + 1)
     },
-    [pipeline.contractBindings, handleContractDocument, revealSectionFromNav],
+    [handleContractDocument, revealSectionFromNav],
   )
 
   /**

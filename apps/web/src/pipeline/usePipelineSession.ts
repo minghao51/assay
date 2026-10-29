@@ -574,12 +574,22 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
         }
         return { nodeId: node.nodeId, source: { name: binding.fileName, getFile: binding.getFile } }
       })
-    const contracts: PipelineRunContractBinding[] = current.pipeline.nodes
+    const runContracts = current.pipeline.nodes
       .filter((node) => node.type === 'validate')
-      .flatMap((node) => {
+      .flatMap((node): { nodeId: string; contract: ContractV1 }[] => {
         const binding = contractBindingsRef.current[node.id]
         return binding?.kind === 'bound' ? [{ nodeId: node.id, contract: binding.contract }] : []
       })
+    const contracts: PipelineRunContractBinding[] = runContracts
+    /**
+     * ug-9/R-15 (b) fix-round: freeze the contracts this run STARTS with,
+     * before any node executes. A re-bind while (or after) the run settles
+     * must never change which contract the gated detail attributes the
+     * failure to, so the settled gated state carries this snapshot rather
+     * than resolving the live bindings at render time.
+     */
+    const contractSnapshot: Record<string, ContractV1> = {}
+    for (const entry of runContracts) contractSnapshot[entry.nodeId] = entry.contract
 
     const token = runTokenRef.current + 1
     runTokenRef.current = token
@@ -628,6 +638,7 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
             gate: result.gate,
             outcomes: result.nodes.map(toOutcome),
             nextNodeId: result.nextNodeId,
+            contracts: contractSnapshot,
           })
         } else {
           setRunState({

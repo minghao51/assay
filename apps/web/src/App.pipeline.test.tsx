@@ -1895,4 +1895,65 @@ describe('pipeline panel — R-15 journey continuation (ug-9)', () => {
     expect(screen.queryByTestId('validation-verdict')).toBeNull()
     expect(document.activeElement).toBe(screen.getByTestId('validation-panel'))
   })
+
+  /**
+   * ug-9/R-15 (b) regression pin (review round): the user RE-BINDS the
+   * validate node to a different contract after the failed run. The gated
+   * detail still belongs to the settled run, so the cross-link must load the
+   * contract that run STARTED with (the run snapshot) — never the new
+   * binding, which would misattribute the failure.
+   */
+  it('the gate-failure cross-link loads the RUN snapshot contract after a re-bind', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    // The run starts with gate-contract loaded and bound to the validate node.
+    await loadValidationContract(CONTRACT_YAML)
+    await screen.findByTestId('validation-contract-name')
+    expect(screen.getByTestId('validation-contract-name').textContent).toBe('gate-contract')
+
+    await openPipeline(GATED_PIPELINE_YAML)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-open-dataset'))
+    })
+    await screen.findByTestId('pipeline-source-bound')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-loaded-contract'))
+    })
+    await screen.findByTestId('pipeline-contract-bound')
+    expect(screen.getByTestId('pipeline-contract-bound').getAttribute('data-bind-revision')).toBe(
+      '1',
+    )
+
+    // Settle the run at the validate-gate failure: the snapshot now holds
+    // gate-contract.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.(VALIDATION_FAILED_RUN)
+    })
+    expect(screen.getByTestId('pipeline-run-status').getAttribute('data-state')).toBe('gated')
+
+    // Re-bind the validate node to a DIFFERENT contract after the run: the
+    // node's live binding is now the passing contract (revision advances)...
+    await loadValidationContract(PASSING_CONTRACT_YAML)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-loaded-contract'))
+    })
+    expect(screen.getByTestId('pipeline-contract-bound').getAttribute('data-bind-revision')).toBe(
+      '2',
+    )
+
+    // ...but the OLD run's cross-link still loads the contract it failed, not
+    // the new binding. No picker, no validation run.
+    const pickerCallsBefore = h.pickerCalls
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-inspect-contract'))
+    })
+    expect(screen.getByTestId('validation-contract-name').textContent).toBe('gate-contract')
+    expect(screen.getByTestId('validation-contract-name').textContent).not.toBe('gate-pass')
+    expect(h.pickerCalls).toBe(pickerCallsBefore)
+    expect(h.validateCalls).toBe(0)
+    expect(screen.queryByTestId('validation-verdict')).toBeNull()
+  })
 })

@@ -239,6 +239,9 @@ test('R-15 (a): source + validate nodes bind from App-held state with no file ch
  * Setup uses the existing gated fixture/helper posture: the pipeline's strict
  * contract is bound through the real contract picker BEFORE the spy is armed;
  * the cross-link and the subsequent explicit Validate must not pick anything.
+ * Review round: the validate node is RE-BOUND to the passing contract after
+ * the failed run, so this journey also pins that the cross-link loads the
+ * run's start-of-run contract (the snapshot), never the new binding.
  */
 test('R-15 (b): gate-failure cross-link loads the run contract into Validation, no picker', async ({
   page,
@@ -272,10 +275,18 @@ test('R-15 (b): gate-failure cross-link loads the run contract into Validation, 
     'false',
   )
 
+  // Review-round pin: RE-BIND the validate node to a DIFFERENT (passing)
+  // contract AFTER the failed run. The gated detail still belongs to the old
+  // run, so the cross-link must load the contract THAT RUN failed — not this
+  // new binding (which would make the next Validate pass and misattribute
+  // the failure).
+  await bindContract(page, fixture.passingContractPath)
+
   const choosers = watchFileChoosers(page)
   await page.getByTestId('pipeline-inspect-contract').click()
 
-  // Revealed + expanded + focused, and the run's bound contract is loaded.
+  // Revealed + expanded + focused, and the RUN's contract is loaded — the
+  // re-bind above did NOT replace it.
   await expect(page.getByTestId('section-toggle-validation')).toHaveAttribute(
     'aria-expanded',
     'true',

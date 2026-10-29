@@ -115,6 +115,16 @@ export type PipelineRunGateVerdict =
       readonly blockedGates: readonly string[]
     }
 
+/**
+ * The `validate`-node contracts a run actually started with, keyed by node id
+ * (ug-9/R-15 (b) fix-round). Captured at run start — BEFORE any node executes —
+ * so a later re-bind cannot rewrite which contract a settled run failed. The
+ * gated detail resolves the cross-link's contract from THIS snapshot, never
+ * from the current bindings; a missing entry means no cross-link (never a
+ * silent fallback to a different contract).
+ */
+export type PipelineRunContractSnapshot = Readonly<Record<string, ContractV1>>
+
 /** One executed node's addressable outcome (the runner's value-free shape). */
 export interface PipelineRunOutcome {
   readonly nodeId: string
@@ -165,7 +175,10 @@ export type PipelineRunState =
    * and `outcomes` is every executed node — including a failed validate
    * consumed by a publish (whose own result is the publish's blocked gate).
    * No downstream node executed. The panel must show what completed, what a
-   * re-run needs, and which gates are still blocked.
+   * re-run needs, and which gates are still blocked. The run also carries the
+   * validate contracts it STARTED with (`contracts`, ug-9/R-15 (b)), so the
+   * gated detail's cross-link loads the contract that failed even after the
+   * user re-binds the node.
    */
   | {
       readonly kind: 'gated'
@@ -174,6 +187,12 @@ export type PipelineRunState =
       readonly outcomes: readonly PipelineRunOutcome[]
       /** The next unexecuted node, or `null` on a trailing gate. */
       readonly nextNodeId: string | null
+      /**
+       * The validate contracts the run started with (ug-9/R-15 (b)). The
+       * gated detail's cross-link reads THIS, so a re-bind after the run
+       * cannot change which contract the failure is attributed to.
+       */
+      readonly contracts: PipelineRunContractSnapshot
     }
   | {
       readonly kind: 'canceled'

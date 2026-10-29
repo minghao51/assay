@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PipelineError } from '@assay/pipeline'
+import type { ContractV1 } from '@assay/contracts'
 import {
   buildLineage,
   buildNodeViews,
@@ -82,10 +83,12 @@ export interface PipelinePanelProps {
   /** Bind this validate node to Validation's loaded contract (no picker). */
   readonly onBindLoadedContract: (nodeId: string) => void
   /**
-   * ug-9/R-15 (b): load this failed gate's bound contract into Validation,
-   * reveal/expand + focus the section (no picker, no auto-run).
+   * ug-9/R-15 (b): load the contract the failed run STARTED with into
+   * Validation, reveal/expand + focus the section (no picker, no auto-run).
+   * The contract is passed in, never re-resolved here: the run's snapshot is
+   * the only source of truth for which contract failed.
    */
-  readonly onInspectContract: (nodeId: string) => void
+  readonly onInspectContract: (contract: ContractV1) => void
   readonly onRun: () => void
   readonly onCancel: () => void
   readonly onOpenPreview: (nodeId: string) => void
@@ -799,13 +802,22 @@ export function PipelinePanel({
                   (outcome) => outcome.gate?.class === 'validate' && !outcome.gate.valid,
                 )
                 if (blocked.length === 0 && failedValidate === undefined) return null
-                // ug-9/R-15 (b): the run's BOUND contract for the failed
-                // validate node is what the cross-link loads into Validation.
-                // A run refuses unbound contracts, so an executed gate always
-                // has one; the guard keeps the control honest if state ever
-                // disagrees (never offer a load that cannot happen).
-                const failedContract =
-                  failedValidate === undefined ? undefined : contractBindings[failedValidate.nodeId]
+                // ug-9/R-15 (b): the contract that failed is the one the run
+                // STARTED with — read from the run's captured snapshot, never
+                // from the live bindings (a re-bind after the run must not
+                // rewrite history). No snapshot entry ⇒ no cross-link: there
+                // is no honest contract to load, and falling back to a
+                // different binding would misattribute the failure.
+                const failedContract:
+                  { readonly kind: 'bound'; readonly contract: ContractV1 } | undefined =
+                  failedValidate === undefined
+                    ? undefined
+                    : (() => {
+                        const contract = runState.contracts[failedValidate.nodeId]
+                        return contract === undefined
+                          ? undefined
+                          : { kind: 'bound' as const, contract }
+                      })()
                 return (
                   <>
                     <p data-testid="pipeline-run-gated-detail">
@@ -837,7 +849,7 @@ export function PipelinePanel({
                           data-testid="pipeline-inspect-contract"
                           data-node-id={failedValidate.nodeId}
                           onClick={() => {
-                            onInspectContract(failedValidate.nodeId)
+                            onInspectContract(failedContract.contract)
                           }}
                         >
                           Inspect this contract in Validation
