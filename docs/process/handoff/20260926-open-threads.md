@@ -7,6 +7,15 @@
 > `pnpm changeset status` green (92 pending changesets, au2 included; tooling validated 2026-09-24, see the
 > changesets row below). Roster + dispatch runbook: [operating-model §7.6](operating-model.md).
 >
+> **Current pointer (2026-10-29):** the September counts and “remote CI green” above are
+> historical. GitHub Actions has been M6-blocked since 2026-10-15. The local runtime baseline is
+> recorded at `385649b` — 195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage
+> 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 117/0), ADR 46. The live
+> frontier is **ug-14 (Shell)** / **ug-4 (Grid)**, with **uxv-1 eligible only under an exclusive
+> CSS/theme-test reservation**. Live changesets: **172**. Use [handoff](../handoff.md) and the
+> [usability](20261026-usability-queue.md)/[visual](20261026-ux-ui-execution-queue.md) queues for
+> current state; the September evidence below is preserved, not dispatchable.
+>
 > **This file is a map, not a second copy:** every thread points at its authoritative row or file
 > (single-ownership discipline, doc-queue dr-2). When a thread closes, strike its row here and
 > update the authoritative file — do not narrate in this file. **Supersedes
@@ -41,35 +50,18 @@
    v1 accepted (ADR 0046)** → P3 queue authoring unblocked; **PT-V slice 1 GO on the
    desktop-extension webview** (vscode-web stays RE-SCOPE) → PT-V slice-1 planning next. No active
    queue. G0 tail stays human-only (§3).
-7. **Now (2026-10-27): the usability queue is the active pickup** —
-   [handoff/20261026-usability-queue.md](20261026-usability-queue.md) (23 rows, ug-1…ug-23,
-   three lanes) owning the [usability gap review](../../reviews/2026-10-26-usability-gap-review.md)
-   findings UG-1…UG-37. **ug-1**, **ug-2** (first-run idle screen + picker hints) and Panels
-   lane **ug-7** (panel/grid recovery + SQL request lifetime) are integrated at `e92c0dd`,
-   `8e5fd62` and `9c29da4`. **2026-10-28 continuation:** ug-7 evidence follow-up `8367fbd`, ug-3
-   `5253c06` and ug-8 `cb64c32` are integrated, and ug-8 is **CLOSED** after test-only gd-1
-   `b6fb78a` fixed the harness budget that blocked its merged gate (merged baseline at `b6fb78a`:
-   193 unit files / 3071 tests, e2e 181 passed + 1 skipped, coverage 88.03/82.12/89.00/89.51,
-   docs 116/0, ADR 46, all gates exit 0). Runtime dispatch is open; **ug-13 (Shell) is CLOSED**
-   (2026-10-29): R-14 purpose subtitles on all twelve collapsed section headers + the Record dock
-   closed-state hint, `36cead3` + test-only amendment `793ba90`, two independent reviews and a
-   merged green baseline of 194 unit files / 3077 tests, e2e 183 passed + 1 skipped, coverage
-   88.07/82.15/89.07/89.55. **ug-9 (Panels) is CLOSED** (2026-10-29): R-15 pipeline continuation —
-   source/validate primaries bind from App-held state with a zero-picker proof, the failed-gate
-   cross-link loads the run-start contract snapshot (the reviewer's rebind defect closed), and the
-   first DCR mention expands with a purpose sentence; `71fa03a` + `385649b`, merged baseline
-   195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage 88.08/82.24/89.08/89.60.
-   Next lane candidates are **ug-14 (Shell)** and **ug-4 (Grid)**; the remainder of the Panels lane
-   (ug-16/ug-20) stays behind ug-10, which needs a maintainer-approved UX-D1 amendment — a drafted
-   brief with verified evidence, Options A/B/C and a decision block exists at
-   [20261029-ux-d1-amendment.md](20261029-ux-d1-amendment.md); a draft is not a ruling and no agent
-   may tick it.
-   Companion [execution spec](../../product/09-ux-ui-implementation-spec.md),
-   [visual queue](20261026-ux-ui-execution-queue.md) and
+7. **Now (2026-10-29): usability + visual continuation is the active pickup** —
+   [usability queue](20261026-usability-queue.md) (23 rows; **ug-1/2/3/7/8/9/13 CLOSED**, 16 remain
+   with **ug-10 blocked by UX-D1**) and [visual queue](20261026-ux-ui-execution-queue.md)
+   (**uxv-0 recorded; uxv-1 eligible only with an exclusive CSS/theme-test reservation; uxv-2…5
+   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-14 (Shell)** and **ug-4 (Grid)**.
+   Baseline recorded at `385649b`: 195 unit files / 3089 tests, e2e 185 passed + 1 skipped,
+   coverage 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 117/0), ADR 46.
+   The UX-D1 [amendment brief](20261029-ux-d1-amendment.md) is a **draft**: no ruling, and R-16 is
+   a proposed §8 index row only. Historical ug evidence/commits are in the usability queue §1/§5;
+   the September 2026-09-26/28 counts above are not current. Companion
+   [execution spec](../../product/09-ux-ui-implementation-spec.md) and
    [pickup prompts](20261026-ux-ui-pickup-prompts.md) carry bounded scopes and role briefs.
-   Baseline recorded 2026-10-26 at `7d8e1ca`; merged gates after ug-2/ug-7 are 193 unit files /
-   3056 tests, e2e 180 passed + 1 skipped, coverage 87.98/82.08/88.89/89.46; ug-10 is
-   decision-blocked (UX-D1), not silently runnable.
 
 ## 2. Open threads (authoritative pointers)
 
@@ -83,7 +75,7 @@
 | ~~D12 / D13~~ + C-pt0-1 + D14 rulings   | **[handoff/20260926-maintainer-rulings.md](20260926-maintainer-rulings.md)** — ✅ **CLOSED 2026-09-29**: all four ruled (C-pt0-1 approve + ADR 0045; D12 PT-P first; D13 keep-as-target; D14 ADR 0044 accepted); records in the file's sections                                                                                                                                                                   | none — queue closed; spawned queues: [telemetry](20260929-telemetry-queue.md) + [PT-P](20260929-ptp-queue.md)                                                                                                        | none                                    |
 | **PT-P2 — pipeline stage 2**            | **[handoff/20260930-ptp2-queue.md](20260930-ptp2-queue.md)** — ✅ **COMPLETE + CLOSED 2026-10-02** (authored 2026-09-30 off the PT-P §4 closure; **p2-1…p2-6 all landed 2026-10-02** — pipeline P2 code-complete end-to-end, §9 dt–dy; carry-overs in the queue §4): p2-1 hygiene → p2-2 IR materialization/diff-shape → p2-3 compile mapping+vocab → p2-4 runner gates → p2-5 CLI ∥ p2-6 web v2 (ADRs 0033/0035) | none — executes accepted ADRs                                                                                                                                                                                        | none                                    |
 | Publish-readiness day                   | **[handoff/20260926-publish-runbook.md](20260926-publish-runbook.md)** (authored 2026-09-26; ar-5 carry-overs enumerated inside)                                                                                                                                                                                                                                                                                  | land M1, then execute the runbook (one orchestrator lane + reviewer on steps 4/6/8)                                                                                                                                  | manual **M1**                           |
-| Unreleased changesets                   | `.changeset/` (**127 pending**: MVP/AR-era set + dr-4 six + the twelve 2026-09-26 lane changesets + au2 + **13 AU-3** + au2-f1/f2/f3/f5/f9/f10 + **ux-1/2/3/4 + uxc-1/2/4/5 + ux-6** 2026-09-29 + **t-1 + t-2 + p-1 + p-2 + p-3 + p-4 + p-5**)                                                                                                                                                                    | `pnpm version-packages` at the first release cut — tooling validated 2026-09-24 (`privatePackages.version` in config, `c0d1600`; was failing invalid-tree before)                                                    | manual **M1**                           |
+| Unreleased changesets                   | `.changeset/` (**172 live on 2026-10-29**; the September composition of 127 is historical and not reproduced here — see the [handoff](../handoff.md) and `.changeset/` for the current set)                                                                                                                                                                                                                       | `pnpm version-packages` at the first release cut — tooling validated 2026-09-24 (`privatePackages.version` in config, `c0d1600`; was failing invalid-tree before)                                                    | manual **M1**                           |
 | ar-4 / ar-6 / ar-2 carry-overs          | [archived AR queue](archive/20260922-ar-queue.md) rows ar-4 / ar-6 / ar-2                                                                                                                                                                                                                                                                                                                                         | ar-6 n1: root typecheck task covering `playwright.config.ts` (small, worth a task — natural rider on Dependabot CI touches); ar-6 n2/n3 + ar-4 w1/w2/s3/s4 opportunistic; ar-2 B-side per-open engine release → PT-H | opportunistic / PT-H                    |
 | dr-2 reviewer suggestions               | [archived doc queue](archive/20260923-doc-queue.md) row dr-2                                                                                                                                                                                                                                                                                                                                                      | arch-02 §2 could also cite ADR 0035; product/04 §4 hyperlink the §5 pointer; docs/README principle sentence stays full (honest minimum — noted, likely wontfix)                                                      | opportunistic (fold into any doc touch) |
 | Demo dataset (O5)                       | [manual-actions.md](../manual-actions.md) O5 note                                                                                                                                                                                                                                                                                                                                                                 | approach decided (hybrid); curation not started — needs the maintainer's source pick, then an agent-doable curation task can be queued                                                                               | maintainer source pick                  |

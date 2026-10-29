@@ -1,268 +1,214 @@
-# UX/UI Pickup Prompts — copy/paste pack
+# UX/UI Pickup Prompts — current pack
 
-**Authored 2026-10-26.** These are dispatch templates, not claims or completion records. Re-read
-live queues and the current tree every time; a prompt does not override a closed/claimed/blocked
-row. The planning session changed documentation only. No clean-main baseline or runtime
-implementation was completed. Prompts do not authorize publication, remote changes or discarding
-work. Runtime rows require the existing worker → independent reviewer → orchestrator protocol.
+**Refreshed 2026-10-29 (docs only).** This is a small ready-to-paste pack for the **current**
+frontier, not an archive of completed dispatches. Re-read the live queues and the tree before
+every use; a prompt never overrides a closed/claimed/blocked row.
 
-> **Status 2026-10-29:** ug-1/ug-2/ug-7, the ug-7 evidence follow-up, ug-3, ug-8, ug-13 and ug-9 are
-> integrated and merged-verified; current green baseline is 195 unit files / 3089 tests, e2e 185
-> passed + 1 skipped, coverage 88.08/82.24/89.08/89.60, docs 116/0, ADR 46. The ug-8 "merged gate"
-> blocker was a vitest harness budget fixed test-only as gd-1 (`b6fb78a`). Remaining eligible rows
-> are **ug-14** (Shell) and **ug-4** (Grid). **ug-10 stays UX-D1 blocked** — an amendment brief is
-> drafted but is NOT authorization: [20261029-ux-d1-amendment.md](20261029-ux-d1-amendment.md)
-> (maintainer must tick §7 first). Historical prompts below are dispatch patterns, not instructions
-> to repeat completed rows or bypass verification.
+## Current state
 
-## 1. Next AI: orchestrator (start here)
+- **Runtime baseline recorded at `385649b`** — not the current `main` tip, which is the later
+  docs-only amendment commit `dee10f8` at the time of this refresh. Re-check HEAD; later docs
+  refinements do not establish a new runtime baseline. At the baseline: **195 unit files / 3089 tests, e2e 185
+  passed + 1 skipped, coverage 88.08/82.24/89.08/89.60**, docs links 116/0 at that revision
+  (current pack: 117/0), ADR index 46, all gates exit 0. Evidence: `/tmp/assay-merged-ug9/`.
+- **Next runtime candidates:** **ug-14 (Shell)** and **ug-4 (Grid)**; choose one bounded row,
+  preserving each lane's order and shared-file reservations. Do not redispatch closed rows
+  **ug-1, ug-2, ug-3, ug-7, ug-8, ug-9, ug-13**; their evidence is in the
+  [usability queue §1/§5](20261026-usability-queue.md) and [handoff §9](../handoff.md).
+- **Visual row:** **uxv-1** is factually eligible now, **only** with an exclusive
+  CSS/theme-test reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated
+  (uxv-2 after uxv-1; uxv-3 after uxv-2; uxv-4 after ug-3 and uxv-3; uxv-5 after uxv-1…4 plus
+  ug-3/7/8). **uxv-6** is design-only/deferred.
+- **Blocked:** **ug-10** by UX-D1; **ug-16 → ug-20** stay behind it. The
+  [amendment brief](20261029-ux-d1-amendment.md) is a **draft**; its §7 decision block is
+  unchecked and R-16 is a proposal only. An agent may record an explicit maintainer ruling,
+  but cannot choose one or implement ug-10 before authorization.
+- **Ownership:** the usability queue owns R-01…R-08, R-14 and R-15; the
+  [visual queue](20261026-ux-ui-execution-queue.md) owns R-09…R-13.
+- **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent
+  reviewer **`openai-codex/gpt-6-luna`** at **thinking high**. Never implement and approve the
+  same change. Serialize provider sessions.
+- **Push/remote:** latest verified push is **`dee10f8`** (`origin/main` equal, 0/0 divergence).
+  The local uncommitted `README.md`, `docs/assets/` and `.dsh/` are another agent's work: leave
+  them untouched and do not describe the checkout as clean. **Workers never push**, and no
+  blanket remote/push permission is granted by this pack or by an old handoff episode. Remote
+  CI remains M6-blocked; local green is not remote green.
+- **Historical evidence:** [usability queue](20261026-usability-queue.md),
+  [visual queue](20261026-ux-ui-execution-queue.md), [UX-D1 brief](20261029-ux-d1-amendment.md),
+  [implementation spec](../../product/09-ux-ui-implementation-spec.md) §8. Closed task
+  templates were deliberately removed; cite those records instead of re-running them.
 
-Paste this entire block into the next agent's session:
+## 1. Orchestrator — paste into the next session
 
 ```text
-You are the Assay UX/UI orchestrator. Pick up the execution pack; do not restart the investigation
-or implement a broad redesign. The goal is a polished, understandable local-first workbench
-that demonstrates its real engine strengths through visible results and a coherent workflow.
+You are the Assay UX/UI orchestrator. Continue the current pack; do not restart the
+investigation or redesign broadly.
 
-Read first, in order:
-1. AGENTS.md and docs/process/handoff.md, especially §§4–6.
-2. docs/process/handoff/operating-model.md, fully.
-3. docs/process/handoff/20261026-usability-queue.md.
-4. docs/product/08-ux-ui-engine-showcase-plan.md.
-5. docs/product/09-ux-ui-implementation-spec.md, fully, including STOPs and exact gates.
-6. docs/process/handoff/20261026-ux-ui-execution-queue.md and this pickup-prompts file.
-7. docs/product/03-execution-roadmap.md, docs/adr/README.md, ADR0044, and task-relevant ADRs.
-Review the four linked SVG reference frames; they are design targets, not runtime screenshots
-or permission to add features owned by another row.
+Read first, in order: AGENTS.md; docs/process/handoff.md §§4–6; operating-model.md fully;
+docs/process/handoff/20261026-usability-queue.md §1–§5; docs/product/09-ux-ui-implementation-spec.md
+fully (especially §6 gates, §7 STOPs, §8 index); docs/process/handoff/20261026-ux-ui-execution-queue.md;
+docs/process/handoff/20261026-ux-ui-pickup-prompts.md; task-relevant ADRs and ADR 0044.
 
-Establish current truth: branch, commit, git status, existing task owners, available toolchain.
-The last planning session left a documentation pack; it ran docs checks, not the six-gate baseline.
-Do not assume those files are committed in your checkout. Preserve all existing work. Integrate
-only reviewed/authorized docs through normal commit discipline before a clean-main baseline;
-if ownership/commit authority is unclear, ask. Never reset/stash/delete unknown work to fake clean.
+Current truth to confirm, not assume: branch/commit/status, queue owners, toolchain, ports.
+The runtime baseline is recorded at 385649b (195f/3089t, e2e 185p+1s, coverage
+88.08/82.24/89.08/89.60); dee10f8 was the later verified docs push, not a permanent HEAD.
+Verify current HEAD and a fresh baseline from
+a clean isolated worktree at your chosen base before runtime dispatch. Preserve all foreign
+uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unknown work.
 
-Before any runtime claim, complete uxv-0: clean main, six core gates plus coverage/docs/ADR
-checks from spec §6. Record command exit codes/counts/log paths and the exact starting revision.
-If a gate fails, STOP runtime dispatch, record the blocker and reproduce it; do not weaken tests.
-Historical green, remote CI status, dev screenshots and mockups are not current gate evidence.
+Select one of these eligible candidates, one bounded row per worker, with an independent reviewer
+(no new cross-lane dependency is imposed by this list):
+1) ug-14 (Shell) — open-failure recovery + error-copy consolidation.
+2) ug-4 (Grid) — visible grid interaction language.
+3) uxv-1 (Visual) — theme completeness, ONLY if you can hold an exclusive CSS/theme-test
+   reservation; otherwise keep it unclaimed and do not improvise a styling batch.
+Do not redispatch closed rows ug-1/2/3/7/8/9/13. Do not dispatch ug-10 (UX-D1 draft, no ruling),
+ug-16/ug-20 (behind ug-10), uxv-2…5 (dependencies), or uxv-6 (design-only).
 
-Then dispatch exactly ug-1 first. Apply spec R-01/R-02 and §3: LIST Explode vs STRUCT Flatten,
-collapsed-default tests, rail expansion, proper result/error/empty focus and scrollability.
-After independent approval and merged verification, dispatch ug-2 and ug-7 in isolated worktrees
-as parallel tasks; serialize provider sessions where the standing operating model requires it.
-Use the task-specific templates below. ug-7 includes replay-safe SQL request acknowledgment and
-recoverable Close for inner-disclosure sections; do not omit those requirements to keep a diff tiny.
+Before dispatch, reserve shared files and state the reservation in the brief. Lanes are NOT
+absolutely parallel-safe: App/CSS/FilterBar are touched by ug-14/ug-23 (Shell) and ug-18 (Grid).
+Serialize such conflicts and inspect integration diffs.
 
-Keep one worker per bounded row; reserve shared App/CSS/test files; use separate e2e ports.
-ug-2 and ug-7 share App.tsx: worktrees do not remove integration risks. Inspect/re-run merged
-behavior. Same-lane tasks serialize. Continue ug-3/ug-8 only after their lane predecessors land.
-New visual work follows the uxv queue, not an improvised styling batch.
+Roster: worker opencode-go/deepseek-v4.1-flash; independent reviewer openai-codex/gpt-6-luna
+thinking high. Workers never push. Latest verified push is dee10f8; do not claim the current
+uncommitted tree is pushed or grant blanket remote permission.
 
-The research used GPT Luna xhigh. For additional read-only investigation, use
-openai-codex/gpt-6-luna with thinking xhigh when available. Runtime implementer/reviewer roster
-remains handoff §4 / operating-model §7.6: GLM-first, Luna reviewer; documented fallback only.
-No implementing session may approve its own change; honor the model-separation constraint too.
-If an independent eligible reviewer is unavailable, stop at review rather than self-approve.
+Use the task templates in this file. Record starting commit, clean-status evidence, environment,
+ports, exit codes and log paths under /tmp. A request-changes verdict returns to a fresh worker
+brief quoting the exact fixes. Integrate only independently approved rows and re-run merged gates.
+Update the owning queue, handoff index/changelog and open-issues map in the same change. Do not
+mark the UX program complete because a row lands.
 
-Do not implement ug-10 until UX-D1 has a recorded maintainer ruling. A draft amendment brief now
-lives at docs/process/handoff/20261029-ux-d1-amendment.md (Options A/B/C, recommended C) but a
-draft is not authorization: no agent may tick the decision block, and re-running base profiling
-still cannot show staged-edit statistics. Panels successors ug-16/ug-20 sit behind that ruling.
-uxv-6 SQL sizing is design-only/deferred, not a code task.
-No DOM reorder, engine/grid API changes, new telemetry/dependencies, real collectors, new input
-formats, export/report byte changes, AI/hosted work or publication. Do not infer current push
-authority from an old handoff episode; workers never push.
-
-Write briefs/logs under /tmp. Workers own runtime changes; orchestrator owns shared documentation.
-Fresh independent reviewer must run required gates, inspect requirements over implementation,
-perform meaningful mutations and restore/rebuild. A request-changes verdict returns to a fresh
-worker brief quoting exact required fixes. Integrate only approved rows, run merged gates, and
-update the owning queue immediately with evidence and carry-overs. Do not mark the whole UX
-program complete because the first three tasks or visual references are done.
-
-First response: report current checkout/queue state, baseline prerequisites, selected ug-1 scope,
-and blockers. At each handoff report: integrated commits, checks, unresolved decisions, current
-owner/status and the single next eligible dispatch. Do not claim checks you did not run.
+First response: checkout/queue state, proposed base, reservations for the next row, blockers, and
+the single next dispatch.
 ```
 
-## 2. First worker: ug-1
-
-The orchestrator supplies base commit, worktree, reserved files, ports and log directory before
-using this template. A worker must not invent missing baseline evidence.
+## 2. Worker — ug-14 (Shell)
 
 ```text
-Implement exactly ug-1: nested one-click actions reveal their SQL outcome.
-Read AGENTS.md, current handoff/operating-model, the live ug queue, and product/09 spec §§1–3,6–7.
-Confirm orchestrator-provided clean-main baseline evidence and your assigned base/worktree/ports.
+Implement exactly ug-14: open-failure recovery + error-copy consolidation.
+Read AGENTS.md, docs/process/handoff/operating-model.md, the live usability queue ug-14 row,
+findings UG-5/UG-30/UG-25 in docs/reviews/2026-10-26-usability-gap-review.md, and spec §2
+(Open error), §6 (gates) and §7 (STOPs). Confirm the orchestrator-provided base
+commit, isolated worktree, Shell ports (4273/4279/4280 or assigned free set), reserved files and
+baseline evidence before editing. Requirement basis is the queue row (UG-5/UG-30/UG-25); there is
+no R-ID for this row, so the queue is authoritative.
 
-Requirements: R-01/R-02. Use existing shell section/pane state; do not change engine/query/grid
-contracts. A successful nested request opens SQL and a collapsed tool rail, scrolls the relevant
-container and focuses the matching result/status after render. Populated, empty and execution-
-error outcomes all need reachable targets. Composition rejection uses its existing alert and
-must not open SQL. Leave the main grid unchanged. No unrelated rerender focus stealing.
+Allowed: apps/web/src/App.tsx, sql/SqlPanel.tsx, profile/ProfilePanel.tsx, grid/FilterBar.tsx,
+edit/session.ts (shared first-line-reducing helper), focused tests, and one changeset. No engine
+or grid protocol change, no new dependency, no broad restyle, no shared docs/root config.
 
-Allowed: apps/web/src/App.tsx, sql/SqlPanel.tsx and their focused tests; tests/e2e/nested-journey.spec.ts;
-shared tests/e2e/support/fixtures.ts only if essential. Add the required changeset. No docs/root
-config, DataGrid or engine changes. Report any broader need as STOP before extending scope.
+(a) open-error pairs a one-line human cause with "Choose a different file…" retry that
+re-triggers openDataFile; raw engine detail stays behind <details>; pin with a corrupt fixture.
+(b) adopt a shared first-line-reducing engine-error helper with per-panel framing on
+open/SQL/profile/filter; fix the validation/diff edit-leak per UG-25; unit pins for single-line
+messages on those paths. Keep errors local and honest; do not hide them under welcome copy.
 
-Tests must start with expandSections:false. Cover schema and header origins plus a header
-activation when the tool pane is a rail. The fixture tags LIST Explode yields 20 rows and page
-range rows 1–20; meta STRUCT Flatten yields 12. Assert visible composed statement, matching
-outcome focus, relevant scrollability and unchanged main-grid identity; don't click SQL nav to
-make the test pass. Include failure/empty outcomes, desktop and 900px fallback. Existing helper
-expands all sections by default and otherwise masks the bug. Do not add a total-count query.
+Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6; build before e2e.
+Focused starting points: pnpm exec vitest run apps/web/src/App.open-status.test.tsx
+apps/web/src/grid/FilterBar.test.tsx; pnpm exec playwright test tests/e2e/data-sources.spec.ts
+tests/e2e/smoke.spec.ts tests/e2e/shell.spec.ts. Add the corrupt-fixture retry pin.
 
-Run all gates/additional checks from spec §6 and focused nested/keyboard tests; build before
-browser tests. Record exact commands/exit codes and counts, not just “green”. Leave one bounded
-Conventional Commit fix(web): ... and changeset; no push or queue approval. Report commit,
-files, requirements, test evidence, screenshot paths and any blockers. Reviewer is independent.
+Leave one bounded fix(web): commit plus changeset. No push, no self-approval, no silent scope
+growth. Report files, requirement evidence, exact commands/exit codes/counts, logs and blockers.
 ```
 
-## 3. Next Shell worker: ug-2
+## 3. Worker — ug-4 (Grid)
 
 ```text
-Implement exactly ug-2 after integrated/reverified ug-1. Read AGENTS.md, current handoff,
-operating-model, live ug queue and product/09 spec R-03/R-04 plus §§1,6–7.
-Use orchestrator-assigned base/worktree/Shell ports/reserved files and confirmed baseline.
+Implement exactly ug-4: make the grid interaction language visible.
+Read AGENTS.md, handoff/operating-model, the live usability queue ug-4 row, and spec §2 state
+table, §6 gates and §7 STOPs. Confirm the assigned base commit, isolated worktree, Grid ports,
+reserved files and baseline evidence. Requirement basis is the queue row (UG-9/UG-33).
 
-Replace idle maintainer copy with exact capability/format text from R-03, close to the existing
-Open control. Welcome copy is idle-only; preserve Opening…, errors, completion announcements
-and focus. Remove visible roadmap/milestone/docs-path content. Do not add example data yet
-(ug-3 owns it), engine explanation (uxv-4), a new layout, drag/drop, or progress/cancel.
+Allowed: apps/web/src/grid/DataGrid.tsx, its focused tests, and one changeset. No engine/grid
+protocol change, no App shell restyle, no other row's feature.
 
-Add matching four-extension picker hints for FSA and hidden input. Preserve a standards-valid
-All files choice (excludeAcceptAllOption:false/default), cancellation and single-file behavior.
-No invalid wildcard FSA MIME key or pretend file validation. Engine remains authoritative.
+(a) Persistent one-line editing hint on ready grids, verbatim: "Double-click a cell to edit ·
+Enter edits the focused cell · Esc cancels", wired as aria-describedby for the grid role.
+(b) A "Keyboard" section in the existing grid footer <details> listing edit/inspect/navigate keys.
+Done-when: hint visible on first ready paint (component + one e2e); shortcut list pinned;
+DataGrid.keyboard and a11y-keyboard specs green.
 
-Allowed: apps/web/src/App.tsx, lib/app.ts, related copy/open/shell tests;
-packages/data-sources/src/pick-file.ts and its tests/necessary picker option types;
-tests/e2e/support/fixtures.ts before open-flow copy-pin migrations; affected open e2e tests;
-changeset. No engine/client protocol, unrelated package or shared documentation edits.
-Coordinate App.tsx integration with the Panels ug-7 worker; never edit their worktree.
+Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6; build before e2e.
+Focused starting points: pnpm exec vitest run apps/web/src/grid/DataGrid.keyboard.test.tsx
+apps/web/src/App.shell.test.tsx; pnpm exec playwright test tests/e2e/a11y-keyboard.spec.ts
+tests/e2e/grid-editing.spec.ts.
 
-Pin exact rendered idle copy, absence of internal tokens, both picker paths/options, cancel,
-opening/error behavior and the real open-to-ready path. Run six gates + coverage/docs/ADR
-checks and focused tests from spec §6. Build before e2e. One fix(web): ... commit with a
-changeset including the changed data-sources package. Report evidence and STOPs; no push,
-self-approval or silent scope expansion.
+Leave one bounded fix(web): commit plus changeset. No push, no self-approval, no scope growth.
+Report files, requirement evidence, exact commands/exit codes/counts, logs and blockers.
 ```
 
-## 4. Panels worker: ug-7
+## 4. Worker — uxv-1 (Visual), only with an exclusive reservation
 
 ```text
-Implement exactly ug-7 after integrated ug-1, eligible alongside ug-2 in an isolated worktree.
-Read AGENTS.md, current handoff/operating-model, live ug queue and product/09 spec R-06/R-07,
-§3 recovery seam/copy/request lifetime, §6 gates and §7 STOPs. Confirm assigned baseline,
-base commit, Panels ports and file reservations before editing.
+Implement exactly uxv-1 (R-09): repair theme completeness.
+Do not start unless the orchestrator states in this brief that (i) the recorded uxv-0 baseline and
+the already-integrated ug-1/ug-2/ug-7 prerequisites are green, and (ii) you hold an EXCLUSIVE
+reservation for index.css and the theme/telemetry test files. App/CSS/FilterBar are also touched by ug-14/ug-23
+(Shell) and ug-18 (Grid); no concurrent writer is allowed at this seam.
 
-Allowed: apps/web/src/ErrorBoundary.tsx, App.tsx, sql/SqlPanel.tsx for web-local SQL acknowledgment,
-focused ErrorBoundary/App/shell/SQL tests and changeset. No engine/grid protocols, DataGrid
-refactor, session-hook relocation, root config or docs. Other panels must not be rewritten.
+Read AGENTS.md, handoff/operating-model, the live visual queue uxv-1 row, spec R-09, §4 (semantic
+surfaces), §6 (configured-disclosure evidence, gates) and §7 STOPs.
 
-Wrap each listed tool section body in panel scope; retain root/grid boundaries. Retry remounts
-only the failed child, preserving App-owned dataset and committed staged history. Grid draft,
-focus/scroll and panel-local state may reset; exact static copy from §3 states the trade-off.
-Grid primary Try again; separate Reload warns of session loss before clicking. Panel Try again
-and Close section must be keyboard reachable; use existing shell state plus recovery-only
-visibility override/nav reopen for inner disclosures. Reopen shows retained fallback, not an
-implicit retry. Preserve mounted-body behavior and normal disclosure/heading contracts.
+Allowed: apps/web/src/index.css; telemetry theme/component tests; tests/e2e/theme.spec.ts;
+tests/e2e/a11y.spec.ts; a new isolated tests/visual/telemetry-disclosure-theme.spec.ts and its
+config (outside the default tests/e2e testDir). No consent/storage/event changes, no new
+dependency, no production testing hook, no collector traffic.
 
-Prevent SQL replay: claim a nested request sequence synchronously in session-scoped App state
-before issuing it, so remount/StrictMode cannot reissue a consumed request. Do not drop a newer
-sequence when acknowledging an older one. Manual Run remains an explicit user action. Test
-engine query call counts across remount and new sequences and reject stale-session requests.
+Fix undefined surface usage so Settings and the telemetry disclosure use a defined semantic
+surface in both schemes; prove both real surfaces readable (normal text >= 4.5:1) with axe clean
+and no new allowlist. Run the configured-disclosure leg exactly as spec §6 specifies (abort
+https://collector.example.invalid/**, fresh local storage, no service workers), then restore and
+rebuild the stock output before stock gates. Stock telemetry.spec.ts intentionally asserts no
+disclosure; do not run it against the configured build.
 
-Test a mounted-panel render throw with nonzero staged edits: grid, summary and History survive;
-retry recovery and persistent failure are honest; managed and inner close/reopen focus works;
-static fallback never interpolates thrown values. Reset/wrapper removal mutants must fail the
-pins and be restored. No beginSession/reopen/reload on retry. Error boundaries don't solve
-async/event errors. STOP for wider ownership or engine requirements; do not omit a requirement.
+Mutation: restoring the undefined white fallback must fail the dark contrast evidence; revert the
+mutant and rebuild restored source before final verification.
 
-Run six gates + coverage/docs/ADR and focused tests from spec §6. Record evidence, one bounded
-fix(web): ... commit and changeset. No push or self-approval. Parent coordinates App overlap.
+Run focused checks plus the six gates + coverage/docs/ADR checks from spec §6. Leave one bounded
+fix(web): commit plus changeset. No push, no self-approval, no visual scope beyond R-09. Report
+screenshots (scheme/surface), axe results, evidence, logs and blockers.
 ```
 
-## 5. Visual worker: one eligible uxv row
+## 5. Independent reviewer — generic for any current runtime row
 
 ```text
-Implement only the orchestrator-assigned uxv-N row from the live UX/UI execution queue.
-Do not start if row/dependencies/files/ports/baseline are missing or the row is design-only.
-Read AGENTS.md, handoff/operating-model, both live queues, product/09 spec, row requirement IDs,
-all STOPs, and the reference SVGs. Queue owns status; spec owns copy/geometry/acceptance.
+Independently review the assigned row and worker commit against the live queue done-when and the
+spec requirement IDs, not against the worker's preferred implementation. You must be a distinct
+session/model: reviewer openai-codex/gpt-6-luna at thinking high; worker is
+opencode-go/deepseek-v4.1-flash.
 
-Copy the row's exact allowed paths, requirements, dependencies and done-when into your /tmp
-brief before editing. No shared documentation/root config edits unless the orchestrator explicitly
-assigns a docs-only deliverable. No token inventory growing into a whole-component rewrite.
-Mockups include features owned by ug rows: do not implement those as styling riders.
+Read AGENTS.md, operating-model §7.3/7.6, the owning queue, the spec (§2 requirement/copy, §3
+recovery, §4 visual contract where applicable, §6 gates/evidence, §7 STOPs, §8 index) and the
+worker brief/report. Confirm the base/worktree/ports match the reviewed commit.
 
-Apply the spec's exact focused checks in addition to full gates/coverage/docs/ADR checks. For
-uxv-1 use the isolated configured disclosure test and restore a stock build before stock gates;
-never send to a real collector or alter consent logic. For uxv-2 scope styles to named controls,
-not every button. For uxv-3 preserve 28px virtualizer geometry and test measured viewport widths,
-footer/focus/scroll and memo identity. For uxv-4 all explanation is static, idle-only and value-free.
-uxv-5 supplies a /tmp rehearsal draft/evidence to the orchestrator, not runtime edits. uxv-6 is
-not a code task and cannot be used to relocate SQL or resize panes without an approved amendment.
+Inspect git show/diff and scope. Run the six core gates plus coverage/docs/ADR checks yourself,
+then the row's focused tests/specs. Rebuild before browser evidence. Verify counts, new
+assertions, absence of vacuous mocks, and same-input/view agreement. Check copy/privacy, no new
+telemetry, no changed export/report bytes, no new dependency, no DOM direction change, and a
+Conventional Commit plus changeset where required.
 
-Report one bounded commit/changeset where applicable, requirement-by-requirement results,
-commands/exit codes/counts, screenshot matrix, known gaps and STOPs. Do not approve your change,
-push, weaken tests, broaden the row, or claim remote CI/publication approval.
+Run meaningful temporary mutations for load-bearing behavior (e.g. remove the hint/description
+wiring, remove the corrupt-file retry path, restore the white surface), confirm the right test
+fails, then revert only your mutants and rebuild restored source. Never fix the author's runtime
+code while approving, never commit, never push.
+
+Return: files reviewed; numbered must-fix findings with file:line evidence; exact checks and
+mutation results; remaining risks; final line exactly
+VERDICT: approve
+or
+VERDICT: request-changes
+Approval covers this row only, not the program, release or remote CI.
 ```
 
-## 6. Independent reviewer (runtime rows)
+## 6. Continuation after request-changes or interruption
 
 ```text
-Independently review assigned ROW and worker COMMIT against its live queue done-when and
-product/09 requirement IDs, not against the worker's chosen implementation. Read AGENTS.md,
-operating-model §7.3/7.6, both queues, spec and worker brief/report. Verify that you are a distinct
-eligible reviewer session/model and your assigned worktree/ports match the reviewed commit.
-
-Run git show/diff and scope checks. Run six core gates plus coverage/docs/ADR checks yourself,
-and affected focused tests. Rebuild before browser evidence. Verify counts, new test assertions,
-no vacuous mocks, same input/view for agreement claims, and screenshot light/dark/viewport/state
-coverage. No new axe allowlist, changed coverage thresholds or unexplained skipped scenarios.
-No source/engine/DOM direction changes, dynamic error text, telemetry leakage, extra Undo/Redo,
-changed output bytes or format overclaims. Check Conventional Commit and changeset scope.
-
-ug-1: default-collapsed SQL, both origins, rail reveal, correct sequence focus and keyboard-scroll,
-empty/error outcomes. A nav click or expand-all helper before the action invalidates the proof.
-ug-2: exact idle copy, no internal tokens, correct FSA/input hints and All files/cancel behavior.
-ug-7: staged state survives a true mounted-panel crash/retry; inner Close has a keyboard reopen
-path; no consumed SQL replay; no session restart. Query-call counts must catch remount replay.
-Visual rows: verify each deterministic style/geometry/copy claim and actual rendered contrast.
-
-Perform temporary mutations for load-bearing requirements: e.g. remove reveal/reset/wrapper,
-restore white surface or 72rem cap, remove adopted token or engine explanation. The appropriate
-test must fail. Revert only your mutants and rebuild restored source before final verification;
-never destroy pre-existing work, commit fixes or leave source dirty. Report failures to author;
-do not implement and approve the fix yourself. Keep a distinct role/model if fallback was used.
-
-Return: files reviewed; numbered must-fix findings with file:line evidence; exact executed checks
-and mutation failures/restoration; remaining risks; final line exactly VERDICT: approve or
-VERDICT: request-changes. Approval means this row only, not the entire program or a release.
-```
-
-## 7. Reviewer: docs-only showcase deliverable
-
-```text
-Review uxv-5's rehearsal document/evidence independently. Require exactly two chapters, with CLI
-continuity inside Chapter 2. M5/M6 inputs are generated in temporary directories: validate cited
-generator/function source paths and reproducible commands, not invented committed fixture paths.
-Keep the M6 pair distinct from the repaired M5 export unless separately proven. Validate every
-capability/format/privacy and web/CLI claim against current source and exact journeys; inspect required built
-rehearsals, observed counts and command evidence. Confirm no new real dataset, benchmark promise,
-publication, collector or runtime change was bundled. Check docs links/format, requirement R-13,
-current commit references and unresolved gaps. No new six-gate baseline claim from docs alone.
-Return specific corrections or VERDICT: approve for this bounded docs deliverable only.
-```
-
-## 8. Request-changes and interrupted-session continuation
-
-```text
-Continue assigned ROW only. Re-read live status; original brief is ORIGINAL_BRIEF_PATH; independent
-review required these exact fixes: PASTE_NUMBERED_ITEMS. Existing work/commits are LIST_AND_SHA.
-Do not discard/adopt artifacts blindly. Independently verify them, fix only requested items within
-the original boundary, and re-run required gates/focused checks. STOP if scope must grow. Report
-changed commit and item-by-item evidence to a fresh independent reviewer. No self-approval,
-publication, push, unrecorded skip or queue closure. If interrupted, preserve artifacts and state
-precisely what is committed, uncommitted, verified and still blocked.
+Continue the assigned row only. Re-read live status. Independent review required exactly these
+fixes: PASTE_NUMBERED_ITEMS. Existing work/commits: LIST_AND_SHA. Do not discard or blindly adopt
+artifacts. Fix only the requested items inside the original boundary, re-run the required gates
+and focused checks, and send the result to a fresh independent reviewer. STOP if scope must grow.
+No self-approval, push, unrecorded skip or queue closure. State precisely what is committed,
+uncommitted, verified and still blocked.
 ```

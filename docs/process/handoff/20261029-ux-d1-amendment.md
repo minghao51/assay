@@ -3,7 +3,7 @@
 > **STATUS: DRAFT — NOT A DECISION. PENDING MAINTAINER APPROVAL.**
 > This file is a decision brief, not authorization. No agent may claim ug-10, edit the
 > contradictory queue wording, or start the engine variant until the maintainer records a ruling
-> in §8 below. Until then the safe default in
+> in §7 below. Until then the safe default in
 > [spec §7](../../product/09-ux-ui-implementation-spec.md#7-explicit-stopdecision-register) stands:
 > do not implement ug-10.
 >
@@ -60,8 +60,11 @@ Add an overlay-aware profile (`overlayProfile(handle, overlay)` or an optional `
 Payoff: statistics follow staged edits, renames and inserts; ug-10's original wording becomes
 implementable as written.
 Cost (deliberately stated so the decision is informed): protocol field + worker composition
-(via `overlay-query.ts`) + domain type + `DataEngine` target update (D13 compatibility pin) +
-conformance/fixture scenarios derived from the pinned DuckDB CLI + independent review. Also a
+(via `overlay-query.ts`) + conformance/fixture scenarios derived from the pinned DuckDB CLI +
+independent review. Whether domain types or the public `DataEngine` target must change is an open
+design question, not an established requirement: a pure `engine-duckdb` client protocol addition
+may suffice under D13 compatibility rules, the architect resolves the actual footprint, and the
+existing diff overlay is the precedent for composing an effective view. Also a
 cost profile change: inserts are bounded by session activity, but the scan is still a full pass
 over the composed relation on the query lane. Panels-lane successors stay blocked until it lands.
 
@@ -69,13 +72,18 @@ over the composed relation on the query lane. Panels-lane successors stay blocke
 
 Ship Option A immediately as the amended ug-10 (unblocks the Panels lane today), and keep Option B
 as a **separate engine-track candidate** with its own queue row and fixtures — not a rider on a
-copy task. If B ever lands, A's copy stays true and can be extended (the hint keeps describing the
-base; the note disappears when the profile becomes overlay-aware).
+copy task. If B ever lands, A's hint is no longer true for effective-view statistics: B must
+replace the base hint with explicit effective-view labeling rather than keep both. This is
+candidate planning only; no engine implementation is authorized by this brief.
 
 **Recommendation: Option C.** It resolves the contradiction honestly today, costs nothing in the
 engine, and does not foreclose the better long-term behavior.
 
-## 4. Proposed amendment (only valid if §8 approves Option A or C)
+## 4. Proposed amendment (only valid if §7 approves Option A or C)
+
+**Status note:** the original ug-10 done-when in the queue stays untouched until the ruling is
+recorded. This section is proposed copy, not a ruling. R-16 is not in spec §2 today; it appears
+only in the spec §8 index as proposed/unauthorized and in this brief.
 
 **Queue row ug-10 is reworded to:**
 
@@ -88,11 +96,17 @@ engine, and does not foreclose the better long-term behavior.
 **Proposed requirement R-16 (activates only on approval; added to spec §2 by the orchestrator):**
 
 - **Hint (always visible, including the zero state), byte-exact:**
-  `Statistics describe the file as opened — staged edits, inserts and renames are not included.`
+  `Statistics describe the file as opened — staged changes are not included.` This covers deletes,
+  restores and casts as well as inserts and renames. If Option B later makes the profile
+  effective-view aware, this base hint must be replaced by explicit effective-view labeling —
+  never shown alongside it.
 - **Staged note (visible only while the active history has ≥1 operation), byte-exact with singular
   grammar:**
-  `N staged change is not reflected here` / `N staged changes are not reflected here`,
-  followed by `— the grid and validation use the edited view.`
+  `1 staged change is not reflected here — the grid uses the edited view. Validation must be run explicitly against the edited view.`
+  `N staged changes are not reflected here — the grid uses the edited view. Validation must be run explicitly against the edited view.`
+  A “re-run validation to include it/them” promise is not proposed: nothing here may imply that a
+  previously displayed validation verdict already reflects the edits, or that validation refreshes
+  automatically.
 - **No stale banner, no re-run-implies-edits copy.** The existing run/refresh control keeps its
   current label and semantics (refresh of the immutable base statistics).
 - **Nothing else changes:** `profile(handle)` stays as-is, no protocol/engine/domain change, no new
@@ -105,19 +119,24 @@ engine, and does not foreclose the better long-term behavior.
    (`N staged changes are not reflected here …`); it disappears when the history returns to 0
    operations (undo path pinned); nothing renders at N=0.
 3. No stale banner, no edit-aware re-run claim; re-running performs exactly the same base profile;
-   no auto-recompute on overlay revision change.
+   no auto-recompute on overlay revision change; no currently displayed validation verdict is
+   described as reflecting edits.
 4. Pins: unit tests for hint (zero state + results), note at 0/1/N, and the undo-back-to-0
    disappearance; a mutation drill that removes the count prop must fail the note pins.
 5. Scope: `apps/web/src/profile/**` + `App.tsx` prop wiring + one scoped CSS block (existing
    `profile-*` classes preferred; token restyling stays with uxv-2); `feat(web):`/`fix(web):`
-   - `@assay/web` changeset; no `packages/**` change.
+   - `@assay/web` changeset; no `packages/**` change. This bounded scope is proposed only and does
+     not authorize an unruled workaround (for example, an effective-view profile or silent column
+     remapping) inside the ug-10 claim.
 
-**If §8 approves Option B instead:** ug-10 stays blocked until an engine row lands. Its original
+**If §7 approves Option B instead:** ug-10 stays blocked until an engine row lands. Its original
 done-when stands, with the added requirement that the panel distinguishes base vs effective
 statistics per R-16's spirit (never a bare "stale" that implies the wrong thing). The engine row
-would need: protocol field, `overlay-query.ts`-based composition, domain + `DataEngine` target
-update, pinned-CLI conformance scenarios, fixtures, and an independent reviewer — plus a recorded
-decision that the target interface changes.
+would need: protocol field, `overlay-query.ts`-based composition, pinned-CLI conformance
+scenarios, fixtures, and an independent reviewer. Whether domain types or the public `DataEngine`
+target must change is an open architecture question, not a mandate; a pure `engine-duckdb` client
+protocol addition may suffice under D13 compatibility rules, and the architect resolves the actual
+footprint. The existing diff overlay is the precedent for an effective-view composition.
 
 ## 5. What approval changes in the documents
 
@@ -127,11 +146,18 @@ On approval, the orchestrator makes exactly these edits (nothing else is pre-aut
    acceptance wording.
 2. [spec §7](../../product/09-ux-ui-implementation-spec.md#7-explicit-stopdecision-register): mark
    UX-D1 **resolved (option A/C/B, date)**, pointing at this file.
-3. [usability queue](20261026-usability-queue.md) ug-10 row: apply the §4 rewording (Option A/C) or
+3. [spec §8 index](../../product/09-ux-ui-implementation-spec.md#8-requirement-status-living-index):
+   move R-16 from proposed/unauthorized to authorized, with the owner row and record.
+4. [usability queue](20261026-usability-queue.md) ug-10 row: apply the §4 rewording (Option A/C) or
    record the engine dependency (Option B); record the claim.
-4. Panels-lane ordering: **ug-16 → ug-20** become eligible again in that order (Option A/C), or stay
-   blocked (Option B).
-5. [handoff](../handoff.md) §6 + changelog, [open-threads](20260926-open-threads.md), and
+5. [visual queue](20261026-ux-ui-execution-queue.md): update its R-09…R-13 ownership/next-task
+   note only if the ruling changes Panels or visual-lane eligibility.
+6. [pickup prompts](20261026-ux-ui-pickup-prompts.md): replace every current ug-10/ug-16 blocked
+   claim in the ready-to-paste pack.
+7. Panels-lane ordering: after the amended ug-10 is implemented, independently reviewed and
+   merged-green, **ug-16 then ug-20** become eligible in that order (Option A/C); otherwise both
+   stay blocked (Option B). No “ug-16 eligible immediately” on the ruling alone.
+8. [handoff](../handoff.md) §6 + changelog, [open-threads](20260926-open-threads.md), and
    [open-asks](20261019-open-asks.md) §2 updated to drop/move the UX-D1 item.
 
 ## 6. Effects, risks and known corners
@@ -140,8 +166,12 @@ On approval, the orchestrator makes exactly these edits (nothing else is pre-aut
   authoritative. With Option A they are base-derived, so clicking a value after edits may filter to
   zero rows on the effective view — the existing "no rows match" empty state must keep that honest
   (no new grammar, no silent fallback). With Option B the values follow edits.
-- **Renamed columns:** with Option A the panel keeps base column names; the hint names "renames"
-  explicitly so this is disclosed rather than surprising.
+- **Renamed or deleted columns:** with Option A the panel keeps base column names; the proposed
+  hint's generic “staged changes” includes schema changes. A base profile column may be renamed
+  or deleted, so a click cannot silently bind it on the effective view. Before ug-16 is
+  dispatched, the design must choose explicit disclosure, a typed refusal, or a stated mapping
+  rule; no silent filter mapping and no assumption that the base name still resolves. This is a
+  design prerequisite for the ruling, not authorization to widen ug-10's scope.
 - **Export/report bytes:** untouched by either option (ADR byte-stability).
 - **Privacy:** all new copy is value-free; no counts of dataset values, no filenames (ADR 0025).
 - **Not decided here:** whether the profile should ever become overlay-aware is a product call
@@ -149,14 +179,18 @@ On approval, the orchestrator makes exactly these edits (nothing else is pre-aut
 
 ## 7. Decision
 
-Tick exactly one, then record the date and initial. Agents must not self-approve.
+Tick exactly one, then record the date and initial. An agent may transcribe an explicit maintainer
+ruling into this block and spec §7; it may not choose the option, self-approve, or tick a decision
+without that instruction.
 
 - [ ] **Option A** — amend ug-10 to honest labeling only (no engine work). Panels lane unblocks.
 - [ ] **Option C (recommended)** — Option A now **plus** Option B chartered as a separate
       engine-track candidate row (author it as a new queue row, not as a rider).
-- [ ] **Option B** — block ug-10 until an overlay-aware profile lands; authorize the engine work
-      as its own row with fixtures/conformance and an ADR/decision record for the `DataEngine`
-      target change.
+- [ ] **Option B** — keep ug-10 blocked pending a separate overlay-aware profiling track.
+      Authorize architecture investigation and a bounded engine brief with fixtures/conformance;
+      resolve its actual client/protocol and compatibility footprint before implementation.
+      A `DataEngine` target change or ADR is required only if that design warrants it, not by
+      selecting this option.
 - [ ] **Other** — record the ruling text below; the orchestrator writes the matching docs amendment.
 
 Decision / notes:

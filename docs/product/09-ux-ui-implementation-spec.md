@@ -1,7 +1,11 @@
 # Assay UX/UI Implementation Spec
 
-**Authored 2026-10-26; implementation not started.** This is the execution contract for the
-bounded improvements requested after the [investigation plan](08-ux-ui-engine-showcase-plan.md).
+**Authored 2026-10-26; status refreshed 2026-10-29.** The authoring date records when the
+contract was written, not the current implementation state. As of 2026-10-29, R-01…R-08, R-14
+and R-15 are implemented and merged-verified; R-09…R-13 remain open (uxv-1 is eligible pending an
+exclusive CSS/theme-test reservation); proposed R-16 is not authorized. This is the execution
+contract for the bounded improvements requested after the
+[investigation plan](08-ux-ui-engine-showcase-plan.md).
 The [usability queue](../process/handoff/20261026-usability-queue.md) owns ug tasks; the
 [visual queue](../process/handoff/20261026-ux-ui-execution-queue.md) owns uxv tasks and their live
 status. Start with the [pickup prompts](../process/handoff/20261026-ux-ui-pickup-prompts.md).
@@ -17,7 +21,8 @@ status. Start with the [pickup prompts](../process/handoff/20261026-ux-ui-pickup
   Reference frames express the specified target, **not** an assertion that a human approved
   every pixel. Fidelity is reviewed against the requirements; any architectural deviation stops.
 - Implementation requires a fresh clean-main baseline. Existing probe screenshots and historical
-  green counts are not that baseline. No source changes or task completions are claimed here.
+  green counts are not that baseline. This spec records requirements, not task completions; §8 is
+  the pointer index to implemented rows and their evidence.
 - ug-10 remains decision-blocked (§7). Adjustable SQL sizing remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
@@ -173,7 +178,8 @@ Chapter 2, not a third chapter. Show failure → staged repair → fresh validat
 then demonstrate confirmed-key comparison on the separate proven M6 pair. Do not describe that
 pair as the repaired M5 export or claim untested same-dataset agreement.
 
-Only the nested example is a committed fixture. M5/M6 use **per-run generated temporary files**
+Of the demo inputs, only the nested example is a committed fixture (other golden fixtures exist for
+other tests). M5/M6 use **per-run generated temporary files**
 from `tests/e2e/support/validation-datasets.ts` (`writeValidationDatasetA`) and
 `tests/e2e/support/diff-datasets.ts` (`writeExitJourneyPair`). Cite generator/function paths and
 the current journey source, not imaginary stable dataset/contract paths. On this host's Node 24,
@@ -242,6 +248,8 @@ then restoration **and a rebuild of restored source** before claiming a clean ve
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ug-1    | `pnpm exec playwright test tests/e2e/nested-journey.spec.ts tests/e2e/a11y-keyboard.spec.ts`; outcome/sequence unit tests where added; real collapsed defaults and focus assertions.                                                                                                                          |
 | ug-2/3  | `pnpm exec vitest run apps/web/src/lib/app.test.ts apps/web/src/App.open-status.test.tsx packages/data-sources/src/pick-file.test.ts`; `pnpm exec playwright test tests/e2e/smoke.spec.ts tests/e2e/data-sources.spec.ts tests/e2e/shell.spec.ts`; add example cold-start pin for ug-3.                       |
+| ug-4    | `pnpm exec vitest run apps/web/src/grid/DataGrid.keyboard.test.tsx apps/web/src/App.shell.test.tsx`; `pnpm exec playwright test tests/e2e/a11y-keyboard.spec.ts tests/e2e/grid-editing.spec.ts`; hint visible on first ready paint, footer shortcut list and `aria-describedby` pins.                         |
+| ug-14   | `pnpm exec vitest run apps/web/src/App.open-status.test.tsx apps/web/src/grid/FilterBar.test.tsx`; `pnpm exec playwright test tests/e2e/data-sources.spec.ts tests/e2e/smoke.spec.ts tests/e2e/shell.spec.ts`; add a corrupt-fixture open-error retry pin and a single-line message pin per adopted panel.    |
 | ug-7    | `pnpm exec vitest run apps/web/src/ErrorBoundary.test.tsx apps/web/src/App.error-boundary.test.tsx apps/web/src/App.shell.test.tsx`; new real request-consumption/remount pins; retry/wrapper mutants must fail.                                                                                              |
 | uxv-1/2 | `pnpm exec playwright test tests/e2e/theme.spec.ts tests/e2e/a11y.spec.ts tests/e2e/telemetry.spec.ts`; telemetry component tests; uxv-1 configured disclosure leg below.                                                                                                                                     |
 | uxv-3   | `pnpm exec vitest run apps/web/src/App.memo-probe.test.tsx apps/web/src/App.shell.test.tsx`; `pnpm exec playwright test tests/e2e/shell.spec.ts tests/e2e/grid-horizontal.spec.ts tests/e2e/grid-virtualization.spec.ts tests/e2e/theme.spec.ts tests/e2e/a11y-keyboard.spec.ts`; geometry/focus/scroll pins. |
@@ -273,11 +281,11 @@ screenshots and axe results; a JSDOM/happy-dom style assertion alone cannot prov
 
 ## 7. Explicit STOP/decision register
 
-| ID    | Decision / blocked work                                                                                                                                                                                                                                                        | Who resolves / safe default                                                                                                                                                                                                                                                                                                                                                                 |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UX-D1 | ug-10 currently promises overlay stale → re-run, but `profile(handle)` reads only the base and user SQL (`query(sql)`) carries no overlay, so a re-run cannot include staged edits. A draft amendment brief now exists (Options A / B / C) and is PENDING a maintainer ruling. | **BLOCKED until the maintainer rules.** Safe default unchanged: do not implement ug-10 and do not edit its contradictory queue wording. Brief: [20261029-ux-d1-amendment.md](../process/handoff/20261029-ux-d1-amendment.md) (§7 decision block). Recommended: Option C — honest labeling now, overlay-aware profile chartered separately. Panels successors ug-16/ug-20 stay behind ug-10. |
-| UX-D2 | Adjustable SQL pane/workspace sizing exceeds the fixed-pane spec.                                                                                                                                                                                                              | Maintainer approves bounded spec amendment; architect/ADR if changing accepted shell direction. uxv-6 is design-only; ug-1 does not wait for it.                                                                                                                                                                                                                                            |
-| UX-D3 | Opening a new example/file while staged changes exist has existing session-loss behavior.                                                                                                                                                                                      | ug-3 adds example entry only on idle. A ready-state replace-dataset confirmation is a separate scoped task if desired; do not silently add it to a style task.                                                                                                                                                                                                                              |
+| ID    | Decision / blocked work                                                                                                                                                                                                                                                        | Who resolves / safe default                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| UX-D1 | ug-10 currently promises overlay stale → re-run, but `profile(handle)` reads only the base and user SQL (`query(sql)`) carries no overlay, so a re-run cannot include staged edits. A draft amendment brief now exists (Options A / B / C) and is PENDING a maintainer ruling. | **BLOCKED until the maintainer rules.** Safe default unchanged: do not implement ug-10 and do not edit its contradictory queue wording. Brief: [20261029-ux-d1-amendment.md](../process/handoff/20261029-ux-d1-amendment.md) (§7 decision block). Recommended: Option C — honest labeling now, overlay-aware profile chartered separately. Engine/domain/`DataEngine` target changes are candidate design options, not a required mandate; the existing diff overlay is the composition precedent, and the architect must resolve the actual Option B footprint. Panels successors ug-16/ug-20 stay behind ug-10. |
+| UX-D2 | Adjustable SQL pane/workspace sizing exceeds the fixed-pane spec.                                                                                                                                                                                                              | Maintainer approves bounded spec amendment; architect/ADR if changing accepted shell direction. uxv-6 is design-only; ug-1 does not wait for it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| UX-D3 | Opening a new example/file while staged changes exist has existing session-loss behavior.                                                                                                                                                                                      | ug-3 adds example entry only on idle. A ready-state replace-dataset confirmation is a separate scoped task if desired; do not silently add it to a style task.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 No new dependencies, telemetry, AI/hosted features, benchmarks, Arrow/Feather input support,
 DOM reorder, dynamic fallback interpolation, export byte changes, source mutation or automatic
@@ -289,18 +297,24 @@ query replay is authorized by this spec. STOP and report any requirement needing
 gate logs; this table only answers "is this requirement implemented, and where does the record
 live?" Update it in the same change that closes a row. Local green is never remote green (M6).
 
-| Requirement     | Owner row | Status (2026-10-29)                | Record                                                                   |
-| --------------- | --------- | ---------------------------------- | ------------------------------------------------------------------------ |
-| R-01, R-02      | ug-1      | implemented                        | `e92c0dd` (usability queue §1)                                           |
-| R-03, R-04      | ug-2      | implemented                        | `8e5fd62`                                                                |
-| R-05            | ug-3      | implemented                        | `5253c06`                                                                |
-| R-06, R-07      | ug-7      | implemented                        | `9c29da4` + evidence `8367fbd`                                           |
-| R-08            | ug-8      | implemented                        | `cb64c32`, gate determinism `b6fb78a` (gd-1)                             |
-| R-09            | uxv-1     | open (gated)                       | visual queue row uxv-1                                                   |
-| R-10            | uxv-2     | open (gated)                       | visual queue row uxv-2 (also owns the ug-8 copy classes)                 |
-| R-11            | uxv-3     | open (gated)                       | visual queue row uxv-3 (two-line headers from R-14 are already in place) |
-| R-12            | uxv-4     | open (gated)                       | visual queue row uxv-4                                                   |
-| R-13            | uxv-5     | open (gated)                       | visual queue row uxv-5                                                   |
-| R-14            | ug-13     | implemented                        | `36cead3` + test-only `793ba90`                                          |
-| R-15            | ug-9      | implemented                        | `71fa03a` + Critical fix `385649b`                                       |
-| R-16 (proposed) | ug-10     | **not authorized** — UX-D1 pending | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7  |
+Ownership: the [usability queue](../process/handoff/20261026-usability-queue.md) owns R-01…R-08,
+R-14 and R-15; the [visual queue](../process/handoff/20261026-ux-ui-execution-queue.md) owns
+R-09…R-13. **R-16 is proposed only** — it exists in this index and the amendment brief and is
+added to §2 only if the maintainer approves UX-D1. uxv-6 has no requirement row and remains
+design-only/deferred.
+
+| Requirement     | Owner row | Status (2026-10-29)                                              | Record                                                                  |
+| --------------- | --------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| R-01, R-02      | ug-1      | implemented                                                      | `e92c0dd` (usability queue §1)                                          |
+| R-03, R-04      | ug-2      | implemented                                                      | `8e5fd62`                                                               |
+| R-05            | ug-3      | implemented                                                      | `5253c06`                                                               |
+| R-06, R-07      | ug-7      | implemented                                                      | `9c29da4` + evidence `8367fbd`                                          |
+| R-08            | ug-8      | implemented                                                      | `cb64c32`, gate determinism `b6fb78a` (gd-1)                            |
+| R-09            | uxv-1     | open — eligible, pending an exclusive CSS/theme-test reservation | visual queue row uxv-1                                                  |
+| R-10            | uxv-2     | open — dependency-gated (after uxv-1)                            | visual queue row uxv-2 (also owns the ug-8 copy classes)                |
+| R-11            | uxv-3     | open — dependency-gated (after uxv-2)                            | visual queue row uxv-3 (two-line headers from R-14 exist)               |
+| R-12            | uxv-4     | open — dependency-gated (after ug-3 and uxv-3)                   | visual queue row uxv-4                                                  |
+| R-13            | uxv-5     | open — dependency-gated (after uxv-1…4; ug-3/7/8)                | visual queue row uxv-5                                                  |
+| R-14            | ug-13     | implemented                                                      | `36cead3` + test-only `793ba90`                                         |
+| R-15            | ug-9      | implemented                                                      | `71fa03a` + Critical fix `385649b`                                      |
+| R-16 (proposed) | ug-10     | **not authorized** — UX-D1 pending                               | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7 |

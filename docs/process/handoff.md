@@ -1,11 +1,18 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-10-28. **Current lane:** G0-readiness and recorded-gap batch CLOSED (gb-1…gb-5, queue carries the record). Everything waiting on a human, a decision, or a remote operation is consolidated in the [open-asks checklist](handoff/20261019-open-asks.md). **UX continuation (2026-10-28; ug-1/2/3/7/8 CLOSED — ug-8 closed after the harness-budget fix gd-1):** the [usability queue](handoff/20261026-usability-queue.md), owning the 37 findings (UG-1…UG-37) of the [usability gap review](../reviews/2026-10-26-usability-gap-review.md) — dispatch from the queue, not the review.
-([queue](handoff/20261019-g0-readiness-queue.md)): gb-1 telemetry
-disclosure doc → gb-2 PT-Q carry-over pack → gb-3 desktop JSON/JSONL
-vendoring → gb-4 DOUBLE row-diff quirk → gb-5 CLI dev error; human inputs
-listed in queue §5.
-Repository maintenance is closed. This is the current-state index, not the execution-history archive.
+**Last updated:** 2026-10-29. **Current lane:** UX usability + visual continuation. The
+[usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
+[usability gap review](../reviews/2026-10-26-usability-gap-review.md) in 23 rows (ug-1…ug-23):
+**ug-1/2/3/7/8/9/13 are CLOSED**, 15 rows are open, and **ug-10 is blocked by UX-D1** — 16 rows
+remain. Dispatch from the queue, not the review. The
+[visual queue](handoff/20261026-ux-ui-execution-queue.md) owns uxv-0…uxv-6: uxv-0 is recorded,
+**uxv-1 is eligible only with an exclusive CSS/theme-test reservation**, uxv-2…uxv-5 are
+dependency-gated and uxv-6 is deferred. Next runtime rows are **ug-14 (Shell)** and **ug-4
+(Grid)**. Everything waiting on a human, a decision, or a remote operation is consolidated in the
+[open-asks checklist](handoff/20261019-open-asks.md) (refreshed 2026-10-29 against this
+index). The earlier G0-readiness/recorded-gap batch (gb-1…gb-5, [queue](handoff/20261019-g0-readiness-queue.md))
+and repository maintenance are CLOSED; their queues carry the record. This is the current-state
+index, not the execution-history archive.
 
 ## 0. How to use this document
 
@@ -21,9 +28,10 @@ execute historical pickup prompts without checking the living queue.
 
 ## 1. Product and scope
 
-Assay is a local-first dataset workbench for Parquet, JSONL/JSON, CSV and
-Arrow/Feather. Dataset contents stay local by default; telemetry contains only
-allowlisted operational metadata (ADRs 0025/0037/0045).
+Assay is a local-first dataset workbench for four input formats — **Parquet, CSV, JSONL and
+JSON**. Arrow is used internally as transport; **Arrow/Feather input is not supported today**
+and remains a separate engine-track decision. Dataset contents stay local by default; telemetry
+contains only allowlisted operational metadata (ADRs 0025/0037/0045).
 
 MVP M0–M6 is complete. Pipeline P1–P3 and local DCR artifact v1 generation are
 implemented. Desktop VS Code reproduces the full MVP workflow end-to-end (slice 2
@@ -42,13 +50,16 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
-**Verified state (2026-10-19):** slice 2 CLOSED with ptv2-8 (exit acceptance) integrated as `bce449f` after an independent reviewer approve (one request-changes round added independently-normalized refusal evidence). Forced typecheck **20**, unit **3027/191**, coverage **87.84/81.97/88.65/89.29** above floors, build **12**, browser **175 + 1 skip**, native **9**, spike **15 pins**, real-VSCode **10/10 scenarios** (full MVP-scenario-11 chain: validate 1/0/1/0 → confirmed-key diff 1/1/1 → report + copy delivery; offline JSON/JSONL opens; six staged-diff installed-CLI legs; acceptance agreement). Closure records: [slice-2 queue](handoff/20261014-ptv-slice2-queue.md) and the [G0-readiness/recorded-gap batch](handoff/20261019-g0-readiness-queue.md). **164 pending changesets**, doc links **107/0**, ADRs **46**.
+**Verified state (2026-10-19):** slice 2 CLOSED with ptv2-8 (exit acceptance) integrated as `bce449f` after an independent reviewer approve (one request-changes round added independently-normalized refusal evidence). Forced typecheck **20**, unit **3027/191**, coverage **87.84/81.97/88.65/89.29** above floors, build **12**, browser **175 + 1 skip**, native **9**, spike **15 pins**, real-VSCode **10/10 scenarios** (full MVP-scenario-11 chain: validate 1/0/1/0 → confirmed-key diff 1/1/1 → report + copy delivery; offline JSON/JSONL opens; six staged-diff installed-CLI legs; acceptance agreement). Closure records: [slice-2 queue](handoff/20261014-ptv-slice2-queue.md) and the [G0-readiness/recorded-gap batch](handoff/20261019-g0-readiness-queue.md). **164 pending changesets at that date (live count 172 on 2026-10-29)**, doc links **107/0** at that date, ADRs **46**.
 
 **Push / remote CI:** user-authorized normal `main` pushes verified at
-`3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence), and again
-on 2026-10-28 for the UX batch: `a3f2733..0bd9866` (18 commits: ug-1/ug-2/ug-7/
-ug-3/ug-8 + gd-1 + their process records), `git rev-parse HEAD origin/main`
-equal, 0/0 divergence. CI
+`3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence), on
+2026-10-28 for the UX batch: `a3f2733..0bd9866` (18 commits: ug-1/ug-2/ug-7/
+ug-3/ug-8 + gd-1 + their process records), and most recently at **`dee10f8`**
+on 2026-10-29 (the docs pack and UX-D1 draft; `git rev-parse HEAD origin/main`
+equal, 0/0 divergence). The current checkout still holds another agent's
+uncommitted `README.md`, `docs/assets/` and `.dsh/` work; those edits are **not
+pushed**, and no agent may claim otherwise. CI
 runs [38615821301](https://github.com/minghao51/assay/actions/runs/38615821301),
 [38616340554](https://github.com/minghao51/assay/actions/runs/38616340554)
 and later runs on `1f6cbb9` failed **before any steps ran**: GitHub reports
@@ -85,13 +96,13 @@ these or widen publication/telemetry boundaries in a packaging fix.
 - Host-load timeout flakes are recorded in the
   [October 11 snapshot](handoff/20261011-next-steps.md) §5. Re-run isolated and
   escalate recurring signatures; do not silently ignore failures.
-- Worker roster (maintainer preference, recorded 2026-10-17): implementer
-  **`zai/glm-5.3-flash` first**, ideally reviewed by **`openai-codex/gpt-6-luna`**;
-  when the GLM lane is unavailable (Go-lane usage-limit 429s, as throughout
-  ptv2-3/4), **Luna implements and the parent orchestrator independently
-  reviews** — the same model never both implements and reviews a change.
-  Serialized dispatches; briefs/logs in `/tmp`; normal `main` pushes follow
-  each independently verified row (ptv2-2/3/4 pushed); publication remains
+- Worker roster: **current user-requested roster (2026-10-29)** — implementer
+  **`opencode-go/deepseek-v4.1-flash`**, independent reviewer
+  **`openai-codex/gpt-6-luna` at thinking high**; the same model never both implements and
+  reviews. The earlier maintainer preference (2026-10-17: `zai/glm-5.3-flash` first, Luna
+  reviewer; Luna implements with parent review when the GLM lane 429s) is historical.
+  Serialized dispatches; briefs/logs in `/tmp`. Push authorization is episode-specific: the
+  latest verified push is `dee10f8`, **workers never push**, and publication remains
   unauthorized.
 
 ## 5. Definition of done
@@ -107,21 +118,22 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ### Active
 
-[Usability queue](handoff/20261026-usability-queue.md): **opened 2026-10-26, pickup-ready** —
-23 rows (ug-1…ug-23) across three lanes (Shell / Grid / Panels) owning the
+[Usability queue](handoff/20261026-usability-queue.md): **active** —
+23 rows (ug-1…ug-23; **7 CLOSED: ug-1/2/3/7/8/9/13**, 15 open, **ug-10 blocked by UX-D1** — 16
+remaining) across three lanes (Shell / Grid / Panels) owning the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) findings UG-1…UG-37
 (first-run contract, affordance visibility, failure containment, journey coherence). Read
 the queue's §2 lane rules, §3 standing constraints and §5 execution clarifications before
 claiming. **UX/UI pickup pack (2026-10-26, docs only):**
 [implementation spec](../product/09-ux-ui-implementation-spec.md),
 [visual execution queue](handoff/20261026-ux-ui-execution-queue.md) and
-[next-agent prompts](handoff/20261026-ux-ui-pickup-prompts.md#1-next-ai-orchestrator-start-here).
+[next-agent prompts](handoff/20261026-ux-ui-pickup-prompts.md#1-orchestrator--paste-into-the-next-session).
 Baseline **recorded 2026-10-26 at `7d8e1ca`** (clean tree; six gates, coverage, docs/ADR checks
 green: 3029 unit / 175 e2e passed). **ug-1 integrated at `e92c0dd`, ug-2 at `8e5fd62`, ug-7 at
 `9c29da4`** after independent review (ug-7 needed a test-only amendment for the new-dataset
 recovery-reset pin); merged gates 193 unit files / 3056 tests, e2e 180 passed + 1 skipped,
 coverage 87.98/82.08/88.89/89.46 at that historical checkpoint. **ug-7 evidence follow-up** landed
-at `8367fbd`; **ug-3** at `5253c06`. **ug-8** is **CLOSED 2026-10-28** — code `cb64c32` was independently approved, and its merged gate was unblocked by test-only **gd-1** `b6fb78a` (dedicated `cli-integration` vitest project budget + contracts fuzz budget; the failure was a 5000 ms harness ceiling against six compiled-CLI spawns, proven by `--maxWorkers=4` green and a 5000 ms mutation drill). **Current fully green merged baseline (main tip `385649b`, clean isolated worktree, free ports 4573/4579/4580): 195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage 88.08/82.24/89.08/89.60, docs links 116/0, ADR 46 — all gates exit 0** (`/tmp/assay-merged-48/`, `/tmp/assay-merged-ug13/`, `/tmp/assay-merged-ug9/`). **ug-13 (Shell) CLOSED 2026-10-29** at `36cead3` + test-only amendment `793ba90` after two independent reviews (R-14 purpose subtitles on all twelve collapsed section headers, Record dock closed-state hint with a pinned lifecycle, no Record rename). **ug-9 (Panels) CLOSED 2026-10-29** at `71fa03a` + Critical fix `385649b`: R-15 pipeline binding continues the journey (source/validate primaries bind from App-held state with a zero-picker-call proof; the failed-gate cross-link loads the run-start contract snapshot — the reviewer's live-binding rebind defect closed and pinned; first DCR mention expands with a purpose sentence). Next lane candidates **ug-14 (Shell)** and **ug-4 (Grid)**; the rest of the Panels lane (ug-16/ug-20) stays behind **ug-10**, which is decision-blocked by UX-D1: a drafted amendment brief with verified evidence and Options A/B/C (recommended C — honest labeling now, overlay-aware profile chartered separately) is awaiting a maintainer ruling at [handoff/20261029-ux-d1-amendment.md](handoff/20261029-ux-d1-amendment.md); the brief is a draft, not authorization, and no agent may tick its decision block or rewrite the queue row first. SQL sizing remains deferred design-only. Other agent's uncommitted files (README, `docs/assets/`, `.dsh/`) are preserved; verification runs use a clean isolated worktree at the exact main revision. The visual queue does not replace ug ownership.
+at `8367fbd`; **ug-3** at `5253c06`. **ug-8** is **CLOSED 2026-10-28** — code `cb64c32` was independently approved, and its merged gate was unblocked by test-only **gd-1** `b6fb78a` (dedicated `cli-integration` vitest project budget + contracts fuzz budget; the failure was a 5000 ms harness ceiling against six compiled-CLI spawns, proven by `--maxWorkers=4` green and a 5000 ms mutation drill). **Runtime baseline recorded at `385649b`** (not the current main tip — later docs-only commits follow; clean isolated worktree, free ports 4573/4579/4580): **195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage 88.08/82.24/89.08/89.60, docs links 116/0 at that revision (current docs pack 117/0), ADR 46, 172 changesets — all gates exit 0** (`/tmp/assay-merged-48/`, `/tmp/assay-merged-ug13/`, `/tmp/assay-merged-ug9/`). **ug-13 (Shell) CLOSED 2026-10-29** at `36cead3` + test-only amendment `793ba90` after two independent reviews (R-14 purpose subtitles on all twelve collapsed section headers, Record dock closed-state hint with a pinned lifecycle, no Record rename). **ug-9 (Panels) CLOSED 2026-10-29** at `71fa03a` + Critical fix `385649b`: R-15 pipeline binding continues the journey (source/validate primaries bind from App-held state with a zero-picker-call proof; the failed-gate cross-link loads the run-start contract snapshot — the reviewer's live-binding rebind defect closed and pinned; first DCR mention expands with a purpose sentence). Next lane candidates **ug-14 (Shell)** and **ug-4 (Grid)**; the rest of the Panels lane (ug-16/ug-20) stays behind **ug-10**, which is decision-blocked by UX-D1: a drafted amendment brief with verified evidence and Options A/B/C (recommended C — honest labeling now, overlay-aware profile chartered separately) is awaiting a maintainer ruling at [handoff/20261029-ux-d1-amendment.md](handoff/20261029-ux-d1-amendment.md); the brief is a draft, not authorization, and no agent may tick its decision block or rewrite the queue row first. SQL sizing remains deferred design-only. Other agent's uncommitted files (README, `docs/assets/`, `.dsh/`) are preserved; verification runs use a clean isolated worktree at the exact base revision. **Ownership:** the usability queue owns R-01…R-08, R-14 and R-15; the visual queue owns R-09…R-13; R-16 is a proposed, unauthorized index row only. The visual queue does not replace ug ownership.
 
 [PT-V slice-2 queue](handoff/20261014-ptv-slice2-queue.md): eight serialized
 rows CLOSED 2026-10-19 — all eight rows integrated and independently
@@ -170,7 +182,22 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
-- 2026-10-29 (**gc**) — **docs coherence pass + UX-D1 amendment drafted (pending a maintainer ruling).** The handoff pack now presents one current state for the next thread: spec §2 gained **R-16 (proposed)** plus a living [requirement-status index](../product/09-ux-ui-implementation-spec.md#8-requirement-status-living-index) (R-01…R-08, R-14, R-15 implemented with commit pointers; R-09…R-13 gated; R-16 unauthorized), spec §7 UX-D1 points at the new decision brief, and the usability queue §1/§5 rows for ug-10 and ug-16 carry the blocker and its known corner. New brief: [20261029-ux-d1-amendment.md](handoff/20261029-ux-d1-amendment.md) — verified facts (`profile(handle)` base-only, `query(sql)` carries no overlay, `overlaySchema`/`overlayRowCount`/`exportView`/`validate` already overlay-aware), Options A/B/C with costs, the proposed R-16 copy and acceptance criteria, the exact doc edits that approval would trigger, and a decision block. **No ruling has been made; ug-10 stays blocked and the Panels lane (ug-16 → ug-20) stays closed until the maintainer ticks it.** Next eligible runtime rows remain ug-14 (Shell) and ug-4 (Grid). No runtime, engine, dependency, telemetry, remote or publication change in this entry; push authority unchanged from the 2026-10-28 record.
+- 2026-10-29 (**gd**) — **docs coherence refinement of the UX/UI pack (no runtime change).**
+  Corrected current-state claims without touching implementation or decisions: the spec header now
+  separates 2026-10-26 authorship from the 2026-10-29 status; the runtime baseline is **recorded at
+  `385649b`** (not a main-tip claim) with docs 116/0 at that revision and the current pack 117/0;
+  ug-1/2/3/7/8/9/13 are listed CLOSED with 16 ug rows remaining (15 open + ug-10 blocked);
+  **uxv-1** is eligible only with an exclusive CSS/theme-test reservation; uxv-2…5 stay
+  dependency-gated and uxv-6 deferred; ownership is ug R-01…R-08/R-14/R-15 and uxv R-09…R-13, with
+  R-16 proposed only. Fixed the product format claim (four inputs — Parquet/CSV/JSONL/JSON;
+  Arrow is internal transport, Arrow/Feather input unsupported/deferred). Latest verified push is
+  `dee10f8`; the uncommitted `README.md`/`docs/assets/`/`.dsh/` are foreign work and **not pushed**.
+  Live changesets 172. The UX-D1 brief now cites its own §7 decision block, proposes safer profile
+  copy (no validation-freshness promise), and treats domain/`DataEngine` changes as open Option B
+  design options, not a mandate. **This entry corrects the previous gc changelog: R-16 is an §8
+  index row only — never §2 before a maintainer approval.**
+- 2026-10-29 (**gc**) — **docs coherence pass + UX-D1 amendment drafted (pending a maintainer ruling).** The handoff pack now presents one current state for the next thread: spec §8 gained a **proposed
+  R-16 index row** — not §2; §2 gains R-16 only if the maintainer approves UX-D1 — plus a living [requirement-status index](../product/09-ux-ui-implementation-spec.md#8-requirement-status-living-index) (R-01…R-08, R-14, R-15 implemented with commit pointers; R-09…R-13 gated; R-16 unauthorized), spec §7 UX-D1 points at the new decision brief, and the usability queue §1/§5 rows for ug-10 and ug-16 carry the blocker and its known corner. New brief: [20261029-ux-d1-amendment.md](handoff/20261029-ux-d1-amendment.md) — verified facts (`profile(handle)` base-only, `query(sql)` carries no overlay, `overlaySchema`/`overlayRowCount`/`exportView`/`validate` already overlay-aware), Options A/B/C with costs, the proposed R-16 copy and acceptance criteria, the exact doc edits that approval would trigger, and a decision block. **No ruling has been made; ug-10 stays blocked and the Panels lane (ug-16 → ug-20) stays closed until the maintainer ticks it.** Next eligible runtime rows remain ug-14 (Shell) and ug-4 (Grid). No runtime, engine, dependency, telemetry, remote or publication change in this entry; push authority unchanged from the 2026-10-28 record.
 - 2026-10-29 (**gb**) — **ug-9 (Panels) CLOSED.** R-15 authored (source/validate primaries “Use the open dataset” / “Use the loaded contract” with no picker, “Inspect this contract in Validation”, and the expanded “Dataset Change Request (DCR)” first mention plus purpose sentence) and implemented at `71fa03a` + Critical fix `385649b`. The open flow now retains the opened `File` in App-held `openSourceRef`; the failed-gate cross-link loads the **run-start contract snapshot** (`PipelineRunContractSnapshot` on the `gated` state, frozen before `runPipeline`) and is suppressed when the snapshot lacks the node. The independent reviewer's REQUEST CHANGES — the cross-link resolving the live binding, so a rebind after a failed run loaded the wrong contract — was closed and pinned at component, App and e2e level; mutants fail (4 unit assertions; e2e loads `gate-pass` instead of `gate-strict`). Zero-picker proof via a `filechooser` spy armed before the primaries. Merged verification at `385649b`: format/lint/typecheck(forced)/build/unit/e2e/coverage/docs/ADR all exit 0 — 195f/3089t, e2e 185p+1s, coverage 88.08/82.24/89.08/89.60, docs 116/0, ADR 46, `@assay/web` real build (`/tmp/assay-merged-ug9/`). Two e2e specs the reviewer saw fail once (`engine-overlay` source-immutability, `grid-editing` open timeout) were attributed to host-load flake after ×2 isolated passes and two full green runs — recorded, not silently dropped. Next: **ug-14 (Shell)** / **ug-4 (Grid)**; the rest of Panels (ug-16/ug-20) stays behind ug-10 (UX-D1 maintainer decision).
 - 2026-10-29 (**ga**) — **ug-13 (Shell) CLOSED.** R-14 authored in the implementation spec (exact copy for twelve section purpose subtitles, the Record closed-state hint, and the no-rename decision) and implemented at `36cead3` + test-only amendment `793ba90`: subtitles render with the section COLLAPSED and are exposed through `aria-describedby` so the `Expand/Collapse <Title>` accessible names stay stable; the Record hint is pinned across its full lifecycle (before selection → absent while open → back after close → back after epoch shift). Worker `deepseek-v4.1-flash` → independent `gpt-6-luna` reviewer **approve**, then a fresh-session delta review **approve** of the amendment (mutants killed: hidden subtitle, dropped description, unconditional hint, removed close/epoch clear). Merged verification at `793ba90` in a clean isolated worktree: format/lint/typecheck(forced)/build/unit/e2e/coverage/docs/ADR all exit 0 — 194f/3077t, e2e 183p+1s, coverage 88.07/82.15/89.07/89.55, docs 116/0, ADR 46, `@assay/web` build a real cache-miss so the browser evidence covers the new CSS (`/tmp/assay-merged-ug13/`). No DOM reorder (ADR 0044/q-15), no new state/telemetry, value-free copy. Next candidates ug-14 (Shell) / ug-9 (Panels); ug-10 stays UX-D1 blocked. gd-1 and gd's cli-integration budget from `b6fb78a` held for all runs.
 - 2026-10-28 (**fz**) — **ug-8 CLOSED; gate determinism fixed (gd-1).** The "merged verification blocked"
