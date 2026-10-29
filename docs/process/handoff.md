@@ -56,8 +56,9 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 `3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence), on
 2026-10-28 for the UX batch: `a3f2733..0bd9866` (18 commits: ug-1/ug-2/ug-7/
 ug-3/ug-8 + gd-1 + their process records), and most recently at **`dee10f8`**
-on 2026-10-29 (the docs pack and UX-D1 draft; `git rev-parse HEAD origin/main`
-equal, 0/0 divergence). The current checkout still holds another agent's
+on 2026-10-29 (the docs pack and UX-D1 draft; remote SHA equality at that revision).
+**`ea41533`** (the follow-up docs reconciliation) is **local-only — HEAD is 1 ahead of
+`origin/main`, 0 behind** and is not pushed. The current checkout still holds another agent's
 uncommitted `README.md`, `docs/assets/` and `.dsh/` work; those edits are **not
 pushed**, and no agent may claim otherwise. CI
 runs [38615821301](https://github.com/minghao51/assay/actions/runs/38615821301),
@@ -102,7 +103,8 @@ these or widen publication/telemetry boundaries in a packaging fix.
   reviews. The earlier maintainer preference (2026-10-17: `zai/glm-5.3-flash` first, Luna
   reviewer; Luna implements with parent review when the GLM lane 429s) is historical.
   Serialized dispatches; briefs/logs in `/tmp`. Push authorization is episode-specific: the
-  latest verified push is `dee10f8`, **workers never push**, and publication remains
+  latest verified push is `dee10f8`; `ea41533` is local-only (1 ahead / 0 behind).
+  **Workers never push**, and publication remains
   unauthorized.
 
 ## 5. Definition of done

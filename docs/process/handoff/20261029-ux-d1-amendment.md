@@ -24,17 +24,28 @@ nothing. [Spec §7](../../product/09-ux-ui-implementation-spec.md#7-explicit-sto
 recorded this as **UX-D1** and blocked the row. Panels-lane successors `ug-16` and `ug-20` sit
 behind it, so the whole lane is out of runway without this decision.
 
-## 2. Verified facts (2026-10-29, `faa3886`)
+## 2. Verified facts (2026-10-29, re-verified at `ea41533`)
 
-| Fact                                                                                                                                                                                                                  | Evidence                                                                                            |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Profiling reads the base view only. Its signature takes a table handle and nothing else.                                                                                                                              | `packages/engine-duckdb/src/client.ts` `profile(handle)`; `profile-query.ts` composes base SQL only |
-| The overlay is **stateless per request** and the engine already has overlay-aware surfaces — `overlaySchema`, `overlayRowCount`, `exportView(…, overlay)`, and `validate(…, overlay)` — but no overlay-aware profile. | `overlay-query.ts` header; `client.ts` (overlay-bearing requests)                                   |
-| Effective-view SQL composition already exists (base branch ∪ insert branches, tombstones, renames, casts, ordering). Reusing it for a profile is not new invention — it is a new _caller_.                            | `packages/engine-duckdb/src/overlay-query.ts`                                                       |
-| User SQL (`query(sql)`) is base-only: no overlay parameter. So "just profile via SQL" is not available today either.                                                                                                  | `client.ts` `query(sql)`                                                                            |
-| A base file never changes inside a session. Only staged operations (cell edits, inserts, renames, casts) can make displayed statistics diverge from the effective view.                                               | ADR 0012 (overlay model); `apps/web/src/edit/session.ts`                                            |
-| The Profile panel is user-triggered, renders a running status, and receives only `handle` — it has no overlay awareness at all today.                                                                                 | `apps/web/src/profile/ProfilePanel.tsx`; `App.tsx` `<ProfilePanel handle={phase.handle} />`         |
-| The staged-operation count already exists and is used for user-facing copy.                                                                                                                                           | `activeOps(history).length` (ug-8 export line)                                                      |
+| Fact                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Evidence                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Profiling reads the base view only. Its signature takes a table handle and nothing else.                                                                                                                                                                                                                                                                                                                                                                                                         | `packages/engine-duckdb/src/client.ts` `profile(handle)`; `profile-query.ts` composes base SQL only    |
+| The overlay is **stateless per request** and the engine already has overlay-aware surfaces — `overlaySchema`, `overlayRowCount`, `fetchOverlayRange`, `overlayCastCheck`, `exportView(handle, {…, overlay})` (overlay is a request field, not a positional argument), `validate(…, overlay)` and `diff(…, overlay)` — but no overlay-aware profile.                                                                                                                                              | `overlay-query.ts` header; `client.ts`; `protocol.ts` request union                                    |
+| Effective-view SQL composition already exists (base branch ∪ insert branches, tombstones, renames, casts, ordering). Reusing it for a profile is not new invention — it is a new _caller_.                                                                                                                                                                                                                                                                                                       | `packages/engine-duckdb/src/overlay-query.ts`                                                          |
+| User SQL (`query(sql)`) is base-only: no overlay parameter. So "just profile via SQL" is not available today either.                                                                                                                                                                                                                                                                                                                                                                             | `client.ts` `query(sql)`                                                                               |
+| A base file never changes inside a session: the base is swapped only by opening or replacing a dataset, which starts a new session and resets history, so the panel's table handle cannot move under a displayed profile. Only staged ops can make statistics diverge from the overlay-effective view: `cell-set`/`cell-revert`, `row-insert`/`row-uninsert`, `row-delete`/`row-restore`, `column-rename`, `column-cast`. Grid filters are not overlay ops and the profile does not follow them. | ADR 0012; `packages/domain/src/edit-ops.ts`; `apps/web/src/edit/session.ts`; `App.tsx` open path       |
+| The Profile panel is user-triggered, renders a running status, and receives only `handle` — it has no overlay awareness at all today.                                                                                                                                                                                                                                                                                                                                                            | `apps/web/src/profile/ProfilePanel.tsx`; `App.tsx` `<ProfilePanel handle={phase.handle} />`            |
+| The staged-operation count already exists and is used for user-facing copy. It counts active history **entries**, not a net difference: a cast-then-revert or delete-then-restore leaves N>0 while the effective view may equal base.                                                                                                                                                                                                                                                            | `activeOps(history).length` (ug-8 export line); `apps/web/src/edit/session.ts`; `useEditingSession.ts` |
+| The panel body renders only while its inner disclosure is open (`{open && …}`), and first paint is collapsed; the R-14 subtitle already occupies the collapsed affordance. A “standing” hint can therefore mean “in every expanded state”, not “visible on first paint”.                                                                                                                                                                                                                         | `apps/web/src/profile/ProfilePanel.tsx`; `App.tsx` (R-14 subtitle); `tests/e2e/shell.spec.ts`          |
+
+**Second-pass audit (2026-10-29).** An independent worker and an adversarial reviewer re-ran these
+rows at `ea41533`; `faa3886..ea41533` touches only `docs/**`, so no runtime drift. The pass
+corrected the overlay-surface list (three more surfaces, and `exportView`'s overlay is a request
+field), the staged-op enumeration (row deletes/restores and cell reverts, and that grid filters are
+not overlay ops), the “standing hint” scope (the panel body is behind its own disclosure), the
+`activeOps` meaning (history entries, not net divergence), the Option B scan/insert budget, and the
+acceptance criteria (all four states, full note strings, App-level wiring and mutation proof). No
+row changed the conclusion: there is still no overlay-aware profile and no re-run path that could
+include staged edits.
 
 ## 3. Options
 
@@ -43,7 +54,7 @@ behind it, so the whole lane is out of runway without this decision.
 Do not touch the engine. Make the panel state precisely what the numbers are, and what they are
 not:
 
-- a **standing hint** on every profile state (including the zero state),
+- a **standing hint** in every expanded profile state (including the zero state),
 - a **staged-changes note** that appears only while the active history has ≥1 operation,
 - **no** "Profile is stale — re-run" banner, because the file as opened is immutable and a re-run
   cannot include session edits.
@@ -65,15 +76,19 @@ independent review. Whether domain types or the public `DataEngine` target must 
 design question, not an established requirement: a pure `engine-duckdb` client protocol addition
 may suffice under D13 compatibility rules, the architect resolves the actual footprint, and the
 existing diff overlay is the precedent for composing an effective view. Also a
-cost profile change: inserts are bounded by session activity, but the scan is still a full pass
-over the composed relation on the query lane. Panels-lane successors stay blocked until it lands.
+cost profile change: the profile plan is one aggregate scan plus one grouped top-k scan per
+categorical column, and every scan would run over the composed relation on the query lane; live
+inserts are capped at `MAX_OVERLAY_LIVE_INSERT_BRANCHES` (500) and a larger overlay is refused,
+so “statistics follow inserts” is bounded by that budget. Panels-lane successors stay blocked
+until it lands.
 
 ### Option C — A now, B chartered separately _(recommended packaging)_
 
 Ship Option A immediately as the amended ug-10 (unblocks the Panels lane today), and keep Option B
 as a **separate engine-track candidate** with its own queue row and fixtures — not a rider on a
-copy task. If B ever lands, A's hint is no longer true for effective-view statistics: B must
-replace the base hint with explicit effective-view labeling rather than keep both. This is
+copy task. If B ever lands, A's copy is no longer true for effective-view statistics: B must
+replace **both** base-only messages (the hint and the staged note — “not reflected here” would be
+false) with explicit effective-view labeling rather than keep either. This is
 candidate planning only; no engine implementation is authorized by this brief.
 
 **Recommendation: Option C.** It resolves the contradiction honestly today, costs nothing in the
@@ -95,11 +110,14 @@ only in the spec §8 index as proposed/unauthorized and in this brief.
 
 **Proposed requirement R-16 (activates only on approval; added to spec §2 by the orchestrator):**
 
-- **Hint (always visible, including the zero state), byte-exact:**
-  `Statistics describe the file as opened — staged changes are not included.` This covers deletes,
-  restores and casts as well as inserts and renames. If Option B later makes the profile
-  effective-view aware, this base hint must be replaced by explicit effective-view labeling —
-  never shown alongside it.
+- **Hint (visible whenever the panel body is expanded — idle/zero, running, error and results),
+  byte-exact:**
+  `Statistics describe the file as opened — staged changes are not included.` This covers row
+  deletes/restores and column renames/casts as well as cell edits and inserts; it does not claim
+  the profile follows grid filters. The collapsed affordance is unchanged (the R-14 subtitle), and
+  the hint must not displace the idle `profile-table-id` element that existing e2e reads. If
+  Option B later makes the profile effective-view aware, this base hint must be replaced by
+  explicit effective-view labeling — never shown alongside it.
 - **Staged note (visible only while the active history has ≥1 operation), byte-exact with singular
   grammar:**
   `1 staged change is not reflected here — the grid uses the edited view. Validation must be run explicitly against the edited view.`
@@ -107,24 +125,34 @@ only in the spec §8 index as proposed/unauthorized and in this brief.
   A “re-run validation to include it/them” promise is not proposed: nothing here may imply that a
   previously displayed validation verdict already reflects the edits, or that validation refreshes
   automatically.
-- **No stale banner, no re-run-implies-edits copy.** The existing run/refresh control keeps its
-  current label and semantics (refresh of the immutable base statistics).
-- **Nothing else changes:** `profile(handle)` stays as-is, no protocol/engine/domain change, no new
-  telemetry (ADR 0037), value-free copy (ADR 0025), no auto-recompute.
+- **No stale banner, no re-run-implies-edits copy.** There is no re-run control in the results
+  state today — the only controls are `Compute profile` (idle) and `Retry` (error). Neither is
+  relabeled and no new control is added; nothing in the panel may promise that re-running
+  includes session edits.
+- **Nothing else changes:** `profile(handle)` stays as-is, no protocol/engine/domain change, no
+  new telemetry (the queue's no-telemetry rule; ADR 0025/0037 govern privacy and consent),
+  value-free copy, no auto-recompute.
 
 **Acceptance criteria (worker brief + reviewer checklist):**
 
-1. Hint renders in the zero state and above/alongside results — byte-exact, including the em dash.
-2. Note renders with the exact copy at N=1 (`1 staged change is not reflected here …`) and N>1
-   (`N staged changes are not reflected here …`); it disappears when the history returns to 0
-   operations (undo path pinned); nothing renders at N=0.
-3. No stale banner, no edit-aware re-run claim; re-running performs exactly the same base profile;
-   no auto-recompute on overlay revision change; no currently displayed validation verdict is
-   described as reflecting edits.
-4. Pins: unit tests for hint (zero state + results), note at 0/1/N, and the undo-back-to-0
-   disappearance; a mutation drill that removes the count prop must fail the note pins.
+1. Hint renders byte-exact (em dash included) in **all four** states — idle/zero, running, error
+   and results — and the idle `profile-table-id` element that `tests/e2e/profile-panel.spec.ts`
+   reads is still present and visible.
+2. Note renders the **full** byte-exact strings at N=1 and N>1 (both sentences, em dash included),
+   where N = `activeOps(history).length`; **no note** at N=0 (the hint still renders per
+   criterion 1); undo/redo back to 0 removes it. Net-zero histories still count as N>0 and the
+   copy stays truthful — it says “not reflected here”, never “differs”.
+3. No stale/re-run banner and no edit-aware re-run copy in the panel (source grep pin plus a
+   rendered-text pin); an overlay-revision change while results are displayed neither flips the
+   panel state nor issues an `engine/profile` request (App-level spy); the request stays base-only
+   (existing engine conformance covers the request shape).
+4. Pins: unit tests for the hint in each state, the note at 0/1/N, and the undo-back-to-0
+   disappearance; an **App-level** test that stages and undoes an edit through the real wiring;
+   mutation drills — dropping the count prop at the `App.tsx` call site must fail the App-level
+   note test, and removing the note's `N>0` gate must fail the note pins.
 5. Scope: `apps/web/src/profile/**` + `App.tsx` prop wiring + one scoped CSS block (existing
-   `profile-*` classes preferred; token restyling stays with uxv-2); `feat(web):`/`fix(web):`
+   `profile-*` classes preferred; token restyling stays with uxv-2) + the
+   `tests/e2e/profile-panel.spec.ts` assertions that the copy move touches; `feat(web):`/`fix(web):`
    - `@assay/web` changeset; no `packages/**` change. This bounded scope is proposed only and does
      not authorize an unruled workaround (for example, an effective-view profile or silent column
      remapping) inside the ug-10 claim.
@@ -147,18 +175,31 @@ On approval, the orchestrator makes exactly these edits (nothing else is pre-aut
 2. [spec §7](../../product/09-ux-ui-implementation-spec.md#7-explicit-stopdecision-register): mark
    UX-D1 **resolved (option A/C/B, date)**, pointing at this file.
 3. [spec §8 index](../../product/09-ux-ui-implementation-spec.md#8-requirement-status-living-index):
-   move R-16 from proposed/unauthorized to authorized, with the owner row and record.
-4. [usability queue](20261026-usability-queue.md) ug-10 row: apply the §4 rewording (Option A/C) or
-   record the engine dependency (Option B); record the claim.
-5. [visual queue](20261026-ux-ui-execution-queue.md): update its R-09…R-13 ownership/next-task
-   note only if the ruling changes Panels or visual-lane eligibility.
-6. [pickup prompts](20261026-ux-ui-pickup-prompts.md): replace every current ug-10/ug-16 blocked
-   claim in the ready-to-paste pack.
-7. Panels-lane ordering: after the amended ug-10 is implemented, independently reviewed and
-   merged-green, **ug-16 then ug-20** become eligible in that order (Option A/C); otherwise both
-   stay blocked (Option B). No “ug-16 eligible immediately” on the ruling alone.
-8. [handoff](../handoff.md) §6 + changelog, [open-threads](20260926-open-threads.md), and
-   [open-asks](20261019-open-asks.md) §2 updated to drop/move the UX-D1 item.
+   move R-16 from proposed/unauthorized to authorized, with the owner row and record, and update
+   the §8 ownership paragraph that currently says R-16 is proposed only.
+4. [spec header + §1](../../product/09-ux-ui-implementation-spec.md): update the status line
+   (“proposed R-16 is not authorized”) and the §1 sentence “ug-10 remains decision-blocked (§7)” —
+   under A/C to “resolved, pending implementation”; under B to “blocked on the engine row”.
+5. [usability queue](20261026-usability-queue.md) — not only the ug-10 row: apply the §4 rewording
+   (A/C) or record the engine dependency (B) in the row, and update every live-status passage that
+   repeats the block (frontier/lane text, §5 continuation record, the “original done-when
+   preserved” notes). Historical entries are marked historical, never rewritten.
+6. [visual queue](20261026-ux-ui-execution-queue.md): update its R-09…R-13 ownership/next-task
+   note, plus the two passages that say ug-10 is blocked / no copy-only route (the second becomes
+   “blocked pending the amended ug-10 landing”, not “blocked pending a ruling”).
+7. [pickup prompts](20261026-ux-ui-pickup-prompts.md): replace every current ug-10/ug-16 blocked
+   claim **and** the ownership line in the ready-to-paste pack.
+8. [product/08](../../product/08-ux-ui-engine-showcase-plan.md): update the ug-10 honesty bullet so
+   it records the ruling instead of “brief amendment required before dispatch”.
+9. Panels-lane ordering: after the amended ug-10 is implemented, independently reviewed and
+   merged-green, **ug-16 then ug-20** become eligible in that order (A/C); otherwise both stay
+   blocked (B). No “ug-16 eligible immediately” on the ruling alone.
+10. [handoff](../handoff.md) header + §6 + changelog, [open-threads](20260926-open-threads.md), and
+    [open-asks](20261019-open-asks.md) §2 + its intro counts updated to drop/move the UX-D1 item.
+11. **Option C only:** author the separate engine-track candidate row for Option B — planning only;
+    it does not authorize dispatch or implementation — with the fixtures/conformance scope from §3.
+
+Everything not listed stays as-is; historical changelog entries are never rewritten.
 
 ## 6. Effects, risks and known corners
 
@@ -166,12 +207,14 @@ On approval, the orchestrator makes exactly these edits (nothing else is pre-aut
   authoritative. With Option A they are base-derived, so clicking a value after edits may filter to
   zero rows on the effective view — the existing "no rows match" empty state must keep that honest
   (no new grammar, no silent fallback). With Option B the values follow edits.
-- **Renamed or deleted columns:** with Option A the panel keeps base column names; the proposed
-  hint's generic “staged changes” includes schema changes. A base profile column may be renamed
-  or deleted, so a click cannot silently bind it on the effective view. Before ug-16 is
-  dispatched, the design must choose explicit disclosure, a typed refusal, or a stated mapping
-  rule; no silent filter mapping and no assumption that the base name still resolves. This is a
-  design prerequisite for the ruling, not authorization to widen ug-10's scope.
+- **Renamed columns (and any future column-drop op):** with Option A the panel keeps base column
+  names; the proposed hint's generic “staged changes” includes schema changes. A base profile
+  column can be renamed today (`column-rename`; the domain has no column-drop op), so a click
+  cannot silently bind the base name on the effective view. Before ug-16 is dispatched, the
+  design must choose explicit disclosure, a typed refusal, or a stated mapping rule; no silent
+  filter mapping and no assumption that the base name still resolves. If a column-drop op is
+  added later it inherits the same rule. This is a design prerequisite for the ruling, not
+  authorization to widen ug-10's scope.
 - **Export/report bytes:** untouched by either option (ADR byte-stability).
 - **Privacy:** all new copy is value-free; no counts of dataset values, no filenames (ADR 0025).
 - **Not decided here:** whether the profile should ever become overlay-aware is a product call

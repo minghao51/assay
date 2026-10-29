@@ -7,7 +7,7 @@ every use; a prompt never overrides a closed/claimed/blocked row.
 ## Current state
 
 - **Runtime baseline recorded at `385649b`** — not the current `main` tip, which is the later
-  docs-only amendment commit `dee10f8` at the time of this refresh. Re-check HEAD; later docs
+  docs-only reconciliation commit `ea41533` at the time of this refresh. Re-check HEAD; later docs
   refinements do not establish a new runtime baseline. At the baseline: **195 unit files / 3089 tests, e2e 185
   passed + 1 skipped, coverage 88.08/82.24/89.08/89.60**, docs links 116/0 at that revision
   (current pack: 117/0), ADR index 46, all gates exit 0. Evidence: `/tmp/assay-merged-ug9/`.
@@ -28,7 +28,8 @@ every use; a prompt never overrides a closed/claimed/blocked row.
 - **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent
   reviewer **`openai-codex/gpt-6-luna`** at **thinking high**. Never implement and approve the
   same change. Serialize provider sessions.
-- **Push/remote:** latest verified push is **`dee10f8`** (`origin/main` equal, 0/0 divergence).
+- **Push/remote:** latest verified push is **`dee10f8`**; **`ea41533` is local-only (HEAD 1
+  ahead / 0 behind)**.
   The local uncommitted `README.md`, `docs/assets/` and `.dsh/` are another agent's work: leave
   them untouched and do not describe the checkout as clean. **Workers never push**, and no
   blanket remote/push permission is granted by this pack or by an old handoff episode. Remote
@@ -51,7 +52,8 @@ docs/process/handoff/20261026-ux-ui-pickup-prompts.md; task-relevant ADRs and AD
 
 Current truth to confirm, not assume: branch/commit/status, queue owners, toolchain, ports.
 The runtime baseline is recorded at 385649b (195f/3089t, e2e 185p+1s, coverage
-88.08/82.24/89.08/89.60); dee10f8 was the later verified docs push, not a permanent HEAD.
+88.08/82.24/89.08/89.60); dee10f8 was the later verified docs push, ea41533 is local-only, and
+neither is a permanent HEAD.
 Verify current HEAD and a fresh baseline from
 a clean isolated worktree at your chosen base before runtime dispatch. Preserve all foreign
 uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unknown work.
@@ -70,7 +72,8 @@ absolutely parallel-safe: App/CSS/FilterBar are touched by ug-14/ug-23 (Shell) a
 Serialize such conflicts and inspect integration diffs.
 
 Roster: worker opencode-go/deepseek-v4.1-flash; independent reviewer openai-codex/gpt-6-luna
-thinking high. Workers never push. Latest verified push is dee10f8; do not claim the current
+thinking high. Workers never push. Latest verified push is dee10f8; ea41533 is local-only — do
+not claim the current
 uncommitted tree is pushed or grant blanket remote permission.
 
 Use the task templates in this file. Record starting commit, clean-status evidence, environment,
