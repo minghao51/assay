@@ -538,6 +538,21 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     [openSection],
   )
   /**
+   * ug-9/R-15 (b): the gate-failure cross-link's focus request. Reveal/expand
+   * rides the existing `revealSectionFromNav` seam; this sequence exists only
+   * so focus moves to the Validation section AFTER the shell has committed the
+   * expanded body (the SqlPanel/ux-2 render-then-focus pattern). It adds no
+   * navigation mechanism and performs no DOM move.
+   */
+  const [validationFocusSeq, setValidationFocusSeq] = useState(0)
+  useEffect(() => {
+    if (validationFocusSeq === 0) return
+    const panel = document.querySelector<HTMLElement>('[data-testid="validation-panel"]')
+    if (panel === null) return
+    if (typeof panel.scrollIntoView === 'function') panel.scrollIntoView({ block: 'start' })
+    panel.focus()
+  }, [validationFocusSeq])
+  /**
    * q-15 pane rail state: ≥1024px the tool pane collapses to a rail (the
    * center column stays put). Below 1024px the pane head is hidden and the
    * single-column stack always shows every section.
@@ -557,6 +572,29 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * rendered or logged (ADR 0025).
    */
   const sourceIdentityRef = useRef<SourceIdentity | null>(null)
+
+  /**
+   * ug-9/R-15: the open dataset as App-held state. The opened `File` is
+   * retained for the rest of the session so a pipeline source node can bind
+   * it without a second OS picker ("Use the open dataset"). This is a
+   * reference only — no bytes are read here — and it is deliberately NOT the
+   * export same-source identity (`sourceIdentityRef`): a plain `File` has no
+   * `FileSystemHandle`, so it can never prove same-entry. Set on every
+   * successful open (picker, hidden-input fallback, bundled example), cleared
+   * by the session reset and at the start of every open attempt. The name is
+   * transported to the engine for format detection only and never rendered
+   * or logged (ADR 0025).
+   */
+  const openSourceRef = useRef<{ getFile: () => Promise<File> } | null>(null)
+  useEffect(
+    () =>
+      datasetSession.registerReset(() => {
+        // A new dataset epoch owns a new open source; nothing from the
+        // previous session may be re-bound in the pipeline panel.
+        openSourceRef.current = null
+      }),
+    [datasetSession],
+  )
 
   /**
    * m3-5 nested-action dispatch: both click surfaces (schema tree, grid
@@ -647,6 +685,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     filterToFailuresError,
     validationStale,
     handleContractFile,
+    handleContractDocument,
     handleValidate,
     handleCancelValidate,
     handleJumpToSample,
@@ -669,7 +708,33 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * pane's result surface. Entirely dataset-session scoped: the reset
    * registered inside the hook drops everything on a new file open.
    */
-  const pipeline = usePipelineSession({ session: datasetSession, sourceIdentityRef })
+  const pipeline = usePipelineSession({
+    session: datasetSession,
+    sourceIdentityRef,
+    openSourceRef,
+    // ug-9/R-15: the validation session's parsed contract, offered to
+    // validate nodes as the no-picker primary binding.
+    loadedContract: contractState.kind === 'loaded' ? contractState.contract : null,
+  })
+
+  /**
+   * ug-9/R-15 (b): "Inspect this contract in Validation" from a failed
+   * validate gate. It loads the RUN's bound contract into the validation
+   * session with no picker, reveals + expands the Validation section, and
+   * focuses it — so the user's next Validate names the failing ruleIds instead
+   * of re-picking artifacts. Loading is NOT validating: `handleValidate` stays
+   * the explicit click and no engine call happens here.
+   */
+  const inspectPipelineContractInValidation = useCallback(
+    (nodeId: string) => {
+      const binding = pipeline.contractBindings[nodeId]
+      if (binding?.kind !== 'bound') return
+      handleContractDocument(binding.contract)
+      revealSectionFromNav('validation')
+      setValidationFocusSeq((seq) => seq + 1)
+    },
+    [pipeline.contractBindings, handleContractDocument, revealSectionFromNav],
+  )
 
   /**
    * m6-4 comparison session (f-1 extraction): staged comparison, row-diff run
@@ -907,6 +972,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     setActionError(null)
     setScrollRequest(null)
     sourceIdentityRef.current = null
+    openSourceRef.current = null
     // Retained so the export same-source guard can compare the save picker's
     // destination against the opened entry. `pickDataFile` does not expose
     // the picked FSA handle (packages/** is outside this task's
@@ -996,6 +1062,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       if (datasetSession.tokenRef.current !== session) return
       setPanelModules(panels)
       setPhase({ kind: 'ready', model, tableId: handle.id, handle, base, provider })
+      // ug-9/R-15: retain the opened `File` for the rest of the session so a
+      // pipeline source node can bind it with no picker. Only a successful
+      // open publishes this — a failed chain leaves the previous reset in
+      // force.
+      openSourceRef.current = { getFile: () => Promise.resolve(file) }
       // `dataset_opened` (design §2/Appendix C): role/format/size/row/column
       // buckets only — the file name is read for its extension and discarded
       // (ADR 0025). The runtime enforces the 50-per-session cap.
@@ -1404,6 +1475,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                           onOpenPipelineFile={pipeline.openPipelineFile}
                           onBindSource={pipeline.bindSourceDataset}
                           onBindContract={pipeline.bindContract}
+                          openDatasetAvailable={phase.kind === 'ready'}
+                          loadedContractAvailable={contractState.kind === 'loaded'}
+                          onBindOpenDataset={pipeline.bindOpenDataset}
+                          onBindLoadedContract={pipeline.bindLoadedContract}
+                          onInspectContract={inspectPipelineContractInValidation}
                           onRun={pipeline.run}
                           onCancel={pipeline.cancelRun}
                           onOpenPreview={pipeline.openPreview}

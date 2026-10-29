@@ -9,6 +9,7 @@ import type {
   PipelineRunResult,
 } from '@assay/engine-duckdb'
 import { PipelineRunError, PipelineRunRefusalError } from '@assay/engine-duckdb'
+import { parseContract } from '@assay/contracts'
 import { App } from './App'
 import { usePipelineSession } from './pipeline/usePipelineSession'
 import type { ArrowTableLike } from './grid/provider'
@@ -153,6 +154,24 @@ dataset:
   min-rows: 1
 `
 
+/**
+ * ug-9/R-15: a SECOND contract used to prove the cross-link actually loads
+ * the run's bound contract (the validation session visibly replaces this one).
+ */
+const PASSING_CONTRACT_YAML = `format: v1
+name: gate-pass
+version: 1
+columns:
+  - name: customer_id
+    type: BIGINT
+    required: true
+  - name: country
+    type: VARCHAR
+    required: true
+dataset:
+  min-rows: 1
+`
+
 /** A malformed contract (columns is not a list) for the parse-error pin. */
 const BAD_CONTRACT_YAML = `format: v1
 name: broken
@@ -240,6 +259,15 @@ const h = vi.hoisted(() => ({
   rejectRun: null as null | ((error: unknown) => void),
   /** How many times the engine's runPipeline was invoked. */
   runCalls: 0,
+  /**
+   * ug-9/R-15: how many times the OS picker fallback was invoked. The
+   * no-picker bindings must leave this untouched.
+   */
+  pickerCalls: 0,
+  /** The runner OPTIONS captured per run (sources/contracts under test). */
+  runOptions: [] as PipelineRunOptions[],
+  /** ug-9/R-15: how many times validation actually ran (no auto-run pin). */
+  validateCalls: 0,
   /** When set, the mocked source handle rejects `getFile` (revoked/unreadable). */
   failGetFile: false,
   /** When set, the p2-1 handle op rejects (an unaddressable relation). */
@@ -273,6 +301,7 @@ vi.mock('@assay/data-sources/browser', () => ({
     via: string
     source: { getFile: () => Promise<File> }
   } | null> => {
+    h.pickerCalls += 1
     if (h.pickerResult === 'dismissed') return null
     const file = h.queue.shift()
     if (file === undefined) throw new Error('test picker queue exhausted')
@@ -329,6 +358,7 @@ vi.mock('./lib/engine', () => ({
       options: PipelineRunOptions,
     ): Promise<PipelineRunResult> => {
       h.runCalls += 1
+      h.runOptions.push(options)
       options.guard?.begin()
       const nodes = input.nodes as readonly {
         readonly id?: string
@@ -346,6 +376,14 @@ vi.mock('./lib/engine', () => ({
         h.resolveRun = resolve
         h.rejectRun = reject
       })
+    },
+    /**
+     * ug-9/R-15 (b): validation must stay an explicit click — the cross-link
+     * loads a contract and nothing else. Any call here fails that pin.
+     */
+    validate: (): Promise<never> => {
+      h.validateCalls += 1
+      return Promise.reject(new Error('validation must not auto-run'))
     },
   },
 }))
@@ -421,6 +459,22 @@ async function openPipeline(yaml: string): Promise<void> {
   await screen.findByTestId('pipeline-summary')
 }
 
+/**
+ * ug-9/R-15: load a contract into the validation session through its REAL
+ * panel import seam (the hidden file input). Used to seed the loaded-contract
+ * primary and to prove the cross-link replaces it.
+ */
+async function loadValidationContract(yaml: string): Promise<void> {
+  const input = screen.getByTestId('validation-contract-input') as HTMLInputElement
+  Object.defineProperty(input, 'files', {
+    value: [new File([yaml], 'contract.yaml')],
+    configurable: true,
+  })
+  await act(async () => {
+    fireEvent.change(input)
+  })
+}
+
 afterEach(() => {
   cleanup()
   h.queue.length = 0
@@ -428,6 +482,9 @@ afterEach(() => {
   h.resolveRun = null
   h.rejectRun = null
   h.runCalls = 0
+  h.pickerCalls = 0
+  h.runOptions.length = 0
+  h.validateCalls = 0
   h.failGetFile = false
   h.failPreview = false
   h.failPreviewInput = false
@@ -1377,7 +1434,12 @@ function stubSession(): DatasetSession {
 describe('pipeline session hook — in-flight run serialization (p-5, reviewer round 1)', () => {
   it('makes a second run() while in flight a no-op: one engine call, no state clobber', async () => {
     const { result } = renderHook(() =>
-      usePipelineSession({ session: stubSession(), sourceIdentityRef: { current: null } }),
+      usePipelineSession({
+        session: stubSession(),
+        sourceIdentityRef: { current: null },
+        openSourceRef: { current: null },
+        loadedContract: null,
+      }),
     )
 
     // Load the pipeline through the mocked picker (parse → validate →
@@ -1457,7 +1519,12 @@ describe('pipeline session hook — stale-preview lifecycle (p2-6, fix round)', 
 
   it('closes an open preview and drops a late preview delivery when a run starts', async () => {
     const { result } = renderHook(() =>
-      usePipelineSession({ session: stubSession(), sourceIdentityRef: { current: null } }),
+      usePipelineSession({
+        session: stubSession(),
+        sourceIdentityRef: { current: null },
+        openSourceRef: { current: null },
+        loadedContract: null,
+      }),
     )
     await loadAndBind(result)
 
@@ -1504,7 +1571,12 @@ describe('pipeline session hook — stale-preview lifecycle (p2-6, fix round)', 
 
   it("closes the previous pipeline's preview when a new pipeline document opens", async () => {
     const { result } = renderHook(() =>
-      usePipelineSession({ session: stubSession(), sourceIdentityRef: { current: null } }),
+      usePipelineSession({
+        session: stubSession(),
+        sourceIdentityRef: { current: null },
+        openSourceRef: { current: null },
+        loadedContract: null,
+      }),
     )
     await loadAndBind(result)
 
@@ -1683,5 +1755,144 @@ describe('pipeline panel — the DCR artifact export (p3-4)', () => {
     })
     await screen.findByTestId('pipeline-dcr-export')
     expect(screen.queryByTestId('pipeline-dcr-export-result')).toBeNull()
+  })
+})
+
+describe('pipeline panel — R-15 journey continuation (ug-9)', () => {
+  /**
+   * A validate-failed run: the gate is the stop, nothing downstream executed.
+   * `publish-blocked` fixtures exist above; this is the (b) posture.
+   */
+  const VALIDATION_FAILED_RUN: PipelineRunResult = {
+    status: 'gated',
+    gatedAt: 'gate',
+    gate: 'validation-failed',
+    nextNodeId: 'out',
+    nodes: [
+      { nodeId: 'customers', relation: 'customers', rowCount: 5, materialization: 'source' },
+      { nodeId: 'sg', relation: 'sg', rowCount: 2, materialization: 'view' },
+      {
+        nodeId: 'gate',
+        relation: 'sg',
+        rowCount: 0,
+        materialization: 'gate',
+        gate: { class: 'validate', input: 'sg', valid: false, violatedRules: 1 },
+      },
+    ],
+  }
+
+  it('offers the source primary only while a dataset is open and binds it with NO picker', async () => {
+    render(<App />)
+    // Idle: the workbench tool pane (and so the pipeline panel) does not
+    // render at all — the primary cannot exist without an open dataset.
+    expect(screen.queryByTestId('pipeline-bind-open-dataset')).toBeNull()
+
+    await openDataset('primary.jsonl')
+    await openPipeline(PIPELINE_YAML)
+
+    // The primary is present and carries the R-15 label; the secondary is
+    // the existing picker under its R-15 label.
+    const primary = screen.getByTestId('pipeline-bind-open-dataset')
+    expect(primary.textContent).toBe('Use the open dataset')
+    expect(screen.getByTestId('pipeline-bind').textContent).toBe('Choose a different file…')
+
+    // Bind through the primary: the picker fake is NEVER called.
+    const pickerCallsBefore = h.pickerCalls
+    await act(async () => {
+      fireEvent.click(primary)
+    })
+    await screen.findByTestId('pipeline-source-bound')
+    expect(h.pickerCalls).toBe(pickerCallsBefore)
+    expect(screen.queryByTestId('pipeline-source-bind-error')).toBeNull()
+    expect(screen.queryByTestId('pipeline-source-pending')).toBeNull()
+  })
+
+  it('binds the exact loaded contract with NO picker and runs the validate node with it', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    await loadValidationContract(CONTRACT_YAML)
+    await screen.findByTestId('validation-contract-name')
+    expect(screen.getByTestId('validation-contract-name').textContent).toBe('gate-contract')
+
+    await openPipeline(GATED_PIPELINE_YAML)
+    const pickerCallsBefore = h.pickerCalls
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-open-dataset'))
+    })
+    await screen.findByTestId('pipeline-source-bound')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-loaded-contract'))
+    })
+    await screen.findByTestId('pipeline-contract-bound')
+
+    // Both primaries completed the journey with zero picker calls.
+    expect(h.pickerCalls).toBe(pickerCallsBefore)
+
+    // The runner receives the SAME parsed contract object Validation holds —
+    // no re-read, no re-parse, no picker.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    expect(h.runCalls).toBe(1)
+    const contracts = h.runOptions[0]?.contracts ?? []
+    expect(contracts).toHaveLength(1)
+    expect(contracts[0]?.nodeId).toBe('gate')
+    const expected = parseContract(CONTRACT_YAML)
+    if (!expected.ok) throw new Error('test contract fixture must parse')
+    expect(contracts[0]?.contract).toEqual(expected.contract)
+  })
+
+  it('the gate-failure cross-link loads the run contract into Validation without a picker or an auto-run', async () => {
+    render(<App />)
+    await openDataset('primary.jsonl')
+    // The pipeline node is bound to the contract Validation holds FIRST...
+    await loadValidationContract(CONTRACT_YAML)
+    await screen.findByTestId('validation-contract-name')
+    expect(screen.getByTestId('validation-contract-name').textContent).toBe('gate-contract')
+    // The validation section starts collapsed in the shell.
+    expect(screen.getByTestId('section-toggle-validation').getAttribute('aria-expanded')).toBe(
+      'false',
+    )
+
+    await openPipeline(GATED_PIPELINE_YAML)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-open-dataset'))
+    })
+    await screen.findByTestId('pipeline-source-bound')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-bind-loaded-contract'))
+    })
+    await screen.findByTestId('pipeline-contract-bound')
+
+    // ...then Validation is switched to a DIFFERENT contract, so the
+    // cross-link's load is observable (the run keeps the contract it bound).
+    await loadValidationContract(PASSING_CONTRACT_YAML)
+    expect(screen.getByTestId('validation-contract-name').textContent).toBe('gate-pass')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-run'))
+    })
+    await act(async () => {
+      h.resolveRun?.(VALIDATION_FAILED_RUN)
+    })
+    expect(screen.getByTestId('pipeline-run-status').getAttribute('data-state')).toBe('gated')
+
+    const pickerCallsBefore = h.pickerCalls
+    expect(h.validateCalls).toBe(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pipeline-inspect-contract'))
+    })
+
+    // Reveal + expand the Validation section (the existing nav seam), load the
+    // RUN's bound contract, and focus the section — no picker, no validation.
+    expect(screen.getByTestId('section-toggle-validation').getAttribute('aria-expanded')).toBe(
+      'true',
+    )
+    expect(screen.getByTestId('validation-contract-name').textContent).toBe('gate-contract')
+    expect(h.pickerCalls).toBe(pickerCallsBefore)
+    expect(h.validateCalls).toBe(0)
+    expect(screen.queryByTestId('validation-verdict')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId('validation-panel'))
   })
 })

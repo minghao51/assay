@@ -123,13 +123,26 @@ export async function openPipelineDocument(
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
     timeout: 20_000,
   })
-  let chooserPromise = page.waitForEvent('filechooser')
+  const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('open-button').click()
   await (await chooserPromise).setFiles(PIPELINE_DATASET_FIXTURE)
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
     timeout: 20_000,
   })
 
+  await openPipelineOnOpenDataset(page, pipelinePath)
+}
+
+/**
+ * ug-9/R-15: open a pipeline document WITHOUT re-opening a dataset — the
+ * journey-continuation posture (the dataset (and, in (a), a contract) is
+ * already loaded in the current session). Navigates by the sticky nav link
+ * (keyboard-reachable) and opens the pipeline through the real picker path.
+ */
+export async function openPipelineOnOpenDataset(
+  page: Page,
+  pipelinePath: string = PIPELINE_FIXTURE,
+): Promise<void> {
   // Keyboard-reachable navigation to the section (the sticky nav's anchor
   // link — the scroll-never-clip gesture at any viewport).
   await page.getByTestId('section-nav-pipeline').focus()
@@ -137,7 +150,7 @@ export async function openPipelineDocument(
   await expect(page.getByTestId('pipeline-panel')).toBeVisible()
 
   // Open the pipeline through the real picker path.
-  chooserPromise = page.waitForEvent('filechooser')
+  const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('pipeline-open').focus()
   await page.keyboard.press('Enter')
   await (await chooserPromise).setFiles(pipelinePath)
@@ -156,8 +169,10 @@ export async function bindSourceDataset(
   await expect(page.getByTestId('pipeline-source-bound')).toBeVisible()
 }
 
-/** Bind (or replace) one validate node's contract through the real picker. */
-export async function bindContract(page: Page, contractPath: string): Promise<void> {
+/** Bind (or replace) one validate node's contract through the real picker. */ export async function bindContract(
+  page: Page,
+  contractPath: string,
+): Promise<void> {
   const bound = page.getByTestId('pipeline-contract-bound')
   // The span renders whenever ANY contract is bound, so on a re-bind its mere
   // visibility is vacuous: the replacement's readContractFile+parseContract
@@ -195,9 +210,56 @@ export async function runPipelineToGate(page: Page): Promise<void> {
   })
 }
 
-/** One node row, resolved fresh. */
-export function pipelineNode(page: Page, nodeId: string): Locator {
+/** One node row, resolved fresh. */ export function pipelineNode(
+  page: Page,
+  nodeId: string,
+): Locator {
   return page.locator(`[data-testid="pipeline-node"][data-node-id="${nodeId}"]`)
+}
+
+/**
+ * ug-9/R-15 (a): bind a source node to the dataset the app already has open
+ * through the PRIMARY action — no OS picker involved.
+ */
+export async function bindOpenDatasetViaPrimary(page: Page): Promise<void> {
+  await page.getByTestId('pipeline-bind-open-dataset').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('pipeline-source-bound')).toBeVisible()
+}
+
+/**
+ * ug-9/R-15 (a): bind a validate node to the contract Validation already
+ * holds parsed through the PRIMARY action — no OS picker involved.
+ */
+export async function bindLoadedContractViaPrimary(page: Page): Promise<void> {
+  await page.getByTestId('pipeline-bind-loaded-contract').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('pipeline-contract-bound')).toBeVisible()
+}
+
+/**
+ * A file-chooser spy for the R-15 no-picker pins. Arm it AFTER the legitimate
+ * setup picks (dataset / contract / pipeline document); every later gesture
+ * that binds from App-held state — or loads a contract through the cross-link
+ * — must not open the OS dialog. `expectNone()` throws with the violated rule
+ * so a regression names the requirement, not just a timeout.
+ */
+export function watchFileChoosers(page: Page): { readonly expectNone: () => void } {
+  const seen: string[] = []
+  page.on('filechooser', (chooser) => {
+    // Record and close it so a regression fails the assertion instead of
+    // hanging on an unset file.
+    seen.push(chooser.element().toString())
+    void chooser.setFiles([]).catch(() => undefined)
+  })
+  return {
+    expectNone: () => {
+      expect(
+        seen.length,
+        'R-15: binding from App-held state must never open an OS file picker',
+      ).toBe(0)
+    },
+  }
 }
 
 /**

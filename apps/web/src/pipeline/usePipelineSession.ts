@@ -46,6 +46,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { compilePipeline, isDataNode, parsePipeline, validatePipeline } from '@assay/pipeline'
 import type { PipelineV1 } from '@assay/pipeline'
 import { parseContract } from '@assay/contracts'
+import type { ContractV1 } from '@assay/contracts'
 import { compileContract } from '@assay/validation'
 import { compileRowDiffPlan } from '@assay/diff'
 import { GridViewportModel } from '@assay/grid'
@@ -94,6 +95,21 @@ export interface PipelineSessionParams {
    * means the DCR export is download-only by construction.
    */
   readonly sourceIdentityRef: { current: SourceIdentity | null }
+  /**
+   * ug-9/R-15: the open dataset as App-held state — a retained reference to
+   * the opened `File`, set on every successful open (picker, hidden-input
+   * fallback and the bundled example alike). Present exactly while a dataset
+   * session is open; a plain `File` has no FSA handle, which is why this is
+   * NOT the same-source `sourceIdentityRef`. Never rendered or logged
+   * (ADR 0025).
+   */
+  readonly openSourceRef: { readonly current: { getFile: () => Promise<File> } | null }
+  /**
+   * ug-9/R-15: the validation session's loaded (already parsed) contract, or
+   * `null` while Validation holds no parsed contract. Offered to `validate`
+   * nodes as the no-picker "Use the loaded contract" binding.
+   */
+  readonly loadedContract: ContractV1 | null
 }
 
 export interface PipelineSession {
@@ -106,6 +122,16 @@ export interface PipelineSession {
   readonly openPipelineFile: () => void
   readonly bindSourceDataset: (nodeId: string) => void
   readonly bindContract: (nodeId: string) => void
+  /**
+   * ug-9/R-15: bind a source node to the dataset the app already has open —
+   * no OS picker. Honest `bind-failed` degradation is preserved.
+   */
+  readonly bindOpenDataset: (nodeId: string) => void
+  /**
+   * ug-9/R-15: bind a validate node to the contract Validation already holds
+   * parsed — no picker, no re-parse.
+   */
+  readonly bindLoadedContract: (nodeId: string) => void
   readonly run: () => void
   readonly cancelRun: () => void
   readonly openPreview: (nodeId: string) => void
@@ -201,7 +227,7 @@ function buildPreviewModel(handle: Parameters<typeof engineClient.schema>[0]): G
 }
 
 export function usePipelineSession(params: PipelineSessionParams): PipelineSession {
-  const { session, sourceIdentityRef } = params
+  const { session, sourceIdentityRef, openSourceRef, loadedContract } = params
 
   const [fileState, setFileState] = useState<PipelineFileState>({ kind: 'none' })
   const [bindings, setBindings] = useState<Readonly<Record<string, SourceBindingState>>>({})
@@ -238,6 +264,13 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
   runStateRef.current = runState
   const dcrExportRef = useRef(dcrExport)
   dcrExportRef.current = dcrExport
+  /**
+   * ug-9/R-15: latest loaded contract without making the binder depend on
+   * it, so the callback identity stays stable across validation imports (the
+   * f-2 latest-closure-ref pattern used by the other session hooks).
+   */
+  const loadedContractRef = useRef<ContractV1 | null>(loadedContract)
+  loadedContractRef.current = loadedContract
 
   /**
    * f-1: a new dataset open drops the pipeline session. The token bump also
@@ -440,6 +473,70 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
     },
     [session],
   )
+
+  /**
+   * ug-9/R-15 (a): bind a source node to the dataset already open. This is
+   * the "Use the open dataset" primary action — it never touches the picker,
+   * and it keeps the same honest binding shape (and `bind-failed`
+   * degradation) as the picker path, including the session-token guard
+   * around the awaited `getFile()`. The node-kind / loaded-document checks
+   * keep a stale gesture from writing a binding into a different pipeline.
+   */
+  const bindOpenDataset = useCallback(
+    (nodeId: string): void => {
+      const current = fileStateRef.current
+      if (current.kind !== 'loaded') return
+      if (!current.pipeline.nodes.some((node) => node.id === nodeId && node.type === 'source')) {
+        return
+      }
+      const source = openSourceRef.current
+      if (source === null) return
+      const sessionId = session.tokenRef.current
+      void (async () => {
+        const bindFailed = (): void => {
+          if (session.tokenRef.current !== sessionId) return
+          setBindings((previous) => ({ ...previous, [nodeId]: { kind: 'bind-failed' } }))
+        }
+        let file: File
+        try {
+          file = await source.getFile()
+        } catch {
+          bindFailed()
+          return
+        }
+        if (session.tokenRef.current !== sessionId) return
+        setBindings((previous) => ({
+          ...previous,
+          [nodeId]: {
+            kind: 'bound',
+            // Transported to the engine for format detection only; never
+            // rendered (ADR 0025).
+            fileName: file.name,
+            getFile: () => Promise.resolve(file),
+          },
+        }))
+      })()
+    },
+    [session, openSourceRef],
+  )
+
+  /**
+   * ug-9/R-15 (a): bind a validate node to the contract Validation already
+   * holds parsed — the "Use the loaded contract" primary action. No picker,
+   * no re-read, no re-parse: the SAME parsed contract object reaches the run
+   * contract bindings. Purely synchronous, so no session token race is
+   * possible; the session reset still drops the binding with the rest.
+   */
+  const bindLoadedContract = useCallback((nodeId: string): void => {
+    const current = fileStateRef.current
+    if (current.kind !== 'loaded') return
+    if (!current.pipeline.nodes.some((node) => node.id === nodeId && node.type === 'validate')) {
+      return
+    }
+    const contract = loadedContractRef.current
+    if (contract === null) return
+    setContractBindings((previous) => ({ ...previous, [nodeId]: { kind: 'bound', contract } }))
+  }, [])
 
   const run = useCallback((): void => {
     const current = fileStateRef.current
@@ -775,6 +872,8 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
     openPipelineFile,
     bindSourceDataset,
     bindContract,
+    bindOpenDataset,
+    bindLoadedContract,
     run,
     cancelRun,
     openPreview,

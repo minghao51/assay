@@ -2024,10 +2024,27 @@ h1 {
 .pipeline-run,
 .pipeline-cancel,
 .pipeline-bind,
+.pipeline-bind-primary,
+.pipeline-inspect-contract,
 .pipeline-view {
   font: inherit;
   padding: 0.2rem 0.9rem;
   cursor: pointer;
+}
+
+/*
+ * ug-9 / R-15 (a): the primary binding continues the journey from App-held
+ * state, so it is visually weighted ahead of the existing picker secondary.
+ * Weight only — no new tokens (uxv-2 owns the token pass).
+ */
+.pipeline-bind-primary {
+  font-weight: 600;
+}
+
+/* ug-9 / R-15 (b): the gate-failure cross-link sits under the value-free
+ * gate detail it explains; it never adds a second navigation mechanism. */
+.pipeline-inspect-contract-row {
+  margin: 0.35rem 0 0;
 }
 
 .pipeline-run:disabled,

@@ -1,12 +1,21 @@
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import {
+  PIPELINE_DATASET_FIXTURE,
+  bindContract,
+  bindLoadedContractViaPrimary,
+  bindOpenDatasetViaPrimary,
   bindSourceDataset,
   openNodePreview,
   openPipelineDocument,
+  openPipelineOnOpenDataset,
   pipelineNode,
   runPipelineToCompletion,
+  runPipelineToGate,
+  watchFileChoosers,
+  writeGatePipelineFixture,
 } from './support/pipeline-panel'
+import { openFixture } from './support/fixtures'
 
 // p-5/p2-6 journey: open a pipeline file → inspect the DAG → run it on the
 // real engine → a node's output opens GRID-NATIVE (the p2-1 view-as-handle
@@ -147,4 +156,146 @@ test('pipeline section at 900px: reachable by nav, controls never clipped', asyn
     clientWidth: document.documentElement.clientWidth,
   }))
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+})
+
+/**
+ * ug-9 / R-15 (c): the DCR purpose sentence, verbatim from the implementation
+ * spec §2. Written out here so a copy regression cannot agree with itself.
+ */
+const DCR_PURPOSE_SENTENCE =
+  'A Dataset Change Request packages a proposed dataset change for review — like a pull request for data.'
+
+/** The DCR expansion (the first mention in the pipeline panel). */
+const DCR_EXPANSION = 'Dataset Change Request (DCR)'
+
+/** One validation rule row, resolved fresh. */
+function validationRule(page: Page, ruleId: string): Locator {
+  return page.locator(`[data-testid="validation-rule"][data-rule-id="${ruleId}"]`)
+}
+
+/**
+ * R-15 (a): the pipeline continues the journey. With the dataset open AND a
+ * contract already loaded in Validation, both bindings — the source node's
+ * "Use the open dataset" and the validate node's "Use the loaded contract" —
+ * complete from App-held state. The file-chooser spy is armed BEFORE either
+ * primary, so ANY OS dialog opened by a binding (or by the subsequent run)
+ * fails the test instead of being silently absorbed by a picker fallback.
+ */
+test('R-15 (a): source + validate nodes bind from App-held state with no file chooser', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  const fixture = writeGatePipelineFixture()
+
+  // Open the dataset, then load the passing contract in Validation (the two
+  // legitimate setup picks — both happen before the spy is armed).
+  await openFixture(page, PIPELINE_DATASET_FIXTURE)
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByTestId('validation-open-contract').click()
+  await (await chooserPromise).setFiles(fixture.passingContractPath)
+  await expect(page.getByTestId('validation-contract-name')).toHaveText('gate-pass')
+
+  // Open the pipeline document on the SAME session (no dataset re-open).
+  await openPipelineOnOpenDataset(page, fixture.pipelinePath)
+
+  // Both primaries carry the exact R-15 copy.
+  await expect(page.getByTestId('pipeline-bind-open-dataset')).toHaveText('Use the open dataset')
+  await expect(page.getByTestId('pipeline-bind-loaded-contract')).toHaveText(
+    'Use the loaded contract',
+  )
+
+  const choosers = watchFileChoosers(page)
+  await bindOpenDatasetViaPrimary(page)
+  await bindLoadedContractViaPrimary(page)
+  // Bindings landed without a picker.
+  await expect(page.getByTestId('pipeline-source-bound')).toBeVisible()
+  await expect(page.getByTestId('pipeline-contract-bound')).toBeVisible()
+  choosers.expectNone()
+
+  // Run to a settled verdict on the real engine (validate passes over the SG
+  // subset, so the publish gate is satisfied).
+  await runPipelineToCompletion(page)
+  choosers.expectNone()
+
+  // R-15 (c) text pin on the panel's rendered text: the FIRST "DCR" token is
+  // inside the expansion, and the purpose sentence is present verbatim.
+  const panelText = await page.getByTestId('pipeline-panel').innerText()
+  const expansionIndex = panelText.indexOf(DCR_EXPANSION)
+  expect(expansionIndex).toBeGreaterThanOrEqual(0)
+  expect(panelText.indexOf('DCR')).toBe(expansionIndex + 'Dataset Change Request ('.length)
+  expect(panelText).toContain(DCR_PURPOSE_SENTENCE)
+  await expect(page.getByTestId('pipeline-dcr-export').locator('legend')).toHaveText(
+    'Export the Dataset Change Request (DCR)',
+  )
+})
+
+/**
+ * R-15 (b): a validate-gate failure is no longer a dead end. The gate detail
+ * offers "Inspect this contract in Validation"; activating it reveals +
+ * expands the Validation section, loads the RUN's bound contract (no picker)
+ * and focuses the section, so the user's next Validate names the failing
+ * ruleIds. Loading is NOT validating — the cross-link itself runs nothing.
+ *
+ * Setup uses the existing gated fixture/helper posture: the pipeline's strict
+ * contract is bound through the real contract picker BEFORE the spy is armed;
+ * the cross-link and the subsequent explicit Validate must not pick anything.
+ */
+test('R-15 (b): gate-failure cross-link loads the run contract into Validation, no picker', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  const fixture = writeGatePipelineFixture()
+
+  await openFixture(page, PIPELINE_DATASET_FIXTURE)
+  // A DIFFERENT contract is loaded in Validation first, so the cross-link's
+  // load is observable (the session visibly replaces it with the run's).
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByTestId('validation-open-contract').click()
+  await (await chooserPromise).setFiles(fixture.passingContractPath)
+  await expect(page.getByTestId('validation-contract-name')).toHaveText('gate-pass')
+
+  await openPipelineOnOpenDataset(page, fixture.pipelinePath)
+  await bindOpenDatasetViaPrimary(page)
+  // The gate's failing contract is bound through the existing picker helper.
+  await bindContract(page, fixture.failingContractPath)
+  await runPipelineToGate(page)
+
+  const gated = page.getByTestId('pipeline-run-gated')
+  await expect(gated).toBeVisible()
+  await expect(page.getByTestId('pipeline-run-gated-detail')).toContainText('failed 1 rule')
+
+  // The section is collapsed before the cross-link, so reveal + expand is a
+  // real state change rather than a vacuous "already open".
+  await page.getByTestId('section-toggle-validation').click()
+  await expect(page.getByTestId('section-toggle-validation')).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  )
+
+  const choosers = watchFileChoosers(page)
+  await page.getByTestId('pipeline-inspect-contract').click()
+
+  // Revealed + expanded + focused, and the run's bound contract is loaded.
+  await expect(page.getByTestId('section-toggle-validation')).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  await expect(page.getByTestId('validation-panel')).toBeVisible()
+  await expect(page.getByTestId('validation-contract-name')).toHaveText('gate-strict')
+  await expect(page.getByTestId('validation-panel')).toBeFocused()
+  // Loading is not validating: no verdict exists yet.
+  await expect(page.getByTestId('validation-verdict')).toHaveCount(0)
+  choosers.expectNone()
+
+  // The explicit Validate now names the failing ruleIds (the strict contract's
+  // required-income rule over the base dataset).
+  await page.getByTestId('validation-run').click()
+  await expect(page.getByTestId('validation-verdict')).toContainText('rules fail', {
+    timeout: 60_000,
+  })
+  await expect(validationRule(page, 'columns[2].required')).toHaveAttribute('data-failing', 'true')
+  await expect(
+    validationRule(page, 'columns[2].required').getByTestId('validation-rule-id'),
+  ).toHaveText('columns[2].required')
+  choosers.expectNone()
 })

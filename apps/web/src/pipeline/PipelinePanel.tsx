@@ -67,6 +67,25 @@ export interface PipelinePanelProps {
   readonly onOpenPipelineFile: () => void
   readonly onBindSource: (nodeId: string) => void
   readonly onBindContract: (nodeId: string) => void
+  /**
+   * ug-9/R-15 (a): a dataset is open, so a source node offers the primary
+   * "Use the open dataset" binding (App-held state, no picker).
+   */
+  readonly openDatasetAvailable: boolean
+  /**
+   * ug-9/R-15 (a): Validation holds a parsed contract, so a validate node
+   * offers the primary "Use the loaded contract" binding (no picker).
+   */
+  readonly loadedContractAvailable: boolean
+  /** Bind this source node to the already-open dataset (no picker). */
+  readonly onBindOpenDataset: (nodeId: string) => void
+  /** Bind this validate node to Validation's loaded contract (no picker). */
+  readonly onBindLoadedContract: (nodeId: string) => void
+  /**
+   * ug-9/R-15 (b): load this failed gate's bound contract into Validation,
+   * reveal/expand + focus the section (no picker, no auto-run).
+   */
+  readonly onInspectContract: (nodeId: string) => void
   readonly onRun: () => void
   readonly onCancel: () => void
   readonly onOpenPreview: (nodeId: string) => void
@@ -190,6 +209,11 @@ export function PipelinePanel({
   onOpenPipelineFile,
   onBindSource,
   onBindContract,
+  openDatasetAvailable,
+  loadedContractAvailable,
+  onBindOpenDataset,
+  onBindLoadedContract,
+  onInspectContract,
   onRun,
   onCancel,
   onOpenPreview,
@@ -516,36 +540,54 @@ export function PipelinePanel({
                         <span data-testid="pipeline-source-bound" data-node-id={node.nodeId}>
                           Dataset bound.
                         </span>
-                      ) : (
+                      ) : null}{' '}
+                      {/*
+                       * ug-9/R-15 (a): the journey continues from App-held
+                       * state. The primary binds the dataset the app already
+                       * has open — no OS picker; the secondary is the
+                       * existing picker path. The primary is offered only
+                       * while a dataset is open.
+                       */}
+                      {openDatasetAvailable ? (
                         <>
                           <button
                             type="button"
-                            className="pipeline-bind"
-                            data-testid="pipeline-bind"
+                            className="pipeline-bind pipeline-bind-primary"
+                            data-testid="pipeline-bind-open-dataset"
                             data-node-id={node.nodeId}
                             onClick={() => {
-                              onBindSource(node.nodeId)
+                              onBindOpenDataset(node.nodeId)
                             }}
                           >
-                            Choose dataset…
+                            Use the open dataset
                           </button>{' '}
-                          {binding?.kind === 'bind-failed' ? (
-                            <span
-                              role="alert"
-                              data-testid="pipeline-source-bind-error"
-                              data-node-id={node.nodeId}
-                            >
-                              The picked dataset could not be read — nothing was bound. Nothing has
-                              been executed; choose the dataset again.
-                            </span>
-                          ) : (
-                            <span data-testid="pipeline-source-pending" data-node-id={node.nodeId}>
-                              No dataset bound yet — pick the dataset this source reads. The
-                              pipeline’s authored source path is not used in the browser; nothing is
-                              guessed.
-                            </span>
-                          )}
                         </>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="pipeline-bind"
+                        data-testid="pipeline-bind"
+                        data-node-id={node.nodeId}
+                        onClick={() => {
+                          onBindSource(node.nodeId)
+                        }}
+                      >
+                        Choose a different file…
+                      </button>{' '}
+                      {binding?.kind === 'bind-failed' ? (
+                        <span
+                          role="alert"
+                          data-testid="pipeline-source-bind-error"
+                          data-node-id={node.nodeId}
+                        >
+                          The picked dataset could not be read — nothing was bound. Nothing has been
+                          executed; choose the dataset again.
+                        </span>
+                      ) : binding?.kind === 'bound' ? null : (
+                        <span data-testid="pipeline-source-pending" data-node-id={node.nodeId}>
+                          No dataset bound yet — pick the dataset this source reads. The pipeline’s
+                          authored source path is not used in the browser; nothing is guessed.
+                        </span>
                       )}
                     </span>
                   )}
@@ -560,6 +602,27 @@ export function PipelinePanel({
                           Contract bound.{' '}
                         </span>
                       )}
+                      {/*
+                       * ug-9/R-15 (a): bind the contract Validation already
+                       * holds parsed — no picker, no re-parse. Offered only
+                       * while Validation holds a parsed contract; the
+                       * secondary is the existing contract picker.
+                       */}
+                      {loadedContractAvailable ? (
+                        <>
+                          <button
+                            type="button"
+                            className="pipeline-bind pipeline-bind-primary"
+                            data-testid="pipeline-bind-loaded-contract"
+                            data-node-id={node.nodeId}
+                            onClick={() => {
+                              onBindLoadedContract(node.nodeId)
+                            }}
+                          >
+                            Use the loaded contract
+                          </button>{' '}
+                        </>
+                      ) : null}
                       <button
                         type="button"
                         className="pipeline-bind"
@@ -569,9 +632,7 @@ export function PipelinePanel({
                           onBindContract(node.nodeId)
                         }}
                       >
-                        {contractBinding?.kind === 'bound'
-                          ? 'Replace contract…'
-                          : 'Choose contract…'}
+                        Choose a different contract…
                       </button>{' '}
                       {contractBinding?.kind === 'parse-error' ? (
                         <span
@@ -727,35 +788,63 @@ export function PipelinePanel({
                   (outcome) => outcome.nodeId === runState.gatedAt,
                 )
                 const blocked = stop?.gate?.class === 'publish' ? stop.gate.blockedGates : []
-                const failedValidate =
-                  runState.gate === 'validation-failed'
-                    ? runState.outcomes.find(
-                        (outcome) => outcome.gate?.class === 'validate' && !outcome.gate.valid,
-                      )
-                    : undefined
+                /**
+                 * ug-9/R-15 (b): ANY executed validate gate that failed — not
+                 * only the gate the run actually stopped at. The gated fixture
+                 * stops at the publish gate while a validate gate failed, and
+                 * that failed verdict is in `outcomes`; the cross-link must be
+                 * offered there too, or the failing ruleIds stay unreachable.
+                 */
+                const failedValidate = runState.outcomes.find(
+                  (outcome) => outcome.gate?.class === 'validate' && !outcome.gate.valid,
+                )
                 if (blocked.length === 0 && failedValidate === undefined) return null
+                // ug-9/R-15 (b): the run's BOUND contract for the failed
+                // validate node is what the cross-link loads into Validation.
+                // A run refuses unbound contracts, so an executed gate always
+                // has one; the guard keeps the control honest if state ever
+                // disagrees (never offer a load that cannot happen).
+                const failedContract =
+                  failedValidate === undefined ? undefined : contractBindings[failedValidate.nodeId]
                 return (
-                  <p data-testid="pipeline-run-gated-detail">
-                    {blocked.length > 0 && (
-                      <>
-                        Blocked gates:{' '}
-                        {blocked.map((gateId, index) => (
-                          <span key={gateId}>
-                            {index > 0 && ', '}
-                            <code>{sanitizePipelineText(gateId)}</code>
-                          </span>
-                        ))}
-                        .{' '}
-                      </>
+                  <>
+                    <p data-testid="pipeline-run-gated-detail">
+                      {blocked.length > 0 && (
+                        <>
+                          Blocked gates:{' '}
+                          {blocked.map((gateId, index) => (
+                            <span key={gateId}>
+                              {index > 0 && ', '}
+                              <code>{sanitizePipelineText(gateId)}</code>
+                            </span>
+                          ))}
+                          .{' '}
+                        </>
+                      )}
+                      {failedValidate?.gate?.class === 'validate' && (
+                        <>
+                          The contract failed {String(failedValidate.gate.violatedRules)} rule
+                          {failedValidate.gate.violatedRules === 1 ? '' : 's'} (rule values are
+                          never surfaced). Bind a passing contract and re-run.
+                        </>
+                      )}
+                    </p>
+                    {failedValidate !== undefined && failedContract?.kind === 'bound' && (
+                      <p className="pipeline-inspect-contract-row">
+                        <button
+                          type="button"
+                          className="pipeline-inspect-contract"
+                          data-testid="pipeline-inspect-contract"
+                          data-node-id={failedValidate.nodeId}
+                          onClick={() => {
+                            onInspectContract(failedValidate.nodeId)
+                          }}
+                        >
+                          Inspect this contract in Validation
+                        </button>
+                      </p>
                     )}
-                    {failedValidate?.gate?.class === 'validate' && (
-                      <>
-                        The contract failed {String(failedValidate.gate.violatedRules)} rule
-                        {failedValidate.gate.violatedRules === 1 ? '' : 's'} (rule values are never
-                        surfaced). Bind a passing contract and re-run.
-                      </>
-                    )}
-                  </p>
+                  </>
                 )
               })()}
             </div>
@@ -1040,6 +1129,15 @@ function PreviewBody({
 }
 
 /**
+ * ug-9 / R-15 (c): the DCR purpose sentence, verbatim from the implementation
+ * spec §2. It renders with the FIRST DCR mention (the export legend); later
+ * mentions in the panel may abbreviate to "DCR" (the export button and the
+ * post-action status line keep the short form).
+ */
+export const DCR_PURPOSE_SENTENCE =
+  'A Dataset Change Request packages a proposed dataset change for review — like a pull request for data.'
+
+/**
  * The DCR artifact export section (p3-4): offered on completed/gated runs.
  * Both comparison sides are stated explicitly (C2 — the node choice from
  * the run's materialized data nodes, the logical dataset id typed by the
@@ -1084,12 +1182,12 @@ function DcrExportSection(props: {
     props.candidateDatasetId.trim() !== ''
   return (
     <fieldset className="pipeline-dcr-export" data-testid="pipeline-dcr-export">
-      <legend>Export the DCR artifact</legend>
+      <legend>Export the Dataset Change Request (DCR)</legend>
       <p className="pipeline-dcr-copy" data-testid="pipeline-dcr-copy">
-        Writes a <strong>new file</strong> describing the change from the base to the candidate
-        version of this run — schema drift, the validate verdicts the run executed, and lineage.
-        Name both sides explicitly: the node whose output is the version, and the dataset&apos;s
-        logical id (a name, never a path). No dataset values are included.
+        {DCR_PURPOSE_SENTENCE} Writes a <strong>new file</strong> describing the change from the
+        base to the candidate version of this run — schema drift, the validate verdicts the run
+        executed, and lineage. Name both sides explicitly: the node whose output is the version, and
+        the dataset&apos;s logical id (a name, never a path). No dataset values are included.
       </p>
       <div className="pipeline-dcr-side">
         <label htmlFor="pipeline-dcr-base-node">Base node</label>{' '}

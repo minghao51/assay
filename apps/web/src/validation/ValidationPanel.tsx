@@ -186,7 +186,18 @@ export function ValidationPanel({
   const canValidate = contract !== null && !running
 
   return (
-    <section className="validation-panel" data-testid="validation-panel" aria-label="Validation">
+    <section
+      className="validation-panel"
+      data-testid="validation-panel"
+      aria-label="Validation"
+      /*
+       * ug-9/R-15 (b): the pipeline gate-failure cross-link reveals + expands
+       * this section and moves focus here (a programmatic focus target, never
+       * in the tab order). The panel is the section's named landmark, so focus
+       * lands where the loaded contract and the next Validate control are.
+       */
+      tabIndex={-1}
+    >
       <h2>Validation</h2>
       <p className="validation-intro" data-testid="validation-intro">
         Load a data contract (YAML) and run it against the open dataset. A <code>.yaml</code> file

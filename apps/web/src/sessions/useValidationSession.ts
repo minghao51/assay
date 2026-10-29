@@ -5,6 +5,7 @@ import { stateAtCursor } from '@assay/domain'
 import type { TransformationHistory } from '@assay/domain'
 import type { EngineOverlay } from '@assay/engine-duckdb'
 import { parseContract } from '@assay/contracts'
+import type { ContractV1 } from '@assay/contracts'
 import { compileContract } from '@assay/validation'
 import { engineRejectionMessage, overlaySnapshot } from '../edit/session'
 import { engineClient } from '../lib/engine'
@@ -54,6 +55,12 @@ export interface ValidationSession {
   /** A verdict computed against a superseded overlay revision. */
   readonly validationStale: boolean
   readonly handleContractFile: (file: File) => void
+  /**
+   * ug-9/R-15: load an ALREADY-PARSED contract without a picker (the
+   * pipeline gate cross-link). Loading is not validating — `handleValidate`
+   * stays the explicit click.
+   */
+  readonly handleContractDocument: (contract: ContractV1) => void
   readonly handleValidate: () => void
   readonly handleCancelValidate: () => void
   readonly handleJumpToSample: (rowKey: string) => void
@@ -127,6 +134,21 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
     (validationRun.kind === 'verdict' || validationRun.kind === 'binding-errors') &&
     validationRun.revision !== overlayRevision
 
+  /**
+   * Apply one contract-import/load outcome. A newly imported (or loaded)
+   * contract invalidates any previous verdict: the old report described rules
+   * this contract may no longer contain. `validationSeq` is bumped so an
+   * in-flight run started against the previous contract has its late delivery
+   * dropped (the same generation guard a new dataset session uses).
+   */
+  const applyContractState = useCallback((state: ContractState) => {
+    validationSeq.current += 1
+    setContractState(state)
+    setValidationRun({ kind: 'idle' })
+    setJumpError(null)
+    setFilterToFailuresError(null)
+  }, [])
+
   const handleContractFile = useCallback(
     (file: File) => {
       const sessionId = session.tokenRef.current
@@ -137,25 +159,33 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
         // (the house session-token guard used by validate/diff/cast).
         if (session.tokenRef.current !== sessionId) return
         if (imported.kind === 'too-large') {
-          setContractState({ kind: 'too-large' })
+          applyContractState({ kind: 'too-large' })
         } else if (imported.kind === 'read-failed') {
-          setContractState({ kind: 'read-failed', message: imported.message })
+          applyContractState({ kind: 'read-failed', message: imported.message })
         } else {
           const parsed = parseContract(imported.text)
-          setContractState(
+          applyContractState(
             parsed.ok
               ? { kind: 'loaded', contract: parsed.contract }
               : { kind: 'parse-error', errors: parsed.errors },
           )
         }
-        // A newly imported contract invalidates any previous verdict: the old
-        // report described rules this contract may no longer contain.
-        setValidationRun({ kind: 'idle' })
-        setJumpError(null)
-        setFilterToFailuresError(null)
       })()
     },
-    [session],
+    [session, applyContractState],
+  )
+
+  /**
+   * ug-9/R-15: the pipeline gate-failure cross-link loads the run's bound
+   * contract into this session without a picker. Synchronous by construction
+   * (no read, no await); the same invalidation rules as a picked contract
+   * apply. Validation is still an explicit click — nothing runs here.
+   */
+  const handleContractDocument = useCallback(
+    (contract: ContractV1) => {
+      applyContractState({ kind: 'loaded', contract })
+    },
+    [applyContractState],
   )
 
   const handleValidate = useCallback(() => {
@@ -296,6 +326,7 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
     filterToFailuresError,
     validationStale,
     handleContractFile,
+    handleContractDocument,
     handleValidate,
     handleCancelValidate,
     handleJumpToSample,
