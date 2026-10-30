@@ -11,7 +11,7 @@
 > historical. GitHub Actions has been M6-blocked since 2026-10-15. The local runtime baseline is
 > recorded at `385649b` — 195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage
 > 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 117/0), ADR 46. The live
-> frontier is **ug-10 (Panels, authorized by UX-D1 Option C)** / **ug-17 (Shell)** / **ug-4 (Grid)**,
+> frontier is **ug-16 (Panels; design prerequisite)** / **ug-17 (Shell)** / **ug-4 (Grid)**,
 > with **uxv-1 eligible only under an exclusive CSS/theme-test reservation**. Live changesets: **174**.
 > Use [handoff](../handoff.md) and the
 > [usability](20261026-usability-queue.md)/[visual](20261026-ux-ui-execution-queue.md) queues for
@@ -52,20 +52,19 @@
    desktop-extension webview** (vscode-web stays RE-SCOPE) → PT-V slice-1 planning next. No active
    queue. G0 tail stays human-only (§3).
 7. **Now (2026-10-29): usability + visual continuation is the active pickup** —
-   [usability queue](20261026-usability-queue.md) (23 rows; **ug-1/2/3/7/8/9/13/14/15 CLOSED**, 14 remain;
-   **ug-10 authorized by UX-D1 Option C**) and [visual queue](20261026-ux-ui-execution-queue.md)
+   [usability queue](20261026-usability-queue.md) (23 rows; **ug-1/2/3/7/8/9/10/13/14/15 CLOSED**, 13 remain)
+   and [visual queue](20261026-ux-ui-execution-queue.md)
    (**uxv-0 recorded; uxv-1 eligible only with an exclusive CSS/theme-test reservation; uxv-2…5
-   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-10 (Panels, authorized)**, **ug-17
-   (Shell)** and **ug-4 (Grid)**.
+   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-16 (Panels; design prerequisite)**,
+   **ug-17 (Shell)** and **ug-4 (Grid)**.
    Baseline recorded at `385649b`: 195 unit files / 3089 tests, e2e 185 passed + 1 skipped,
    coverage 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 117/0), ADR 46.
    **ug-14 (Shell) CLOSED 2026-10-30** at `c694eca` (199f/3121t, e2e 186p+1s, coverage
    88.58/82.72/89.81/90.13) and **ug-15 (Shell) CLOSED 2026-10-30** at `8a38e0e` (200f/3127t, e2e
    188p+1s, coverage 88.59/82.73/89.83/90.15; see usability queue §1/§5).
-   The UX-D1 [amendment brief](20261029-ux-d1-amendment.md) is **DECIDED (Option C, 2026-10-30)**:
-   R-16 is authorized in spec §2, ug-10 is authorized, and the overlay-aware profile is a
-   planning-only engine candidate
-   ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)). Historical ug evidence/commits are in the usability queue §1/§5;
+   The UX-D1 [amendment brief](20261029-ux-d1-amendment.md) is **DECIDED (Option C, 2026-10-30)** and
+   **ug-10 landed at `f667a87`** (R-16 implemented); the overlay-aware profile is a planning-only
+   engine candidate ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)). Historical ug evidence/commits are in the usability queue §1/§5;
    the September 2026-09-26/28 counts above are not current. Companion
    [execution spec](../../product/09-ux-ui-implementation-spec.md) and
    [pickup prompts](20261026-ux-ui-pickup-prompts.md) carry bounded scopes and role briefs.

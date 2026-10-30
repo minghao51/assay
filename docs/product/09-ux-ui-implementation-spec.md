@@ -3,8 +3,8 @@
 **Authored 2026-10-26; status refreshed 2026-10-30.** The authoring date records when the
 contract was written, not the current implementation state. As of 2026-10-30, R-01…R-08, R-14
 and R-15 are implemented and merged-verified; R-09…R-13 remain open (uxv-1 is eligible pending an
-exclusive CSS/theme-test reservation); **R-16 is authorized by the maintainer's UX-D1 Option C
-ruling (2026-10-30)** and owned by ug-10, implementation pending. This is the execution
+exclusive CSS/theme-test reservation); **R-16 is implemented at `f667a87`** under the maintainer's
+UX-D1 Option C ruling (2026-10-30). This is the execution
 contract for the bounded improvements requested after the
 [investigation plan](08-ux-ui-engine-showcase-plan.md).
 The [usability queue](../process/handoff/20261026-usability-queue.md) owns ug tasks; the
@@ -24,9 +24,9 @@ status. Start with the [pickup prompts](../process/handoff/20261026-ux-ui-pickup
 - Implementation requires a fresh clean-main baseline. Existing probe screenshots and historical
   green counts are not that baseline. This spec records requirements, not task completions; §8 is
   the pointer index to implemented rows and their evidence.
-- ug-10 is **authorized by UX-D1 (Option C, 2026-10-30)** and pending implementation; its
-  successors ug-16/ug-20 become eligible only after it is implemented, independently reviewed and
-  merged-green. Adjustable SQL sizing remains design-only. All other
+- ug-10 is **implemented at `f667a87`** (UX-D1 Option C, R-16); its Panels successor ug-16 is next
+  but its renamed/deleted-column disclosure/refusal/mapping design must be settled before dispatch,
+  then ug-20. Adjustable SQL sizing remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
 ## 2. Requirements and UI states
@@ -303,7 +303,7 @@ live?" Update it in the same change that closes a row. Local green is never remo
 
 Ownership: the [usability queue](../process/handoff/20261026-usability-queue.md) owns R-01…R-08,
 R-14, R-15 and R-16; the [visual queue](../process/handoff/20261026-ux-ui-execution-queue.md) owns
-R-09…R-13. **R-16 is authorized** by the UX-D1 Option C ruling (2026-10-30) and owned by ug-10;
+R-09…R-13. **R-16 is implemented** at `f667a87` (UX-D1 Option C, 2026-10-30), owned by ug-10;
 the overlay-aware profile it deliberately does _not_ implement is a separate engine-track candidate
 (planning only). uxv-6 has no requirement row and remains design-only/deferred.
 

@@ -19,11 +19,11 @@ every use; a prompt never overrides a closed/claimed/blocked row.
   CSS/theme-test reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated
   (uxv-2 after uxv-1; uxv-3 after uxv-2; uxv-4 after ug-3 and uxv-3; uxv-5 after uxv-1…4 plus
   ug-3/7/8). **uxv-6** is design-only/deferred.
-- **UX-D1 RESOLVED 2026-10-30 (Option C):** **ug-10 is authorized** with the amended R-16
-  honest-labeling contract (spec §2); the overlay-aware profile is a separate planning-only engine
-  candidate ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)), not
-  authorized for dispatch. **ug-16 → ug-20** become eligible only after ug-10 is implemented,
-  independently reviewed and merged-green.
+- **UX-D1 RESOLVED 2026-10-30 (Option C); ug-10 CLOSED at `f667a87`:** R-16 shipped (base-as-opened
+  hint + staged-changes note, no stale/re-run banner). The overlay-aware profile is a separate
+  planning-only engine candidate ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)),
+  not authorized for dispatch. **ug-16 is next** (renamed/deleted-column disclosure design is a
+  dispatch prerequisite), then ug-20.
 - **Ownership:** the usability queue owns R-01…R-08, R-14, R-15 and R-16; the
   [visual queue](20261026-ux-ui-execution-queue.md) owns R-09…R-13.
 - **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent
@@ -61,14 +61,14 @@ uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unkn
 
 Select one of these eligible candidates, one bounded row per worker, with an independent reviewer
 (no new cross-lane dependency is imposed by this list):
-1) ug-10 (Panels) — authorized by UX-D1 Option C: the amended R-16 honest-labeling contract
-   (spec §2; base-as-opened hint + staged-changes note). No engine change.
+1) ug-16 (Panels) — profile stats click-to-act; settle its renamed/deleted-column
+   disclosure/refusal/mapping design before dispatch (read the live ug-16 row).
 2) ug-17 (Shell) — state summaries on collapsed section toggles (no ready-to-paste brief in this
    pack yet; use the ug-14 template shape, and read the live ug-17 row).
 3) ug-4 (Grid) — visible grid interaction language.
 4) uxv-1 (Visual) — theme completeness, ONLY if you can hold an exclusive CSS/theme-test
    reservation; otherwise keep it unclaimed and do not improvise a styling batch.
-Do not redispatch closed rows ug-1/2/3/7/8/9/13/14/15. Do not dispatch ug-16/ug-20 (behind ug-10),
+Do not redispatch closed rows ug-1/2/3/7/8/9/10/13/14/15. Do not dispatch ug-20 (behind ug-16),
 uxv-2…5 (dependencies), or uxv-6 (design-only). The overlay-profile candidate is planning only.
 
 Before dispatch, reserve shared files and state the reservation in the brief. Lanes are NOT
