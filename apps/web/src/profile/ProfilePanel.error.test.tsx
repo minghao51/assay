@@ -42,7 +42,7 @@ function fakeRuntime(): WebTelemetryRuntime {
 function renderPanel() {
   return render(
     <TelemetryProvider runtime={fakeRuntime()}>
-      <ProfilePanel handle={HANDLE} />
+      <ProfilePanel handle={HANDLE} stagedCount={0} />
     </TelemetryProvider>,
   )
 }

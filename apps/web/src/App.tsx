@@ -1563,7 +1563,13 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                   >
                     <PanelBoundary id="profile" onClose={closeSection}>
                       {panelModules === null ? null : (
-                        <panelModules.ProfilePanel handle={phase.handle} />
+                        <panelModules.ProfilePanel
+                          handle={phase.handle}
+                          // R-16 (ug-10): active history entries (not a net
+                          // difference) — the panel labels staged changes as
+                          // not reflected in these base-view statistics.
+                          stagedCount={activeOps(history).length}
+                        />
                       )}
                     </PanelBoundary>
                   </WorkbenchSection>

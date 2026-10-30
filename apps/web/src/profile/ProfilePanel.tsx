@@ -65,6 +65,30 @@ import { scaleTopKBars } from './topk-bars'
 interface ProfilePanelProps {
   /** Handle of the currently opened table (re-opens invalidate in-flight runs). */
   readonly handle: EngineTableHandle
+  /**
+   * R-16 (ug-10): active history entries — `activeOps(history).length`, a
+   * count of staged operations, NOT a net-difference measure. A
+   * cast-then-revert or delete-then-restore is legitimately > 0, which is why
+   * the copy below says "not reflected here" and never "differs".
+   */
+  readonly stagedCount: number
+}
+
+/**
+ * R-16 standing hint — byte-exact copy, rendered in every expanded profile
+ * state. The profile reads the opened file only: `profile(handle)` has no
+ * overlay parameter, and refreshing could not include staged edits, so the
+ * panel never claims staleness and never offers a refresh-for-edits control.
+ */
+const STANDING_HINT = 'Statistics describe the file as opened — staged changes are not included.'
+
+/**
+ * R-16 staged-changes note — byte-exact copy with singular/plural grammar.
+ * `count` is the active-history entry count (see `stagedCount`).
+ */
+function stagedChangesNote(count: number): string {
+  const noun = count === 1 ? 'staged change is' : 'staged changes are'
+  return `${String(count)} ${noun} not reflected here — the grid uses the edited view. Validation must be run explicitly against the edited view.`
 }
 
 function errorMessage(error: unknown): string {
@@ -305,7 +329,7 @@ function ProfileTable({ profile }: { profile: ProfileData }) {
 import { useTelemetry } from '../telemetry/TelemetryContext'
 import { durationSince, profileOutcome } from '../telemetry/emit'
 
-export function ProfilePanel({ handle }: ProfilePanelProps) {
+export function ProfilePanel({ handle, stagedCount }: ProfilePanelProps) {
   const telemetry = useTelemetry()
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<ProfileState>({ kind: 'idle' })
@@ -395,6 +419,18 @@ export function ProfilePanel({ handle }: ProfilePanelProps) {
           role="region"
           aria-label="Column profile results"
         >
+          {/* R-16: the standing hint is state-independent — it is the one
+              sentence that stays true in idle, running, error and results.
+              The staged note is additive and disappears at zero active ops
+              (undo back to 0), while the hint remains. */}
+          <p className="profile-standing-hint" data-testid="profile-standing-hint">
+            {STANDING_HINT}
+          </p>
+          {stagedCount > 0 && (
+            <p className="profile-staged-note" data-testid="profile-staged-note">
+              {stagedChangesNote(stagedCount)}
+            </p>
+          )}
           {state.kind === 'idle' && (
             <>
               <p className="profile-hint" data-testid="profile-hint">

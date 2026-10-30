@@ -45,7 +45,7 @@ describe('ProfilePanel telemetry — profile_run (design §2/Appendix C)', () =>
     const runtime = fakeRuntime()
     render(
       <TelemetryProvider runtime={runtime}>
-        <ProfilePanel handle={HANDLE} />
+        <ProfilePanel handle={HANDLE} stagedCount={0} />
       </TelemetryProvider>,
     )
     fireEvent.click(screen.getByTestId('profile-toggle'))
@@ -64,7 +64,7 @@ describe('ProfilePanel telemetry — profile_run (design §2/Appendix C)', () =>
     const runtime = fakeRuntime()
     render(
       <TelemetryProvider runtime={runtime}>
-        <ProfilePanel handle={HANDLE} />
+        <ProfilePanel handle={HANDLE} stagedCount={0} />
       </TelemetryProvider>,
     )
     fireEvent.click(screen.getByTestId('profile-toggle'))

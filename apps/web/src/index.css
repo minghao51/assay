@@ -1232,6 +1232,22 @@ h1 {
   font-size: 0.85rem;
 }
 
+/* R-16 (ug-10): honest labeling for base-view statistics. The standing hint is
+   state-independent; the staged note only appears while active history has
+   >= 1 operation. Text only, no values or file name (ADR 0025). */
+.profile-standing-hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+.profile-staged-note {
+  margin: 0;
+  color: var(--color-warning-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .profile-run {
   align-self: flex-start;
   font: inherit;
