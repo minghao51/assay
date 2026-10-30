@@ -5,7 +5,7 @@ import { stateAtCursor } from '@assay/domain'
 import type { TransformationHistory } from '@assay/domain'
 import type { EngineComparisonHandle, EngineOverlay } from '@assay/engine-duckdb'
 import { compileRowDiffPlan, diffDatasets, inferRowDiffKeys } from '@assay/diff'
-import { engineRejectionMessage, overlaySnapshot } from '../edit/session'
+import { engineErrorMessage, overlaySnapshot } from '../edit/session'
 import { engineClient } from '../lib/engine'
 import { resolveRowKeyIndex } from '../validation/report-model'
 import {
@@ -153,7 +153,12 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
           })
         } catch (error) {
           if (session.tokenRef.current !== sessionId || seq !== comparisonSeq.current) return
-          setComparisonState({ kind: 'failed', message: engineRejectionMessage(error) })
+          setComparisonState({
+            kind: 'failed',
+            // UG-25: comparison staging is read-only — the diff framing names
+            // the comparison view that stays in effect, never an "edit".
+            message: engineErrorMessage('diff', error),
+          })
         }
       })()
     },
@@ -216,7 +221,11 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
           })
         } catch (error) {
           if (session.tokenRef.current !== sessionId || seq !== diffSeq.current) return
-          setDiffRun({ kind: 'failed', message: engineRejectionMessage(error) })
+          setDiffRun({
+            kind: 'failed',
+            // UG-25/UG-30: single-line, read-only framing (no "edit" leak).
+            message: engineErrorMessage('diff', error),
+          })
         }
       })()
     },

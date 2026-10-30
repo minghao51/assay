@@ -7,7 +7,7 @@ import type { EngineOverlay } from '@assay/engine-duckdb'
 import { parseContract } from '@assay/contracts'
 import type { ContractV1 } from '@assay/contracts'
 import { compileContract } from '@assay/validation'
-import { engineRejectionMessage, overlaySnapshot } from '../edit/session'
+import { engineErrorMessage, engineErrorLine, overlaySnapshot } from '../edit/session'
 import { engineClient } from '../lib/engine'
 import { readContractFile } from '../validation/contract-import'
 import { buildValidationReport, resolveRowKeyIndex } from '../validation/report-model'
@@ -226,7 +226,13 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
         })
       } catch (error) {
         if (session.tokenRef.current !== sessionId || seq !== validationSeq.current) return
-        setValidationRun({ kind: 'failed', message: engineRejectionMessage(error) })
+        setValidationRun({
+          kind: 'failed',
+          // UG-25: a read-only validation session must never echo the
+          // edit-domain rejection copy; the validation framing names the view
+          // that stays in effect. Single-line by construction (UG-30).
+          message: engineErrorMessage('validation', error),
+        })
       }
     })()
   }, [phase, contractState, session, historyRef, overlayRef])
@@ -279,7 +285,10 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
           await phase.model.setFilters([{ column, predicate }])
           setFilterToFailuresError(null)
         } catch (cause) {
-          const message = cause instanceof Error ? cause.message : String(cause)
+          // UG-30: the filter bridge is one of the adopted surfaces — only the
+          // first line of the rejection is echoed, so no multi-line engine
+          // diagnostic can reach this alert.
+          const message = engineErrorLine(cause, 'the engine rejected it')
           try {
             await phase.model.setFilters(previous)
             setFilterToFailuresError(

@@ -94,24 +94,144 @@ export function editOutcomeMessage(outcome: OpOutcome): string | null {
 const OPAQUE_GLUE_ERROR = /^_setThrew\b/
 
 /**
- * The first (summary) line of an engine/HTTP error, with the opaque glue
- * error and empty messages translated to `opaqueFallback`. Engine errors echo
- * the operation's SQL context across several lines; only the summary is
- * surfaced — the rest is the composed statement, which can carry other cells'
- * values and is neither readable nor something the user asked to see. The
- * string is rendered as text (never HTML) and is never logged (it can echo the
- * value typed, ADR 0025).
+ * Every line break an engine diagnostic may carry: `\n`, `\r\n`, `\r`, and
+ * the Unicode separators some JS engines emit. UG-30's single-line guarantee
+ * is enforced on this set, not just `\n`.
  */
-function errorSummary(error: unknown, opaqueFallback: string): string {
-  const raw = error instanceof Error ? error.message : String(error)
-  const summary = raw.split('\n')[0]?.trim() ?? ''
-  if (summary === '' || OPAQUE_GLUE_ERROR.test(summary)) return opaqueFallback
-  return summary
+const LINE_BREAK = /\r\n|[\r\n\v\f\u0085\u2028\u2029]/
+
+/** The full raw engine/HTTP text (only ever rendered behind a disclosure). */
+export function engineErrorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The first (summary) line of an engine/HTTP error, with the opaque glue
+ * error and empty messages translated to `fallback`. Engine errors echo the
+ * operation's SQL context across several lines; only the summary is surfaced
+ * — the rest is the composed statement, which can carry other cells' values
+ * and is neither readable nor something the user asked to see. The returned
+ * string is guaranteed **single-line** (UG-30): no newline can survive into a
+ * rendered error message. It is rendered as text (never HTML) and is never
+ * logged (it can echo the value typed, ADR 0025).
+ */
+export function engineErrorLine(error: unknown, fallback: string): string {
+  const summary = engineErrorDetail(error).split(LINE_BREAK)[0]?.trim() ?? ''
+  if (summary === '' || OPAQUE_GLUE_ERROR.test(summary)) return fallback
+  // A summary line can still carry a stray separator after trimming (e.g. a
+  // trailing `\r`); collapse it so the guarantee is absolute.
+  return summary.replace(/\s+/g, ' ')
+}
+
+/**
+ * The operations that render engine failures. Each has its own framing so a
+ * failure says both *what* failed and *what did not change* — the same engine
+ * rejection previously read polished in one panel and raw in the next
+ * (UG-30).
+ */
+export type EngineErrorOperation = 'open' | 'sql' | 'profile' | 'filter' | 'validation' | 'diff'
+
+/** A summary rendered as a sentence fragment: no doubled or stacked punctuation. */
+function fragment(summary: string): string {
+  return summary.replace(/[.!?\u2026\s]+$/u, '')
+}
+
+/**
+ * Per-operation framing. `validation`/`diff` carry only the unchanged-state
+ * clause because their panels already prefix the operation (`Validation
+ * failed:`, `The row diff failed:`) and append their own outcome sentence;
+ * repeating the verb here would read as two failures. None of the strings may
+ * contain the word "edit" for those read-only sessions (UG-25): the previous
+ * copy was the edit-domain rejection message, which produced "Validation
+ * failed: The engine rejected this edit…".
+ */
+const OPERATION_FRAMING: Record<EngineErrorOperation, (summary: string) => string> = {
+  open: (summary) => `The file could not be opened. ${summary}`,
+  sql: (summary) =>
+    `The query could not run: ${fragment(summary)}. The dataset and its staged changes are unchanged.`,
+  profile: (summary) =>
+    `The profile could not be computed: ${fragment(summary)}. The dataset and its staged changes are unchanged.`,
+  filter: (summary) =>
+    `The filter could not be applied: ${fragment(summary)}. The previous filters are still in effect.`,
+  validation: (summary) => `${fragment(summary)}. The previous validation view is unchanged.`,
+  diff: (summary) => `${fragment(summary)}. The previous comparison view is unchanged.`,
+}
+
+/**
+ * One engine failure as a single-line, framed, text-only message (UG-30).
+ * The summary is the error's **first line**; `fallback` replaces an empty or
+ * opaque-glue message so the alert is never blank and never echoes the
+ * emscripten layer.
+ */
+export function engineErrorMessage(
+  operation: EngineErrorOperation,
+  error: unknown,
+  fallback: string = 'the engine reported an error',
+): string {
+  return OPERATION_FRAMING[operation](engineErrorLine(error, fallback))
+}
+
+/**
+ * Open-failure classes (UG-5). The open chain reports three human causes: a
+ * format the engine does not read, a file it cannot read (corrupt, truncated,
+ * mislabelled), and everything else — never the raw DuckDB diagnostic, which
+ * moves behind the alert's technical-detail disclosure.
+ */
+export type OpenFailureCause = 'unsupported-format' | 'unreadable' | 'unknown'
+
+/** The engine's own refusal for an extension it does not read. */
+const UNSUPPORTED_FORMAT_SIGNAL = /unsupported (dataset )?(format|file type|extension)/i
+
+/**
+ * Reader/IO failure signals. DuckDB reports a corrupt Parquet file as
+ * `Invalid Input Error: No magic bytes found at end of file`, a truncated or
+ * mislabelled file through `IO Error`/`Invalid Input Error`/`CSV Error`/
+ * `Could not read`, and an unreadable handle through a DOM `NotFoundError`/
+ * `NotReadableError`/`EncodingError`/permission message. These are signals on
+ * the *detail text* only — the human cause never echoes them.
+ *
+ * `_setThrew` is the mvp bundle's opaque emscripten glue failure (see
+ * `OPAQUE_GLUE_ERROR` above). Verified against the built app (2026-10-30): a
+ * Parquet file with no valid footer — a text file behind a `.parquet` name, a
+ * truncated real file, or a header-magic-only file — ALWAYS surfaces through
+ * `open` as exactly `_setThrew is not defined`, because the WASM reader throws
+ * and the glue layer loses the DuckDB text. On the open path that can only
+ * mean the reader could not read the file, so it is classified as
+ * `unreadable` rather than left to the generic fallback.
+ */
+const UNREADABLE_SIGNAL =
+  /no magic bytes|invalid input error|io error|could not (be )?(read|open)|failed to read|invalid parquet|not a parquet|corrupt|malformed|truncat|encoding error|not readable|permission|denied|no such file|not found|unexpected end|(csv|json) error|_setThrew/i
+
+/** Classify an open failure from its raw engine/DOM detail (UG-5). */
+export function classifyOpenFailure(detail: string): OpenFailureCause {
+  if (UNSUPPORTED_FORMAT_SIGNAL.test(detail)) return 'unsupported-format'
+  if (UNREADABLE_SIGNAL.test(detail)) return 'unreadable'
+  return 'unknown'
+}
+
+/** The one-line human cause per open-failure class (UG-5; value-free). */
+const OPEN_FAILURE_CAUSE: Record<OpenFailureCause, string> = {
+  'unsupported-format':
+    'This file type is not supported — open a .parquet, .csv, .jsonl or .json file.',
+  unreadable:
+    'The file could not be read. It may be corrupt, truncated, or not the format its name suggests.',
+  unknown:
+    'The file could not be read. It may be unavailable, or its format may not match its name.',
+}
+
+/**
+ * The open alert's single-line human cause (UG-5): the classified cause,
+ * framed as an open failure. Never the raw engine diagnostic and never
+ * filename-bearing (ADR 0025).
+ */
+export function openFailureMessage(error: unknown): string {
+  const cause = OPEN_FAILURE_CAUSE[classifyOpenFailure(engineErrorDetail(error))]
+  return OPERATION_FRAMING.open(cause)
 }
 
 /** The engine-error summary with the single-failure value-cast fallback. */
 export function engineErrorSummary(error: unknown): string {
-  return errorSummary(error, "the column's type rejected the value")
+  return engineErrorLine(error, "the column's type rejected the value")
 }
 
 /**
@@ -223,8 +343,8 @@ export async function commitWithRollback(
       // the host to pair this with a retry, so rows can never sit in an
       // unattributed loading state.
       message:
-        `The change could not be applied: ${errorSummary(error, 'the engine or view rejected it')}. ` +
-        `Restoring the previous view also failed: ${errorSummary(restoreError, 'the engine or view was unavailable')}. ` +
+        `The change could not be applied: ${engineErrorLine(error, 'the engine or view rejected it')}. ` +
+        `Restoring the previous view also failed: ${engineErrorLine(restoreError, 'the engine or view was unavailable')}. ` +
         'Use Retry to reload the view.',
       restoreFailed: true,
     }

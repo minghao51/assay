@@ -8,6 +8,7 @@ import type {
   EngineTableHandle,
 } from '@assay/engine-duckdb'
 import { bucketColumnCount } from '@assay/telemetry'
+import { engineErrorMessage } from '../edit/session'
 import { engineClient } from '../lib/engine'
 import { runGuarded } from '../sql/guarded-run'
 import { RunGuard } from '../sql/run-guard'
@@ -67,7 +68,8 @@ interface ProfilePanelProps {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  // UG-30: one framed, single-line message per failed profile run.
+  return engineErrorMessage('profile', error)
 }
 
 /** Numeric stat rows in display order: label, value, per-stat test id. */

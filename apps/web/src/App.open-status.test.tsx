@@ -37,6 +37,7 @@ const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
 const h = vi.hoisted(() => ({
   deferOpen: false,
   openError: false,
+  openErrorMessage: 'corrupt dataset',
   openResolvers: [] as Array<(value: unknown) => void>,
   openCalls: [] as Array<{ name: string; getFile: () => Promise<File> }>,
   pickerCalls: 0,
@@ -73,7 +74,7 @@ vi.mock('./lib/engine', () => ({
       if (h.deferOpen) {
         await new Promise<unknown>((resolve) => h.openResolvers.push(resolve))
       }
-      if (h.openError) throw new Error('corrupt dataset')
+      if (h.openError) throw new Error(h.openErrorMessage)
       return FAKE_HANDLE
     },
     schema: async () => FAKE_SCHEMA,
@@ -92,6 +93,7 @@ afterEach(() => {
   cleanup()
   h.deferOpen = false
   h.openError = false
+  h.openErrorMessage = 'corrupt dataset'
   h.openResolvers = []
   h.openCalls = []
   h.pickerCalls = 0
@@ -175,6 +177,102 @@ describe('R-03 — first-run idle screen copy', () => {
     expect(screen.queryByTestId('example-data-helper')).toBeNull()
     expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
     expect(screen.getByTestId('open-button').hasAttribute('disabled')).toBe(false)
+  })
+})
+
+/**
+ * UG-5 pins: a failed open states a one-line human cause, offers the same open
+ * path back through the exact retry label, and keeps the full multi-line
+ * engine diagnostic behind a `<details>` disclosure. Raw engine text must never
+ * be the visible cause and must never survive as a second visible line.
+ */
+describe('UG-5 — open-failure recovery and technical detail', () => {
+  /** A realistic multi-line DuckDB diagnostic for a corrupt file. */
+  const CORRUPT_DETAIL =
+    "Invalid Input Error: No magic bytes found at end of file 't1'\n" +
+    'LINE 1: SELECT * FROM read_parquet(t1)'
+
+  it('renders a one-line human cause, the exact retry label, and raw detail only in <details>', async () => {
+    h.openError = true
+    h.openErrorMessage = CORRUPT_DETAIL
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    const alert = await screen.findByTestId('open-error')
+    expect(alert.getAttribute('role')).toBe('alert')
+
+    // The visible cause is human, single-line, and never the raw diagnostic.
+    const cause = screen.getByTestId('open-error-cause')
+    expect(cause.textContent).toBe(
+      'The file could not be opened. The file could not be read. ' +
+        'It may be corrupt, truncated, or not the format its name suggests.',
+    )
+    expect(cause.textContent).not.toMatch(/\r|\n/)
+    expect(cause.textContent).not.toContain('magic bytes')
+
+    // The retry is labelled exactly, with a single U+2026 ellipsis.
+    const retry = screen.getByTestId('open-error-retry')
+    expect(retry.textContent).toBe('Choose a different file…')
+    expect(retry.textContent).not.toContain('...')
+
+    // The full raw text is behind a collapsed <details>, rendered as text.
+    const disclosure = screen.getByTestId('open-error-details') as HTMLDetailsElement
+    expect(disclosure.tagName).toBe('DETAILS')
+    expect(disclosure.open).toBe(false)
+    const detail = screen.getByTestId('open-error-detail')
+    expect(detail.textContent).toBe(CORRUPT_DETAIL)
+    expect(detail.textContent).toContain('\n')
+    expect(detail.parentElement).toBe(disclosure)
+
+    // The existing open control keeps its behaviour; failure stays local.
+    expect(screen.getByTestId('open-button').hasAttribute('disabled')).toBe(false)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
+  })
+
+  it('classifies an unsupported extension in the human cause, not the engine text', async () => {
+    h.openError = true
+    h.openErrorMessage =
+      'unsupported dataset format: this engine reads .parquet, .csv, .jsonl and .json files'
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    const cause = await screen.findByTestId('open-error-cause')
+    expect(cause.textContent).toBe(
+      'The file could not be opened. This file type is not supported — ' +
+        'open a .parquet, .csv, .jsonl or .json file.',
+    )
+    expect(cause.textContent).not.toContain('unsupported dataset format')
+  })
+
+  it('re-triggers the same open path on retry and recovers to ready', async () => {
+    h.openError = true
+    h.openErrorMessage = CORRUPT_DETAIL
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await screen.findByTestId('open-error-retry')
+    expect(h.pickerCalls).toBe(1)
+
+    // The next pick is a readable file: the retry must go through the SAME
+    // guarded open chain as the Open control (picker + engine open).
+    h.openError = false
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-error-retry'))
+    })
+
+    await screen.findByTestId('schema-section')
+    expect(h.pickerCalls).toBe(2)
+    expect(h.openCalls).toHaveLength(2)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    expect(screen.queryByTestId('open-error')).toBeNull()
   })
 })
 

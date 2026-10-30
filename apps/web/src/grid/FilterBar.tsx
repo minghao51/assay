@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { FilterSpec, GridViewportModel } from '@assay/grid'
 import { domId } from '../lib/dom-id'
+import { engineErrorLine, engineErrorMessage } from '../edit/session'
 import { replaceColumnFilter } from './query-state'
 import {
   classifyColumnType,
@@ -23,7 +24,9 @@ interface BuilderDraft {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  // UG-30: filter failures are framed once, single-line, and name the state
+  // that survives (the previous filters) — never a raw multi-line diagnostic.
+  return engineErrorMessage('filter', error)
 }
 
 /**
@@ -180,8 +183,13 @@ export function FilterBar({ model }: FilterBarProps) {
         syncDrafts(previous)
         setError(message)
       } catch (restoreCause) {
+        // The double-failure message stays single-line too (UG-30): only the
+        // first line of the restore failure is echoed.
         setError(
-          `${message} — restoring the previous filters also failed: ${errorMessage(restoreCause)}`,
+          `${message} — restoring the previous filters also failed: ${engineErrorLine(
+            restoreCause,
+            'the engine or view was unavailable',
+          )}`,
         )
       }
     } finally {

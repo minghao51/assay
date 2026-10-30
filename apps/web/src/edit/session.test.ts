@@ -14,9 +14,14 @@ import {
 import {
   activeOps,
   castRefusalMessage,
+  classifyOpenFailure,
   commitWithRollback,
   editOutcomeMessage,
+  engineErrorDetail,
+  engineErrorLine,
+  engineErrorMessage,
   engineRejectionMessage,
+  openFailureMessage,
   overlaySnapshot,
 } from './session'
 
@@ -178,6 +183,134 @@ describe('engineRejectionMessage — readable, text-only engine summary', () => 
     )
     expect(message).not.toContain("'; DROP TABLE x --")
     expect(message).not.toContain('SELECT')
+  })
+})
+
+describe('engineErrorLine / engineErrorMessage — one single-line summary per surface (UG-30)', () => {
+  /** A realistic multi-line engine diagnostic: summary + composed SQL tail. */
+  const MULTILINE = new Error(
+    'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
+      'LINE 1: SELECT nope FROM "assay_t1"\n               ^',
+  )
+
+  it('reduces the detail to its first line and keeps the full text for the disclosure', () => {
+    expect(engineErrorLine(MULTILINE, 'fallback')).toBe(
+      'Binder Error: Referenced column "nope" not found in FROM clause!',
+    )
+    // The raw multi-line text is still available — but only for a `<details>`
+    // disclosure, never for a rendered alert message.
+    expect(engineErrorDetail(MULTILINE)).toContain('LINE 1: SELECT nope')
+  })
+
+  it('strips every line-break shape, so no newline survives into a message', () => {
+    for (const breakage of ['\r\n', '\r', '\n', '\u2028', '\u2029']) {
+      const raw = `first line${breakage}second line`
+      const line = engineErrorLine(raw, 'fallback')
+      expect(line, `break ${JSON.stringify(breakage)}`).toBe('first line')
+      expect(line).not.toMatch(/\r|\n|\u2028|\u2029/)
+    }
+  })
+
+  it('falls back for an empty message and the opaque mvp glue error', () => {
+    expect(engineErrorLine(new Error(''), 'the fallback')).toBe('the fallback')
+    expect(engineErrorLine(new Error('_setThrew is not defined'), 'the fallback')).toBe(
+      'the fallback',
+    )
+    expect(engineErrorLine(new Error('   \n  '), 'the fallback')).toBe('the fallback')
+  })
+
+  it('frames every operation with what failed and what did not change', () => {
+    const summary = 'the engine rejected the request'
+    expect(engineErrorMessage('open', summary)).toBe(
+      'The file could not be opened. the engine rejected the request',
+    )
+    expect(engineErrorMessage('sql', summary)).toContain(
+      'The query could not run: the engine rejected the request.',
+    )
+    expect(engineErrorMessage('sql', summary)).toContain(
+      'The dataset and its staged changes are unchanged.',
+    )
+    expect(engineErrorMessage('profile', summary)).toContain(
+      'The profile could not be computed: the engine rejected the request.',
+    )
+    expect(engineErrorMessage('profile', summary)).toContain(
+      'The dataset and its staged changes are unchanged.',
+    )
+    expect(engineErrorMessage('filter', summary)).toContain(
+      'The filter could not be applied: the engine rejected the request.',
+    )
+    expect(engineErrorMessage('filter', summary)).toContain(
+      'The previous filters are still in effect.',
+    )
+    expect(engineErrorMessage('validation', summary)).toBe(
+      'the engine rejected the request. The previous validation view is unchanged.',
+    )
+    expect(engineErrorMessage('diff', summary)).toBe(
+      'the engine rejected the request. The previous comparison view is unchanged.',
+    )
+  })
+
+  it('does not double a full stop the summary already carries', () => {
+    expect(engineErrorMessage('sql', 'Enter a SQL query to run.')).toBe(
+      'The query could not run: Enter a SQL query to run. ' +
+        'The dataset and its staged changes are unchanged.',
+    )
+  })
+
+  it('UG-25: the read-only validation/diff messages never contain the word "edit"', () => {
+    for (const operation of ['validation', 'diff'] as const) {
+      const message = engineErrorMessage(operation, MULTILINE)
+      expect(message, operation).not.toContain('edit')
+      expect(message, operation).not.toContain('Edit')
+      expect(message, operation).not.toMatch(/\r|\n/)
+      expect(message, operation).not.toContain('LINE 1')
+    }
+    // The edit-domain copy intentionally still says "edit" — the Ug-25 leak
+    // was reusing it for read-only sessions, not the wording itself.
+    expect(engineRejectionMessage(MULTILINE)).toContain('edit')
+  })
+})
+
+describe('open-failure classification — a human cause, never the raw diagnostic (UG-5)', () => {
+  it("classifies the engine's unsupported-format refusal", () => {
+    const error = new Error(
+      'unsupported dataset format: this engine reads .parquet, .csv, .jsonl and .json files',
+    )
+    expect(classifyOpenFailure(engineErrorDetail(error))).toBe('unsupported-format')
+    expect(openFailureMessage(error)).toBe(
+      'The file could not be opened. This file type is not supported — open a .parquet, .csv, .jsonl or .json file.',
+    )
+  })
+
+  it('classifies a corrupt/truncated Parquet diagnostic', () => {
+    const error = new Error(
+      "Invalid Input Error: No magic bytes found at end of file 't1'\n" +
+        'LINE 1: SELECT * FROM read_parquet(t1)',
+    )
+    expect(classifyOpenFailure(engineErrorDetail(error))).toBe('unreadable')
+    const message = openFailureMessage(error)
+    expect(message).toContain('could not be read')
+    // The raw DuckDB diagnostic is not the human cause.
+    expect(message).not.toContain('magic bytes')
+    expect(message).not.toContain('read_parquet')
+    expect(message).not.toMatch(/\r|\n/)
+  })
+
+  it('classifies the mvp glue error for a corrupt file as unreadable', () => {
+    // Verified against the built app (2026-10-30): a Parquet file with no
+    // valid footer surfaces through `open` as exactly this opaque emscripten
+    // glue error, so the classifier must not fall back to the generic cause.
+    const error = new Error('_setThrew is not defined')
+    expect(classifyOpenFailure(engineErrorDetail(error))).toBe('unreadable')
+    expect(openFailureMessage(error)).toContain('It may be corrupt, truncated')
+    expect(openFailureMessage(error)).not.toContain('_setThrew')
+  })
+
+  it('falls back to the generic cause for an unrecognised failure', () => {
+    expect(classifyOpenFailure('something unexpected')).toBe('unknown')
+    expect(openFailureMessage(new Error('something unexpected'))).toBe(
+      'The file could not be opened. The file could not be read. It may be unavailable, or its format may not match its name.',
+    )
   })
 })
 

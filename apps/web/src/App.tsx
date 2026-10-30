@@ -33,7 +33,7 @@ import { EditToolbar } from './edit/EditToolbar'
 import { ExportDialog } from './export/ExportDialog'
 import type { SourceIdentity } from './export/save-destination'
 import { HistoryPanel } from './edit/HistoryPanel'
-import { activeOps, overlaySnapshot } from './edit/session'
+import { activeOps, openFailureMessage, overlaySnapshot } from './edit/session'
 import { pendingChangesSummary } from './edit/op-summary'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
 import {
@@ -1156,9 +1156,27 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
             )}
           </span>
           {phase.kind === 'error' && (
-            <p data-testid="open-error" role="alert">
-              {phase.message}
-            </p>
+            // UG-5: a failed open states a one-line human cause (classified,
+            // never the raw DuckDB diagnostic), offers the same open path back
+            // through "Choose a different file…", and keeps the full engine
+            // text behind a technical-detail disclosure. Text-only rendering;
+            // the copy never carries the picked file's name (ADR 0025).
+            <div data-testid="open-error" role="alert">
+              <p data-testid="open-error-cause">{openFailureMessage(phase.message)}</p>
+              <button
+                type="button"
+                data-testid="open-error-retry"
+                onClick={() => {
+                  void openDataFile()
+                }}
+              >
+                Choose a different file…
+              </button>
+              <details data-testid="open-error-details">
+                <summary>Technical detail</summary>
+                <pre data-testid="open-error-detail">{phase.message}</pre>
+              </details>
+            </div>
           )}
           {phase.kind === 'ready' && <LiveTableInfo model={phase.model} />}
         </section>

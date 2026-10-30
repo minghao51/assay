@@ -7,6 +7,7 @@ import { bucketRowCount } from '@assay/telemetry'
 import type { QueryKind } from '@assay/telemetry'
 import { formatCell } from '../grid/format'
 import { projectBatchToRows } from '../grid/provider'
+import { engineErrorMessage } from '../edit/session'
 import { engineClient } from '../lib/engine'
 import { useTelemetry } from '../telemetry/TelemetryContext'
 import { durationSince } from '../telemetry/emit'
@@ -98,7 +99,10 @@ interface PageResult {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  // UG-30: every SQL failure is one framed single-line message; a multi-line
+  // engine diagnostic (it echoes the composed statement) never reaches the
+  // alert intact.
+  return engineErrorMessage('sql', error)
 }
 
 export function SqlPanel({ tableId, runRequest, claimRequest }: SqlPanelProps) {
@@ -144,7 +148,10 @@ export function SqlPanel({ tableId, runRequest, claimRequest }: SqlPanelProps) {
     const composed = composePageQuery(userSql, { limit: SQL_PAGE_SIZE, offset })
     if (!composed.ok) {
       pendingRevealRef.current = revealSeq
-      setRunState({ kind: 'error', message: composed.reason })
+      // The composition rejection is already a human sentence ("Enter a SQL
+      // query to run."); the same framing keeps both SQL error paths one-line
+      // and explicit about what did not change (UG-30).
+      setRunState({ kind: 'error', message: errorMessage(composed.reason) })
       return
     }
     lastRunSql.current = userSql

@@ -114,6 +114,40 @@ function blockingModel(columns: readonly { name: string; type: string }[]): {
   }
 }
 
+/**
+ * A model whose `setFilters` rejects once with `failure`, then accepts the
+ * restore call — the applyList rollback shape the FilterBar error state is
+ * built on (UG-30).
+ */
+function failingModel(
+  columns: readonly { name: string; type: string }[],
+  failure: unknown,
+): { model: GridViewportModel; setFilters: ReturnType<typeof vi.fn> } {
+  let version = 0
+  const listeners = new Set<() => void>()
+  let calls = 0
+  const setFilters = vi.fn(async (next: FilterSpec[] | null) => {
+    calls += 1
+    if (calls === 1) throw failure
+    model.filters = next ?? []
+    version += 1
+    for (const listener of listeners) listener()
+  })
+  const model = {
+    schema: columns,
+    filters: [] as readonly FilterSpec[],
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    getVersion: () => version,
+    setFilters,
+  }
+  return { model: model as unknown as GridViewportModel, setFilters }
+}
+
 /** A builder control scoped to one column (testids repeat per column). */
 function control(testId: string, column: string): HTMLElement {
   const element = document.querySelector(`[data-testid="${testId}"][data-col-name="${column}"]`)
@@ -439,5 +473,39 @@ describe('FilterBar SQL predicate escape hatch (ux-4)', () => {
     await waitFor(() => {
       expect(setFilters).toHaveBeenCalledWith([{ column: 'country', predicate: "= 'US'" }])
     })
+  })
+})
+
+/**
+ * UG-30 pin: a rejected filter change renders ONE framed, single-line message
+ * through the shared engine-error helper, and the rollback to the previous
+ * filter list is part of that message (not a second raw diagnostic).
+ */
+describe('FilterBar engine-error framing (UG-30)', () => {
+  it('renders a single-line, framed filter error and restores the previous filters', async () => {
+    const { model, setFilters } = failingModel(
+      COLUMNS,
+      new Error(
+        'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
+          'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+      ),
+    )
+    render(<FilterBar model={model} />)
+    openBar()
+
+    fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
+    fireEvent.click(control('filter-apply', 'country'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.getAttribute('role')).toBe('alert')
+    expect(error.textContent).toBe(
+      'The filter could not be applied: Binder Error: Referenced column "nope" not found in ' +
+        'FROM clause. The previous filters are still in effect.',
+    )
+    expect(error.textContent).not.toMatch(/\r|\n/)
+    expect(document.body.textContent).not.toContain('LINE 1')
+    // The rejection rolled the model back to the previous (empty) list.
+    expect(setFilters).toHaveBeenCalledTimes(2)
+    expect(setFilters).toHaveBeenLastCalledWith([])
   })
 })
