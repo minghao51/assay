@@ -1091,6 +1091,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       setPhase({
         kind: 'error',
         message: error instanceof Error ? error.message : String(error),
+        // UG-5: a `DOMException` (`getFile()` missing/unreadable/refused)
+        // carries its cause in the NAME while its message is generic, so the
+        // alert needs the name to classify. The name is a closed, value-free
+        // identifier and is never attached to telemetry (ADR 0025).
+        errorName: error instanceof Error ? error.name : undefined,
       })
     }
   }, [datasetSession, historyRef, overlayRef, telemetry])
@@ -1162,7 +1167,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
             // text behind a technical-detail disclosure. Text-only rendering;
             // the copy never carries the picked file's name (ADR 0025).
             <div data-testid="open-error" role="alert">
-              <p data-testid="open-error-cause">{openFailureMessage(phase.message)}</p>
+              <p data-testid="open-error-cause">
+                {openFailureMessage(phase.message, phase.errorName)}
+              </p>
               <button
                 type="button"
                 data-testid="open-error-retry"

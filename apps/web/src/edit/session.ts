@@ -261,14 +261,19 @@ const OPEN_FAILURE_CAUSE: Record<OpenFailureCause, string> = {
  * The open alert's single-line human cause (UG-5): the classified cause,
  * framed as an open failure. Never the raw engine diagnostic and never
  * filename-bearing (ADR 0025).
+ *
+ * `errorName` is the exception name the caller stored when it caught the
+ * failure (App's `Phase['error'].errorName`). A `DOMException` from
+ * `getFile()` keeps its cause in the NAME only — its message is a generic
+ * sentence — so the stored name is authoritative and is used when supplied.
+ * When it is absent (a text-only caller, or a plain `Error` open), the name is
+ * derived from the exception here.
  */
-export function openFailureMessage(error: unknown): string {
+export function openFailureMessage(error: unknown, errorName?: string): string {
   // `DOMException` extends `Error`, so a DOM file-read rejection keeps its
   // name here even though `engineErrorDetail` only reads the message.
-  const cause =
-    OPEN_FAILURE_CAUSE[
-      classifyOpenFailure(engineErrorDetail(error), error instanceof Error ? error.name : '')
-    ]
+  const name = errorName ?? (error instanceof Error ? error.name : '')
+  const cause = OPEN_FAILURE_CAUSE[classifyOpenFailure(engineErrorDetail(error), name)]
   return OPERATION_FRAMING.open(cause)
 }
 

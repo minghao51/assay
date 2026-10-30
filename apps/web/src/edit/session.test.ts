@@ -386,6 +386,29 @@ describe('open-failure classification — a human cause, never the raw diagnosti
       'The file could not be opened. You can try another file.',
     )
   })
+
+  it('classifies from the STORED exception name the caller passes (live open path)', () => {
+    // App keeps only the message and the exception name in `Phase['error']`;
+    // the exception object is gone by render time. The stored name must be
+    // authoritative — the generic DOM message is not file evidence.
+    const domMissingFileMessage =
+      'A requested file or directory could not be found at the time this operation was executed.'
+    expect(openFailureMessage(domMissingFileMessage, 'NotFoundError')).toBe(
+      'The file could not be opened. The file could not be read. It may be corrupt, truncated, or not the format its name suggests.',
+    )
+    // No stored name + a generic message stays cause-neutral: nothing claims
+    // the file could not be read.
+    expect(openFailureMessage('generic message')).toBe(
+      'The file could not be opened. You can try another file.',
+    )
+    expect(openFailureMessage('generic message', undefined)).toBe(
+      'The file could not be opened. You can try another file.',
+    )
+    // A supplied name that is not a file-read exception is not evidence either.
+    expect(openFailureMessage('generic message', 'AbortError')).toBe(
+      'The file could not be opened. You can try another file.',
+    )
+  })
 })
 
 describe('castRefusalMessage — readable, text-only refusal for a doomed cast', () => {

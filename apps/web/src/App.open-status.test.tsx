@@ -38,6 +38,11 @@ const h = vi.hoisted(() => ({
   deferOpen: false,
   openError: false,
   openErrorMessage: 'corrupt dataset',
+  /**
+   * An exact exception value to reject `open` with (UG-5 live-path pin): a
+   * `DOMException` carries its cause in the NAME, not the generic message.
+   */
+  openThrown: null as unknown,
   /** Force the post-open schema stage to fail (item 1's stage-neutral pin). */
   schemaError: null as string | null,
   openResolvers: [] as Array<(value: unknown) => void>,
@@ -76,6 +81,7 @@ vi.mock('./lib/engine', () => ({
       if (h.deferOpen) {
         await new Promise<unknown>((resolve) => h.openResolvers.push(resolve))
       }
+      if (h.openThrown !== null) throw h.openThrown
       if (h.openError) throw new Error(h.openErrorMessage)
       return FAKE_HANDLE
     },
@@ -99,6 +105,7 @@ afterEach(() => {
   h.deferOpen = false
   h.openError = false
   h.openErrorMessage = 'corrupt dataset'
+  h.openThrown = null
   h.schemaError = null
   h.openResolvers = []
   h.openCalls = []
@@ -300,6 +307,54 @@ describe('UG-5 — open-failure recovery and technical detail', () => {
     expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
     // The engine's own text is only in the technical-detail disclosure.
     expect(screen.getByTestId('open-error-detail').textContent).toBe(SCHEMA_DETAIL)
+  })
+
+  it('renders the unreadable cause for a DOMException named NotFoundError (live path)', async () => {
+    // `FileSystemFileHandle.getFile()` rejects with a `DOMException` whose
+    // message is a generic sentence — the NAME is the only file evidence. The
+    // open chain stores `error.name` in `Phase['error']` and the alert renders
+    // `openFailureMessage(phase.message, phase.errorName)`, so the LIVE path
+    // must classify as unreadable. Dropping the name fails this pin (the
+    // generic message has no file-shaped spelling).
+    const domMissingFileMessage =
+      'A requested file or directory could not be found at the time this operation was executed.'
+    h.openThrown = new DOMException(domMissingFileMessage, 'NotFoundError')
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    const cause = await screen.findByTestId('open-error-cause')
+    expect(cause.textContent).toBe(
+      'The file could not be opened. The file could not be read. ' +
+        'It may be corrupt, truncated, or not the format its name suggests.',
+    )
+    expect(cause.textContent).not.toBe('The file could not be opened. You can try another file.')
+    expect(cause.textContent).not.toMatch(/\r|\n/)
+    // The generic DOM sentence is not the human cause; it stays behind the
+    // collapsed disclosure only.
+    expect(cause.textContent).not.toContain(domMissingFileMessage)
+    const disclosure = screen.getByTestId('open-error-details') as HTMLDetailsElement
+    expect(disclosure.open).toBe(false)
+    expect(screen.getByTestId('open-error-detail').textContent).toBe(domMissingFileMessage)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
+  })
+
+  it('stays cause-neutral for a generic Error rejection on the live path', async () => {
+    h.openThrown = new Error('boom')
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    const cause = await screen.findByTestId('open-error-cause')
+    expect(cause.textContent).toBe('The file could not be opened. You can try another file.')
+    expect(cause.textContent).not.toContain('could not be read')
+    expect(cause.textContent).not.toMatch(/corrupt|truncated|not the format/i)
+    expect(screen.getByTestId('open-error-detail').textContent).toBe('boom')
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
   })
 
   it('re-triggers the same open path on retry and recovers to ready', async () => {

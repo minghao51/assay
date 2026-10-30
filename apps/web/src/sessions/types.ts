@@ -25,7 +25,17 @@ import type { DuckDbGridProvider } from '../grid/provider'
 export type Phase =
   | { readonly kind: 'idle' }
   | { readonly kind: 'opening' }
-  | { readonly kind: 'error'; readonly message: string }
+  | {
+      readonly kind: 'error'
+      readonly message: string
+      /**
+       * The failing exception's `name`, when the open chain caught one (UG-5).
+       * A `DOMException` from `getFile()` carries its cause in the name, not
+       * the message, so the alert must classify on it rather than the text.
+       * Optional so text-only constructors/tests stay valid; never telemetry.
+       */
+      readonly errorName?: string
+    }
   | {
       readonly kind: 'ready'
       readonly model: GridViewportModel

@@ -20,7 +20,11 @@ recovery journey). A DOM file-read rejection (`NotFoundError`,
 `NotReadableError`, `EncodingError`, `SecurityError`) is classified by the
 `DOMException` name rather than its generic message, so a genuinely missing or
 unreadable file still gets the unreadable-file cause while a missing column or
-table (DuckDB's own `not found` vocabulary) stays cause-neutral.
+table (DuckDB's own `not found` vocabulary) stays cause-neutral. The open
+alert's error phase carries the caught exception's `name` alongside its
+message, so that name-based classification reaches the live UI rather than
+being lost at the state boundary (`errorName` is a closed identifier and is
+never attached to telemetry).
 
 **UG-30/UG-25 — one error-copy convention.** `apps/web/src/edit/session.ts`
 gains a shared first-line-reducing summary (`engineErrorLine`, guaranteeing a
