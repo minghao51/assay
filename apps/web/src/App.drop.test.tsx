@@ -43,9 +43,11 @@ function fakeBatch(): ArrowTableLike {
 
 const h = vi.hoisted(() => ({
   deferOpen: false,
+  deferPicker: false,
   openError: false,
   openErrorMessage: 'unsupported dataset format: engine reads .parquet, .csv, .jsonl, .json',
   openResolvers: [] as Array<(value: unknown) => void>,
+  pickerResolvers: [] as Array<(value: unknown) => void>,
   openCalls: [] as Array<{ name: string; getFile: () => Promise<File> }>,
   pickerCalls: 0,
 }))
@@ -53,6 +55,9 @@ const h = vi.hoisted(() => ({
 vi.mock('@assay/data-sources/browser', () => ({
   pickDataFile: async (): Promise<{ source: { getFile: () => Promise<File> } }> => {
     h.pickerCalls += 1
+    if (h.deferPicker) {
+      await new Promise<unknown>((resolve) => h.pickerResolvers.push(resolve))
+    }
     return { source: { getFile: async () => new File(['id\n1\n'], 'picked.jsonl') } }
   },
 }))
@@ -81,8 +86,10 @@ vi.mock('./profile/ProfilePanel', () => ({ ProfilePanel: () => null }))
 afterEach(() => {
   cleanup()
   h.deferOpen = false
+  h.deferPicker = false
   h.openError = false
   h.openResolvers = []
+  h.pickerResolvers = []
   h.openCalls = []
   h.pickerCalls = 0
 })
@@ -171,6 +178,49 @@ describe('ug-15 — idle drag-and-drop open', () => {
     expect(h.openCalls).toHaveLength(1)
     expect(h.pickerCalls).toBe(1)
     expect(screen.queryByTestId('idle-drop-hint')).toBeNull()
+  })
+
+  it('ignores a drop dispatched synchronously in the same task as the opening click', async () => {
+    // Reviewer round 1 pin. The click starts `openDataFile`, which flips to
+    // `opening` synchronously before its first `await`; the drop then lands in
+    // the SAME task, before React can run any effect. If the phase mirror is a
+    // passive effect (`useEffect`) the drop still reads `idle` and starts a
+    // SECOND open — bumping the session token, calling the picker again and
+    // invalidating the first open. The mirror must be synchronous.
+    h.deferPicker = true
+    render(<App />)
+
+    const drop = createEvent.drop(window, {
+      dataTransfer: { files: [new File(['id\n2\n'], 'same-task.jsonl')] },
+    })
+    // One act, one task: click → synchronous `setPhase('opening')` → drop, with
+    // no effect flush in between (`fireEvent`/`act` would flush passive effects
+    // at the end of their own scope, so the drop is dispatched raw here).
+    act(() => {
+      screen.getByTestId('open-button').click()
+      window.dispatchEvent(drop)
+    })
+
+    // The browser default is still cancelled in every phase.
+    expect(drop.defaultPrevented).toBe(true)
+    // Only the click's open exists: one picker acquisition, no dropped-file
+    // open parked and no second engine open.
+    expect(h.pickerCalls).toBe(1)
+    expect(h.openCalls).toHaveLength(0)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('opening')
+
+    // Let the ORIGINAL open finish: it owns the session and reaches ready. The
+    // dropped file was never consumed (the picker's file is what opens).
+    const resolvePicker = h.pickerResolvers[0]
+    expect(resolvePicker).toBeTruthy()
+    await act(async () => {
+      resolvePicker?.(undefined)
+    })
+    await screen.findByTestId('schema-section')
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    expect(h.pickerCalls).toBe(1)
+    expect(h.openCalls).toHaveLength(1)
+    expect(h.openCalls[0]?.name).toBe('picked.jsonl')
   })
 
   it('shows readable copy for a drop with no File and stays idle', async () => {

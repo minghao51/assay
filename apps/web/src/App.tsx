@@ -427,17 +427,24 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */
   const datasetSession = useDatasetSession()
 
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  const [phase, setPhaseState] = useState<Phase>({ kind: 'idle' })
   /**
    * ug-15: the window-level drop listener is registered once and reads the
    * live phase through this mirror. `dragover`/`drop` must be prevented in
    * every phase (otherwise the browser navigates to the dropped file), while
    * only an idle drop may start an open.
+   *
+   * The mirror is written SYNCHRONOUSLY by the stable `setPhase` wrapper, not
+   * by a passive effect: a drop that lands in the same task as the click that
+   * started an open would otherwise still read `idle` (effects have not run
+   * yet) and start a second `openDataFile`/`beginSession`, invalidating the
+   * first open. `setPhase` is the only writer of either half.
    */
   const phaseRef = useRef(phase)
-  useEffect(() => {
-    phaseRef.current = phase
-  }, [phase])
+  const setPhase = useCallback((next: Phase) => {
+    phaseRef.current = next
+    setPhaseState(next)
+  }, [])
   /**
    * ug-15: readable inline notice for a drop that carried no `File` (dragged
    * text, a page selection). Shown only on the idle screen; a real file drop
@@ -1134,7 +1141,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         errorName: error instanceof Error ? error.name : undefined,
       })
     }
-  }, [datasetSession, historyRef, overlayRef, telemetry])
+  }, [datasetSession, historyRef, overlayRef, setPhase, telemetry])
 
   /**
    * ug-15/UG-6: drop a data file anywhere on the shell. Both handlers are
