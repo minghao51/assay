@@ -60,11 +60,12 @@ uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unkn
 
 Select one of these eligible candidates, one bounded row per worker, with an independent reviewer
 (no new cross-lane dependency is imposed by this list):
-1) ug-15 (Shell) — next Shell row after ug-14 (CLOSED `c694eca`).
+1) ug-17 (Shell) — state summaries on collapsed section toggles (no ready-to-paste brief in this
+   pack yet; use the ug-14 template shape, and read the live ug-17 row).
 2) ug-4 (Grid) — visible grid interaction language.
 3) uxv-1 (Visual) — theme completeness, ONLY if you can hold an exclusive CSS/theme-test
    reservation; otherwise keep it unclaimed and do not improvise a styling batch.
-Do not redispatch closed rows ug-1/2/3/7/8/9/13/14. Do not dispatch ug-10 (UX-D1 draft, no ruling),
+Do not redispatch closed rows ug-1/2/3/7/8/9/13/14/15. Do not dispatch ug-10 (UX-D1 draft, no ruling),
 ug-16/ug-20 (behind ug-10), uxv-2…5 (dependencies), or uxv-6 (design-only).
 
 Before dispatch, reserve shared files and state the reservation in the brief. Lanes are NOT
@@ -88,8 +89,8 @@ the single next dispatch.
 
 ## 2. Worker — ug-14 (Shell) — CLOSED 2026-10-30, do not dispatch
 
-> Retained only as the shape of a bounded worker brief. The row is CLOSED at `c694eca`; the next
-> Shell row is **ug-15**. Do not paste this as a live task.
+> Retained only as the shape of a bounded worker brief. ug-14 is CLOSED at `c694eca` and ug-15 at
+> `8a38e0e`; the next Shell row is **ug-17**. Do not paste this as a live task.
 
 ```text
 Implement exactly ug-14: open-failure recovery + error-copy consolidation.
