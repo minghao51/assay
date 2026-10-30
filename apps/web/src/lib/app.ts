@@ -22,6 +22,21 @@ export const IDLE_EXAMPLE_ACTION = 'Try with example data' as const
 export const IDLE_EXAMPLE_HELPER = 'Explore nested fields with a small synthetic example.' as const
 
 /**
+ * ug-15/UG-6 idle drop affordance. The whole window accepts a drop in every
+ * phase, but only the idle screen advertises it; the copy is value-free and
+ * carries no filename or format-specific claim (ADR 0025).
+ */
+export const IDLE_DROP_HINT = 'Or drop a data file anywhere on this page' as const
+
+/**
+ * ug-15/UG-6 readable copy for a drop that carried no `File` (dragged text or
+ * a page selection). It never echoes the `DataTransfer` contents and never
+ * reaches the engine.
+ */
+export const DROP_WITHOUT_FILE =
+  'That drop did not include a file. Drop a .parquet, .csv, .jsonl or .json file to open it.' as const
+
+/**
  * Human copy for the open-flow status span (ux-2/UX-2). The machine token
  * lives on `data-phase`; these strings are the only visible copy, so raw
  * `phase.kind` values never reach the screen. `ready` folds its state into the

@@ -38,7 +38,9 @@ import { pendingChangesSummary } from './edit/op-summary'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
 import {
   APP_NAME,
+  DROP_WITHOUT_FILE,
   IDLE_CAPABILITY,
+  IDLE_DROP_HINT,
   IDLE_EXAMPLE_ACTION,
   IDLE_EXAMPLE_HELPER,
   IDLE_FORMATS,
@@ -426,6 +428,22 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const datasetSession = useDatasetSession()
 
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  /**
+   * ug-15: the window-level drop listener is registered once and reads the
+   * live phase through this mirror. `dragover`/`drop` must be prevented in
+   * every phase (otherwise the browser navigates to the dropped file), while
+   * only an idle drop may start an open.
+   */
+  const phaseRef = useRef(phase)
+  useEffect(() => {
+    phaseRef.current = phase
+  }, [phase])
+  /**
+   * ug-15: readable inline notice for a drop that carried no `File` (dragged
+   * text, a page selection). Shown only on the idle screen; a real file drop
+   * clears it. The copy is value-free (ADR 0025).
+   */
+  const [dropNotice, setDropNotice] = useState<string | null>(null)
   /**
    * ux-2/UX-10: open-completion announcement + focus move. `phase` is a new
    * object only on a real phase transition, so this effect runs once per open
@@ -950,6 +968,15 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   /** One-shot file source consumed by the normal open flow for the idle example action. */
   const exampleFileRef = useRef<File | null>(null)
 
+  /**
+   * ug-15: a file dropped on the idle shell is parked here for exactly one
+   * consumption by `openDataFile` — the same one-shot precedent as the idle
+   * example. The window drop listener only fills it while idle; the open flow
+   * clears it before its first await, so a stale drop can never seed a later
+   * picker open.
+   */
+  const pendingDropFileRef = useRef<File | null>(null)
+
   const openDataFile = useCallback(async () => {
     // AR-W13: generation guard. `beginSession` bumps the shared session token
     // and runs every per-domain reset (f-1), so a picker/open chain that
@@ -957,6 +984,14 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     // rather than clobbering the newer phase.
     const exampleFile = exampleFileRef.current
     exampleFileRef.current = null
+    const droppedFile = pendingDropFileRef.current
+    pendingDropFileRef.current = null
+    // A one-shot source (the bundled example or an idle drop) skips only the
+    // picker acquisition below; it rejoins the identical guarded open chain.
+    const oneShotFile = exampleFile ?? droppedFile
+    // A no-file drop's notice belongs to the idle screen only; any real open
+    // attempt (including a cancelled picker returning to idle) supersedes it.
+    setDropNotice(null)
     const session = datasetSession.beginSession()
     // au3-12: warm the below-fold panel chunks in parallel with the open flow
     // so they are resident by `ready` (see `lib/bottom-panels.ts`).
@@ -986,7 +1021,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     const openCapture: { handle: FileSystemFileHandle | null } = { handle: null }
     try {
       let file: File
-      if (exampleFile === null) {
+      if (oneShotFile === null) {
         const picked = await pickDataFile({
           showOpenFilePicker: async (options) => {
             const handles = await showOpenFilePicker(options)
@@ -1008,9 +1043,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         file = await picked.source.getFile()
         if (datasetSession.tokenRef.current !== session) return
       } else {
-        // The bundled synthetic example skips only picker acquisition. It
-        // rejoins the exact same guarded engine/session open path below.
-        file = exampleFile
+        // The bundled synthetic example and a dropped file skip only picker
+        // acquisition. Both rejoin the exact same guarded engine/session open
+        // path below (same identity reset, session token checks, telemetry).
+        file = oneShotFile
       }
       // Export same-source guard identity (m4-5 fix round, hardened in
       // round 2). FSA opens retain the handle — the platform's
@@ -1022,7 +1058,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       // missed a source externally touched after opening. Such a session is
       // therefore never offered the direct-write picker at all; its exports
       // ride the browser download (see `save-destination.ts`).
-      const pickedHandle = exampleFile === null ? openCapture.handle : null
+      const pickedHandle = oneShotFile === null ? openCapture.handle : null
       sourceIdentityRef.current =
         pickedHandle !== null ? { isSameEntry: pickedHandle.isSameEntry.bind(pickedHandle) } : null
       const handle = await engineClient.open({
@@ -1100,6 +1136,44 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     }
   }, [datasetSession, historyRef, overlayRef, telemetry])
 
+  /**
+   * ug-15/UG-6: drop a data file anywhere on the shell. Both handlers are
+   * window-level so the whole page is a target, and both call
+   * `preventDefault()` in EVERY phase — the browser's default for a dropped
+   * file is to navigate away from the unsaved workbench session.
+   *
+   * The drop acts only from `idle`: it parks the first dropped `File` as the
+   * one-shot source above and re-enters `openDataFile`, so the dropped open
+   * shares the picker's generation guard, identity resets, phase transitions,
+   * error classification and telemetry. A drop while opening/ready/error is
+   * consumed by `preventDefault()` and otherwise ignored — it must not start a
+   * session, bump the token, or change the phase. A payload with no `File`
+   * never reaches the engine; it gets readable inline copy instead.
+   */
+  useEffect(() => {
+    const handleDragOver = (event: DragEvent): void => {
+      event.preventDefault()
+    }
+    const handleDrop = (event: DragEvent): void => {
+      event.preventDefault()
+      if (phaseRef.current.kind !== 'idle') return
+      const file = event.dataTransfer?.files?.[0] ?? null
+      if (file === null) {
+        setDropNotice(DROP_WITHOUT_FILE)
+        return
+      }
+      setDropNotice(null)
+      pendingDropFileRef.current = file
+      void openDataFile()
+    }
+    window.addEventListener('dragover', handleDragOver)
+    window.addEventListener('drop', handleDrop)
+    return () => {
+      window.removeEventListener('dragover', handleDragOver)
+      window.removeEventListener('drop', handleDrop)
+    }
+  }, [openDataFile])
+
   return (
     <TelemetryProvider runtime={telemetry}>
       <main>
@@ -1118,6 +1192,14 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           <div className="idle-intro" data-testid="idle-intro">
             <p data-testid="idle-capability">{IDLE_CAPABILITY}</p>
             <p data-testid="idle-formats">{IDLE_FORMATS}</p>
+            <p className="idle-drop-hint" data-testid="idle-drop-hint">
+              {IDLE_DROP_HINT}
+            </p>
+            {dropNotice !== null && (
+              <p role="status" data-testid="drop-notice">
+                {dropNotice}
+              </p>
+            )}
           </div>
         )}
 

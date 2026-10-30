@@ -203,6 +203,21 @@ main {
   border: 0;
 }
 
+/*
+ * ug-15/UG-6 idle drop affordance. A visible, value-free target line on the
+ * idle screen only; the whole window accepts the drop, so this is an
+ * invitation rather than a separate hit area. Tokens keep both schemes
+ * legible and nothing outside `.idle-drop-hint` is restyled.
+ */
+.idle-drop-hint {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--color-accent-border);
+  border-radius: 6px;
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+}
+
 /* ---- Workbench shell slice 1 (ux-6) ---- */
 
 /*
