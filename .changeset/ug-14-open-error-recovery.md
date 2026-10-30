@@ -16,7 +16,11 @@ WASM glue error is not file evidence, so neither is described as an unreadable
 file. The existing Open control keeps its behaviour and a failed open still
 never renders the welcome copy. Pinned with a new synthetic
 `fixtures/invalid/corrupt.parquet` fixture (component pins plus a real-browser
-recovery journey).
+recovery journey). A DOM file-read rejection (`NotFoundError`,
+`NotReadableError`, `EncodingError`, `SecurityError`) is classified by the
+`DOMException` name rather than its generic message, so a genuinely missing or
+unreadable file still gets the unreadable-file cause while a missing column or
+table (DuckDB's own `not found` vocabulary) stays cause-neutral.
 
 **UG-30/UG-25 — one error-copy convention.** `apps/web/src/edit/session.ts`
 gains a shared first-line-reducing summary (`engineErrorLine`, guaranteeing a

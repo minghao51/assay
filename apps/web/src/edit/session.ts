@@ -183,16 +183,18 @@ export type OpenFailureCause = 'unsupported-format' | 'unreadable' | 'unknown'
 const UNSUPPORTED_FORMAT_SIGNAL = /unsupported (dataset )?(format|file type|extension)/i
 
 /**
- * Reader/IO failure signals. DuckDB reports a corrupt Parquet file as
+ * Reader/IO failure text signals. DuckDB reports a corrupt Parquet file as
  * `Invalid Input Error: No magic bytes found at end of file`, a truncated or
  * mislabelled file through `IO Error`/`Invalid Input Error`/`CSV Error`/
- * `Could not read`, and an unreadable handle through a DOM `NotFoundError`/
- * `NotReadableError`/`EncodingError`/permission message. Every member names a
- * file-specific failure, and the signals are read from the *detail text* only —
- * the human cause never echoes them. A bare `not found`, by contrast, is not
+ * `Could not read`, and a permission message explicitly. Every member names a
+ * file-specific failure, and these signals are read from the engine's *detail
+ * text* only — the human cause never echoes them. They are the fallback for
+ * engine strings; a DOM exception's *name* is checked separately below,
+ * because its message is generic (e.g. `NotFoundError`'s "A requested file or
+ * directory could not be found…"). A bare `not found`, by contrast, is not
  * file evidence: DuckDB uses it for missing columns/tables too, so only the
- * file/path-shaped spellings (`no such file`, `file not found`, the DOM
- * `NotFoundError`) count.
+ * file/path-shaped spellings (`no such file`, `file not found`, `path not
+ * found`) count.
  *
  * `_setThrew` is deliberately NOT a member. It is the mvp bundle's opaque
  * emscripten glue failure (see `OPAQUE_GLUE_ERROR` above); the `engine-duckdb`
@@ -205,11 +207,34 @@ const UNSUPPORTED_FORMAT_SIGNAL = /unsupported (dataset )?(format|file type|exte
  * claims nothing about the file.
  */
 const UNREADABLE_SIGNAL =
-  /no magic bytes|invalid input error|io error|could not (be )?(read|open)|failed to read|invalid parquet|not a parquet|corrupt|malformed|truncat|encoding error|not readable|permission|denied|no such file|file not found|path not found|NotFoundError|unexpected end|(csv|json) error/i
+  /no magic bytes|invalid input error|io error|could not (be )?(read|open)|failed to read|invalid parquet|not a parquet|corrupt|malformed|truncat|encoding error|not readable|permission|denied|no such file|file not found|path not found|unexpected end|(csv|json) error/i
 
-/** Classify an open failure from its raw engine/DOM detail (UG-5). */
-export function classifyOpenFailure(detail: string): OpenFailureCause {
+/**
+ * DOM file-read exception names. A `FileSystemFileHandle.getFile()` rejection
+ * is a `DOMException` whose **name** carries the cause while its message is a
+ * generic, non-file-shaped sentence ("A requested file or directory could not
+ * be found at the time this operation was executed."). The text signals above
+ * therefore cannot see it — the name can, and it is file-specific evidence
+ * (unlike a bare `not found`, which DuckDB also uses for missing columns and
+ * tables). `SecurityError` is included because the read is refused, so the
+ * honest human cause is the same: the file could not be read.
+ */
+const DOM_FILE_READ_ERRORS: ReadonlySet<string> = new Set([
+  'NotFoundError',
+  'NotReadableError',
+  'EncodingError',
+  'SecurityError',
+])
+
+/**
+ * Classify an open failure from its raw engine/DOM detail (UG-5) and, when the
+ * caller has the exception itself, its `name`. `errorName` is optional so the
+ * text-only callers keep working; when supplied it is authoritative for the
+ * DOM file-read names, whose messages are generic.
+ */
+export function classifyOpenFailure(detail: string, errorName?: string): OpenFailureCause {
   if (UNSUPPORTED_FORMAT_SIGNAL.test(detail)) return 'unsupported-format'
+  if (errorName !== undefined && DOM_FILE_READ_ERRORS.has(errorName)) return 'unreadable'
   if (UNREADABLE_SIGNAL.test(detail)) return 'unreadable'
   return 'unknown'
 }
@@ -238,7 +263,12 @@ const OPEN_FAILURE_CAUSE: Record<OpenFailureCause, string> = {
  * filename-bearing (ADR 0025).
  */
 export function openFailureMessage(error: unknown): string {
-  const cause = OPEN_FAILURE_CAUSE[classifyOpenFailure(engineErrorDetail(error))]
+  // `DOMException` extends `Error`, so a DOM file-read rejection keeps its
+  // name here even though `engineErrorDetail` only reads the message.
+  const cause =
+    OPEN_FAILURE_CAUSE[
+      classifyOpenFailure(engineErrorDetail(error), error instanceof Error ? error.name : '')
+    ]
   return OPERATION_FRAMING.open(cause)
 }
 

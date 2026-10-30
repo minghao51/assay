@@ -304,6 +304,51 @@ describe('open-failure classification — a human cause, never the raw diagnosti
     expect(message).not.toMatch(/\r|\n/)
   })
 
+  it('classifies a DOM file-read failure by exception name, not its generic message', () => {
+    // `FileSystemFileHandle.getFile()` rejects with a `DOMException` whose
+    // name carries the cause; its message is a generic sentence with no
+    // file-shaped `not found` spelling, so the text signals cannot see it.
+    const domMissingFileMessage =
+      'A requested file or directory could not be found at the time this operation was executed.'
+    // The message alone is NOT file evidence — this is why the name is used.
+    expect(classifyOpenFailure(domMissingFileMessage)).toBe('unknown')
+    expect(classifyOpenFailure(domMissingFileMessage, 'NotFoundError')).toBe('unreadable')
+    const error = new DOMException(domMissingFileMessage, 'NotFoundError')
+    expect(engineErrorDetail(error)).toBe(domMissingFileMessage)
+    expect(openFailureMessage(error)).toBe(
+      'The file could not be opened. The file could not be read. It may be corrupt, truncated, or not the format its name suggests.',
+    )
+  })
+
+  it('treats every DOM file-read exception name as unreadable, whatever its message', () => {
+    for (const name of ['NotFoundError', 'NotReadableError', 'EncodingError', 'SecurityError']) {
+      const message = openFailureMessage(new DOMException('the operation failed', name))
+      expect(message, name).toContain('could not be read')
+      expect(message, name).not.toContain('the operation failed')
+    }
+    // Only the file-read names are evidence: another `DOMException` name is
+    // not a file signal and must stay cause-neutral.
+    expect(openFailureMessage(new DOMException('the operation was aborted', 'AbortError'))).toBe(
+      'The file could not be opened. You can try another file.',
+    )
+  })
+
+  it('keeps missing-column and missing-table engine errors cause-neutral', () => {
+    // A bare `not found` (and `does not exist`) is DuckDB's missing-column/
+    // table vocabulary, not file evidence — the name check must not resurrect
+    // text matching for either.
+    for (const error of [
+      new Error('Binder Error: Referenced column "amount" not found in FROM clause!'),
+      new Error('Binder Error: Referenced table "orders" not found!'),
+      new Error('Catalog Error: Table with name orders does not exist!'),
+    ]) {
+      expect(classifyOpenFailure(engineErrorDetail(error))).toBe('unknown')
+      const message = openFailureMessage(error)
+      expect(message).toBe('The file could not be opened. You can try another file.')
+      expect(message).not.toContain('could not be read')
+    }
+  })
+
   it('leaves the opaque mvp glue error unclassified instead of calling the file unreadable', () => {
     // `_setThrew` is the mvp bundle's opaque emscripten glue failure. The
     // `op-channel` notes it can also mean operation collisions, and the open
