@@ -225,13 +225,14 @@ ug-4/6, ug-8, ug-12/13, ug-17 and ug-20, **subject to their lane predecessors**.
 
 Two honesty issues need explicit worker attention:
 
-- **ug-10 — brief amendment required before dispatch:** current profiling reads the file as
-  opened, not the effective overlay. Re-running cannot update staged-edit statistics, so the
-  queue's overlay-stale → re-run contract is misleading without a semantic decision. Recommended
-  bounded amendment: present a clearly labeled file-as-opened profile, explain that staged edits
-  are excluded, and do not clear an overlay-mismatch warning by recomputing the same base view.
-  Effective-overlay profiling instead needs a separate engine/API task, outside this batch's
-  no-engine-change constraint. This proposal does not itself amend or close ug-10.
+- **ug-10 — resolved 2026-10-30 by UX-D1 Option C:** current profiling reads the file as opened,
+  not the effective overlay, so the original overlay-stale → re-run contract was misleading. The
+  ruling ships a clearly labeled file-as-opened profile (R-16: standing hint + staged-changes
+  note; no stale/re-run banner and no claim that re-running includes edits) and does **not** clear
+  any overlay-mismatch warning by recomputing the same base view. Effective-overlay profiling is
+  chartered separately as a planning-only engine candidate
+  ([20261030-overlay-profile-candidate.md](../process/handoff/20261030-overlay-profile-candidate.md)),
+  outside this batch's no-engine-change constraint; it is not authorized for dispatch.
 - **ug-9:** the ready phase does not retain the opened `File`; pipeline binding currently opens
   a picker. “Use the open dataset” needs a real session-source seam, not a label-only shortcut.
   A Validation cross-link must not imply that an unrelated bound pipeline source is the grid.

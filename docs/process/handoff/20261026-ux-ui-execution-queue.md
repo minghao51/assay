@@ -50,13 +50,14 @@ Rationale: [plan](../../product/08-ux-ui-engine-showcase-plan.md). Start here:
 - The ug queue owns R-01…R-08, R-14 and R-15. Its remaining rows continue to own editing/clipboard/history hints,
   row identity/focus, panel purpose/state summaries, filter UX, validation on-ramp, pipeline
   continuity, open recovery/progress/drop and nav-only ordering. This queue does not reassign them.
-- This uxv queue owns R-09…R-13 only. R-16 is a proposed, unauthorized spec §8 index row; it is
-  not owned here until a maintainer ruling. Reference mockups depict an assembled target, not
+- This uxv queue owns R-09…R-13 only. R-16 is authorized by the UX-D1 Option C ruling (2026-10-30)
+  and owned by ug-10; it is not owned here. Reference mockups depict an assembled target, not
   permission for a visual worker to implement ug-13/ug-17 summaries or other unclaimed features.
-- **ug-10 is blocked by UX-D1.** Its stale/re-run contract needs a recorded amendment because
-  current profile(handle) cannot compute overlay statistics. Do not bypass that block by
-  claiming “copy only” or changing the engine. ug-16/20 retain original lane predecessors until
-  the orchestrator explicitly re-plans that lane; unrelated Shell/Grid/Visual work can continue.
+- **ug-10 was blocked by UX-D1; RESOLVED 2026-10-30 (Option C).** The amended row carries R-16's
+  honest-labeling contract (base-as-opened hint + staged-changes note); the overlay-aware profile
+  is a separate planning-only engine candidate and must not be smuggled in as “copy only” or an
+  engine change. ug-16/ug-20 become eligible only after the amended ug-10 lands; unrelated
+  Shell/Grid/Visual work can continue.
 - Changes to known dataset-shape behavior still require minimal golden fixtures/regression pins.
   These UI-only rows do not authorize regenerating all committed Parquet fixtures as a rider.
 
@@ -97,14 +98,16 @@ baseline merely because a doc review passed.
 
 ## 5. Decisions, integration and handoff
 
-No UX-D1/UX-D2 decision has been recorded by authoring this queue. The spec is sufficient to
+No UX-D1/UX-D2 decision had been recorded when this queue was authored. The spec is sufficient to
 start bounded existing tasks after baseline, not sufficient to bypass those explicit decisions.
 
-**2026-10-29 update:** UX-D1 now has a **drafted** amendment brief
-([20261029-ux-d1-amendment.md](20261029-ux-d1-amendment.md)) — verified evidence, Options A/B/C
-(recommended C), the proposed R-16 copy/acceptance, and a maintainer decision block. It is **not a
-ruling**: ug-10 and the Panels successors (ug-16 → ug-20) remain blocked until the maintainer ticks
-it and the ruling is recorded in spec §7. UX-D2/uxv-6 remain design-only and unchanged.
+**2026-10-30 update — UX-D1 RESOLVED (Option C):** the maintainer ruled Option C in
+[20261029-ux-d1-amendment.md](20261029-ux-d1-amendment.md) §7. ug-10 is authorized with the
+amended R-16 honest-labeling contract (spec §2), and the overlay-aware profile is chartered as a
+separate planning-only engine candidate
+([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)). ug-16/ug-20
+become eligible only after the amended ug-10 is implemented, independently reviewed and
+merged-green. UX-D2/uxv-6 remain design-only and unchanged.
 Do not mark any row green until independent review and merged verification finish. Integration
 resolves ug-2/ug-7 `App.tsx` overlaps and re-runs merged gates; update the matching queue row,
 `handoff.md` index/changelog and relevant roadmap/product narrative without duplicating history.

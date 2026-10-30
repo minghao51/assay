@@ -1,11 +1,10 @@
 # UX-D1 amendment brief — profile honesty (ug-10)
 
-> **STATUS: DRAFT — NOT A DECISION. PENDING MAINTAINER APPROVAL.**
-> This file is a decision brief, not authorization. No agent may claim ug-10, edit the
-> contradictory queue wording, or start the engine variant until the maintainer records a ruling
-> in §7 below. Until then the safe default in
-> [spec §7](../../product/09-ux-ui-implementation-spec.md#7-explicit-stopdecision-register) stands:
-> do not implement ug-10.
+> **STATUS: DECIDED 2026-10-30 — OPTION C (maintainer ruling recorded in §7).**
+> The maintainer ruled **Option C**: ship the amended ug-10 honest labeling now (R-16), and charter
+> Option B as a separate engine-track candidate row — planning only, no implementation authorized.
+> The §5 document edits below were applied in the same change that recorded the ruling. No agent
+> chose the option; this file remains the rationale record, and the queue owns dispatch status.
 >
 > Owner of this brief: orchestrator. Decision owner: maintainer (UX-D1 is not delegable to an
 > implementing agent — the deciding party must not also implement it). Authored 2026-10-29.
@@ -96,14 +95,14 @@ engine, and does not foreclose the better long-term behavior.
 
 ## 4. Proposed amendment (only valid if §7 approves Option A or C)
 
-**Status note:** the original ug-10 done-when in the queue stays untouched until the ruling is
-recorded. This section is proposed copy, not a ruling. R-16 is not in spec §2 today; it appears
-only in the spec §8 index as proposed/unauthorized and in this brief.
+**Status note:** the ruling is recorded in §7 (Option C, 2026-10-30). The amended ug-10 is now
+authorized; the queue row below is the governing contract, and the original stale/re-run wording is
+preserved in the queue's history only. R-16 is in spec §2 and authorized in the §8 index.
 
 **Queue row ug-10 is reworded to:**
 
-> **Profile honesty pack (amended 2026-10-29, UX-D1).** The profile states that statistics describe
-> the file as opened, and states — only while staged operations exist — that they are not
+> **Profile honesty pack (amended 2026-10-30, UX-D1 Option C).** The profile states that statistics
+> describe the file as opened, and states — only while staged operations exist — that they are not
 > reflected. No stale/re-run banner and no claim that re-running includes session edits.
 > Done-when: byte-exact hint and note pins across 0/1/N operations and their 0-operation
 > disappearance; no auto-recompute; engine untouched.
@@ -227,8 +226,8 @@ ruling into this block and spec §7; it may not choose the option, self-approve,
 without that instruction.
 
 - [ ] **Option A** — amend ug-10 to honest labeling only (no engine work). Panels lane unblocks.
-- [ ] **Option C (recommended)** — Option A now **plus** Option B chartered as a separate
-      engine-track candidate row (author it as a new queue row, not as a rider).
+- [x] **Option C (recommended)** — Option A now **plus** Option B chartered as a separate
+      engine-track candidate row (author it as a new queue row, not as a rider). **RULED 2026-10-30.**
 - [ ] **Option B** — keep ug-10 blocked pending a separate overlay-aware profiling track.
       Authorize architecture investigation and a bounded engine brief with fixtures/conformance;
       resolve its actual client/protocol and compatibility footprint before implementation.
@@ -239,10 +238,13 @@ without that instruction.
 Decision / notes:
 
 ```text
-(maintainer ruling text)
+Option C — ship the amended ug-10 honest labeling now (R-16); charter Option B (overlay-aware
+profile) as a separate engine-track candidate row, planning only. Candidate authored at
+20261030-overlay-profile-candidate.md. Amended ug-10 authorized; ug-16 becomes eligible only
+after it is implemented, independently reviewed and merged-green.
 ```
 
-Decided by: ____________________ Date: __________
+Decided by: maintainer (minghao) Date: 2026-10-30
 
 ## 8. Handoff for whoever implements the approved option
 
