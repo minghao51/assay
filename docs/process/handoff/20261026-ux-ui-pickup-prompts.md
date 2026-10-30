@@ -11,7 +11,7 @@ every use; a prompt never overrides a closed/claimed/blocked row.
   refinements do not establish a new runtime baseline. At the baseline: **195 unit files / 3089 tests, e2e 185
   passed + 1 skipped, coverage 88.08/82.24/89.08/89.60**, docs links 116/0 at that revision
   (current pack: 117/0), ADR index 46, all gates exit 0. Evidence: `/tmp/assay-merged-ug9/`.
-- **Next runtime candidates:** **ug-14 (Shell)** and **ug-4 (Grid)**; choose one bounded row,
+- **Next runtime candidates:** **ug-15 (Shell)** and **ug-4 (Grid)**; choose one bounded row,
   preserving each lane's order and shared-file reservations. Do not redispatch closed rows
   **ug-1, ug-2, ug-3, ug-7, ug-8, ug-9, ug-13**; their evidence is in the
   [usability queue §1/§5](20261026-usability-queue.md) and [handoff §9](../handoff.md).
@@ -60,11 +60,11 @@ uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unkn
 
 Select one of these eligible candidates, one bounded row per worker, with an independent reviewer
 (no new cross-lane dependency is imposed by this list):
-1) ug-14 (Shell) — open-failure recovery + error-copy consolidation.
+1) ug-15 (Shell) — next Shell row after ug-14 (CLOSED `c694eca`).
 2) ug-4 (Grid) — visible grid interaction language.
 3) uxv-1 (Visual) — theme completeness, ONLY if you can hold an exclusive CSS/theme-test
    reservation; otherwise keep it unclaimed and do not improvise a styling batch.
-Do not redispatch closed rows ug-1/2/3/7/8/9/13. Do not dispatch ug-10 (UX-D1 draft, no ruling),
+Do not redispatch closed rows ug-1/2/3/7/8/9/13/14. Do not dispatch ug-10 (UX-D1 draft, no ruling),
 ug-16/ug-20 (behind ug-10), uxv-2…5 (dependencies), or uxv-6 (design-only).
 
 Before dispatch, reserve shared files and state the reservation in the brief. Lanes are NOT
@@ -86,7 +86,10 @@ First response: checkout/queue state, proposed base, reservations for the next r
 the single next dispatch.
 ```
 
-## 2. Worker — ug-14 (Shell)
+## 2. Worker — ug-14 (Shell) — CLOSED 2026-10-30, do not dispatch
+
+> Retained only as the shape of a bounded worker brief. The row is CLOSED at `c694eca`; the next
+> Shell row is **ug-15**. Do not paste this as a live task.
 
 ```text
 Implement exactly ug-14: open-failure recovery + error-copy consolidation.

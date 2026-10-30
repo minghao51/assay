@@ -11,8 +11,8 @@
 > historical. GitHub Actions has been M6-blocked since 2026-10-15. The local runtime baseline is
 > recorded at `385649b` — 195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage
 > 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 117/0), ADR 46. The live
-> frontier is **ug-14 (Shell)** / **ug-4 (Grid)**, with **uxv-1 eligible only under an exclusive
-> CSS/theme-test reservation**. Live changesets: **172**. Use [handoff](../handoff.md) and the
+> frontier is **ug-15 (Shell)** / **ug-4 (Grid)**, with **uxv-1 eligible only under an exclusive
+> CSS/theme-test reservation**. Live changesets: **173**. Use [handoff](../handoff.md) and the
 > [usability](20261026-usability-queue.md)/[visual](20261026-ux-ui-execution-queue.md) queues for
 > current state; the September evidence below is preserved, not dispatchable.
 >
@@ -51,12 +51,14 @@
    desktop-extension webview** (vscode-web stays RE-SCOPE) → PT-V slice-1 planning next. No active
    queue. G0 tail stays human-only (§3).
 7. **Now (2026-10-29): usability + visual continuation is the active pickup** —
-   [usability queue](20261026-usability-queue.md) (23 rows; **ug-1/2/3/7/8/9/13 CLOSED**, 16 remain
+   [usability queue](20261026-usability-queue.md) (23 rows; **ug-1/2/3/7/8/9/13/14 CLOSED**, 15 remain
    with **ug-10 blocked by UX-D1**) and [visual queue](20261026-ux-ui-execution-queue.md)
    (**uxv-0 recorded; uxv-1 eligible only with an exclusive CSS/theme-test reservation; uxv-2…5
-   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-14 (Shell)** and **ug-4 (Grid)**.
+   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-15 (Shell)** and **ug-4 (Grid)**.
    Baseline recorded at `385649b`: 195 unit files / 3089 tests, e2e 185 passed + 1 skipped,
    coverage 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 117/0), ADR 46.
+   **ug-14 (Shell) CLOSED 2026-10-30** at `c694eca` (199f/3121t, e2e 186p+1s, coverage
+   88.58/82.72/89.81/90.13; see usability queue §1/§5).
    The UX-D1 [amendment brief](20261029-ux-d1-amendment.md) is a **draft**: no ruling, and R-16 is
    a proposed §8 index row only. Historical ug evidence/commits are in the usability queue §1/§5;
    the September 2026-09-26/28 counts above are not current. Companion

@@ -50,17 +50,17 @@ Requirement IDs are stable. Preserve them in worker briefs and review reports.
 
 ### State completeness
 
-| State                    | Required presentation / ownership                                                                                                                          |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Idle                     | R-03, then R-05/R-12 as their owners land. One primary Open CTA; example is secondary. Settings remains available.                                         |
-| Opening                  | Existing “Opening…” and disabled Open remain. Do not imply scan percentage or engine interrupt. ug-21 owns future progress/cancel, not these visual tasks. |
-| Open error               | Preserve the existing alert and Open control until ug-14 owns recovery/detail consolidation. Do not hide errors beneath welcome text.                      |
-| Ready, no edits          | Dataset row/column metadata, persistent grid, existing tool shells/nav and record dock; no false staged badge.                                             |
-| SQL running/outcome      | Existing guarded running/error/cancel honesty. R-01/R-02 expose the matching nested outcome. “rows 1–20” is a page range, not a general total.             |
-| Staged edit              | Existing dirty markers plus R-08. ug-6/ug-17 own History visibility/summaries; no second Undo/Redo pair.                                                   |
-| Validation stale/failure | Preserve current stale banners and failure navigation. ug-13/ug-17/ug-20 own further guidance/summaries. Styling must not conceal stale status.            |
-| Panel/grid crash         | Static recovery copy in §3. No thrown messages, paths or cell values in fallback UI.                                                                       |
-| Export                   | Preserve dialog focus/overwrite/source-copy guarantees and R-08. Restyle without altering output bytes or save semantics.                                  |
+| State                    | Required presentation / ownership                                                                                                                                                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Idle                     | R-03, then R-05/R-12 as their owners land. One primary Open CTA; example is secondary. Settings remains available.                                                                                                                                    |
+| Opening                  | Existing “Opening…” and disabled Open remain. Do not imply scan percentage or engine interrupt. ug-21 owns future progress/cancel, not these visual tasks.                                                                                            |
+| Open error               | Classified one-line human cause + “Choose a different file…” retry re-entering the guarded open chain; raw engine detail only behind a collapsed `<details>` (ug-14, 2026-10-30). Preserve the Open control; do not hide errors beneath welcome text. |
+| Ready, no edits          | Dataset row/column metadata, persistent grid, existing tool shells/nav and record dock; no false staged badge.                                                                                                                                        |
+| SQL running/outcome      | Existing guarded running/error/cancel honesty. R-01/R-02 expose the matching nested outcome. “rows 1–20” is a page range, not a general total.                                                                                                        |
+| Staged edit              | Existing dirty markers plus R-08. ug-6/ug-17 own History visibility/summaries; no second Undo/Redo pair.                                                                                                                                              |
+| Validation stale/failure | Preserve current stale banners and failure navigation. ug-13/ug-17/ug-20 own further guidance/summaries. Styling must not conceal stale status.                                                                                                       |
+| Panel/grid crash         | Static recovery copy in §3. No thrown messages, paths or cell values in fallback UI.                                                                                                                                                                  |
+| Export                   | Preserve dialog focus/overwrite/source-copy guarantees and R-08. Restyle without altering output bytes or save semantics.                                                                                                                             |
 
 ## 3. First dispatch contracts
 
