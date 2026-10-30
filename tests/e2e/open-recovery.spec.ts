@@ -32,10 +32,13 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-/** The classified human cause for an unreadable file (UG-5, exact copy). */
-const UNREADABLE_CAUSE =
-  'The file could not be opened. The file could not be read. ' +
-  'It may be corrupt, truncated, or not the format its name suggests.'
+/**
+ * The cause-neutral copy for an unclassified open failure (UG-5). The opaque
+ * WASM glue error this bundle surfaces for the corrupt fixture is not file
+ * evidence — the engine's `op-channel` notes it can also mean operation
+ * collisions — so the alert must not claim the file could not be read.
+ */
+const NEUTRAL_CAUSE = 'The file could not be opened. You can try another file.'
 
 test('a corrupt file shows a one-line cause, retries through the same open path, and recovers', async ({
   page,
@@ -53,14 +56,17 @@ test('a corrupt file shows a one-line cause, retries through the same open path,
     timeout: 20_000,
   })
 
-  // (a) One-line human cause — the raw engine diagnostic is not the cause.
+  // (a) One-line human cause — the raw engine diagnostic is not the cause,
+  // and the copy makes no claim about the file (neutral fallback).
   const alert = page.getByTestId('open-error')
   await expect(alert).toHaveAttribute('role', 'alert')
   const cause = page.getByTestId('open-error-cause')
-  await expect(cause).toHaveText(UNREADABLE_CAUSE)
+  await expect(cause).toHaveText(NEUTRAL_CAUSE)
   // The raw engine text (this WASM build's opaque glue error, see below) never
   // becomes the visible cause, and the cause is a single line.
-  expect(await cause.innerText()).not.toMatch(/_setThrew|magic bytes|read_parquet/i)
+  expect(await cause.innerText()).not.toMatch(
+    /could not be read|_setThrew|magic bytes|read_parquet/i,
+  )
   expect((await cause.innerText()).split('\n')).toHaveLength(1)
 
   // (b) Retry label is exactly the specified copy (single U+2026 ellipsis).
@@ -69,7 +75,8 @@ test('a corrupt file shows a one-line cause, retries through the same open path,
   // (c) The full engine text lives behind a COLLAPSED disclosure. A corrupt
   // Parquet file makes the mvp WASM reader throw, and its emscripten glue
   // layer reports the opaque `_setThrew is not defined` — that raw text is what
-  // the disclosure must carry (the human cause above replaces it).
+  // the disclosure must carry (the neutral cause above replaces it, and does
+  // not classify it).
   const details = page.getByTestId('open-error-details')
   await expect(details).toHaveJSProperty('open', false)
   const detail = page.getByTestId('open-error-detail')

@@ -115,20 +115,21 @@ function blockingModel(columns: readonly { name: string; type: string }[]): {
 }
 
 /**
- * A model whose `setFilters` rejects once with `failure`, then accepts the
- * restore call — the applyList rollback shape the FilterBar error state is
- * built on (UG-30).
+ * A model whose first `failures.length` `setFilters` calls reject in order,
+ * then accepts — the applyList rollback shapes the FilterBar error state is
+ * built on (UG-30): one failure for the apply + a successful restore, or two
+ * for the apply + failed restore (the double failure).
  */
 function failingModel(
   columns: readonly { name: string; type: string }[],
-  failure: unknown,
+  ...failures: unknown[]
 ): { model: GridViewportModel; setFilters: ReturnType<typeof vi.fn> } {
   let version = 0
   const listeners = new Set<() => void>()
   let calls = 0
   const setFilters = vi.fn(async (next: FilterSpec[] | null) => {
     calls += 1
-    if (calls === 1) throw failure
+    if (calls <= failures.length) throw failures[calls - 1]
     model.filters = next ?? []
     version += 1
     for (const listener of listeners) listener()
@@ -507,5 +508,39 @@ describe('FilterBar engine-error framing (UG-30)', () => {
     // The rejection rolled the model back to the previous (empty) list.
     expect(setFilters).toHaveBeenCalledTimes(2)
     expect(setFilters).toHaveBeenLastCalledWith([])
+  })
+
+  it('never claims the previous filters survive when the restore also fails', async () => {
+    const APPLY_FAILURE = new Error(
+      'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
+        'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+    )
+    const RESTORE_FAILURE = new Error('_setThrew is not defined')
+    const { model, setFilters } = failingModel(COLUMNS, APPLY_FAILURE, RESTORE_FAILURE)
+    render(<FilterBar model={model} />)
+    openBar()
+
+    fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
+    fireEvent.click(control('filter-apply', 'country'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.getAttribute('role')).toBe('alert')
+    // The double-failure copy states only what is known: both calls failed.
+    // It must not inherit the single-failure framing, which asserts a rollback
+    // that was just reported as failed.
+    expect(error.textContent).toBe(
+      'The filter could not be applied and the previous filters could not be restored. ' +
+        'Re-apply a filter or reopen the dataset if the grid looks wrong.',
+    )
+    expect(error.textContent).not.toContain('still in effect')
+    // The single-failure sentence (framed with a colon) is not shown either.
+    expect(error.textContent).not.toContain('could not be applied:')
+    // No raw diagnostic, no engine vocabulary, no second line.
+    expect(error.textContent).not.toContain('Binder Error')
+    expect(error.textContent).not.toContain('_setThrew')
+    expect(error.textContent).not.toMatch(/\r|\n/)
+    expect(document.body.textContent).not.toContain('LINE 1')
+    // Exactly the apply + the attempted restore; nothing silently retried.
+    expect(setFilters).toHaveBeenCalledTimes(2)
   })
 })

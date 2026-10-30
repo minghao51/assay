@@ -187,20 +187,25 @@ const UNSUPPORTED_FORMAT_SIGNAL = /unsupported (dataset )?(format|file type|exte
  * `Invalid Input Error: No magic bytes found at end of file`, a truncated or
  * mislabelled file through `IO Error`/`Invalid Input Error`/`CSV Error`/
  * `Could not read`, and an unreadable handle through a DOM `NotFoundError`/
- * `NotReadableError`/`EncodingError`/permission message. These are signals on
- * the *detail text* only — the human cause never echoes them.
+ * `NotReadableError`/`EncodingError`/permission message. Every member names a
+ * file-specific failure, and the signals are read from the *detail text* only —
+ * the human cause never echoes them. A bare `not found`, by contrast, is not
+ * file evidence: DuckDB uses it for missing columns/tables too, so only the
+ * file/path-shaped spellings (`no such file`, `file not found`, the DOM
+ * `NotFoundError`) count.
  *
- * `_setThrew` is the mvp bundle's opaque emscripten glue failure (see
- * `OPAQUE_GLUE_ERROR` above). Verified against the built app (2026-10-30): a
- * Parquet file with no valid footer — a text file behind a `.parquet` name, a
- * truncated real file, or a header-magic-only file — ALWAYS surfaces through
- * `open` as exactly `_setThrew is not defined`, because the WASM reader throws
- * and the glue layer loses the DuckDB text. On the open path that can only
- * mean the reader could not read the file, so it is classified as
- * `unreadable` rather than left to the generic fallback.
+ * `_setThrew` is deliberately NOT a member. It is the mvp bundle's opaque
+ * emscripten glue failure (see `OPAQUE_GLUE_ERROR` above); the `engine-duckdb`
+ * `op-channel` notes it can also surface on operation collisions, so it is not
+ * evidence about the file. A corrupt fixture happens to produce it through the
+ * WASM reader, but that is a fact about this bundle, not a classification: the
+ * open chain also catches schema, row-count, view-materialization and panel
+ * chunk failures (see `openDataFile`), and none of those is a file-read
+ * failure. The opaque error therefore falls through to `unknown`, whose copy
+ * claims nothing about the file.
  */
 const UNREADABLE_SIGNAL =
-  /no magic bytes|invalid input error|io error|could not (be )?(read|open)|failed to read|invalid parquet|not a parquet|corrupt|malformed|truncat|encoding error|not readable|permission|denied|no such file|not found|unexpected end|(csv|json) error|_setThrew/i
+  /no magic bytes|invalid input error|io error|could not (be )?(read|open)|failed to read|invalid parquet|not a parquet|corrupt|malformed|truncat|encoding error|not readable|permission|denied|no such file|file not found|path not found|NotFoundError|unexpected end|(csv|json) error/i
 
 /** Classify an open failure from its raw engine/DOM detail (UG-5). */
 export function classifyOpenFailure(detail: string): OpenFailureCause {
@@ -209,14 +214,22 @@ export function classifyOpenFailure(detail: string): OpenFailureCause {
   return 'unknown'
 }
 
-/** The one-line human cause per open-failure class (UG-5; value-free). */
+/**
+ * The one-line human cause per open-failure class (UG-5; value-free).
+ *
+ * `unknown` is **cause-neutral on purpose**: the guarded open chain catches
+ * failures from schema, row-count, view loading and panel imports as well as
+ * from file reading, so it must not claim the file could not be read, was
+ * corrupt, or was the wrong format. It states only what is true for every
+ * caught stage (nothing opened; another file can be tried) — no diagnostic, no
+ * blame.
+ */
 const OPEN_FAILURE_CAUSE: Record<OpenFailureCause, string> = {
   'unsupported-format':
     'This file type is not supported — open a .parquet, .csv, .jsonl or .json file.',
   unreadable:
     'The file could not be read. It may be corrupt, truncated, or not the format its name suggests.',
-  unknown:
-    'The file could not be read. It may be unavailable, or its format may not match its name.',
+  unknown: 'You can try another file.',
 }
 
 /**

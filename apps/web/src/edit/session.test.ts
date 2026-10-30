@@ -202,12 +202,20 @@ describe('engineErrorLine / engineErrorMessage — one single-line summary per s
     expect(engineErrorDetail(MULTILINE)).toContain('LINE 1: SELECT nope')
   })
 
-  it('strips every line-break shape, so no newline survives into a message', () => {
-    for (const breakage of ['\r\n', '\r', '\n', '\u2028', '\u2029']) {
+  it('strips every line-break shape, so no newline survives into a message (UG-30)', () => {
+    // Every member of the LINE_BREAK class, one per case. `\r\n` is covered as
+    // a shape in its own right, but note that its *removal* alone is masked by
+    // the `\r`/`\n` members of the same class (splitting on either still
+    // yields the first line); each of the other seven is individually
+    // load-bearing — dropping one from the regex fails its case.
+    const breaks = ['\n', '\r\n', '\r', '\v', '\f', '\u0085', '\u2028', '\u2029']
+    for (const breakage of breaks) {
       const raw = `first line${breakage}second line`
       const line = engineErrorLine(raw, 'fallback')
       expect(line, `break ${JSON.stringify(breakage)}`).toBe('first line')
-      expect(line).not.toMatch(/\r|\n|\u2028|\u2029/)
+      expect(line, `break ${JSON.stringify(breakage)}`).not.toMatch(
+        /\r|\n|\v|\f|\u0085|\u2028|\u2029/,
+      )
     }
   })
 
@@ -296,20 +304,41 @@ describe('open-failure classification — a human cause, never the raw diagnosti
     expect(message).not.toMatch(/\r|\n/)
   })
 
-  it('classifies the mvp glue error for a corrupt file as unreadable', () => {
-    // Verified against the built app (2026-10-30): a Parquet file with no
-    // valid footer surfaces through `open` as exactly this opaque emscripten
-    // glue error, so the classifier must not fall back to the generic cause.
+  it('leaves the opaque mvp glue error unclassified instead of calling the file unreadable', () => {
+    // `_setThrew` is the mvp bundle's opaque emscripten glue failure. The
+    // `op-channel` notes it can also mean operation collisions, and the open
+    // chain catches post-read stages too, so it is NOT file evidence: it must
+    // fall through to the cause-neutral fallback, never "could not be read".
     const error = new Error('_setThrew is not defined')
-    expect(classifyOpenFailure(engineErrorDetail(error))).toBe('unreadable')
-    expect(openFailureMessage(error)).toContain('It may be corrupt, truncated')
-    expect(openFailureMessage(error)).not.toContain('_setThrew')
+    expect(classifyOpenFailure(engineErrorDetail(error))).toBe('unknown')
+    const message = openFailureMessage(error)
+    expect(message).toBe('The file could not be opened. You can try another file.')
+    expect(message).not.toContain('_setThrew')
+    expect(message).not.toContain('could not be read')
+    expect(message).not.toMatch(/corrupt|truncated|format/i)
   })
 
-  it('falls back to the generic cause for an unrecognised failure', () => {
+  it('uses cause-neutral copy for a post-open-stage failure (schema/count/view/panel import)', () => {
+    // `openDataFile` catches the schema, row-count, view-load and panel-chunk
+    // stages in the same handler that catches file reads. Those failures reach
+    // the `unknown` class, whose copy must not claim the file was unreadable.
+    for (const stageError of [
+      new Error('Binder Error: Referenced column "id" not found in FROM clause!'),
+      'the edited view could not be materialized',
+      new Error('Failed to fetch dynamically imported module: /assets/SqlPanel.js'),
+    ]) {
+      expect(classifyOpenFailure(engineErrorDetail(stageError))).toBe('unknown')
+      const message = openFailureMessage(stageError)
+      expect(message).toBe('The file could not be opened. You can try another file.')
+      expect(message).not.toContain('could not be read')
+      expect(message).not.toMatch(/corrupt|truncated|not the format/i)
+    }
+  })
+
+  it('falls back to the cause-neutral copy for an unrecognised failure', () => {
     expect(classifyOpenFailure('something unexpected')).toBe('unknown')
     expect(openFailureMessage(new Error('something unexpected'))).toBe(
-      'The file could not be opened. The file could not be read. It may be unavailable, or its format may not match its name.',
+      'The file could not be opened. You can try another file.',
     )
   })
 })

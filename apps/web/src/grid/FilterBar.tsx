@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { FilterSpec, GridViewportModel } from '@assay/grid'
 import { domId } from '../lib/dom-id'
-import { engineErrorLine, engineErrorMessage } from '../edit/session'
+import { engineErrorMessage } from '../edit/session'
 import { replaceColumnFilter } from './query-state'
 import {
   classifyColumnType,
@@ -182,14 +182,16 @@ export function FilterBar({ model }: FilterBarProps) {
         await model.setFilters(previous)
         syncDrafts(previous)
         setError(message)
-      } catch (restoreCause) {
-        // The double-failure message stays single-line too (UG-30): only the
-        // first line of the restore failure is echoed.
+      } catch {
+        // Double failure: the apply failed AND the restore failed. This branch
+        // must NOT inherit the single-failure framing — that copy asserts the
+        // previous filters are still in effect, which is exactly what could
+        // not be restored, so the state may be unknown or partially changed.
+        // Say only what is known (both calls failed), emit no values and no
+        // newline, and point at the two ways back.
         setError(
-          `${message} — restoring the previous filters also failed: ${engineErrorLine(
-            restoreCause,
-            'the engine or view was unavailable',
-          )}`,
+          'The filter could not be applied and the previous filters could not be restored. ' +
+            'Re-apply a filter or reopen the dataset if the grid looks wrong.',
         )
       }
     } finally {

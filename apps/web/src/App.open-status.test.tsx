@@ -38,6 +38,8 @@ const h = vi.hoisted(() => ({
   deferOpen: false,
   openError: false,
   openErrorMessage: 'corrupt dataset',
+  /** Force the post-open schema stage to fail (item 1's stage-neutral pin). */
+  schemaError: null as string | null,
   openResolvers: [] as Array<(value: unknown) => void>,
   openCalls: [] as Array<{ name: string; getFile: () => Promise<File> }>,
   pickerCalls: 0,
@@ -77,7 +79,10 @@ vi.mock('./lib/engine', () => ({
       if (h.openError) throw new Error(h.openErrorMessage)
       return FAKE_HANDLE
     },
-    schema: async () => FAKE_SCHEMA,
+    schema: async () => {
+      if (h.schemaError !== null) throw new Error(h.schemaError)
+      return FAKE_SCHEMA
+    },
     rowCount: async () => 1,
     fetchRange: async () => ({ batch: fakeBatch(), hasMore: false }),
   },
@@ -94,6 +99,7 @@ afterEach(() => {
   h.deferOpen = false
   h.openError = false
   h.openErrorMessage = 'corrupt dataset'
+  h.schemaError = null
   h.openResolvers = []
   h.openCalls = []
   h.pickerCalls = 0
@@ -248,6 +254,52 @@ describe('UG-5 — open-failure recovery and technical detail', () => {
         'open a .parquet, .csv, .jsonl or .json file.',
     )
     expect(cause.textContent).not.toContain('unsupported dataset format')
+  })
+
+  it('keeps the opaque glue error out of the cause and shows it only in the disclosure', async () => {
+    // The WASM reader's `_setThrew is not defined` is not file evidence (the
+    // engine's `op-channel` notes it can also mean operation collisions), so
+    // the cause is the neutral fallback — never "could not be read" — while
+    // the raw text stays available behind the collapsed disclosure.
+    h.openError = true
+    h.openErrorMessage = '_setThrew is not defined'
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    const cause = await screen.findByTestId('open-error-cause')
+    expect(cause.textContent).toBe('The file could not be opened. You can try another file.')
+    expect(cause.textContent).not.toContain('could not be read')
+    expect(cause.textContent).not.toMatch(/corrupt|truncated|format/i)
+    expect(cause.textContent).not.toMatch(/\r|\n/)
+
+    const detail = screen.getByTestId('open-error-detail')
+    expect(detail.textContent).toBe('_setThrew is not defined')
+  })
+
+  it('gives a post-open-stage failure (schema) the same cause-neutral copy', async () => {
+    // `openDataFile` catches schema/row-count/view/panel-import failures in the
+    // same handler as file reads. This schema failure is forced AFTER a
+    // successful `open`, so its cause copy must not claim the file was
+    // unreadable — and the DuckDB `not found` here is a missing column, not a
+    // missing file.
+    const SCHEMA_DETAIL = 'Binder Error: Referenced column "id" not found in FROM clause!'
+    h.schemaError = SCHEMA_DETAIL
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    const cause = await screen.findByTestId('open-error-cause')
+    expect(cause.textContent).toBe('The file could not be opened. You can try another file.')
+    expect(cause.textContent).not.toContain('could not be read')
+    expect(cause.textContent).not.toMatch(/corrupt|truncated|format/i)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
+    // The engine's own text is only in the technical-detail disclosure.
+    expect(screen.getByTestId('open-error-detail').textContent).toBe(SCHEMA_DETAIL)
   })
 
   it('re-triggers the same open path on retry and recovers to ready', async () => {
