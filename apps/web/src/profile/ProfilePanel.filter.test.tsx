@@ -75,6 +75,7 @@ const NOOP_PROPS = {
   onFilterNull: () => undefined,
   filterRefusal: null,
   filterError: null,
+  filterPending: false,
   onClearFilterFeedback: () => undefined,
 } as const
 
@@ -154,6 +155,52 @@ describe('ug-16 — profile statistics are real controls', () => {
 
     expect(onFilterValue).not.toHaveBeenCalled()
     expect(onFilterNull).not.toHaveBeenCalled()
+  })
+
+  it('disables every filter control while an apply is in flight, names unchanged', async () => {
+    const onFilterValue = vi.fn()
+    const onFilterNull = vi.fn()
+    await renderDone({ onFilterValue, onFilterNull, filterPending: true })
+
+    const country = within(column('country'))
+    const income = within(column('income'))
+    const sg = country.getByRole('button', { name: 'Filter country to SG' }) as HTMLButtonElement
+    const us = country.getByRole('button', { name: 'Filter country to US' }) as HTMLButtonElement
+    const nullCount = income.getByRole('button', {
+      name: 'Filter income where null',
+    }) as HTMLButtonElement
+
+    // Real native `disabled` (the FilterBar `pending` posture), not a custom
+    // guard: the accessible names are the same, the controls just cannot start
+    // a second attempt whose list an earlier rollback could supersede.
+    expect(sg.disabled).toBe(true)
+    expect(us.disabled).toBe(true)
+    expect(nullCount.disabled).toBe(true)
+
+    fireEvent.click(sg)
+    fireEvent.click(nullCount)
+    expect(onFilterValue).not.toHaveBeenCalled()
+    expect(onFilterNull).not.toHaveBeenCalled()
+  })
+
+  it('re-enables the filter controls once the apply settles', async () => {
+    h.profile.mockResolvedValue(PROFILE)
+    const { rerender } = render(
+      <ProfilePanel handle={HANDLE} stagedCount={0} {...NOOP_PROPS} filterPending />,
+    )
+    fireEvent.click(screen.getByTestId('profile-toggle'))
+    fireEvent.click(screen.getByTestId('profile-run'))
+    await screen.findByTestId('profile-rowcount')
+
+    const button = (): HTMLButtonElement =>
+      within(column('country')).getByRole('button', {
+        name: 'Filter country to SG',
+      }) as HTMLButtonElement
+    expect(button().disabled).toBe(true)
+
+    // The apply settled: App flips the pending prop, the same control is live.
+    rerender(<ProfilePanel handle={HANDLE} stagedCount={0} {...NOOP_PROPS} filterPending={false} />)
+    expect(button().disabled).toBe(false)
   })
 })
 

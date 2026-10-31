@@ -1479,6 +1479,15 @@ h1 {
   outline-offset: 1px;
 }
 
+/* Single-flight (round 2): while one apply is in flight the filter controls are
+   disabled, the FilterBar `pending` posture. Same shape, no layout shift. */
+.profile-filter-button:disabled {
+  cursor: default;
+  color: var(--color-text-muted);
+  border-color: transparent;
+  background: none;
+}
+
 .profile-topk-filter {
   display: grid;
   grid-template-columns: minmax(6rem, 14rem) 1fr 4rem;

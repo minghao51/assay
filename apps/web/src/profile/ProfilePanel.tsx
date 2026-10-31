@@ -91,6 +91,12 @@ interface ProfilePanelProps {
    * from the refusal slot, which is value-free (design §4.3).
    */
   readonly filterError: string | null
+  /**
+   * ug-16 apply in flight (round 2, single-flight): the filter-affording
+   * controls are disabled while App's bridge owns the transition, the same
+   * posture as the FilterBar's `pending` gate. Accessible names are unchanged.
+   */
+  readonly filterPending: boolean
   /** Clear both slots (another profile run; App also clears on click/undo/new data). */
   readonly onClearFilterFeedback: () => void
 }
@@ -222,11 +228,13 @@ function TopKChart({
   name,
   topK,
   distinctCount,
+  filterPending,
   onFilterValue,
 }: {
   name: string
   topK: readonly EngineCategoricalTopKEntry[]
   distinctCount: number
+  filterPending: boolean
   onFilterValue: (column: string, value: string) => void
 }) {
   const bars = scaleTopKBars(topK)
@@ -262,6 +270,7 @@ function TopKChart({
               className="profile-filter-button profile-topk-filter"
               data-testid="profile-topk-filter"
               data-topk-value={bar.value}
+              disabled={filterPending}
               aria-label={`Filter ${name} to ${bar.value}`}
               onClick={() => {
                 onFilterValue(name, bar.value)
@@ -303,10 +312,12 @@ function TopKChart({
 /** One profiled column: identity, kind badge, shared counts, kind-specific display. */
 function ProfileColumnView({
   column,
+  filterPending,
   onFilterValue,
   onFilterNull,
 }: {
   column: EngineProfileColumn
+  filterPending: boolean
   onFilterValue: (column: string, value: string) => void
   onFilterNull: (column: string) => void
 }) {
@@ -336,6 +347,7 @@ function ProfileColumnView({
               type="button"
               className="profile-filter-button"
               data-testid="profile-null-count"
+              disabled={filterPending}
               aria-label={`Filter ${column.name} where null`}
               onClick={() => {
                 onFilterNull(column.name)
@@ -360,6 +372,7 @@ function ProfileColumnView({
           name={column.name}
           topK={column.categorical.topK}
           distinctCount={column.distinctCount}
+          filterPending={filterPending}
           onFilterValue={onFilterValue}
         />
       )}
@@ -369,10 +382,12 @@ function ProfileColumnView({
 
 function ProfileTable({
   profile,
+  filterPending,
   onFilterValue,
   onFilterNull,
 }: {
   profile: ProfileData
+  filterPending: boolean
   onFilterValue: (column: string, value: string) => void
   onFilterNull: (column: string) => void
 }) {
@@ -387,6 +402,7 @@ function ProfileTable({
           <ProfileColumnView
             key={column.name}
             column={column}
+            filterPending={filterPending}
             onFilterValue={onFilterValue}
             onFilterNull={onFilterNull}
           />
@@ -413,6 +429,7 @@ export function ProfilePanel({
   onFilterNull,
   filterRefusal,
   filterError,
+  filterPending,
   onClearFilterFeedback,
 }: ProfilePanelProps) {
   const telemetry = useTelemetry()
@@ -582,6 +599,7 @@ export function ProfilePanel({
           {state.kind === 'done' && (
             <ProfileTable
               profile={state.profile}
+              filterPending={filterPending}
               onFilterValue={onFilterValue}
               onFilterNull={onFilterNull}
             />

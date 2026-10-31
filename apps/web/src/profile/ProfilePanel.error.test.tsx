@@ -20,6 +20,7 @@ const FILTER_PROPS = {
   onFilterNull: () => undefined,
   filterRefusal: null,
   filterError: null,
+  filterPending: false,
   onClearFilterFeedback: () => undefined,
 } as const
 

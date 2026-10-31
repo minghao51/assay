@@ -915,20 +915,53 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * (the panel calls `clearProfileFilterFeedback`), undo/redo (cursor move),
    * and a new dataset — the copy always describes the state it was computed
    * against. Nothing here re-profiles, remaps, coerces, or logs.
+   *
+   * **Apply lifecycle (round 2).** Two independent guards keep an async tail
+   * from invalidating current state:
+   *
+   * 1. *Single-flight* (the `FilterBar.applyList` precedent): while one apply
+   *    is in flight the panel's filter controls are disabled
+   *    (`profileFilterPending`) and a further click is ignored, so no later
+   *    list can be submitted that an earlier attempt's failure rollback would
+   *    then supersede. `GridViewportModel.setFilters` serializes calls
+   *    last-request-wins, so an unconditional rollback issued after a newer
+   *    action would overwrite that action's list — this gate makes that
+   *    sequence unrepresentable.
+   * 2. *Attempt/session identity*: every attempt captures its token, its
+   *    originating model and the dataset-session token; after EVERY `await`
+   *    the attempt must still be the current one on the live session and the
+   *    originating model must still be active, otherwise the completion is a
+   *    silent no-op — no `setFilters` rollback, no feedback. This is what
+   *    stops a late rejection from a previous dataset (or from before an
+   *    undo/redo cursor move) restoring stale filters or resurrecting
+   *    feedback on the session that replaced it.
    */
   const [profileFilterRefusal, setProfileFilterRefusal] = useState<string | null>(null)
   const [profileFilterError, setProfileFilterError] = useState<string | null>(null)
+  const [profileFilterPending, setProfileFilterPending] = useState(false)
+  /** Monotonic identity of the current apply attempt (bumped on each begin). */
+  const profileFilterAttemptRef = useRef(0)
+  /** Synchronous single-flight gate (state alone is a render behind). */
+  const profileFilterPendingRef = useRef(false)
   const clearProfileFilterFeedback = useCallback(() => {
     setProfileFilterRefusal(null)
     setProfileFilterError(null)
   }, [])
   const activeTableId = phase.kind === 'ready' ? phase.tableId : null
   useEffect(() => {
+    // A new dataset (model identity), a cursor move (undo/redo) or a phase
+    // change invalidates any in-flight apply: its late completion must be a
+    // no-op (design §4.2 — the feedback clears on undo/redo and new data).
+    profileFilterAttemptRef.current += 1
+    profileFilterPendingRef.current = false
+    setProfileFilterPending(false)
     clearProfileFilterFeedback()
-  }, [clearProfileFilterFeedback, history.cursor, activeTableId])
+  }, [activeModel, activeTableId, clearProfileFilterFeedback, history.cursor])
 
   const applyProfileFilter = useCallback(
     (baseColumn: string, intent: ProfileFilterIntent): void => {
+      // Single-flight: an apply already in flight owns the transition.
+      if (profileFilterPendingRef.current) return
       clearProfileFilterFeedback()
       if (phase.kind !== 'ready') return
       const plan = planProfileFilter(
@@ -941,17 +974,39 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         setProfileFilterRefusal(plan.message)
         return
       }
-      const previous = phase.model.filters
+      const originModel = phase.model
+      const originSession = datasetSession.tokenRef.current
+      const previous = originModel.filters
       const next = replaceColumnFilter(previous, plan.column, plan.predicate)
+      const attempt = (profileFilterAttemptRef.current += 1)
+      /**
+       * True only while this attempt is still the current one, on the live
+       * dataset session, with its originating model still active. Checked
+       * after every `await`: a superseded attempt must not touch either
+       * filters or feedback.
+       */
+      const isCurrentAttempt = (): boolean => {
+        if (profileFilterAttemptRef.current !== attempt) return false
+        if (datasetSession.tokenRef.current !== originSession) return false
+        const live = phaseRef.current
+        return live.kind === 'ready' && live.model === originModel
+      }
+      profileFilterPendingRef.current = true
+      setProfileFilterPending(true)
       void (async () => {
         try {
-          await phase.model.setFilters(next)
+          await originModel.setFilters(next)
         } catch (cause) {
+          // A superseded attempt's rejection is swallowed: rolling back now
+          // would replace a newer list (or a newer session's state).
+          if (!isCurrentAttempt()) return
           const message = engineErrorMessage('filter', cause)
           try {
-            await phase.model.setFilters(previous)
+            await originModel.setFilters(previous)
+            if (!isCurrentAttempt()) return
             setProfileFilterError(message)
           } catch {
+            if (!isCurrentAttempt()) return
             // Same double-failure honesty as the FilterBar: the single-failure
             // framing would claim the previous filters are back in effect,
             // which is exactly what could not be restored.
@@ -960,10 +1015,17 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                 'Re-apply a filter or reopen the dataset if the grid looks wrong.',
             )
           }
+        } finally {
+          // Only the current attempt may release the gate; a superseded one
+          // leaves the pending state to whoever invalidated it.
+          if (isCurrentAttempt()) {
+            profileFilterPendingRef.current = false
+            setProfileFilterPending(false)
+          }
         }
       })()
     },
-    [clearProfileFilterFeedback, history, modelSchema, phase],
+    [clearProfileFilterFeedback, datasetSession, history, modelSchema, phase],
   )
 
   /**
@@ -1652,6 +1714,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                           }}
                           filterRefusal={profileFilterRefusal}
                           filterError={profileFilterError}
+                          // Round 2 single-flight: the panel disables its filter
+                          // controls while one apply is in flight (the
+                          // FilterBar `pending` posture).
+                          filterPending={profileFilterPending}
                           onClearFilterFeedback={clearProfileFilterFeedback}
                         />
                       )}
