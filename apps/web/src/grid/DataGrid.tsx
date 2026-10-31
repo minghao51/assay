@@ -15,6 +15,7 @@ import type { GridViewportModel } from '@assay/grid'
 import type { CellValue, OverlayState, RowId } from '@assay/domain'
 import { NULL_VALUE, parseRowId } from '@assay/domain'
 import { formatCell } from './format'
+import { CELL_COPY_ANNOUNCEMENTS, composeCellCopyText, isCellCopyShortcut } from './copy-cell'
 import { nestedActionLabel, nestedActionVerb } from '../sql/nested-actions'
 import type { NestedAction } from '../sql/nested-actions'
 import { parseDuckDbType } from '../schema/parseType'
@@ -350,6 +351,41 @@ export function DataGrid({
       return
     }
     commitEditValue(parsed.value)
+  }
+
+  /**
+   * ug-5 (UG-11): copy the focused cell's DISPLAY value — the exact string the
+   * cell renders, composed through the same `formatCell` call (see
+   * `copy-cell.ts`) — into the local clipboard and announce a value-free
+   * result through the app's single polite live region.
+   *
+   * Privacy (ADR 0025): this is the app's only clipboard use. It is
+   * user-initiated and local-only; the copied text is never logged, announced,
+   * or telemetered, and the three messages below carry no cell value, column
+   * name, or row id. An empty display value writes nothing. A missing or
+   * rejecting clipboard API resolves to the failure message, so there is no
+   * unhandled rejection (the app runs in browser-only composition roots).
+   */
+  const copyFocusedCell = (value: unknown, columnIndex: number): void => {
+    const column = schema[columnIndex]
+    const text = composeCellCopyText(value, column?.type, parsedColumnTypes[columnIndex] ?? null)
+    if (text === null) {
+      onEditAnnounce?.(CELL_COPY_ANNOUNCEMENTS.empty)
+      return
+    }
+    const clipboard = navigator.clipboard
+    if (clipboard?.writeText === undefined) {
+      onEditAnnounce?.(CELL_COPY_ANNOUNCEMENTS.failed)
+      return
+    }
+    void clipboard.writeText(text).then(
+      () => {
+        onEditAnnounce?.(CELL_COPY_ANNOUNCEMENTS.copied)
+      },
+      () => {
+        onEditAnnounce?.(CELL_COPY_ANNOUNCEMENTS.failed)
+      },
+    )
   }
 
   /**
@@ -707,6 +743,30 @@ export function DataGrid({
                     target.dataset.colIndex !== undefined
                       ? Number(target.dataset.colIndex)
                       : null
+                  // ug-5 (UG-11): Ctrl/Cmd+C copies the focused cell's display
+                  // value. Only a ready, cell-targeted gesture is handled; a
+                  // row-focused row and a not-yet-ready placeholder keep native
+                  // copy untouched. The editor guard above already returned for
+                  // an open editor and its controls, which is what keeps this
+                  // copy from reading the cell underneath an editor. The target
+                  // cell is resolved from the event's own DOM ancestry (the cell
+                  // itself, or a node inside it) so a nested control can never
+                  // be mistaken for the row; Enter/navigation keep their
+                  // existing `targetColumn` resolution above, unchanged.
+                  // `preventDefault` runs only for the handled cell gesture, so
+                  // no other key behavior changes.
+                  if (isCellCopyShortcut(event)) {
+                    const copyCell =
+                      target instanceof HTMLElement && target !== event.currentTarget
+                        ? target.closest<HTMLElement>('[data-col-index]')
+                        : null
+                    if (status === 'ready' && copyCell !== null) {
+                      const copyColumn = Number(copyCell.dataset.colIndex)
+                      event.preventDefault()
+                      copyFocusedCell(slot.row[copyColumn], copyColumn)
+                    }
+                    return
+                  }
                   // Navigation resolves the column the same committed-truth way
                   // as Enter: the keydown's own DOM target first, then the
                   // synchronously mirrored keyboard intent (so a rapid arrow
