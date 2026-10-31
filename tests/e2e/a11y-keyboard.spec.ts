@@ -124,6 +124,87 @@ test('grid edit commit and rejection announce through one polite, value-free liv
   await expect(live).not.toContainText('not-a-number')
 })
 
+test('ready grid shows the editing hint as its description, and a Keyboard shortcut list', async ({
+  page,
+}) => {
+  // ug-4 (UG-9/UG-33): the interaction language is on screen, not comment-only.
+  await page.goto('/')
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByTestId('open-button').click()
+  await (await chooserPromise).setFiles(FIXTURE)
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+
+  // First ready paint: the hint is visible text (not screen-reader-only) and
+  // byte-exact (U+00B7 separators, single spaces).
+  const hint = page.getByTestId('grid-edit-hint')
+  await expect(hint).toBeVisible()
+  await expect(hint).toHaveText(
+    'Double-click a cell to edit · Enter edits the focused cell · Esc cancels',
+  )
+
+  // The role=grid element is described by exactly that hint, and the hint
+  // lives outside the grid subtree (grid-owned children stay rowgroups).
+  const grid = page.getByTestId('grid-viewport')
+  await expect(grid).toHaveAttribute('role', 'grid')
+  const describedBy = await grid.getAttribute('aria-describedby')
+  expect(describedBy).not.toBeNull()
+  expect(describedBy).toBe(await hint.getAttribute('id'))
+  const resolved = await grid.evaluate((element, id) => {
+    const description = document.getElementById(id)
+    return {
+      text: description?.textContent ?? null,
+      insideGrid: description === null ? null : element.contains(description),
+    }
+  }, describedBy as string)
+  expect(resolved.text).toBe(
+    'Double-click a cell to edit · Enter edits the focused cell · Esc cancels',
+  )
+  expect(resolved.insideGrid).toBe(false)
+
+  // The footer's Keyboard disclosure is collapsed by default and is opened
+  // through the keyboard itself (native <details>), then reveals the pinned
+  // edit / inspect / navigate list.
+  const help = page.getByTestId('grid-keyboard-help')
+  await expect(help.locator('summary')).toHaveText('Keyboard')
+  await expect(help).not.toHaveAttribute('open', '')
+  await help.locator('summary').focus()
+  await page.keyboard.press('Enter')
+  await expect(help).toHaveAttribute('open', '')
+
+  await expect(help.locator('dt')).toHaveText([
+    'Double-click a cell',
+    'Enter on a focused cell',
+    'Esc',
+    'Enter on a focused row',
+    '↑ ↓ ← →',
+    'Home / End',
+    'Ctrl+Home / Ctrl+End',
+    'Tab / Shift+Tab',
+  ])
+  await expect(help.locator('dd')).toHaveText([
+    'Edit the cell — nested columns stay read-only.',
+    'Open the inline editor.',
+    'Cancel the open edit.',
+    'Open it in the record inspector (no cell focused).',
+    'Move between cells.',
+    'Jump to the row’s first or last cell.',
+    'Jump to the grid’s first or last cell (Cmd on macOS).',
+    'Enter or leave the grid.',
+  ])
+
+  // No layout regression: the grid body still paints below its header and the
+  // rows remain usable after the new footer text.
+  await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
+  await waitForReadyRow(page, 0)
+  await expect(row(page, 0)).toBeVisible()
+})
+
 test('grid roving tabindex: Tab enters/leaves at the row, arrows reach cells, one tab stop', async ({
   page,
 }) => {

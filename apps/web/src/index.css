@@ -728,6 +728,42 @@ h1 {
   gap: 1rem;
   color: var(--color-text-secondary);
   font-size: 0.85rem;
+  /* ug-4 (UG-9): the standing edit hint claims the footer's own first line, so
+     the diagnostics, keyboard and error siblings keep their existing row. */
+  flex-wrap: wrap;
+}
+
+/* ug-4 (UG-9/UG-33): the grid footer's interaction language — the standing
+   editing hint and the keyboard help disclosure. Both sit outside the
+   role=grid element, which keeps only row/rowgroup children (UX-9). */
+.grid-edit-hint {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.grid-keyboard-help dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.15rem 0.75rem;
+  margin: 0.35rem 0 0;
+}
+
+.grid-keyboard-help dt {
+  font-weight: 600;
+}
+
+.grid-keyboard-help dd {
+  margin: 0;
+}
+
+.grid-keyboard-help p.grid-keyboard-group {
+  margin: 0.5rem 0 0;
+  font-weight: 600;
+}
+
+.grid-keyboard-help kbd {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.95em;
 }
 
 /* ---- Schema panel (m1-6) ---- */

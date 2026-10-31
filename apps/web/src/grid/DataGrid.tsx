@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import type { CSSProperties } from 'react'
 import type { GridViewportModel } from '@assay/grid'
 import type { CellValue, OverlayState, RowId } from '@assay/domain'
@@ -125,6 +133,10 @@ interface EditingCell {
  *   again (the state is a pure fold of the history cursor).
  * - **Delete**: a per-row trailing affordance emits the row's logical id.
  *
+ * ug-4 (UG-9/UG-33): this grammar is user-visible, not comment-only — the
+ * footer carries the standing editing hint (the grid role's accessible
+ * description) and a `Keyboard` disclosure listing exactly these keys.
+ *
  * Text-only rendering throughout (ADR 0007 spirit; no `dangerouslySetInnerHTML`).
  */
 export function DataGrid({
@@ -210,6 +222,13 @@ export function DataGrid({
    * render surface stays out of the tab order.
    */
   const interactive = onOpenRecord !== undefined || editingEnabled
+  /**
+   * ug-4 (UG-9): the grid's standing editing hint is the role=grid element's
+   * accessible description. The id is per-instance (`useId`) because two grids
+   * can render on one page — the pipeline node preview reuses this renderer —
+   * and an `aria-describedby` idref must be unique (axe `duplicate-id-aria`).
+   */
+  const editHintId = `grid-edit-hint-${useId()}`
 
   /**
    * m3-5: per-column one-click action, derived from the parsed DESCRIBE type
@@ -506,6 +525,7 @@ export function DataGrid({
         role="grid"
         aria-rowcount={totalRows + 1}
         aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0)}
+        aria-describedby={editHintId}
       >
         <div className="grid-header" role="rowgroup" ref={headerRef}>
           <div
@@ -940,6 +960,59 @@ export function DataGrid({
         </div>
       </div>
       <footer className="grid-footer">
+        {/* ug-4 (UG-9): the standing editing hint. Three gestures exist only in
+            this file's handlers; a newcomer who never guesses double-click
+            concludes Assay is a viewer. Visible text (not `visually-hidden`,
+            never dismissible) and outside the role=grid subtree (UX-9), wired
+            to the grid as its accessible description. */}
+        <p className="grid-edit-hint" id={editHintId} data-testid="grid-edit-hint">
+          Double-click a cell to edit · Enter edits the focused cell · Esc cancels
+        </p>
+        {/* ug-4 (UG-33): the keyboard grammar as a native disclosure beside
+            Diagnostics. Every line below is verified against the handlers in
+            this file: no key is advertised that does not work here. */}
+        <details className="grid-keyboard-help" data-testid="grid-keyboard-help">
+          <summary>Keyboard</summary>
+          <p className="grid-keyboard-group">Edit</p>
+          <dl>
+            <dt>Double-click a cell</dt>
+            <dd>Edit the cell — nested columns stay read-only.</dd>
+            <dt>
+              <kbd>Enter</kbd> on a focused cell
+            </dt>
+            <dd>Open the inline editor.</dd>
+            <dt>
+              <kbd>Esc</kbd>
+            </dt>
+            <dd>Cancel the open edit.</dd>
+          </dl>
+          <p className="grid-keyboard-group">Inspect</p>
+          <dl>
+            <dt>
+              <kbd>Enter</kbd> on a focused row
+            </dt>
+            <dd>Open it in the record inspector (no cell focused).</dd>
+          </dl>
+          <p className="grid-keyboard-group">Navigate</p>
+          <dl>
+            <dt>
+              <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
+            </dt>
+            <dd>Move between cells.</dd>
+            <dt>
+              <kbd>Home</kbd> / <kbd>End</kbd>
+            </dt>
+            <dd>Jump to the row’s first or last cell.</dd>
+            <dt>
+              <kbd>Ctrl+Home</kbd> / <kbd>Ctrl+End</kbd>
+            </dt>
+            <dd>Jump to the grid’s first or last cell (Cmd on macOS).</dd>
+            <dt>
+              <kbd>Tab</kbd> / <kbd>Shift+Tab</kbd>
+            </dt>
+            <dd>Enter or leave the grid.</dd>
+          </dl>
+        </details>
         {/* ux-3 (UX-9): request counters are diagnostics, not user copy —
             collapsed by default behind a native disclosure. Kept out of the
             role=grid element (see the viewport comment above). The shared
