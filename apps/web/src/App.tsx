@@ -18,8 +18,10 @@ import {
   bucketSize,
   classifyOsFamily,
 } from '@assay/telemetry'
-import type { OverlayBase } from '@assay/domain'
+import type { OverlayBase, TransformationHistory } from '@assay/domain'
 import { emptyHistory, liveRowCount, stateAtCursor } from '@assay/domain'
+import type { DiffRunState } from './diff/DiffPanel'
+import type { ValidationRunState } from './validation/ValidationPanel'
 import type { ContractV1 } from '@assay/contracts'
 import { GridViewportModel } from '@assay/grid'
 import type { ColumnSchema } from '@assay/grid'
@@ -274,6 +276,52 @@ const INNER_DISCLOSURE_SECTIONS: ReadonlySet<WorkbenchSectionId> = new Set<Workb
   'profile',
 ])
 
+/**
+ * ug-17 / UG-27: the count of rules the CURRENT verdict reports as failing
+ * (the same `failing` flag the Validation panel renders). Not a row count and
+ * never a rule name — the summary is value-free (ADR 0025) and only ever
+ * renders when > 0. A stale verdict keeps its count; the panel owns the stale
+ * marking, so the summary neither claims freshness nor repeats it.
+ */
+function failingRuleCount(run: ValidationRunState): number {
+  if (run.kind !== 'verdict') return 0
+  return run.report.rows.filter((row) => row.failing).length
+}
+
+/**
+ * ug-17: state summary for the shell-owned Validation toggle, byte-exact
+ * (`Validation · <N> failing`, singular and plural alike). `null` at 0 and in
+ * every non-verdict state (idle/running/cancelled/failed/binding-errors), so
+ * the toggle renders no summary element at all.
+ */
+export function validationSectionSummary(run: ValidationRunState): string | null {
+  const count = failingRuleCount(run)
+  return count > 0 ? `Validation \u00b7 ${String(count)} failing` : null
+}
+
+/**
+ * ug-17: state summary for the shell-owned Compare toggle, byte-exact
+ * (`Compare · <N> changed`) from the current row-diff result's `changed`
+ * count. `null` for 0 changed and for every non-result state, and a stale
+ * result keeps its count (the panel owns the stale marking).
+ */
+export function comparisonSectionSummary(run: DiffRunState): string | null {
+  const count = run.kind === 'result' ? run.report.changed.count : 0
+  return count > 0 ? `Compare \u00b7 ${String(count)} changed` : null
+}
+
+/**
+ * ug-17: state summary for the shell-owned History toggle, byte-exact
+ * (`History · <N> pending`). N is `activeOps(history).length` — the SAME
+ * staged-operation count R-16 (ug-10) labels in the Profile panel, not a net
+ * difference — so the toggle and the panel can never disagree. `null` at
+ * cursor 0 and after undoing back to 0.
+ */
+export function historySectionSummary(history: TransformationHistory): string | null {
+  const count = activeOps(history).length
+  return count > 0 ? `History \u00b7 ${String(count)} pending` : null
+}
+
 interface WorkbenchSectionProps {
   readonly id: WorkbenchSectionId
   readonly children: ReactNode
@@ -293,6 +341,17 @@ interface WorkbenchSectionProps {
    */
   readonly open: boolean
   readonly onToggle?: (id: WorkbenchSectionId) => void
+  /**
+   * ug-17: optional state summary for a shell-owned toggle (e.g.
+   * `Validation · 2 failing`). The call site decides visibility — pass a
+   * string only at count > 0 and `null`/nothing otherwise, so a zero count is
+   * never rendered. It renders inside the toggle's text column, which keeps
+   * it visible while the body is collapsed (the R-14 purpose precedent), and
+   * becomes the toggle's SECOND description (after the purpose) without
+   * touching the accessible name. Inner-disclosure sections ignore it: their
+   * panels own their own collapsed summary (e.g. `Filters · N active`).
+   */
+  readonly summary?: string | null
 }
 
 /**
@@ -309,11 +368,16 @@ function WorkbenchSection({
   disclosure = 'managed',
   open,
   onToggle,
+  summary = null,
 }: WorkbenchSectionProps) {
   const title = WORKBENCH_SECTIONS.find((section) => section.id === id)?.title ?? id
   const purpose = WORKBENCH_SECTION_PURPOSES[id]
   const contentId = `section-${id}-content`
   const purposeId = `section-${id}-purpose`
+  const summaryId = `section-${id}-summary`
+  // Only a shell-owned toggle can carry a summary; inner-disclosure panels
+  // keep their own collapsed idiom (Filters) and get none from the shell.
+  const summaryText = disclosure === 'managed' ? summary : null
   const toggleLabel = `${open ? 'Collapse' : 'Expand'} ${title}`
   return (
     <section className="workbench-section" id={`section-${id}`} data-section={id}>
@@ -327,7 +391,9 @@ function WorkbenchSection({
           /* ug-13/R-14: the purpose line is the toggle's DESCRIPTION, not its
              name — `Expand/Collapse <Title>` stays the accessible name the
              existing specs and pins query (the ug-4 hint pattern). */
-          aria-describedby={purposeId}
+          /* ug-17: the summary joins the description (purpose first, summary
+             second) only while one exists; the name above is untouched. */
+          aria-describedby={summaryText === null ? purposeId : `${purposeId} ${summaryId}`}
           aria-label={toggleLabel}
           title={toggleLabel}
           onClick={() => {
@@ -346,6 +412,15 @@ function WorkbenchSection({
             >
               {purpose}
             </span>
+            {summaryText !== null && (
+              <span
+                className="workbench-section-summary"
+                id={summaryId}
+                data-testid={`section-summary-${id}`}
+              >
+                {summaryText}
+              </span>
+            )}
           </span>
         </button>
       )}
@@ -1316,6 +1391,17 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     }
   }, [openDataFile])
 
+  /*
+   * ug-17: the three shell-owned section summaries. Derived from state App
+   * already holds (`validationRun`, `diffRun`, `activeOps(history)`) — counts
+   * only (ADR 0025), no new session/engine state, no polling, no telemetry. A
+   * helper returns `null` at 0, so "0 failing"/"0 changed"/"0 pending" is
+   * never shown and the toggle renders no summary element.
+   */
+  const validationSummary = validationSectionSummary(validationRun)
+  const comparisonSummary = comparisonSectionSummary(diffRun)
+  const historySummary = historySectionSummary(history)
+
   return (
     <TelemetryProvider runtime={telemetry}>
       <main>
@@ -1596,6 +1682,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     id="history"
                     open={openSections.has('history')}
                     onToggle={toggleSection}
+                    summary={historySummary}
                   >
                     <PanelBoundary id="history" onClose={closeSection}>
                       <HistoryPanel
@@ -1617,6 +1704,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     id="validation"
                     open={openSections.has('validation')}
                     onToggle={toggleSection}
+                    summary={validationSummary}
                   >
                     <PanelBoundary id="validation" onClose={closeSection}>
                       {panelModules === null ? null : (
@@ -1649,6 +1737,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     id="compare"
                     open={openSections.has('compare')}
                     onToggle={toggleSection}
+                    summary={comparisonSummary}
                   >
                     <PanelBoundary id="compare" onClose={closeSection}>
                       {panelModules === null ? null : (

@@ -322,6 +322,23 @@ main {
   margin: 0.2rem 0.35rem 0;
 }
 
+/*
+ * ug-17 / UG-27: state summary on a shell-owned collapsed toggle
+ * (`Validation · 2 failing`, `Compare · 3 changed`, `History · 4 pending`).
+ * It lives in the toggle's text column under the R-14 purpose line, so it is
+ * visible while the body is `hidden`; it never changes the purpose line's own
+ * geometry and only ever carries counts, never values (ADR 0025). Existing
+ * theme tokens only — no broad restyle.
+ */
+.workbench-section-summary {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
 /* ug-13 / R-14: Record dock closed-state hint (shell-owned; the inspector
    returns null while closed). */
 .record-closed-hint {
