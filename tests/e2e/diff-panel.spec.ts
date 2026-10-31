@@ -228,6 +228,14 @@ test('m6-4 journey: stage → schema drift → confirm key → row diff → jump
   const jumped = page.locator('[data-testid="grid-row"][data-row-index="2"]')
   await expect(jumped).toHaveAttribute('data-status', 'ready')
   await expect(jumped).toBeInViewport()
+  // ug-12 (UG-26): the same contract as the validation jump — the single
+  // polite region announces the sample's domain display key and roving focus
+  // lands on the target grid row.
+  await expect(page.getByTestId('edit-live-region')).toHaveText(
+    'Showing base #3 in the grid and record inspector',
+  )
+  await expect(jumped).toBeFocused()
+  await expect(jumped).toHaveAttribute('tabindex', '0')
   await expect(page.getByTestId('record-inspector')).toBeVisible()
   await expect(page.getByTestId('record-inspector')).toContainText('a4')
 

@@ -323,6 +323,19 @@ export function historySectionSummary(history: TransformationHistory): string | 
   return count > 0 ? `History \u00b7 ${String(count)} pending` : null
 }
 
+/**
+ * ug-12 (UG-26): the jump-to-row announcement for the SINGLE polite live
+ * region. The validation/compare “Show row” gesture scrolls the grid, opens
+ * the record inspector and lands roving focus on the target row; the region
+ * states that in one value-free sentence. `displayKey` is the sample's domain
+ * display key (`base #12` / `insert #3`) — a logical row identity, never a
+ * cell value or filename (ADR 0025). A jump without a caller-supplied label
+ * announces nothing (`null`), so only the sample-list gestures speak.
+ */
+export function rowJumpAnnouncementText(displayKey?: string): string | null {
+  return displayKey === undefined ? null : `Showing ${displayKey} in the grid and record inspector`
+}
+
 interface WorkbenchSectionProps {
   readonly id: WorkbenchSectionId
   readonly children: ReactNode
@@ -734,22 +747,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   )
 
   /**
-   * m5-3/m6-4 jump-to-row gesture. Owned by the composition root because the
-   * validation and diff panels share it: both resolve a logical row key, then
-   * scroll the grid and open the record inspector through `navigateToRow`.
-   */
-  const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null)
-  const scrollSeq = useRef(0)
-  const navigateToRow = useCallback((rowIndex: number) => {
-    scrollSeq.current += 1
-    setScrollRequest({ rowIndex, seq: scrollSeq.current })
-    setRecordRequest((previous) => ({
-      rowIndex,
-      seq: (previous?.seq ?? 0) + 1,
-    }))
-  }, [])
-
-  /**
    * m4-3 editing session (f-1 extraction). Owns the overlay history, its
    * synchronous mirror refs, the cast race guard, and the export/diff/
    * validation consumers' view of the active overlay.
@@ -778,6 +775,36 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     handleSelectCursor,
     retryView,
   } = useEditingSession(phase, datasetSession, sourceIdentityRef)
+
+  /**
+   * m5-3/m6-4 jump-to-row gesture. Owned by the composition root because the
+   * validation and diff panels share it: both resolve a logical row key, then
+   * scroll the grid, open the record inspector and land roving focus on the
+   * target row through `navigateToRow`.
+   *
+   * ug-12 (UG-26): a sample gesture also carries the domain display key, so
+   * the SAME single polite live region that announces edit outcomes states
+   * `Showing <displayKey> in the grid and record inspector` — value-free row
+   * identity only (ADR 0025). The announcement lives here, after the editing
+   * session supplies `announceEdit`, so no second region or announcement
+   * mechanism is introduced. A jump without a label (no caller supplies one
+   * today) still navigates, silently.
+   */
+  const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null)
+  const scrollSeq = useRef(0)
+  const navigateToRow = useCallback(
+    (rowIndex: number, displayKey?: string) => {
+      scrollSeq.current += 1
+      setScrollRequest({ rowIndex, seq: scrollSeq.current })
+      setRecordRequest((previous) => ({
+        rowIndex,
+        seq: (previous?.seq ?? 0) + 1,
+      }))
+      const announcement = rowJumpAnnouncementText(displayKey)
+      if (announcement !== null) announceEdit(announcement)
+    },
+    [announceEdit],
+  )
 
   /**
    * ug-6 (UG-10): the shell's document-level Undo/Redo shortcuts. One

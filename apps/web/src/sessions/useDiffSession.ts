@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { stateAtCursor } from '@assay/domain'
+import { displayRowKey, stateAtCursor } from '@assay/domain'
 import type { TransformationHistory } from '@assay/domain'
 import type { EngineComparisonHandle, EngineOverlay } from '@assay/engine-duckdb'
 import { compileRowDiffPlan, diffDatasets, inferRowDiffKeys } from '@assay/diff'
@@ -239,9 +239,11 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
 
   /**
    * Jump-to-row for an A-side diff sample: resolve the logical row key in the
-   * CURRENT effective view (m4-3 row-key channel) and scroll/open the
-   * inspector. A key the current view no longer contains is readable, never
-   * silent. B-side keys never reach here (the panel shows no jump there).
+   * CURRENT effective view (m4-3 row-key channel), scroll/open the inspector
+   * and move roving focus to the row. A key the current view no longer
+   * contains is readable, never silent, and announces nothing. B-side keys
+   * never reach here (the panel shows no jump there). ug-12: the sample's
+   * domain display key rides along for the value-free announcement.
    */
   const handleJumpToDiffSample = useCallback(
     (rowKey: string) => {
@@ -255,7 +257,7 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
         return
       }
       setDiffJumpError(null)
-      navigateToRow(resolution.rowIndex)
+      navigateToRow(resolution.rowIndex, displayRowKey(rowKey))
     },
     [phase, historyRef, navigateToRow],
   )

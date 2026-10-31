@@ -145,6 +145,14 @@ test('open → validate → exact counts → jump to failing row → fix → re-
   const jumpedRow = page.locator('[data-testid="grid-row"][data-row-index="2"]')
   await expect(jumpedRow).toHaveAttribute('data-status', 'ready')
   await expect(jumpedRow).toBeInViewport()
+  // ug-12 (UG-26): the jump is announced through the SINGLE polite region in
+  // the domain display grammar, and roving focus lands on the target row (not
+  // on the panel button that fired the jump). The row owns the grid's tab stop.
+  await expect(page.getByTestId('edit-live-region')).toHaveText(
+    'Showing base #2 in the grid and record inspector',
+  )
+  await expect(jumpedRow).toBeFocused()
+  await expect(jumpedRow).toHaveAttribute('tabindex', '0')
   // The record inspector opened on the same row and shows the offending text.
   await expect(page.getByTestId('record-inspector')).toBeVisible()
   await expect(page.getByTestId('record-inspector')).toContainText('emea')

@@ -605,6 +605,15 @@ h1 {
   outline-offset: -2px;
 }
 
+/* ug-12 (UG-13): an explicit keyboard-only ring for the roving grid cells.
+   Cells are `tabIndex=-1` targets reached with arrows, so without this rule
+   the affordance is whatever the UA happens to paint. Reuses the shared
+   `--color-focus` token; no new token, no geometry or layout change. */
+.grid-cell:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
 .record {
   margin-top: 1.25rem;
 }

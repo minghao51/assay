@@ -59,8 +59,14 @@ export interface ScrollRequest {
 
 /**
  * Cross-session jump handler: resolve a sample's logical row key, then scroll
- * the grid and open the record inspector. Owned by the composition root and
- * handed to the validation/diff hooks so both gesture surfaces drive the same
- * navigation channel (m5-3 / m6-4).
+ * the grid, open the record inspector and land roving focus on the target row.
+ * Owned by the composition root and handed to the validation/diff hooks so
+ * both gesture surfaces drive the same navigation channel (m5-3 / m6-4).
+ *
+ * ug-12: the optional `displayKey` is the sample's domain display key
+ * (`base #12` / `insert #3`, from `displayRowKey`). When supplied the jump is
+ * announced through the existing single polite live region; a jump without a
+ * label navigates silently. The label is a logical row identity — never a cell
+ * value or filename (ADR 0025).
  */
-export type NavigateToRow = (rowIndex: number) => void
+export type NavigateToRow = (rowIndex: number, displayKey?: string) => void

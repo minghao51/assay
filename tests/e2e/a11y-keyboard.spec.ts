@@ -241,6 +241,31 @@ test('grid roving tabindex: Tab enters/leaves at the row, arrows reach cells, on
   await page.keyboard.press('ArrowRight')
   await expect(cell(page, 0, 1)).toBeFocused()
 
+  // ug-12 (UG-13): the focused cell paints the AUTHORED keyboard ring. Cells
+  // are `tabIndex=-1` targets reached with arrows, so without the explicit
+  // `.grid-cell:focus-visible` rule the affordance is whatever the UA paints
+  // (`outlineStyle: auto`). Assert the real computed style in the browser and
+  // that it resolves the shared `--color-focus` token (no new token).
+  const ring = await cell(page, 0, 1).evaluate((element) => {
+    const style = getComputedStyle(element)
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--color-focus)'
+    document.body.append(probe)
+    const tokenColor = getComputedStyle(probe).color
+    probe.remove()
+    return {
+      outlineStyle: style.outlineStyle,
+      outlineWidth: style.outlineWidth,
+      outlineColor: style.outlineColor,
+      tokenColor,
+    }
+  })
+  expect(ring.outlineStyle).toBe('solid')
+  expect(ring.outlineWidth).toBe('2px')
+  expect(ring.outlineColor).not.toBe('transparent')
+  expect(ring.outlineColor).not.toBe('rgba(0, 0, 0, 0)')
+  expect(ring.outlineColor).toBe(ring.tokenColor)
+
   // ArrowDown carries the focused column to the next row.
   await page.keyboard.press('ArrowDown')
   await expect(cell(page, 1, 1)).toBeFocused()

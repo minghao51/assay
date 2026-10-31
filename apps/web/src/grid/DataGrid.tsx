@@ -69,7 +69,8 @@ interface DataGridProps {
    * repeated requests for the SAME row re-fire; `null` is idle. The request
    * is an immediate gesture — it is not tracked or re-applied across data
    * epochs (a later overlay change can move the row; re-validating
-   * refreshes the report's targets).
+   * refreshes the report's targets). ug-12: an interactive grid also lands
+   * its roving tab stop and DOM focus on that row.
    */
   scrollRequest?: { readonly rowIndex: number; readonly seq: number } | null
 }
@@ -448,6 +449,13 @@ export function DataGrid({
   // sits below stacked panels, and a jump the user cannot see is not a
   // jump). Out-of-range requests are ignored (the caller resolves row keys
   // against the same model, so this is a race guard, not a feature).
+  //
+  // ug-12 (UG-26): the jump is a FOCUS gesture too. The sample-list button
+  // that fired it must not keep focus; after the scroll the target row
+  // becomes the roving tab stop (`tabIndex=0`) and takes DOM focus, so the
+  // next arrow key continues from the row the user was just shown. A row the
+  // virtualizer has not rendered (or a non-interactive, read-only grid whose
+  // rows are not focusable) simply has nothing to focus — never throw.
   useEffect(() => {
     if (scrollRequest === null) return
     // AR-W2: consume each request exactly once. The effect re-runs when
@@ -460,15 +468,21 @@ export function DataGrid({
     // the row element exists; scrolling it to the viewport center moves only
     // the ancestor scrollables (the page, if the grid is below the fold).
     const raf = requestAnimationFrame(() => {
-      const element = scrollRef.current?.querySelector(
+      const element = scrollRef.current?.querySelector<HTMLElement>(
         `[data-row-index="${String(scrollRequest.rowIndex)}"]`,
       )
       element?.scrollIntoView({ block: 'center' })
+      if (!interactive) return
+      // The roving stop moves with DOM focus (the row's own onFocus does the
+      // same); setting it here makes the tab stop correct even if the focus
+      // event is not delivered (e.g. a synthetic jump in a non-browser DOM).
+      setFocusedRow(scrollRequest.rowIndex)
+      element?.focus()
     })
     return () => {
       cancelAnimationFrame(raf)
     }
-  }, [scrollRequest, virtualizer, totalRows])
+  }, [scrollRequest, virtualizer, totalRows, interactive])
 
   const rangeKey =
     virtualItems.length > 0

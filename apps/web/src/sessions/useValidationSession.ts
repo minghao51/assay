@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { stateAtCursor } from '@assay/domain'
+import { displayRowKey, stateAtCursor } from '@assay/domain'
 import type { TransformationHistory } from '@assay/domain'
 import type { EngineOverlay } from '@assay/engine-duckdb'
 import { parseContract } from '@assay/contracts'
@@ -244,9 +244,11 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
 
   /**
    * Jump-to-row: resolve the sample's logical row key in the CURRENT
-   * effective view (m4-3 row-key channel), scroll the grid there, and open
-   * the record inspector. A key the current view no longer contains (the
-   * row was deleted after the verdict) is an honest, readable error.
+   * effective view (m4-3 row-key channel), scroll the grid there, open the
+   * record inspector and move roving focus to the row. A key the current view
+   * no longer contains (the row was deleted after the verdict) is an honest,
+   * readable error and announces nothing. ug-12: the sample's domain display
+   * key rides along so the composition root can announce the jump value-free.
    */
   const handleJumpToSample = useCallback(
     (rowKey: string) => {
@@ -260,7 +262,7 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
         return
       }
       setJumpError(null)
-      navigateToRow(resolution.rowIndex)
+      navigateToRow(resolution.rowIndex, displayRowKey(rowKey))
     },
     [phase, historyRef, navigateToRow],
   )
