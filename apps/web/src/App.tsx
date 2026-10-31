@@ -53,6 +53,7 @@ import {
 import { preloadBottomPanels } from './lib/bottom-panels'
 import type { BottomPanelModules } from './lib/bottom-panels'
 import { engineClient } from './lib/engine'
+import { classifyHistoryShortcut, shouldAutoExpandHistory } from './lib/history-shortcut'
 import { NO_COLUMNS, useModelSlice } from './lib/use-model-slice'
 import { usePipelineSession } from './pipeline/usePipelineSession'
 import { RecordInspector } from './record/RecordInspector'
@@ -777,6 +778,62 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     handleSelectCursor,
     retryView,
   } = useEditingSession(phase, datasetSession, sourceIdentityRef)
+
+  /**
+   * ug-6 (UG-10): the shell's document-level Undo/Redo shortcuts. One
+   * `window` keydown listener maps Ctrl/Cmd+Z → the editing session's existing
+   * `handleUndo` and Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y → its existing `handleRedo`.
+   * These are SHORTCUTS for the single visible pair in `HistoryPanel` (ux-3
+   * ruling) — no second control pair, no toolbar addition. The phase is read
+   * from the synchronous `phaseRef` mirror, so the listener stays registered
+   * across phase changes (and is removed on unmount) without a stale closure.
+   *
+   * `classifyHistoryShortcut` owns every guard: ready-only is enforced here,
+   * the classifier rejects modifiers we do not own, already-prevented events,
+   * and any editable target — Ctrl+Z inside the cell editor, the SQL editor or
+   * a filter input keeps the browser's native text undo, and the event is not
+   * prevented.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (phaseRef.current.kind !== 'ready') return
+      const action = classifyHistoryShortcut(event)
+      if (action === null) return
+      event.preventDefault()
+      if (action === 'undo') handleUndo()
+      else handleRedo()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [handleRedo, handleUndo])
+
+  /**
+   * ug-6 (UG-10) history surface cue: auto-expand the History section on the
+   * FIRST appended operation only (0 → >0 entries). Undo/redo are cursor
+   * moves that never change `entries.length`, a dataset open/reset moves it
+   * down to 0, and `historyCueSpentRef` makes the cue one-shot — so once the
+   * user collapses History it never re-opens on later appends. `openSection`
+   * is the existing disclosure seam: no new control, badge token or visible
+   * Undo/Redo pair (ux-3), and the ug-17 `History · N pending` summary is
+   * untouched.
+   */
+  const previousHistoryLengthRef = useRef(history.entries.length)
+  const historyCueSpentRef = useRef(false)
+  useEffect(() => {
+    const previousEntries = previousHistoryLengthRef.current
+    const nextEntries = history.entries.length
+    previousHistoryLengthRef.current = nextEntries
+    const expand = shouldAutoExpandHistory({
+      previousEntries,
+      nextEntries,
+      alreadyCued: historyCueSpentRef.current,
+    })
+    if (!expand) return
+    historyCueSpentRef.current = true
+    openSection('history')
+  }, [history.entries.length, openSection])
 
   /**
    * m5-3 validation session (f-1 extraction): contract import, verdict run

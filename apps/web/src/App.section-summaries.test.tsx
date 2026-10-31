@@ -411,6 +411,14 @@ describe('ug-17 — history pending summary (App)', () => {
 
     const summary = await screen.findByTestId('section-summary-history')
     expect(summary.textContent).toBe('History · 2 pending')
+    // ug-6: the FIRST appended op now auto-expands History (the 0 → >0 cue).
+    // Collapse it again so this spec still pins the COLLAPSED summary it owns
+    // (the cue is one-shot, so the later undo clicks cannot re-expand it).
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
     // Collapsed visibility: inside the managed toggle, not the hidden body.
     expect(toggle.contains(summary)).toBe(true)
     expect(summary.closest('[hidden]')).toBeNull()

@@ -88,6 +88,12 @@ test('collapsed section toggles carry value-free state summaries', async ({ page
   await page.getByTestId('edit-insert-row').click()
   const historySummary = page.getByTestId('section-summary-history')
   await expect(historySummary).toHaveText('History · 1 pending')
+  // ug-6: the FIRST appended op now auto-expands History (the 0 → >0 cue).
+  // Collapse it again so this spec still pins the COLLAPSED summary it owns;
+  // the cue is one-shot, so nothing later here can re-open it.
+  await expect(historyToggle).toHaveAttribute('aria-expanded', 'true')
+  await historyToggle.click()
+  await expect(historyToggle).toHaveAttribute('aria-expanded', 'false')
   await expect(historySummary).toBeVisible()
   await expect(page.locator('#section-history-content')).toBeHidden()
   await expect(historyToggle).toHaveAttribute(
