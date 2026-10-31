@@ -11,7 +11,7 @@
 > historical. GitHub Actions has been M6-blocked since 2026-10-15. The local runtime baseline is
 > recorded at `385649b` — 195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage
 > 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 117/0), ADR 46. The live
-> frontier is **ug-16 (Panels; design prerequisite)** / **ug-17 (Shell)** / **ug-4 (Grid)**,
+> frontier is **ug-16 (Panels; ready)** / **ug-17 (Shell)** / **ug-4 (Grid)**,
 > with **uxv-1 eligible only under an exclusive CSS/theme-test reservation**. Live changesets: **174**.
 > Use [handoff](../handoff.md) and the
 > [usability](20261026-usability-queue.md)/[visual](20261026-ux-ui-execution-queue.md) queues for
@@ -55,8 +55,8 @@
    [usability queue](20261026-usability-queue.md) (23 rows; **ug-1/2/3/7/8/9/10/13/14/15 CLOSED**, 13 remain)
    and [visual queue](20261026-ux-ui-execution-queue.md)
    (**uxv-0 recorded; uxv-1 eligible only with an exclusive CSS/theme-test reservation; uxv-2…5
-   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-16 (Panels; design prerequisite)**,
-   **ug-17 (Shell)** and **ug-4 (Grid)**.
+   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-16 (Panels; ready)**, **ug-17
+   (Shell)** and **ug-4 (Grid)**.
    Baseline recorded at `385649b`: 195 unit files / 3089 tests, e2e 185 passed + 1 skipped,
    coverage 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 117/0), ADR 46.
    **ug-14 (Shell) CLOSED 2026-10-30** at `c694eca` (199f/3121t, e2e 186p+1s, coverage

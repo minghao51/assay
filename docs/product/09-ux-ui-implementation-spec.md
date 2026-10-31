@@ -25,8 +25,8 @@ status. Start with the [pickup prompts](../process/handoff/20261026-ux-ui-pickup
   green counts are not that baseline. This spec records requirements, not task completions; §8 is
   the pointer index to implemented rows and their evidence.
 - ug-10 is **implemented at `f667a87`** (UX-D1 Option C, R-16); its Panels successor ug-16 is next
-  but its renamed/deleted-column disclosure/refusal/mapping design must be settled before dispatch,
-  then ug-20. Adjustable SQL sizing remains design-only. All other
+  and **READY** (renamed/deleted-column design settled: typed refusal, no remap), then ug-20.
+  Adjustable SQL sizing remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
 ## 2. Requirements and UI states

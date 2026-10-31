@@ -11,7 +11,7 @@ every use; a prompt never overrides a closed/claimed/blocked row.
   refinements do not establish a new runtime baseline. At the baseline: **195 unit files / 3089 tests, e2e 185
   passed + 1 skipped, coverage 88.08/82.24/89.08/89.60**, docs links 116/0 at that revision
   (current pack: 117/0), ADR index 46, all gates exit 0. Evidence: `/tmp/assay-merged-ug9/`.
-- **Next runtime candidates:** **ug-15 (Shell)** and **ug-4 (Grid)**; choose one bounded row,
+- **Next runtime candidates:** **ug-16 (Panels, READY)**, **ug-17 (Shell)** and **ug-4 (Grid)**; choose one bounded row,
   preserving each lane's order and shared-file reservations. Do not redispatch closed rows
   **ug-1, ug-2, ug-3, ug-7, ug-8, ug-9, ug-13**; their evidence is in the
   [usability queue §1/§5](20261026-usability-queue.md) and [handoff §9](../handoff.md).
@@ -22,8 +22,8 @@ every use; a prompt never overrides a closed/claimed/blocked row.
 - **UX-D1 RESOLVED 2026-10-30 (Option C); ug-10 CLOSED at `f667a87`:** R-16 shipped (base-as-opened
   hint + staged-changes note, no stale/re-run banner). The overlay-aware profile is a separate
   planning-only engine candidate ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)),
-  not authorized for dispatch. **ug-16 is next** (renamed/deleted-column disclosure design is a
-  dispatch prerequisite), then ug-20.
+  not authorized for dispatch. **ug-16 is next and READY** (design settled: typed refusal, no remap;
+  see [the design record](20261030-ug16-renamed-column-design.md) and §3b), then ug-20.
 - **Ownership:** the usability queue owns R-01…R-08, R-14, R-15 and R-16; the
   [visual queue](20261026-ux-ui-execution-queue.md) owns R-09…R-13.
 - **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent
@@ -61,8 +61,8 @@ uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unkn
 
 Select one of these eligible candidates, one bounded row per worker, with an independent reviewer
 (no new cross-lane dependency is imposed by this list):
-1) ug-16 (Panels) — profile stats click-to-act; settle its renamed/deleted-column
-   disclosure/refusal/mapping design before dispatch (read the live ug-16 row).
+1) ug-16 (Panels) — READY: profile stats click-to-act; design settled (typed refusal, no remap).
+   Use §3b.
 2) ug-17 (Shell) — state summaries on collapsed section toggles (no ready-to-paste brief in this
    pack yet; use the ug-14 template shape, and read the live ug-17 row).
 3) ug-4 (Grid) — visible grid interaction language.
@@ -147,6 +147,41 @@ tests/e2e/grid-editing.spec.ts.
 
 Leave one bounded fix(web): commit plus changeset. No push, no self-approval, no scope growth.
 Report files, requirement evidence, exact commands/exit codes/counts, logs and blockers.
+```
+
+## 3b. Worker — ug-16 (Panels) — READY 2026-10-30
+
+```text
+Implement exactly ug-16: profile stats click-to-act, under the settled design.
+Read AGENTS.md, docs/process/handoff/operating-model.md, the live usability queue ug-16 row,
+docs/process/handoff/20261030-ug16-renamed-column-design.md (authoritative: resolution rule,
+byte-exact copy, acceptance), spec §2 R-16, §6 gates and §7 STOPs. Confirm the orchestrator-provided
+base commit, isolated worktree, Panels ports (4373/4379/4380 or assigned free set), reserved files
+and baseline evidence before editing.
+
+Allowed: apps/web/src/profile/**, App.tsx click-to-act bridge + refusal state, edit/session.ts
+(pure rename-chain resolver), reuse grid/filter-builder.ts and query-state.ts, focused tests, one
+e2e journey, one feat(web): changeset. No packages/** engine/protocol/domain change, no new
+dependency, no broad restyle, no telemetry, no push, no docs.
+
+(a) Top-k value click applies a builder-compiled = 'value'; null-count click applies IS NULL; chips
+appear via the existing FilterBar (no grammar change).
+(b) Resolve the profile's base column against the current effective schema before compiling. A
+renamed column applies NO filter and shows the byte-exact renamed refusal (naming base and current);
+an unresolved column applies NO filter and shows the generic refusal. Never remap silently.
+(c) Cast/type mismatch: compile against the effective column type; show the builder's readable
+single-line rejection (or the existing framed filter error after an engine rejection); never coerce.
+(d) Zero-row results after a resolved click keep the existing empty state. R-16 hint/note and
+profile-table-id unchanged; no re-profile.
+
+Pins: unit for the resolver (rename chain, rename-back, unresolved, undo/redo); component per
+action + both refusals + zero-row; one e2e profile→filtered grid; mutation drills: remove the
+rename/unresolved guard (renamed click applies a base-name filter → pin fails) and drop the
+current-name lookup (copy loses the name → pin fails).
+
+Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6; build before e2e.
+Leave one bounded feat(web): commit plus changeset. No push, no self-approval, no silent scope
+growth. Report files, requirement evidence, exact commands/exit codes/counts, logs and blockers.
 ```
 
 ## 4. Worker — uxv-1 (Visual), only with an exclusive reservation
