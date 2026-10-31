@@ -6,7 +6,8 @@ and R-15 are implemented and merged-verified; R-09…R-13 remain open (uxv-1 is 
 exclusive CSS/theme-test reservation); **R-16 is implemented at `f667a87`** under the maintainer's
 UX-D1 Option C ruling (2026-10-30); **ug-16 profile click-to-act is implemented at `3b494f5`**
 under the settled typed-refusal design and **ug-17 collapsed section state summaries at
-`9a31cd6`** (no new R-ID for either). This is the execution
+`9a31cd6`** and **ug-4 capability-true grid interaction language at `784805c`** (no new R-ID
+for any of the three). This is the execution
 contract for the bounded improvements requested after the
 [investigation plan](08-ux-ui-engine-showcase-plan.md).
 The [usability queue](../process/handoff/20261026-usability-queue.md) owns ug tasks; the
@@ -32,8 +33,11 @@ status. Start with the [pickup prompts](../process/handoff/20261026-ux-ui-pickup
   actionable only when its column resolves on the edited view, nothing is ever silently remapped,
   and cast/type mismatch never coerces. ug-17 (Shell) is **implemented at `9a31cd6`**: managed
   section toggles show optional, value-free session summaries (`Validation · N failing`, `Compare ·
-N changed`, `History · N pending`) visible collapsed, only at N>0. Next runtime rows are ug-4
-  (Grid), ug-20 (Panels) and ug-21 (Shell). Adjustable SQL sizing remains design-only. All other
+N changed`, `History · N pending`) visible collapsed, only at N>0. ug-4 (Grid) is
+  **implemented at `784805c`**: the editable ready grid carries a persistent one-line editing
+  hint wired as the grid’s description and a footer Keyboard disclosure, with every claim gated
+  on the instance’s actual capabilities. Next runtime rows are ug-5 (Grid), ug-20 (Panels) and
+  ug-21 (Shell). Adjustable SQL sizing remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
 ## 2. Requirements and UI states
@@ -263,6 +267,7 @@ then restoration **and a rebuild of restored source** before claiming a clean ve
 | ug-14   | `pnpm exec vitest run apps/web/src/App.open-status.test.tsx apps/web/src/grid/FilterBar.test.tsx`; `pnpm exec playwright test tests/e2e/data-sources.spec.ts tests/e2e/smoke.spec.ts tests/e2e/shell.spec.ts`; add a corrupt-fixture open-error retry pin and a single-line message pin per adopted panel.                                                                                                                                                                                                                          |
 | ug-16   | `pnpm exec vitest run apps/web/src/profile apps/web/src/edit/session.test.ts apps/web/src/App.profile-filter.test.tsx`; `pnpm exec playwright test tests/e2e/profile-panel.spec.ts tests/e2e/profile-honesty.spec.ts tests/e2e/profile-filter.spec.ts`; top-k/null predicates pinned at the model boundary; byte-exact renamed/unresolved refusals with NO filter (never remapped); cast/type rejection without coercion; zero-row resolved click keeps the empty state; single-flight and attempt/session-identity lifecycle pins. |
 | ug-17   | `pnpm exec vitest run apps/web/src/App.section-summaries.test.tsx apps/web/src/App.section-purposes.test.tsx apps/web/src/App.headings.test.tsx`; `pnpm exec playwright test tests/e2e/section-summaries.spec.ts`; byte-exact `Validation · N failing` / `Compare · N changed` / `History · N pending` from the right sources, visible inside the collapsed managed toggle, absent at 0 and in non-verdict/non-result states, accessible name unchanged, summary appended to `aria-describedby` only when present.                  |
+| ug-4    | `pnpm exec vitest run apps/web/src/grid/DataGrid.interaction-hints.test.tsx apps/web/src/grid/DataGrid.keyboard.test.tsx apps/web/src/grid/DataGrid.diagnostics.test.tsx`; `pnpm exec playwright test tests/e2e/a11y-keyboard.spec.ts tests/e2e/grid-editing.spec.ts`; byte-exact hint on first ready paint wired as the grid description; footer Keyboard list pinned; capability gating for editable / inspect-only / read-only-preview shapes.                                                                                   |
 | ug-7    | `pnpm exec vitest run apps/web/src/ErrorBoundary.test.tsx apps/web/src/App.error-boundary.test.tsx apps/web/src/App.shell.test.tsx`; new real request-consumption/remount pins; retry/wrapper mutants must fail.                                                                                                                                                                                                                                                                                                                    |
 | uxv-1/2 | `pnpm exec playwright test tests/e2e/theme.spec.ts tests/e2e/a11y.spec.ts tests/e2e/telemetry.spec.ts`; telemetry component tests; uxv-1 configured disclosure leg below.                                                                                                                                                                                                                                                                                                                                                           |
 | uxv-3   | `pnpm exec vitest run apps/web/src/App.memo-probe.test.tsx apps/web/src/App.shell.test.tsx`; `pnpm exec playwright test tests/e2e/shell.spec.ts tests/e2e/grid-horizontal.spec.ts tests/e2e/grid-virtualization.spec.ts tests/e2e/theme.spec.ts tests/e2e/a11y-keyboard.spec.ts`; geometry/focus/scroll pins.                                                                                                                                                                                                                       |
