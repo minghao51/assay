@@ -7,18 +7,22 @@ import type { OverlayState } from '@assay/domain'
 import { DataGrid } from './DataGrid'
 
 /**
- * ug-4 (UG-9/UG-33) pins: the grid's interaction language is visible, not
- * comment-only.
+ * ug-4 (UG-9/UG-33) pins: the grid's interaction language is visible AND
+ * truthful about the instance that renders it.
  *
- * 1. **Editing hint.** `Double-click a cell to edit · Enter edits the focused
- *    cell · Esc cancels` (byte-exact, U+00B7 separators) renders as visible
- *    text in every grid render — including a read-only one — outside the
- *    role=grid subtree, and it is that grid's `aria-describedby` description.
- * 2. **Keyboard list.** The footer gains a collapsed-by-default native
- *    `<details data-testid="grid-keyboard-help">` whose `Keyboard` summary
- *    opens a list of the gestures THIS component implements: edit
- *    (double-click / Enter / Esc), inspect (Enter on a row) and navigate
- *    (arrows, Home/End, Ctrl+Home/End, Tab).
+ * 1. **Editable ready grid** (the app's main grid: overlay + commit + record
+ *    opener): the byte-exact hint `Double-click a cell to edit · Enter edits
+ *    the focused cell · Esc cancels` (U+00B7 separators) renders as visible
+ *    text outside the role=grid subtree, is the grid role's `aria-describedby`
+ *    description, and the footer's `Keyboard` disclosure lists the edit,
+ *    inspect and navigate gestures this component implements.
+ * 2. **Inspect-only grid** (`onOpenRecord` wired, editing not): no editing
+ *    hint and no description — there is no editing gesture to announce — and
+ *    the disclosure carries Inspect + Navigate only, with no Edit group.
+ * 3. **Preview-shaped read-only grid** (the pipeline node preview mount:
+ *    `model` + `onNestedAction` only): no hint, no Keyboard disclosure and no
+ *    `aria-describedby`, so nothing claims edit/inspect/navigate capability
+ *    that this surface does not wire.
  *
  * Every advertised line is traced to the handlers in `DataGrid.tsx` (the
  * roving-tabindex/edit-mode behaviour itself is pinned by
@@ -103,6 +107,29 @@ function fakeOverlay(): OverlayState {
   } as unknown as OverlayState
 }
 
+/** The app's main ready grid: editing + record-opener props are wired. */
+function editableGrid() {
+  return render(
+    <DataGrid
+      model={fakeModel()}
+      onNestedAction={() => {}}
+      onOpenRecord={() => {}}
+      overlayState={fakeOverlay()}
+      onCommitCell={() => {}}
+    />,
+  )
+}
+
+/** Inspector-wired but non-editing grid (read-only rows that can be opened). */
+function inspectOnlyGrid() {
+  return render(<DataGrid model={fakeModel()} onNestedAction={() => {}} onOpenRecord={() => {}} />)
+}
+
+/** Exactly the pipeline node preview mount (`PipelinePanel.tsx`). */
+function previewGrid() {
+  return render(<DataGrid model={fakeModel()} onNestedAction={() => {}} />)
+}
+
 function viewport(): HTMLElement {
   return screen.getByTestId('grid-viewport')
 }
@@ -111,17 +138,29 @@ function hint(): HTMLElement {
   return screen.getByTestId('grid-edit-hint')
 }
 
-function keyboardHelp(): HTMLDetailsElement {
-  const element = document.querySelector<HTMLDetailsElement>('[data-testid="grid-keyboard-help"]')
-  if (element === null) throw new Error('grid keyboard help disclosure not rendered')
-  return element
+function keyboardHelp(): HTMLDetailsElement | null {
+  return document.querySelector<HTMLDetailsElement>('[data-testid="grid-keyboard-help"]')
+}
+
+function groups(details: HTMLDetailsElement | null): (string | null)[] {
+  return Array.from(details?.querySelectorAll('p.grid-keyboard-group') ?? []).map(
+    (element) => element.textContent,
+  )
+}
+
+function keys(list: Element | undefined): (string | null)[] {
+  return Array.from(list?.querySelectorAll('dt') ?? []).map((element) => element.textContent)
+}
+
+function actions(list: Element | undefined): (string | null)[] {
+  return Array.from(list?.querySelectorAll('dd') ?? []).map((element) => element.textContent)
 }
 
 afterEach(cleanup)
 
-describe('DataGrid editing hint (ug-4 / UG-9)', () => {
+describe('DataGrid interaction copy — editable ready grid (ug-4 / UG-9, UG-33)', () => {
   it('renders the byte-exact hint as visible text, outside the role=grid subtree', () => {
-    render(<DataGrid model={fakeModel()} onNestedAction={() => {}} />)
+    editableGrid()
 
     const element = hint()
     expect(element.tagName).toBe('P')
@@ -137,7 +176,7 @@ describe('DataGrid editing hint (ug-4 / UG-9)', () => {
   })
 
   it('is the grid role accessible description (aria-describedby resolves to it)', () => {
-    render(<DataGrid model={fakeModel()} onNestedAction={() => {}} />)
+    editableGrid()
 
     const grid = viewport()
     expect(grid.getAttribute('role')).toBe('grid')
@@ -149,9 +188,9 @@ describe('DataGrid editing hint (ug-4 / UG-9)', () => {
   })
 
   it('is present on first ready paint, before any interaction', () => {
-    // No pointer/keyboard event has run and the grid carries no editing props:
-    // the hint is part of the ready render itself, not a post-gesture state.
-    render(<DataGrid model={fakeModel()} onNestedAction={() => {}} />)
+    // No pointer/keyboard event has run: the hint is part of the ready render
+    // itself, not a post-gesture state. The description points at it.
+    editableGrid()
     expect(hint().textContent).toBe(HINT)
     expect(viewport().getAttribute('aria-describedby')).toBe(hint().id)
   })
@@ -161,8 +200,20 @@ describe('DataGrid editing hint (ug-4 / UG-9)', () => {
     // an axe `duplicate-id-aria` violation, so each grid owns its own hint.
     render(
       <>
-        <DataGrid model={fakeModel()} onNestedAction={() => {}} />
-        <DataGrid model={fakeModel()} onNestedAction={() => {}} />
+        <DataGrid
+          model={fakeModel()}
+          onNestedAction={() => {}}
+          onOpenRecord={() => {}}
+          overlayState={fakeOverlay()}
+          onCommitCell={() => {}}
+        />
+        <DataGrid
+          model={fakeModel()}
+          onNestedAction={() => {}}
+          onOpenRecord={() => {}}
+          overlayState={fakeOverlay()}
+          onCommitCell={() => {}}
+        />
       </>,
     )
     const hints = screen.getAllByTestId('grid-edit-hint')
@@ -177,37 +228,27 @@ describe('DataGrid editing hint (ug-4 / UG-9)', () => {
       expect(document.querySelectorAll(`[id="${hintId}"]`)).toHaveLength(1)
     }
   })
-})
 
-describe('DataGrid keyboard help disclosure (ug-4 / UG-33)', () => {
-  it('is a collapsed native details whose summary is Keyboard', () => {
-    render(<DataGrid model={fakeModel()} onNestedAction={() => {}} />)
+  it('is a collapsed native Keyboard disclosure, first in the footer beside Diagnostics', () => {
+    editableGrid()
 
     const details = keyboardHelp()
+    if (details === null) throw new Error('grid keyboard help disclosure not rendered')
     expect(details.tagName).toBe('DETAILS')
     expect(details.open).toBe(false)
     expect(details.querySelector('summary')?.textContent).toBe('Keyboard')
     // It is the footer's first disclosure, beside the untouched Diagnostics.
     const footerDetails = document.querySelectorAll('.grid-footer > details')
-    expect(Array.from(footerDetails)).toEqual([
-      keyboardHelp(),
-      screen.getByTestId('grid-diagnostics'),
-    ])
+    expect(Array.from(footerDetails)).toEqual([details, screen.getByTestId('grid-diagnostics')])
   })
 
   it('lists exactly the implemented edit / inspect / navigate gesture groups', () => {
-    render(<DataGrid model={fakeModel()} onNestedAction={() => {}} />)
+    editableGrid()
 
     const details = keyboardHelp()
-    expect(
-      Array.from(details.querySelectorAll('p.grid-keyboard-group')).map((el) => el.textContent),
-    ).toEqual(['Edit', 'Inspect', 'Navigate'])
+    expect(groups(details)).toEqual(['Edit', 'Inspect', 'Navigate'])
 
-    const [edit, inspect, navigate] = Array.from(details.querySelectorAll('dl'))
-    const keys = (list: Element | undefined): (string | null)[] =>
-      Array.from(list?.querySelectorAll('dt') ?? []).map((el) => el.textContent)
-    const actions = (list: Element | undefined): (string | null)[] =>
-      Array.from(list?.querySelectorAll('dd') ?? []).map((el) => el.textContent)
+    const [edit, inspect, navigate] = Array.from(details?.querySelectorAll('dl') ?? [])
 
     expect(keys(edit)).toEqual(['Double-click a cell', 'Enter on a focused cell', 'Esc'])
     expect(actions(edit)).toEqual([
@@ -232,22 +273,92 @@ describe('DataGrid keyboard help disclosure (ug-4 / UG-33)', () => {
       'Enter or leave the grid.',
     ])
   })
+})
 
-  it('keeps hint and shortcut list on an interactive grid, including while editing', () => {
-    // The app's ready grid passes the editing + record props; the language must
-    // not depend on the editor being closed or on a gesture having happened.
-    render(
-      <DataGrid
-        model={fakeModel()}
-        onNestedAction={() => {}}
-        onOpenRecord={() => {}}
-        overlayState={fakeOverlay()}
-        onCommitCell={() => {}}
-      />,
-    )
+describe('DataGrid interaction copy — inspect-only grid (ug-4 honesty)', () => {
+  it('renders no editing hint and no description, because editing is not wired', () => {
+    inspectOnlyGrid()
+
+    // The record opener is wired (`interactive` is true), so the disclosure
+    // exists — but there is no editing gesture to announce, so the editing
+    // hint must not render and the grid must not be described by one.
+    expect(screen.queryByTestId('grid-edit-hint')).toBeNull()
+    expect(viewport().getAttribute('aria-describedby')).toBeNull()
+    // No description text anywhere in the footer either: an empty or
+    // substitute editing claim would be just as false.
+    const footer = document.querySelector('.grid-footer')
+    expect(footer?.textContent).not.toContain('Double-click a cell to edit')
+    expect(footer?.textContent).not.toContain('Esc cancels')
+  })
+
+  it('discloses Inspect + Navigate only, with no Edit group and no edit keys', () => {
+    inspectOnlyGrid()
+
+    const details = keyboardHelp()
+    if (details === null) throw new Error('inspect-only grid must still disclose its keys')
+    expect(details.querySelector('summary')?.textContent).toBe('Keyboard')
+    expect(groups(details)).toEqual(['Inspect', 'Navigate'])
+
+    const [inspect, navigate] = Array.from(details.querySelectorAll('dl'))
+    expect(keys(inspect)).toEqual(['Enter on a focused row'])
+    expect(actions(inspect)).toEqual(['Open it in the record inspector (no cell focused).'])
+    expect(keys(navigate)).toEqual([
+      '↑ ↓ ← →',
+      'Home / End',
+      'Ctrl+Home / Ctrl+End',
+      'Tab / Shift+Tab',
+    ])
+    // The edit gestures are absent, not merely hidden behind another group.
+    const disclosed = keys(details).join(' | ')
+    expect(disclosed).not.toContain('Double-click a cell')
+    expect(disclosed).not.toContain('Esc')
+  })
+})
+
+describe('DataGrid interaction copy — preview-shaped read-only grid (ug-4 honesty)', () => {
+  it('renders no hint, no Keyboard disclosure and no aria-describedby', () => {
+    // The exact pipeline node preview mount: no overlay/commit (no editing)
+    // and no onOpenRecord (no inspector, no roving tab stop).
+    previewGrid()
+
+    expect(screen.queryByTestId('grid-edit-hint')).toBeNull()
+    expect(keyboardHelp()).toBeNull()
+    expect(viewport().getAttribute('aria-describedby')).toBeNull()
+    // Only the untouched Diagnostics disclosure remains in the footer.
+    expect(
+      Array.from(document.querySelectorAll('.grid-footer > details')).map((element) =>
+        element.getAttribute('data-testid'),
+      ),
+    ).toEqual(['grid-diagnostics'])
+  })
+
+  it('claims no edit, inspect or navigation capability anywhere in the footer', () => {
+    previewGrid()
+
+    const footerText = document.querySelector('.grid-footer')?.textContent ?? ''
+    // Diagnostics counters stay; none of the interaction promises may appear.
+    expect(footerText).toContain('Diagnostics')
+    for (const falseClaim of [
+      'Double-click',
+      'Enter',
+      'Esc',
+      'inspector',
+      'Keyboard',
+      'Home',
+      'Tab',
+    ]) {
+      expect(footerText).not.toContain(falseClaim)
+    }
+  })
+
+  it('drops the copy when a wired grid becomes read-only (capabilities are read live)', () => {
+    const { rerender } = editableGrid()
     expect(hint().textContent).toBe(HINT)
-    expect(viewport().getAttribute('aria-describedby')).toBe(hint().id)
-    expect(keyboardHelp().querySelector('summary')?.textContent).toBe('Keyboard')
-    expect(keyboardHelp().querySelectorAll('dl')).toHaveLength(3)
+    expect(keyboardHelp()).not.toBeNull()
+
+    rerender(<DataGrid model={fakeModel()} onNestedAction={() => {}} />)
+    expect(screen.queryByTestId('grid-edit-hint')).toBeNull()
+    expect(keyboardHelp()).toBeNull()
+    expect(viewport().getAttribute('aria-describedby')).toBeNull()
   })
 })

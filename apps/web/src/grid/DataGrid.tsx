@@ -135,7 +135,11 @@ interface EditingCell {
  *
  * ug-4 (UG-9/UG-33): this grammar is user-visible, not comment-only — the
  * footer carries the standing editing hint (the grid role's accessible
- * description) and a `Keyboard` disclosure listing exactly these keys.
+ * description) and a `Keyboard` disclosure listing exactly these keys. Both
+ * are capability-gated per instance: the hint and the Edit group need
+ * `editingEnabled`, Inspect needs `onOpenRecord`, Navigate needs `interactive`,
+ * so the read-only pipeline node preview gets neither and claims nothing it
+ * cannot do.
  *
  * Text-only rendering throughout (ADR 0007 spirit; no `dangerouslySetInnerHTML`).
  */
@@ -229,6 +233,20 @@ export function DataGrid({
    * and an `aria-describedby` idref must be unique (axe `duplicate-id-aria`).
    */
   const editHintId = `grid-edit-hint-${useId()}`
+  /**
+   * ug-4 (UG-9/UG-33) capability gate. The footer copy is a promise about
+   * THIS instance, and the pipeline node preview mounts the renderer as a
+   * pure read surface (`model` + `onNestedAction` only). Advertising edit,
+   * inspect or navigation there would be false: the same conditions the
+   * handlers read decide the copy — `editingEnabled` (double-click/Enter/
+   * Escape), `onOpenRecord` (Enter on a row) and `interactive` (arrows, Home/
+   * End, Ctrl/Cmd+Home/End, the Tab stop). No capability, no copy.
+   */
+  const showEditHint = editingEnabled
+  const showEditKeys = editingEnabled
+  const showInspectKeys = onOpenRecord !== undefined
+  const showNavigateKeys = interactive
+  const showKeyboardHelp = showEditKeys || showInspectKeys || showNavigateKeys
 
   /**
    * m3-5: per-column one-click action, derived from the parsed DESCRIBE type
@@ -525,7 +543,7 @@ export function DataGrid({
         role="grid"
         aria-rowcount={totalRows + 1}
         aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0)}
-        aria-describedby={editHintId}
+        aria-describedby={showEditHint ? editHintId : undefined}
       >
         <div className="grid-header" role="rowgroup" ref={headerRef}>
           <div
@@ -960,59 +978,80 @@ export function DataGrid({
         </div>
       </div>
       <footer className="grid-footer">
-        {/* ug-4 (UG-9): the standing editing hint. Three gestures exist only in
+        {/* ug-4 (UG-9): the standing editing hint, rendered only where editing
+            is actually wired (`editingEnabled`). Three gestures exist only in
             this file's handlers; a newcomer who never guesses double-click
             concludes Assay is a viewer. Visible text (not `visually-hidden`,
             never dismissible) and outside the role=grid subtree (UX-9), wired
-            to the grid as its accessible description. */}
-        <p className="grid-edit-hint" id={editHintId} data-testid="grid-edit-hint">
-          Double-click a cell to edit · Enter edits the focused cell · Esc cancels
-        </p>
+            to the grid as its accessible description — and only when it is
+            rendered, so the description never points at an absent element. */}
+        {showEditHint && (
+          <p className="grid-edit-hint" id={editHintId} data-testid="grid-edit-hint">
+            Double-click a cell to edit · Enter edits the focused cell · Esc cancels
+          </p>
+        )}
         {/* ug-4 (UG-33): the keyboard grammar as a native disclosure beside
             Diagnostics. Every line below is verified against the handlers in
-            this file: no key is advertised that does not work here. */}
-        <details className="grid-keyboard-help" data-testid="grid-keyboard-help">
-          <summary>Keyboard</summary>
-          <p className="grid-keyboard-group">Edit</p>
-          <dl>
-            <dt>Double-click a cell</dt>
-            <dd>Edit the cell — nested columns stay read-only.</dd>
-            <dt>
-              <kbd>Enter</kbd> on a focused cell
-            </dt>
-            <dd>Open the inline editor.</dd>
-            <dt>
-              <kbd>Esc</kbd>
-            </dt>
-            <dd>Cancel the open edit.</dd>
-          </dl>
-          <p className="grid-keyboard-group">Inspect</p>
-          <dl>
-            <dt>
-              <kbd>Enter</kbd> on a focused row
-            </dt>
-            <dd>Open it in the record inspector (no cell focused).</dd>
-          </dl>
-          <p className="grid-keyboard-group">Navigate</p>
-          <dl>
-            <dt>
-              <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
-            </dt>
-            <dd>Move between cells.</dd>
-            <dt>
-              <kbd>Home</kbd> / <kbd>End</kbd>
-            </dt>
-            <dd>Jump to the row’s first or last cell.</dd>
-            <dt>
-              <kbd>Ctrl+Home</kbd> / <kbd>Ctrl+End</kbd>
-            </dt>
-            <dd>Jump to the grid’s first or last cell (Cmd on macOS).</dd>
-            <dt>
-              <kbd>Tab</kbd> / <kbd>Shift+Tab</kbd>
-            </dt>
-            <dd>Enter or leave the grid.</dd>
-          </dl>
-        </details>
+            this file, and each group is rendered only when that capability is
+            wired in THIS instance: no key is advertised that does not work
+            here. With no wired capability there is nothing to disclose, so
+            the whole disclosure (and the description above) stays absent. */}
+        {showKeyboardHelp && (
+          <details className="grid-keyboard-help" data-testid="grid-keyboard-help">
+            <summary>Keyboard</summary>
+            {showEditKeys && (
+              <>
+                <p className="grid-keyboard-group">Edit</p>
+                <dl>
+                  <dt>Double-click a cell</dt>
+                  <dd>Edit the cell — nested columns stay read-only.</dd>
+                  <dt>
+                    <kbd>Enter</kbd> on a focused cell
+                  </dt>
+                  <dd>Open the inline editor.</dd>
+                  <dt>
+                    <kbd>Esc</kbd>
+                  </dt>
+                  <dd>Cancel the open edit.</dd>
+                </dl>
+              </>
+            )}
+            {showInspectKeys && (
+              <>
+                <p className="grid-keyboard-group">Inspect</p>
+                <dl>
+                  <dt>
+                    <kbd>Enter</kbd> on a focused row
+                  </dt>
+                  <dd>Open it in the record inspector (no cell focused).</dd>
+                </dl>
+              </>
+            )}
+            {showNavigateKeys && (
+              <>
+                <p className="grid-keyboard-group">Navigate</p>
+                <dl>
+                  <dt>
+                    <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
+                  </dt>
+                  <dd>Move between cells.</dd>
+                  <dt>
+                    <kbd>Home</kbd> / <kbd>End</kbd>
+                  </dt>
+                  <dd>Jump to the row’s first or last cell.</dd>
+                  <dt>
+                    <kbd>Ctrl+Home</kbd> / <kbd>Ctrl+End</kbd>
+                  </dt>
+                  <dd>Jump to the grid’s first or last cell (Cmd on macOS).</dd>
+                  <dt>
+                    <kbd>Tab</kbd> / <kbd>Shift+Tab</kbd>
+                  </dt>
+                  <dd>Enter or leave the grid.</dd>
+                </dl>
+              </>
+            )}
+          </details>
+        )}
         {/* ux-3 (UX-9): request counters are diagnostics, not user copy —
             collapsed by default behind a native disclosure. Kept out of the
             role=grid element (see the viewport comment above). The shared
