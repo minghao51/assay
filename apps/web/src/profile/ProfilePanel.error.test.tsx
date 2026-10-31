@@ -15,6 +15,14 @@ import { ProfilePanel } from './ProfilePanel'
  * `ProfilePanel.telemetry.test.tsx`).
  */
 
+const FILTER_PROPS = {
+  onFilterValue: () => undefined,
+  onFilterNull: () => undefined,
+  filterRefusal: null,
+  filterError: null,
+  onClearFilterFeedback: () => undefined,
+} as const
+
 const HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
 
 const h = vi.hoisted(() => ({ profile: vi.fn() }))
@@ -42,7 +50,7 @@ function fakeRuntime(): WebTelemetryRuntime {
 function renderPanel() {
   return render(
     <TelemetryProvider runtime={fakeRuntime()}>
-      <ProfilePanel handle={HANDLE} stagedCount={0} />
+      <ProfilePanel handle={HANDLE} stagedCount={0} {...FILTER_PROPS} />
     </TelemetryProvider>,
   )
 }

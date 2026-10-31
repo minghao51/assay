@@ -35,6 +35,58 @@ export function activeOps(history: TransformationHistory): EditOp[] {
 }
 
 /**
+ * Where a *base-derived* name lands on the current effective view (ug-16).
+ *
+ * `resolved` carries the name to use (the base name itself, or — for a rename
+ * chain that ends on the base name again — the base name). `renamed` carries
+ * both names so the refusal can name them; `unresolved` means the base name is
+ * neither in the effective schema nor reachable through the active rename
+ * chain (a future column-drop, or a chain whose intermediate name is gone).
+ */
+export type ProfileColumnResolution =
+  | { readonly kind: 'resolved'; readonly column: string }
+  | { readonly kind: 'renamed'; readonly base: string; readonly current: string }
+  | { readonly kind: 'unresolved'; readonly base: string }
+
+/**
+ * Resolve a base-derived column name against the *current* effective schema
+ * (ug-16 design §4.1 — authoritative):
+ *
+ * 1. A name present in the effective schema resolves as itself. This is also
+ *    what makes a rename chain that returns to the original name resolve with
+ *    no refusal.
+ * 2. Otherwise follow the active `column-rename` ops in order from the base
+ *    name (`from` must match the current name exactly). If the chain lands on
+ *    a name present in the effective schema, it is `renamed` with the current
+ *    name known.
+ * 3. Otherwise it is `unresolved`.
+ *
+ * The rule is evaluated per click from the active ops at the history cursor,
+ * so undo/redo re-resolves: an undone rename makes the base name resolve
+ * again. It never remaps silently — the caller refuses when the answer is not
+ * `resolved` (design §3/§4.2).
+ */
+export function resolveProfileColumn(
+  baseColumn: string,
+  ops: readonly EditOp[],
+  effectiveSchema: readonly { readonly name: string }[],
+): ProfileColumnResolution {
+  const effectiveNames = new Set(effectiveSchema.map((column) => column.name))
+  if (effectiveNames.has(baseColumn)) return { kind: 'resolved', column: baseColumn }
+
+  let current = baseColumn
+  for (const op of ops) {
+    if (op.kind !== 'column-rename') continue
+    if (op.from === current) current = op.to
+  }
+
+  if (effectiveNames.has(current)) {
+    return { kind: 'renamed', base: baseColumn, current }
+  }
+  return { kind: 'unresolved', base: baseColumn }
+}
+
+/**
  * Package the active overlay for one engine request: the raw active ops, in
  * order. The engine folds them with the same domain model the host used for
  * `stateAtCursor`, so the two agree by construction (m4-2b merged inserted-row

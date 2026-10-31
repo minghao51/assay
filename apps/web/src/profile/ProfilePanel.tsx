@@ -72,6 +72,27 @@ interface ProfilePanelProps {
    * the copy below says "not reflected here" and never "differs".
    */
   readonly stagedCount: number
+  /**
+   * ug-16 click-to-act: a top-k value was clicked. `column` is the profile's
+   * BASE column name (the statistics are base-derived); App resolves it
+   * against the effective schema before compiling anything.
+   */
+  readonly onFilterValue: (column: string, value: string) => void
+  /** ug-16 click-to-act: the null count of `column` was clicked. */
+  readonly onFilterNull: (column: string) => void
+  /**
+   * ug-16 refusal slot: a single-line, value-free message from App (renamed /
+   * unresolved / builder rejection). It never replaces the R-16 hint or note.
+   */
+  readonly filterRefusal: string | null
+  /**
+   * ug-16 engine-rejection slot: the existing framed `filter` error after a
+   * successful compile whose apply was rejected (with rollback). Kept apart
+   * from the refusal slot, which is value-free (design §4.3).
+   */
+  readonly filterError: string | null
+  /** Clear both slots (another profile run; App also clears on click/undo/new data). */
+  readonly onClearFilterFeedback: () => void
 }
 
 /**
@@ -191,18 +212,22 @@ function QuantileStripChart({ name, stats }: { name: string; stats: EngineNumeri
 
 /**
  * Categorical top-k chart: one horizontal bar per entry (value label, bar
- * scaled to the largest count, count), wrapped in a `role="img"` container
- * whose accessible name is the complete text alternative (every value and
- * count) — the per-bar `<title>`s and visible text restate the same data.
+ * scaled to the largest count, count). The chart's complete text alternative
+ * stays a named `role="img"` (every value and count) — but the rows themselves
+ * are real filter buttons (ug-16), so the image is the summary element and the
+ * controls sit outside it: a `role="img"` subtree is presentational and must
+ * not contain focusable controls.
  */
 function TopKChart({
   name,
   topK,
   distinctCount,
+  onFilterValue,
 }: {
   name: string
   topK: readonly EngineCategoricalTopKEntry[]
   distinctCount: number
+  onFilterValue: (column: string, value: string) => void
 }) {
   const bars = scaleTopKBars(topK)
   if (bars.length === 0) {
@@ -213,16 +238,17 @@ function TopKChart({
     )
   }
   return (
-    <div
-      className="profile-topk"
-      data-testid="profile-topk"
-      data-col-name={name}
-      role="img"
-      aria-label={topKChartLabel(name, topK, distinctCount)}
-    >
-      <p className="profile-topk-caption" data-testid="profile-topk-caption">
-        Top {bars.length} of {distinctCount} distinct non-null values
-      </p>
+    <div className="profile-topk" data-testid="profile-topk" data-col-name={name}>
+      <div
+        className="profile-topk-chart"
+        data-testid="profile-topk-chart"
+        role="img"
+        aria-label={topKChartLabel(name, topK, distinctCount)}
+      >
+        <p className="profile-topk-caption" data-testid="profile-topk-caption">
+          Top {bars.length} of {distinctCount} distinct non-null values
+        </p>
+      </div>
       <ul className="profile-topk-list" data-testid="profile-topk-list">
         {bars.map((bar) => (
           <li
@@ -231,27 +257,42 @@ function TopKChart({
             data-testid="profile-topk-row"
             data-topk-value={bar.value}
           >
-            <span className="profile-topk-value" data-testid="profile-topk-value">
-              {bar.value}
-            </span>
-            <span className="profile-topk-track" aria-hidden="true">
-              <svg className="profile-topk-bar-svg" viewBox="0 0 100 10" preserveAspectRatio="none">
-                <rect
-                  className="profile-topk-bar"
-                  data-testid="profile-topk-bar"
-                  data-bar-fraction={bar.fraction}
-                  x={0}
-                  y={0}
-                  width={bar.fraction * 100}
-                  height={10}
+            <button
+              type="button"
+              className="profile-filter-button profile-topk-filter"
+              data-testid="profile-topk-filter"
+              data-topk-value={bar.value}
+              aria-label={`Filter ${name} to ${bar.value}`}
+              onClick={() => {
+                onFilterValue(name, bar.value)
+              }}
+            >
+              <span className="profile-topk-value" data-testid="profile-topk-value">
+                {bar.value}
+              </span>
+              <span className="profile-topk-track" aria-hidden="true">
+                <svg
+                  className="profile-topk-bar-svg"
+                  viewBox="0 0 100 10"
+                  preserveAspectRatio="none"
                 >
-                  <title>{`${bar.value}: ${String(bar.count)}`}</title>
-                </rect>
-              </svg>
-            </span>
-            <span className="profile-topk-count" data-testid="profile-topk-count">
-              {bar.count}
-            </span>
+                  <rect
+                    className="profile-topk-bar"
+                    data-testid="profile-topk-bar"
+                    data-bar-fraction={bar.fraction}
+                    x={0}
+                    y={0}
+                    width={bar.fraction * 100}
+                    height={10}
+                  >
+                    <title>{`${bar.value}: ${String(bar.count)}`}</title>
+                  </rect>
+                </svg>
+              </span>
+              <span className="profile-topk-count" data-testid="profile-topk-count">
+                {bar.count}
+              </span>
+            </button>
           </li>
         ))}
       </ul>
@@ -260,7 +301,15 @@ function TopKChart({
 }
 
 /** One profiled column: identity, kind badge, shared counts, kind-specific display. */
-function ProfileColumnView({ column }: { column: EngineProfileColumn }) {
+function ProfileColumnView({
+  column,
+  onFilterValue,
+  onFilterNull,
+}: {
+  column: EngineProfileColumn
+  onFilterValue: (column: string, value: string) => void
+  onFilterNull: (column: string) => void
+}) {
   return (
     <li
       className="profile-column"
@@ -280,7 +329,21 @@ function ProfileColumnView({ column }: { column: EngineProfileColumn }) {
       <dl className="profile-stats" data-testid="profile-stats">
         <div className="profile-stat" data-testid="profile-stat-row">
           <dt>Nulls</dt>
-          <dd data-testid="profile-null-count">{column.nullCount}</dd>
+          <dd>
+            {/* ug-16: the null count is a real control — it filters the grid
+                to this column's NULL rows through the same bridge as top-k. */}
+            <button
+              type="button"
+              className="profile-filter-button"
+              data-testid="profile-null-count"
+              aria-label={`Filter ${column.name} where null`}
+              onClick={() => {
+                onFilterNull(column.name)
+              }}
+            >
+              {column.nullCount}
+            </button>
+          </dd>
         </div>
         <div className="profile-stat" data-testid="profile-stat-row">
           <dt>Distinct</dt>
@@ -297,13 +360,22 @@ function ProfileColumnView({ column }: { column: EngineProfileColumn }) {
           name={column.name}
           topK={column.categorical.topK}
           distinctCount={column.distinctCount}
+          onFilterValue={onFilterValue}
         />
       )}
     </li>
   )
 }
 
-function ProfileTable({ profile }: { profile: ProfileData }) {
+function ProfileTable({
+  profile,
+  onFilterValue,
+  onFilterNull,
+}: {
+  profile: ProfileData
+  onFilterValue: (column: string, value: string) => void
+  onFilterNull: (column: string) => void
+}) {
   return (
     <>
       <p className="profile-rowcount" data-testid="profile-rowcount">
@@ -312,7 +384,12 @@ function ProfileTable({ profile }: { profile: ProfileData }) {
       </p>
       <ul className="profile-columns" data-testid="profile-columns">
         {profile.columns.map((column) => (
-          <ProfileColumnView key={column.name} column={column} />
+          <ProfileColumnView
+            key={column.name}
+            column={column}
+            onFilterValue={onFilterValue}
+            onFilterNull={onFilterNull}
+          />
         ))}
       </ul>
     </>
@@ -329,7 +406,15 @@ function ProfileTable({ profile }: { profile: ProfileData }) {
 import { useTelemetry } from '../telemetry/TelemetryContext'
 import { durationSince, profileOutcome } from '../telemetry/emit'
 
-export function ProfilePanel({ handle, stagedCount }: ProfilePanelProps) {
+export function ProfilePanel({
+  handle,
+  stagedCount,
+  onFilterValue,
+  onFilterNull,
+  filterRefusal,
+  filterError,
+  onClearFilterFeedback,
+}: ProfilePanelProps) {
   const telemetry = useTelemetry()
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<ProfileState>({ kind: 'idle' })
@@ -358,6 +443,8 @@ export function ProfilePanel({ handle, stagedCount }: ProfilePanelProps) {
 
   const runProfile = (): void => {
     if (state.kind === 'running') return
+    // ug-16: another profile run clears the click-to-act feedback (design §4.2).
+    onClearFilterFeedback()
     startedAtRef.current = Date.now()
     setState(reduceProfileState(state, { type: 'started' }))
     runGuarded(guard.current, engineClient.profile(handle), {
@@ -431,6 +518,26 @@ export function ProfilePanel({ handle, stagedCount }: ProfilePanelProps) {
               {stagedChangesNote(stagedCount)}
             </p>
           )}
+          {/* ug-16 click-to-act feedback. Both slots are additive: they never
+              replace the R-16 hint/note above, and they are text-only. The
+              refusal slot is value-free (renamed/unresolved/builder rejection
+              copy — column names are schema, never cell values; ADR 0025);
+              the engine-rejection slot keeps the existing framed `filter`
+              error copy after a rollback. */}
+          {filterRefusal !== null && (
+            <p
+              className="profile-filter-refusal"
+              role="status"
+              data-testid="profile-filter-refusal"
+            >
+              {filterRefusal}
+            </p>
+          )}
+          {filterError !== null && (
+            <p className="profile-filter-error" role="alert" data-testid="profile-filter-error">
+              {filterError}
+            </p>
+          )}
           {state.kind === 'idle' && (
             <>
               <p className="profile-hint" data-testid="profile-hint">
@@ -472,7 +579,13 @@ export function ProfilePanel({ handle, stagedCount }: ProfilePanelProps) {
               </button>
             </>
           )}
-          {state.kind === 'done' && <ProfileTable profile={state.profile} />}
+          {state.kind === 'done' && (
+            <ProfileTable
+              profile={state.profile}
+              onFilterValue={onFilterValue}
+              onFilterNull={onFilterNull}
+            />
+          )}
         </div>
       )}
     </section>

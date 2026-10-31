@@ -29,6 +29,14 @@ function fakeRuntime(): WebTelemetryRuntime {
   }
 }
 
+const FILTER_PROPS = {
+  onFilterValue: () => undefined,
+  onFilterNull: () => undefined,
+  filterRefusal: null,
+  filterError: null,
+  onClearFilterFeedback: () => undefined,
+} as const
+
 const HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
 
 afterEach(cleanup)
@@ -45,7 +53,7 @@ describe('ProfilePanel telemetry — profile_run (design §2/Appendix C)', () =>
     const runtime = fakeRuntime()
     render(
       <TelemetryProvider runtime={runtime}>
-        <ProfilePanel handle={HANDLE} stagedCount={0} />
+        <ProfilePanel handle={HANDLE} stagedCount={0} {...FILTER_PROPS} />
       </TelemetryProvider>,
     )
     fireEvent.click(screen.getByTestId('profile-toggle'))
@@ -64,7 +72,7 @@ describe('ProfilePanel telemetry — profile_run (design §2/Appendix C)', () =>
     const runtime = fakeRuntime()
     render(
       <TelemetryProvider runtime={runtime}>
-        <ProfilePanel handle={HANDLE} stagedCount={0} />
+        <ProfilePanel handle={HANDLE} stagedCount={0} {...FILTER_PROPS} />
       </TelemetryProvider>,
     )
     fireEvent.click(screen.getByTestId('profile-toggle'))

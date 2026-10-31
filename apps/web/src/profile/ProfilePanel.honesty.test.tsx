@@ -28,6 +28,14 @@ import { ProfilePanel } from './ProfilePanel'
 
 const HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
 
+const FILTER_PROPS = {
+  onFilterValue: () => undefined,
+  onFilterNull: () => undefined,
+  filterRefusal: null,
+  filterError: null,
+  onClearFilterFeedback: () => undefined,
+} as const
+
 const HINT = 'Statistics describe the file as opened — staged changes are not included.'
 const NOTE_ONE =
   '1 staged change is not reflected here — the grid uses the edited view. Validation must be run explicitly against the edited view.'
@@ -52,7 +60,7 @@ async function renderState(mode: Mode, stagedCount: number): Promise<void> {
   if (mode === 'error') h.profile.mockRejectedValue(new Error('engine down'))
   if (mode === 'done') h.profile.mockResolvedValue(PROFILE)
 
-  render(<ProfilePanel handle={HANDLE} stagedCount={stagedCount} />)
+  render(<ProfilePanel handle={HANDLE} stagedCount={stagedCount} {...FILTER_PROPS} />)
   fireEvent.click(screen.getByTestId('profile-toggle'))
   expect(screen.getByTestId('profile-toggle').getAttribute('aria-expanded')).toBe('true')
   if (mode !== 'idle') fireEvent.click(screen.getByTestId('profile-run'))
@@ -125,18 +133,18 @@ describe('R-16 — staged-changes note at 0/1/N', () => {
   })
 
   it('removes the note when undo/redo returns the active history to 0', async () => {
-    const { rerender } = render(<ProfilePanel handle={HANDLE} stagedCount={1} />)
+    const { rerender } = render(<ProfilePanel handle={HANDLE} stagedCount={1} {...FILTER_PROPS} />)
     fireEvent.click(screen.getByTestId('profile-toggle'))
     expect(screen.getByTestId('profile-staged-note').textContent).toBe(NOTE_ONE)
 
-    rerender(<ProfilePanel handle={HANDLE} stagedCount={0} />)
+    rerender(<ProfilePanel handle={HANDLE} stagedCount={0} {...FILTER_PROPS} />)
     expect(screen.queryByTestId('profile-staged-note')).toBeNull()
     expect(screen.getByTestId('profile-standing-hint').textContent).toBe(HINT)
 
-    rerender(<ProfilePanel handle={HANDLE} stagedCount={1} />)
+    rerender(<ProfilePanel handle={HANDLE} stagedCount={1} {...FILTER_PROPS} />)
     expect(screen.getByTestId('profile-staged-note').textContent).toBe(NOTE_ONE)
 
-    rerender(<ProfilePanel handle={HANDLE} stagedCount={0} />)
+    rerender(<ProfilePanel handle={HANDLE} stagedCount={0} {...FILTER_PROPS} />)
     expect(screen.queryByTestId('profile-staged-note')).toBeNull()
     expect(screen.getByTestId('profile-standing-hint').textContent).toBe(HINT)
   })

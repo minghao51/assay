@@ -8,6 +8,7 @@ import {
   emptyHistory,
   foldOverlay,
   insertRowId,
+  redo,
   stateAtCursor,
   undo,
 } from '@assay/domain'
@@ -23,6 +24,7 @@ import {
   engineRejectionMessage,
   openFailureMessage,
   overlaySnapshot,
+  resolveProfileColumn,
 } from './session'
 
 const BASE: OverlayBase = {
@@ -539,5 +541,128 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(result.restoreFailed).toBe(true)
     expect(result.message).toContain('Restoring the previous view also failed')
     expect(result.message).toContain('engine unavailable')
+  })
+})
+
+/**
+ * ug-16 design §4.1 — base-derived profile column resolution against the
+ * *current* effective schema. These pins are the resolver half; the copy and
+ * the compile half live in `profile/filter-action.test.ts`.
+ */
+describe('resolveProfileColumn — base-derived names on the edited view (ug-16)', () => {
+  const rename = (from: string, to: string) => ({ kind: 'column-rename' as const, from, to })
+  const schema = (...names: string[]): { name: string; type: string }[] =>
+    names.map((name) => ({ name, type: 'VARCHAR' }))
+
+  it('resolves a name present in the effective schema as itself', () => {
+    expect(resolveProfileColumn('country', [], schema('id', 'country'))).toEqual({
+      kind: 'resolved',
+      column: 'country',
+    })
+  })
+
+  it('follows a single active rename and reports both names', () => {
+    expect(
+      resolveProfileColumn('country', [rename('country', 'nation')], schema('id', 'nation')),
+    ).toEqual({ kind: 'renamed', base: 'country', current: 'nation' })
+  })
+
+  it('follows a chained rename in op order (a→b→c lands on c)', () => {
+    expect(
+      resolveProfileColumn(
+        'country',
+        [rename('country', 'nation'), rename('nation', 'homeland')],
+        schema('id', 'homeland'),
+      ),
+    ).toEqual({ kind: 'renamed', base: 'country', current: 'homeland' })
+  })
+
+  it('resolves a rename chain that returns to the original name as itself', () => {
+    expect(
+      resolveProfileColumn(
+        'country',
+        [rename('country', 'nation'), rename('nation', 'country')],
+        schema('id', 'country'),
+      ),
+    ).toEqual({ kind: 'resolved', column: 'country' })
+  })
+
+  it('is unresolved when neither the base name nor the chain end is in the schema', () => {
+    // A future column-drop (or a chain whose end is gone) falls here: the
+    // generic refusal, never a guess.
+    expect(resolveProfileColumn('country', [], schema('id', 'income'))).toEqual({
+      kind: 'unresolved',
+      base: 'country',
+    })
+    expect(
+      resolveProfileColumn('country', [rename('country', 'nation')], schema('id', 'income')),
+    ).toEqual({ kind: 'unresolved', base: 'country' })
+  })
+
+  it('ignores non-rename ops and other columns\u2019 renames (mixed columns)', () => {
+    const ops = [
+      {
+        kind: 'cell-set' as const,
+        rowId: baseRowId(BASE.baseAnchor, 0),
+        column: 'label',
+        value: { kind: 'string' as const, value: 'a' },
+      },
+      { kind: 'column-cast' as const, column: 'id', targetType: 'VARCHAR' },
+      rename('label', 'caption'),
+    ]
+    // `country` is untouched by any of them.
+    expect(resolveProfileColumn('country', ops, schema('id', 'country', 'caption'))).toEqual({
+      kind: 'resolved',
+      column: 'country',
+    })
+    // ...and the renamed column follows its own chain.
+    expect(resolveProfileColumn('label', ops, schema('id', 'country', 'caption'))).toEqual({
+      kind: 'renamed',
+      base: 'label',
+      current: 'caption',
+    })
+  })
+
+  it('re-resolves per click from the active ops, so undo/redo change the answer', () => {
+    const first = appendOp(BASE, emptyHistory(), rename('label', 'caption'))
+    const second = appendOp(BASE, first.history, rename('caption', 'title'))
+
+    // cursor 2: both renames active → base `label` lands on `title`.
+    expect(resolveProfileColumn('label', activeOps(second.history), schema('id', 'title'))).toEqual(
+      { kind: 'renamed', base: 'label', current: 'title' },
+    )
+
+    // Undo one: only the first rename is active → `caption` is the current name.
+    const undone = undo(second.history).history
+    expect(activeOps(undone)).toHaveLength(1)
+    expect(resolveProfileColumn('label', activeOps(undone), schema('id', 'caption'))).toEqual({
+      kind: 'renamed',
+      base: 'label',
+      current: 'caption',
+    })
+
+    // Undo to 0: no active op, the base name resolves as itself again.
+    const undoneAll = undo(undone).history
+    expect(activeOps(undoneAll)).toHaveLength(0)
+    expect(resolveProfileColumn('label', activeOps(undoneAll), schema('id', 'label'))).toEqual({
+      kind: 'resolved',
+      column: 'label',
+    })
+
+    // Redo re-applies the chain (cursor 1 → renamed again).
+    const redone = redo(undoneAll).history
+    expect(resolveProfileColumn('label', activeOps(redone), schema('id', 'caption'))).toEqual({
+      kind: 'renamed',
+      base: 'label',
+      current: 'caption',
+    })
+  })
+
+  it('treats a rename chain end that is absent from the schema as unresolved (no guessing)', () => {
+    // `label` → `caption`, but the effective schema only has the intermediate
+    // spelling: nothing in the chain lands, so the answer is a generic refusal.
+    expect(
+      resolveProfileColumn('label', [rename('label', 'caption')], schema('id', 'label-x')),
+    ).toEqual({ kind: 'unresolved', base: 'label' })
   })
 })

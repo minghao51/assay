@@ -33,7 +33,7 @@ import { EditToolbar } from './edit/EditToolbar'
 import { ExportDialog } from './export/ExportDialog'
 import type { SourceIdentity } from './export/save-destination'
 import { HistoryPanel } from './edit/HistoryPanel'
-import { activeOps, openFailureMessage, overlaySnapshot } from './edit/session'
+import { activeOps, engineErrorMessage, openFailureMessage, overlaySnapshot } from './edit/session'
 import { pendingChangesSummary } from './edit/op-summary'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
 import {
@@ -58,6 +58,9 @@ import type { RecordRequest } from './record/RecordInspector'
 import { parseDuckDbType } from './schema/parseType'
 import { SchemaPanel } from './schema/SchemaPanel'
 import { composeNestedAction } from './sql/nested-actions'
+import { planProfileFilter } from './profile/filter-action'
+import type { ProfileFilterIntent } from './profile/filter-action'
+import { replaceColumnFilter } from './grid/query-state'
 import type { NestedAction } from './sql/nested-actions'
 import type { SqlRunRequest } from './sql/SqlPanel'
 import { writeReportCopy } from './validation/report-export'
@@ -894,6 +897,76 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   )
 
   /**
+   * ug-16 profile click-to-act bridge. The profile is base-derived (R-16), the
+   * grid runs on the overlay-effective view — so a click is planned against
+   * the *active ops at the history cursor* and the *effective schema* before
+   * anything is compiled or applied:
+   *
+   * - `refuse` (renamed / unresolved / builder rejection) applies no filter,
+   *   changes no filter state, makes no engine call, and renders the planner's
+   *   single-line, value-free message in the profile's refusal slot;
+   * - `apply` compiles through the existing grid builder against the effective
+   *   column type, then replaces that column's filter with
+   *   `replaceColumnFilter` + `model.setFilters` (the FilterBar path, chips
+   *   included — no new chip code). An engine rejection rolls the previous
+   *   filter list back and surfaces the existing framed `filter` error copy.
+   *
+   * The refusal/error feedback is cleared on the next click, a profile re-run
+   * (the panel calls `clearProfileFilterFeedback`), undo/redo (cursor move),
+   * and a new dataset — the copy always describes the state it was computed
+   * against. Nothing here re-profiles, remaps, coerces, or logs.
+   */
+  const [profileFilterRefusal, setProfileFilterRefusal] = useState<string | null>(null)
+  const [profileFilterError, setProfileFilterError] = useState<string | null>(null)
+  const clearProfileFilterFeedback = useCallback(() => {
+    setProfileFilterRefusal(null)
+    setProfileFilterError(null)
+  }, [])
+  const activeTableId = phase.kind === 'ready' ? phase.tableId : null
+  useEffect(() => {
+    clearProfileFilterFeedback()
+  }, [clearProfileFilterFeedback, history.cursor, activeTableId])
+
+  const applyProfileFilter = useCallback(
+    (baseColumn: string, intent: ProfileFilterIntent): void => {
+      clearProfileFilterFeedback()
+      if (phase.kind !== 'ready') return
+      const plan = planProfileFilter(
+        baseColumn,
+        intent,
+        activeOps(history),
+        modelSchema ?? NO_COLUMNS,
+      )
+      if (plan.kind === 'refuse') {
+        setProfileFilterRefusal(plan.message)
+        return
+      }
+      const previous = phase.model.filters
+      const next = replaceColumnFilter(previous, plan.column, plan.predicate)
+      void (async () => {
+        try {
+          await phase.model.setFilters(next)
+        } catch (cause) {
+          const message = engineErrorMessage('filter', cause)
+          try {
+            await phase.model.setFilters(previous)
+            setProfileFilterError(message)
+          } catch {
+            // Same double-failure honesty as the FilterBar: the single-failure
+            // framing would claim the previous filters are back in effect,
+            // which is exactly what could not be restored.
+            setProfileFilterError(
+              'The filter could not be applied and the previous filters could not be restored. ' +
+                'Re-apply a filter or reopen the dataset if the grid looks wrong.',
+            )
+          }
+        }
+      })()
+    },
+    [clearProfileFilterFeedback, history, modelSchema, phase],
+  )
+
+  /**
    * `validation_run` (design §2/Appendix C): emitted once a run settles —
    * verdict, binding error, engine failure, or abort. The duration is
    * measured from the `running` transition; the counts are value-free (rule
@@ -1569,6 +1642,17 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                           // difference) — the panel labels staged changes as
                           // not reflected in these base-view statistics.
                           stagedCount={activeOps(history).length}
+                          // ug-16: base-derived statistic clicks go through
+                          // the resolve-then-compile bridge above.
+                          onFilterValue={(column, value) => {
+                            applyProfileFilter(column, { kind: 'value', value })
+                          }}
+                          onFilterNull={(column) => {
+                            applyProfileFilter(column, { kind: 'null' })
+                          }}
+                          filterRefusal={profileFilterRefusal}
+                          filterError={profileFilterError}
+                          onClearFilterFeedback={clearProfileFilterFeedback}
                         />
                       )}
                     </PanelBoundary>

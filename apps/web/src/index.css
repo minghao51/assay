@@ -1453,6 +1453,58 @@ h1 {
   font-size: 0.85rem;
 }
 
+/* ug-16: profile statistics click-to-act. The top-k rows and the null count
+   are real buttons; the reset keeps the existing text layout (the row keeps
+   its value/bar/count columns) while exposing the whole row as one control.
+   The refusal slot is a single-line, value-free status; the engine-rejection
+   slot reuses the framed `filter` copy. */
+.profile-filter-button {
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.profile-filter-button:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface-alt);
+}
+
+.profile-filter-button:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 1px;
+}
+
+.profile-topk-filter {
+  display: grid;
+  grid-template-columns: minmax(6rem, 14rem) 1fr 4rem;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0 0.15rem;
+}
+
+.profile-filter-refusal {
+  margin: 0;
+  color: var(--color-warning-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.profile-filter-error {
+  margin: 0;
+  color: var(--color-error-text);
+  font-weight: 600;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
 /* ---- Cell editing + row ops (m4-3) ---- */
 
 .edit-toolbar {
