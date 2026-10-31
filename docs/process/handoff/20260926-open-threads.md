@@ -11,8 +11,8 @@
 > historical. GitHub Actions has been M6-blocked since 2026-10-15. The local runtime baseline is
 > recorded at `385649b` — 195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage
 > 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 119/0), ADR 46. The live
-> frontier is **ug-17 (Shell)** / **ug-4 (Grid)** / **ug-20 (Panels, now eligible)**, with
-> **uxv-1 eligible only under an exclusive CSS/theme-test reservation**. Live changesets: **176**.
+> frontier is **ug-4 (Grid)** / **ug-20 (Panels)** / **ug-21 (Shell)**, with
+> **uxv-1 eligible only under an exclusive CSS/theme-test reservation**. Live changesets: **177**.
 > Use [handoff](../handoff.md) and the
 > [usability](20261026-usability-queue.md)/[visual](20261026-ux-ui-execution-queue.md) queues for
 > current state; the September evidence below is preserved, not dispatchable.
@@ -52,19 +52,20 @@
    desktop-extension webview** (vscode-web stays RE-SCOPE) → PT-V slice-1 planning next. No active
    queue. G0 tail stays human-only (§3).
 7. **Now (2026-10-31): usability + visual continuation is the active pickup** —
-   [usability queue](20261026-usability-queue.md) (23 rows; **ug-1/2/3/7/8/9/10/13/14/15/16 CLOSED**, 12 remain)
+   [usability queue](20261026-usability-queue.md) (23 rows; **ug-1/2/3/7/8/9/10/13/14/15/16/17 CLOSED**, 11 remain)
    and [visual queue](20261026-ux-ui-execution-queue.md)
    (**uxv-0 recorded; uxv-1 eligible only with an exclusive CSS/theme-test reservation; uxv-2…5
-   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-17 (Shell)**, **ug-4 (Grid)**
-   and **ug-20 (Panels, now eligible)**.
+   dependency-gated; uxv-6 deferred**). Next runtime rows are **ug-4 (Grid)**, **ug-20 (Panels)**
+   and **ug-21 (Shell)**.
    Baseline recorded at `385649b`: 195 unit files / 3089 tests, e2e 185 passed + 1 skipped,
    coverage 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 119/0), ADR 46.
    **ug-14 (Shell) CLOSED 2026-10-30** at `c694eca` (199f/3121t, e2e 186p+1s, coverage
    88.58/82.72/89.81/90.13) and **ug-15 (Shell) CLOSED 2026-10-30** at `8a38e0e` (200f/3127t, e2e
    188p+1s, coverage 88.59/82.73/89.83/90.15; see usability queue §1/§5).
    **ug-10 (Panels) CLOSED 2026-10-30** at `f667a87` (202f/3142t, e2e 189p+1s, coverage
-   88.60/82.74/89.83/90.15) and **ug-16 (Panels) CLOSED 2026-10-31** at `3b494f5` (205f/3183t, e2e
-   192p+1s, coverage 88.72/82.77/90.39/90.31).
+   88.60/82.74/89.83/90.15), **ug-16 (Panels) CLOSED 2026-10-31** at `3b494f5` (205f/3183t, e2e
+   192p+1s, coverage 88.72/82.77/90.39/90.31) and **ug-17 (Shell) CLOSED 2026-10-31** at `9a31cd6`
+   (206f/3190t, e2e 193p+1s, coverage 88.84/83.41/90.68/90.44).
    The UX-D1 [amendment brief](20261029-ux-d1-amendment.md) is **DECIDED (Option C, 2026-10-30)** and
    **ug-10 landed at `f667a87`** (R-16 implemented); the overlay-aware profile is a planning-only
    engine candidate ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)). Historical ug evidence/commits are in the usability queue §1/§5;
