@@ -143,5 +143,11 @@ dependencies, broad restyle, telemetry, `innerHTML`, push.
 
 - Design pass: 2026-10-30, orchestrator, at the maintainer's request.
 - Governs: `ug-16` queue row (Panels lane), which becomes dispatchable with this contract.
+- **Implemented 2026-10-31** at `3b494f5` (worker `opencode-go/deepseek-v4.1-flash`: `9c5310b` +
+  review fix `472be2a`; integrated as `30063f4` + `3b494f5`). Independent `openai-codex/gpt-6-luna`
+  xhigh reviewer: request-changes on two async-lifecycle Majors (failure rollback vs a later
+  action; late old-session rejection), fixed and approved on a fresh re-review. Row CLOSED with
+  merged verification in the usability queue; the resolution rule, byte-exact copy and acceptance
+  criteria above shipped as written. Panels successor `ug-20` is now eligible.
 - Related: R-16 (spec §2), ug-10 (closed `f667a87`), ug-20 (next after ug-16), R-09…R-13 (visual
   queue, untouched).

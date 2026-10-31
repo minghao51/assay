@@ -1,10 +1,11 @@
 # Assay UX/UI Implementation Spec
 
-**Authored 2026-10-26; status refreshed 2026-10-30.** The authoring date records when the
-contract was written, not the current implementation state. As of 2026-10-30, R-01…R-08, R-14
+**Authored 2026-10-26; status refreshed 2026-10-31.** The authoring date records when the
+contract was written, not the current implementation state. As of 2026-10-31, R-01…R-08, R-14
 and R-15 are implemented and merged-verified; R-09…R-13 remain open (uxv-1 is eligible pending an
 exclusive CSS/theme-test reservation); **R-16 is implemented at `f667a87`** under the maintainer's
-UX-D1 Option C ruling (2026-10-30). This is the execution
+UX-D1 Option C ruling (2026-10-30); **ug-16 profile click-to-act is implemented at `3b494f5`**
+under the settled typed-refusal design (no new R-ID). This is the execution
 contract for the bounded improvements requested after the
 [investigation plan](08-ux-ui-engine-showcase-plan.md).
 The [usability queue](../process/handoff/20261026-usability-queue.md) owns ug tasks; the
@@ -24,9 +25,12 @@ status. Start with the [pickup prompts](../process/handoff/20261026-ux-ui-pickup
 - Implementation requires a fresh clean-main baseline. Existing probe screenshots and historical
   green counts are not that baseline. This spec records requirements, not task completions; §8 is
   the pointer index to implemented rows and their evidence.
-- ug-10 is **implemented at `f667a87`** (UX-D1 Option C, R-16); its Panels successor ug-16 is next
-  and **READY** (renamed/deleted-column design settled: typed refusal, no remap), then ug-20.
-  Adjustable SQL sizing remains design-only. All other
+- ug-10 is **implemented at `f667a87`** (UX-D1 Option C, R-16); ug-16 (profile stats
+  click-to-act) is **implemented at `3b494f5`** under its settled typed-refusal design
+  ([record](../process/handoff/20261030-ug16-renamed-column-design.md)): a base-derived stat is
+  actionable only when its column resolves on the edited view, nothing is ever silently remapped,
+  and cast/type mismatch never coerces. Its Panels successor ug-20 is next. Adjustable SQL sizing
+  remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
 ## 2. Requirements and UI states
@@ -248,16 +252,17 @@ then restoration **and a rebuild of restored source** before claiming a clean ve
 
 ### Focused evidence (in addition to gates)
 
-| Owner   | Focused commands / pins                                                                                                                                                                                                                                                                                       |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ug-1    | `pnpm exec playwright test tests/e2e/nested-journey.spec.ts tests/e2e/a11y-keyboard.spec.ts`; outcome/sequence unit tests where added; real collapsed defaults and focus assertions.                                                                                                                          |
-| ug-2/3  | `pnpm exec vitest run apps/web/src/lib/app.test.ts apps/web/src/App.open-status.test.tsx packages/data-sources/src/pick-file.test.ts`; `pnpm exec playwright test tests/e2e/smoke.spec.ts tests/e2e/data-sources.spec.ts tests/e2e/shell.spec.ts`; add example cold-start pin for ug-3.                       |
-| ug-4    | `pnpm exec vitest run apps/web/src/grid/DataGrid.keyboard.test.tsx apps/web/src/App.shell.test.tsx`; `pnpm exec playwright test tests/e2e/a11y-keyboard.spec.ts tests/e2e/grid-editing.spec.ts`; hint visible on first ready paint, footer shortcut list and `aria-describedby` pins.                         |
-| ug-14   | `pnpm exec vitest run apps/web/src/App.open-status.test.tsx apps/web/src/grid/FilterBar.test.tsx`; `pnpm exec playwright test tests/e2e/data-sources.spec.ts tests/e2e/smoke.spec.ts tests/e2e/shell.spec.ts`; add a corrupt-fixture open-error retry pin and a single-line message pin per adopted panel.    |
-| ug-7    | `pnpm exec vitest run apps/web/src/ErrorBoundary.test.tsx apps/web/src/App.error-boundary.test.tsx apps/web/src/App.shell.test.tsx`; new real request-consumption/remount pins; retry/wrapper mutants must fail.                                                                                              |
-| uxv-1/2 | `pnpm exec playwright test tests/e2e/theme.spec.ts tests/e2e/a11y.spec.ts tests/e2e/telemetry.spec.ts`; telemetry component tests; uxv-1 configured disclosure leg below.                                                                                                                                     |
-| uxv-3   | `pnpm exec vitest run apps/web/src/App.memo-probe.test.tsx apps/web/src/App.shell.test.tsx`; `pnpm exec playwright test tests/e2e/shell.spec.ts tests/e2e/grid-horizontal.spec.ts tests/e2e/grid-virtualization.spec.ts tests/e2e/theme.spec.ts tests/e2e/a11y-keyboard.spec.ts`; geometry/focus/scroll pins. |
-| uxv-4/5 | Add explanatory-copy pin; built nested/M5/M6 rehearsals respectively. Re-derive fixture counts; docs links and privacy/source-claim review.                                                                                                                                                                   |
+| Owner   | Focused commands / pins                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ug-1    | `pnpm exec playwright test tests/e2e/nested-journey.spec.ts tests/e2e/a11y-keyboard.spec.ts`; outcome/sequence unit tests where added; real collapsed defaults and focus assertions.                                                                                                                                                                                                                                                                                                                                                |
+| ug-2/3  | `pnpm exec vitest run apps/web/src/lib/app.test.ts apps/web/src/App.open-status.test.tsx packages/data-sources/src/pick-file.test.ts`; `pnpm exec playwright test tests/e2e/smoke.spec.ts tests/e2e/data-sources.spec.ts tests/e2e/shell.spec.ts`; add example cold-start pin for ug-3.                                                                                                                                                                                                                                             |
+| ug-4    | `pnpm exec vitest run apps/web/src/grid/DataGrid.keyboard.test.tsx apps/web/src/App.shell.test.tsx`; `pnpm exec playwright test tests/e2e/a11y-keyboard.spec.ts tests/e2e/grid-editing.spec.ts`; hint visible on first ready paint, footer shortcut list and `aria-describedby` pins.                                                                                                                                                                                                                                               |
+| ug-14   | `pnpm exec vitest run apps/web/src/App.open-status.test.tsx apps/web/src/grid/FilterBar.test.tsx`; `pnpm exec playwright test tests/e2e/data-sources.spec.ts tests/e2e/smoke.spec.ts tests/e2e/shell.spec.ts`; add a corrupt-fixture open-error retry pin and a single-line message pin per adopted panel.                                                                                                                                                                                                                          |
+| ug-16   | `pnpm exec vitest run apps/web/src/profile apps/web/src/edit/session.test.ts apps/web/src/App.profile-filter.test.tsx`; `pnpm exec playwright test tests/e2e/profile-panel.spec.ts tests/e2e/profile-honesty.spec.ts tests/e2e/profile-filter.spec.ts`; top-k/null predicates pinned at the model boundary; byte-exact renamed/unresolved refusals with NO filter (never remapped); cast/type rejection without coercion; zero-row resolved click keeps the empty state; single-flight and attempt/session-identity lifecycle pins. |
+| ug-7    | `pnpm exec vitest run apps/web/src/ErrorBoundary.test.tsx apps/web/src/App.error-boundary.test.tsx apps/web/src/App.shell.test.tsx`; new real request-consumption/remount pins; retry/wrapper mutants must fail.                                                                                                                                                                                                                                                                                                                    |
+| uxv-1/2 | `pnpm exec playwright test tests/e2e/theme.spec.ts tests/e2e/a11y.spec.ts tests/e2e/telemetry.spec.ts`; telemetry component tests; uxv-1 configured disclosure leg below.                                                                                                                                                                                                                                                                                                                                                           |
+| uxv-3   | `pnpm exec vitest run apps/web/src/App.memo-probe.test.tsx apps/web/src/App.shell.test.tsx`; `pnpm exec playwright test tests/e2e/shell.spec.ts tests/e2e/grid-horizontal.spec.ts tests/e2e/grid-virtualization.spec.ts tests/e2e/theme.spec.ts tests/e2e/a11y-keyboard.spec.ts`; geometry/focus/scroll pins.                                                                                                                                                                                                                       |
+| uxv-4/5 | Add explanatory-copy pin; built nested/M5/M6 rehearsals respectively. Re-derive fixture counts; docs links and privacy/source-claim review.                                                                                                                                                                                                                                                                                                                                                                                         |
 
 All Playwright legs use freshly built output. Add missing requirement tests; existing file names
 are starting points, not proof that their current assertions already cover this spec.

@@ -22,8 +22,9 @@ every use; a prompt never overrides a closed/claimed/blocked row.
 - **UX-D1 RESOLVED 2026-10-30 (Option C); ug-10 CLOSED at `f667a87`:** R-16 shipped (base-as-opened
   hint + staged-changes note, no stale/re-run banner). The overlay-aware profile is a separate
   planning-only engine candidate ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)),
-  not authorized for dispatch. **ug-16 is next and READY** (design settled: typed refusal, no remap;
-  see [the design record](20261030-ug16-renamed-column-design.md) and §3b), then ug-20.
+  not authorized for dispatch. **ug-16 CLOSED 2026-10-31 at `3b494f5`** (profile stats
+  click-to-act; typed refusal, no remap; see [the design record](20261030-ug16-renamed-column-design.md)),
+  so its Panels successor **ug-20 is now eligible**.
 - **Ownership:** the usability queue owns R-01…R-08, R-14, R-15 and R-16; the
   [visual queue](20261026-ux-ui-execution-queue.md) owns R-09…R-13.
 - **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent
@@ -61,15 +62,15 @@ uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unkn
 
 Select one of these eligible candidates, one bounded row per worker, with an independent reviewer
 (no new cross-lane dependency is imposed by this list):
-1) ug-16 (Panels) — READY: profile stats click-to-act; design settled (typed refusal, no remap).
-   Use §3b.
-2) ug-17 (Shell) — state summaries on collapsed section toggles (no ready-to-paste brief in this
+1) ug-17 (Shell) — state summaries on collapsed section toggles (no ready-to-paste brief in this
    pack yet; use the ug-14 template shape, and read the live ug-17 row).
-3) ug-4 (Grid) — visible grid interaction language.
+2) ug-4 (Grid) — visible grid interaction language.
+3) ug-20 (Panels) — validation on-ramp + filter-replacement disclosure (eligible after ug-16's
+   landed `3b494f5`; no ready-to-paste brief in this pack yet — read the live ug-20 row).
 4) uxv-1 (Visual) — theme completeness, ONLY if you can hold an exclusive CSS/theme-test
    reservation; otherwise keep it unclaimed and do not improvise a styling batch.
-Do not redispatch closed rows ug-1/2/3/7/8/9/10/13/14/15. Do not dispatch ug-20 (behind ug-16),
-uxv-2…5 (dependencies), or uxv-6 (design-only). The overlay-profile candidate is planning only.
+Do not redispatch closed rows ug-1/2/3/7/8/9/10/13/14/15/16. Do not dispatch uxv-2…5
+(dependencies) or uxv-6 (design-only). The overlay-profile candidate is planning only.
 
 Before dispatch, reserve shared files and state the reservation in the brief. Lanes are NOT
 absolutely parallel-safe: App/CSS/FilterBar are touched by ug-14/ug-23 (Shell) and ug-18 (Grid).
@@ -149,7 +150,11 @@ Leave one bounded fix(web): commit plus changeset. No push, no self-approval, no
 Report files, requirement evidence, exact commands/exit codes/counts, logs and blockers.
 ```
 
-## 3b. Worker — ug-16 (Panels) — READY 2026-10-30
+## 3b. Worker — ug-16 (Panels) — CLOSED 2026-10-31, do not dispatch
+
+> Retained only as the shape of a bounded worker brief. ug-16 is CLOSED at `3b494f5` (feature
+> `30063f4` + review fix `3b494f5`, worker commits `9c5310b`/`472be2a`). The next Panels row is
+> **ug-20**; ug-17 (Shell) and ug-4 (Grid) remain eligible. Do not paste this as a live task.
 
 ```text
 Implement exactly ug-16: profile stats click-to-act, under the settled design.
