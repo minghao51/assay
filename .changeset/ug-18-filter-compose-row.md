@@ -1,0 +1,11 @@
+---
+'@assay/web': minor
+---
+
+fix(web): filter panel compose row, editable active rows, and collapsed chips (ug-18, findings UG-16/UG-17).
+
+The expanded filter body no longer renders one builder row per column. It starts with a single compose row — the visible label `Filter on:` plus `filter-compose-column` (the schema columns), `filter-compose-operator` (the selected column kind's catalog, reset to that kind's default when the column changes), `filter-compose-value` (only for operators that take a value) and `filter-compose-apply`. Apply compiles through the existing pure `compileFilterInput` and lands through the unchanged `replaceColumnFilter` + pending/rollback path, so the `FilterSpec` grammar, the engine, and the grid protocol are untouched. A builder rejection stays client-side: one value-free `filter-builder-error` line, no engine call. A successful apply clears only the value input, keeping the column and operator selected for the next filter.
+
+Below it, each active filter gets an editable row (`filter-active-row`, `data-col-name`): the column name as fixed text, a predicate input pre-filled with the current predicate (the app's established "apply this predicate to this column" semantics), `Apply` (replaces that column's filter; an emptied input removes it exactly like `replaceColumnFilter`) and `Remove`. The per-column SQL-fragment escape hatch is unchanged in behavior but now lives inside a native `<details data-testid="filter-sql-disclosure">` whose summary is `SQL predicates`, together with its hint.
+
+The collapsed summary names the active columns — `Filters` at zero and `Filters · <N> active: <column1>, <column2>` (comma+space, active-filter order) at N ≥ 1 — and, while collapsed, the chips with their remove buttons render in the header row BESIDE the toggle (siblings, never nested inside the button). Collapsed-chip removal goes through the same pending-guarded `removeFilter`/rollback path, and the expanded body keeps its own detailed chip list (the two are mutually exclusive, so no chip renders twice). The uxc-4 latch/collapse-mid-apply semantics, Enter-to-apply, the programmatic `setFilters` bridges and the framed `filter` error are preserved. Copy is counts plus column names only — no cell values, no file names, no telemetry (ADR 0025).

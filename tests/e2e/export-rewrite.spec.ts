@@ -78,9 +78,18 @@ async function exportFormat(page: Page, format: string): Promise<Download> {
   return downloadPromise
 }
 
+/** Open the collapsed `SQL predicates` escape hatch (ug-18). */
+async function openSqlPredicates(page: Page): Promise<void> {
+  const disclosure = page.getByTestId('filter-sql-disclosure')
+  if ((await disclosure.getAttribute('open')) === null) {
+    await disclosure.locator('summary').click()
+  }
+}
+
 /** Apply one column predicate through the filter bar (m2-3 pattern). */
 async function filterBy(page: Page, column: string, predicate: string): Promise<void> {
   await openFilterBar(page)
+  await openSqlPredicates(page)
   await page.locator(`[data-testid="filter-input"][data-col-name="${column}"]`).fill(predicate)
   await page.locator(`[data-testid="filter-apply"][data-col-name="${column}"]`).click()
 }

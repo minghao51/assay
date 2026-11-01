@@ -336,6 +336,12 @@ test('rapid epoch changes settle consistently — no stale/in-flight window rend
   // must reflect ONLY the last query, with no lingering loading placeholders.
   await page.locator('[data-testid="grid-sort-toggle"][data-col-name="income"]').click()
   await openFilterBar(page)
+  // ug-18: the per-column SQL-fragment inputs live behind the `SQL predicates`
+  // disclosure; open it to drive the same fragment path.
+  const sqlDisclosure = page.getByTestId('filter-sql-disclosure')
+  if ((await sqlDisclosure.getAttribute('open')) === null) {
+    await sqlDisclosure.locator('summary').click()
+  }
   await page.locator('[data-testid="filter-input"][data-col-name="country"]').fill("= 'US'")
   await page.locator('[data-testid="filter-apply"][data-col-name="country"]').click()
   await page.locator('[data-testid="grid-sort-toggle"][data-col-name="income"]').click() // desc

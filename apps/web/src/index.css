@@ -1030,6 +1030,15 @@ h1 {
   gap: 0.5rem;
 }
 
+/* ug-18: the toggle and the collapsed chips share one header row. The chips
+   are SIBLINGS of the toggle (a button cannot contain interactive controls). */
+.filter-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+}
+
 .filter-toggle {
   align-self: flex-start;
   display: inline-flex;
@@ -1053,23 +1062,21 @@ h1 {
   gap: 0.5rem;
 }
 
-.filter-builder {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1.25rem;
-}
-
-.filter-builder-column {
+/* ug-18: the single compose row that replaces the per-column builder wall. */
+.filter-compose {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
 }
 
-.filter-builder-operator,
-.filter-builder-value {
+.filter-compose-label {
+  font-weight: 600;
+}
+
+.filter-compose-column,
+.filter-compose-operator,
+.filter-compose-value {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.2rem 0.4rem;
@@ -1077,15 +1084,53 @@ h1 {
   border-radius: 3px;
 }
 
-.filter-builder-value {
+.filter-compose-value {
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  min-width: 8rem;
+  min-width: 10rem;
 }
 
-.filter-builder-apply {
+.filter-compose-apply {
   font: inherit;
   padding: 0.2rem 0.55rem;
   cursor: pointer;
+}
+
+/* ug-18: one editable row per active filter. */
+.filter-active-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.filter-active-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.filter-active-remove {
+  font: inherit;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+/* ug-18: the SQL-fragment escape hatch lives in its own labeled disclosure. */
+.filter-sql-disclosure {
+  border-top: 1px dashed var(--color-border);
+  padding-top: 0.4rem;
+}
+
+.filter-sql-summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
 }
 
 .filter-builder-error {

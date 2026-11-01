@@ -5,23 +5,15 @@ import type { FilterSpec, GridViewportModel } from '@assay/grid'
 import { domId } from '../lib/dom-id'
 import { engineErrorMessage } from '../edit/session'
 import { replaceColumnFilter } from './query-state'
-import {
-  classifyColumnType,
-  compileFilterInput,
-  defaultOperatorForKind,
-  filterOperators,
-} from './filter-builder'
+import { classifyColumnType, compileFilterInput, filterOperators } from './filter-builder'
 import type { FilterColumnProfile, FilterOperatorId } from './filter-builder'
 
 interface FilterBarProps {
   model: GridViewportModel
 }
 
-/** Local per-column builder draft (an operator id plus the raw value). */
-interface BuilderDraft {
-  readonly operator: FilterOperatorId
-  readonly value: string
-}
+/** The honest fallback profile for a column the builder cannot classify. */
+const OTHER_PROFILE: FilterColumnProfile = { kind: 'other', temporalKeyword: null }
 
 function errorMessage(error: unknown): string {
   // UG-30: filter failures are framed once, single-line, and name the state
@@ -58,6 +50,11 @@ export function filterBuilderValueId(columnName: string): string {
   return domId('filter-builder-value', columnName)
 }
 
+/** Collision-safe DOM id for an active filter row's predicate input (ug-18). */
+export function filterActivePredicateId(columnName: string): string {
+  return domId('filter-active-predicate', columnName)
+}
+
 /** A value-field placeholder that hints the column's expected shape. */
 function placeholderFor(profile: FilterColumnProfile): string {
   switch (profile.kind) {
@@ -72,18 +69,65 @@ function placeholderFor(profile: FilterColumnProfile): string {
   }
 }
 
+/** The collapsed/expanded summary: the count plus the active column names. */
+function summaryLabel(filters: readonly FilterSpec[]): string {
+  if (filters.length === 0) return 'Filters'
+  const columns = filters.map((filter) => filter.column).join(', ')
+  return `Filters · ${String(filters.length)} active: ${columns}`
+}
+
+/** One active-filter chip: its column+predicate text plus a remove button. */
+function FilterChip({
+  filter,
+  pending,
+  onRemove,
+}: {
+  readonly filter: FilterSpec
+  readonly pending: boolean
+  readonly onRemove: (column: string) => void
+}) {
+  const label = `Remove filter ${filter.column} ${filter.predicate}`
+  return (
+    <li className="filter-chip" data-testid="filter-chip" data-col-name={filter.column}>
+      <code>{`${filter.column} ${filter.predicate}`}</code>
+      <button
+        type="button"
+        className="filter-chip-remove"
+        data-testid="filter-chip-remove"
+        data-col-name={filter.column}
+        aria-label={label}
+        title={label}
+        disabled={pending}
+        onClick={() => {
+          onRemove(filter.column)
+        }}
+      >
+        ×
+      </button>
+    </li>
+  )
+}
+
 /**
- * Filter UI (ux-4, superseding the m2-3 fragment-only editor): a
- * collapsed-by-default disclosure whose summary counts the active filters
- * ("Filters · 2 active"), expanding to a **type-aware operator/value builder**
- * per column plus the preserved **SQL-fragment escape hatch**.
+ * Filter UI (ux-4, reworked by ug-18 / findings UG-16, UG-17): a
+ * collapsed-by-default disclosure whose summary names the active filters
+ * ("Filters · 2 active: salary, date") with the active chips (and their
+ * remove buttons) beside the toggle, expanding to
+ *
+ * 1. **one compose row** — "Filter on: [column ▾] [operator ▾] [value]
+ *    [Apply]" — instead of the old per-column builder wall (UG-16),
+ * 2. **editable rows** for the active filters (column, predicate draft,
+ *    Apply, Remove),
+ * 3. the preserved **SQL-fragment escape hatch**, now behind its own labeled
+ *    `SQL predicates` disclosure.
  *
  * Every accepted change goes through `GridViewportModel.setFilters` (the v1
- * `FilterSpec` grammar is unchanged): the builder compiles its operator+value
- * to a column-qualified predicate fragment (`filter-builder.ts`), the escape
- * hatch forwards the raw fragment, and the chips/active count are read from
- * `model.filters` — so a programmatic `setFilters` (the validation panel's
- * "Show only failing rows" bridge) is reflected too.
+ * `FilterSpec` grammar is unchanged): the compose row compiles its
+ * operator+value to a column-qualified predicate fragment
+ * (`filter-builder.ts`), the active rows and the escape hatch forward their
+ * predicate, and the summary/chips are read from `model.filters` — so a
+ * programmatic `setFilters` (the validation panel's "Show only failing rows"
+ * bridge, or a profile top-k click) is reflected too.
  *
  * Error handling: invalid builder combinations are rejected **client-side**
  * with an inline, value-free message and never reach the engine. The escape
@@ -99,15 +143,34 @@ export function FilterBar({ model }: FilterBarProps) {
 
   const schema = model.schema ?? []
   const [open, setOpen] = useState(false)
+  // One predicate draft per column, shared by the active rows and the SQL
+  // escape hatch (the app's established "apply this predicate to this column"
+  // semantics). It mirrors the accepted list after every successful apply.
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({})
-  const [builderDrafts, setBuilderDrafts] = useState<Readonly<Record<string, BuilderDraft>>>({})
-  const [builderErrors, setBuilderErrors] = useState<Readonly<Record<string, string | undefined>>>(
-    {},
-  )
+  // The compose row's selection: `null` = "not chosen yet", so the row falls
+  // back to the first schema column and that column kind's default operator.
+  const [composeColumn, setComposeColumn] = useState<string | null>(null)
+  const [composeOperator, setComposeOperator] = useState<FilterOperatorId | null>(null)
+  const [composeValue, setComposeValue] = useState('')
+  const [composeError, setComposeError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
   const profiles = new Map(schema.map((column) => [column.name, classifyColumnType(column.type)]))
+
+  // Derived compose selection: a column the schema no longer has (a renamed
+  // column, a reloaded dataset) falls back to the first column, and an
+  // operator that the selected column kind does not offer falls back to that
+  // kind's default — the reset the contract asks for, without an effect that
+  // could race a render.
+  const selectedColumn = schema.find((column) => column.name === composeColumn) ?? schema[0]
+  const selectedProfile =
+    selectedColumn === undefined
+      ? OTHER_PROFILE
+      : (profiles.get(selectedColumn.name) ?? OTHER_PROFILE)
+  const operators = filterOperators(selectedProfile.kind)
+  const operator = operators.find((entry) => entry.id === composeOperator) ?? operators[0]
+  const composeNeedsValue = operator?.needsValue ?? false
 
   // Filter *identity*, not just the active count (uxc-4): a programmatic
   // replacement at the same count — e.g. the validation panel's "Show only
@@ -163,16 +226,18 @@ export function FilterBar({ model }: FilterBarProps) {
     setDrafts(next)
   }
 
+  /** Apply a filter list; `true` when the model accepted it (ug-18 compose). */
   const applyList = async (
     previous: readonly FilterSpec[],
     next: readonly FilterSpec[],
-  ): Promise<void> => {
-    if (pending) return
+  ): Promise<boolean> => {
+    if (pending) return false
     setPending(true)
     setError(null)
     try {
       await model.setFilters(next)
       syncDrafts(next)
+      return true
     } catch (cause) {
       const message = errorMessage(cause)
       try {
@@ -194,37 +259,30 @@ export function FilterBar({ model }: FilterBarProps) {
             'Re-apply a filter or reopen the dataset if the grid looks wrong.',
         )
       }
+      return false
     } finally {
       setPending(false)
     }
   }
 
-  const draftFor = (columnName: string, profile: FilterColumnProfile): BuilderDraft =>
-    builderDrafts[columnName] ?? {
-      operator: defaultOperatorForKind(profile.kind),
-      value: '',
-    }
-
-  const setBuilderDraft = (columnName: string, patch: Partial<BuilderDraft>): void => {
-    const profile = profiles.get(columnName)
-    if (profile === undefined) return
-    setBuilderDrafts((previous) => ({
-      ...previous,
-      [columnName]: { ...draftFor(columnName, profile), ...patch },
-    }))
-  }
-
-  const applyBuilder = (column: string): void => {
-    const profile = profiles.get(column)
-    if (profile === undefined || pending) return
-    const draft = draftFor(column, profile)
-    const result = compileFilterInput(profile, draft.operator, draft.value)
+  const applyCompose = (): void => {
+    if (selectedColumn === undefined || operator === undefined || pending) return
+    const result = compileFilterInput(selectedProfile, operator.id, composeValue)
     if (!result.ok) {
-      setBuilderErrors((previous) => ({ ...previous, [column]: result.message }))
+      // Client-side rejection: one inline line, no engine call (ux-4).
+      setComposeError(result.message)
       return
     }
-    setBuilderErrors((previous) => ({ ...previous, [column]: undefined }))
-    void applyList(model.filters, replaceColumnFilter(model.filters, column, result.predicate))
+    setComposeError(null)
+    const column = selectedColumn.name
+    void applyList(
+      model.filters,
+      replaceColumnFilter(model.filters, column, result.predicate),
+    ).then((accepted) => {
+      // Clear only the value: the column/operator stay selected for the next
+      // filter on the same column (ug-18 contract).
+      if (accepted) setComposeValue('')
+    })
   }
 
   const applyDraft = (column: string): void => {
@@ -243,188 +301,192 @@ export function FilterBar({ model }: FilterBarProps) {
   return (
     <section className="filter-bar" data-testid="filter-bar" aria-label="Filters">
       <h2 className="visually-hidden">Filters</h2>
-      <button
-        type="button"
-        className="filter-toggle"
-        data-testid="filter-toggle"
-        aria-expanded={open}
-        aria-controls="filter-body"
-        onClick={() => {
-          const next = !open
-          setOpen(next)
-          if (next) {
-            // Opening clears the latch so a later programmatic change can
-            // re-open (uxc-4).
-            collapsedRef.current = null
-            latchIncomingRef.current = false
-          } else if (pending) {
-            // Collapsing mid-apply: the visible signature is about to be
-            // replaced, so bind the latch to the incoming set instead —
-            // otherwise the user's own edit would force-open over this
-            // deliberate collapse (uxc-4 round 2, reviewer policy (i)).
-            collapsedRef.current = null
-            latchIncomingRef.current = true
-          } else {
-            // Collapsing latches onto the current filter set.
-            collapsedRef.current = signature
-            latchIncomingRef.current = false
-          }
-        }}
-      >
-        {activeCount > 0 ? `Filters · ${String(activeCount)} active` : 'Filters'}
-      </button>
+      <div className="filter-header">
+        <button
+          type="button"
+          className="filter-toggle"
+          data-testid="filter-toggle"
+          aria-expanded={open}
+          aria-controls="filter-body"
+          onClick={() => {
+            const next = !open
+            setOpen(next)
+            if (next) {
+              // Opening clears the latch so a later programmatic change can
+              // re-open (uxc-4).
+              collapsedRef.current = null
+              latchIncomingRef.current = false
+            } else if (pending) {
+              // Collapsing mid-apply: the visible signature is about to be
+              // replaced, so bind the latch to the incoming set instead —
+              // otherwise the user's own edit would force-open over this
+              // deliberate collapse (uxc-4 round 2, reviewer policy (i)).
+              collapsedRef.current = null
+              latchIncomingRef.current = true
+            } else {
+              // Collapsing latches onto the current filter set.
+              collapsedRef.current = signature
+              latchIncomingRef.current = false
+            }
+          }}
+        >
+          {summaryLabel(model.filters)}
+        </button>
+        {/*
+         * UG-17: the collapsed bar is the recommended posture, so the chips
+         * (and their remove buttons) live BESIDE the toggle, never inside it —
+         * a button may not contain interactive descendants. The expanded body
+         * keeps its own detailed chip list; the two are mutually exclusive so
+         * a chip is never rendered twice.
+         */}
+        {!open && activeCount > 0 && (
+          <ul className="filter-chips filter-chips-header" data-testid="filter-chips-header">
+            {model.filters.map((filter) => (
+              <FilterChip
+                key={`${filter.column}:${filter.predicate}`}
+                filter={filter}
+                pending={pending}
+                onRemove={removeFilter}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
       {open && (
         <div id="filter-body" className="filter-body" data-testid="filter-body">
-          <ul className="filter-builder" data-testid="filter-builder">
-            {schema.map((column) => {
-              const profile = profiles.get(column.name) ?? {
-                kind: 'other' as const,
-                temporalKeyword: null,
-              }
-              const draft = draftFor(column.name, profile)
-              const operators = filterOperators(profile.kind)
-              const operator =
-                operators.find((entry) => entry.id === draft.operator) ?? operators[0]
-              const needsValue = operator?.needsValue ?? false
-              const message = builderErrors[column.name]
-              return (
-                <li
-                  key={column.name}
-                  className="filter-builder-column"
-                  data-testid="filter-builder-column"
-                  data-col-name={column.name}
-                >
-                  <label
-                    className="filter-label"
-                    htmlFor={needsValue ? filterBuilderValueId(column.name) : undefined}
-                  >
+          {/* UG-16: exactly ONE compose row replaces the per-column wall. */}
+          {selectedColumn !== undefined && (
+            <div className="filter-compose" data-testid="filter-compose">
+              <label className="filter-compose-label" htmlFor="filter-compose-column">
+                Filter on:
+              </label>
+              <select
+                id="filter-compose-column"
+                className="filter-compose-column"
+                data-testid="filter-compose-column"
+                value={selectedColumn.name}
+                disabled={pending}
+                onChange={(event) => {
+                  // A different column kind gets that kind's default operator
+                  // and a fresh value (the shapes differ per kind).
+                  setComposeColumn(event.target.value)
+                  setComposeOperator(null)
+                  setComposeValue('')
+                  setComposeError(null)
+                }}
+              >
+                {schema.map((column) => (
+                  <option key={column.name} value={column.name}>
                     {column.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="filter-compose-operator"
+                data-testid="filter-compose-operator"
+                aria-label="Filter operator"
+                value={operator?.id ?? ''}
+                disabled={pending}
+                onChange={(event) => {
+                  setComposeOperator(event.target.value as FilterOperatorId)
+                  setComposeError(null)
+                }}
+              >
+                {operators.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+              {composeNeedsValue && (
+                <input
+                  id={filterBuilderValueId(selectedColumn.name)}
+                  className="filter-compose-value"
+                  data-testid="filter-compose-value"
+                  aria-label="Filter value"
+                  type="text"
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder={placeholderFor(selectedProfile)}
+                  value={composeValue}
+                  disabled={pending}
+                  onChange={(event) => {
+                    setComposeValue(event.target.value)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') applyCompose()
+                  }}
+                />
+              )}
+              <button
+                type="button"
+                className="filter-compose-apply"
+                data-testid="filter-compose-apply"
+                disabled={pending}
+                onClick={applyCompose}
+              >
+                Apply
+              </button>
+              {composeError !== null && (
+                <p
+                  className="filter-builder-error"
+                  role="alert"
+                  data-testid="filter-builder-error"
+                  data-col-name={selectedColumn.name}
+                >
+                  {composeError}
+                </p>
+              )}
+            </div>
+          )}
+          {/* Editable rows for the active filters (the required surface). */}
+          {activeCount > 0 && (
+            <ul className="filter-active-rows" data-testid="filter-active-rows">
+              {model.filters.map((filter) => (
+                <li
+                  key={`${filter.column}:${filter.predicate}`}
+                  className="filter-active-row"
+                  data-testid="filter-active-row"
+                  data-col-name={filter.column}
+                >
+                  <label className="filter-label" htmlFor={filterActivePredicateId(filter.column)}>
+                    {filter.column}
                   </label>
-                  <select
-                    className="filter-builder-operator"
-                    data-testid="filter-builder-operator"
-                    data-col-name={column.name}
-                    aria-label={`Operator for ${column.name}`}
-                    value={draft.operator}
+                  <input
+                    id={filterActivePredicateId(filter.column)}
+                    className="filter-input filter-active-input"
+                    data-testid="filter-active-predicate"
+                    data-col-name={filter.column}
+                    type="text"
+                    spellCheck={false}
+                    autoComplete="off"
+                    placeholder="e.g. > 50000"
+                    value={drafts[filter.column] ?? filter.predicate}
                     disabled={pending}
                     onChange={(event) => {
-                      setBuilderDraft(column.name, {
-                        operator: event.target.value as FilterOperatorId,
-                      })
+                      const value = event.target.value
+                      setDrafts((previous) => ({ ...previous, [filter.column]: value }))
                     }}
-                  >
-                    {operators.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.label}
-                      </option>
-                    ))}
-                  </select>
-                  {needsValue && (
-                    <input
-                      id={filterBuilderValueId(column.name)}
-                      className="filter-builder-value"
-                      data-testid="filter-builder-value"
-                      data-col-name={column.name}
-                      type="text"
-                      spellCheck={false}
-                      autoComplete="off"
-                      placeholder={placeholderFor(profile)}
-                      value={draft.value}
-                      disabled={pending}
-                      onChange={(event) => {
-                        setBuilderDraft(column.name, { value: event.target.value })
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') applyBuilder(column.name)
-                      }}
-                    />
-                  )}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') applyDraft(filter.column)
+                    }}
+                  />
                   <button
                     type="button"
-                    className="filter-builder-apply"
-                    data-testid="filter-builder-apply"
-                    data-col-name={column.name}
+                    className="filter-apply"
+                    data-testid="filter-active-apply"
+                    data-col-name={filter.column}
                     disabled={pending}
                     onClick={() => {
-                      applyBuilder(column.name)
+                      applyDraft(filter.column)
                     }}
                   >
                     Apply
                   </button>
-                  {message !== undefined && (
-                    <p
-                      className="filter-builder-error"
-                      role="alert"
-                      data-testid="filter-builder-error"
-                      data-col-name={column.name}
-                    >
-                      {message}
-                    </p>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-          <p className="filter-hint" data-testid="filter-hint">
-            SQL predicate escape hatch. Fragments are applied to one column as{' '}
-            <code>{'("column" <predicate>)'}</code> — e.g. <code>{'> 50000'}</code>,{' '}
-            <code>{"= 'US'"}</code>, <code>IS NOT NULL</code>. Leave an input empty for no filter on
-            that column.
-          </p>
-          <ul className="filter-columns" data-testid="filter-columns">
-            {schema.map((column) => (
-              <li key={column.name} className="filter-column" data-testid="filter-column">
-                <label className="filter-label" htmlFor={filterInputId(column.name)}>
-                  {column.name}
-                </label>
-                <input
-                  id={filterInputId(column.name)}
-                  className="filter-input"
-                  data-testid="filter-input"
-                  data-col-name={column.name}
-                  type="text"
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="e.g. > 50000"
-                  value={drafts[column.name] ?? ''}
-                  disabled={pending}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    setDrafts((previous) => ({ ...previous, [column.name]: value }))
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') applyDraft(column.name)
-                  }}
-                />
-                <button
-                  type="button"
-                  className="filter-apply"
-                  data-testid="filter-apply"
-                  data-col-name={column.name}
-                  disabled={pending}
-                  onClick={() => {
-                    applyDraft(column.name)
-                  }}
-                >
-                  Apply
-                </button>
-              </li>
-            ))}
-          </ul>
-          {model.filters.length > 0 ? (
-            <ul className="filter-chips" data-testid="filter-chips">
-              {model.filters.map((filter) => (
-                <li
-                  key={`${filter.column}:${filter.predicate}`}
-                  className="filter-chip"
-                  data-testid="filter-chip"
-                  data-col-name={filter.column}
-                >
-                  <code>{`${filter.column} ${filter.predicate}`}</code>
                   <button
                     type="button"
-                    className="filter-chip-remove"
-                    data-testid="filter-chip-remove"
+                    className="filter-active-remove"
+                    data-testid="filter-active-remove"
                     data-col-name={filter.column}
                     aria-label={`Remove filter ${filter.column} ${filter.predicate}`}
                     title={`Remove filter ${filter.column} ${filter.predicate}`}
@@ -433,9 +495,71 @@ export function FilterBar({ model }: FilterBarProps) {
                       removeFilter(filter.column)
                     }}
                   >
-                    ×
+                    Remove
                   </button>
                 </li>
+              ))}
+            </ul>
+          )}
+          {/* UG-16: the per-column SQL-fragment escape hatch, own disclosure. */}
+          <details className="filter-sql-disclosure" data-testid="filter-sql-disclosure">
+            <summary className="filter-sql-summary">SQL predicates</summary>
+            <p className="filter-hint" data-testid="filter-hint">
+              Escape hatch for a raw SQL predicate on one column. Fragments are applied as{' '}
+              <code>{'("column" <predicate>)'}</code> — e.g. <code>{'> 50000'}</code>,{' '}
+              <code>{"= 'US'"}</code>, <code>IS NOT NULL</code>. Leave an input empty for no filter
+              on that column.
+            </p>
+            <ul className="filter-columns" data-testid="filter-columns">
+              {schema.map((column) => (
+                <li key={column.name} className="filter-column" data-testid="filter-column">
+                  <label className="filter-label" htmlFor={filterInputId(column.name)}>
+                    {column.name}
+                  </label>
+                  <input
+                    id={filterInputId(column.name)}
+                    className="filter-input"
+                    data-testid="filter-input"
+                    data-col-name={column.name}
+                    type="text"
+                    spellCheck={false}
+                    autoComplete="off"
+                    placeholder="e.g. > 50000"
+                    value={drafts[column.name] ?? ''}
+                    disabled={pending}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setDrafts((previous) => ({ ...previous, [column.name]: value }))
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') applyDraft(column.name)
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="filter-apply"
+                    data-testid="filter-apply"
+                    data-col-name={column.name}
+                    disabled={pending}
+                    onClick={() => {
+                      applyDraft(column.name)
+                    }}
+                  >
+                    Apply
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+          {model.filters.length > 0 ? (
+            <ul className="filter-chips" data-testid="filter-chips">
+              {model.filters.map((filter) => (
+                <FilterChip
+                  key={`${filter.column}:${filter.predicate}`}
+                  filter={filter}
+                  pending={pending}
+                  onRemove={removeFilter}
+                />
               ))}
             </ul>
           ) : (

@@ -3,7 +3,12 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FilterSpec, GridViewportModel } from '@assay/grid'
-import { FilterBar, filterInputId } from './FilterBar'
+import {
+  FilterBar,
+  filterActivePredicateId,
+  filterBuilderValueId,
+  filterInputId,
+} from './FilterBar'
 
 /**
  * AR-W11 pins: distinct column names must produce distinct DOM ids. The old
@@ -16,6 +21,12 @@ import { FilterBar, filterInputId } from './FilterBar'
  * the `FilterSpec` predicate grammar (through the real component), the
  * client-side rejection that never reaches the model, the preserved
  * SQL-fragment escape hatch, and the programmatic-`setFilters` bridge.
+ *
+ * ug-18 pins (below, findings UG-16/UG-17): ONE compose row instead of the
+ * per-column builder wall, editable rows for the active filters, the escape
+ * hatch behind its own `SQL predicates` disclosure, the collapsed summary
+ * naming the active columns, and the chips (with remove buttons) rendered
+ * beside — never inside — the collapsed toggle.
  */
 
 const COLUMNS: readonly { name: string; type: string }[] = [
@@ -149,7 +160,7 @@ function failingModel(
   return { model: model as unknown as GridViewportModel, setFilters }
 }
 
-/** A builder control scoped to one column (testids repeat per column). */
+/** A per-column control scoped to one column (the SQL hatch repeats per column). */
 function control(testId: string, column: string): HTMLElement {
   const element = document.querySelector(`[data-testid="${testId}"][data-col-name="${column}"]`)
   if (element === null) throw new Error(`no ${testId} for column ${column}`)
@@ -161,11 +172,50 @@ function openBar(): void {
 }
 
 /**
+ * Open the bar unless it is already open: a model that mounts with filters
+ * auto-opens through the uxc-4 effect, so an unconditional click would close
+ * it (the "collapse" action).
+ */
+function ensureOpen(): void {
+  if (screen.getByTestId('filter-toggle').getAttribute('aria-expanded') !== 'true') openBar()
+}
+
+/**
  * Flip the disclosure (open when collapsed, collapse when open). The same
  * action as `openBar`, named for the uxc-4 latch pins where the direction is
  * the point under test.
  */
 const toggleBar = openBar
+
+/** The compose row's controls (ug-18: exactly one set exists). */
+function composeColumn(): HTMLSelectElement {
+  return screen.getByTestId('filter-compose-column') as HTMLSelectElement
+}
+
+function composeOperator(): HTMLSelectElement {
+  return screen.getByTestId('filter-compose-operator') as HTMLSelectElement
+}
+
+function composeValue(): HTMLInputElement {
+  return screen.getByTestId('filter-compose-value') as HTMLInputElement
+}
+
+function composeApply(): HTMLElement {
+  return screen.getByTestId('filter-compose-apply')
+}
+
+/** Choose a column, an operator and a value in the compose row, then Apply. */
+function compose(column: string, operatorId: string, value?: string): void {
+  fireEvent.change(composeColumn(), { target: { value: column } })
+  fireEvent.change(composeOperator(), { target: { value: operatorId } })
+  if (value !== undefined) fireEvent.change(composeValue(), { target: { value } })
+  fireEvent.click(composeApply())
+}
+
+/** The operator ids the compose row currently offers, in catalog order. */
+function composeOperatorIds(): string[] {
+  return Array.from(composeOperator().options).map((option) => option.value)
+}
 
 afterEach(cleanup)
 
@@ -184,17 +234,24 @@ describe('filterInputId (AR-W11)', () => {
     // A lone surrogate must not throw (column names are untrusted text).
     expect(() => filterInputId('\uD800')).not.toThrow()
   })
+
+  it('keeps the active-row and SQL-hatch inputs for one column distinct', () => {
+    expect(filterActivePredicateId('a.b')).not.toBe(filterInputId('a.b'))
+    expect(filterActivePredicateId('a.b')).toBe(filterActivePredicateId('a.b'))
+    expect(filterActivePredicateId('a.b')).not.toBe(filterActivePredicateId('a-b'))
+    expect(filterBuilderValueId('a.b')).not.toBe(filterBuilderValueId('a-b'))
+  })
 })
 
 describe('FilterBar id/label association (AR-W11)', () => {
-  it('renders one input per column with a matching, unique label target', () => {
+  it('renders one SQL-hatch input per column with a matching, unique label target', () => {
     const columns = [
       { name: 'a.b', type: 'VARCHAR' },
       { name: 'a-b', type: 'VARCHAR' },
     ]
     const { model } = fakeModel(columns)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
     const inputs = screen.getAllByTestId('filter-input')
     expect(inputs).toHaveLength(2)
     expect(inputs[0]?.id).not.toBe(inputs[1]?.id)
@@ -216,13 +273,7 @@ describe('FilterBar disclosure (ux-4)', () => {
     expect(screen.queryByTestId('filter-body')).toBeNull()
   })
 
-  it('summarises the active count from model.filters', () => {
-    const { model } = fakeModel(COLUMNS, [{ column: 'country', predicate: "= 'US'" }])
-    render(<FilterBar model={model} />)
-    expect(screen.getByTestId('filter-toggle').textContent).toBe('Filters · 1 active')
-  })
-
-  it('opens to reveal the builder after a programmatic setFilters (validation bridge)', async () => {
+  it('opens to reveal the compose row after a programmatic setFilters (validation bridge)', async () => {
     const model = storeModel(COLUMNS)
     render(<FilterBar model={model} />)
     expect(screen.getByTestId('filter-toggle').getAttribute('aria-expanded')).toBe('false')
@@ -232,8 +283,102 @@ describe('FilterBar disclosure (ux-4)', () => {
     })
 
     expect(screen.getByTestId('filter-toggle').getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getByTestId('filter-toggle').textContent).toBe('Filters · 1 active')
+    expect(screen.getByTestId('filter-compose')).toBeTruthy()
+    expect(screen.getByTestId('filter-toggle').textContent).toBe('Filters · 1 active: country')
     expect(screen.getByTestId('filter-chip')).toBeTruthy()
+  })
+})
+
+describe('FilterBar collapsed summary (ug-18 / UG-17)', () => {
+  it('names the active columns in filter order at 1 and 2 filters', () => {
+    const one = fakeModel(COLUMNS, [{ column: 'income', predicate: '> 50000' }])
+    const { unmount } = render(<FilterBar model={one.model} />)
+    expect(screen.getByTestId('filter-toggle').textContent).toBe('Filters · 1 active: income')
+    unmount()
+
+    const two = fakeModel(COLUMNS, [
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ])
+    render(<FilterBar model={two.model} />)
+    expect(screen.getByTestId('filter-toggle').textContent).toBe(
+      'Filters · 2 active: income, country',
+    )
+  })
+
+  it('renders the chips beside the toggle, never inside the button', () => {
+    const { model } = fakeModel(COLUMNS, [
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ])
+    render(<FilterBar model={model} />)
+    // The bar auto-opens on a non-empty filter list (uxc-4); collapse it to
+    // reach the recommended collapsed posture.
+    toggleBar()
+    expect(screen.getByTestId('filter-toggle').getAttribute('aria-expanded')).toBe('false')
+
+    const toggle = screen.getByTestId('filter-toggle')
+    const chips = screen.getAllByTestId('filter-chip')
+    expect(chips).toHaveLength(2)
+    for (const chip of chips) {
+      // Sibling, not descendant: a button may not contain interactive controls.
+      expect(toggle.contains(chip)).toBe(false)
+      expect(chip.closest('button')).toBeNull()
+    }
+    const header = screen.getByTestId('filter-chips-header')
+    expect(header.previousElementSibling).toBe(toggle)
+    expect(header.parentElement).toBe(toggle.parentElement)
+    expect(chips.map((chip) => chip.getAttribute('data-col-name'))).toEqual(['income', 'country'])
+    // The expanded body's own chip list is not rendered while collapsed, so no
+    // chip appears twice.
+    expect(screen.queryByTestId('filter-chips')).toBeNull()
+  })
+
+  it('removes a filter from a collapsed chip and restores the summary', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 50000' }])
+    })
+    const toggle = screen.getByTestId('filter-toggle')
+    toggleBar()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle.textContent).toBe('Filters · 1 active: income')
+
+    fireEvent.click(control('filter-chip-remove', 'income'))
+
+    await waitFor(() => {
+      expect(toggle.textContent).toBe('Filters')
+    })
+    expect(model.filters).toEqual([])
+    expect(screen.queryByTestId('filter-chip')).toBeNull()
+    expect(screen.queryByTestId('filter-chips-header')).toBeNull()
+  })
+
+  it('keeps the collapsed chips/summary in step with a same-identity re-set', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    await act(async () => {
+      await model.setFilters([
+        { column: 'income', predicate: '> 50000' },
+        { column: 'country', predicate: "= 'US'" },
+      ])
+    })
+    const toggle = screen.getByTestId('filter-toggle')
+    toggleBar()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    // A fresh-but-equal list re-fires the effect; the latch keeps the bar
+    // collapsed and the header chips still mirror `model.filters`.
+    await act(async () => {
+      await model.setFilters([
+        { column: 'income', predicate: '> 50000' },
+        { column: 'country', predicate: "= 'US'" },
+      ])
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle.textContent).toBe('Filters · 2 active: income, country')
+    expect(screen.getByTestId('filter-chips-header').children).toHaveLength(2)
   })
 })
 
@@ -344,12 +489,10 @@ describe('FilterBar auto-open identity (uxc-4)', () => {
   it('honors a collapse made mid-apply for the incoming set (collapse-during-apply policy (i))', async () => {
     const { model, flush } = blockingModel(COLUMNS)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
     // A user edit starts an apply that has not landed yet (pending).
-    fireEvent.change(control('filter-builder-operator', 'income'), { target: { value: 'gt' } })
-    fireEvent.change(control('filter-builder-value', 'income'), { target: { value: '50000' } })
-    fireEvent.click(control('filter-builder-apply', 'income'))
+    compose('income', 'gt', '50000')
 
     // While it is in flight the user collapses. Latching the *visible*
     // (pre-apply, empty) signature would let the incoming filter force-open
@@ -363,19 +506,89 @@ describe('FilterBar auto-open identity (uxc-4)', () => {
       flush()
     })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    expect(toggle.textContent).toBe('Filters · 1 active')
+    expect(toggle.textContent).toBe('Filters · 1 active: income')
   })
 })
 
-describe('FilterBar builder compilation (ux-4)', () => {
-  it('compiles a numeric operator+value and applies it through setFilters', async () => {
+describe('FilterBar compose row (ug-18 / UG-16)', () => {
+  it('renders exactly one column/operator/value/Apply set and no builder wall', () => {
+    const { model } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    expect(screen.getAllByTestId('filter-compose-column')).toHaveLength(1)
+    expect(screen.getAllByTestId('filter-compose-operator')).toHaveLength(1)
+    expect(screen.getAllByTestId('filter-compose-value')).toHaveLength(1)
+    expect(screen.getAllByTestId('filter-compose-apply')).toHaveLength(1)
+    expect(screen.getByText('Filter on:')).toBeTruthy()
+
+    // The per-column builder wall is gone: none of its controls remain.
+    for (const testId of [
+      'filter-builder-column',
+      'filter-builder-operator',
+      'filter-builder-value',
+      'filter-builder-apply',
+    ]) {
+      expect(screen.queryAllByTestId(testId)).toHaveLength(0)
+    }
+    expect(screen.queryAllByTestId('filter-active-row')).toHaveLength(0)
+  })
+
+  it("offers the schema columns and the selected column kind's operators", () => {
+    const { model } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    expect(Array.from(composeColumn().options).map((option) => option.value)).toEqual([
+      'income',
+      'country',
+      'signup_date',
+      'active',
+    ])
+    // Default column = the first schema column (numeric), default operator =
+    // that kind's first catalog entry.
+    expect(composeColumn().value).toBe('income')
+    expect(composeOperatorIds()).toEqual([
+      'eq',
+      'neq',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'is-null',
+      'is-not-null',
+    ])
+
+    fireEvent.change(composeColumn(), { target: { value: 'country' } })
+    expect(composeOperatorIds()).toEqual(['eq', 'neq', 'contains', 'is-null', 'is-not-null'])
+
+    fireEvent.change(composeColumn(), { target: { value: 'active' } })
+    expect(composeOperatorIds()).toEqual(['is-true', 'is-false', 'is-null', 'is-not-null'])
+  })
+
+  it("resets the operator to the new kind's default when the column changes", () => {
+    const { model } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(composeOperator(), { target: { value: 'gt' } })
+    expect(composeOperator().value).toBe('gt')
+
+    fireEvent.change(composeColumn(), { target: { value: 'country' } })
+    expect(composeOperator().value).toBe('eq')
+
+    fireEvent.change(composeColumn(), { target: { value: 'active' } })
+    expect(composeOperator().value).toBe('is-true')
+    // A boolean `= true` operator takes no value, so the input is gone.
+    expect(screen.queryByTestId('filter-compose-value')).toBeNull()
+  })
+
+  it('compiles a numeric operator+value into the exact predicate handed to setFilters', async () => {
     const { model, setFilters } = fakeModel(COLUMNS)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
-    fireEvent.change(control('filter-builder-operator', 'income'), { target: { value: 'gt' } })
-    fireEvent.change(control('filter-builder-value', 'income'), { target: { value: '50000' } })
-    fireEvent.click(control('filter-builder-apply', 'income'))
+    compose('income', 'gt', '50000')
 
     await waitFor(() => {
       expect(setFilters).toHaveBeenCalledWith([{ column: 'income', predicate: '> 50000' }])
@@ -385,13 +598,9 @@ describe('FilterBar builder compilation (ux-4)', () => {
   it('escapes LIKE metacharacters in a string contains predicate', async () => {
     const { model, setFilters } = fakeModel(COLUMNS)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
-    fireEvent.change(control('filter-builder-operator', 'country'), {
-      target: { value: 'contains' },
-    })
-    fireEvent.change(control('filter-builder-value', 'country'), { target: { value: '50%' } })
-    fireEvent.click(control('filter-builder-apply', 'country'))
+    compose('country', 'contains', '50%')
 
     await waitFor(() => {
       expect(setFilters).toHaveBeenCalledWith([
@@ -400,79 +609,241 @@ describe('FilterBar builder compilation (ux-4)', () => {
     })
   })
 
-  it('hides the value input for boolean and null operators', () => {
+  it("compiles a temporal value with the column's literal keyword", async () => {
+    const { model, setFilters } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    compose('signup_date', 'gte', '2025-01-04')
+
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([
+        { column: 'signup_date', predicate: ">= DATE '2025-01-04'" },
+      ])
+    })
+  })
+
+  it('hides the value input for operators that take none', () => {
     const { model } = fakeModel(COLUMNS)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
-    // `active` defaults to `= true`, which takes no value.
-    expect(control('filter-builder-operator', 'active')).toBeTruthy()
-    expect(
-      document.querySelector('[data-testid="filter-builder-value"][data-col-name="active"]'),
-    ).toBeNull()
+    expect(screen.getByTestId('filter-compose-value')).toBeTruthy()
+    fireEvent.change(composeOperator(), { target: { value: 'is-null' } })
+    expect(screen.queryByTestId('filter-compose-value')).toBeNull()
+  })
 
-    fireEvent.change(control('filter-builder-operator', 'income'), { target: { value: 'is-null' } })
-    expect(
-      document.querySelector('[data-testid="filter-builder-value"][data-col-name="income"]'),
-    ).toBeNull()
+  it('clears only the value after a successful apply and keeps the selection', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    compose('country', 'contains', 'U')
+
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledTimes(1)
+    })
+    await waitFor(() => {
+      expect(composeValue().value).toBe('')
+    })
+    expect(composeColumn().value).toBe('country')
+    expect(composeOperator().value).toBe('contains')
+  })
+
+  it('applies on Enter in the value input', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(composeColumn(), { target: { value: 'income' } })
+    fireEvent.change(composeOperator(), { target: { value: 'gt' } })
+    fireEvent.change(composeValue(), { target: { value: '50000' } })
+    fireEvent.keyDown(composeValue(), { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([{ column: 'income', predicate: '> 50000' }])
+    })
   })
 })
 
-describe('FilterBar client-side rejection (ux-4)', () => {
+describe('FilterBar client-side rejection (ux-4 / ug-18)', () => {
   it('rejects an empty value inline without calling setFilters', () => {
     const { model, setFilters } = fakeModel(COLUMNS)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
-    fireEvent.change(control('filter-builder-operator', 'income'), { target: { value: 'gt' } })
-    fireEvent.click(control('filter-builder-apply', 'income'))
+    compose('income', 'gt')
 
     expect(setFilters).not.toHaveBeenCalled()
-    expect(control('filter-builder-error', 'income').textContent).toBe(
-      'Enter a value for this operator.',
-    )
+    const message = screen.getByTestId('filter-builder-error')
+    expect(message.getAttribute('role')).toBe('alert')
+    expect(message.textContent).toBe('Enter a value for this operator.')
+    expect(message.textContent).not.toMatch(/\r|\n/)
   })
 
   it('rejects a non-numeric value for a numeric column inline', () => {
     const { model, setFilters } = fakeModel(COLUMNS)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
-    fireEvent.change(control('filter-builder-value', 'income'), { target: { value: 'abc' } })
-    fireEvent.click(control('filter-builder-apply', 'income'))
+    compose('income', 'gt', 'abc')
 
     expect(setFilters).not.toHaveBeenCalled()
-    expect(control('filter-builder-error', 'income').textContent).toBe('That is not a number.')
+    expect(screen.getByTestId('filter-builder-error').textContent).toBe('That is not a number.')
   })
 
   it('rejects a malformed date inline', () => {
     const { model, setFilters } = fakeModel(COLUMNS)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
-    fireEvent.change(control('filter-builder-value', 'signup_date'), {
-      target: { value: '2025-02-30' },
-    })
-    fireEvent.click(control('filter-builder-apply', 'signup_date'))
+    compose('signup_date', 'eq', '2025-02-30')
 
     expect(setFilters).not.toHaveBeenCalled()
-    expect(control('filter-builder-error', 'signup_date').textContent).toBe(
+    expect(screen.getByTestId('filter-builder-error').textContent).toBe(
       'Enter a date as YYYY-MM-DD.',
     )
   })
+
+  it('replaces the message on the next successful apply', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    compose('income', 'gt', 'abc')
+    expect(screen.getByTestId('filter-builder-error')).toBeTruthy()
+
+    compose('income', 'gt', '50000')
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([{ column: 'income', predicate: '> 50000' }])
+    })
+    expect(screen.queryByTestId('filter-builder-error')).toBeNull()
+  })
 })
 
-describe('FilterBar SQL predicate escape hatch (ux-4)', () => {
+describe('FilterBar active filter rows (ug-18)', () => {
+  it('pre-fills the current predicate and names the column', () => {
+    const { model } = fakeModel(COLUMNS, [
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    const rows = screen.getAllByTestId('filter-active-row')
+    expect(rows.map((row) => row.getAttribute('data-col-name'))).toEqual(['income', 'country'])
+    expect((control('filter-active-predicate', 'income') as HTMLInputElement).value).toBe('> 50000')
+    expect((control('filter-active-predicate', 'country') as HTMLInputElement).value).toBe("= 'US'")
+    // The label is the fixed column name, wired to the editable predicate.
+    const label = document.querySelector(`label[for="${filterActivePredicateId('income')}"]`)
+    expect(label?.textContent).toBe('income')
+  })
+
+  it("replaces one column's predicate through setFilters", async () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(control('filter-active-predicate', 'income'), {
+      target: { value: '> 60000' },
+    })
+    fireEvent.click(control('filter-active-apply', 'income'))
+
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([
+        { column: 'country', predicate: "= 'US'" },
+        { column: 'income', predicate: '> 60000' },
+      ])
+    })
+  })
+
+  it('removes the filter when the edited predicate is emptied', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [{ column: 'income', predicate: '> 50000' }])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(control('filter-active-predicate', 'income'), { target: { value: '' } })
+    fireEvent.click(control('filter-active-apply', 'income'))
+
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([])
+    })
+  })
+
+  it('removes one filter with its Remove button, keeping the others', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.click(control('filter-active-remove', 'income'))
+
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([{ column: 'country', predicate: "= 'US'" }])
+    })
+  })
+
+  it('applies an active-row edit on Enter', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [{ column: 'income', predicate: '> 50000' }])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    const input = control('filter-active-predicate', 'income')
+    fireEvent.change(input, { target: { value: 'IS NULL' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([{ column: 'income', predicate: 'IS NULL' }])
+    })
+  })
+})
+
+describe('FilterBar SQL predicate escape hatch (ux-4 / ug-18)', () => {
+  it('is a collapsed "SQL predicates" disclosure holding the per-column inputs', () => {
+    const { model } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    const disclosure = screen.getByTestId('filter-sql-disclosure')
+    expect(disclosure.tagName).toBe('DETAILS')
+    expect(disclosure.hasAttribute('open')).toBe(false)
+    expect(disclosure.querySelector('summary')?.textContent).toBe('SQL predicates')
+    // The hint and the per-column inputs live inside the disclosure.
+    expect(disclosure.contains(screen.getByTestId('filter-hint'))).toBe(true)
+    expect(disclosure.contains(screen.getByTestId('filter-columns'))).toBe(true)
+    expect(screen.getByTestId('filter-hint').textContent).toContain('("column" <predicate>)')
+    expect(control('filter-input', 'country').closest('details')).toBe(disclosure)
+  })
+
   it('still emits the raw fragment through setFilters', async () => {
     const { model, setFilters } = fakeModel(COLUMNS)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
     fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
     fireEvent.click(control('filter-apply', 'country'))
 
     await waitFor(() => {
       expect(setFilters).toHaveBeenCalledWith([{ column: 'country', predicate: "= 'US'" }])
+    })
+  })
+
+  it('applies a fragment on Enter', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    const input = control('filter-input', 'income')
+    fireEvent.change(input, { target: { value: 'IS NOT NULL' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([{ column: 'income', predicate: 'IS NOT NULL' }])
     })
   })
 })
@@ -492,7 +863,7 @@ describe('FilterBar engine-error framing (UG-30)', () => {
       ),
     )
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
     fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
     fireEvent.click(control('filter-apply', 'country'))
@@ -518,7 +889,7 @@ describe('FilterBar engine-error framing (UG-30)', () => {
     const RESTORE_FAILURE = new Error('_setThrew is not defined')
     const { model, setFilters } = failingModel(COLUMNS, APPLY_FAILURE, RESTORE_FAILURE)
     render(<FilterBar model={model} />)
-    openBar()
+    ensureOpen()
 
     fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
     fireEvent.click(control('filter-apply', 'country'))

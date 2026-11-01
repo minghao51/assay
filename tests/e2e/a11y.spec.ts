@@ -83,30 +83,32 @@ async function scanAndGate(page: Page, target: string, scheme: 'light' | 'dark')
 
 /**
  * uxc-3: drive the expanded ux-4 filter bar into the three scan-relevant
- * states — an applied type-aware builder filter (operator + value controls and
- * an active chip), the populated SQL-fragment escape hatch, and a readable
+ * states — an applied type-aware compose-row filter (operator + value controls
+ * and an active chip), the populated SQL-fragment escape hatch, and a readable
  * client-side rejection message — asserting each is really visible so a
  * silently-collapsed bar cannot false-pass the promoted scan. Every value is
  * synthetic customers.csv fixture data only (ADR 0025).
  *
- * Interaction patterns mirror tests/e2e/filter-builder.spec.ts (the ux-4
- * builder journey); nothing new is invented here.
+ * Interaction patterns mirror tests/e2e/filter-builder.spec.ts. ug-18
+ * (UG-16/UG-17) replaced the per-column builder wall with one compose row and
+ * moved the SQL-fragment inputs behind their own `SQL predicates` disclosure,
+ * so this helper drives those two surfaces explicitly.
  */
 async function expandFilterBarStates(page: Page): Promise<void> {
   await openFilterBar(page)
 
-  const builderOperator = page.locator(
-    '[data-testid="filter-builder-operator"][data-col-name="income"]',
-  )
-  const builderValue = page.locator('[data-testid="filter-builder-value"][data-col-name="income"]')
-  const builderApply = page.locator('[data-testid="filter-builder-apply"][data-col-name="income"]')
-  const builderError = page.locator('[data-testid="filter-builder-error"][data-col-name="income"]')
+  const composeColumn = page.getByTestId('filter-compose-column')
+  const composeOperator = page.getByTestId('filter-compose-operator')
+  const composeValue = page.getByTestId('filter-compose-value')
+  const composeApply = page.getByTestId('filter-compose-apply')
+  const builderError = page.getByTestId('filter-builder-error')
 
   // Builder state: numeric `income > 50000` (type-aware operator + value input).
-  await expect(builderOperator).toBeVisible()
-  await builderOperator.selectOption('gt')
-  await builderValue.fill('50000')
-  await builderApply.click()
+  await expect(composeOperator).toBeVisible()
+  await composeColumn.selectOption('income')
+  await composeOperator.selectOption('gt')
+  await composeValue.fill('50000')
+  await composeApply.click()
   await expect(page.locator('[data-testid="filter-chip"][data-col-name="income"] code')).toHaveText(
     'income > 50000',
   )
@@ -115,9 +117,13 @@ async function expandFilterBarStates(page: Page): Promise<void> {
   await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
   await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(3)
 
-  // Fragment mode: the SQL escape hatch renders alongside the builder; populate
-  // it (synthetic predicate) but do not apply — applying would replace the
-  // builder filter the scan is meant to see.
+  // Fragment mode: the SQL escape hatch is its own disclosure; open it and
+  // populate it (synthetic predicate) but do not apply — applying would
+  // replace the builder filter the scan is meant to see.
+  const disclosure = page.getByTestId('filter-sql-disclosure')
+  if ((await disclosure.getAttribute('open')) === null) {
+    await disclosure.locator('summary').click()
+  }
   const fragment = page.locator('[data-testid="filter-input"][data-col-name="country"]')
   await expect(fragment).toBeVisible()
   await fragment.fill("= 'US'")
@@ -126,9 +132,9 @@ async function expandFilterBarStates(page: Page): Promise<void> {
 
   // Rejection state: an invalid numeric value is rejected client-side and the
   // readable inline alert (role=alert) is on screen before we scan.
-  await expect(builderValue).toBeEnabled()
-  await builderValue.fill('abc')
-  await builderApply.click()
+  await expect(composeValue).toBeEnabled()
+  await composeValue.fill('abc')
+  await composeApply.click()
   await expect(builderError).toBeVisible()
   await expect(builderError).toHaveText('That is not a number.')
 }
