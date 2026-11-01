@@ -2059,6 +2059,25 @@ h1 {
   color: var(--color-text-dim);
 }
 
+/* ug-20 (UG-28/UG-29): the validation on-ramp and the enabled
+   filter-replacement disclosure. Minimal value-free surfaces; uxv-2 owns the
+   tokenised pass. */
+.validation-starter-contract {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.validation-starter-help,
+.validation-starter-status,
+.validation-filter-replacement {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
 .diff-stage-error,
 .diff-jump-error {
   color: var(--color-danger);

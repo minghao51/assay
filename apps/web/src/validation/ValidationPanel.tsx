@@ -138,6 +138,8 @@ function rowCountText(count: number): string {
 
 const STARTER_CONTRACT_HELP = 'A starter contract is a starting point — edit it before validating.'
 const STARTER_CONTRACT_STATUS = 'Starter contract downloaded — edit it, then open it here.'
+const STARTER_CONTRACT_FAILURE_STATUS =
+  'The starter contract could not be saved. Nothing was written.'
 
 /** Byte-exact replacement disclosure for the enabled failure-filter control. */
 export function filterReplacementCopy(count: number): string {
@@ -194,11 +196,14 @@ export function ValidationPanel({
     setExportPhase({ kind: 'idle' })
   }, [report])
 
-  // A dataset swap (a new schema reference) retires the previous starter
-  // download line; it must never describe a file that is no longer open.
+  // A dataset swap retires the previous starter download line; it must never
+  // describe a file that is no longer open. The schema reference catches
+  // rename/cast edits, while the contract-state identity catches a new
+  // dataset whose schema is byte-identical (the session reset installs a
+  // fresh `{ kind: 'none' }` even when the previous state was also `none`).
   useEffect(() => {
     setStarterStatus(null)
-  }, [datasetColumns])
+  }, [datasetColumns, contractState])
 
   const runExport = async (): Promise<void> => {
     if (report === null || contract === null || exportPhase.kind === 'working') return
@@ -300,15 +305,26 @@ export function ValidationPanel({
               onClick={() => {
                 const starter = buildStarterContract(datasetColumns)
                 if (starter === null) return
-                deliverStarterContract(new TextEncoder().encode(starter.text), starter.fileName)
-                setStarterStatus(STARTER_CONTRACT_STATUS)
+                try {
+                  deliverStarterContract(new TextEncoder().encode(starter.text), starter.fileName)
+                  setStarterStatus(STARTER_CONTRACT_STATUS)
+                } catch {
+                  // A refused native click must not escape the handler or
+                  // claim a download that never happened (report-export
+                  // failure-copy parity).
+                  setStarterStatus(STARTER_CONTRACT_FAILURE_STATUS)
+                }
               }}
             >
               Download a starter contract
             </button>
             <p className="validation-starter-help">{STARTER_CONTRACT_HELP}</p>
             {starterStatus !== null && (
-              <p role="status" data-testid="validation-starter-contract-status">
+              <p
+                className="validation-starter-status"
+                role="status"
+                data-testid="validation-starter-contract-status"
+              >
                 {starterStatus}
               </p>
             )}

@@ -204,6 +204,56 @@ describe('starter contract zero state', () => {
     expect(screen.queryByTestId('validation-starter-contract')).toBeNull()
     expect(screen.queryByTestId('validation-starter-contract-status')).toBeNull()
   })
+
+  it('clears the downloaded status when a new dataset opens with the same schema', () => {
+    const deliver = vi.fn()
+    const panel = (contractState: ContractState) => (
+      <ValidationPanel
+        contractState={contractState}
+        runState={{ kind: 'idle' }}
+        stale={false}
+        jumpError={null}
+        filterError={null}
+        datasetColumns={COLUMNS}
+        activeFilterCount={0}
+        onContractFile={() => {}}
+        onValidate={() => {}}
+        onCancelValidate={() => {}}
+        onJumpToSample={() => {}}
+        onFilterToFailures={() => {}}
+        requestReportDestination={async () => null}
+        deliverReportCopy={async () => 'download'}
+        deliverStarterContract={deliver}
+      />
+    )
+    const view = render(panel({ kind: 'none' }))
+    fireEvent.click(screen.getByTestId('validation-starter-contract'))
+    expect(screen.getByTestId('validation-starter-contract-status').textContent).toBe(
+      'Starter contract downloaded — edit it, then open it here.',
+    )
+
+    // A dataset swap with an identical schema reuses the SAME `datasetColumns`
+    // reference (useStableColumns), but the session reset installs a fresh
+    // `none` contract state; the old download line must not describe the new
+    // file.
+    view.rerender(panel({ kind: 'none' }))
+    expect(screen.queryByTestId('validation-starter-contract-status')).toBeNull()
+  })
+
+  it('reports a value-free failure status when delivery throws, never success', () => {
+    const deliver = vi.fn(() => {
+      throw new Error('the browser refused the download')
+    })
+    renderPanel({ deliverStarterContract: deliver })
+    fireEvent.click(screen.getByTestId('validation-starter-contract'))
+
+    expect(deliver).toHaveBeenCalledTimes(1)
+    const status = screen.getByTestId('validation-starter-contract-status')
+    expect(status.getAttribute('role')).toBe('status')
+    expect(status.textContent).toBe('The starter contract could not be saved. Nothing was written.')
+    expect(status.textContent).not.toContain('downloaded')
+    expect(status.textContent).not.toContain('the browser refused')
+  })
 })
 
 describe('filter-replacement disclosure', () => {
@@ -245,10 +295,26 @@ describe('filter-replacement disclosure', () => {
     expect(filterReplacementCopy(2)).toBe('Replaces the current 2 filters')
   })
 
-  it('keeps the button accessible name unchanged', () => {
+  it('keeps every enabled control accessible name unchanged while the note is present', () => {
     renderVerdict(2)
-    for (const button of screen.getAllByRole('button', { name: 'Show only failing rows' })) {
-      expect(button).toBeTruthy()
+    const controls = screen.getAllByTestId('validation-filter-failures') as HTMLButtonElement[]
+    const enabled = controls.filter((control) => !control.disabled)
+    const notes = screen.getAllByTestId('validation-filter-replacement')
+    expect(enabled).toHaveLength(2)
+    expect(notes).toHaveLength(2)
+
+    // The exact-name query must still find EVERY control, including both
+    // enabled ones. If the note were nested inside an enabled button, that
+    // button's accessible name would become "Show only failing rowsReplaces…"
+    // and this query would silently shrink to the two disabled variants.
+    const named = screen.getAllByRole('button', { name: 'Show only failing rows' })
+    expect(named).toHaveLength(controls.length)
+    for (const button of enabled) {
+      expect(named).toContain(button)
+      expect(button.textContent).toBe('Show only failing rows')
+      for (const note of notes) {
+        expect(button.contains(note)).toBe(false)
+      }
     }
   })
 })

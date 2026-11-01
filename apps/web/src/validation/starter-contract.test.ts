@@ -25,6 +25,19 @@ const SCHEMA = [
   { name: 'weird', type: 'WEIRD_TYPE' },
 ] as const
 
+/**
+ * A deliberately filename-like fixture: the same shape as the e2e
+ * `customers.parquet` dataset. The document may carry these column names, but
+ * never the file's identity.
+ */
+const FILENAME_LIKE_SCHEMA = [
+  { name: 'customer_id', type: 'BIGINT' },
+  { name: 'country', type: 'VARCHAR' },
+  { name: 'income', type: 'BIGINT' },
+  { name: 'signup_date', type: 'DATE' },
+] as const
+const DATASET_FILE_NAME = 'customers.parquet'
+
 const EXPECTED_TEXT = `format: v1
 name: starter-contract
 version: 1
@@ -94,9 +107,17 @@ describe('buildStarterContract', () => {
   })
 
   it('carries no dataset file name or values (ADR 0025)', () => {
-    const starter = buildStarterContract(SCHEMA)
+    const starter = buildStarterContract(FILENAME_LIKE_SCHEMA)
     if (starter === null) throw new Error('starter contract was not built')
-    expect(starter.text).not.toContain('orders-dirty-a.jsonl')
+    // Fixed identity on BOTH the bytes and the suggested file name — never
+    // the opened dataset's name (a deliberately filename-like fixture).
+    expect(starter.fileName).toBe(STARTER_CONTRACT_FILE_NAME)
+    expect(starter.text).toContain('name: starter-contract')
+    expect(starter.text).not.toContain(DATASET_FILE_NAME)
+    expect(starter.fileName).not.toContain(DATASET_FILE_NAME)
+    expect(starter.text).not.toContain('customers')
+    expect(starter.fileName).not.toContain('customers')
+    // Defense in depth: row values never enter the builder.
     expect(starter.text).not.toContain('1001')
     expect(starter.text).not.toContain('EMEA')
   })
