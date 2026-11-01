@@ -305,8 +305,10 @@ describe('ug-13 — Record dock closed-state hint (R-14)', () => {
 
     await openRecord()
     // Stale-inspector guard: the open record belongs to the OLD dataset.
+    // ug-11: the dock's title/label numbers are 1-based (they agree with the
+    // grid's row-number gutter); row index 0 is displayed as row 1.
     expect(screen.getByTestId('record-inspector').getAttribute('aria-label')).toBe(
-      'Record inspector — row 0',
+      'Record inspector — row 1',
     )
     expect(screen.queryAllByTestId('record-hint')).toHaveLength(0)
 
@@ -338,6 +340,6 @@ describe('ug-13 — Record dock closed-state hint (R-14)', () => {
     expect(heading?.textContent).toBe('Record')
 
     const inspector = screen.getByTestId('record-inspector')
-    expect(inspector.getAttribute('aria-label')).toBe('Record inspector — row 0')
+    expect(inspector.getAttribute('aria-label')).toBe('Record inspector — row 1')
   })
 })

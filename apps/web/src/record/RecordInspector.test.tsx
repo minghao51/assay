@@ -124,6 +124,7 @@ describe('RecordInspector AR-W8 caps', () => {
         model={model}
         request={{ rowIndex: 0, seq: 1 }}
         onClosed={() => {}}
+        onStep={() => {}}
         overlayRevision={0}
       />,
     )
@@ -163,6 +164,7 @@ function renderInspector(
       model={model}
       request={{ rowIndex: 0, seq: 1 }}
       onClosed={() => {}}
+      onStep={() => {}}
       overlayRevision={0}
     />,
   )
@@ -250,6 +252,7 @@ describe('RecordInspector open-after-edit freshness (f-3)', () => {
         model={model}
         request={firstGesture}
         onClosed={() => {}}
+        onStep={() => {}}
         overlayRevision={0}
       />,
     )
@@ -264,6 +267,7 @@ describe('RecordInspector open-after-edit freshness (f-3)', () => {
         model={model}
         request={firstGesture}
         onClosed={() => {}}
+        onStep={() => {}}
         overlayRevision={1}
       />,
     )
@@ -282,6 +286,7 @@ describe('RecordInspector open-after-edit freshness (f-3)', () => {
         model={model}
         request={{ rowIndex: 0, seq: 2 }}
         onClosed={() => {}}
+        onStep={() => {}}
         overlayRevision={1}
       />,
     )
@@ -304,6 +309,7 @@ describe('RecordInspector click-while-fetching (uxc-2)', () => {
         model={pending.model}
         request={{ rowIndex: 0, seq: 1 }}
         onClosed={onClosed}
+        onStep={() => {}}
         overlayRevision={0}
       />,
     )
@@ -328,6 +334,7 @@ describe('RecordInspector click-while-fetching (uxc-2)', () => {
         model={pending.model}
         request={{ rowIndex: 0, seq: 1 }}
         onClosed={onClosed}
+        onStep={() => {}}
         overlayRevision={0}
       />,
     )
@@ -354,6 +361,7 @@ describe('RecordInspector click-while-fetching (uxc-2)', () => {
         model={pending.model}
         request={{ rowIndex: 99, seq: 1 }}
         onClosed={onClosed}
+        onStep={() => {}}
         overlayRevision={0}
       />,
     )
@@ -369,6 +377,7 @@ describe('RecordInspector click-while-fetching (uxc-2)', () => {
         model={pending.model}
         request={{ rowIndex: 0, seq: 1 }}
         onClosed={onClosed}
+        onStep={() => {}}
         overlayRevision={0}
       />,
     )
@@ -397,6 +406,7 @@ describe('RecordInspector click-while-fetching (uxc-2)', () => {
         model={pending.model}
         request={request}
         onClosed={() => {}}
+        onStep={() => {}}
         overlayRevision={0}
       />,
     )

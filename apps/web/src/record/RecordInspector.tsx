@@ -82,12 +82,51 @@ interface RecordInspectorProps {
   /** Called on every close (user, Escape, or epoch shift) to clear the gesture. */
   readonly onClosed: () => void
   /**
+   * ug-11 (UG-12): the dock's ◀ Prev / ▶ Next request. The component resolves
+   * the adjacent READY row itself (so "disabled" and "where to step" can never
+   * disagree) and asks the composition root to open it through the SAME
+   * request/scroll machinery every row gesture uses — the dock never invents a
+   * second read path and never closes itself to step.
+   */
+  readonly onStep: (rowIndex: number) => void
+  /**
    * m4-3: monotonic overlay revision from the composition root. A change with
    * an unchanged query state/schema means the open record's *values* moved
    * (cell edit / undo / redo): the inspector re-reads the same logical row
    * from the fresh grid epoch instead of rendering a stale snapshot.
    */
   readonly overlayRevision: number
+}
+
+/** ug-11: 1-based row number, the ONE convention this dock and the grid's
+ * gutter both display. The 0-based effective index stays in `data-row-index`
+ * (the jump/scroll contract) and in `request.rowIndex`; only user-facing
+ * numbers are shifted, so `row 1` is the first row of the dataset. */
+function displayRowNumber(rowIndex: number): number {
+  return rowIndex + 1
+}
+
+/**
+ * ug-11: the adjacent READY row in one direction, or `null` at the dataset
+ * bounds. Rows whose slot is not `ready` (loading placeholder, failed span)
+ * hold no record to show, so they are stepped over rather than opened — the
+ * same readiness rule the grid's open gesture applies ("declining non-ready
+ * rows is the record inspector's job"). `getRow` is a cache lookup (no fetch),
+ * and the rows around an open record are exactly the ones the grid has loaded,
+ * so the scan ends within a slot or two in practice; the loop is bounded by
+ * the dataset instead of an arbitrary look-ahead cap so a genuinely adjacent
+ * ready row is never reported unreachable.
+ */
+function findAdjacentReadyRow(
+  model: GridViewportModel,
+  from: number,
+  direction: -1 | 1,
+): number | null {
+  const totalRows = model.totalRows ?? 0
+  for (let index = from + direction; index >= 0 && index < totalRows; index += direction) {
+    if (model.getRow(index).status === 'ready') return index
+  }
+  return null
 }
 
 /** Expansion state: a set of node paths (`deep/a/b`); collapsed by default. */
@@ -245,6 +284,7 @@ export function RecordInspector({
   model,
   request,
   onClosed,
+  onStep,
   overlayRevision,
 }: RecordInspectorProps) {
   // The model's version drives freshness re-evaluation: every sort/filter
@@ -309,6 +349,17 @@ export function RecordInspector({
    * before the open).
    */
   const pendingContextRef = useRef<{ seq: number; context: RecordContext } | null>(null)
+  /**
+   * ug-11: whether a record is already on display. The opener captured below
+   * is the element focus returns to on Close; stepping to an adjacent row is
+   * the SAME open request re-firing (new `seq`) while the dock stays open, and
+   * the focused Prev/Next button is the wrong thing to remember as the
+   * opener — it is about to be re-rendered as the panel re-points, and on a
+   * later Close the user would land on `<body>`. Capturing only on a fresh
+   * open keeps the existing focus-restore behavior (back to the grid row).
+   */
+  const openRef = useRef(false)
+  openRef.current = state.kind === 'open'
 
   const close = useCallback(() => {
     guard.current.invalidate()
@@ -404,8 +455,10 @@ export function RecordInspector({
     handledSeqRef.current = request.seq
     pendingContextRef.current = null
     const token = guard.current.begin()
-    openerRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    if (!openRef.current) {
+      openerRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
     setExpanded(new Set<string>()) // every open starts collapsed — a fresh look
     // AR-W8: every open starts capped; the user can expand on request.
     fullValuesRef.current = false
@@ -510,7 +563,7 @@ export function RecordInspector({
         data-stale="true"
         data-row-index={state.rowIndex}
         role="status"
-        aria-label={`Reloading record — row ${String(state.rowIndex)}`}
+        aria-label={`Reloading record — row ${String(displayRowNumber(state.rowIndex))}`}
       >
         <p data-testid="record-reloading">Reloading record…</p>
       </section>
@@ -547,6 +600,9 @@ export function RecordInspector({
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     if (event.key === 'Escape') close()
   }
+  /** ug-11: the adjacent-ready targets, resolved against the live model. */
+  const previousRow = findAdjacentReadyRow(model, state.rowIndex, -1)
+  const nextRow = findAdjacentReadyRow(model, state.rowIndex, 1)
 
   return (
     <section
@@ -554,14 +610,46 @@ export function RecordInspector({
       data-testid="record-inspector"
       data-row-index={state.rowIndex}
       role="region"
-      aria-label={`Record inspector — row ${String(state.rowIndex)}`}
+      aria-label={`Record inspector — row ${String(displayRowNumber(state.rowIndex))}`}
       onKeyDown={onKeyDown}
     >
       <h2 className="visually-hidden">Record</h2>
       <header className="record-header">
         <span className="record-title" data-testid="record-title">
-          row <span data-testid="record-title-row">{state.rowIndex}</span> — full record
+          row <span data-testid="record-title-row">{displayRowNumber(state.rowIndex)}</span> — full
+          record
         </span>
+        {/* ug-11 (UG-12): step through the dataset without leaving the dock.
+            Enabled only while an adjacent READY row exists; the step opens
+            that row in this same dock through `onStep` (App's existing
+            record-request + grid-scroll seam), so the dock never closes and
+            the freshness/epoch rules keep applying. */}
+        <button
+          type="button"
+          className="record-affordance"
+          data-testid="record-prev"
+          aria-label="Previous row"
+          title="Previous row"
+          disabled={previousRow === null}
+          onClick={() => {
+            if (previousRow !== null) onStep(previousRow)
+          }}
+        >
+          <span aria-hidden="true">◀</span> Prev
+        </button>
+        <button
+          type="button"
+          className="record-affordance"
+          data-testid="record-next"
+          aria-label="Next row"
+          title="Next row"
+          disabled={nextRow === null}
+          onClick={() => {
+            if (nextRow !== null) onStep(nextRow)
+          }}
+        >
+          <span aria-hidden="true">▶</span> Next
+        </button>
         <button
           type="button"
           className="record-affordance"

@@ -532,11 +532,13 @@ h1 {
 /* The header lives inside `.grid-viewport` so it shares the body's single
    horizontal scroll context; `sticky` keeps it pinned while the virtualized
    rows scroll vertically underneath. The opaque background + z-index stop
-   rows painting over it. */
+   rows painting over it. ug-11: the z-index is 2 because the row-number
+   gutter is a sticky, z-indexed body cell (see below) and the header must
+   still paint over the rows that scroll under it. */
 .grid-header {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   background: var(--color-surface-subtle);
 }
 
@@ -586,6 +588,55 @@ h1 {
 
 .grid-row-loading .grid-cell {
   color: var(--color-text-loading);
+}
+
+/* ---- ug-11 (UG-12): sticky 1-based row-number gutter ---- */
+
+/* The gutter is the first track of the header row and of every body row. It
+   sticks to the scroll container's left edge so a horizontal pan never pulls
+   the numbers away from the cells they label. The background MUST stay opaque
+   and must match the row striping below, or cells scrolling underneath show
+   through the gutter. */
+.grid-row-number {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  text-align: right;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+}
+
+/* Body cells mirror `.grid-cell` geometry exactly (28px row height): the
+   gutter is a leading column of the same row, not a separate rail. */
+.grid-row .grid-row-number {
+  height: 28px;
+  line-height: 28px;
+  padding: 0 0.5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* Opaque + striped: same alternation as `.grid-row:nth-child(even)`. */
+.grid-row:nth-child(even) .grid-row-number {
+  background: var(--color-surface-alt);
+}
+
+.grid-row-loading .grid-row-number {
+  color: var(--color-text-loading);
+}
+
+/* Header gutter: stays above the header's own cells (z-index inside the
+   header's stacking context) and keeps the header's padding/background. */
+.grid-header-row .grid-row-number {
+  z-index: 3;
+  padding: 0.3rem 0.5rem;
+  background: var(--color-surface-subtle);
+  border-bottom: none;
+  font-weight: 600;
 }
 
 /* ---- Record inspector (m3-3) ---- */
@@ -642,6 +693,18 @@ h1 {
 
 .record-affordance:hover {
   background: var(--color-hover);
+}
+
+/* ug-11 (UG-12): the dock's Prev/Next stepping controls sit beside the title.
+   Disabled means "no adjacent READY row in that direction" — the control is
+   honest about the dataset bounds instead of silently doing nothing. */
+.record-affordance:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.record-affordance:disabled:hover {
+  background: none;
 }
 
 .record-panel {

@@ -807,6 +807,23 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   )
 
   /**
+   * ug-11 (UG-12): the record dock's ◀ Prev / ▶ Next gesture. Stepping is the
+   * SAME navigate gesture a panel jump uses — one record request plus one grid
+   * scroll request — with no display label, so it stays silent: ug-12's
+   * announcement copy is for the validation/diff "Show row" jumps only, and
+   * stepping inside an already-open dock is not a navigation the user has to
+   * be told about. The dock decides WHICH row (it owns the ready-row scan);
+   * this seam only applies it. Stable identity so the memoized inspector does
+   * not re-render on every App render.
+   */
+  const stepRecord = useCallback(
+    (rowIndex: number) => {
+      navigateToRow(rowIndex)
+    },
+    [navigateToRow],
+  )
+
+  /**
    * ug-6 (UG-10): the shell's document-level Undo/Redo shortcuts. One
    * `window` keydown listener maps Ctrl/Cmd+Z → the editing session's existing
    * `handleUndo` and Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y → its existing `handleRedo`.
@@ -1983,6 +2000,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     request={recordRequest}
                     overlayRevision={overlayRevision}
                     onClosed={handleRecordClosed}
+                    onStep={stepRecord}
                   />
                 </WorkbenchSection>
               </div>

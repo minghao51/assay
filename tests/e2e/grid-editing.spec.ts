@@ -46,11 +46,16 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-/** Ids (customer_id, column 0) of every READY row, in row order. */
+/**
+ * Ids (customer_id, column 0) of every READY row, in row order.
+ *
+ * ug-11: the row's first child is its 1-based row-number gutter, so schema
+ * column 0 is `:nth-child(2)` (income, column 2, is `:nth-child(4)`).
+ */
 function expectCustomerOrder(page: Page, ids: string[]): Promise<void> {
   return expect(
     page.locator(
-      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(1)',
+      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(2)',
     ),
   ).toHaveText(ids)
 }
@@ -339,7 +344,7 @@ test('rapid epoch changes settle consistently — no stale/in-flight window rend
   await expectCustomerOrder(page, ['5', '2']) // US by income desc
   await expect(
     page.locator(
-      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(3)',
+      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(4)',
     ),
   ).toHaveText(['75000', '61000'])
   // The settled grid has no loading/error rows in the visible window and the

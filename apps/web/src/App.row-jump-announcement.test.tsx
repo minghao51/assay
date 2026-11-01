@@ -248,8 +248,10 @@ describe('ug-12 — validation "Show row" announces and focuses the target row (
     expect(target.getAttribute('tabindex')).toBe('0')
     expect(document.querySelectorAll('[data-testid="grid-row"][tabindex="0"]')).toHaveLength(1)
 
-    // The record inspector opened on the same row.
+    // The record inspector opened on the same row. ug-11: the dock displays
+    // the 1-based row number (effective index 2 → "row 3"), matching the
+    // grid's row-number gutter.
     const inspector = await screen.findByTestId('record-inspector')
-    expect(inspector.querySelector('[data-testid="record-title-row"]')?.textContent).toBe('2')
+    expect(inspector.querySelector('[data-testid="record-title-row"]')?.textContent).toBe('3')
   })
 })

@@ -98,11 +98,45 @@ test('wide grid: last column is reachable by pan, keyboard, and edit', async ({ 
   const lastCell = cell(page, 0, LAST_COLUMN_INDEX)
   await expect(lastCell).toHaveText('alpha')
 
+  // ug-11 (UG-12): the row-number gutter is pinned to the left edge. Capture
+  // its position BEFORE the pan; a horizontal pan must not move it, and its
+  // number must still name the same row afterwards.
+  const gutter = row(page, 0).getByTestId('grid-row-number')
+  const headerGutter = page.getByTestId('grid-row-number-header')
+  await expect(gutter).toHaveText('1')
+  const gutterBefore = await gutter.boundingBox()
+  const headerGutterBefore = await headerGutter.boundingBox()
+  if (gutterBefore === null || headerGutterBefore === null) throw new Error('missing gutter box')
+  expect(await gutter.evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
+
   // (b) scroll reachability — a genuine horizontal wheel must move the shared
   // scroller, and the last header + last cell end up inside the visible box.
   await panToFarRight(page)
   const scrollLeft = await viewport.evaluate((el) => el.scrollLeft)
   expect(scrollLeft).toBeGreaterThan(0)
+
+  // ug-11: the gutter did NOT pan with the cells — same x, same number, and
+  // still the leftmost element of the visible grid (header included).
+  const gutterAfter = await gutter.boundingBox()
+  const headerGutterAfter = await headerGutter.boundingBox()
+  const containerBox = await viewport.boundingBox()
+  if (gutterAfter === null || headerGutterAfter === null || containerBox === null) {
+    throw new Error('missing gutter box after pan')
+  }
+  expect(Math.abs(gutterAfter.x - gutterBefore.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(headerGutterAfter.x - headerGutterBefore.x)).toBeLessThanOrEqual(1)
+  // Pinned to the scroll container's left edge (border included in the box).
+  expect(gutterAfter.x - containerBox.x).toBeLessThanOrEqual(3)
+  expect(headerGutterAfter.x - containerBox.x).toBeLessThanOrEqual(3)
+  await expect(gutter).toHaveText('1')
+  // …and it paints over the cells scrolling underneath (opaque sticky cell).
+  const gutterHit = await gutter.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    return top === element || element.contains(top)
+  })
+  expect(gutterHit).toBe(true)
+
   await expectWithinBox(lastHeader, viewport)
   await expectWithinBox(lastCell, viewport)
 

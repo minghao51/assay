@@ -50,7 +50,10 @@ async function openRow(page: Page, rowIndex: number): Promise<Locator> {
   const panel = page.getByTestId('record-inspector')
   await expect(panel).toBeVisible()
   await expect(panel).toHaveAttribute('data-row-index', String(rowIndex))
-  await expect(page.getByTestId('record-title-row')).toHaveText(String(rowIndex))
+  // ug-11: `data-row-index` stays the 0-based effective index (the scroll/jump
+  // contract), while the dock's visible title is 1-based and agrees with the
+  // grid's row-number gutter.
+  await expect(page.getByTestId('record-title-row')).toHaveText(String(rowIndex + 1))
   return panel
 }
 
@@ -198,8 +201,8 @@ test('tree semantics: region role, disclosure toggles, keyboard open/close, reop
   const panel = page.getByTestId('record-inspector')
   await expect(panel).toBeVisible()
   await expect(panel).toHaveAttribute('data-row-index', '3')
-  // Accessible as a named region.
-  await expect(page.getByRole('region', { name: 'Record inspector — row 3' })).toBeVisible()
+  // Accessible as a named region (ug-11: 1-based, matching the gutter).
+  await expect(page.getByRole('region', { name: 'Record inspector — row 4' })).toBeVisible()
 
   // Disclosure toggles: native buttons with aria-expanded/aria-controls.
   // (Row id 4 has a NULL deep — no deep toggle exists; use the events array.)

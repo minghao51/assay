@@ -56,11 +56,14 @@ async function expectSortState(page: Page, column: string, state: string): Promi
  * 5 rows all fit one viewport window, so the virtualizer renders them all).
  * Only ready rows are matched: transient loading placeholders (whose cells
  * render '…') are excluded, and toHaveText retries until the fetch lands.
+ *
+ * ug-11: the row's first child is its 1-based row-number gutter, so schema
+ * column 0 is `:nth-child(2)` (income, column 2, is `:nth-child(4)`).
  */
 function expectCustomerOrder(page: Page, ids: string[]): Promise<void> {
   return expect(
     page.locator(
-      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(1)',
+      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(2)',
     ),
   ).toHaveText(ids)
 }
@@ -84,7 +87,7 @@ test('column-header sort cycles asc → desc → cleared, reordering the visible
   await expectSortState(page, 'income', 'asc')
   await expect(
     page.locator(
-      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(3)',
+      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(4)',
     ),
   ).toHaveText(['48000', '52000', '61000', '75000', 'NULL'])
   await expectCustomerOrder(page, ['4', '1', '2', '5', '3'])
@@ -94,7 +97,7 @@ test('column-header sort cycles asc → desc → cleared, reordering the visible
   await expectSortState(page, 'income', 'desc')
   await expect(
     page.locator(
-      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(3)',
+      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(4)',
     ),
   ).toHaveText(['75000', '61000', '52000', '48000', 'NULL'])
   await expectCustomerOrder(page, ['5', '2', '1', '4', '3'])
@@ -183,7 +186,7 @@ test('filter + sort compose: country = US with income desc orders the matches', 
   await expectCustomerOrder(page, ['5', '2']) // 75000 before 61000
   await expect(
     page.locator(
-      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(3)',
+      '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(4)',
     ),
   ).toHaveText(['75000', '61000'])
   await expect(page.locator('[data-testid="filter-chip"] code')).toHaveText(["country = 'US'"])

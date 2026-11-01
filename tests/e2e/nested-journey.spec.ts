@@ -147,7 +147,9 @@ test('cold start to insight: schema tree → previews → inspector → one-clic
   await row1.click()
   const panel = page.getByTestId('record-inspector')
   await expect(panel).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Record inspector — row 0' })).toBeVisible()
+  // ug-11: the dock's visible number is 1-based (row index 0 → row 1), the
+  // same convention as the grid's row-number gutter.
+  await expect(page.getByRole('region', { name: 'Record inspector — row 1' })).toBeVisible()
 
   /** Leaf value at an exact tree path (record-inspector.spec pattern). */
   const valueAt = (scope: Locator, keys: readonly string[]): Locator => {

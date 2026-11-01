@@ -26,6 +26,12 @@ import { nextSortSpec } from './query-state'
 export const GRID_ROW_HEIGHT_PX = 28
 /** Extra DOM rows rendered beyond the viewport so scrolling stays ahead of paint. */
 const VIRTUALIZER_OVERSCAN_ROWS = 6
+/**
+ * ug-11 (UG-12): the leading row-number gutter's fixed track. It is the FIRST
+ * track of the header row and of every body row, in both sizing regimes, so a
+ * horizontal pan can never pull a number out of its column.
+ */
+export const GRID_ROW_NUMBER_TRACK = '2.75rem'
 
 interface DataGridProps {
   model: GridViewportModel
@@ -550,19 +556,23 @@ export function DataGrid({
   }
 
   const stats = model.stats
+  // ug-11 (UG-12): the row-number gutter leads every row (header included), so
+  // the visible number and the cells can never disagree about which row a cell
+  // belongs to. The gutter is fixed-width, never a `1fr` track.
   const gridTemplateColumns =
     schema.length > 0
-      ? `repeat(${String(schema.length)}, minmax(9rem, 1fr))${rowActionsEnabled ? ' 5rem' : ''}`
-      : '1fr'
+      ? `${GRID_ROW_NUMBER_TRACK} repeat(${String(schema.length)}, minmax(9rem, 1fr))${rowActionsEnabled ? ' 5rem' : ''}`
+      : `${GRID_ROW_NUMBER_TRACK} 1fr`
   /**
    * Deterministic track floor shared by the header row and every body row: a
    * wide container stretches the `1fr` tracks equally, and a narrow container
    * pans exact 9rem tracks inside the scroll element — never clipping. Both
-   * regimes use the identical floor, so header and cells stay aligned.
+   * regimes use the identical floor (including the ug-11 gutter track), so
+   * header and cells stay aligned.
    */
   const gridMinWidth =
     schema.length > 0
-      ? `calc(${String(schema.length)} * 9rem${rowActionsEnabled ? ' + 5rem' : ''})`
+      ? `calc(${GRID_ROW_NUMBER_TRACK} + ${String(schema.length)} * 9rem${rowActionsEnabled ? ' + 5rem' : ''})`
       : undefined
   const rowStyle: CSSProperties = {
     display: 'grid',
@@ -592,7 +602,7 @@ export function DataGrid({
         ref={scrollRef}
         role="grid"
         aria-rowcount={totalRows + 1}
-        aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0)}
+        aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0) + 1}
         aria-describedby={showEditHint ? editHintId : undefined}
       >
         <div className="grid-header" role="rowgroup" ref={headerRef}>
@@ -601,6 +611,21 @@ export function DataGrid({
             role="row"
             style={{ gridTemplateColumns, minWidth: gridMinWidth }}
           >
+            {/*
+             * ug-11 (UG-12): the gutter's header. Visible `#`, accessible
+             * name `Row number` as real (visually hidden) text — `aria-label`
+             * alone does not satisfy axe `empty-table-header` (q-3 precedent).
+             * The cell is sticky at the left edge, so a horizontal pan keeps
+             * the numbers and their column headers together.
+             */}
+            <div
+              className="grid-header-cell grid-row-number grid-row-number-header"
+              role="columnheader"
+              data-testid="grid-row-number-header"
+            >
+              <span aria-hidden="true">#</span>
+              <span className="visually-hidden">Row number</span>
+            </div>
             {schema.map((column) => {
               const sortDirection = model.sort?.column === column.name ? model.sort.direction : null
               const sortLabel =
@@ -848,6 +873,23 @@ export function DataGrid({
                   transform: `translateY(${String(item.start - headerHeight)}px)`,
                 }}
               >
+                {/*
+                 * ug-11 (UG-12): the leading gutter, rendered for EVERY
+                 * rendered row (loading/error included — the number is the
+                 * row's position, not its payload). `role="rowheader"` is a
+                 * legal row child inside a grid, and it makes the 1-based
+                 * number the row's announced header cell. `data-row-number`
+                 * is the 1-based value; `data-row-index` on the row stays the
+                 * 0-based effective index (the jump/scroll contract).
+                 */}
+                <div
+                  role="rowheader"
+                  className="grid-row-number"
+                  data-testid="grid-row-number"
+                  data-row-number={item.index + 1}
+                >
+                  {item.index + 1}
+                </div>
                 {status === 'ready'
                   ? slot.row.map((cell, columnIndex) => {
                       const column = schema[columnIndex]

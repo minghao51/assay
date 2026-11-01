@@ -103,6 +103,9 @@ async function expectKnownRow(page: Page, rowIndex: number): Promise<void> {
   const expected = expectedMillionRow(rowIndex)
   const target = row(page, rowIndex)
   await expect(target).toHaveAttribute('data-status', 'ready')
+  // ug-11 (UG-12): the sticky 1-based gutter is rendered on every virtualized
+  // row (index + 1), so a deep scroll never loses which row is on screen.
+  await expect(target.getByTestId('grid-row-number')).toHaveText(String(rowIndex + 1))
   await expect(target.getByTestId('grid-cell')).toHaveText([
     expected.id,
     expected.bucket,

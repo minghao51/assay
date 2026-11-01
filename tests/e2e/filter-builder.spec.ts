@@ -31,10 +31,17 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-/** The customer_id cells of every READY grid row, in row order. */
+/**
+ * The customer_id cells of every READY grid row, in row order.
+ *
+ * ug-11: each row's FIRST child is its 1-based row-number gutter, so schema
+ * column 0 is the row's second child (`:nth-child(2)`). The assertion is the
+ * same one — a per-row cell at a fixed schema position — only the structural
+ * offset moved.
+ */
 function customerIdCells(page: Page): Locator {
   return page.locator(
-    '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(1)',
+    '[data-testid="grid-row"][data-status="ready"] [data-testid="grid-cell"]:nth-child(2)',
   )
 }
 
