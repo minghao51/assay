@@ -13,15 +13,20 @@ import type { RecordRequest } from './RecordInspector'
  *
  * Pins:
  * 1. the controls exist with the agreed accessible names and are **disabled**
- *    exactly when no adjacent READY row exists in that direction (dataset
- *    bounds, or only loading/error neighbours);
- * 2. a step asks the composition root for the adjacent ready row (skipping a
- *    non-ready one) and the dock re-points WITHOUT closing — the same
+ *    exactly at the dataset bounds or when the IMMEDIATE neighbour settled
+ *    `error` (a `loading` neighbour stays enabled);
+ * 2. a step asks the composition root for the immediate neighbour (N-1 / N+1,
+ *    no skipping) and the dock re-points WITHOUT closing — the same
  *    `<section>` node keeps rendering, the title number advances, and the
  *    content is re-read through the existing request machinery;
- * 3. focus is not stranded (the control the user pressed keeps focus across
+ * 3. a `loading` neighbour is not dropped: the existing uxc-2 pending gesture
+ *    opens it when the slot lands;
+ * 4. focus is not stranded (the control the user pressed keeps focus across
  *    the re-point);
- * 4. the pending/stale label is 1-based too.
+ * 5. stepping is O(1) against a large sparse cache: render + one interaction
+ *    call `model.getRow` at most a small constant number of times, never a
+ *    dataset-walking scan;
+ * 6. the pending/stale label is 1-based too.
  *
  * The harness below is the App wiring in miniature: `onStep` receives the row
  * index and the request state advances with a fresh `seq` — exactly what
@@ -34,6 +39,9 @@ interface ControllableModel {
   readonly model: GridViewportModel
   setStatus(rowIndex: number, status: RowStatus): void
   notify(): void
+  /** Number of `model.getRow` calls observed (the O(1) stepping pin). */
+  getRowCalls(): number
+  resetGetRowCalls(): void
 }
 
 const SCHEMA = [
@@ -44,8 +52,10 @@ const SCHEMA = [
 function controllableModel(
   totalRows: number,
   statuses: Record<number, RowStatus>,
+  defaultStatus: RowStatus = 'ready',
 ): ControllableModel {
   let version = 0
+  let getRowCalls = 0
   const slots = new Map<number, RowStatus>(Object.entries(statuses).map(([k, v]) => [Number(k), v]))
   const listeners = new Set<() => void>()
   const model = {
@@ -61,7 +71,8 @@ function controllableModel(
     sort: null,
     filters: [],
     getRow: (index: number) => {
-      const status = slots.get(index) ?? 'ready'
+      getRowCalls += 1
+      const status = slots.get(index) ?? defaultStatus
       if (status === 'ready') {
         return { status, row: [index, `row-${String(index)}`], key: `base:anchor#${String(index)}` }
       }
@@ -77,6 +88,10 @@ function controllableModel(
     notify: () => {
       version += 1
       for (const listener of listeners) listener()
+    },
+    getRowCalls: () => getRowCalls,
+    resetGetRowCalls: () => {
+      getRowCalls = 0
     },
   }
 }
@@ -148,14 +163,15 @@ describe('RecordInspector Prev/Next stepping (ug-11)', () => {
     expect(screen.getByTestId('record-prev')).toHaveProperty('disabled', false)
   })
 
-  it('is disabled when the only neighbours are not ready (loading/error)', () => {
-    const { model } = controllableModel(3, { 1: 'loading', 2: 'error' })
-    render(<Harness model={model} startRow={0} onStep={() => {}} />)
+  it('disables an ERROR neighbour but keeps a LOADING neighbour enabled', () => {
+    const { model } = controllableModel(3, { 0: 'error', 2: 'loading' })
+    render(<Harness model={model} startRow={1} onStep={() => {}} />)
 
-    // No adjacent READY row forward, and none backward: both controls are
-    // honestly disabled rather than stepping into a placeholder.
-    expect(screen.getByTestId('record-next')).toHaveProperty('disabled', true)
+    // Backward is a failed span: no record can ever appear there.
     expect(screen.getByTestId('record-prev')).toHaveProperty('disabled', true)
+    // Forward is still loading: the pending gesture opens it when it lands,
+    // so the control must not be dead.
+    expect(screen.getByTestId('record-next')).toHaveProperty('disabled', false)
   })
 
   it('Next from row N opens N+1 in the SAME dock (title and content re-read)', () => {
@@ -179,24 +195,39 @@ describe('RecordInspector Prev/Next stepping (ug-11)', () => {
     expect(leafValue('id')).toBe('1')
   })
 
-  it('skips rows that are not ready: 3 → 5 when row 4 is still loading', () => {
-    const { model } = controllableModel(5, { 3: 'loading' })
+  it('Next on a loading neighbour keeps the pending gesture and opens it when the slot lands', () => {
+    const controllable = controllableModel(3, { 1: 'loading' })
     const onStep = vi.fn()
-    render(<Harness model={model} startRow={2} onStep={onStep} />)
+    render(<Harness model={controllable.model} startRow={0} onStep={onStep} />)
 
-    expect(titleNumber()).toBe('3')
+    expect(titleNumber()).toBe('1')
+    const next = screen.getByTestId('record-next')
+    expect(next).toHaveProperty('disabled', false)
+
     act(() => {
-      fireEvent.click(screen.getByTestId('record-next'))
+      fireEvent.click(next)
     })
 
-    // Index 3 is a loading placeholder: the step lands on index 4 (row 5).
-    expect(onStep).toHaveBeenCalledWith(4)
-    expect(titleNumber()).toBe('5')
-    expect(leafValue('id')).toBe('4')
+    // The immediate neighbour is requested (N+1, never a skip over it), and
+    // the dock keeps showing the current record while that slot loads.
+    expect(onStep).toHaveBeenCalledWith(1)
+    expect(titleNumber()).toBe('1')
+    expect(screen.getByTestId('record-inspector').getAttribute('data-row-index')).toBe('0')
+
+    // uxc-2: the pending gesture resolves when the slot lands — no second
+    // read path, no dropped step.
+    act(() => {
+      controllable.setStatus(1, 'ready')
+      controllable.notify()
+    })
+
+    expect(titleNumber()).toBe('2')
+    expect(screen.getByTestId('record-inspector').getAttribute('data-row-index')).toBe('1')
+    expect(leafValue('id')).toBe('1')
   })
 
-  it('Prev steps backwards over a non-ready row and keeps focus on the control', () => {
-    const { model } = controllableModel(5, { 2: 'error' })
+  it('Prev steps to N-1 and keeps focus on the control', () => {
+    const { model } = controllableModel(5, {})
     const onStep = vi.fn()
     render(<Harness model={model} startRow={3} onStep={onStep} />)
 
@@ -208,12 +239,42 @@ describe('RecordInspector Prev/Next stepping (ug-11)', () => {
       fireEvent.click(prev)
     })
 
-    // Index 2 failed: the previous READY row is index 1 (row 2).
-    expect(onStep).toHaveBeenCalledWith(1)
-    expect(titleNumber()).toBe('2')
+    // Immediate neighbour, no skipping: index 2 (row 3).
+    expect(onStep).toHaveBeenCalledWith(2)
+    expect(titleNumber()).toBe('3')
+    expect(leafValue('id')).toBe('2')
     // Focus is not stranded on <body> after the re-point.
     expect(document.activeElement).toBe(prev)
     expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('never walks the dataset: a large sparse cache stays O(1) per render/click', () => {
+    // 100,000 rows, every far slot `loading` (exactly what an uncached
+    // viewport model reports). The old "scan to the next ready row" helper
+    // would call getRow ~99,999 times per direction on this render.
+    const controllable = controllableModel(100_000, { 0: 'ready' }, 'loading')
+    const onStep = vi.fn()
+    render(<Harness model={controllable.model} startRow={0} onStep={onStep} />)
+
+    expect(titleNumber()).toBe('1')
+    // Render: at most the open read + context + the two adjacent-slot checks.
+    // This is the load-bearing assertion: a dataset-walking helper blows this
+    // bound by ~four orders of magnitude before any disabled-state check runs.
+    expect(controllable.getRowCalls()).toBeLessThanOrEqual(8)
+    // Bounds still disable Prev; the loading neighbour stays steppable.
+    expect(screen.getByTestId('record-prev')).toHaveProperty('disabled', true)
+    expect(screen.getByTestId('record-next')).toHaveProperty('disabled', false)
+
+    controllable.resetGetRowCalls()
+    act(() => {
+      fireEvent.click(screen.getByTestId('record-next'))
+    })
+
+    expect(onStep).toHaveBeenCalledWith(1)
+    // One interaction: same constant bound, independent of totalRows.
+    expect(controllable.getRowCalls()).toBeLessThanOrEqual(8)
+    // Still pending on the loading slot — nothing was scanned past it.
+    expect(titleNumber()).toBe('1')
   })
 
   it('labels the stale/pending state with the same 1-based number', () => {

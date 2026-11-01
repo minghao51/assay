@@ -82,11 +82,11 @@ interface RecordInspectorProps {
   /** Called on every close (user, Escape, or epoch shift) to clear the gesture. */
   readonly onClosed: () => void
   /**
-   * ug-11 (UG-12): the dock's ◀ Prev / ▶ Next request. The component resolves
-   * the adjacent READY row itself (so "disabled" and "where to step" can never
-   * disagree) and asks the composition root to open it through the SAME
-   * request/scroll machinery every row gesture uses — the dock never invents a
-   * second read path and never closes itself to step.
+   * ug-11 (UG-12): the dock's ◀ Prev / ▶ Next request. The component decides
+   * whether the IMMEDIATE neighbour is steppable (so "disabled" and "where to
+   * step" can never disagree) and asks the composition root to open it through
+   * the SAME request/scroll machinery every row gesture uses — the dock never
+   * invents a second read path and never closes itself to step.
    */
   readonly onStep: (rowIndex: number) => void
   /**
@@ -107,26 +107,29 @@ function displayRowNumber(rowIndex: number): number {
 }
 
 /**
- * ug-11: the adjacent READY row in one direction, or `null` at the dataset
- * bounds. Rows whose slot is not `ready` (loading placeholder, failed span)
- * hold no record to show, so they are stepped over rather than opened — the
- * same readiness rule the grid's open gesture applies ("declining non-ready
- * rows is the record inspector's job"). `getRow` is a cache lookup (no fetch),
- * and the rows around an open record are exactly the ones the grid has loaded,
- * so the scan ends within a slot or two in practice; the loop is bounded by
- * the dataset instead of an arbitrary look-ahead cap so a genuinely adjacent
- * ready row is never reported unreachable.
+ * ug-11: the IMMEDIATE neighbour in one direction (`from ± 1`), or `null` at
+ * the dataset bounds / when that slot settled `error`.
+ *
+ * Stepping is deliberately O(1): `getRow` is called at most ONCE per direction
+ * (and only after a bounds check), so a render or click can never walk the
+ * dataset. The viewport model reports every uncached/not-yet-requested index as
+ * `loading`, so a "scan to the next ready row" is an unbounded synchronous walk
+ * on a large sparse cache — a main-thread freeze in the supported million-row
+ * scenario (ug-11 review finding 1). The queue's literal contract is immediate
+ * neighbour stepping anyway: Next from row N opens N+1.
+ *
+ * A `loading` neighbour stays ENABLED: the existing uxc-2 pending-gesture
+ * machinery remembers the request and opens the row when its slot lands (the
+ * same path a click on a loading grid row uses), so the gesture is never
+ * dropped. An `error` neighbour is disabled — the failed span will never yield
+ * a record, so the click would be a dead gesture.
  */
-function findAdjacentReadyRow(
-  model: GridViewportModel,
-  from: number,
-  direction: -1 | 1,
-): number | null {
+function adjacentStepRow(model: GridViewportModel, from: number, direction: -1 | 1): number | null {
+  const target = from + direction
   const totalRows = model.totalRows ?? 0
-  for (let index = from + direction; index >= 0 && index < totalRows; index += direction) {
-    if (model.getRow(index).status === 'ready') return index
-  }
-  return null
+  if (target < 0 || target >= totalRows) return null
+  if (model.getRow(target).status === 'error') return null
+  return target
 }
 
 /** Expansion state: a set of node paths (`deep/a/b`); collapsed by default. */
@@ -600,9 +603,9 @@ export function RecordInspector({
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     if (event.key === 'Escape') close()
   }
-  /** ug-11: the adjacent-ready targets, resolved against the live model. */
-  const previousRow = findAdjacentReadyRow(model, state.rowIndex, -1)
-  const nextRow = findAdjacentReadyRow(model, state.rowIndex, 1)
+  /** ug-11: the immediate-neighbour targets, resolved against the live model. */
+  const previousRow = adjacentStepRow(model, state.rowIndex, -1)
+  const nextRow = adjacentStepRow(model, state.rowIndex, 1)
 
   return (
     <section
@@ -620,10 +623,13 @@ export function RecordInspector({
           record
         </span>
         {/* ug-11 (UG-12): step through the dataset without leaving the dock.
-            Enabled only while an adjacent READY row exists; the step opens
-            that row in this same dock through `onStep` (App's existing
-            record-request + grid-scroll seam), so the dock never closes and
-            the freshness/epoch rules keep applying. */}
+            Next/Prev target the IMMEDIATE neighbour (N+1 / N-1); the control is
+            disabled only at the dataset bounds or when that adjacent slot
+            settled `error`. A `loading` neighbour stays enabled and rides the
+            existing uxc-2 pending gesture, so the step opens when it lands. The
+            step opens the row in this same dock through `onStep` (App's
+            existing record-request + grid-scroll seam), so the dock never
+            closes and the freshness/epoch rules keep applying. */}
         <button
           type="button"
           className="record-affordance"

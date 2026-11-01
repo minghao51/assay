@@ -696,8 +696,9 @@ h1 {
 }
 
 /* ug-11 (UG-12): the dock's Prev/Next stepping controls sit beside the title.
-   Disabled means "no adjacent READY row in that direction" — the control is
-   honest about the dataset bounds instead of silently doing nothing. */
+   Disabled means "the immediate neighbour is outside the dataset or settled
+   error" — a loading neighbour stays enabled and opens through the existing
+   pending gesture when its slot lands. */
 .record-affordance:disabled {
   opacity: 0.45;
   cursor: default;

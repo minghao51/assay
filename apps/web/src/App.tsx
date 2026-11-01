@@ -812,9 +812,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * scroll request — with no display label, so it stays silent: ug-12's
    * announcement copy is for the validation/diff "Show row" jumps only, and
    * stepping inside an already-open dock is not a navigation the user has to
-   * be told about. The dock decides WHICH row (it owns the ready-row scan);
-   * this seam only applies it. Stable identity so the memoized inspector does
-   * not re-render on every App render.
+   * be told about. The dock decides WHICH row (the immediate neighbour, or
+   * disabled at a bound/error slot); this seam only applies it. Stable identity
+   * so the memoized inspector does not re-render on every App render.
    */
   const stepRecord = useCallback(
     (rowIndex: number) => {
