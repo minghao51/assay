@@ -361,7 +361,7 @@ test('rapid epoch changes settle consistently — no stale/in-flight window rend
   expect(stats.requested).toBeLessThanOrEqual(10)
 
   // Clearing everything returns to natural order with all rows ready.
-  await page.locator('[data-testid="filter-chip-remove"][data-col-name="country"]').click()
+  await page.locator('[data-testid="filter-active-remove"][data-col-name="country"]').click()
   await page.locator('[data-testid="grid-sort-toggle"][data-col-name="income"]').click() // clear
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
   await expectCustomerOrder(page, ['1', '2', '3', '4', '5'])

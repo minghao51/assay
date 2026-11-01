@@ -145,10 +145,12 @@ test('bounded sets, filter-to-failures, and the exported report match the screen
   const firstRow = page.locator('[data-testid="grid-row"][data-row-index="0"]')
   await expect(firstRow).toHaveAttribute('data-status', 'ready')
   await expect(firstRow.getByTestId('grid-cell').nth(1)).toHaveText('=SUM(A1)')
-  // The filter is visible as a regular m2-2 chip (dismiss restores 120).
+  // The filter is visible as a regular m2-2 chip; the expanded bar's removal
+  // control is the active row's Remove (the body chip is display-only, ug-18
+  // round 2), and dismissing it restores 120.
   const chip = page.locator('[data-testid="filter-chip"][data-col-name="region"]')
   await expect(chip).toHaveCount(1)
-  await chip.getByTestId('filter-chip-remove').click()
+  await page.locator('[data-testid="filter-active-remove"][data-col-name="region"]').click()
   await expect(page.getByTestId('grid-total-rows')).toHaveText('120')
 
   // --- Export CSV: new file, sanitized bait, counts == the screen. ---

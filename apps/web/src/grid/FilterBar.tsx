@@ -45,10 +45,14 @@ export function filterInputId(columnName: string): string {
   return domId('filter-input', columnName)
 }
 
-/** Collision-safe DOM id for a column's builder value input (ux-4). */
-export function filterBuilderValueId(columnName: string): string {
-  return domId('filter-builder-value', columnName)
-}
+/**
+ * DOM id of the single compose value input (ug-18 round 2). The compose row
+ * replaced the per-column builder wall, so this control is one-per-bar: a
+ * historical per-column id (`filter-builder-value-<column>`) would suggest a
+ * column association the control does not have (it belongs to the selected
+ * column, which changes). `filter-compose-value` is unique app-wide.
+ */
+export const FILTER_COMPOSE_VALUE_ID = 'filter-compose-value'
 
 /** Collision-safe DOM id for an active filter row's predicate input (ug-18). */
 export function filterActivePredicateId(columnName: string): string {
@@ -69,6 +73,17 @@ function placeholderFor(profile: FilterColumnProfile): string {
   }
 }
 
+/**
+ * The per-column draft map for an accepted filter list: one draft per active
+ * column carrying the accepted predicate. Rebuilt from the list (not merged),
+ * so a draft cannot outlive the filter it came from.
+ */
+function draftsFrom(filters: readonly FilterSpec[]): Readonly<Record<string, string>> {
+  const next: Record<string, string> = {}
+  for (const filter of filters) next[filter.column] = filter.predicate
+  return next
+}
+
 /** The collapsed/expanded summary: the count plus the active column names. */
 function summaryLabel(filters: readonly FilterSpec[]): string {
   if (filters.length === 0) return 'Filters'
@@ -76,34 +91,42 @@ function summaryLabel(filters: readonly FilterSpec[]): string {
   return `Filters · ${String(filters.length)} active: ${columns}`
 }
 
-/** One active-filter chip: its column+predicate text plus a remove button. */
+/**
+ * One filter chip: its column+predicate text, plus a remove button only when
+ * the chip is the state's removal surface (ug-18 round 2, finding 4). The
+ * collapsed header chips are removable; the expanded body chips are
+ * display-only because the active rows own editing AND removal there — one
+ * removal control per filter per state, never two.
+ */
 function FilterChip({
   filter,
-  pending,
+  pending = false,
   onRemove,
 }: {
   readonly filter: FilterSpec
-  readonly pending: boolean
-  readonly onRemove: (column: string) => void
+  readonly pending?: boolean
+  readonly onRemove?: (column: string) => void
 }) {
   const label = `Remove filter ${filter.column} ${filter.predicate}`
   return (
     <li className="filter-chip" data-testid="filter-chip" data-col-name={filter.column}>
       <code>{`${filter.column} ${filter.predicate}`}</code>
-      <button
-        type="button"
-        className="filter-chip-remove"
-        data-testid="filter-chip-remove"
-        data-col-name={filter.column}
-        aria-label={label}
-        title={label}
-        disabled={pending}
-        onClick={() => {
-          onRemove(filter.column)
-        }}
-      >
-        ×
-      </button>
+      {onRemove !== undefined && (
+        <button
+          type="button"
+          className="filter-chip-remove"
+          data-testid="filter-chip-remove"
+          data-col-name={filter.column}
+          aria-label={label}
+          title={label}
+          disabled={pending}
+          onClick={() => {
+            onRemove(filter.column)
+          }}
+        >
+          ×
+        </button>
+      )}
     </li>
   )
 }
@@ -127,7 +150,14 @@ function FilterChip({
  * (`filter-builder.ts`), the active rows and the escape hatch forward their
  * predicate, and the summary/chips are read from `model.filters` — so a
  * programmatic `setFilters` (the validation panel's "Show only failing rows"
- * bridge, or a profile top-k click) is reflected too.
+ * bridge, or a profile top-k click) is reflected too, drafts included: an
+ * untouched active row always displays, re-applies and edits the *accepted*
+ * predicate, never a leftover draft (ug-18 round 2, findings 1/2).
+ *
+ * Removal has exactly one control per state: the collapsed header's chip
+ * button, or the expanded active row's `Remove`. The expanded body keeps a
+ * display-only chip list (the `filter-chip` surface other panels assert on),
+ * and the two chip lists are mutually exclusive (ug-18 round 2, finding 4).
  *
  * Error handling: invalid builder combinations are rejected **client-side**
  * with an inline, value-free message and never reach the engine. The escape
@@ -145,7 +175,9 @@ export function FilterBar({ model }: FilterBarProps) {
   const [open, setOpen] = useState(false)
   // One predicate draft per column, shared by the active rows and the SQL
   // escape hatch (the app's established "apply this predicate to this column"
-  // semantics). It mirrors the accepted list after every successful apply.
+  // semantics). Seeded from the accepted list on mount and re-seeded whenever
+  // that list changes (see the drafts effect below), so "never touched" is the
+  // accepted predicate while "cleared by the user" is an explicit `''`.
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({})
   // The compose row's selection: `null` = "not chosen yet", so the row falls
   // back to the first schema column and that column kind's default operator.
@@ -221,10 +253,23 @@ export function FilterBar({ model }: FilterBarProps) {
 
   /** Inputs mirror the accepted state after a successful change. */
   const syncDrafts = (filters: readonly FilterSpec[]): void => {
-    const next: Record<string, string> = {}
-    for (const filter of filters) next[filter.column] = filter.predicate
-    setDrafts(next)
+    setDrafts(draftsFrom(filters))
   }
+
+  /**
+   * The drafts mirror the accepted list on EVERY change, programmatic ones
+   * included (ug-18 round 2, findings 1/2). `applyList` only re-syncs on the
+   * paths it owns, so without this a programmatic `setFilters` (the validation
+   * panel's "Show only failing rows", a profile top-k click) would leave the
+   * active row — and the shared SQL-hatch draft — showing a predicate the
+   * model no longer holds, and the next Apply would send that stale value.
+   * The filter list's identity is the trigger, exactly like the auto-open
+   * effect above; a new list always replaces the drafts (a draft must not
+   * outlive the filter it was seeded from).
+   */
+  useEffect(() => {
+    setDrafts(draftsFrom(model.filters))
+  }, [model.filters])
 
   /** Apply a filter list; `true` when the model accepted it (ug-18 compose). */
   const applyList = async (
@@ -265,6 +310,20 @@ export function FilterBar({ model }: FilterBarProps) {
     }
   }
 
+  /** The predicate the accepted list holds for a column (`''` = unfiltered). */
+  const acceptedPredicate = (column: string): string =>
+    model.filters.find((filter) => filter.column === column)?.predicate ?? ''
+
+  /**
+   * The value an editable input displays — and therefore the value its Apply
+   * sends. A local draft wins (it is what the user sees and typed); without one
+   * the accepted predicate is displayed, so an untouched row shows the real
+   * filter. Both surfaces read this, so "submitted value ≡ displayed value" is
+   * structural rather than incidental (ug-18 round 2, finding 1: the row
+   * displayed `> 50000` while Apply sent `''`, silently removing the filter).
+   */
+  const displayedPredicate = (column: string): string => drafts[column] ?? acceptedPredicate(column)
+
   const applyCompose = (): void => {
     if (selectedColumn === undefined || operator === undefined || pending) return
     const result = compileFilterInput(selectedProfile, operator.id, composeValue)
@@ -286,7 +345,12 @@ export function FilterBar({ model }: FilterBarProps) {
   }
 
   const applyDraft = (column: string): void => {
-    void applyList(model.filters, replaceColumnFilter(model.filters, column, drafts[column] ?? ''))
+    // Submit exactly what the input displays. An explicitly emptied input
+    // still removes the filter: `replaceColumnFilter` drops the column on `''`.
+    void applyList(
+      model.filters,
+      replaceColumnFilter(model.filters, column, displayedPredicate(column)),
+    )
   }
 
   const removeFilter = (column: string): void => {
@@ -400,7 +464,7 @@ export function FilterBar({ model }: FilterBarProps) {
               </select>
               {composeNeedsValue && (
                 <input
-                  id={filterBuilderValueId(selectedColumn.name)}
+                  id={FILTER_COMPOSE_VALUE_ID}
                   className="filter-compose-value"
                   data-testid="filter-compose-value"
                   aria-label="Filter value"
@@ -461,7 +525,7 @@ export function FilterBar({ model }: FilterBarProps) {
                     spellCheck={false}
                     autoComplete="off"
                     placeholder="e.g. > 50000"
-                    value={drafts[filter.column] ?? filter.predicate}
+                    value={displayedPredicate(filter.column)}
                     disabled={pending}
                     onChange={(event) => {
                       const value = event.target.value
@@ -525,7 +589,7 @@ export function FilterBar({ model }: FilterBarProps) {
                     spellCheck={false}
                     autoComplete="off"
                     placeholder="e.g. > 50000"
-                    value={drafts[column.name] ?? ''}
+                    value={displayedPredicate(column.name)}
                     disabled={pending}
                     onChange={(event) => {
                       const value = event.target.value
@@ -551,15 +615,18 @@ export function FilterBar({ model }: FilterBarProps) {
               ))}
             </ul>
           </details>
+          {/*
+           * UG-17 / ug-18 round 2: the expanded body's chips are display-only.
+           * Each active filter already has its editable row (with the state's
+           * one removal control); a second remove button here would give one
+           * filter two removal surfaces. The removable chips are the collapsed
+           * header's, and the two lists are mutually exclusive — so each filter
+           * has exactly one chip and one removal control in either state.
+           */}
           {model.filters.length > 0 ? (
             <ul className="filter-chips" data-testid="filter-chips">
               {model.filters.map((filter) => (
-                <FilterChip
-                  key={`${filter.column}:${filter.predicate}`}
-                  filter={filter}
-                  pending={pending}
-                  onRemove={removeFilter}
-                />
+                <FilterChip key={`${filter.column}:${filter.predicate}`} filter={filter} />
               ))}
             </ul>
           ) : (

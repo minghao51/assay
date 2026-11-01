@@ -101,7 +101,10 @@ async function expandFilterBarStates(page: Page): Promise<void> {
   const composeOperator = page.getByTestId('filter-compose-operator')
   const composeValue = page.getByTestId('filter-compose-value')
   const composeApply = page.getByTestId('filter-compose-apply')
-  const builderError = page.getByTestId('filter-builder-error')
+  // Scoped to the column the rejection is about (`data-col-name` on the
+  // single-line builder error), so the association survives any future error
+  // element in the bar — the same scoping the old per-column builder carried.
+  const builderError = page.locator('[data-testid="filter-builder-error"][data-col-name="income"]')
 
   // Builder state: numeric `income > 50000` (type-aware operator + value input).
   await expect(composeOperator).toBeVisible()

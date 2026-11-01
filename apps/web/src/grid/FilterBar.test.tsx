@@ -4,9 +4,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FilterSpec, GridViewportModel } from '@assay/grid'
 import {
+  FILTER_COMPOSE_VALUE_ID,
   FilterBar,
   filterActivePredicateId,
-  filterBuilderValueId,
   filterInputId,
 } from './FilterBar'
 
@@ -88,9 +88,14 @@ function storeModel(
 /**
  * A store model whose `setFilters` is held open until `flush()` is called, so a
  * test can act while an apply is in flight (the uxc-4 collapse-during-apply
- * race). Applies land in call order; `flush()` releases the oldest.
+ * race, and the ug-18 round-2 pending-guard pins). Applies land in call order;
+ * `flush()` releases the oldest. `initialFilters` lets a test start with an
+ * accepted list (and therefore active rows) already in place.
  */
-function blockingModel(columns: readonly { name: string; type: string }[]): {
+function blockingModel(
+  columns: readonly { name: string; type: string }[],
+  initialFilters: readonly FilterSpec[] = [],
+): {
   model: GridViewportModel
   flush: () => void
 } {
@@ -99,7 +104,7 @@ function blockingModel(columns: readonly { name: string; type: string }[]): {
   const releases: (() => void)[] = []
   const model = {
     schema: columns,
-    filters: [] as readonly FilterSpec[],
+    filters: initialFilters as readonly FilterSpec[],
     subscribe: (listener: () => void) => {
       listeners.add(listener)
       return () => {
@@ -129,11 +134,15 @@ function blockingModel(columns: readonly { name: string; type: string }[]): {
  * A model whose first `failures.length` `setFilters` calls reject in order,
  * then accepts — the applyList rollback shapes the FilterBar error state is
  * built on (UG-30): one failure for the apply + a successful restore, or two
- * for the apply + failed restore (the double failure).
+ * for the apply + failed restore (the double failure). `filters` seeds the
+ * accepted list (so a removal/apply has a previous list to restore).
  */
 function failingModel(
   columns: readonly { name: string; type: string }[],
-  ...failures: unknown[]
+  {
+    failures = [],
+    filters = [],
+  }: { failures?: readonly unknown[]; filters?: readonly FilterSpec[] } = {},
 ): { model: GridViewportModel; setFilters: ReturnType<typeof vi.fn> } {
   let version = 0
   const listeners = new Set<() => void>()
@@ -147,7 +156,7 @@ function failingModel(
   })
   const model = {
     schema: columns,
-    filters: [] as readonly FilterSpec[],
+    filters: filters as readonly FilterSpec[],
     subscribe: (listener: () => void) => {
       listeners.add(listener)
       return () => {
@@ -165,6 +174,21 @@ function control(testId: string, column: string): HTMLElement {
   const element = document.querySelector(`[data-testid="${testId}"][data-col-name="${column}"]`)
   if (element === null) throw new Error(`no ${testId} for column ${column}`)
   return element as HTMLElement
+}
+
+/**
+ * Every removal control currently mounted, across both states: the collapsed
+ * header's chip buttons and the expanded active rows' Remove buttons. The
+ * ug-18 round-2 finding-4 invariant is that this set has exactly one entry per
+ * active filter — never two for one filter (expanded body chips are
+ * display-only).
+ */
+function removalControls(): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '[data-testid="filter-chip-remove"], [data-testid="filter-active-remove"]',
+    ),
+  )
 }
 
 function openBar(): void {
@@ -239,7 +263,22 @@ describe('filterInputId (AR-W11)', () => {
     expect(filterActivePredicateId('a.b')).not.toBe(filterInputId('a.b'))
     expect(filterActivePredicateId('a.b')).toBe(filterActivePredicateId('a.b'))
     expect(filterActivePredicateId('a.b')).not.toBe(filterActivePredicateId('a-b'))
-    expect(filterBuilderValueId('a.b')).not.toBe(filterBuilderValueId('a-b'))
+  })
+
+  it('gives the single compose value input a compose-scoped id', () => {
+    const { model } = fakeModel(COLUMNS, [{ column: 'income', predicate: '> 50000' }])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    // One control per bar, so its id is compose-scoped rather than a
+    // historical per-column builder id (`filter-builder-value-<column>`).
+    expect(composeValue().id).toBe(FILTER_COMPOSE_VALUE_ID)
+    expect(document.querySelectorAll(`#${FILTER_COMPOSE_VALUE_ID}`)).toHaveLength(1)
+    // Distinct from the per-column inputs, so no label can point at it.
+    for (const column of COLUMNS) {
+      expect(FILTER_COMPOSE_VALUE_ID).not.toBe(filterInputId(column.name))
+      expect(FILTER_COMPOSE_VALUE_ID).not.toBe(filterActivePredicateId(column.name))
+    }
   })
 })
 
@@ -679,6 +718,10 @@ describe('FilterBar client-side rejection (ux-4 / ug-18)', () => {
     expect(message.getAttribute('role')).toBe('alert')
     expect(message.textContent).toBe('Enter a value for this operator.')
     expect(message.textContent).not.toMatch(/\r|\n/)
+    // The rejection names the column it is about, so a column-scoped locator
+    // (tests/e2e/a11y.spec.ts) keeps its association instead of matching any
+    // future error element in the bar.
+    expect(message.getAttribute('data-col-name')).toBe('income')
   })
 
   it('rejects a non-numeric value for a numeric column inline', () => {
@@ -803,6 +846,212 @@ describe('FilterBar active filter rows (ug-18)', () => {
   })
 })
 
+describe('FilterBar active-row prefill fidelity (ug-18 round 2)', () => {
+  it('re-applies the predicate an untouched row DISPLAYS after a programmatic setFilters', async () => {
+    const model = storeModel(COLUMNS)
+    const setFilters = vi.spyOn(model, 'setFilters')
+    render(<FilterBar model={model} />)
+
+    // The validation panel's "Show only failing rows" (or a profile top-k
+    // click) sets the filter list, not this component: no draft was ever typed.
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 50000' }])
+    })
+    const input = control('filter-active-predicate', 'income') as HTMLInputElement
+    expect(input.value).toBe('> 50000')
+    setFilters.mockClear()
+
+    // Finding 1: Apply on the untouched row must hand over the value it shows.
+    // Before the fix the accepted predicate was displayed but `''` was sent, so
+    // the filter silently disappeared.
+    fireEvent.click(control('filter-active-apply', 'income'))
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 50000' }])
+    })
+    expect(model.filters).toEqual([{ column: 'income', predicate: '> 50000' }])
+
+    // Enter is the same submission path.
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledTimes(2)
+    })
+    expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 50000' }])
+    expect(model.filters).toEqual([{ column: 'income', predicate: '> 50000' }])
+  })
+
+  it('refreshes the draft when a programmatic replacement lands on the same column', async () => {
+    const model = storeModel(COLUMNS)
+    const setFilters = vi.spyOn(model, 'setFilters')
+    render(<FilterBar model={model} />)
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 50000' }])
+    })
+
+    // The user starts an edit…
+    fireEvent.change(control('filter-active-predicate', 'income'), {
+      target: { value: '> 60000' },
+    })
+    expect((control('filter-active-predicate', 'income') as HTMLInputElement).value).toBe('> 60000')
+
+    // …and the bridge replaces the same column's predicate before they submit.
+    // Finding 2: the row must show the accepted predicate again, and a stale
+    // Apply must not overwrite the programmatic filter with the old draft.
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 70000' }])
+    })
+    // (Re-queried: the row is keyed by column:predicate, so a replacement
+    // mounts a fresh input — the value here is the seeded draft, not a
+    // leftover DOM node.)
+    expect((control('filter-active-predicate', 'income') as HTMLInputElement).value).toBe('> 70000')
+    setFilters.mockClear()
+
+    fireEvent.click(control('filter-active-apply', 'income'))
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 70000' }])
+    })
+    expect(model.filters).toEqual([{ column: 'income', predicate: '> 70000' }])
+  })
+
+  it('does not resurrect the draft of an earlier accepted apply over a replacement', async () => {
+    const model = storeModel(COLUMNS)
+    const setFilters = vi.spyOn(model, 'setFilters')
+    render(<FilterBar model={model} />)
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 50000' }])
+    })
+
+    // An accepted apply seeds the draft (`applyList` → sync).
+    fireEvent.change(control('filter-active-predicate', 'income'), { target: { value: '> 60000' } })
+    fireEvent.click(control('filter-active-apply', 'income'))
+    await waitFor(() => {
+      expect(model.filters).toEqual([{ column: 'income', predicate: '> 60000' }])
+    })
+
+    // A later programmatic replacement must win over that seeded draft.
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 70000' }])
+    })
+    expect((control('filter-active-predicate', 'income') as HTMLInputElement).value).toBe('> 70000')
+    setFilters.mockClear()
+    fireEvent.click(control('filter-active-apply', 'income'))
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 70000' }])
+    })
+  })
+
+  it('still removes the filter when the user explicitly empties the input', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 50000' }])
+    })
+
+    const input = control('filter-active-predicate', 'income') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(control('filter-active-apply', 'income'))
+
+    await waitFor(() => {
+      expect(model.filters).toEqual([])
+    })
+  })
+})
+
+describe('FilterBar removal surfaces (ug-18 round 2)', () => {
+  it('has exactly one removal control per filter in each state', () => {
+    const { model } = fakeModel(COLUMNS, [
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    // Expanded: each filter has one removal control — its active row's Remove.
+    expect(removalControls()).toHaveLength(2)
+    expect(screen.queryAllByTestId('filter-chip-remove')).toHaveLength(0)
+    for (const row of screen.getAllByTestId('filter-active-row')) {
+      expect(row.querySelectorAll('[data-testid="filter-active-remove"]')).toHaveLength(1)
+    }
+    // The body chips survive as a DISPLAY surface (other panels assert their
+    // code text) but carry no remove button of their own.
+    expect(
+      screen.getAllByTestId('filter-chip').map((chip) => chip.querySelector('code')?.textContent),
+    ).toEqual(['income > 50000', "country = 'US'"])
+
+    // Collapsed: the header chips are the only removal surface; the rows are
+    // gone. Still exactly one control per filter.
+    toggleBar()
+    expect(removalControls()).toHaveLength(2)
+    expect(screen.getAllByTestId('filter-chip-remove')).toHaveLength(2)
+    expect(screen.queryAllByTestId('filter-active-remove')).toHaveLength(0)
+  })
+})
+
+describe('FilterBar removal guard and rollback (ug-18 round 2)', () => {
+  it('ignores a removal while an apply is in flight (pending guard)', async () => {
+    const { model, flush } = blockingModel(COLUMNS, [{ column: 'income', predicate: '> 50000' }])
+    const setFilters = vi.spyOn(model, 'setFilters')
+    render(<FilterBar model={model} />)
+
+    // A second apply (an edit of the same row) is in flight and has not landed.
+    fireEvent.change(control('filter-active-predicate', 'income'), { target: { value: '> 60000' } })
+    fireEvent.click(control('filter-active-apply', 'income'))
+    expect(setFilters).toHaveBeenCalledTimes(1)
+
+    // Removal is refused while that apply is pending: the control is disabled,
+    // and `applyList`'s guard drops a call that reaches it anyway.
+    const remove = control('filter-active-remove', 'income') as HTMLButtonElement
+    expect(remove.disabled).toBe(true)
+    fireEvent.click(remove)
+    expect(setFilters).toHaveBeenCalledTimes(1)
+
+    // The in-flight apply is the only thing that lands — nothing was removed.
+    await act(async () => {
+      flush()
+    })
+    expect(setFilters).toHaveBeenCalledTimes(1)
+    expect(model.filters).toEqual([{ column: 'income', predicate: '> 60000' }])
+
+    // The guard is a gate, not a permanent block: removal works once idle.
+    fireEvent.click(control('filter-active-remove', 'income'))
+    await act(async () => {
+      flush()
+    })
+    expect(model.filters).toEqual([])
+  })
+
+  it('restores the previous list and frames the error when a removal is rejected', async () => {
+    const previous = [
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ]
+    const { model, setFilters } = failingModel(COLUMNS, {
+      filters: previous,
+      failures: [
+        new Error(
+          'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
+            'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+        ),
+      ],
+    })
+    render(<FilterBar model={model} />)
+
+    fireEvent.click(control('filter-active-remove', 'income'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.getAttribute('role')).toBe('alert')
+    expect(error.textContent).toBe(
+      'The filter could not be applied: Binder Error: Referenced column "nope" not found in ' +
+        'FROM clause. The previous filters are still in effect.',
+    )
+    expect(error.textContent).not.toMatch(/\r|\n/)
+    // Removal goes through the SAME pending/rollback path as an apply: the
+    // rejected list, then the exact previous list restored.
+    expect(setFilters).toHaveBeenCalledTimes(2)
+    expect(setFilters.mock.calls[0]?.[0]).toEqual([{ column: 'country', predicate: "= 'US'" }])
+    expect(setFilters).toHaveBeenLastCalledWith(previous)
+  })
+})
+
 describe('FilterBar SQL predicate escape hatch (ux-4 / ug-18)', () => {
   it('is a collapsed "SQL predicates" disclosure holding the per-column inputs', () => {
     const { model } = fakeModel(COLUMNS)
@@ -855,13 +1104,14 @@ describe('FilterBar SQL predicate escape hatch (ux-4 / ug-18)', () => {
  */
 describe('FilterBar engine-error framing (UG-30)', () => {
   it('renders a single-line, framed filter error and restores the previous filters', async () => {
-    const { model, setFilters } = failingModel(
-      COLUMNS,
-      new Error(
-        'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
-          'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
-      ),
-    )
+    const { model, setFilters } = failingModel(COLUMNS, {
+      failures: [
+        new Error(
+          'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
+            'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+        ),
+      ],
+    })
     render(<FilterBar model={model} />)
     ensureOpen()
 
@@ -887,7 +1137,9 @@ describe('FilterBar engine-error framing (UG-30)', () => {
         'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
     )
     const RESTORE_FAILURE = new Error('_setThrew is not defined')
-    const { model, setFilters } = failingModel(COLUMNS, APPLY_FAILURE, RESTORE_FAILURE)
+    const { model, setFilters } = failingModel(COLUMNS, {
+      failures: [APPLY_FAILURE, RESTORE_FAILURE],
+    })
     render(<FilterBar model={model} />)
     ensureOpen()
 

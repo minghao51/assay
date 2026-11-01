@@ -148,8 +148,10 @@ test('numeric filter narrows the visible rows and the total row count, refetched
   await expect(page.getByRole('grid')).toHaveAttribute('aria-rowcount', '4') // + header row
   await expectCustomerOrder(page, ['1', '2', '5'])
   await expect(page.locator('[data-testid="filter-chip"] code')).toHaveText(['income > 50000'])
+  // ug-18 round 2: the expanded body's chip is display-only; the removal
+  // control in this state is the active row's Remove button.
   await expect(
-    page.locator('[data-testid="filter-chip-remove"][data-col-name="income"]'),
+    page.locator('[data-testid="filter-active-remove"][data-col-name="income"]'),
   ).toBeVisible()
 
   // Fresh epoch: the grid re-rendered from new windowed fetches under the
@@ -160,9 +162,9 @@ test('numeric filter narrows the visible rows and the total row count, refetched
   expect(stats.requested).toBe(3)
   expect(stats.maxSpan).toBeLessThanOrEqual(1000)
 
-  // Removing the chip clears the filter via the model: count restored, all
-  // rows back in natural order, empty-state hint shown again.
-  await page.locator('[data-testid="filter-chip-remove"][data-col-name="income"]').click()
+  // Removing the filter clears it via the model: count restored, all rows
+  // back in natural order, empty-state hint shown again.
+  await page.locator('[data-testid="filter-active-remove"][data-col-name="income"]').click()
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
   await expectCustomerOrder(page, ['1', '2', '3', '4', '5'])
   await expect(page.getByTestId('filter-empty')).toBeVisible()

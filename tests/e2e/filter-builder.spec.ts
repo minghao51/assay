@@ -129,6 +129,14 @@ test('compose-row filter journey: numeric, categorical contains, editable rows, 
     page.locator('[data-testid="filter-active-predicate"][data-col-name="income"]'),
   ).toHaveValue('> 50000')
 
+  // ug-18 round 2 (finding 1): Apply on the UNTOUCHED row re-applies the
+  // predicate it displays. It must not send an empty predicate, which would
+  // silently drop the filter.
+  await page.locator('[data-testid="filter-active-apply"][data-col-name="income"]').click()
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+  await expect(customerIdCells(page)).toHaveText(['1', '2', '5'])
+  await expect(toggle).toHaveText('Filters · 1 active: income')
+
   // Categorical compose: country contains "U" (compiled to an escaped LIKE),
   // composing with the numeric filter.
   await composeFilter(page, 'country', 'contains', 'U')
