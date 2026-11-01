@@ -8,7 +8,8 @@ UX-D1 Option C ruling (2026-10-30); **ug-16 profile click-to-act is implemented 
 under the settled typed-refusal design and **ug-17 collapsed section state summaries at
 `9a31cd6`**, **ug-4 capability-true grid interaction language at `784805c`**, **ug-5
 focused-cell copy at `d814fdf`**, **ug-6 undo/redo shortcuts + first-append History cue at `b2c6ce1`**, and **ug-12
-keyboard completion at `d3af2ec`** (no new R-ID for any of them). This is the execution
+keyboard completion at `d3af2ec`** and **ug-11 row identity at `79febe5`** (no new R-ID for any of them). This is the
+execution
 contract for the bounded improvements requested after the
 [investigation plan](08-ux-ui-engine-showcase-plan.md).
 The [usability queue](../process/handoff/20261026-usability-queue.md) owns ug tasks; the
@@ -44,7 +45,9 @@ N changed`, `History · N pending`) visible collapsed, only at N>0. ug-4 (Grid) 
   without hijacking native text undo, and History auto-expands on the first appended op only; the
   single visible Undo/Redo pair is unchanged. ug-12 (Grid) is **implemented at `d3af2ec`**: an
   explicit `.grid-cell:focus-visible` ring plus announced row jumps (`Showing base #N in the grid
-and record inspector`) with roving focus landing on the target row. Next runtime rows are ug-11
+and record inspector`) with roving focus landing on the target row. ug-11 (Grid) is
+  **implemented at `79febe5`**: a sticky 1-based row-number gutter, a dock title using the same
+  convention, and ◀ Prev / ▶ Next immediate-neighbour stepping. Next runtime rows are ug-18
   (Grid), ug-20 (Panels) and ug-21 (Shell). Adjustable SQL sizing remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
@@ -275,6 +278,7 @@ then restoration **and a rebuild of restored source** before claiming a clean ve
 | ug-5    | `pnpm exec vitest run apps/web/src/grid/copy-cell.test.ts apps/web/src/grid/DataGrid.copy.test.tsx apps/web/src/grid/DataGrid.keyboard.test.tsx`; `pnpm exec playwright test tests/e2e/cell-copy.spec.ts tests/e2e/a11y-keyboard.spec.ts`; display-value payload parity (DECIMAL/date/nested), Ctrl/Cmd+C only on focused non-editing cells, exact value-free announcements, native editor copy untouched, real clipboard read-back.                                                                                                                         |
 | ug-6    | `pnpm exec vitest run apps/web/src/lib/history-shortcut.test.ts apps/web/src/App.history-shortcut.test.tsx apps/web/src/App.section-summaries.test.tsx`; `pnpm exec playwright test tests/e2e/history-shortcuts.spec.ts tests/e2e/section-summaries.spec.ts`; full shortcut matrix, native text undo preserved in editable targets, first-append-only History auto-expand (no undo/redo/dataset trigger, no re-open after collapse), single visible pair.                                                                                                    |
 | ug-12   | `pnpm exec vitest run apps/web/src/App.row-jump-announcement.test.tsx apps/web/src/grid/DataGrid.jump-focus.test.tsx apps/web/src/sessions/jump-to-row.test.tsx apps/web/src/grid/DataGrid.keyboard.test.tsx`; `pnpm exec playwright test tests/e2e/a11y-keyboard.spec.ts tests/e2e/validation-panel.spec.ts tests/e2e/diff-panel.spec.ts`; keyboard-driven computed-style outline pin; exact value-free jump announcement with the domain display key; target row focused as the roving stop with the record inspector on the same row; failed jump silent. |
+| ug-11   | `pnpm exec vitest run apps/web/src/grid apps/web/src/record apps/web/src/App.record-step.test.tsx`; `pnpm exec playwright test tests/e2e/grid-row-numbers.spec.ts tests/e2e/grid-horizontal.spec.ts tests/e2e/grid-virtualization.spec.ts tests/e2e/record-inspector.spec.ts`; sticky 1-based gutter (`rowheader`, `aria-colcount`, opaque/striped) with gutter↔dock-title agreement; immediate-neighbour Prev/Next (bounds/error disabled, loading rides pending); O(1) stepping call-count pin on a 100k sparse cache.                                     |
 | ug-14   | `pnpm exec vitest run apps/web/src/App.open-status.test.tsx apps/web/src/grid/FilterBar.test.tsx`; `pnpm exec playwright test tests/e2e/data-sources.spec.ts tests/e2e/smoke.spec.ts tests/e2e/shell.spec.ts`; add a corrupt-fixture open-error retry pin and a single-line message pin per adopted panel.                                                                                                                                                                                                                                                   |
 | ug-16   | `pnpm exec vitest run apps/web/src/profile apps/web/src/edit/session.test.ts apps/web/src/App.profile-filter.test.tsx`; `pnpm exec playwright test tests/e2e/profile-panel.spec.ts tests/e2e/profile-honesty.spec.ts tests/e2e/profile-filter.spec.ts`; top-k/null predicates pinned at the model boundary; byte-exact renamed/unresolved refusals with NO filter (never remapped); cast/type rejection without coercion; zero-row resolved click keeps the empty state; single-flight and attempt/session-identity lifecycle pins.                          |
 | ug-17   | `pnpm exec vitest run apps/web/src/App.section-summaries.test.tsx apps/web/src/App.section-purposes.test.tsx apps/web/src/App.headings.test.tsx`; `pnpm exec playwright test tests/e2e/section-summaries.spec.ts`; byte-exact `Validation · N failing` / `Compare · N changed` / `History · N pending` from the right sources, visible inside the collapsed managed toggle, absent at 0 and in non-verdict/non-result states, accessible name unchanged, summary appended to `aria-describedby` only when present.                                           |

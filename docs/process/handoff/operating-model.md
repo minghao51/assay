@@ -83,7 +83,9 @@ git worktrees instead.
 after a Codex usage-limit block) → deepseek-v4.1-flash worker switch 2026-09-20 → reviewer
 GLM-5.3-Flash → **MiMo-V2.6-Pro 2026-09-28** → Luna-worker/parent-reviewer episode roster
 2026-10-14 (rm-3 through ptv2-4) → **GLM-first/Luna-reviewer preference with Luna-worker/
-parent-reviewer fallback 2026-10-17**; per-episode rosters are recorded in this file's git history.
+parent-reviewer fallback 2026-10-17** → **reviewer switch to `opencode-go/mimo-v2.6-flash`
+2026-10-31** (Luna credit exhausted; switched mid-row and recorded per row). Per-episode rosters
+are recorded in this file's git history.
 
 **Queue format (canonical):** queue files use the 3-column shape `| task | scope/done-when | status/narrative |` (the AR and doc queues); the M4–M6-era 4-column shape is historical.
 

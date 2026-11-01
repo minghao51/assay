@@ -32,8 +32,9 @@ every use; a prompt never overrides a closed/claimed/blocked row.
 - **Ownership:** the usability queue owns R-01…R-08, R-14, R-15 and R-16; the
   [visual queue](20261026-ux-ui-execution-queue.md) owns R-09…R-13.
 - **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent
-  reviewer **`openai-codex/gpt-6-luna`** at **thinking high**. Never implement and approve the
-  same change. Serialize provider sessions.
+  reviewer **`opencode-go/mimo-v2.6-flash`** at **thinking high** (switched from
+  `openai-codex/gpt-6-luna` on 2026-10-31 when the Luna credit was exhausted). Never implement and
+  approve the same change. Serialize provider sessions.
 - **Push/remote:** latest verified push is **`dee10f8`**; **`ea41533` is local-only (HEAD 1
   ahead / 0 behind)**.
   The local uncommitted `README.md`, `docs/assets/` and `.dsh/` are another agent's work: leave
@@ -79,8 +80,9 @@ Before dispatch, reserve shared files and state the reservation in the brief. La
 absolutely parallel-safe: App/CSS/FilterBar are touched by ug-14/ug-23 (Shell) and ug-18 (Grid).
 Serialize such conflicts and inspect integration diffs.
 
-Roster: worker opencode-go/deepseek-v4.1-flash; independent reviewer openai-codex/gpt-6-luna
-thinking high. Workers never push. Latest verified push is dee10f8; ea41533 is local-only — do
+Roster: worker opencode-go/deepseek-v4.1-flash; independent reviewer opencode-go/mimo-v2.6-flash
+thinking high (Luna credit exhausted 2026-10-31). Workers never push. Latest verified push is
+dee10f8; ea41533 is local-only — do
 not claim the current
 uncommitted tree is pushed or grant blanket remote permission.
 
