@@ -20,7 +20,9 @@ import type { RecordRequest } from './RecordInspector'
  *    `<section>` node keeps rendering, the title number advances, and the
  *    content is re-read through the existing request machinery;
  * 3. a `loading` neighbour is not dropped: the existing uxc-2 pending gesture
- *    opens it when the slot lands;
+ *    opens it when the slot lands — and when that pending slot instead settles
+ *    `error` the step is dropped through `onClosed` exactly once WITHOUT
+ *    closing the dock (same `<section>`, still on row N, no stranded focus);
  * 4. focus is not stranded (the control the user pressed keeps focus across
  *    the re-point);
  * 5. stepping is O(1) against a large sparse cache: render + one interaction
@@ -101,11 +103,14 @@ function Harness({
   model,
   startRow,
   onStep,
+  onClosed,
   overlayRevision = 0,
 }: {
   readonly model: GridViewportModel
   readonly startRow: number
   readonly onStep: (rowIndex: number) => void
+  /** Observed drops, in addition to the App-style request clear below. */
+  readonly onClosed?: () => void
   readonly overlayRevision?: number
 }) {
   const [live, setLive] = useState<RecordRequest | null>({ rowIndex: startRow, seq: 1 })
@@ -115,6 +120,7 @@ function Harness({
       request={live}
       overlayRevision={overlayRevision}
       onClosed={() => {
+        onClosed?.()
         setLive(null)
       }}
       onStep={(rowIndex) => {
@@ -164,14 +170,30 @@ describe('RecordInspector Prev/Next stepping (ug-11)', () => {
   })
 
   it('disables an ERROR neighbour but keeps a LOADING neighbour enabled', () => {
-    const { model } = controllableModel(3, { 0: 'error', 2: 'loading' })
-    render(<Harness model={model} startRow={1} onStep={() => {}} />)
+    // INTERIOR fixture on purpose: the `error` neighbour (index 1) is not at a
+    // dataset bound, so "disabled because the neighbour failed" cannot be
+    // satisfied by "disabled because of the bound". A regression that SKIPS
+    // PAST an error slot (returning index 0 here) flips Prev back to enabled
+    // and fails this pin; the bound-only fixture this replaced could not tell
+    // the two apart.
+    const controllable = controllableModel(4, { 1: 'error', 3: 'loading' })
+    const onStep = vi.fn()
+    render(<Harness model={controllable.model} startRow={2} onStep={onStep} />)
 
-    // Backward is a failed span: no record can ever appear there.
+    // Backward targets index 1, a failed span: no record can ever appear there.
     expect(screen.getByTestId('record-prev')).toHaveProperty('disabled', true)
-    // Forward is still loading: the pending gesture opens it when it lands,
-    // so the control must not be dead.
+    // Forward targets index 3, which is still loading: the pending gesture
+    // opens it when it lands, so the control must not be dead. Index 3 is the
+    // last row, so `enabled` also proves the bound check is what it claims to
+    // be (a bound artefact would be `disabled`).
     expect(screen.getByTestId('record-next')).toHaveProperty('disabled', false)
+
+    // The enabled side still steps to the IMMEDIATE neighbour, never past it.
+    act(() => {
+      fireEvent.click(screen.getByTestId('record-next'))
+    })
+    expect(onStep).toHaveBeenCalledTimes(1)
+    expect(onStep).toHaveBeenCalledWith(3)
   })
 
   it('Next from row N opens N+1 in the SAME dock (title and content re-read)', () => {
@@ -226,6 +248,60 @@ describe('RecordInspector Prev/Next stepping (ug-11)', () => {
     expect(leafValue('id')).toBe('1')
   })
 
+  it('drops a pending step that lands ERROR without closing the dock', () => {
+    // The uxc-2 drop branch is routinely reached while the dock is OPEN: a
+    // `loading` neighbour is a first-class step target, so its slot can settle
+    // `error` under the pending gesture. Policy: the step is dropped through
+    // `onClosed` (App clears the request) but the dock stays open on row N —
+    // the same `<section>` node, the same record, no stranded focus. Routing
+    // the drop through `close()` instead would unmount the section and lose
+    // focus to <body>, which this leg catches.
+    const controllable = controllableModel(3, { 1: 'loading' })
+    const onStep = vi.fn()
+    const onClosed = vi.fn()
+    render(<Harness model={controllable.model} startRow={0} onStep={onStep} onClosed={onClosed} />)
+
+    const inspector = screen.getByTestId('record-inspector')
+    expect(titleNumber()).toBe('1')
+    const next = screen.getByTestId('record-next')
+    next.focus()
+    expect(document.activeElement).toBe(next)
+
+    act(() => {
+      fireEvent.click(next)
+    })
+    // Pending on the loading neighbour: still on row 1, nothing dropped yet.
+    expect(onStep).toHaveBeenCalledWith(1)
+    expect(titleNumber()).toBe('1')
+    expect(onClosed).not.toHaveBeenCalled()
+
+    // The neighbour fails instead of landing: the step can never be satisfied.
+    act(() => {
+      controllable.setStatus(1, 'error')
+      controllable.notify()
+    })
+
+    // Dropped exactly once, through the close callback…
+    expect(onClosed).toHaveBeenCalledTimes(1)
+    // …but the dock did NOT close: same section node, still showing row 1.
+    expect(screen.getByTestId('record-inspector')).toBe(inspector)
+    expect(inspector.getAttribute('data-row-index')).toBe('0')
+    expect(inspector.getAttribute('aria-label')).toBe('Record inspector — row 1')
+    expect(titleNumber()).toBe('1')
+    expect(leafValue('id')).toBe('0')
+    // No stranded focus: the dock is still mounted and the control the user
+    // pressed still holds focus (a close() route would have dropped it).
+    expect(document.contains(next)).toBe(true)
+    expect(document.activeElement).toBe(next)
+
+    // A later notification is not a second drop.
+    act(() => {
+      controllable.notify()
+    })
+    expect(onClosed).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('record-inspector')).toBe(inspector)
+  })
+
   it('Prev steps to N-1 and keeps focus on the control', () => {
     const { model } = controllableModel(5, {})
     const onStep = vi.fn()
@@ -257,10 +333,11 @@ describe('RecordInspector Prev/Next stepping (ug-11)', () => {
     render(<Harness model={controllable.model} startRow={0} onStep={onStep} />)
 
     expect(titleNumber()).toBe('1')
-    // Render: at most the open read + context + the two adjacent-slot checks.
-    // This is the load-bearing assertion: a dataset-walking helper blows this
-    // bound by ~four orders of magnitude before any disabled-state check runs.
-    expect(controllable.getRowCalls()).toBeLessThanOrEqual(8)
+    // Render: the open read + context + the two adjacent-slot checks — the
+    // measured actual is 4, so this bound has no room for a doubling. This is
+    // the load-bearing assertion: a dataset-walking helper blows it by ~four
+    // orders of magnitude before any disabled-state check runs.
+    expect(controllable.getRowCalls()).toBeLessThanOrEqual(6)
     // Bounds still disable Prev; the loading neighbour stays steppable.
     expect(screen.getByTestId('record-prev')).toHaveProperty('disabled', true)
     expect(screen.getByTestId('record-next')).toHaveProperty('disabled', false)
@@ -271,8 +348,9 @@ describe('RecordInspector Prev/Next stepping (ug-11)', () => {
     })
 
     expect(onStep).toHaveBeenCalledWith(1)
-    // One interaction: same constant bound, independent of totalRows.
-    expect(controllable.getRowCalls()).toBeLessThanOrEqual(8)
+    // One interaction: same constant bound (measured actual 4), independent of
+    // totalRows, and tight enough that a doubling fails.
+    expect(controllable.getRowCalls()).toBeLessThanOrEqual(6)
     // Still pending on the loading slot — nothing was scanned past it.
     expect(titleNumber()).toBe('1')
   })
