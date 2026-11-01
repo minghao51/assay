@@ -349,18 +349,18 @@ R-09…R-13. **R-16 is implemented** at `f667a87` (UX-D1 Option C, 2026-10-30), 
 the overlay-aware profile it deliberately does _not_ implement is a separate engine-track candidate
 (planning only). uxv-6 has no requirement row and remains design-only/deferred.
 
-| Requirement | Owner row | Status (2026-10-30)                                                 | Record                                                                            |
-| ----------- | --------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| R-01, R-02  | ug-1      | implemented                                                         | `e92c0dd` (usability queue §1)                                                    |
-| R-03, R-04  | ug-2      | implemented                                                         | `8e5fd62`                                                                         |
-| R-05        | ug-3      | implemented                                                         | `5253c06`                                                                         |
-| R-06, R-07  | ug-7      | implemented                                                         | `9c29da4` + evidence `8367fbd`                                                    |
-| R-08        | ug-8      | implemented                                                         | `cb64c32`, gate determinism `b6fb78a` (gd-1)                                      |
-| R-09        | uxv-1     | open — eligible, pending an exclusive CSS/theme-test reservation    | visual queue row uxv-1                                                            |
-| R-10        | uxv-2     | open — dependency-gated (after uxv-1)                               | visual queue row uxv-2 (also owns the ug-8 copy classes)                          |
-| R-11        | uxv-3     | open — dependency-gated (after uxv-2)                               | visual queue row uxv-3 (two-line headers from R-14 exist)                         |
-| R-12        | uxv-4     | open — dependency-gated (after ug-3 and uxv-3)                      | visual queue row uxv-4                                                            |
-| R-13        | uxv-5     | open — dependency-gated (after uxv-1…4; ug-3/7/8)                   | visual queue row uxv-5                                                            |
-| R-14        | ug-13     | implemented                                                         | `36cead3` + test-only `793ba90`                                                   |
-| R-15        | ug-9      | implemented                                                         | `71fa03a` + Critical fix `385649b`                                                |
-| R-16        | ug-10     | **authorized 2026-10-30** (UX-D1 Option C) — implementation pending | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7 + spec §2 |
+| Requirement | Owner row | Status (2026-11-02)                                              | Record                                                                            |
+| ----------- | --------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| R-01, R-02  | ug-1      | implemented                                                      | `e92c0dd` (usability queue §1)                                                    |
+| R-03, R-04  | ug-2      | implemented                                                      | `8e5fd62`                                                                         |
+| R-05        | ug-3      | implemented                                                      | `5253c06`                                                                         |
+| R-06, R-07  | ug-7      | implemented                                                      | `9c29da4` + evidence `8367fbd`                                                    |
+| R-08        | ug-8      | implemented                                                      | `cb64c32`, gate determinism `b6fb78a` (gd-1)                                      |
+| R-09        | uxv-1     | open — eligible, pending an exclusive CSS/theme-test reservation | visual queue row uxv-1                                                            |
+| R-10        | uxv-2     | open — dependency-gated (after uxv-1)                            | visual queue row uxv-2 (also owns the ug-8 copy classes)                          |
+| R-11        | uxv-3     | open — dependency-gated (after uxv-2)                            | visual queue row uxv-3 (two-line headers from R-14 exist)                         |
+| R-12        | uxv-4     | open — dependency-gated (after ug-3 and uxv-3)                   | visual queue row uxv-4                                                            |
+| R-13        | uxv-5     | open — dependency-gated (after uxv-1…4; ug-3/7/8)                | visual queue row uxv-5                                                            |
+| R-14        | ug-13     | implemented                                                      | `36cead3` + test-only `793ba90`                                                   |
+| R-15        | ug-9      | implemented                                                      | `71fa03a` + Critical fix `385649b`                                                |
+| R-16        | ug-10     | implemented — `f667a87` (UX-D1 Option C)                         | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7 + spec §2 |

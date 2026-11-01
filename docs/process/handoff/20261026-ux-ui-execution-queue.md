@@ -56,8 +56,8 @@ Rationale: [plan](../../product/08-ux-ui-engine-showcase-plan.md). Start here:
 - **ug-10 was blocked by UX-D1; RESOLVED 2026-10-30 (Option C).** The amended row carries R-16's
   honest-labeling contract (base-as-opened hint + staged-changes note); the overlay-aware profile
   is a separate planning-only engine candidate and must not be smuggled in as “copy only” or an
-  engine change. ug-10 landed at `f667a87` and ug-16 at `3b494f5`, so **ug-20 is now eligible**;
-  unrelated Shell/Grid/Visual work can continue.
+  engine change. ug-10 landed at `f667a87`, ug-16 at `3b494f5` and ug-20 at `5bad2c3`; the
+  Panels lane is complete and unrelated Shell/Grid/Visual work can continue.
 - Changes to known dataset-shape behavior still require minimal golden fixtures/regression pins.
   These UI-only rows do not authorize regenerating all committed Parquet fixtures as a rider.
 
@@ -106,8 +106,8 @@ start bounded existing tasks after baseline, not sufficient to bypass those expl
 amended R-16 honest-labeling contract (spec §2), and the overlay-aware profile is chartered as a
 separate planning-only engine candidate
 ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)). ug-10 landed at
-`f667a87` and ug-16 at `3b494f5`; **ug-20 is now eligible** (both Panels predecessors are
-merged-green). UX-D2/uxv-6 remain design-only and unchanged.
+`f667a87`, ug-16 at `3b494f5` and ug-20 at `5bad2c3` — the Panels lane is complete. UX-D2/uxv-6
+remain design-only and unchanged.
 Do not mark any row green until independent review and merged verification finish. Integration
 resolves ug-2/ug-7 `App.tsx` overlaps and re-runs merged gates; update the matching queue row,
 `handoff.md` index/changelog and relevant roadmap/product narrative without duplicating history.

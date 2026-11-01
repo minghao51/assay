@@ -1,197 +1,201 @@
 # UX/UI Pickup Prompts — current pack
 
-**Refreshed 2026-10-29 (docs only).** This is a small ready-to-paste pack for the **current**
+**Refreshed 2026-11-02 (docs only).** This is a small ready-to-paste pack for the **current**
 frontier, not an archive of completed dispatches. Re-read the live queues and the tree before
 every use; a prompt never overrides a closed/claimed/blocked row.
 
 ## Current state
 
-- **Runtime baseline recorded at `385649b`** — not the current `main` tip, which is the later
-  docs-only reconciliation commit `ea41533` at the time of this refresh. Re-check HEAD; later docs
-  refinements do not establish a new runtime baseline. At the baseline: **195 unit files / 3089 tests, e2e 185
-  passed + 1 skipped, coverage 88.08/82.24/89.08/89.60**, docs links 116/0 at that revision
-  (current pack: 117/0), ADR index 46, all gates exit 0. Evidence: `/tmp/assay-merged-ug9/`.
-- **Next runtime candidates:** **ug-16 (Panels, READY)**, **ug-17 (Shell)** and **ug-4 (Grid)**; choose one bounded row,
-  preserving each lane's order and shared-file reservations. Do not redispatch closed rows
-  **ug-1, ug-2, ug-3, ug-7, ug-8, ug-9, ug-13**; their evidence is in the
-  [usability queue §1/§5](20261026-usability-queue.md) and [handoff §9](../handoff.md).
-- **Visual row:** **uxv-1** is factually eligible now, **only** with an exclusive
-  CSS/theme-test reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated
-  (uxv-2 after uxv-1; uxv-3 after uxv-2; uxv-4 after ug-3 and uxv-3; uxv-5 after uxv-1…4 plus
-  ug-3/7/8). **uxv-6** is design-only/deferred.
-- **UX-D1 RESOLVED 2026-10-30 (Option C); ug-10 CLOSED at `f667a87`:** R-16 shipped (base-as-opened
-  hint + staged-changes note, no stale/re-run banner). The overlay-aware profile is a separate
-  planning-only engine candidate ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)),
-  not authorized for dispatch. **ug-16 CLOSED 2026-10-31 at `3b494f5`** (profile stats
-  click-to-act; typed refusal, no remap; see [the design record](20261030-ug16-renamed-column-design.md)),
-  **ug-17 CLOSED 2026-10-31 at `9a31cd6`** (collapsed section state summaries), **ug-4 CLOSED
-  2026-10-31 at `784805c`** (capability-true grid interaction language), **ug-5 CLOSED 2026-10-31
-  at `d814fdf`** (focused-cell copy), **ug-6 CLOSED 2026-10-31 at `b2c6ce1`** (undo/redo
-  shortcuts + History cue) and **ug-12 CLOSED 2026-10-31 at `d3af2ec`** (keyboard completion), **ug-11 CLOSED 2026-11-01 at
-  `79febe5`** (row identity), **ug-18 CLOSED 2026-11-01 at `4d3cb54`** (filter compose row +
-  collapsed chips) and **ug-19 CLOSED 2026-11-01 at `0ac3447`** (contrast + in-flight feedback) and **ug-20 CLOSED
-  2026-11-02 at `5bad2c3`** (validation on-ramp + filter-replacement disclosure), so the remaining
-  runtime row is **ug-21 (Shell)**, then ug-22/ug-23 (Grid and Panels lanes complete).
+- **Main tip `8297e67`** (docs-only closure) over the merged-verified code tip **`5bad2c3`**:
+  **223 unit files / 3334 tests, e2e 204 passed + 1 skipped, coverage 89.14/83.88/91.41/90.73,
+  docs links 119/0, ADR 46, 185 changesets — all gates exit 0** (`/tmp/assay-ux-ug20-merged/`).
+  **20 of the 23 usability rows are CLOSED**; the Grid and Panels lanes are complete.
+- **Remaining runtime rows — all Shell:** **ug-21 → ug-22 → ug-23**. All three touch
+  `apps/web/src/App.tsx`, so they **must be dispatched sequentially** (one row at a time); the next
+  row's base is whatever `main` is after the previous row's docs commit. Do not redispatch closed
+  rows **ug-1…ug-20**.
+- **Visual row:** **uxv-1** is factually eligible **only** with an exclusive CSS/theme-test
+  reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated and **uxv-6** is
+  design-only/deferred.
 - **Ownership:** the usability queue owns R-01…R-08, R-14, R-15 and R-16; the
   [visual queue](20261026-ux-ui-execution-queue.md) owns R-09…R-13.
-- **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent
-  reviewer **`opencode-go/mimo-v2.6-flash`** at **thinking high** (switched from
-  `openai-codex/gpt-6-luna` on 2026-10-31 when the Luna credit was exhausted). Never implement and
-  approve the same change. Serialize provider sessions.
-- **Push/remote:** latest verified push is **`dee10f8`**; **`ea41533` is local-only (HEAD 1
-  ahead / 0 behind)**.
-  The local uncommitted `README.md`, `docs/assets/` and `.dsh/` are another agent's work: leave
-  them untouched and do not describe the checkout as clean. **Workers never push**, and no
-  blanket remote/push permission is granted by this pack or by an old handoff episode. Remote
-  CI remains M6-blocked; local green is not remote green.
-- **Historical evidence:** [usability queue](20261026-usability-queue.md),
-  [visual queue](20261026-ux-ui-execution-queue.md), [UX-D1 brief](20261029-ux-d1-amendment.md),
-  [implementation spec](../../product/09-ux-ui-implementation-spec.md) §8. Closed task
-  templates were deliberately removed; cite those records instead of re-running them.
+- **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent reviewer
+  **`opencode-go/mimo-v2.6-flash`** at **thinking high** (switched from `openai-codex/gpt-6-luna`
+  on 2026-10-31 when the Luna credit was exhausted). Never implement and approve the same change.
+  Serialize provider sessions.
+- **Push/remote:** latest verified push is **`dee10f8`**. At this refresh local `main` is **42
+  commits ahead / 0 behind** `origin/main` and **not pushed**. The local uncommitted `README.md`,
+  `docs/assets/` and `.dsh/` are another agent's work: leave them untouched and do not describe the
+  checkout as clean. **Workers never push**, and no blanket remote/push permission is granted by
+  this pack or by an old handoff episode. Remote CI remains M6-blocked; local green is not remote
+  green.
+- **Historical evidence:** [usability queue](20261026-usability-queue.md) §1/§5,
+  [visual queue](20261026-ux-ui-execution-queue.md), [handoff](../handoff.md) §9,
+  [implementation spec](../../product/09-ux-ui-implementation-spec.md) §8. Closed worker briefs
+  were deliberately removed; cite those records instead of re-running them.
 
-## 1. Orchestrator — paste into the next session
+## 1. Orchestrator — paste into a new session
 
 ```text
-You are the Assay UX/UI orchestrator. Continue the current pack; do not restart the
-investigation or redesign broadly.
+You are the Assay UX/UI orchestrator. Continue the current pack; do not restart the investigation
+or redesign broadly.
 
 Read first, in order: AGENTS.md; docs/process/handoff.md §§4–6; operating-model.md fully;
 docs/process/handoff/20261026-usability-queue.md §1–§5; docs/product/09-ux-ui-implementation-spec.md
-fully (especially §6 gates, §7 STOPs, §8 index); docs/process/handoff/20261026-ux-ui-execution-queue.md;
-docs/process/handoff/20261026-ux-ui-pickup-prompts.md; task-relevant ADRs and ADR 0044.
+fully (especially §6 gates, §7 STOPs, §8 index); docs/process/handoff/20261026-ux-ui-pickup-prompts.md;
+the live Shell rows ug-21/ug-22/ug-23; ADR 0044 and the q-15 placement ruling.
 
-Current truth to confirm, not assume: branch/commit/status, queue owners, toolchain, ports.
-The runtime baseline is recorded at 385649b (195f/3089t, e2e 185p+1s, coverage
-88.08/82.24/89.08/89.60); dee10f8 was the later verified docs push, ea41533 is local-only, and
-neither is a permanent HEAD.
-Verify current HEAD and a fresh baseline from
-a clean isolated worktree at your chosen base before runtime dispatch. Preserve all foreign
+Current truth to confirm, not assume: branch/commit/status, queue owners, toolchain, ports. At the
+2026-11-02 refresh: main tip 8297e67 (docs) over merged-verified code 5bad2c3; 223 unit files /
+3334 tests, e2e 204p+1s, coverage 89.14/83.88/91.41/90.73, docs 119/0, ADR 46, 185 changesets; 20 of
+23 usability rows CLOSED (Grid and Panels lanes complete). If HEAD is later, re-run a fresh baseline
+from a clean isolated worktree at your chosen base before runtime dispatch. Preserve all foreign
 uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unknown work.
 
-Select one of these eligible candidates, one bounded row per worker, with an independent reviewer
-(no new cross-lane dependency is imposed by this list):
-1) ug-21 (Shell) — opening progress + cancel (read the live ug-21 row), then ug-22/ug-23.
-2) uxv-1 (Visual) — theme completeness, ONLY if you can hold an exclusive CSS/theme-test
-   reservation; otherwise keep it unclaimed and do not improvise a styling batch.
-Do not redispatch closed rows ug-1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/20. Do not dispatch uxv-2…5
-(dependencies) or uxv-6 (design-only). The overlay-profile candidate is planning only.
+The three remaining rows are all Shell and all touch apps/web/src/App.tsx: dispatch them
+SEQUENTIALLY (ug-21 -> ug-22 -> ug-23), one bounded row per worker, with an independent reviewer per
+row. Reserve apps/web/src/App.tsx explicitly in every brief (plus lib/app.ts for ug-21 and
+grid/FilterBar.tsx + edit/op-summary.ts for ug-23). Shell ports 4273/4279/4280. Do not dispatch
+uxv-1 unless you hold an exclusive CSS/theme-test reservation. Do not redispatch closed rows
+ug-1…ug-20.
 
-Before dispatch, reserve shared files and state the reservation in the brief. Lanes are NOT
-absolutely parallel-safe: App/CSS/FilterBar are touched by ug-14/ug-23 (Shell) and ug-18 (Grid).
-Serialize such conflicts and inspect integration diffs.
-
-Roster: worker opencode-go/deepseek-v4.1-flash; independent reviewer opencode-go/mimo-v2.6-flash
-thinking high (Luna credit exhausted 2026-10-31). Workers never push. Latest verified push is
-dee10f8; ea41533 is local-only — do
-not claim the current
-uncommitted tree is pushed or grant blanket remote permission.
-
-Use the task templates in this file. Record starting commit, clean-status evidence, environment,
-ports, exit codes and log paths under /tmp. A request-changes verdict returns to a fresh worker
-brief quoting the exact fixes. Integrate only independently approved rows and re-run merged gates.
-Update the owning queue, handoff index/changelog and open-issues map in the same change. Do not
-mark the UX program complete because a row lands.
+Roster: worker opencode-go/deepseek-v4.1-flash; independent reviewer
+opencode-go/mimo-v2.6-flash at thinking high. Workers never push; local main is not pushed. Use the
+briefs in §3c–§3e. Record starting commit, clean-status evidence, environment, ports, exit codes and
+log paths under /tmp. A request-changes verdict returns to a fresh worker brief quoting the exact
+fixes. Integrate only independently approved rows and re-run merged gates. Update the owning queue,
+handoff index/changelog, spec status and open-threads map in the same change. Do not mark the UX
+program complete because one row lands.
 
 First response: checkout/queue state, proposed base, reservations for the next row, blockers, and
 the single next dispatch.
 ```
 
-## 2. Worker — ug-14 (Shell) — CLOSED 2026-10-30, do not dispatch
+## 2. Historical worker briefs
 
-> Retained only as the shape of a bounded worker brief. ug-14 is CLOSED at `c694eca` and ug-15 at
-> `8a38e0e`; the next Shell row is **ug-17**. Do not paste this as a live task.
+Closed rows' briefs (ug-14, ug-4, ug-16, …) were deliberately removed from this pack. Their
+authoritative evidence lives in the [usability queue](20261026-usability-queue.md) rows and
+[handoff §9](../handoff.md). Use §3c as the current shape of a bounded worker brief.
+
+## 3c. Worker — ug-21 (Shell) — READY
 
 ```text
-Implement exactly ug-14: open-failure recovery + error-copy consolidation.
-Read AGENTS.md, docs/process/handoff/operating-model.md, the live usability queue ug-14 row,
-findings UG-5/UG-30/UG-25 in docs/reviews/2026-10-26-usability-gap-review.md, and spec §2
-(Open error), §6 (gates) and §7 (STOPs). Confirm the orchestrator-provided base
-commit, isolated worktree, Shell ports (4273/4279/4280 or assigned free set), reserved files and
-baseline evidence before editing. Requirement basis is the queue row (UG-5/UG-30/UG-25); there is
-no R-ID for this row, so the queue is authoritative.
+Implement exactly ug-21: opening progress + cancel.
 
-Allowed: apps/web/src/App.tsx, sql/SqlPanel.tsx, profile/ProfilePanel.tsx, grid/FilterBar.tsx,
-edit/session.ts (shared first-line-reducing helper), focused tests, and one changeset. No engine
-or grid protocol change, no new dependency, no broad restyle, no shared docs/root config.
+Read AGENTS.md, docs/process/handoff/operating-model.md, the live usability queue ug-21 row,
+docs/product/09-ux-ui-implementation-spec.md §2 (Opening state), §6 (gates), §7 (STOPs), ADR 0044 and
+ADR 0025, and the open flow: App.tsx (open-status, phase.kind === 'opening', openDataFile,
+beginSession/datasetSession.tokenRef), lib/app.ts (openStatusCopy), sessions/session-reset.ts.
+Confirm the orchestrator-provided base commit, isolated worktree, Shell ports 4273/4279/4280,
+reserved files (apps/web/src/App.tsx + apps/web/src/lib/app.ts) and baseline evidence before editing.
 
-(a) open-error pairs a one-line human cause with "Choose a different file…" retry that
-re-triggers openDataFile; raw engine detail stays behind <details>; pin with a corrupt fixture.
-(b) adopt a shared first-line-reducing engine-error helper with per-panel framing on
-open/SQL/profile/filter; fix the validation/diff edit-leak per UG-25; unit pins for single-line
-messages on those paths. Keep errors local and honest; do not hide them under welcome copy.
+Allowed: apps/web/src/App.tsx, apps/web/src/lib/app.ts (status/copy helpers only), focused tests, one
+e2e spec or a focused addition, one feat(web): changeset. No change to the open chain's guards or
+engine calls, no engine/grid protocol change, no new dependency, no broad restyle, no telemetry.
 
-Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6; build before e2e.
-Focused starting points: pnpm exec vitest run apps/web/src/App.open-status.test.tsx
-apps/web/src/grid/FilterBar.test.tsx; pnpm exec playwright test tests/e2e/data-sources.spec.ts
-tests/e2e/smoke.spec.ts tests/e2e/shell.spec.ts. Add the corrupt-fixture retry pin.
+Contract:
+(a) The opening state gains an indeterminate progress affordance (a native <progress> with no value,
+or an equivalent role=progressbar with no invented percentage) next to the existing "Opening…"
+status, visually subtle and value-free. Keep the existing open-status and live-region copy.
+(b) Add a Cancel control visible only in the opening phase. It restores idle through the EXISTING
+session-token guard: bump the session token the same way a new open would (reuse
+datasetSession.beginSession(), or the smallest helper that bumps tokenRef and runs the registered
+resets) and set the phase back to idle. Do not add a second cancellation path, do not touch
+openDataFile's guard order, and do not introduce a new abort/engine mechanism (the engine op has no
+interrupt — say so honestly if needed). A late result of the cancelled open must be discarded by the
+token comparison (no phase flip, no error, no stale data), and a subsequent open must work normally.
+Cancelling must not show an error and must not emit new telemetry.
 
-Leave one bounded fix(web): commit plus changeset. No push, no self-approval, no silent scope
-growth. Report files, requirement evidence, exact commands/exit codes/counts, logs and blockers.
+Pins (non-vacuous):
+- Component: opening renders the progress affordance + Cancel; Cancel -> idle, the in-flight open's
+  late resolve is dropped (controllable deferred open), and a subsequent open reaches ready; ready/
+  idle/error states render no Cancel; accessible names for the progress and the Cancel button.
+- E2E: cancel mid-open with a deterministic slow open (a large synthetic temp fixture or a test-only
+  delay in the file-read path — never a production hook) -> data-phase="idle", no error, and a
+  follow-up open reaches data-phase="ready".
+- Mutation drills (run, paste evidence, revert): (a) drop the token bump on cancel -> the
+  late-resolve pin fails (phase flips to ready after cancel); (b) remove the Cancel control -> the
+  UI/e2e pin fails; (c) give the progress a fixed value/percentage -> the indeterminate/a11y pin
+  fails.
+
+Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6 (build before e2e,
+CI=1 --retries=0). Leave one bounded feat(web): commit plus changeset. No push, no self-approval, no
+silent scope growth. Report files, requirement evidence, exact commands/exit codes/counts, mutation
+results, logs and blockers.
 ```
 
-## 3. Worker — ug-4 (Grid)
+## 3d. Worker — ug-22 (Shell) — READY
 
 ```text
-Implement exactly ug-4: make the grid interaction language visible.
-Read AGENTS.md, handoff/operating-model, the live usability queue ug-4 row, and spec §2 state
-table, §6 gates and §7 STOPs. Confirm the assigned base commit, isolated worktree, Grid ports,
-reserved files and baseline evidence. Requirement basis is the queue row (UG-9/UG-33).
+Implement exactly ug-22: nav reading order (ruling-compliant).
 
-Allowed: apps/web/src/grid/DataGrid.tsx, its focused tests, and one changeset. No engine/grid
-protocol change, no App shell restyle, no other row's feature.
+Read AGENTS.md, docs/process/handoff/operating-model.md, the live usability queue ug-22 row, spec §2
+state table, §6, §7, ADR 0044 and the q-15 placement ruling cited in the queue, and App.tsx
+(WORKBENCH_SECTIONS, the sticky nav, revealSectionFromNav), App.shell.test.tsx (NAV_ORDER pin),
+App.headings.test.tsx, App.section-purposes.test.tsx. Confirm the assigned base commit, isolated
+worktree, Shell ports 4273/4279/4280, reserved files (apps/web/src/App.tsx + the nav/heading pins) and
+baseline evidence.
 
-(a) Persistent one-line editing hint on ready grids, verbatim: "Double-click a cell to edit ·
-Enter edits the focused cell · Esc cancels", wired as aria-describedby for the grid role.
-(b) A "Keyboard" section in the existing grid footer <details> listing edit/inspect/navigate keys.
-Done-when: hint visible on first ready paint (component + one e2e); shortcut list pinned;
-DataGrid.keyboard and a11y-keyboard specs green.
+Allowed: apps/web/src/App.tsx (WORKBENCH_SECTIONS order only), nav-order pins in App.shell.test.tsx /
+App.headings.test.tsx if they assert order, one chore(web): changeset. Forbidden: ANY DOM reorder
+(section element order, heading map, two-pane layout), copy changes to the twelve R-14 purposes,
+engine/grid changes, new dependency, docs, push.
 
-Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6; build before e2e.
-Focused starting points: pnpm exec vitest run apps/web/src/grid/DataGrid.keyboard.test.tsx
-apps/web/src/App.shell.test.tsx; pnpm exec playwright test tests/e2e/a11y-keyboard.spec.ts
-tests/e2e/grid-editing.spec.ts.
+Contract: set WORKBENCH_SECTIONS to exactly schema, filters, grid, validation, compare, sql, editing,
+history, export, record, profile, pipeline — a pure array edit. The pipeline stays last. The sticky
+nav's link order, the reveal/scroll behavior and aria-describedby wiring follow the array; the DOM
+order and heading map must be unchanged. Cite ADR 0044/q-15 in the commit message (the ruling
+authorizes nav order only, not DOM reorder). Update NAV_ORDER and any nav-order pins; the twelve R-14
+purpose/name pins and heading-map pins must stay green and unchanged.
 
-Leave one bounded fix(web): commit plus changeset. No push, no self-approval, no scope growth.
-Report files, requirement evidence, exact commands/exit codes/counts, logs and blockers.
+Pins (non-vacuous): nav link testids in the exact new order; DOM section/heading order pinned
+unchanged; clicking a nav link still expands/scrolls its target; pipeline last. Mutation drills:
+(a) move a section element in the DOM instead of the array -> the heading-map pin fails; (b) drop
+"record" from the array -> the nav-order pin fails.
+
+Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6 (build before e2e). Leave
+one bounded chore(web): commit plus changeset. No push, no self-approval, no scope growth. Report
+files, requirement evidence, exact commands/exit codes/counts, mutation results, logs and blockers.
 ```
 
-## 3b. Worker — ug-16 (Panels) — CLOSED 2026-10-31, do not dispatch
-
-> Retained only as the shape of a bounded worker brief. ug-16 is CLOSED at `3b494f5` (feature
-> `30063f4` + review fix `3b494f5`, worker commits `9c5310b`/`472be2a`). The next Panels row is
-> **ug-20**; ug-17 (Shell) and ug-4 (Grid) remain eligible. Do not paste this as a live task.
+## 3e. Worker — ug-23 (Shell) — READY
 
 ```text
-Implement exactly ug-16: profile stats click-to-act, under the settled design.
-Read AGENTS.md, docs/process/handoff/operating-model.md, the live usability queue ug-16 row,
-docs/process/handoff/20261030-ug16-renamed-column-design.md (authoritative: resolution rule,
-byte-exact copy, acceptance), spec §2 R-16, §6 gates and §7 STOPs. Confirm the orchestrator-provided
-base commit, isolated worktree, Panels ports (4373/4379/4380 or assigned free set), reserved files
-and baseline evidence before editing.
+Implement exactly ug-23: code-observation riders CO-1…CO-4.
 
-Allowed: apps/web/src/profile/**, App.tsx click-to-act bridge + refusal state, edit/session.ts
-(pure rename-chain resolver), reuse grid/filter-builder.ts and query-state.ts, focused tests, one
-e2e journey, one feat(web): changeset. No packages/** engine/protocol/domain change, no new
-dependency, no broad restyle, no telemetry, no push, no docs.
+Read AGENTS.md, operating-model.md, the live ug-23 row, spec §6/§7, ADR 0044/0025; read App.tsx (the
+pane toggle's and section nav's aria-labels; the usePipelineSession call-site comment),
+grid/FilterBar.tsx (FilterChip key composition — note ug-18's header chips are removable and the body
+chips are display-only), edit/op-summary.ts (row-uninsert: 'row expunge'), and the pane-toggle / nav /
+chip pins. Confirm the assigned base commit, isolated worktree, Shell ports 4273/4279/4280, reserved
+files (App.tsx, grid/FilterBar.tsx, edit/op-summary.ts) and baseline evidence.
 
-(a) Top-k value click applies a builder-compiled = 'value'; null-count click applies IS NULL; chips
-appear via the existing FilterBar (no grammar change).
-(b) Resolve the profile's base column against the current effective schema before compiling. A
-renamed column applies NO filter and shows the byte-exact renamed refusal (naming base and current);
-an unresolved column applies NO filter and shows the generic refusal. Never remap silently.
-(c) Cast/type mismatch: compile against the effective column type; show the builder's readable
-single-line rejection (or the existing framed filter error after an engine rejection); never coerce.
-(d) Zero-row results after a resolved click keep the existing empty state. R-16 hint/note and
-profile-table-id unchanged; no re-profile.
+Allowed: apps/web/src/App.tsx, apps/web/src/grid/FilterBar.tsx, apps/web/src/edit/op-summary.ts,
+focused tests, one chore(web): changeset. No engine/grid protocol change, no copy beyond (d), no
+behavior changes, no new dependency, no docs, no push.
 
-Pins: unit for the resolver (rename chain, rename-back, unresolved, undo/redo); component per
-action + both refusals + zero-row; one e2e profile→filtered grid; mutation drills: remove the
-rename/unresolved guard (renamed click applies a base-name filter → pin fails) and drop the
-current-name lookup (copy loses the name → pin fails).
+Contract — land all four with pins where applicable:
+(a) Correct the stale pipeline-jump comment at the usePipelineSession call site (p2-6 made previews
+grid-native); comment-only, accurate, no code change.
+(b) Make the FilterBar chip React key injective: today key = `${column}:${predicate}` can collide
+(e.g. column "a:b" + predicate "c" vs column "a" + predicate "b:c"). Introduce a small injectable key
+helper (e.g. JSON.stringify([column, predicate]) or a length-prefixed composite) used by the header
+chips (and the display-only body list), with a pin that a deliberately colliding pair renders two
+distinct chips and removes independently.
+(c) De-duplicate the pane-toggle accessible name from the nav's "Workbench sections": give the pane
+toggle its own action-reflecting name (e.g. "Collapse workbench pane" / "Expand workbench pane", or
+"Toggle workbench pane") while the nav keeps "Workbench sections"; keep aria-expanded and
+aria-controls, update name-based pins, and pin that the two names differ.
+(d) Decide the plain-language gloss for the row-uninsert history summary ("row expunge") and apply it
+consistently (e.g. "undo row insert" / "remove added row" — pick one, value-free) with a pin on the
+rendered summary; if you judge no change is warranted, record the decision in the report instead of
+inventing copy.
+Mutation drills: revert the key to the colon join -> the collision pin fails; restore the shared
+pane/nav name -> the distinct-name pin fails; revert (d) -> its copy pin fails.
 
-Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6; build before e2e.
-Leave one bounded feat(web): commit plus changeset. No push, no self-approval, no silent scope
-growth. Report files, requirement evidence, exact commands/exit codes/counts, logs and blockers.
+Run focused tests, then the six gates + coverage/docs/ADR checks from spec §6 (build before e2e). Leave
+one bounded chore(web): commit plus changeset. No push, no self-approval, no scope growth. Report
+files, per-rider evidence, exact commands/exit codes/counts, mutation results, logs and blockers.
 ```
 
 ## 4. Worker — uxv-1 (Visual), only with an exclusive reservation
@@ -200,8 +204,9 @@ growth. Report files, requirement evidence, exact commands/exit codes/counts, lo
 Implement exactly uxv-1 (R-09): repair theme completeness.
 Do not start unless the orchestrator states in this brief that (i) the recorded uxv-0 baseline and
 the already-integrated ug-1/ug-2/ug-7 prerequisites are green, and (ii) you hold an EXCLUSIVE
-reservation for index.css and the theme/telemetry test files. App/CSS/FilterBar are also touched by ug-14/ug-23
-(Shell) and ug-18 (Grid); no concurrent writer is allowed at this seam.
+reservation for index.css and the theme/telemetry test files. ug-21/ug-22/ug-23 (Shell) and
+ug-18/ug-19 (Grid, closed) also touch CSS/App/FilterBar seams; no concurrent writer is allowed at
+this seam.
 
 Read AGENTS.md, handoff/operating-model, the live visual queue uxv-1 row, spec R-09, §4 (semantic
 surfaces), §6 (configured-disclosure evidence, gates) and §7 STOPs.
@@ -231,7 +236,7 @@ screenshots (scheme/surface), axe results, evidence, logs and blockers.
 ```text
 Independently review the assigned row and worker commit against the live queue done-when and the
 spec requirement IDs, not against the worker's preferred implementation. You must be a distinct
-session/model: reviewer openai-codex/gpt-6-luna at thinking high; worker is
+session/model: reviewer opencode-go/mimo-v2.6-flash at thinking high; worker is
 opencode-go/deepseek-v4.1-flash.
 
 Read AGENTS.md, operating-model §7.3/7.6, the owning queue, the spec (§2 requirement/copy, §3
@@ -244,26 +249,28 @@ assertions, absence of vacuous mocks, and same-input/view agreement. Check copy/
 telemetry, no changed export/report bytes, no new dependency, no DOM direction change, and a
 Conventional Commit plus changeset where required.
 
-Run meaningful temporary mutations for load-bearing behavior (e.g. remove the hint/description
-wiring, remove the corrupt-file retry path, restore the white surface), confirm the right test
-fails, then revert only your mutants and rebuild restored source. Never fix the author's runtime
-code while approving, never commit, never push.
+Run meaningful temporary mutations for load-bearing behavior (e.g. remove the token bump on cancel,
+swap the nav array for a DOM reorder, restore the colliding chip key, restore the shared pane/nav
+name), confirm the right test fails, then revert only your mutants and rebuild restored source.
+Never fix the author's runtime code while approving, never commit, never push.
 
 Return: files reviewed; numbered must-fix findings with file:line evidence; exact checks and
 mutation results; remaining risks; final line exactly
 VERDICT: approve
 or
 VERDICT: request-changes
-Approval covers this row only, not the program, release or remote CI.
 ```
 
-## 6. Continuation after request-changes or interruption
+## 6. Thread sequencing and shared-file reservations
 
-```text
-Continue the assigned row only. Re-read live status. Independent review required exactly these
-fixes: PASTE_NUMBERED_ITEMS. Existing work/commits: LIST_AND_SHA. Do not discard or blindly adopt
-artifacts. Fix only the requested items inside the original boundary, re-run the required gates
-and focused checks, and send the result to a fresh independent reviewer. STOP if scope must grow.
-No self-approval, push, unrecorded skip or queue closure. State precisely what is committed,
-uncommitted, verified and still blocked.
-```
+- **ug-21 → ug-22 → ug-23 are strictly sequential** (all touch `apps/web/src/App.tsx`). Start the
+  next row only after the previous row is integrated and its docs commit is on `main`; use that tip
+  as the base. Never run two of these threads concurrently.
+- **Shared-file reservations:** ug-21 reserves `App.tsx` + `lib/app.ts`; ug-22 reserves `App.tsx` +
+  the nav/heading pins; ug-23 reserves `App.tsx` + `grid/FilterBar.tsx` + `edit/op-summary.ts`.
+  State the reservation in each worker brief.
+- **Ports:** Shell lane 4273/4279/4280 via `ASSAY_E2E_PORT_WEB/ENGINE/DS`; merged verification uses
+  the default ports 4173/4179/4180 (or the documented alternate 4573/4579/4580 if occupied).
+- **Docs closure:** after each row, update the owning queue row + §2 lane/frontier, handoff §6/§9,
+  spec §1/§6 (and §8 if a requirement row is touched), the open-threads map and this pack's
+  current-state block — in the same change as the code integration.

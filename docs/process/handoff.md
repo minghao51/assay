@@ -122,8 +122,9 @@ an ADR, never a silent rewrite of an accepted decision.
 ### Active
 
 [Usability queue](handoff/20261026-usability-queue.md): **active** —
-23 rows (ug-1…ug-23; **11 CLOSED: ug-1/2/3/7/8/9/10/13/14/15/16**, 12 open, none decision-blocked — 12
-remaining) across three lanes (Shell / Grid / Panels) owning the
+23 rows (ug-1…ug-23; **20 CLOSED: ug-1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/20**, 3 open,
+none decision-blocked — 3 remaining, all Shell: ug-21 → ug-22 → ug-23) across three lanes (Shell /
+Grid / Panels) owning the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) findings UG-1…UG-37
 (first-run contract, affordance visibility, failure containment, journey coherence). Read
 the queue's §2 lane rules, §3 standing constraints and §5 execution clarifications before
