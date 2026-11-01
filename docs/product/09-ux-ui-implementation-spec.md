@@ -9,8 +9,8 @@ under the settled typed-refusal design and **ug-17 collapsed section state summa
 `9a31cd6`**, **ug-4 capability-true grid interaction language at `784805c`**, **ug-5
 focused-cell copy at `d814fdf`**, **ug-6 undo/redo shortcuts + first-append History cue at `b2c6ce1`**, and **ug-12
 keyboard completion at `d3af2ec`**, **ug-11 row identity at `79febe5`**, **ug-18 filter compose row + collapsed
-chips at `4d3cb54`**, and **ug-19 contrast + in-flight feedback at `0ac3447`** (no new R-ID for
-any of them). This is the
+chips at `4d3cb54`**, **ug-19 contrast + in-flight feedback at `0ac3447`**, and **ug-20 validation on-ramp +
+filter-replacement disclosure at `5bad2c3`** (no new R-ID for any of them). This is the
 execution
 contract for the bounded improvements requested after the
 [investigation plan](08-ux-ui-engine-showcase-plan.md).
@@ -55,8 +55,10 @@ and record inspector`) with roving focus landing on the target row. ug-11 (Grid)
   active columns with removable sibling chips. ug-19 (Grid) is **implemented at `0ac3447`**:
   empty-state text clears AA in both schemes, the grid exposes aria-busy with a polite
   `Sorting…`/`Filtering…` footer status, and a loading-row edit gesture queues and opens only on
-  the same logical row. Grid lane complete; next runtime rows are ug-20 (Panels) and ug-21
-  (Shell). Adjustable SQL sizing remains design-only. All other
+  the same logical row. ug-20 (Panels) is **implemented at `5bad2c3`**: the validation zero state
+  offers a schema-derived starter contract download, and enabled failure-filter controls state the
+  filter replacement when filters are active. Grid and Panels lanes complete; next runtime row is
+  ug-21 (Shell), then ug-22/ug-23. Adjustable SQL sizing remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
 ## 2. Requirements and UI states
@@ -289,6 +291,7 @@ then restoration **and a rebuild of restored source** before claiming a clean ve
 | ug-11   | `pnpm exec vitest run apps/web/src/grid apps/web/src/record apps/web/src/App.record-step.test.tsx`; `pnpm exec playwright test tests/e2e/grid-row-numbers.spec.ts tests/e2e/grid-horizontal.spec.ts tests/e2e/grid-virtualization.spec.ts tests/e2e/record-inspector.spec.ts`; sticky 1-based gutter (`rowheader`, `aria-colcount`, opaque/striped) with gutter↔dock-title agreement; immediate-neighbour Prev/Next (bounds/error disabled, loading rides pending); O(1) stepping call-count pin on a 100k sparse cache.                                     |
 | ug-18   | `pnpm exec vitest run apps/web/src/grid/FilterBar.test.tsx`; `pnpm exec playwright test tests/e2e/filter-builder.spec.ts tests/e2e/grid-filter-sort.spec.ts`; exactly one compose row compiled through the existing builder; active rows apply what they display (programmatic replacement re-seeds); collapsed `SQL predicates` disclosure; exact collapsed summary naming columns + sibling chips with working removal; one removal control per filter per state.                                                                                          |
 | ug-19   | `pnpm exec vitest run apps/web/src/grid apps/web/src/App.grid-busy.test.tsx apps/web/src/theme-contrast.test.ts`; `pnpm exec playwright test tests/e2e/a11y.spec.ts tests/e2e/theme.spec.ts tests/e2e/grid-editing.spec.ts`; empty-state + NULL-marker AA in both schemes with driven zero-result/NULL scans; aria-busy + footer Sorting…/Filtering… cleared on settle; one-slot loading-row pending edit retired by overlay revision, opened on the captured row, dropped visibly on error.                                                                 |
+| ug-20   | `pnpm exec vitest run apps/web/src/validation`; `pnpm exec playwright test tests/e2e/validation-panel.spec.ts tests/e2e/validation-report-export.spec.ts`; schema-derived starter contract (canonical, round-trip, mappable types only, no filename/values, real download); zero-state states/status incl. delivery failure and dataset-swap clearing; exact `Replaces the current N filters` on enabled controls only, absent at 0, with enabled accessible names pinned.                                                                                   |
 | ug-14   | `pnpm exec vitest run apps/web/src/App.open-status.test.tsx apps/web/src/grid/FilterBar.test.tsx`; `pnpm exec playwright test tests/e2e/data-sources.spec.ts tests/e2e/smoke.spec.ts tests/e2e/shell.spec.ts`; add a corrupt-fixture open-error retry pin and a single-line message pin per adopted panel.                                                                                                                                                                                                                                                   |
 | ug-16   | `pnpm exec vitest run apps/web/src/profile apps/web/src/edit/session.test.ts apps/web/src/App.profile-filter.test.tsx`; `pnpm exec playwright test tests/e2e/profile-panel.spec.ts tests/e2e/profile-honesty.spec.ts tests/e2e/profile-filter.spec.ts`; top-k/null predicates pinned at the model boundary; byte-exact renamed/unresolved refusals with NO filter (never remapped); cast/type rejection without coercion; zero-row resolved click keeps the empty state; single-flight and attempt/session-identity lifecycle pins.                          |
 | ug-17   | `pnpm exec vitest run apps/web/src/App.section-summaries.test.tsx apps/web/src/App.section-purposes.test.tsx apps/web/src/App.headings.test.tsx`; `pnpm exec playwright test tests/e2e/section-summaries.spec.ts`; byte-exact `Validation · N failing` / `Compare · N changed` / `History · N pending` from the right sources, visible inside the collapsed managed toggle, absent at 0 and in non-verdict/non-result states, accessible name unchanged, summary appended to `aria-describedby` only when present.                                           |
