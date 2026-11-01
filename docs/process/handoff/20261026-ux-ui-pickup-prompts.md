@@ -27,8 +27,10 @@ every use; a prompt never overrides a closed/claimed/blocked row.
   **ug-17 CLOSED 2026-10-31 at `9a31cd6`** (collapsed section state summaries), **ug-4 CLOSED
   2026-10-31 at `784805c`** (capability-true grid interaction language), **ug-5 CLOSED 2026-10-31
   at `d814fdf`** (focused-cell copy), **ug-6 CLOSED 2026-10-31 at `b2c6ce1`** (undo/redo
-  shortcuts + History cue) and **ug-12 CLOSED 2026-10-31 at `d3af2ec`** (keyboard completion), so
-  the Panels successor **ug-20 and the Grid successor ug-11 are now eligible**.
+  shortcuts + History cue) and **ug-12 CLOSED 2026-10-31 at `d3af2ec`** (keyboard completion), **ug-11 CLOSED 2026-11-01 at
+  `79febe5`** (row identity) and **ug-18 CLOSED 2026-11-01 at `4d3cb54`** (filter compose row +
+  collapsed chips), so the Panels successor **ug-20 and the Grid successor ug-19 are now
+  eligible**.
 - **Ownership:** the usability queue owns R-01…R-08, R-14, R-15 and R-16; the
   [visual queue](20261026-ux-ui-execution-queue.md) owns R-09…R-13.
 - **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent
@@ -67,13 +69,13 @@ uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unkn
 
 Select one of these eligible candidates, one bounded row per worker, with an independent reviewer
 (no new cross-lane dependency is imposed by this list):
-1) ug-11 (Grid) — row identity made visible (read the live ug-11 row).
+1) ug-19 (Grid) — contrast + in-flight feedback hardening pack (read the live ug-19 row).
 2) ug-20 (Panels) — validation on-ramp + filter-replacement disclosure (eligible after ug-16's
    landed `3b494f5`; no ready-to-paste brief in this pack yet — read the live ug-20 row).
 3) ug-21 (Shell) — opening progress + cancel (read the live ug-21 row).
 4) uxv-1 (Visual) — theme completeness, ONLY if you can hold an exclusive CSS/theme-test
    reservation; otherwise keep it unclaimed and do not improvise a styling batch.
-Do not redispatch closed rows ug-1/2/3/4/5/6/7/8/9/10/12/13/14/15/16/17. Do not dispatch uxv-2…5
+Do not redispatch closed rows ug-1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18. Do not dispatch uxv-2…5
 (dependencies) or uxv-6 (design-only). The overlay-profile candidate is planning only.
 
 Before dispatch, reserve shared files and state the reservation in the brief. Lanes are NOT
