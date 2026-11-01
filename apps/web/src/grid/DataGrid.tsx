@@ -12,7 +12,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import type { CSSProperties } from 'react'
-import type { GridViewportModel } from '@assay/grid'
+import type { GridRowSlot, GridViewportModel } from '@assay/grid'
 import type { CellValue, OverlayState, RowId } from '@assay/domain'
 import { NULL_VALUE, parseRowId } from '@assay/domain'
 import { formatCell } from './format'
@@ -96,6 +96,15 @@ interface DataGridProps {
    * no host query state, so it reports nothing.
    */
   onSortBusyChange?: (busy: boolean) => void
+  /**
+   * ug-19 (UG-19): the host's monotonic overlay revision, captured by a queued
+   * edit gesture so a commit/undo/redo/history move cannot open the editor on
+   * a renumbered logical row. Every overlay change calls `model.refresh()`,
+   * and the provider orders by the EDITED values, so an overlay bump can
+   * reorder rows while the structural epoch (schema/sort/filters/count) is
+   * unchanged. Optional for non-editing/preview mounts (default `0`).
+   */
+  overlayRevision?: number
 }
 
 /** The in-flight query epoch a host reports to the grid (ug-19). */
@@ -111,10 +120,10 @@ const EDIT_ROW_UNLOADED_NOTICE = 'That row could not be loaded, so the edit did 
 /**
  * ug-19 (UG-19): one queued edit gesture from a still-loading row (double-
  * click or Enter on its cell stores this; no editor opens yet). It mirrors the
- * uxc-2 record-inspector pending gesture: the structural epoch the user
- * clicked under is captured so a later sort/filter/schema/count change can
- * never open the editor on a DIFFERENT logical row at the same position, and
- * `seq` makes a newer gesture replace the older one.
+ * uxc-2 record-inspector pending gesture: the structural epoch and overlay
+ * revision the user clicked under are captured so a later sort/filter/schema/
+ * count/overlay change can never open the editor on a DIFFERENT logical row at
+ * the same position, and `seq` makes a newer gesture replace the older one.
  */
 interface PendingEditGesture {
   /** The model the gesture was made on (a new dataset never inherits it). */
@@ -124,20 +133,24 @@ interface PendingEditGesture {
   readonly seq: number
   /** The structural epoch identity captured at gesture time. */
   readonly epoch: string
+  /** The host's overlay revision captured at gesture time. */
+  readonly overlayRevision: number
   /**
    * The row's logical key when the slot supplied one. A `loading` slot has no
-   * key channel yet, so this is `null` in practice; when a key IS available it
-   * must still match before the editor opens (never a different logical row).
+   * key channel today, so this is usually `null`; when a provider DOES supply
+   * one it must still match at open time (never a different logical row).
    */
   readonly rowKey: RowId | null
 }
 
 /**
  * ug-19 (UG-19): the structural epoch a queued edit gesture is judged
- * against — the same fields the record inspector's `RecordContext` freshness
- * predicate compares (schema, sort, filters, row count). Any change starts a
- * fresh data epoch that renumbers rows, so the gesture is dropped instead of
- * opening on whatever record now sits at the captured position.
+ * against — schema, sort, filters and row count. This is only half of the
+ * record inspector's freshness predicate: `RecordContext` also compares the
+ * overlay revision and the row key, which is why `PendingEditGesture` carries
+ * both separately. Any structural change starts a fresh data epoch that
+ * renumbers rows, so the gesture is dropped instead of opening on whatever
+ * record now sits at the captured position.
  */
 function editGestureEpoch(model: GridViewportModel): string {
   const sort = model.sort
@@ -147,6 +160,13 @@ function editGestureEpoch(model: GridViewportModel): string {
     filters: model.filters.map((filter) => `${filter.column}\t${filter.predicate}`),
     totalRows: model.totalRows ?? 0,
   })
+}
+
+/** The logical key a slot carries, if its provider supplied the identity channel. */
+function slotRowKey(slot: GridRowSlot): RowId | null {
+  if (!('key' in slot)) return null
+  const key: unknown = slot.key
+  return typeof key === 'string' ? (key as RowId) : null
 }
 
 /**
@@ -230,6 +250,7 @@ export function DataGrid({
   scrollRequest = null,
   queryBusy = null,
   onSortBusyChange,
+  overlayRevision = 0,
 }: DataGridProps) {
   const modelVersion = useSyncExternalStore(model.subscribe, model.getVersion)
 
@@ -458,7 +479,8 @@ export function DataGrid({
       columnIndex,
       seq: pendingEditSeqRef.current,
       epoch: editGestureEpoch(model),
-      rowKey: null,
+      overlayRevision,
+      rowKey: slotRowKey(slot),
     }
   }
 
@@ -468,7 +490,7 @@ export function DataGrid({
    * captured slot is still `loading`, opens through the validated path once it
    * is `ready`, and drops the gesture with a visible value-free notice when
    * the slot settles `error` (or the row is no longer there to open). A
-   * dataset/structural change retires the gesture instead of opening a
+   * dataset/structural/overlay change retires the gesture instead of opening a
    * different logical row at the same position.
    */
   useEffect(() => {
@@ -478,15 +500,29 @@ export function DataGrid({
       pendingEditRef.current = null
       return
     }
+    const inRange = pending.rowIndex >= 0 && pending.rowIndex < totalRows
+    const slot = inRange ? model.getRow(pending.rowIndex) : null
+    if (pending.overlayRevision !== overlayRevision) {
+      // An overlay commit/undo/redo/history move can reorder rows while the
+      // structural epoch above stays identical (the provider orders by the
+      // edited values). The captured position no longer names a row the user
+      // chose, so retire silently — except a slot that actually settled
+      // `error`, which keeps its existing visible notice.
+      pendingEditRef.current = null
+      if (slot?.status === 'error') {
+        setEditError(EDIT_ROW_UNLOADED_NOTICE)
+        onEditAnnounce?.(EDIT_ROW_UNLOADED_NOTICE)
+      }
+      return
+    }
     if (pending.epoch !== editGestureEpoch(model)) {
       pendingEditRef.current = null
       return
     }
-    if (pending.rowIndex < 0 || pending.rowIndex >= totalRows) {
+    if (slot === null) {
       pendingEditRef.current = null
       return
     }
-    const slot = model.getRow(pending.rowIndex)
     if (slot.status === 'loading') return
     pendingEditRef.current = null
     if (slot.status !== 'ready' || slot.key === undefined) {
@@ -513,6 +549,7 @@ export function DataGrid({
     modelVersion,
     model,
     totalRows,
+    overlayRevision,
     schema,
     parsedColumnTypes,
     editingEnabled,

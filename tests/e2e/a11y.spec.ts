@@ -51,6 +51,7 @@ import {
 
 const FIXTURES_DIR = path.join(process.cwd(), 'fixtures')
 const CSV_FIXTURE = path.join(FIXTURES_DIR, 'csv', 'customers.csv')
+const CUSTOMERS_PARQUET = path.join(FIXTURES_DIR, 'parquet', 'customers.parquet')
 const NESTED_FIXTURE = path.join(FIXTURES_DIR, 'parquet', 'nested.parquet')
 
 test.beforeEach(async ({ page }) => {
@@ -191,6 +192,42 @@ function defineScans(scheme: 'light' | 'dark'): void {
       `zero-result grid + SQL empty result (customers.csv, ${scheme})`,
       scheme,
     )
+  })
+
+  test(`[${scheme}] record inspector NULL marker has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    // ug-19: the record dock's NULL marker is visible value text (not
+    // decoration), so it gets the same both-scheme, empty-allowlist bar as
+    // the empty-state copy. Drive a row that really contains a NULL:
+    // customers.parquet row 3 (customer_id 3) has a NULL income.
+    await openFixture(page, CUSTOMERS_PARQUET, { assertFileNameHidden: true })
+    await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+
+    const nullRow = page.locator('[data-testid="grid-row"][data-row-index="2"]')
+    await expect(nullRow).toHaveAttribute('data-status', 'ready')
+    await nullRow.click()
+
+    const panel = page.getByTestId('record-inspector')
+    await expect(panel).toBeVisible()
+    const nullMarker = panel.locator('.record-value-null').first()
+    await expect(nullMarker).toBeVisible()
+    await expect(nullMarker).toHaveText('null')
+
+    // Non-vacuity beyond visibility: the marker resolves the semantic NULL
+    // token (not a stale placeholder colour) in this scheme.
+    const colors = await nullMarker.evaluate((element) => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--color-null-text)'
+      document.body.append(probe)
+      const tokenColor = getComputedStyle(probe).color
+      probe.remove()
+      return { marker: getComputedStyle(element).color, tokenColor }
+    })
+    expect(colors.marker).toBe(colors.tokenColor)
+
+    await scanAndGate(page, `record inspector NULL marker (customers.parquet, ${scheme})`, scheme)
   })
 
   test(`[${scheme}] grid with a fixture open and the filter bar expanded has no unallowlisted critical/serious violations`, async ({

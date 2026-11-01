@@ -221,6 +221,42 @@ describe('ug-19 — filter apply exposes the grid busy epoch through App', () =>
     expect(screen.queryByTestId('grid-busy-status')).toBeNull()
   })
 
+  it('clears the busy epoch when a new dataset replaces the model', async () => {
+    await openFixture()
+    openFilterBar()
+
+    const gate = armDeferredApply()
+    await act(async () => {
+      applyComposeFilter('country', 'eq', 'ZZ')
+    })
+    await waitFor(() => {
+      expect(viewport().getAttribute('aria-busy')).toBe('true')
+    })
+    expect(screen.getByTestId('grid-busy-status').textContent).toBe('Filtering…')
+
+    // A second open starts while the first session's apply is still parked.
+    // App's dataset-clear effect must retire the old epoch as soon as the new
+    // model lands — the stale apply's `finally` has not run yet.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    })
+    await waitFor(() => {
+      expect(viewport().getAttribute('aria-busy')).toBeNull()
+    })
+    expect(screen.queryByTestId('grid-busy-status')).toBeNull()
+
+    // Releasing the superseded apply cannot resurrect the busy state.
+    await act(async () => {
+      gate.release()
+    })
+    await flushAsync()
+    expect(viewport().getAttribute('aria-busy')).toBeNull()
+    expect(screen.queryByTestId('grid-busy-status')).toBeNull()
+  })
+
   it('keeps Filtering… while a sort is also in flight and clears only after both settle', async () => {
     await openFixture()
     openFilterBar()

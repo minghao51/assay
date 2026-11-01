@@ -71,8 +71,12 @@
   --color-cancel-border: #d4a9b9;
   --color-diff-issue-border: #e6a;
 
-  /* NULL marker (a value, never a blank) */
-  --color-null-text: #8a6d3b;
+  /* NULL marker (a value, never a blank). Both scheme values clear the 4.5:1
+     AA floor on every surface a NULL can sit on, including the light row-hover
+     background (light: 5.37:1 subtle / 5.03:1 hover; dark: 7.70:1 / 6.37:1).
+     The record dock and the grid use the same semantic token so neither can
+     drift. */
+  --color-null-text: #806330;
 
   /* Charts */
   --color-chart-bar: #7fa3c9;
@@ -146,7 +150,7 @@
     --color-cancel-border: #6a4a55;
     --color-diff-issue-border: #b06a8a;
 
-    /* NULL marker */
+    /* NULL marker (same >=4.5:1 AA requirement as the light value) */
     --color-null-text: #d0b070;
 
     /* Charts */
@@ -786,12 +790,14 @@ h1 {
 }
 
 .record-value-null {
-  /* ug-19: this is the record dock's NULL *value* marker ("NULL is a value",
-     never an empty-looking blank), not empty-state copy — so it is outside the
-     ug-19 empty-state token sweep and keeps its de-emphasized placeholder
-     colour. Contrast remains a follow-up candidate (`--color-null-text`, the
-     grid NULL marker's token, is the semantic fix), not a ug-19 change. */
-  color: var(--color-text-placeholder);
+  /* ug-19 (UG-37 successor): this is the record dock's NULL *value* marker
+     ("NULL is a value", never an empty-looking blank), so it uses the semantic
+     NULL token rather than the empty-state secondary colour. Both scheme
+     values clear 4.5:1 on every surface a NULL can sit on, including the light
+     row-hover background (light 5.37:1 subtle / 5.03:1 hover, dark 7.70:1 /
+     6.37:1); --color-text-placeholder measured only 3.34:1 in the light
+     scheme. */
+  color: var(--color-null-text);
   font-style: italic;
 }
 

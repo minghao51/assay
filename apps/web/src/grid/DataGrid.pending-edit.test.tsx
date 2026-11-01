@@ -159,7 +159,7 @@ function editor(): HTMLInputElement | null {
   return screen.queryByTestId('grid-editor-input') as HTMLInputElement | null
 }
 
-function mount(): {
+function mount(overlayRevision = 0): {
   model: ReturnType<typeof controllableModel>
   announce: ReturnType<typeof vi.fn>
 } {
@@ -172,6 +172,7 @@ function mount(): {
       overlayState={fakeOverlay()}
       onCommitCell={() => {}}
       onEditAnnounce={announce}
+      overlayRevision={overlayRevision}
     />,
   )
   return { model: state, announce }
@@ -285,6 +286,51 @@ describe('DataGrid loading-row edit gesture (ug-19)', () => {
     expect(screen.queryByTestId('grid-edit-error')).toBeNull()
   })
 
+  it('retires a queued gesture when the overlay revision changes (overlay-induced renumber)', async () => {
+    const state = controllableModel()
+    const announce = vi.fn()
+    const props = {
+      onNestedAction: () => {},
+      overlayState: fakeOverlay(),
+      onCommitCell: () => {},
+      onEditAnnounce: announce,
+    }
+    const { rerender } = render(<DataGrid model={state.model} {...props} overlayRevision={0} />)
+
+    doubleClickCell(1, 1)
+    // An undo/redo (or History cursor move) calls model.refresh() and the
+    // provider re-orders by the EDITED values, so row 1 can name a different
+    // record while schema/sort/filters/count are all unchanged. The overlay
+    // revision is the freshness signal that catches this.
+    rerender(<DataGrid model={state.model} {...props} overlayRevision={1} />)
+
+    await land(() => {
+      state.setSlot(1, readyRow(1))
+    })
+    // Silent retirement: nothing opens on the renumbered row and no misleading
+    // "could not be loaded" notice is raised (the row did load).
+    expect(editor()).toBeNull()
+    expect(screen.queryByTestId('grid-edit-error')).toBeNull()
+  })
+
+  it('does not open when a captured logical key no longer matches the ready slot', async () => {
+    const { model } = mount()
+
+    // A provider that supplies the optional identity channel while the slot is
+    // still loading lets the gesture capture its logical row. The slot then
+    // settles on a DIFFERENT logical row at the same position: never open it.
+    act(() => {
+      model.setSlot(1, { status: 'loading', key: 'base:1' } as unknown as GridRowSlot)
+    })
+    doubleClickCell(1, 1)
+
+    await land(() => {
+      model.setSlot(1, readyRow(2))
+    })
+    expect(editor()).toBeNull()
+    expect(screen.queryByTestId('grid-edit-error')).toBeNull()
+  })
+
   it('retires the gesture when the model (dataset) is replaced', async () => {
     const first = controllableModel()
     const announce = vi.fn()
@@ -300,11 +346,20 @@ describe('DataGrid loading-row edit gesture (ug-19)', () => {
     const second = controllableModel()
     rerender(<DataGrid model={second.model} {...props} />)
 
-    // The OLD dataset's row landing after the swap must open nothing.
+    // 1. The OLD dataset's row landing after the swap must open nothing.
     await land(() => {
       first.setSlot(1, readyRow(1))
     })
     expect(editor()).toBeNull()
+
+    // 2. The REPLACEMENT model's row landing must not inherit the old
+    // gesture either. This is the non-vacuous half: deleting the
+    // `pending.model !== model` guard opens an editor here and fails.
+    await land(() => {
+      second.setSlot(1, readyRow(1))
+    })
+    expect(editor()).toBeNull()
+    expect(screen.queryByTestId('grid-edit-error')).toBeNull()
   })
 
   it('leaves ready-row editing unchanged (immediate open, nothing queued)', async () => {

@@ -197,6 +197,22 @@ describe('DataGrid sort epoch busy signal (ug-19)', () => {
     expect(screen.getByTestId('grid-command-error').textContent).toBe('sort failed')
   })
 
+  it('clears the host sort epoch when the grid unmounts mid-sort', () => {
+    const { model } = fakeModel()
+    const onSortBusyChange = vi.fn()
+    const { unmount } = render(
+      <DataGrid model={model} onNestedAction={() => {}} onSortBusyChange={onSortBusyChange} />,
+    )
+
+    clickSort('id')
+    expect(onSortBusyChange.mock.calls).toEqual([[true]])
+
+    // A dataset swap/closing boundary can unmount the grid while the sort is
+    // still in flight; the host must not be left reporting a busy epoch.
+    unmount()
+    expect(onSortBusyChange.mock.calls).toEqual([[true], [false]])
+  })
+
   it('keeps the busy signal until the LAST concurrent sort epoch settles', async () => {
     const { model, gates } = fakeModel()
     const onSortBusyChange = vi.fn()

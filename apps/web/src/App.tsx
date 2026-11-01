@@ -1995,6 +1995,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                       onCommitCell={handleCommitCell}
                       onDeleteRow={handleDeleteRow}
                       onEditAnnounce={announceEdit}
+                      overlayRevision={overlayRevision}
                       queryBusy={gridBusy}
                       onSortBusyChange={setGridSorting}
                       onOpenRecord={(rowIndex) => {
