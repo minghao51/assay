@@ -1167,3 +1167,55 @@ describe('FilterBar engine-error framing (UG-30)', () => {
     expect(setFilters).toHaveBeenCalledTimes(2)
   })
 })
+
+/**
+ * ug-19 (UG-19) pin: the bar's EXISTING single-flight `pending` transition is
+ * reported to the host through the optional `onPendingChange` prop, so the grid
+ * can expose `aria-busy` + the footer `Filtering…` status. The callback is
+ * reporting only — the apply/rollback path, the disabled controls and the error
+ * copy below are unchanged.
+ */
+describe('FilterBar pending transition reporting (ug-19)', () => {
+  it('reports true for the in-flight apply and false once it settles', async () => {
+    const { model, flush } = blockingModel(COLUMNS)
+    const onPendingChange = vi.fn()
+    render(<FilterBar model={model} onPendingChange={onPendingChange} />)
+    ensureOpen()
+
+    compose('income', 'gt', '50000')
+    expect(onPendingChange.mock.calls).toEqual([[true]])
+    // The controls are disabled while the epoch is in flight (unchanged).
+    expect((composeApply() as HTMLButtonElement).disabled).toBe(true)
+
+    await act(async () => {
+      flush()
+      for (let tick = 0; tick < 4; tick += 1) await Promise.resolve()
+    })
+    expect(onPendingChange.mock.calls).toEqual([[true], [false]])
+  })
+
+  it('reports false on a rejected apply too (the epoch ends on failure)', async () => {
+    const { model } = failingModel(COLUMNS, { failures: [new Error('engine unavailable')] })
+    const onPendingChange = vi.fn()
+    render(<FilterBar model={model} onPendingChange={onPendingChange} />)
+    ensureOpen()
+
+    compose('income', 'gt', '50000')
+    expect(onPendingChange.mock.calls).toEqual([[true]])
+
+    await screen.findByTestId('filter-error')
+    // One epoch: opened once, closed once — the rollback did not re-open it.
+    expect(onPendingChange.mock.calls).toEqual([[true], [false]])
+  })
+
+  it('works without the optional callback (no host wiring, unchanged bar)', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    compose('country', 'eq', 'US')
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([{ column: 'country', predicate: "= 'US'" }])
+    })
+  })
+})

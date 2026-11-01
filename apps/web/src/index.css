@@ -786,6 +786,11 @@ h1 {
 }
 
 .record-value-null {
+  /* ug-19: this is the record dock's NULL *value* marker ("NULL is a value",
+     never an empty-looking blank), not empty-state copy — so it is outside the
+     ug-19 empty-state token sweep and keeps its de-emphasized placeholder
+     colour. Contrast remains a follow-up candidate (`--color-null-text`, the
+     grid NULL marker's token, is the semantic fix), not a ug-19 change. */
   color: var(--color-text-placeholder);
   font-style: italic;
 }
@@ -812,6 +817,15 @@ h1 {
 .grid-edit-hint {
   flex: 1 1 100%;
   margin: 0;
+}
+
+/* ug-19 (UG-19): the in-flight query-epoch status ("Sorting…"/"Filtering…").
+   Value-free, one line, a polite `role="status"` sibling in the footer — it
+   never displaces Diagnostics, the counters, the edit/command errors or the
+   retry button. */
+.grid-busy-status {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
 }
 
 .grid-keyboard-help dl {
@@ -1307,7 +1321,11 @@ h1 {
 
 .sql-result-empty {
   margin: 0;
-  color: var(--color-text-faint);
+  /* ug-19 (UG-37): empty-state copy is normal text, so it must clear the 4.5:1
+     AA floor in BOTH schemes. Same recorded precedent as `.filter-empty`
+     below: `--color-text-secondary` is 7.14:1 on the subtle surface, while
+     `--color-text-faint` measured only 4.29:1 there (light scheme). */
+  color: var(--color-text-secondary);
   font-size: 0.85rem;
   font-style: italic;
 }
@@ -1552,14 +1570,21 @@ h1 {
 }
 
 .profile-strip-tick-name {
-  color: var(--color-text-placeholder);
+  /* ug-19 (UG-37): the quantile ticks are visible text, not decoration — the
+     `--color-text-placeholder` value measured ~3.5:1 on the subtle surface.
+     `--color-text-secondary` is the recorded `.filter-empty` precedent
+     (7.14:1 on the subtle surface, AA in both schemes). */
+  color: var(--color-text-secondary);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
 }
 
 .profile-strip-empty,
 .profile-topk-empty {
   margin: 0;
-  color: var(--color-text-faint);
+  /* ug-19 (UG-37): profile empty-state copy moves off `--color-text-faint`
+     (measured 4.29:1 on the subtle surface — below AA) to the recorded
+     `--color-text-secondary` precedent, which clears 4.5:1 in both schemes. */
+  color: var(--color-text-secondary);
   font-size: 0.85rem;
   font-style: italic;
 }

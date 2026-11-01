@@ -2,6 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -79,6 +80,73 @@ interface DataGridProps {
    * its roving tab stop and DOM focus on that row.
    */
   scrollRequest?: { readonly rowIndex: number; readonly seq: number } | null
+  /**
+   * ug-19 (UG-19): the combined in-flight query epoch owned by the host
+   * (`'filtering'` when a filter apply is in flight, `'sorting'` when only a
+   * sort is). The grid exposes it as `aria-busy="true"` on the role=grid
+   * element plus one polite footer status (`Filtering…` wins over `Sorting…`
+   * while both are in flight). Omitted by the read-only pipeline preview, so
+   * that surface carries no busy UI at all. Copy is value-free (ADR 0025).
+   */
+  queryBusy?: GridQueryBusy | null
+  /**
+   * ug-19 (UG-19): report this grid instance's OWN header-sort epoch
+   * transition (`true` on the first in-flight sort, `false` once the last one
+   * settles — success or failure). Optional: the pipeline node preview wires
+   * no host query state, so it reports nothing.
+   */
+  onSortBusyChange?: (busy: boolean) => void
+}
+
+/** The in-flight query epoch a host reports to the grid (ug-19). */
+export type GridQueryBusy = 'sorting' | 'filtering'
+
+/**
+ * ug-19 (UG-19): the visible, value-free notice shown when a queued edit
+ * gesture's row settles `error` instead of `ready` — the gesture is dropped
+ * rather than opening an editor on a row that could not be loaded.
+ */
+const EDIT_ROW_UNLOADED_NOTICE = 'That row could not be loaded, so the edit did not open.'
+
+/**
+ * ug-19 (UG-19): one queued edit gesture from a still-loading row (double-
+ * click or Enter on its cell stores this; no editor opens yet). It mirrors the
+ * uxc-2 record-inspector pending gesture: the structural epoch the user
+ * clicked under is captured so a later sort/filter/schema/count change can
+ * never open the editor on a DIFFERENT logical row at the same position, and
+ * `seq` makes a newer gesture replace the older one.
+ */
+interface PendingEditGesture {
+  /** The model the gesture was made on (a new dataset never inherits it). */
+  readonly model: GridViewportModel
+  readonly rowIndex: number
+  readonly columnIndex: number
+  readonly seq: number
+  /** The structural epoch identity captured at gesture time. */
+  readonly epoch: string
+  /**
+   * The row's logical key when the slot supplied one. A `loading` slot has no
+   * key channel yet, so this is `null` in practice; when a key IS available it
+   * must still match before the editor opens (never a different logical row).
+   */
+  readonly rowKey: RowId | null
+}
+
+/**
+ * ug-19 (UG-19): the structural epoch a queued edit gesture is judged
+ * against — the same fields the record inspector's `RecordContext` freshness
+ * predicate compares (schema, sort, filters, row count). Any change starts a
+ * fresh data epoch that renumbers rows, so the gesture is dropped instead of
+ * opening on whatever record now sits at the captured position.
+ */
+function editGestureEpoch(model: GridViewportModel): string {
+  const sort = model.sort
+  return JSON.stringify({
+    schema: (model.schema ?? []).map((column) => `${column.name}\t${column.type}`),
+    sort: sort === null ? null : `${sort.column}\t${sort.direction}`,
+    filters: model.filters.map((filter) => `${filter.column}\t${filter.predicate}`),
+    totalRows: model.totalRows ?? 0,
+  })
 }
 
 /**
@@ -160,8 +228,10 @@ export function DataGrid({
   onDeleteRow,
   onEditAnnounce,
   scrollRequest = null,
+  queryBusy = null,
+  onSortBusyChange,
 }: DataGridProps) {
-  useSyncExternalStore(model.subscribe, model.getVersion)
+  const modelVersion = useSyncExternalStore(model.subscribe, model.getVersion)
 
   const schema = useMemo(() => model.schema ?? [], [model.schema])
   const totalRows = model.totalRows ?? 0
@@ -275,10 +345,82 @@ export function DataGrid({
 
   const cycleSort = (columnName: string): void => {
     setCommandError(null)
-    model.setSort(nextSortSpec(model.sort, columnName)).catch((error: unknown) => {
-      setCommandError(error instanceof Error ? error.message : String(error))
-    })
+    beginSortEpoch()
+    void model
+      .setSort(nextSortSpec(model.sort, columnName))
+      .catch((error: unknown) => {
+        setCommandError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        endSortEpoch()
+      })
   }
+
+  /**
+   * ug-19 (UG-19): the header-sort epoch counter. Every click that awaits the
+   * model opens one epoch; the host is told `true` when the FIRST is in flight
+   * and `false` only when the LAST settles (success AND failure), so a second
+   * click can never clear the busy state the first still needs. The latest
+   * callback is mirrored into a ref so the promise tail and the unmount
+   * cleanup never call a stale host setter.
+   */
+  const sortEpochsRef = useRef(0)
+  const onSortBusyChangeRef = useRef(onSortBusyChange)
+  onSortBusyChangeRef.current = onSortBusyChange
+  const beginSortEpoch = (): void => {
+    sortEpochsRef.current += 1
+    if (sortEpochsRef.current === 1) onSortBusyChangeRef.current?.(true)
+  }
+  const endSortEpoch = (): void => {
+    if (sortEpochsRef.current === 0) return
+    sortEpochsRef.current -= 1
+    if (sortEpochsRef.current === 0) onSortBusyChangeRef.current?.(false)
+  }
+  // A grid that unmounts mid-sort (dataset replaced, section closed by the
+  // boundary) must not leave the host reporting a busy epoch forever.
+  useEffect(() => {
+    return () => {
+      if (sortEpochsRef.current === 0) return
+      sortEpochsRef.current = 0
+      onSortBusyChangeRef.current?.(false)
+    }
+  }, [])
+
+  /**
+   * ug-19 (UG-19): open the inline editor for a READY slot through the existing
+   * validated path (typed draft + logical row key). Only called once the
+   * gesture's row really is ready — either immediately (beginEdit on a ready
+   * row, the pre-ug-19 behavior) or from the pending-gesture effect below.
+   */
+  const openEditorOn = useCallback(
+    (columnIndex: number, slot: { row: readonly unknown[]; key?: string }) => {
+      if (slot.key === undefined) return
+      const parsedType = parsedColumnTypes[columnIndex]
+      if (parsedType === undefined) return
+      const cell = slot.row[columnIndex]
+      const initialDraft = cellEditDraft(cell, parsedType)
+      setEditError(null)
+      setEditing({
+        rowKey: slot.key as RowId,
+        columnIndex,
+        // Temporal cells cross the engine boundary as epoch numbers; the draft
+        // is formatted human-readably and engine-round-trippably (typed-input).
+        draft: initialDraft,
+        initialDraft,
+        initialNull: cell === null || cell === undefined,
+      })
+    },
+    [parsedColumnTypes],
+  )
+
+  /**
+   * ug-19 (UG-19): the single queued edit gesture, plus its monotonic `seq`.
+   * A gesture on a still-loading row stores the request instead of silently
+   * doing nothing; the effect below opens it once the slot is `ready`, drops
+   * it visibly on an `error` settle, and any newer gesture replaces it.
+   */
+  const pendingEditRef = useRef<PendingEditGesture | null>(null)
+  const pendingEditSeqRef = useRef(0)
 
   const beginEdit = (rowIndex: number, columnIndex: number): void => {
     if (!editingEnabled) return
@@ -288,26 +430,95 @@ export function DataGrid({
     if (parsedType === undefined) return
     const kind = cellEditorKind(parsedType)
     if (kind === 'unsupported') {
+      // A newer gesture always wins: a rejected nested column also retires any
+      // earlier queued gesture so no editor opens behind the rejection.
+      pendingEditRef.current = null
       const message = `Column "${column.name}" is not editable (nested type).`
       setEditError(message)
       onEditAnnounce?.(message)
       return
     }
     const slot = model.getRow(rowIndex)
-    if (slot.status !== 'ready' || slot.key === undefined) return
-    const cell = slot.row[columnIndex]
-    const initialDraft = cellEditDraft(cell, parsedType)
-    setEditError(null)
-    setEditing({
-      rowKey: slot.key as RowId,
+    if (slot.status === 'ready' && slot.key !== undefined) {
+      // Ready rows keep the pre-ug-19 behavior exactly: open immediately, and
+      // retire any older pending gesture (it must never open over this one).
+      pendingEditRef.current = null
+      openEditorOn(columnIndex, slot)
+      return
+    }
+    if (slot.status !== 'loading') return
+    // Still loading: queue ONE gesture. The row is captured by position plus
+    // the structural epoch it was clicked under; a settle-time key (when the
+    // provider supplies the identity channel) must also match. No editor, no
+    // announcement yet — the footer/grid stays as it is.
+    pendingEditSeqRef.current += 1
+    pendingEditRef.current = {
+      model,
+      rowIndex,
       columnIndex,
-      // Temporal cells cross the engine boundary as epoch numbers; the draft
-      // is formatted human-readably and engine-round-trippably (typed-input).
-      draft: initialDraft,
-      initialDraft,
-      initialNull: cell === null || cell === undefined,
-    })
+      seq: pendingEditSeqRef.current,
+      epoch: editGestureEpoch(model),
+      rowKey: null,
+    }
   }
+
+  /**
+   * ug-19 (UG-19): resolve the queued gesture on every model notification —
+   * the uxc-2 pending-gesture pattern applied to editing. It waits while the
+   * captured slot is still `loading`, opens through the validated path once it
+   * is `ready`, and drops the gesture with a visible value-free notice when
+   * the slot settles `error` (or the row is no longer there to open). A
+   * dataset/structural change retires the gesture instead of opening a
+   * different logical row at the same position.
+   */
+  useEffect(() => {
+    const pending = pendingEditRef.current
+    if (pending === null) return
+    if (pending.model !== model) {
+      pendingEditRef.current = null
+      return
+    }
+    if (pending.epoch !== editGestureEpoch(model)) {
+      pendingEditRef.current = null
+      return
+    }
+    if (pending.rowIndex < 0 || pending.rowIndex >= totalRows) {
+      pendingEditRef.current = null
+      return
+    }
+    const slot = model.getRow(pending.rowIndex)
+    if (slot.status === 'loading') return
+    pendingEditRef.current = null
+    if (slot.status !== 'ready' || slot.key === undefined) {
+      // The row can never be loaded at this position, so the gesture is
+      // dropped — visibly, through the existing edit-error + polite region
+      // channel, never silently.
+      setEditError(EDIT_ROW_UNLOADED_NOTICE)
+      onEditAnnounce?.(EDIT_ROW_UNLOADED_NOTICE)
+      return
+    }
+    if (pending.rowKey !== null && pending.rowKey !== (slot.key as RowId)) return
+    if (!editingEnabled) return
+    const column = schema[pending.columnIndex]
+    const parsedType = parsedColumnTypes[pending.columnIndex]
+    if (column === undefined || parsedType === undefined) return
+    if (cellEditorKind(parsedType) === 'unsupported') {
+      const message = `Column "${column.name}" is not editable (nested type).`
+      setEditError(message)
+      onEditAnnounce?.(message)
+      return
+    }
+    openEditorOn(pending.columnIndex, slot)
+  }, [
+    modelVersion,
+    model,
+    totalRows,
+    schema,
+    parsedColumnTypes,
+    editingEnabled,
+    onEditAnnounce,
+    openEditorOn,
+  ])
 
   const cancelEdit = (): void => {
     setEditing(null)
@@ -583,6 +794,13 @@ export function DataGrid({
     left: 0,
     width: '100%',
   }
+  /**
+   * ug-19 (UG-19): the in-flight query epoch, value-free. `Filtering…` wins
+   * while both a sort and a filter are in flight (the host's combined state),
+   * and the host clears the signal on every settle — success and failure.
+   */
+  const busyStatus: string | null =
+    queryBusy === 'filtering' ? 'Filtering…' : queryBusy === 'sorting' ? 'Sorting…' : null
 
   return (
     <div className="grid" data-testid="grid">
@@ -603,6 +821,7 @@ export function DataGrid({
         role="grid"
         aria-rowcount={totalRows + 1}
         aria-colcount={schema.length + (rowActionsEnabled ? 1 : 0) + 1}
+        aria-busy={busyStatus === null ? undefined : true}
         aria-describedby={showEditHint ? editHintId : undefined}
       >
         <div className="grid-header" role="rowgroup" ref={headerRef}>
@@ -1062,6 +1281,19 @@ export function DataGrid({
                             focusedColumnRef.current = columnIndex
                           }
                         }}
+                        onDoubleClick={
+                          // ug-19 (UG-19): a placeholder cell accepts the edit
+                          // gesture too, so a double-click on a still-loading
+                          // row QUEUES the edit (the ready-cell path opens it
+                          // immediately; `beginEdit` decides). An `error` row
+                          // keeps the pre-ug-19 silent no-op.
+                          editingEnabled
+                            ? (event) => {
+                                event.stopPropagation()
+                                beginEdit(item.index, columnIndex)
+                              }
+                            : undefined
+                        }
                       >
                         {status === 'loading' ? '…' : '!'}
                       </div>
@@ -1194,6 +1426,16 @@ export function DataGrid({
           <button type="button" data-testid="grid-retry" onClick={() => model.retry()}>
             Retry {stats.failedSpans} failed window{stats.failedSpans === 1 ? '' : 's'}
           </button>
+        )}
+        {/* ug-19 (UG-19): the in-flight query-epoch status — one polite,
+            value-free line rendered only while the host reports an epoch. It
+            is a sibling in the footer, so Diagnostics, the counters, the
+            edit/command errors and the retry button keep their existing
+            presence and behavior. */}
+        {busyStatus !== null && (
+          <span className="grid-busy-status" role="status" data-testid="grid-busy-status">
+            {busyStatus}
+          </span>
         )}
       </footer>
     </div>

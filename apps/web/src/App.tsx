@@ -28,6 +28,7 @@ import type { ColumnSchema } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
 import nestedFixtureText from '../../../fixtures/jsonl/nested.jsonl?raw'
 import { DataGrid } from './grid/DataGrid'
+import type { GridQueryBusy } from './grid/DataGrid'
 import { DuckDbGridProvider } from './grid/provider'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FilterBar } from './grid/FilterBar'
@@ -579,6 +580,33 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * file is opened — a request must never leak across tables.
    */
   const [recordRequest, setRecordRequest] = useState<RecordRequest | null>(null)
+  /**
+   * ug-19 (UG-19): the in-flight query epoch shown on the grid. App owns the
+   * combined state because the two sources live in different components: the
+   * FilterBar reports its existing `pending` apply and the DataGrid reports its
+   * own header-sort transition. `Filtering…` wins while both are in flight, and
+   * neither clear resets the other — the render derives the display from both
+   * flags, so a sort settling under a pending filter stays `Filtering…`.
+   * Component-local UI state only: nothing here reaches the engine or the grid
+   * protocol, and the read-only pipeline preview receives neither prop.
+   */
+  const [gridSorting, setGridSorting] = useState(false)
+  const [gridFiltering, setGridFiltering] = useState(false)
+  const gridBusy: GridQueryBusy | null = gridFiltering
+    ? 'filtering'
+    : gridSorting
+      ? 'sorting'
+      : null
+  /**
+   * A new dataset (model identity) retires both epochs: the previous session's
+   * in-flight sort/filter can never describe the new grid. This is the same
+   * per-session boundary the editing/query state already follows.
+   */
+  const gridModel = phase.kind === 'ready' ? phase.model : null
+  useEffect(() => {
+    setGridSorting(false)
+    setGridFiltering(false)
+  }, [gridModel])
   /**
    * m4-5 export dialog visibility. Closing unmounts the dialog, so its format
    * choice and result reset on every open (no stale "Exported…" line from a
@@ -1863,7 +1891,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     open={!recoveryHiddenSections.has('filters')}
                   >
                     <PanelBoundary id="filters" onClose={closeSection}>
-                      <FilterBar model={phase.model} />
+                      <FilterBar model={phase.model} onPendingChange={setGridFiltering} />
                     </PanelBoundary>
                   </WorkbenchSection>
                   <WorkbenchSection
@@ -1967,6 +1995,8 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                       onCommitCell={handleCommitCell}
                       onDeleteRow={handleDeleteRow}
                       onEditAnnounce={announceEdit}
+                      queryBusy={gridBusy}
+                      onSortBusyChange={setGridSorting}
                       onOpenRecord={(rowIndex) => {
                         setRecordRequest((previous) => ({
                           rowIndex,

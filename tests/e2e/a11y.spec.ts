@@ -9,7 +9,7 @@ import {
 } from './support/a11y'
 import { writeValidationDatasetA } from './support/validation-datasets'
 import { writeDiffDatasetPair } from './support/diff-datasets'
-import { openFixture, openFilterBar } from './support/fixtures'
+import { openFixture, openFilterBar, openFixtureAndGetTableId } from './support/fixtures'
 import {
   bindContract,
   bindSourceDataset,
@@ -148,6 +148,51 @@ async function expandFilterBarStates(page: Page): Promise<void> {
  * bodies are identical across schemes (only the resolved tokens differ).
  */
 function defineScans(scheme: 'light' | 'dark'): void {
+  test(`[${scheme}] zero-result state has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(180_000)
+    // ug-19 (UG-37): the empty-state token sweep's driven scan. A filter that
+    // matches nothing is a real, reachable state — it is where empty-state copy
+    // renders — so it gets the same both-scheme, empty-allowlist bar as the
+    // populated surfaces. No allowlist entry is added and no text size changes.
+    const tableId = await openFixtureAndGetTableId(page, CSV_FIXTURE, {
+      assertFileNameHidden: true,
+    })
+    await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+
+    // 1. The grid's existing zero-result state: a compose-row filter that
+    // matches no fixture row leaves the grid with zero rows and no copy of its
+    // own (the honest counter is the empty state).
+    await openFilterBar(page)
+    await page.getByTestId('filter-compose-column').selectOption('country')
+    await page.getByTestId('filter-compose-operator').selectOption('eq')
+    await page.getByTestId('filter-compose-value').fill('ZZ')
+    await page.getByTestId('filter-compose-apply').click()
+    await expect(page.getByTestId('grid-total-rows')).toHaveText('0')
+    await expect(page.locator('[data-testid="grid-row"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="filter-chip"] code').first()).toHaveText(
+      "country = 'ZZ'",
+    )
+
+    // 2. The SQL pane's empty-result state renders the moved empty-state rule
+    // (`.sql-result-empty`: ug-19 took it off `--color-text-faint`, which
+    // measured 4.29:1 on this surface) so the scan really covers it.
+    const sqlTable = `assay_${tableId}`
+    await page
+      .getByTestId('sql-input')
+      .fill(`SELECT country FROM "${sqlTable}" WHERE country = 'ZZ'`)
+    await page.getByTestId('sql-run').click()
+    await expect(page.getByTestId('sql-panel')).toHaveAttribute('data-state', 'done')
+    await expect(page.getByTestId('sql-result-empty')).toBeVisible()
+
+    await scanAndGate(
+      page,
+      `zero-result grid + SQL empty result (customers.csv, ${scheme})`,
+      scheme,
+    )
+  })
+
   test(`[${scheme}] grid with a fixture open and the filter bar expanded has no unallowlisted critical/serious violations`, async ({
     page,
   }) => {

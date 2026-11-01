@@ -10,6 +10,14 @@ import type { FilterColumnProfile, FilterOperatorId } from './filter-builder'
 
 interface FilterBarProps {
   model: GridViewportModel
+  /**
+   * ug-19 (UG-19): report the bar's existing `pending` transition (the single-
+   * flight apply in `applyList`) to the host, which combines it with the grid's
+   * own sort epoch into `aria-busy` + the footer `Filtering…` status. Optional:
+   * nothing about the apply/rollback path changes, and a host that does not
+   * pass it sees exactly the pre-ug-19 bar.
+   */
+  onPendingChange?: (pending: boolean) => void
 }
 
 /** The honest fallback profile for a column the builder cannot classify. */
@@ -168,7 +176,7 @@ function FilterChip({
  * engine errors are untrusted *content*, never markup; ADR 0025 — nothing
  * here touches the file name).
  */
-export function FilterBar({ model }: FilterBarProps) {
+export function FilterBar({ model, onPendingChange }: FilterBarProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
 
   const schema = model.schema ?? []
@@ -278,6 +286,7 @@ export function FilterBar({ model }: FilterBarProps) {
   ): Promise<boolean> => {
     if (pending) return false
     setPending(true)
+    onPendingChange?.(true)
     setError(null)
     try {
       await model.setFilters(next)
@@ -307,6 +316,10 @@ export function FilterBar({ model }: FilterBarProps) {
       return false
     } finally {
       setPending(false)
+      // ug-19 (UG-19): the epoch is over on success AND on every failure path
+      // (including the double failure), so the host's busy status always
+      // clears.
+      onPendingChange?.(false)
     }
   }
 
