@@ -1,7 +1,11 @@
+import { mkdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
+import { parseContract } from '../../packages/contracts/src/index.ts'
 import { writeValidationDatasetA } from './support/validation-datasets'
-import { expandAllSections } from './support/fixtures'
+import { expandAllSections, openFixture } from './support/fixtures'
 
 // m5-3 journey 1 (handoff §6 done-when): open a dirty dataset → import a
 // contract → validate → EXACT counts → jump to a failing row → fix the cell
@@ -68,6 +72,48 @@ async function reportOrder(page: Page): Promise<string[]> {
   }
   return ids
 }
+
+test('zero state downloads a starter contract built from the open schema', async ({ page }) => {
+  test.setTimeout(120_000)
+  const fixture = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
+  await openFixture(page, fixture)
+
+  // The zero state is the on-ramp: no contract is loaded yet.
+  await expect(page.getByTestId('validation-contract-none')).toBeVisible()
+  const starter = page.getByTestId('validation-starter-contract')
+  await expect(starter).toBeVisible()
+  await expect(starter).toHaveText('Download a starter contract')
+  await expect(starter).toBeEnabled()
+
+  const downloadPromise = page.waitForEvent('download')
+  await starter.click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('assay-starter-contract.yaml')
+  await expect(page.getByTestId('validation-starter-contract-status')).toHaveText(
+    'Starter contract downloaded — edit it, then open it here.',
+  )
+
+  const dir = path.join(tmpdir(), 'assay-ug20-starter')
+  mkdirSync(dir, { recursive: true })
+  const target = path.join(dir, `starter-${String(Date.now())}.yaml`)
+  await download.saveAs(target)
+  const text = readFileSync(target, 'utf8')
+
+  // Real contract parse, then the fixture's confidently mappable schema.
+  const parsed = parseContract(text)
+  if (!parsed.ok)
+    throw new Error(`starter contract did not parse: ${JSON.stringify(parsed.errors)}`)
+  expect(parsed.contract.metadata).toEqual({ name: 'starter-contract', version: 1 })
+  expect(parsed.contract.dataset).toEqual({ minRows: 1 })
+  expect(parsed.contract.columns).toEqual([
+    { name: 'customer_id', type: 'BIGINT' },
+    { name: 'country', type: 'VARCHAR' },
+    { name: 'income', type: 'BIGINT' },
+    { name: 'signup_date', type: 'DATE' },
+  ])
+  // No dataset identity in the document (ADR 0025).
+  expect(text).not.toContain(path.basename(fixture))
+})
 
 test('open → validate → exact counts → jump to failing row → fix → re-validate → clean', async ({
   page,

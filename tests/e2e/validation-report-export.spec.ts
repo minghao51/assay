@@ -137,10 +137,18 @@ test('bounded sets, filter-to-failures, and the exported report match the screen
   await expect(
     ruleRow(page, 'columns[2].max').getByTestId('validation-filter-failures'),
   ).toBeEnabled()
+  // ug-20: no replacement note while no filters are active.
+  await expect(
+    ruleRow(page, 'columns[1].allowed-values').getByTestId('validation-filter-replacement'),
+  ).toHaveCount(0)
 
   // --- Filter-to-failures: the grid narrows to exactly the failing rows. ---
   await regionFilter.click()
   await expect(page.getByTestId('grid-total-rows')).toHaveText('24')
+  // The enabled control now discloses that it replaces the active filter.
+  await expect(
+    ruleRow(page, 'columns[1].allowed-values').getByTestId('validation-filter-replacement'),
+  ).toHaveText('Replaces the current 1 filter')
   // The first failing row is the formula-bait (ordinal 4), rendered as text.
   const firstRow = page.locator('[data-testid="grid-row"][data-row-index="0"]')
   await expect(firstRow).toHaveAttribute('data-status', 'ready')
@@ -152,6 +160,9 @@ test('bounded sets, filter-to-failures, and the exported report match the screen
   await expect(chip).toHaveCount(1)
   await page.locator('[data-testid="filter-active-remove"][data-col-name="region"]').click()
   await expect(page.getByTestId('grid-total-rows')).toHaveText('120')
+  await expect(
+    ruleRow(page, 'columns[1].allowed-values').getByTestId('validation-filter-replacement'),
+  ).toHaveCount(0)
 
   // --- Export CSV: new file, sanitized bait, counts == the screen. ---
   const csv = await exportReport(page, 'csv')

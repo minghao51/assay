@@ -128,6 +128,8 @@ function ValidationHarness(): React.ReactElement {
       stale={session.validationStale}
       jumpError={session.jumpError}
       filterError={session.filterToFailuresError}
+      datasetColumns={[]}
+      activeFilterCount={0}
       onContractFile={session.handleContractFile}
       onValidate={session.handleValidate}
       onCancelValidate={session.handleCancelValidate}

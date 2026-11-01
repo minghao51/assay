@@ -39,6 +39,8 @@ import { formatContractParseError } from './report-model'
 import type { ValidationReport, ValidationReportRow } from './report-model'
 import { contractRuleCount, NOT_EXPRESSIBLE_FILTER_COPY, partialFilterCopy } from './report-model'
 import { CONTRACT_TOO_LARGE_MESSAGE } from './contract-import'
+import { buildStarterContract } from './starter-contract'
+import type { StarterContractColumn } from './starter-contract'
 import {
   buildReportBytes,
   reportExportFailureMessage,
@@ -94,6 +96,10 @@ export interface ValidationPanelProps {
   readonly jumpError: string | null
   /** App-level filter failure (the engine rejected the failure filter). */
   readonly filterError: string | null
+  /** The open dataset's effective schema (starter-contract projection). */
+  readonly datasetColumns: readonly StarterContractColumn[]
+  /** Active grid filters — disclosed when "show only failing rows" replaces them. */
+  readonly activeFilterCount: number
   /** A contract file was picked; the App reads + parses it. */
   readonly onContractFile: (file: File) => void
   readonly onValidate: () => void
@@ -109,6 +115,11 @@ export interface ValidationPanelProps {
     destination: WritableSaveDestination,
     content: { readonly bytes: Uint8Array<ArrayBuffer>; readonly format: ReportExportFormat },
   ) => Promise<SaveStrategy>
+  /**
+   * Starter-contract delivery seam. The App leaves it at the hidden-anchor
+   * download default; component tests inject a recorder (no native download).
+   */
+  readonly deliverStarterContract?: (bytes: Uint8Array<ArrayBuffer>, fileName: string) => void
 }
 
 /** Report-export state machine (panel-local, like the m4-5 dialog). */
@@ -125,12 +136,41 @@ function rowCountText(count: number): string {
   return `${String(count)} ${count === 1 ? 'row' : 'rows'}`
 }
 
+const STARTER_CONTRACT_HELP = 'A starter contract is a starting point — edit it before validating.'
+const STARTER_CONTRACT_STATUS = 'Starter contract downloaded — edit it, then open it here.'
+
+/** Byte-exact replacement disclosure for the enabled failure-filter control. */
+export function filterReplacementCopy(count: number): string {
+  return `Replaces the current ${String(count)} ${count === 1 ? 'filter' : 'filters'}`
+}
+
+/**
+ * Hidden-anchor download for the starter contract — the report-export
+ * delivery discipline: a NEW file only, object URL revoked after the click.
+ */
+function downloadStarterContract(bytes: Uint8Array<ArrayBuffer>, fileName: string): void {
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'text/yaml' }))
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.rel = 'noopener'
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  globalThis.setTimeout(() => {
+    URL.revokeObjectURL(url)
+  }, 30_000)
+}
+
 export function ValidationPanel({
   contractState,
   runState,
   stale,
   jumpError,
   filterError,
+  datasetColumns,
+  activeFilterCount,
   onContractFile,
   onValidate,
   onCancelValidate,
@@ -138,10 +178,12 @@ export function ValidationPanel({
   onFilterToFailures,
   requestReportDestination,
   deliverReportCopy,
+  deliverStarterContract = downloadStarterContract,
 }: ValidationPanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [exportFormat, setExportFormat] = useState<ReportExportFormat>('csv')
   const [exportPhase, setExportPhase] = useState<ReportExportPhase>({ kind: 'idle' })
+  const [starterStatus, setStarterStatus] = useState<string | null>(null)
 
   const report = runState.kind === 'verdict' ? runState.report : null
   const contract = contractState.kind === 'loaded' ? contractState.contract : null
@@ -151,6 +193,12 @@ export function ValidationPanel({
   useEffect(() => {
     setExportPhase({ kind: 'idle' })
   }, [report])
+
+  // A dataset swap (a new schema reference) retires the previous starter
+  // download line; it must never describe a file that is no longer open.
+  useEffect(() => {
+    setStarterStatus(null)
+  }, [datasetColumns])
 
   const runExport = async (): Promise<void> => {
     if (report === null || contract === null || exportPhase.kind === 'working') return
@@ -240,9 +288,32 @@ export function ValidationPanel({
       </div>
 
       {contractState.kind === 'none' && (
-        <p className="validation-zero-state" data-testid="validation-contract-none">
-          No contract loaded. Open a contract YAML to define what this dataset should look like.
-        </p>
+        <>
+          <p className="validation-zero-state" data-testid="validation-contract-none">
+            No contract loaded. Open a contract YAML to define what this dataset should look like.
+          </p>
+          <div className="validation-starter-contract">
+            <button
+              type="button"
+              data-testid="validation-starter-contract"
+              disabled={datasetColumns.length === 0}
+              onClick={() => {
+                const starter = buildStarterContract(datasetColumns)
+                if (starter === null) return
+                deliverStarterContract(new TextEncoder().encode(starter.text), starter.fileName)
+                setStarterStatus(STARTER_CONTRACT_STATUS)
+              }}
+            >
+              Download a starter contract
+            </button>
+            <p className="validation-starter-help">{STARTER_CONTRACT_HELP}</p>
+            {starterStatus !== null && (
+              <p role="status" data-testid="validation-starter-contract-status">
+                {starterStatus}
+              </p>
+            )}
+          </div>
+        </>
       )}
       {contractState.kind === 'too-large' && (
         <p
@@ -406,16 +477,30 @@ export function ValidationPanel({
                   </ul>
                 )}
                 {row.filter.kind === 'ready' && (
-                  <button
-                    type="button"
-                    className="validation-filter"
-                    data-testid="validation-filter-failures"
-                    onClick={() => {
-                      onFilterToFailures(row)
-                    }}
-                  >
-                    Show only failing rows
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="validation-filter"
+                      data-testid="validation-filter-failures"
+                      onClick={() => {
+                        onFilterToFailures(row)
+                      }}
+                    >
+                      Show only failing rows
+                    </button>
+                    {activeFilterCount > 0 && (
+                      <>
+                        {' '}
+                        <span
+                          className="validation-filter-replacement"
+                          data-testid="validation-filter-replacement"
+                          role="note"
+                        >
+                          {filterReplacementCopy(activeFilterCount)}
+                        </span>
+                      </>
+                    )}
+                  </>
                 )}
                 {row.filter.kind === 'partial' && (
                   <span className="validation-filter-disabled">
