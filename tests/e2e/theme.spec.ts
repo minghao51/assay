@@ -321,3 +321,387 @@ test('theme: telemetry Settings surface takes the defined elevated token and cle
   expect(dark.length).toBe(SETTINGS_TEXT_PROBES.length)
   expect(light[0]?.background).not.toBe(dark[0]?.background)
 })
+
+// ---------------------------------------------------------------------------
+// uxv-2 / R-10: the semantic token layer and its bounded control adoption.
+//
+// These are the deterministic, browser-measured pins the row requires: the
+// spacing/control/radius/type aliases really resolve, a PRIMARY control and a
+// SECONDARY control really carry different accent treatments, focus really
+// resolves to a 2px outline with an offset on the shared `--color-focus` token,
+// and both schemes resolve the same semantic tokens to scheme-appropriate
+// values (the non-colour scale identical, the accent colour scheme-aware).
+// Screenshots stay review artifacts; nothing here is a pixel baseline.
+// ---------------------------------------------------------------------------
+
+/** One resolved-alias probe: a CSS property fed by a `var(--token)`. */
+interface TokenProbe {
+  readonly token: string
+  /** The CSS property name, as `style.getPropertyValue` expects it. */
+  readonly property: string
+  /** The px (or family) value the token layer promises at a 16px root. */
+  readonly expected: string
+}
+
+/** The scales the token layer adds (spec §4 inventory), with their targets. */
+const TOKEN_PROBES: readonly TokenProbe[] = [
+  { token: '--space-1', property: 'padding-left', expected: '4px' },
+  { token: '--space-2', property: 'padding-left', expected: '8px' },
+  { token: '--space-3', property: 'padding-left', expected: '12px' },
+  { token: '--space-4', property: 'padding-left', expected: '16px' },
+  { token: '--space-6', property: 'padding-left', expected: '24px' },
+  { token: '--space-8', property: 'padding-left', expected: '32px' },
+  { token: '--control-height-compact', property: 'min-height', expected: '32px' },
+  { token: '--control-height', property: 'min-height', expected: '36px' },
+  { token: '--radius-sm', property: 'border-top-left-radius', expected: '4px' },
+  { token: '--radius-md', property: 'border-top-left-radius', expected: '6px' },
+  { token: '--radius-lg', property: 'border-top-left-radius', expected: '8px' },
+  { token: '--font-size-ui', property: 'font-size', expected: '14px' },
+  { token: '--font-size-body', property: 'font-size', expected: '16px' },
+  { token: '--font-size-metadata', property: 'font-size', expected: '13px' },
+  { token: '--font-size-page-title', property: 'font-size', expected: '24px' },
+]
+
+/**
+ * Resolve aliases the way the browser does: apply `var(--token)` to a throwaway
+ * probe and read the COMPUTED value back, so nothing here re-states a literal
+ * that the stylesheet could drift away from.
+ */
+async function resolveAliases(page: Page, probes: readonly TokenProbe[]): Promise<string[]> {
+  return page.evaluate(
+    (list: readonly { token: string; property: string }[]) => {
+      return list.map(({ token, property }) => {
+        const probe = document.createElement('div')
+        probe.style.setProperty(property, `var(${token})`)
+        document.body.append(probe)
+        const value = getComputedStyle(probe).getPropertyValue(property)
+        probe.remove()
+        return value
+      })
+    },
+    probes.map(({ token, property }) => ({ token, property })),
+  )
+}
+
+/** The computed values of a fixed property list on one element. */
+async function readComputed(
+  page: Page,
+  selector: string,
+  properties: readonly string[],
+): Promise<Record<string, string>> {
+  return page.evaluate(
+    ({ target, props }: { target: string; props: readonly string[] }) => {
+      const element = document.querySelector(target)
+      if (element === null) throw new Error(`computed-style probe missing: ${target}`)
+      const style = getComputedStyle(element)
+      const out: Record<string, string> = {}
+      for (const property of props) out[property] = style.getPropertyValue(property)
+      return out
+    },
+    { target: selector, props: properties },
+  )
+}
+
+/** The shared control-surface properties these pins compare. */
+const CONTROL_PROPERTIES = [
+  'background-color',
+  'border-top-color',
+  'color',
+  'min-height',
+  'border-top-left-radius',
+  'font-size',
+  'font-weight',
+] as const
+
+/** The focus-ring properties a keyboard-focused control must carry. */
+const FOCUS_PROPERTIES = [
+  'outline-style',
+  'outline-width',
+  'outline-offset',
+  'outline-color',
+] as const
+
+/**
+ * Tab from the document start until `testId` owns focus. Keyboard traversal is
+ * the point: Chromium only matches `:focus-visible` on a control that was
+ * reached by keyboard, so a programmatic `.focus()` could not prove the ring.
+ */
+async function tabToTestId(page: Page, testId: string): Promise<void> {
+  for (let index = 0; index < 40; index += 1) {
+    await page.keyboard.press('Tab')
+    const focused = await page.evaluate(
+      () => (document.activeElement as HTMLElement | null)?.dataset['testid'] ?? null,
+    )
+    if (focused === testId) return
+  }
+  throw new Error(`keyboard focus never reached [data-testid="${testId}"] within 40 tabs`)
+}
+
+test('theme: uxv-2 token aliases resolve to the agreed scale in both schemes', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
+
+  const visit = async (scheme: 'light' | 'dark'): Promise<string[]> => {
+    await page.emulateMedia({ colorScheme: scheme })
+    const prefersDark = await page.evaluate(
+      () => window.matchMedia('(prefers-color-scheme: dark)').matches,
+    )
+    expect(prefersDark, `emulated colour scheme must be ${scheme}`).toBe(scheme === 'dark')
+
+    // The aliases are declared on the root, not inherited from a UA default.
+    for (const { token } of TOKEN_PROBES) {
+      const declared = await page.evaluate(
+        (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
+        token,
+      )
+      expect(declared, `[${scheme}] ${token} must be declared`).not.toBe('')
+    }
+
+    const resolved = await resolveAliases(page, TOKEN_PROBES)
+    TOKEN_PROBES.forEach((probe, index) => {
+      console.log(`[theme] ${scheme} ${probe.token} → ${String(resolved[index])}`)
+      expect(
+        resolved[index],
+        `[${scheme}] ${probe.token} applied to ${probe.property} must resolve to ${probe.expected}`,
+      ).toBe(probe.expected)
+    })
+    return resolved
+  }
+
+  const light = await visit('light')
+  const dark = await visit('dark')
+
+  // Spacing/control/radius/type are scheme-INDEPENDENT: the same aliases must
+  // resolve identically in both schemes (they sit outside both colour blocks).
+  expect(dark).toEqual(light)
+
+  // ...while the colour tokens they are paired with stay scheme-aware, so the
+  // controls built from them follow the OS preference.
+  await page.emulateMedia({ colorScheme: 'light' })
+  const accentLight = await resolveToken(page, '--color-accent-subtle')
+  const surfaceLight = await resolveToken(page, '--color-surface-alt')
+  const focusLight = await resolveToken(page, '--color-focus')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  const accentDark = await resolveToken(page, '--color-accent-subtle')
+  const surfaceDark = await resolveToken(page, '--color-surface-alt')
+  const focusDark = await resolveToken(page, '--color-focus')
+  expect(accentDark, '--color-accent-subtle must change with the scheme').not.toBe(accentLight)
+  expect(surfaceDark, '--color-surface-alt must change with the scheme').not.toBe(surfaceLight)
+  expect(focusDark, '--color-focus must change with the scheme').not.toBe(focusLight)
+})
+
+test('theme: uxv-2 primary and secondary controls differ as specified, with a 2px focus ring', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+    timeout: 20_000,
+  })
+
+  const visit = async (scheme: 'light' | 'dark'): Promise<void> => {
+    await page.emulateMedia({ colorScheme: scheme })
+    const accent = await resolveToken(page, '--color-accent-subtle')
+    const neutral = await resolveToken(page, '--color-surface-alt')
+    const accentBorder = await resolveToken(page, '--color-accent-border')
+    const focus = await resolveToken(page, '--color-focus')
+
+    const primary = await readComputed(page, '[data-testid="open-button"]', CONTROL_PROPERTIES)
+    const secondary = await readComputed(
+      page,
+      '[data-testid="example-data-button"]',
+      CONTROL_PROPERTIES,
+    )
+    console.log(
+      `[theme] ${scheme} primary ${primary['background-color']} / secondary ${secondary['background-color']}`,
+    )
+
+    // Both adopt the shared control geometry and UI type alias.
+    for (const [name, control] of [
+      ['primary', primary],
+      ['secondary', secondary],
+    ] as const) {
+      expect(control['min-height'], `[${scheme}] ${name} control height`).toBe('36px')
+      expect(control['border-top-left-radius'], `[${scheme}] ${name} radius`).toBe('4px')
+      expect(control['font-size'], `[${scheme}] ${name} UI type`).toBe('14px')
+    }
+
+    // The treatments differ, and each is the token it claims.
+    expect(primary['background-color'], `[${scheme}] primary accent surface`).toBe(accent)
+    expect(secondary['background-color'], `[${scheme}] secondary neutral surface`).toBe(neutral)
+    expect(primary['background-color']).not.toBe(secondary['background-color'])
+    expect(primary['border-top-color'], `[${scheme}] primary accent border`).toBe(accentBorder)
+    expect(primary['border-top-color']).not.toBe(secondary['border-top-color'])
+    expect(primary['color']).not.toBe(secondary['color'])
+    expect(primary['font-weight'], `[${scheme}] primary is the emphasised one`).toBe('600')
+    expect(secondary['font-weight']).toBe('500')
+
+    // The adopted treatments are readable, not just different: normal text on
+    // its own painted background must clear the AA floor in both schemes.
+    const readings = await measureTextContrast(page, [
+      '[data-testid="open-button"]',
+      '[data-testid="example-data-button"]',
+    ])
+    for (const reading of readings) {
+      console.log(
+        `[theme] ${scheme} ${reading.probe}: ${reading.color} on ${reading.background} = ${reading.ratio.toFixed(2)}:1`,
+      )
+      expect(
+        reading.ratio,
+        `[${scheme}] ${reading.probe} must clear the ${String(AA_NORMAL_TEXT)}:1 AA floor (measured ${reading.ratio.toFixed(2)}:1)`,
+      ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT)
+    }
+
+    // Focus: reach both controls by KEYBOARD (Chromium only paints
+    // `:focus-visible` for keyboard focus) and require the shared ring.
+    for (const testId of ['open-button', 'example-data-button'] as const) {
+      await page.goto('/')
+      await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+        timeout: 20_000,
+      })
+      await tabToTestId(page, testId)
+      const ring = await readComputed(page, `[data-testid="${testId}"]`, FOCUS_PROPERTIES)
+      expect(ring['outline-style'], `[${scheme}] ${testId} focus ring style`).toBe('solid')
+      expect(ring['outline-width'], `[${scheme}] ${testId} focus ring width`).toBe('2px')
+      expect(ring['outline-offset'], `[${scheme}] ${testId} focus ring offset`).toBe('2px')
+      expect(ring['outline-color'], `[${scheme}] ${testId} focus ring token`).toBe(focus)
+    }
+  }
+
+  await visit('light')
+  await visit('dark')
+})
+
+test('theme: uxv-2 export actions, telemetry controls and the ug-8 copy classes adopt tokens', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+  await openFixture(page, CUSTOMERS_FIXTURE, { assertFileNameHidden: true })
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+
+  // A staged change makes the export dialog's ug-8 count line render.
+  await page.getByTestId('edit-insert-row').click()
+  await expect(page.getByTestId('pending-changes')).toHaveText('1 pending change: 1 row insert.')
+  await page.getByTestId('export-open').click()
+  await expect(page.getByTestId('export-dialog')).toBeVisible()
+
+  const visit = async (scheme: 'light' | 'dark'): Promise<void> => {
+    await page.emulateMedia({ colorScheme: scheme })
+    const accent = await resolveToken(page, '--color-accent-subtle')
+    const neutral = await resolveToken(page, '--color-surface-alt')
+    const warning = await resolveToken(page, '--color-warning-text')
+    const secondaryText = await resolveToken(page, '--color-text-secondary')
+
+    // The dialog's two actions: primary accent vs neutral secondary.
+    const primary = await readComputed(page, '[data-testid="export-confirm"]', CONTROL_PROPERTIES)
+    const secondary = await readComputed(page, '[data-testid="export-close"]', CONTROL_PROPERTIES)
+    expect(primary['background-color'], `[${scheme}] export primary accent`).toBe(accent)
+    expect(secondary['background-color'], `[${scheme}] export secondary neutral`).toBe(neutral)
+    expect(primary['min-height']).toBe('36px')
+    expect(secondary['min-height']).toBe('36px')
+
+    // The format radios are compact 32px control rows with UI type.
+    const formatOption = await readComputed(page, '.export-format-option', [
+      'min-height',
+      'font-size',
+    ])
+    expect(formatOption['min-height'], `[${scheme}] format control height`).toBe('32px')
+    expect(formatOption['font-size'], `[${scheme}] format control type`).toBe('14px')
+
+    // ug-8's two previously-unstyled classes now carry tokens — and the
+    // staged count keeps its TEXT, colour is emphasis only.
+    const stagedCount = await readComputed(page, '[data-testid="export-staged-count"]', [
+      'color',
+      'font-size',
+      'font-weight',
+    ])
+    expect(stagedCount['color'], `[${scheme}] staged count uses the warning token`).toBe(warning)
+    expect(stagedCount['font-size']).toBe('13px')
+    expect(stagedCount['font-weight']).toBe('600')
+    await expect(page.getByTestId('export-staged-count')).toContainText('1 staged change')
+
+    const explanation = await readComputed(page, '[data-testid="edit-overlay-explanation"]', [
+      'color',
+      'font-size',
+    ])
+    expect(explanation['color'], `[${scheme}] overlay explanation text token`).toBe(secondaryText)
+    expect(explanation['font-size']).toBe('16px')
+    await expect(page.getByTestId('edit-overlay-explanation')).toContainText(
+      'the opened file is never modified',
+    )
+
+    // The telemetry Settings toggle adopts the shared control geometry too.
+    const settingsToggle = await readComputed(page, '[data-testid="settings-toggle"]', [
+      'min-height',
+      'font-size',
+      'background-color',
+    ])
+    expect(settingsToggle['min-height'], `[${scheme}] Settings control height`).toBe('36px')
+    expect(settingsToggle['font-size']).toBe('14px')
+    expect(settingsToggle['background-color'], `[${scheme}] Settings is a neutral secondary`).toBe(
+      neutral,
+    )
+
+    // Every adopted surface stays readable in both schemes (text on its own
+    // painted background, never colour alone for the staged-count state).
+    const readings = await measureTextContrast(page, [
+      '[data-testid="export-confirm"]',
+      '[data-testid="export-close"]',
+      '[data-testid="export-staged-count"]',
+      '[data-testid="edit-overlay-explanation"]',
+      '[data-testid="settings-toggle"]',
+    ])
+    for (const reading of readings) {
+      console.log(
+        `[theme] ${scheme} ${reading.probe}: ${reading.color} on ${reading.background} = ${reading.ratio.toFixed(2)}:1`,
+      )
+      expect(
+        reading.ratio,
+        `[${scheme}] ${reading.probe} must clear the ${String(AA_NORMAL_TEXT)}:1 AA floor (measured ${reading.ratio.toFixed(2)}:1)`,
+      ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT)
+    }
+  }
+
+  await visit('light')
+  await visit('dark')
+
+  // R-10 acceptance: the compact grid/schema/filter/SQL controls keep their own
+  // geometry (the token layer is NOT a global button restyle) and carry none of
+  // the adopted classes.
+  const sortToggle = await readComputed(page, '.grid-sort-toggle', [
+    'padding-top',
+    'padding-left',
+    'border-top-left-radius',
+    'font-size',
+  ])
+  expect(sortToggle['padding-top'], 'grid sort toggle keeps its compact padding').toBe('1.92px')
+  expect(sortToggle['padding-left']).toBe('4.48px')
+  expect(sortToggle['border-top-left-radius'], 'grid sort toggle keeps its own radius').toBe('3px')
+  expect(sortToggle['font-size'], 'grid sort toggle keeps its own type').toBe('11.52px')
+
+  const adoptedClasses = [
+    'open-button',
+    'example-button',
+    'telemetry-settings-toggle',
+    'telemetry-settings-close',
+    'telemetry-disclosure-action',
+    'export-action-primary',
+    'export-action-secondary',
+  ]
+  const leaked = await page.evaluate((classes: readonly string[]) => {
+    const surfaces = ['.grid', '.schema', '.filter-bar', '.sql', '.profile', '.diff-panel']
+    const selector = classes.map((name) => `.${name}`).join(', ')
+    return surfaces.flatMap((surface) =>
+      [...document.querySelectorAll(surface)].flatMap((root) =>
+        [...root.querySelectorAll(selector)].map(
+          (element) => `${surface}: ${element.outerHTML.slice(0, 60)}`,
+        ),
+      ),
+    )
+  }, adoptedClasses)
+  expect(
+    leaked,
+    'adopted control classes must not reach the grid/schema/filter/SQL surfaces',
+  ).toEqual([])
+})

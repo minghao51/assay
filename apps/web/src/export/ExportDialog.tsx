@@ -339,6 +339,7 @@ export function ExportDialog({
       <div className="export-actions">
         <button
           type="button"
+          className="export-action-primary"
           data-testid="export-confirm"
           disabled={working}
           onClick={() => {
@@ -347,7 +348,13 @@ export function ExportDialog({
         >
           Export a copy…
         </button>{' '}
-        <button type="button" data-testid="export-close" disabled={working} onClick={onClose}>
+        <button
+          type="button"
+          className="export-action-secondary"
+          data-testid="export-close"
+          disabled={working}
+          onClick={onClose}
+        >
           Close
         </button>
       </div>

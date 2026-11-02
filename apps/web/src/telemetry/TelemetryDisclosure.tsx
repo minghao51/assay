@@ -50,6 +50,7 @@ export function TelemetryDisclosure({ onDismiss }: TelemetryDisclosureProps) {
       <div className="telemetry-disclosure-actions">
         <button
           type="button"
+          className="telemetry-disclosure-action"
           data-testid="telemetry-keep-on"
           onClick={() => {
             onDismiss()
@@ -59,6 +60,7 @@ export function TelemetryDisclosure({ onDismiss }: TelemetryDisclosureProps) {
         </button>
         <button
           type="button"
+          className="telemetry-disclosure-action"
           data-testid="telemetry-turn-off"
           onClick={() => {
             telemetry.setPreference('off')

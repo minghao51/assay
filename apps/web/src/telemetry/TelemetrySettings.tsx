@@ -66,6 +66,7 @@ export function TelemetrySettings() {
         )}
         <button
           type="button"
+          className="telemetry-settings-close"
           data-testid="settings-close"
           onClick={() => {
             setOpen(false)

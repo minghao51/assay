@@ -1610,6 +1610,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         <section data-testid="open-flow">
           <button
             type="button"
+            className="open-button"
             data-testid="open-button"
             onClick={() => {
               void openDataFile()
@@ -1622,6 +1623,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
             <div data-testid="example-data-entry">
               <button
                 type="button"
+                className="example-button"
                 data-testid="example-data-button"
                 onClick={() => {
                   exampleFileRef.current = new File([nestedFixtureText], 'nested.jsonl')

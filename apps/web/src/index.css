@@ -1,4 +1,45 @@
 /* ---------------------------------------------------------------------------
+ * Design tokens: spacing, control, radius and type (uxv-2 / R-10)
+ *
+ * The colour tokens BELOW are REUSED as they are — this block adds only the
+ * non-colour scales the bounded control inventory adopts, so a spacing, size
+ * or type value is decided once instead of being re-typed per rule. It sits
+ * ahead of both colour scheme blocks deliberately: spacing and type do not
+ * change with `prefers-color-scheme`, so these aliases resolve identically in
+ * light and dark.
+ *
+ * Values are `rem` with the px target in the comment, so the whole scale keeps
+ * tracking the user's font size / page zoom (px would freeze it); at the
+ * default 16px root the computed value is the px figure the pins assert.
+ * ------------------------------------------------------------------------- */
+:root {
+  /* Spacing scale — 4 / 8 / 12 / 16 / 24 / 32px */
+  --space-1: 0.25rem; /* 4px */
+  --space-2: 0.5rem; /* 8px */
+  --space-3: 0.75rem; /* 12px */
+  --space-4: 1rem; /* 16px */
+  --space-6: 1.5rem; /* 24px */
+  --space-8: 2rem; /* 32px */
+
+  /* Control heights — compact 32px / default 36px */
+  --control-height-compact: 2rem; /* 32px */
+  --control-height: 2.25rem; /* 36px */
+
+  /* Corner radii — 4 / 6 / 8px */
+  --radius-sm: 0.25rem; /* 4px */
+  --radius-md: 0.375rem; /* 6px */
+  --radius-lg: 0.5rem; /* 8px */
+
+  /* Type aliases — UI 14px, body 16px, metadata 13px, page title 24px */
+  --font-family-ui: system-ui, -apple-system, sans-serif;
+  --font-family-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-size-ui: 0.875rem; /* 14px */
+  --font-size-body: 1rem; /* 16px */
+  --font-size-metadata: 0.8125rem; /* 13px */
+  --font-size-page-title: 1.5rem; /* 24px */
+}
+
+/* ---------------------------------------------------------------------------
  * Theme tokens (q-2)
  *
  * Every colour in this stylesheet resolves through a token declared here —
@@ -233,6 +274,102 @@ main {
   vertical-align: middle;
 }
 
+/* ---- Named control surfaces (uxv-2 / R-10) --------------------------------
+ *
+ * Bounded adoption only: the idle Open and example controls, the telemetry
+ * Settings/disclosure affordances and the export dialog's action buttons and
+ * format controls. Every rule below is scoped by a NAMED component class —
+ * there is deliberately no `button { … }` selector, so the grid cells, schema
+ * action buttons, filter builder and SQL editor keep their own geometry,
+ * colours and focus treatment (R-10 acceptance).
+ *
+ * Semantics:
+ * - exactly ONE restrained primary accent (the idle Open control and the
+ *   export dialog's confirm action): the accent *surface* + accent border +
+ *   accent text token, never a saturated fill, so the accent stays a tint and
+ *   the two schemes stay legible through tokens the theme layer already owns;
+ * - every other adopted control is a neutral secondary on the raised surface;
+ * - the two telemetry consent affordances are BOTH neutral on purpose: a
+ *   disclosure that accents one answer would steer the consent choice;
+ * - focus is one visible 2px `--color-focus` outline with a 2px offset;
+ * - disabled controls keep their text (never colour-only, never an invisible
+ *   affordance) and stay above the AA floor on their own background.
+ */
+.open-button,
+.example-button,
+.telemetry-settings-toggle,
+.telemetry-settings-close,
+.telemetry-disclosure-action,
+.export-action-primary,
+.export-action-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui);
+  font-weight: 500;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+/* The one restrained primary accent treatment. */
+.open-button,
+.export-action-primary {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-text);
+  font-weight: 600;
+}
+
+.open-button:hover:not(:disabled),
+.export-action-primary:hover:not(:disabled) {
+  background: var(--color-accent-subtle-hover);
+}
+
+.example-button:hover:not(:disabled),
+.telemetry-settings-toggle:hover:not(:disabled),
+.telemetry-settings-close:hover:not(:disabled),
+.telemetry-disclosure-action:hover:not(:disabled),
+.export-action-secondary:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.open-button:disabled,
+.example-button:disabled,
+.telemetry-settings-toggle:disabled,
+.telemetry-settings-close:disabled,
+.telemetry-disclosure-action:disabled,
+.export-action-primary:disabled,
+.export-action-secondary:disabled {
+  border-color: var(--color-border-muted);
+  background: var(--color-hover);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* One focus ring for every adopted control, including the disclosure toggles
+ * that keep a transparent background (they are controls too, just quiet). */
+.open-button:focus-visible,
+.example-button:focus-visible,
+.telemetry-settings-toggle:focus-visible,
+.telemetry-settings-close:focus-visible,
+.telemetry-disclosure-action:focus-visible,
+.export-action-primary:focus-visible,
+.export-action-secondary:focus-visible,
+.workbench-section-toggle:focus-visible,
+.workbench-pane-toggle:focus-visible,
+.export-format-option input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 /* ---- Workbench shell slice 1 (ux-6) ---- */
 
 /*
@@ -282,16 +419,25 @@ main {
   scroll-margin-top: 3.25rem;
 }
 
+/*
+ * uxv-2/R-10: the shell's disclosure toggles adopt the spacing, control-height
+ * and radius aliases while staying visually quiet — no fill, no border, no
+ * type-size change (the ug-13 title/purpose hierarchy keeps the inherited body
+ * size). Geometry stays compact: one line of padding around the two-line
+ * header. Focus comes from the shared 2px ring in the named-control block.
+ */
 .workbench-section-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: var(--space-1);
   font: inherit;
   font-weight: 600;
   background: none;
   border: none;
-  padding: 0.2rem 0.35rem;
-  margin-top: 1rem;
+  padding: var(--space-1) var(--space-2);
+  margin-top: var(--space-4);
+  min-height: var(--control-height-compact);
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
@@ -500,13 +646,18 @@ main {
   }
 
   .workbench-pane-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--control-height-compact);
+    min-height: var(--control-height-compact);
     font: inherit;
     line-height: 1;
-    padding: 0.15rem 0.4rem;
+    padding: 0 var(--space-1);
     cursor: pointer;
     background: none;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--color-text-secondary);
   }
 
@@ -1730,11 +1881,24 @@ h1 {
 /* ---- Cell editing + row ops (m4-3) ---- */
 
 .edit-toolbar {
-  margin-top: 0.5rem;
+  margin-top: var(--space-2);
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--space-1);
   flex-wrap: wrap;
+}
+
+/*
+ * ug-8 introduced this copy line and left it with default body styling; uxv-2
+ * gives it the body type alias, the secondary text token and no margin (it is
+ * a flex item of the toolbar, so the toolbar's own gap owns the spacing).
+ * Typography and spacing only — the toolbar and the grid are not restyled.
+ */
+.edit-overlay-explanation {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body);
+  line-height: 1.45;
 }
 
 .edit-error {
@@ -1979,7 +2143,11 @@ h1 {
 /* ---- Export a copy (m4-5; ADR 0012 copy, never in place) ---- */
 
 .export-actions {
-  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .export-dialog {
@@ -2000,19 +2168,40 @@ h1 {
   margin: 0 0 0.65rem;
 }
 
-.export-formats {
-  border: 1px solid var(--color-border-panel-subtle);
-  border-radius: 4px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
+/*
+ * ug-8 introduced this line and left it with default body styling; uxv-2/R-10
+ * gives it the metadata type alias plus the staged-warning colour token. The
+ * count is carried by the TEXT ("Includes N staged change(s) — review in
+ * History"), so the colour is emphasis only and never the sole signal.
+ */
+.export-staged-count {
+  margin: 0 0 var(--space-2);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-metadata);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
+.export-formats {
+  border: 1px solid var(--color-border-panel-subtle);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* Each radio row is a compact control: a 32px hit row with UI type. Focus is
+ * the shared 2px ring (the input itself is the focusable target). */
 .export-format-option {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--space-1);
+  min-height: var(--control-height-compact);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-ui);
+  cursor: pointer;
 }
 
 .export-format-description,
@@ -2235,17 +2424,31 @@ h1 {
 
 .telemetry-disclosure-actions {
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 
+/* uxv-2/R-10: the Settings dialog's own action line. The button treatment
+ * itself lives in the named-control block; this only gives it room. */
+.telemetry-settings-close {
+  margin-top: var(--space-2);
+}
+
+/* The consent label is a control row, not prose: compact control height and
+ * UI type, with the label text still the primary contrast carrier. */
 .telemetry-settings-option {
-  display: block;
-  margin: 0.5rem 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  min-height: var(--control-height-compact);
+  font-size: var(--font-size-ui);
 }
 
 .telemetry-settings-hard-off {
   color: var(--color-text-muted);
-  font-size: 0.85rem;
+  font-size: var(--font-size-metadata);
 }
 
 /* ---- Pipeline panel (p-5) ---- */
