@@ -20,12 +20,23 @@
  */
 import type { EditOp } from '@assay/domain'
 
-/** Singular human label per op kind (pluralized by `pendingChangesSummary`). */
+/**
+ * Singular human label per op kind (pluralized by `pendingChangesSummary` by
+ * appending `s` to the label, so every label ends in a word that pluralizes
+ * that way and stays a noun phrase after the count).
+ *
+ * CO-4 (ug-23): `row-uninsert` used to read `row expunge` — engine/overlay
+ * vocabulary, not user language. "Expunge an insert" is exactly undoing a row
+ * the user added in this session (as opposed to `row-delete`, which removes a
+ * row of the opened dataset), and the toolbar's own affordance is `Insert row`,
+ * so the plain gloss is `undo row insert` (`2 undo row inserts`). Value-free:
+ * kinds and counts only, never dataset content (ADR 0025).
+ */
 const KIND_LABEL: Readonly<Record<EditOp['kind'], string>> = {
   'cell-set': 'cell edit',
   'cell-revert': 'cell revert',
   'row-insert': 'row insert',
-  'row-uninsert': 'row expunge',
+  'row-uninsert': 'undo row insert',
   'row-delete': 'row delete',
   'row-restore': 'row restore',
   'column-rename': 'column rename',

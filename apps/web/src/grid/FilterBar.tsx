@@ -33,13 +33,30 @@ function errorMessage(error: unknown): string {
  * Injective, deterministic *identity* of the active filter list: `null` means
  * "no filters" (distinct from any non-empty list), otherwise the ordered
  * `[column, predicate]` pairs serialized as JSON. A `column:predicate` join
- * would collide if either field contained the delimiter, and chip keys already
- * rely on the same pair; order is part of identity because the model pushes the
- * list to the provider in order. Changing any predicate changes the string.
+ * would collide if either field contained the delimiter — see
+ * {@link filterChipKey}, which applies the same pair grammar per filter; order
+ * is part of identity because the model pushes the list to the provider in
+ * order. Changing any predicate changes the string.
  */
 function filterListSignature(filters: readonly FilterSpec[]): string | null {
   if (filters.length === 0) return null
   return JSON.stringify(filters.map((filter) => [filter.column, filter.predicate]))
+}
+
+/**
+ * CO-2 (ug-23): injective React key for ONE active filter. The old
+ * `` `${column}:${predicate}` `` join is not injective: column `a:b` with
+ * predicate `c` and column `a` with predicate `b:c` both produced `a:b:c`, so
+ * React saw two distinct filters as the same child and could reconcile one
+ * surface onto the other (wrong chip text, wrong removal target) instead of
+ * rendering both. The ordered `[column, predicate]` pair serialized as JSON has
+ * no delimiter to confuse — the same pair grammar `filterListSignature` uses
+ * for the whole list — and escapes both fields. Pure and unit-pinned; used for
+ * every chip key site (the removable header chips and the display-only body
+ * list).
+ */
+export function filterChipKey(filter: FilterSpec): string {
+  return JSON.stringify([filter.column, filter.predicate])
 }
 
 /**
@@ -420,7 +437,7 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
           <ul className="filter-chips filter-chips-header" data-testid="filter-chips-header">
             {model.filters.map((filter) => (
               <FilterChip
-                key={`${filter.column}:${filter.predicate}`}
+                key={filterChipKey(filter)}
                 filter={filter}
                 pending={pending}
                 onRemove={removeFilter}
@@ -521,7 +538,7 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
             <ul className="filter-active-rows" data-testid="filter-active-rows">
               {model.filters.map((filter) => (
                 <li
-                  key={`${filter.column}:${filter.predicate}`}
+                  key={filterChipKey(filter)}
                   className="filter-active-row"
                   data-testid="filter-active-row"
                   data-col-name={filter.column}
@@ -639,7 +656,7 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
           {model.filters.length > 0 ? (
             <ul className="filter-chips" data-testid="filter-chips">
               {model.filters.map((filter) => (
-                <FilterChip key={`${filter.column}:${filter.predicate}`} filter={filter} />
+                <FilterChip key={filterChipKey(filter)} filter={filter} />
               ))}
             </ul>
           ) : (

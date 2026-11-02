@@ -7,6 +7,7 @@ import {
   FILTER_COMPOSE_VALUE_ID,
   FilterBar,
   filterActivePredicateId,
+  filterChipKey,
   filterInputId,
 } from './FilterBar'
 
@@ -1217,5 +1218,121 @@ describe('FilterBar pending transition reporting (ug-19)', () => {
     await waitFor(() => {
       expect(setFilters).toHaveBeenCalledWith([{ column: 'country', predicate: "= 'US'" }])
     })
+  })
+})
+
+/**
+ * CO-2 (ug-23) pins: the chip React key must be **injective** in `(column,
+ * predicate)`. The old `` `${column}:${predicate}` `` join was not — column
+ * `a:b` with predicate `c` and column `a` with predicate `b:c` both joined to
+ * `a:b:c`, so two distinct active filters became the same React child (React
+ * reconciles by key: one surface can be reused for the other, and the
+ * duplicate-key warning is the only trace). Every chip key site — the
+ * removable collapsed-header chips and the display-only expanded-body list —
+ * uses the shared `filterChipKey` helper.
+ */
+describe('FilterBar chip identity — injective keys (CO-2, ug-23)', () => {
+  // The two pairs collide under the old join and are distinct filters.
+  const COLON_COLUMN: FilterSpec = { column: 'a:b', predicate: 'c' }
+  const COLON_PREDICATE: FilterSpec = { column: 'a', predicate: 'b:c' }
+  // Both are real, distinct columns (a quoted identifier may contain `:`), so
+  // the bar can address them through its normal surfaces.
+  const COLLIDING_COLUMNS = [
+    ...COLUMNS,
+    { name: 'a:b', type: 'VARCHAR' },
+    { name: 'a', type: 'VARCHAR' },
+  ]
+
+  /** Every React duplicate-key warning emitted while `run` executes. */
+  async function duplicateKeyWarnings(run: () => Promise<void>): Promise<unknown[][]> {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await run()
+      return spy.mock.calls.filter((call) => String(call[0]).includes('same key'))
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  /** A chip's rendered `<column> <predicate>` label (not its × control). */
+  function chipLabel(chip: Element): string {
+    return chip.querySelector('code')?.textContent ?? ''
+  }
+
+  it('is injective on the colliding pair, where the old join was not', () => {
+    // The bug, stated directly: the retired join maps both filters to one key.
+    expect(`${COLON_COLUMN.column}:${COLON_COLUMN.predicate}`).toBe(
+      `${COLON_PREDICATE.column}:${COLON_PREDICATE.predicate}`,
+    )
+    // The helper does not.
+    expect(filterChipKey(COLON_COLUMN)).not.toBe(filterChipKey(COLON_PREDICATE))
+    // …and it is still stable for the same filter (a key, not a random id).
+    expect(filterChipKey({ ...COLON_COLUMN })).toBe(filterChipKey(COLON_COLUMN))
+  })
+
+  it('renders the colliding pair as two distinct header chips with duplicate-key-free keys', async () => {
+    const model = storeModel(COLLIDING_COLUMNS)
+    const warnings = await duplicateKeyWarnings(async () => {
+      render(<FilterBar model={model} />)
+      await act(async () => {
+        await model.setFilters([COLON_COLUMN, COLON_PREDICATE])
+      })
+      toggleBar()
+    })
+
+    expect(screen.getByTestId('filter-toggle').getAttribute('aria-expanded')).toBe('false')
+    const chips = screen.getAllByTestId('filter-chip')
+    expect(chips).toHaveLength(2)
+    // Two different chips, not one child rendered twice (the header chip's own
+    // text also contains its × control, so compare the label, not the row).
+    expect(chips.map(chipLabel)).toEqual(['a:b c', 'a b:c'])
+    expect(chips.map((chip) => chip.getAttribute('data-col-name'))).toEqual(['a:b', 'a'])
+    // React only logs this when two children share a key.
+    expect(warnings).toEqual([])
+  })
+
+  it('removes each colliding filter independently from its own chip', async () => {
+    const model = storeModel(COLLIDING_COLUMNS)
+    render(<FilterBar model={model} />)
+    await act(async () => {
+      await model.setFilters([COLON_COLUMN, COLON_PREDICATE])
+    })
+    toggleBar()
+
+    // Remove the FIRST filter through its own chip control.
+    fireEvent.click(control('filter-chip-remove', 'a:b'))
+
+    await waitFor(() => {
+      expect(model.filters).toEqual([COLON_PREDICATE])
+    })
+    // A changed filter set force-opens the bar (uxc-4), so collapse again to
+    // read the collapsed header chips.
+    toggleBar()
+    const remaining = screen.getAllByTestId('filter-chip')
+    expect(remaining).toHaveLength(1)
+    // Exactly the untouched filter survives — its own column, predicate and
+    // removal control (not a reused node carrying the removed filter's props).
+    expect(remaining[0] === undefined ? null : chipLabel(remaining[0])).toBe('a b:c')
+    expect(remaining[0]?.getAttribute('data-col-name')).toBe('a')
+    expect(control('filter-chip-remove', 'a').getAttribute('aria-label')).toBe(
+      'Remove filter a b:c',
+    )
+    expect(screen.getByTestId('filter-toggle').textContent).toBe('Filters · 1 active: a')
+  })
+
+  it('keys the display-only expanded-body chip list injectively too', async () => {
+    const model = storeModel(COLLIDING_COLUMNS)
+    const warnings = await duplicateKeyWarnings(async () => {
+      render(<FilterBar model={model} />)
+      await act(async () => {
+        await model.setFilters([COLON_COLUMN, COLON_PREDICATE])
+      })
+      ensureOpen()
+    })
+
+    // Expanded body: the display-only list renders both chips, separately.
+    const body = screen.getByTestId('filter-chips')
+    expect(Array.from(body.children).map((chip) => chipLabel(chip))).toEqual(['a:b c', 'a b:c'])
+    expect(warnings).toEqual([])
   })
 })

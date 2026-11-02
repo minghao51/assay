@@ -287,6 +287,19 @@ const INNER_DISCLOSURE_SECTIONS: ReadonlySet<WorkbenchSectionId> = new Set<Workb
 ])
 
 /**
+ * CO-3 (ug-23): the pane rail toggle's own accessible name. It used to reuse
+ * the in-pane nav's "Workbench sections", so one name covered two different
+ * roles (a `button` and a `navigation`) and "jump to the sections" could not
+ * tell the landmark from the control. The name states what pressing it does
+ * and tracks the state `aria-expanded` already publishes (collapsed ⇒ the
+ * press expands), which is why it is derived from the same boolean rather than
+ * a fixed string. The nav keeps "Workbench sections".
+ */
+export function paneToggleLabel(collapsed: boolean): string {
+  return collapsed ? 'Expand workbench pane' : 'Collapse workbench pane'
+}
+
+/**
  * ug-17 / UG-27: the count of rules the CURRENT verdict reports as failing
  * (the same `failing` flag the Validation panel renders). Not a row count and
  * never a rule name — the summary is value-free (ADR 0025) and only ever
@@ -944,10 +957,23 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
 
   /**
    * p-5 pipeline session: open a pipeline file (real picker path), bind its
-   * source datasets per node (C2), run it on the engine (UI-level
-   * serialization + guard cancellation), and jump its outputs into the SQL
-   * pane's result surface. Entirely dataset-session scoped: the reset
-   * registered inside the hook drops everything on a new file open.
+   * source datasets per node (C2), and run it on the engine (serialized at the
+   * UI level + guard cancellation — the runner has no re-entrancy guard of its
+   * own by design).
+   *
+   * p2-6 made previews grid-native: a materialized node's relation opens
+   * through the p2-1 `registerPipelineRelation` handle op and drives the SAME
+   * handle-based grid model a dataset open uses (the panel renders it with the
+   * existing `DataGrid`). Nothing is pushed into the SQL pane's result surface
+   * — that detour is retired (CO-1, ug-23: this block used to claim the jump).
+   * Two later additions belong to the panel/session pair, not to App: the
+   * `data-bind-revision` contract-bind ordinal (a contract replacement is
+   * observable without rendering any file, path or contract content — ADR
+   * 0025) and the ug-9/R-15 gate cross-link, wired below as `onInspectContract`
+   * to `inspectPipelineContractInValidation`.
+   *
+   * Entirely dataset-session scoped: the reset registered inside the hook drops
+   * everything on a new file open.
    */
   const pipeline = usePipelineSession({
     session: datasetSession,
@@ -1723,8 +1749,8 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     data-testid="pane-toggle"
                     aria-expanded={!paneCollapsed}
                     aria-controls="workbench-tools-body"
-                    aria-label="Workbench sections"
-                    title="Workbench sections"
+                    aria-label={paneToggleLabel(paneCollapsed)}
+                    title={paneToggleLabel(paneCollapsed)}
                     onClick={() => {
                       setPaneCollapsed((previous) => !previous)
                     }}

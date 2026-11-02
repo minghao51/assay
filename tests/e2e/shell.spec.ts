@@ -193,9 +193,17 @@ test('two-pane shell at ≥1024px: tools left, persistent grid center, rail', as
   await expect(page.getByRole('heading', { level: 2 })).toHaveText([...HEADING_MAP])
 
   // Pane rail: the tool pane collapses to a rail; the center column stays put.
+  //
+  // CO-3 (ug-23): the rail control names its ACTION and tracks `aria-expanded`;
+  // it never reuses the in-pane nav's "Workbench sections" (one accessible name
+  // over a button and a navigation could not be told apart).
+  await expect(page.getByRole('navigation', { name: 'Workbench sections' })).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Collapse workbench pane' })).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Workbench sections' })).toHaveCount(0)
   const centerBefore = await page.locator('.workbench-center').boundingBox()
   await page.getByTestId('pane-toggle').click()
   await expect(page.getByTestId('pane-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByTestId('pane-toggle')).toHaveAccessibleName('Expand workbench pane')
   await expect(page.locator('#workbench-tools-body')).toBeHidden()
   await expect(page.getByTestId('grid')).toBeVisible()
   const centerAfter = await page.locator('.workbench-center').boundingBox()

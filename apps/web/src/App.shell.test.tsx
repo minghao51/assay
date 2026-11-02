@@ -34,7 +34,9 @@ import type { ArrowTableLike } from './grid/provider'
  *    order only, no DOM reorder), exposes all twelve anchors in that order with
  *    pipeline last, and clicking one expands its target section.
  * 6. **Pane rail.** The pane toggle collapses the tool pane to a rail without
- *    touching the center column.
+ *    touching the center column, and it carries its OWN action-reflecting
+ *    accessible name (CO-3, ug-23) — never the nav landmark's "Workbench
+ *    sections".
  */
 
 const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
@@ -377,5 +379,52 @@ describe('q-15 — workbench two-pane shell', () => {
     // Same mounted grid (rendering position only — no data-flow change).
     expect(screen.getByTestId('grid')).toBeTruthy()
     expect(screen.getByTestId('section-toggle-grid').getAttribute('aria-expanded')).toBe('true')
+  })
+
+  /**
+   * CO-3 (ug-23): the pane toggle and the in-pane nav used to share the
+   * accessible name "Workbench sections", so one name covered a `button` and a
+   * `navigation` — a role-insensitive name lookup could not tell the control
+   * from the landmark. The toggle now names its action and tracks the state
+   * `aria-expanded` publishes; the nav keeps "Workbench sections" verbatim.
+   */
+  it('gives the pane toggle its own action name, distinct from the nav landmark', async () => {
+    await open()
+
+    // Each name resolves to exactly one element, for exactly one role.
+    const nav = screen.getByRole('navigation', { name: 'Workbench sections' })
+    expect(nav.getAttribute('data-testid')).toBe('section-nav')
+    expect(screen.getAllByRole('navigation', { name: 'Workbench sections' })).toHaveLength(1)
+
+    const toggle = screen.getByRole('button', { name: 'Collapse workbench pane' })
+    expect(toggle).toBe(screen.getByTestId('pane-toggle'))
+    expect(screen.getAllByRole('button', { name: 'Collapse workbench pane' })).toHaveLength(1)
+
+    // The two accessible names genuinely differ…
+    expect(toggle.getAttribute('aria-label')).not.toBe(nav.getAttribute('aria-label'))
+    // …and neither name leaks onto the other role (the defect this fixes).
+    expect(screen.queryByRole('button', { name: 'Workbench sections' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Collapse workbench pane' })).toBeNull()
+
+    // The rename changes no wiring: `aria-expanded`/`aria-controls` stand.
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle.getAttribute('aria-controls')).toBe('workbench-tools-body')
+
+    // The name mirrors the state it acts on.
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Expand workbench pane' })).toBe(toggle)
+    // A stale collapse label would still describe the previous state.
+    expect(screen.queryByRole('button', { name: 'Collapse workbench pane' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Workbench sections' })).toBeNull()
+
+    // Expanding restores the collapse label (the mapping is state, not order).
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Collapse workbench pane' })).toBe(toggle)
   })
 })

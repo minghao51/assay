@@ -28,6 +28,9 @@ const insert: EditOp = {
   values: new Map(),
 }
 const deleteRow: EditOp = { kind: 'row-delete', rowId: baseRowId(BASE_ANCHOR, 1) }
+const restoreRow: EditOp = { kind: 'row-restore', rowId: baseRowId(BASE_ANCHOR, 1) }
+/** CO-4: undoing a row this session inserted (the domain's `uninsertRow`). */
+const uninsert: EditOp = { kind: 'row-uninsert', rowId: insertRowId(OVERLAY_ANCHOR, 0) }
 
 describe('pendingChangesSummary — deterministic, kind-only (no dataset content)', () => {
   it('reports no pending changes for an empty list', () => {
@@ -53,6 +56,45 @@ describe('pendingChangesSummary — deterministic, kind-only (no dataset content
     // Fixed order: cell ops → row ops → column ops (never object order).
     expect(pendingChangesSummary(ops)).toBe(
       '7 pending changes: 1 cell edit, 1 cell revert, 2 row inserts, 1 row delete, 1 column rename, 1 column cast.',
+    )
+  })
+})
+
+/**
+ * CO-4 (ug-23) pin: the staged line names what the USER did, not the overlay's
+ * internal vocabulary. `row-uninsert` undoes a row insert, so the label is
+ * `undo row insert` (`2 undo row inserts` after the `+s` pluralization); the
+ * domain term `row expunge` that used to be here must never come back into
+ * this user-facing string.
+ */
+describe('pendingChangesSummary — plain-language op labels (CO-4, ug-23)', () => {
+  it('labels a single row-uninsert `undo row insert`', () => {
+    expect(pendingChangesSummary([uninsert])).toBe('1 pending change: 1 undo row insert.')
+  })
+
+  it('pluralizes it without changing the decided phrase', () => {
+    expect(pendingChangesSummary([uninsert, uninsert, insert])).toBe(
+      '3 pending changes: 1 row insert, 2 undo row inserts.',
+    )
+  })
+
+  it('keeps overlay/engine vocabulary out of every label', () => {
+    const all: EditOp[] = [
+      setCell,
+      revertCell,
+      insert,
+      uninsert,
+      deleteRow,
+      restoreRow,
+      rename,
+      cast,
+    ]
+    const summary = pendingChangesSummary(all)
+    // The regression this rider fixes, stated as a negative pin.
+    expect(summary).not.toMatch(/expunge/i)
+    // …and the full line, so a swap of any single label is visible here.
+    expect(summary).toBe(
+      '8 pending changes: 1 cell edit, 1 cell revert, 1 row insert, 1 undo row insert, 1 row delete, 1 row restore, 1 column rename, 1 column cast.',
     )
   })
 })
