@@ -7,7 +7,10 @@ import {
   IDLE_EXAMPLE_ACTION,
   IDLE_EXAMPLE_HELPER,
   IDLE_FORMATS,
+  OPEN_CANCEL_LABEL,
+  OPEN_PROGRESS_LABEL,
   TAGLINE,
+  openStatusCopy,
 } from './app'
 
 // R-03 (ug-2): the first-run idle screen states what the product does and
@@ -28,5 +31,18 @@ describe('app idle copy', () => {
   it('pins the R-05 example action and helper exactly', () => {
     expect(IDLE_EXAMPLE_ACTION).toBe('Try with example data')
     expect(IDLE_EXAMPLE_HELPER).toBe('Explore nested fields with a small synthetic example.')
+  })
+})
+
+// ug-21: the opening-only affordances are named for assistive tech and the
+// copy is value-free (no percentage, bytes, filename or row count; ADR 0025).
+describe('app opening affordance copy', () => {
+  it('keeps the existing status copy and pins value-free accessible names', () => {
+    expect(openStatusCopy('idle')).toBe('No file open')
+    expect(openStatusCopy('opening')).toBe('Opening…')
+    expect(openStatusCopy('ready')).toBeNull()
+    expect(openStatusCopy('error')).toBeNull()
+    expect(OPEN_PROGRESS_LABEL).toBe('Opening progress')
+    expect(OPEN_CANCEL_LABEL).toBe('Cancel opening')
   })
 })

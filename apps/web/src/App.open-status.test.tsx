@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
 import { App } from './App'
 import type { ArrowTableLike } from './grid/provider'
+import { OPEN_CANCEL_LABEL, OPEN_PROGRESS_LABEL } from './lib/app'
 
 /**
  * ux-2 (UX-2 + UX-10) pins, driven through the REAL App composition root with
@@ -47,6 +48,7 @@ const h = vi.hoisted(() => ({
   schemaError: null as string | null,
   openResolvers: [] as Array<(value: unknown) => void>,
   openCalls: [] as Array<{ name: string; getFile: () => Promise<File> }>,
+  schemaCalls: 0,
   pickerCalls: 0,
 }))
 
@@ -86,6 +88,7 @@ vi.mock('./lib/engine', () => ({
       return FAKE_HANDLE
     },
     schema: async () => {
+      h.schemaCalls += 1
       if (h.schemaError !== null) throw new Error(h.schemaError)
       return FAKE_SCHEMA
     },
@@ -109,6 +112,7 @@ afterEach(() => {
   h.schemaError = null
   h.openResolvers = []
   h.openCalls = []
+  h.schemaCalls = 0
   h.pickerCalls = 0
 })
 
@@ -474,5 +478,129 @@ describe('ux-10 — open-completion announcement + focus move', () => {
     const toggle = screen.getByTestId('schema-toggle')
     expect(document.activeElement).toBe(toggle)
     expect(document.activeElement).not.toBe(screen.getByTestId('open-button'))
+  })
+})
+
+/**
+ * ug-21 pins: the opening state exposes an indeterminate progress affordance
+ * and a Cancel control. Cancel reuses the dataset-session token guard
+ * (`beginSession`) and returns the NORMAL idle frame; a late result from the
+ * cancelled open is dropped. Idle/ready/error render neither affordance.
+ */
+describe('ug-21 — opening progress and cancel', () => {
+  it('renders an indeterminate, named progress affordance and a named Cancel control while opening', async () => {
+    h.deferOpen = true
+    render(<App />)
+
+    // Neither affordance exists on the normal idle frame.
+    expect(screen.queryByTestId('open-progress')).toBeNull()
+    expect(screen.queryByTestId('open-cancel')).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    const opening = screen.getByTestId('open-status')
+    expect(opening.getAttribute('data-phase')).toBe('opening')
+    expect(opening.textContent).toBe('Opening…')
+    expect(screen.getByTestId('open-button').hasAttribute('disabled')).toBe(true)
+
+    // A native <progress> with no value/max is genuinely indeterminate; the
+    // axe-relevant contract also forbids an aria-valuenow percentage.
+    const progress = screen.getByTestId('open-progress')
+    expect(progress.tagName).toBe('PROGRESS')
+    expect(progress.hasAttribute('value')).toBe(false)
+    expect(progress.hasAttribute('max')).toBe(false)
+    expect(progress.hasAttribute('aria-valuenow')).toBe(false)
+    expect(progress.hasAttribute('aria-valuetext')).toBe(false)
+    expect(progress.getAttribute('aria-label')).toBe(OPEN_PROGRESS_LABEL)
+    expect(screen.getByRole('progressbar', { name: OPEN_PROGRESS_LABEL })).toBe(progress)
+    // It is an affordance, not a second live region.
+    expect(progress.hasAttribute('aria-live')).toBe(false)
+    expect(progress.closest('[aria-live]')).toBeNull()
+
+    const cancel = screen.getByTestId('open-cancel')
+    expect(cancel.tagName).toBe('BUTTON')
+    expect(cancel.textContent).toBe(OPEN_CANCEL_LABEL)
+    expect(screen.getByRole('button', { name: OPEN_CANCEL_LABEL })).toBe(cancel)
+    expect(cancel.hasAttribute('aria-live')).toBe(false)
+  })
+
+  it('Cancel returns to idle, drops the late open, and a follow-up open reaches ready', async () => {
+    h.deferOpen = true
+    render(<App />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('opening')
+    expect(h.openResolvers).toHaveLength(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-cancel'))
+    })
+
+    // The normal idle frame is restored: no error, no failure announcement,
+    // and the example/drop affordances are back.
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('idle')
+    expect(screen.getByTestId('open-status').textContent).toBe('No file open')
+    expect(screen.queryByTestId('open-error')).toBeNull()
+    expect(screen.queryByTestId('open-progress')).toBeNull()
+    expect(screen.queryByTestId('open-cancel')).toBeNull()
+    expect(screen.getByTestId('open-button').hasAttribute('disabled')).toBe(false)
+    expect(screen.getByTestId('example-data-button')).toBeTruthy()
+    expect(screen.getByTestId('idle-drop-hint')).toBeTruthy()
+    expect(screen.queryByTestId('open-live-region')?.textContent).toBe('')
+
+    // Resolve the parked engine open AFTER the cancel. `beginSession` bumped
+    // the token, so the chain's post-await comparison must discard it: no
+    // schema request, no error, no dataset, still idle.
+    await act(async () => {
+      h.openResolvers[0]?.(FAKE_HANDLE)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('idle')
+    expect(screen.queryByTestId('open-error')).toBeNull()
+    expect(screen.queryByTestId('schema-section')).toBeNull()
+    expect(screen.queryByTestId('grid')).toBeNull()
+    expect(h.schemaCalls).toBe(0)
+    expect(h.openCalls).toHaveLength(1)
+
+    // A subsequent open behaves exactly as today and reaches ready.
+    h.deferOpen = false
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await screen.findByTestId('schema-section')
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    expect(screen.queryByTestId('open-progress')).toBeNull()
+    expect(screen.queryByTestId('open-cancel')).toBeNull()
+    expect(h.schemaCalls).toBeGreaterThan(0)
+    expect(h.openCalls).toHaveLength(2)
+  })
+
+  it('renders neither affordance in idle, ready or error', async () => {
+    render(<App />)
+    expect(screen.queryByTestId('open-progress')).toBeNull()
+    expect(screen.queryByTestId('open-cancel')).toBeNull()
+
+    cleanup()
+    h.openError = true
+    render(<App />)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await screen.findByTestId('open-error')
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
+    expect(screen.queryByTestId('open-progress')).toBeNull()
+    expect(screen.queryByTestId('open-cancel')).toBeNull()
+
+    cleanup()
+    h.openError = false
+    render(<App />)
+    await open()
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    expect(screen.queryByTestId('open-progress')).toBeNull()
+    expect(screen.queryByTestId('open-cancel')).toBeNull()
   })
 })

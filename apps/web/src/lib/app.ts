@@ -55,6 +55,15 @@ export function openStatusCopy(kind: Phase['kind']): string | null {
 }
 
 /**
+ * ug-21: accessible names for the opening-only affordances. Both are
+ * value-free: the progress element is indeterminate (no percentage, bytes,
+ * filename, or row count) and the cancel control states its action without
+ * implying that the engine supports an interrupt. ADR 0025.
+ */
+export const OPEN_PROGRESS_LABEL = 'Opening progress' as const
+export const OPEN_CANCEL_LABEL = 'Cancel opening' as const
+
+/**
  * Polite live-region announcement for a completed open (ux-2/UX-10). Row and
  * column counts are already public in the info line; the text never carries a
  * filename, path, cell value, or PII (ADR 0025).

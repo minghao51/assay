@@ -222,6 +222,17 @@ main {
   color: var(--color-text-muted);
 }
 
+/*
+ * ug-21: the opening-only native <progress> is indeterminate (no value/max),
+ * so this block sets geometry only — no percentage, colour or animation
+ * claim. The Cancel control keeps the default button treatment.
+ */
+.open-progress {
+  width: 7rem;
+  height: 0.6rem;
+  vertical-align: middle;
+}
+
 /* ---- Workbench shell slice 1 (ux-6) ---- */
 
 /*

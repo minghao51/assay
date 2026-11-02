@@ -47,6 +47,8 @@ import {
   IDLE_EXAMPLE_ACTION,
   IDLE_EXAMPLE_HELPER,
   IDLE_FORMATS,
+  OPEN_CANCEL_LABEL,
+  OPEN_PROGRESS_LABEL,
   TAGLINE,
   openAnnouncementText,
   openStatusCopy,
@@ -1323,6 +1325,19 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */
   const pendingDropFileRef = useRef<File | null>(null)
 
+  /**
+   * ug-21: cancel an in-flight open by starting a new (empty) dataset session
+   * and returning to the normal idle frame. There is no engine interrupt in
+   * the protocol, so this does NOT abort the engine operation: it bumps the
+   * shared session token through `beginSession` (running every registered
+   * domain reset) and the open chain's post-await token comparisons drop the
+   * late result. Honest UI reset + token discard, never a claimed abort.
+   */
+  const cancelOpen = useCallback(() => {
+    datasetSession.beginSession()
+    setPhase({ kind: 'idle' })
+  }, [datasetSession, setPhase])
+
   const openDataFile = useCallback(async () => {
     // AR-W13: generation guard. `beginSession` bumps the shared session token
     // and runs every per-domain reset (f-1), so a picker/open chain that
@@ -1589,6 +1604,24 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           <span data-testid="open-status" data-phase={phase.kind}>
             {openStatusCopy(phase.kind)}
           </span>
+          {phase.kind === 'opening' && (
+            <>
+              {' '}
+              {/*
+               * ug-21: indeterminate by construction — no `value`/`max`, so
+               * the native <progress> reports no percentage. The accessible
+               * name is value-free (ADR 0025); it is not a live region.
+               */}
+              <progress
+                className="open-progress"
+                data-testid="open-progress"
+                aria-label={OPEN_PROGRESS_LABEL}
+              />{' '}
+              <button type="button" data-testid="open-cancel" onClick={cancelOpen}>
+                {OPEN_CANCEL_LABEL}
+              </button>
+            </>
+          )}
           <span
             className="visually-hidden"
             role="status"
