@@ -1,6 +1,6 @@
 # Assay UX/UI Implementation Spec
 
-**Authored 2026-10-26; status refreshed 2026-10-31.** The authoring date records when the
+**Authored 2026-10-26; status refreshed 2026-11-02.** The authoring date records when the
 contract was written, not the current implementation state. As of 2026-10-31, R-01…R-08, R-14
 and R-15 are implemented and merged-verified; R-09…R-13 remain open (uxv-1 is eligible pending an
 exclusive CSS/theme-test reservation); **R-16 is implemented at `f667a87`** under the maintainer's
@@ -57,8 +57,11 @@ and record inspector`) with roving focus landing on the target row. ug-11 (Grid)
   `Sorting…`/`Filtering…` footer status, and a loading-row edit gesture queues and opens only on
   the same logical row. ug-20 (Panels) is **implemented at `5bad2c3`**: the validation zero state
   offers a schema-derived starter contract download, and enabled failure-filter controls state the
-  filter replacement when filters are active. Grid and Panels lanes complete; next runtime row is
-  ug-21 (Shell), then ug-22/ug-23. Adjustable SQL sizing remains design-only. All other
+  filter replacement when filters are active. **ug-21 (Shell) is implemented at `8458ad1`**: the
+  opening state shows a genuinely indeterminate, named `<progress>` (no value, no percentage) and a
+  `Cancel opening` control that returns the app to idle through the existing session-token guard, so
+  a cancelled open's late result is discarded. Grid and Panels lanes complete; next runtime row is
+  ug-22 (Shell), then ug-23. Adjustable SQL sizing remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
 ## 2. Requirements and UI states
@@ -86,17 +89,17 @@ Requirement IDs are stable. Preserve them in worker briefs and review reports.
 
 ### State completeness
 
-| State                    | Required presentation / ownership                                                                                                                                                                                                                     |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Idle                     | R-03, then R-05/R-12 as their owners land. One primary Open CTA; example and drop-anywhere are secondary ingress (the drop is idle-only, ug-15). Settings remains available.                                                                          |
-| Opening                  | Existing “Opening…” and disabled Open remain. Do not imply scan percentage or engine interrupt. ug-21 owns future progress/cancel, not these visual tasks.                                                                                            |
-| Open error               | Classified one-line human cause + “Choose a different file…” retry re-entering the guarded open chain; raw engine detail only behind a collapsed `<details>` (ug-14, 2026-10-30). Preserve the Open control; do not hide errors beneath welcome text. |
-| Ready, no edits          | Dataset row/column metadata, persistent grid, existing tool shells/nav and record dock; no false staged badge.                                                                                                                                        |
-| SQL running/outcome      | Existing guarded running/error/cancel honesty. R-01/R-02 expose the matching nested outcome. “rows 1–20” is a page range, not a general total.                                                                                                        |
-| Staged edit              | Existing dirty markers plus R-08. ug-6/ug-17 own History visibility/summaries; no second Undo/Redo pair.                                                                                                                                              |
-| Validation stale/failure | Preserve current stale banners and failure navigation. ug-13/ug-17/ug-20 own further guidance/summaries. Styling must not conceal stale status.                                                                                                       |
-| Panel/grid crash         | Static recovery copy in §3. No thrown messages, paths or cell values in fallback UI.                                                                                                                                                                  |
-| Export                   | Preserve dialog focus/overwrite/source-copy guarantees and R-08. Restyle without altering output bytes or save semantics.                                                                                                                             |
+| State                    | Required presentation / ownership                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Idle                     | R-03, then R-05/R-12 as their owners land. One primary Open CTA; example and drop-anywhere are secondary ingress (the drop is idle-only, ug-15). Settings remains available.                                                                                                                                                                                  |
+| Opening                  | Existing “Opening…” and disabled Open remain. Do not imply scan percentage or engine interrupt. **ug-21 (implemented at `8458ad1`)** adds an indeterminate progress affordance and a Cancel that returns to idle through the existing session-token guard (the engine op has no interrupt — the copy must not claim one); it does not own these visual tasks. |
+| Open error               | Classified one-line human cause + “Choose a different file…” retry re-entering the guarded open chain; raw engine detail only behind a collapsed `<details>` (ug-14, 2026-10-30). Preserve the Open control; do not hide errors beneath welcome text.                                                                                                         |
+| Ready, no edits          | Dataset row/column metadata, persistent grid, existing tool shells/nav and record dock; no false staged badge.                                                                                                                                                                                                                                                |
+| SQL running/outcome      | Existing guarded running/error/cancel honesty. R-01/R-02 expose the matching nested outcome. “rows 1–20” is a page range, not a general total.                                                                                                                                                                                                                |
+| Staged edit              | Existing dirty markers plus R-08. ug-6/ug-17 own History visibility/summaries; no second Undo/Redo pair.                                                                                                                                                                                                                                                      |
+| Validation stale/failure | Preserve current stale banners and failure navigation. ug-13/ug-17/ug-20 own further guidance/summaries. Styling must not conceal stale status.                                                                                                                                                                                                               |
+| Panel/grid crash         | Static recovery copy in §3. No thrown messages, paths or cell values in fallback UI.                                                                                                                                                                                                                                                                          |
+| Export                   | Preserve dialog focus/overwrite/source-copy guarantees and R-08. Restyle without altering output bytes or save semantics.                                                                                                                                                                                                                                     |
 
 ## 3. First dispatch contracts
 
@@ -364,3 +367,10 @@ the overlay-aware profile it deliberately does _not_ implement is a separate eng
 | R-14        | ug-13     | implemented                                                      | `36cead3` + test-only `793ba90`                                                   |
 | R-15        | ug-9      | implemented                                                      | `71fa03a` + Critical fix `385649b`                                                |
 | R-16        | ug-10     | implemented — `f667a87` (UX-D1 Option C)                         | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7 + spec §2 |
+
+**Rows without a requirement ID.** ug-4/ug-5/ug-6/ug-11/ug-12/ug-17/ug-18/ug-19/ug-20 and (as of
+2026-11-02) **ug-21** implement queue findings rather than an `R-` contract and are not listed above:
+ug-21 (opening progress + session-token cancel) is **implemented at `8458ad1`**; the owning record is
+the [usability queue](../process/handoff/20261026-usability-queue.md) ug-21 row and
+[handoff §9](../process/handoff.md). The `Opening` row in §2's state-completeness table carries the
+behavioural contract.
