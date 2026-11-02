@@ -28,8 +28,11 @@ import type { ArrowTableLike } from './grid/provider'
  *    Compare/SQL/Pipeline each render the shared `section-toggle-<id>` with
  *    `aria-expanded`/`aria-controls` and a visible name; Schema/Filters/Profile/
  *    Record keep their own equivalent disclosure and get NO second toggle.
- * 5. **Sticky nav.** The nav keeps the slice-1 reading order, exposes all
- *    twelve anchors, and clicking one expands its target section.
+ * 5. **Sticky nav.** The nav follows the ug-22 reading order (schema, filters,
+ *    grid, validation, compare, sql, editing, history, export, record, profile,
+ *    pipeline — ADR 0044 / D14 + the q-15 placement ruling authorize the nav
+ *    order only, no DOM reorder), exposes all twelve anchors in that order with
+ *    pipeline last, and clicking one expands its target section.
  * 6. **Pane rail.** The pane toggle collapses the tool pane to a rail without
  *    touching the center column.
  */
@@ -70,18 +73,24 @@ vi.mock('./lib/engine', () => ({
 
 afterEach(cleanup)
 
-/** The sticky-nav reading order (slice-1 order, grid promoted). */
+/**
+ * The sticky-nav reading order — ug-22 (2026-11-02): schema, filters, grid,
+ * validation, compare, sql, editing, history, export, record, profile,
+ * pipeline. ADR 0044 / D14 and the q-15 placement ruling authorize the NAV
+ * order only, so this list is deliberately the inverse-looking case of
+ * `DOM_ORDER` below: the DOM keeps the two-pane order byte-for-byte.
+ */
 const NAV_ORDER = [
   'schema',
+  'filters',
   'grid',
-  'editing',
-  'export',
-  'history',
   'validation',
   'compare',
-  'filters',
-  'record',
   'sql',
+  'editing',
+  'history',
+  'export',
+  'record',
   'profile',
   'pipeline',
 ] as const
@@ -101,6 +110,9 @@ const DOM_ORDER = [
   'grid',
   'record',
 ] as const
+
+/** The tool-pane half of `DOM_ORDER` (the center column holds grid + record). */
+const TOOL_DOM_ORDER = DOM_ORDER.slice(0, 10)
 
 /** Tool sections whose shell owns the shared toggle. */
 const MANAGED_TOOL_SECTIONS = [
@@ -280,6 +292,17 @@ describe('q-15 — workbench two-pane shell', () => {
       link.getAttribute('data-testid'),
     )
     expect(linkIds).toEqual(NAV_ORDER.map((id) => `section-nav-${id}`))
+    // q-15 placement ruling: pipeline stays LAST in the nav reading order too.
+    expect(linkIds[linkIds.length - 1]).toBe('section-nav-pipeline')
+    // The nav is NOT the DOM: `filters` now reads before `grid` in the nav while
+    // the pane's section element order is untouched (ADR 0044 / D14 authorize
+    // the nav reading order only).
+    expect(linkIds.indexOf('section-nav-filters')).toBeLessThan(linkIds.indexOf('section-nav-grid'))
+    const domSectionIds = Array.from(
+      document.querySelectorAll('.workbench-tools .workbench-section'),
+    ).map((section) => section.getAttribute('data-section'))
+    expect(domSectionIds).toEqual(TOOL_DOM_ORDER)
+    expect(domSectionIds.indexOf('grid')).toBeLessThan(domSectionIds.indexOf('filters'))
 
     for (const id of NAV_ORDER) {
       const link = screen.getByTestId(`section-nav-${id}`)

@@ -28,18 +28,23 @@ import {
 
 const CUSTOMERS = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
 
-/** Sticky-nav reading order (slice-1 order, grid promoted). */
+/**
+ * Sticky-nav reading order — ug-22 (2026-11-02): schema, filters, grid,
+ * validation, compare, sql, editing, history, export, record, profile, pipeline.
+ * ADR 0044 / D14 + the q-15 placement ruling authorize the NAV order only; the
+ * two-pane DOM order below (`DOM_ORDER`) is unchanged.
+ */
 const NAV_ORDER = [
   'schema',
+  'filters',
   'grid',
-  'editing',
-  'export',
-  'history',
   'validation',
   'compare',
-  'filters',
-  'record',
   'sql',
+  'editing',
+  'history',
+  'export',
+  'record',
   'profile',
   'pipeline',
 ] as const
@@ -125,18 +130,20 @@ test('two-pane shell at ≥1024px: tools left, persistent grid center, rail', as
   expect(await nav.evaluate((element) => getComputedStyle(element).position)).toBe('sticky')
   await expect(nav.locator('a')).toHaveText([
     'Schema',
+    'Filters',
     'Grid',
-    'Editing',
-    'Export',
-    'History',
     'Validation',
     'Compare',
-    'Filters',
-    'Record',
     'SQL',
+    'Editing',
+    'History',
+    'Export',
+    'Record',
     'Profile',
     'Pipeline',
   ])
+  // q-15 placement ruling: pipeline stays last in the nav as well.
+  await expect(nav.locator('a').last()).toHaveText('Pipeline')
   for (const id of NAV_ORDER) {
     await expect(page.getByTestId(`section-nav-${id}`)).toHaveAttribute('href', `#section-${id}`)
   }

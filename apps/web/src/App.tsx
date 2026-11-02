@@ -200,15 +200,21 @@ const MemoRecordInspector = memo(RecordInspector)
  * in a collapsible left pane; below 1024px the SAME DOM renders as the slice-1
  * single-column stack via CSS `display: contents` + `order` (index.css).
  *
- * `WORKBENCH_SECTIONS` is the sticky nav's reading order (the slice-1 order,
- * grid promoted). It is deliberately decoupled from the two-pane DOM order so
- * the <1024px stack nav keeps the grid near the top; the heading-map pin
- * (`App.headings.test.tsx`) asserts the two-pane DOM order instead.
+ * `WORKBENCH_SECTIONS` is the sticky nav's READING ORDER (ug-22, 2026-11-02):
+ * schema, filters, grid, validation, compare, sql, editing, history, export,
+ * record, profile, pipeline — the "why do my rows look like this?" loop
+ * (filter → validate → compare → query) instead of the pane's file-creation
+ * order. It is deliberately decoupled from the two-pane DOM order: **ADR 0044 /
+ * D14 and the q-15 placement ruling authorize the nav reading order ONLY** —
+ * the section element order in the JSX, the heading map and the two-pane layout
+ * are unchanged, so the nav can be reordered without moving a section in the
+ * DOM. The heading-map pin (`App.headings.test.tsx`) asserts that unchanged DOM
+ * order; `App.shell.test.tsx` pins the nav list and the DOM list separately.
  *
  * Panel-placement ruling (queue 2026-10-02, closes p-5/p2-6): "pipeline" is a
- * tool-pane resident ordered last (after profile) in both layouts. The former
- * "PROVISIONAL placement" note is resolved; do not reorder without a new
- * ruling.
+ * tool-pane resident ordered last (after profile) in both layouts — and it is
+ * last in the nav reading order too. The former "PROVISIONAL placement" note is
+ * resolved; do not reorder the DOM without a new ruling.
  */
 type WorkbenchSectionId =
   | 'schema'
@@ -229,15 +235,15 @@ const WORKBENCH_SECTIONS: ReadonlyArray<{
   readonly title: string
 }> = [
   { id: 'schema', title: 'Schema' },
+  { id: 'filters', title: 'Filters' },
   { id: 'grid', title: 'Grid' },
-  { id: 'editing', title: 'Editing' },
-  { id: 'export', title: 'Export' },
-  { id: 'history', title: 'History' },
   { id: 'validation', title: 'Validation' },
   { id: 'compare', title: 'Compare' },
-  { id: 'filters', title: 'Filters' },
-  { id: 'record', title: 'Record' },
   { id: 'sql', title: 'SQL' },
+  { id: 'editing', title: 'Editing' },
+  { id: 'history', title: 'History' },
+  { id: 'export', title: 'Export' },
+  { id: 'record', title: 'Record' },
   { id: 'profile', title: 'Profile' },
   // Panel-placement ruling (queue 2026-10-02): tool-pane resident, ordered
   // last (after profile) in both layouts — see the doc comment above.
@@ -1735,10 +1741,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                    * q-15 in-pane nav: in-page anchor links (native
                    * focusability, no custom key handling, no focus trap); every
                    * target section carries `scroll-margin-top` so the pinned nav
-                   * never obscures the focused/anchored section. The nav keeps the
-                   * slice-1 reading order (grid promoted) so the <1024px stack nav
-                   * stays sensible; activating a link also expands its target
-                   * section in the pane.
+                   * never obscures the focused/anchored section. The link order is
+                   * `WORKBENCH_SECTIONS` (the ug-22 reading order), which is
+                   * independent of the pane's DOM order — see the array's doc
+                   * comment; activating a link also expands its target section in
+                   * the pane.
                    */}
                   <nav
                     className="workbench-nav"
