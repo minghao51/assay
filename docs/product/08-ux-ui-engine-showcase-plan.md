@@ -12,12 +12,14 @@ The MVP is complete; this work improves its presentation and usability, not its 
 scopes and readiness. The ug queue now records the ug-1/ug-7 clarifications and ug-10 decision
 block. The proposal language below is rationale, not a competing live dispatch instruction.
 
-**Implementation status (2026-11-02):** all 23 usability rows are CLOSED and merged-verified — the
+**Implementation status (2026-11-03):** all 23 usability rows are CLOSED and merged-verified — the
 Grid, Panels and Shell lanes are complete, with ug-21 (opening progress + cancel) at `8458ad1`,
 ug-22 (sticky-nav reading order, no DOM reorder) at `e73dda4` and ug-23 (the four code-observation
-riders) at `07a37d4`. The visual rows
-(uxv-1…uxv-5) and uxv-6 remain as the execution queue records them. This note updates status only;
-the rationale and wave plan below are unchanged.
+riders) at `07a37d4`. The visual lane has started: **uxv-1 (R-09) is CLOSED at `d85dec2`** (a defined
+scheme-aware surface for the Settings dialog and telemetry disclosure, with the configured-disclosure
+leg proven against an endpoint-bearing bundle), so the frontier is **uxv-2 → uxv-3 → uxv-4 →
+uxv-5**, with uxv-6 design-only. This note updates status only; the rationale and wave plan below are
+unchanged.
 
 ## 1. Recommendation
 
