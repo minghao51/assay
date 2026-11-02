@@ -368,11 +368,16 @@ function defineScans(scheme: 'light' | 'dark'): void {
     // both-scheme, empty-allowlist bar as the panels. Before the token repair
     // its undefined surface token fell back to `#fff`, leaving light body text
     // on white in dark mode. Caveat, to keep the evidence honest: under that
-    // mutant this test fails at the dark pre-scan surface pin below, which runs
-    // BEFORE `scanAndGate` — so axe never executes here and reports no
-    // contrast violation for this surface. The 1.21:1 white-on-white figure
-    // comes from the direct browser contrast measurement in
-    // tests/e2e/theme.spec.ts, not from an axe scan.
+    // mutant the dark instance fails at the pre-scan surface pin below, which
+    // runs BEFORE `scanAndGate` — so axe never executes for that surface and
+    // reports no contrast violation for it. The light instance does still run
+    // axe under the mutant and passes (the fallback only repaints the dark
+    // panel), so this cannot be read as "axe never runs here". The 1.21:1
+    // white-on-white figure is therefore NOT an axe finding, and it is NOT
+    // produced by tests/e2e/theme.spec.ts either — that spec fails at its
+    // surface-identity pin before it can measure anything. The figure comes
+    // from a direct, standalone browser measurement taken against the mutant
+    // build, outside the committed suites.
     await page.goto('/')
     await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
       timeout: 20_000,
