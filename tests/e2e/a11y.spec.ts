@@ -371,13 +371,15 @@ function defineScans(scheme: 'light' | 'dark'): void {
     // mutant the dark instance fails at the pre-scan surface pin below, which
     // runs BEFORE `scanAndGate` — so axe never executes for that surface and
     // reports no contrast violation for it. The light instance does still run
-    // axe under the mutant and passes (the fallback only repaints the dark
-    // panel), so this cannot be read as "axe never runs here". The 1.21:1
-    // white-on-white figure is therefore NOT an axe finding, and it is NOT
-    // produced by tests/e2e/theme.spec.ts either — that spec fails at its
-    // surface-identity pin before it can measure anything. The figure comes
-    // from a direct, standalone browser measurement taken against the mutant
-    // build, outside the committed suites.
+    // axe under the mutant and passes — not because the light panel is
+    // untouched (the same fallback repaints it #fbfcfe → #ffffff too) but
+    // because light-scheme body text stays dark on a white panel, so this
+    // cannot be read as "axe never runs here". The 1.21:1 white-on-white
+    // figure is therefore NOT an axe finding, and it is NOT produced by
+    // tests/e2e/theme.spec.ts either — that spec fails at its surface-identity
+    // pin on the FIRST (light) visit, before it can measure anything. The
+    // figure comes from a direct, standalone browser measurement taken against
+    // the mutant build, outside the committed suites.
     await page.goto('/')
     await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
       timeout: 20_000,
