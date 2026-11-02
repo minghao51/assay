@@ -22,8 +22,14 @@ precedes `pipeline` and `pipeline` stays last, in both the pane and the nav. No
 copy change, no `index.css`/`display: contents`/`order` change, no new
 dependency, no engine/protocol change, no telemetry (ADR 0025/0037).
 
-Pins: the unit nav-order + two-pane DOM-order lists in `App.shell.test.tsx` (a new
-explicit `pipeline`-last assertion and a `filters`-before-`grid`-in-the-nav /
-`grid`-before-`filters`-in-the-DOM pair make the decoupling non-vacuous) and the
-matching nav-order list in `tests/e2e/shell.spec.ts`. `App.headings.test.tsx`
-still asserts the unchanged two-pane DOM heading map and needed no edit.
+Pins: the unit nav-order + two-pane DOM-order lists in `App.shell.test.tsx` (an
+explicit `pipeline`-last assertion, a `filters`-before-`grid`-in-the-nav
+assertion, and a dedicated nav↔DOM decoupling test that reads **both rendered
+lists** and asserts `indexOf('grid')`/`indexOf('filters')` differ between them —
+the nav reads filters 1, grid 2, while the two-pane DOM keeps filters in the tool
+pane at 6 and grid in the center column at 10) and the matching nav-order list in
+`tests/e2e/shell.spec.ts`. An earlier draft of this entry claimed a
+`grid`-before-`filters`-in-the-DOM half; that was wrong — `grid` renders in the
+center column, not the tool pane — and the decoupling pin now observes the real
+rendered difference. `App.headings.test.tsx` still asserts the unchanged two-pane
+DOM heading map and needed no edit.

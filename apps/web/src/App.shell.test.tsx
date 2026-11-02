@@ -294,21 +294,55 @@ describe('q-15 — workbench two-pane shell', () => {
     expect(linkIds).toEqual(NAV_ORDER.map((id) => `section-nav-${id}`))
     // q-15 placement ruling: pipeline stays LAST in the nav reading order too.
     expect(linkIds[linkIds.length - 1]).toBe('section-nav-pipeline')
-    // The nav is NOT the DOM: `filters` now reads before `grid` in the nav while
-    // the pane's section element order is untouched (ADR 0044 / D14 authorize
-    // the nav reading order only).
+    // `filters` now reads before `grid` in the nav (ADR 0044 / D14 authorize the
+    // nav reading order only), while the tool pane's section element order stays
+    // untouched below. The nav↔DOM decoupling itself is pinned in its own test
+    // ("keeps the nav reading order decoupled…"): a `.workbench-tools`-scoped
+    // query never contains `grid` (it renders in `.workbench-center`), so a
+    // grid/filters relation asserted over it would be trivially true.
     expect(linkIds.indexOf('section-nav-filters')).toBeLessThan(linkIds.indexOf('section-nav-grid'))
     const domSectionIds = Array.from(
       document.querySelectorAll('.workbench-tools .workbench-section'),
     ).map((section) => section.getAttribute('data-section'))
     expect(domSectionIds).toEqual(TOOL_DOM_ORDER)
-    expect(domSectionIds.indexOf('grid')).toBeLessThan(domSectionIds.indexOf('filters'))
 
     for (const id of NAV_ORDER) {
       const link = screen.getByTestId(`section-nav-${id}`)
       expect(link.getAttribute('href')).toBe(`#section-${id}`)
       expect(document.getElementById(`section-${id}`)).not.toBeNull()
     }
+  })
+
+  it('keeps the nav reading order decoupled from the two-pane DOM order (ug-22)', async () => {
+    await open()
+
+    // Both sides are read from the RENDERED shell, never from the pinned
+    // literals — this is an observation of the shipped App, not a restatement of
+    // the test's own arrays. (The raw lists themselves are pinned by the two
+    // tests above: the nav order and the two-pane section order.)
+    const navIds = Array.from(screen.getByTestId('section-nav').querySelectorAll('a')).map((link) =>
+      (link.getAttribute('data-testid') ?? '').replace('section-nav-', ''),
+    )
+    const domIds = Array.from(document.querySelectorAll('.workbench-section')).map(
+      (section) => section.getAttribute('data-section') ?? '',
+    )
+
+    // Guard against a vacuous comparison: both ids must really be present on
+    // both sides, otherwise both indexes are -1 and the assertions below would
+    // pass for the wrong reason.
+    for (const id of ['filters', 'grid'] as const) {
+      expect(navIds.indexOf(id)).toBeGreaterThanOrEqual(0)
+      expect(domIds.indexOf(id)).toBeGreaterThanOrEqual(0)
+    }
+
+    // ADR 0044 / D14 + the q-15 placement ruling authorize the nav reading order
+    // ONLY, so for these two ids nav and DOM must genuinely disagree: the nav
+    // reads filters (index 1) then grid (index 2), while the two-pane DOM keeps
+    // filters in the tool pane (index 6) and grid as the center column (index
+    // 10). A change that makes the two orders agree — a DOM reorder, or a nav
+    // order copied from the DOM — fails here.
+    expect(navIds.indexOf('grid')).not.toBe(domIds.indexOf('grid'))
+    expect(navIds.indexOf('filters')).not.toBe(domIds.indexOf('filters'))
   })
 
   it('expands the target section when its sticky-nav link is activated', async () => {
