@@ -1,24 +1,24 @@
 # UX/UI Pickup Prompts — current pack
 
-**Refreshed 2026-11-03 (docs only; uxv-1 closure pass).** This is a small ready-to-paste pack for the **current**
+**Refreshed 2026-11-03 (docs only; uxv-2 closure pass).** This is a small ready-to-paste pack for the **current**
 frontier, not an archive of completed dispatches. Re-read the live queues and the tree before
 every use; a prompt never overrides a closed/claimed/blocked row.
 
 ## Current state
 
-- **Merged-verified code tip `d85dec2`** (uxv-1) over the previous docs closure, with this pass's
-  docs commit on top: **225 unit files / 3353 tests, e2e 208 passed + 1 skipped, coverage
-  89.15/83.89/91.42/90.73, docs links 119/0, ADR 46, 189 changesets — all gates exit 0**
-  (`/tmp/assay-ux-uxv1-merged/`, logs `/tmp/assay-ux-uxv1-merged-logs/`; default ports, plus the
-  configured-disclosure leg on 4473/4479/4480 — 2 passed, restored dist endpoint-free).
+- **Merged-verified code tip `b487788`** (uxv-2) over the previous docs closure, with this pass's
+  docs commit on top: **226 unit files / 3399 tests, e2e 211 passed + 1 skipped, coverage
+  89.15/83.89/91.42/90.73, docs links 119/0, ADR 46, 190 changesets — all gates exit 0**
+  (`/tmp/assay-ux-uxv2-merged/`, logs `/tmp/assay-ux-uxv2-merged-logs/`; default ports).
   **All 23 usability rows are CLOSED — the batch is complete**; the Grid, Panels and Shell lanes are
   all closed, and the visual lane has started.
-- **No runtime usability row remains; the visual lane is now active.** **uxv-1 (R-09) is CLOSED** at
-  `d85dec2` (theme completeness for the Settings dialog and telemetry disclosure), so the frontier is
-  **uxv-2 → uxv-3 → uxv-4 → uxv-5**, strictly sequential (all touch `index.css`, and uxv-2/3 also
-  touch `App.tsx`). uvx-6 stays design-only. Do not redispatch any closed row **ug-1…ug-23** or
-  **uxv-1**; anything that reopens a lane (e.g. the recorded `row-uninsert` domain-gloss trigger or
-  uxv-1's UA-control-face residual) is a **new** row or an explicitly recorded rider.
+- **No runtime usability row remains; the visual lane is active.** **uxv-1 (R-09) is CLOSED** at
+  `d85dec2` and **uxv-2 (R-10) at `b487788`**, so the frontier is **uxv-3 → uxv-4 → uxv-5**, strictly
+  sequential (all touch `index.css`, and uxv-3 also touches `App.tsx` header/open/status classes).
+  uvx-6 stays design-only. Do not redispatch any closed row **ug-1…ug-23**, **uxv-1** or **uxv-2**;
+  anything that reopens a lane (e.g. the recorded `row-uninsert` domain-gloss trigger, uxv-2's
+  two-of-nine browser focus coverage, or its declared-but-unadopted type/radius aliases that uxv-3/5
+  inherit) is a **new** row or an explicitly recorded rider.
 - **Visual row:** **uxv-1** is factually eligible **only** with an exclusive CSS/theme-test
   reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated and **uxv-6** is
   design-only/deferred.
@@ -203,7 +203,7 @@ one bounded chore(web): commit plus changeset. No push, no self-approval, no sco
 files, per-rider evidence, exact commands/exit codes/counts, mutation results, logs and blockers.
 ```
 
-## 4. Worker — uxv-1 (Visual) — CONSUMED (uxv-1 CLOSED at `d85dec2`)
+## 4. Worker — uxv-1 (Visual) — CONSUMED (uxv-1 CLOSED at `d85dec2`; uxv-2 also closed at `b487788`)
 
 ```text
 Implement exactly uxv-1 (R-09): repair theme completeness.

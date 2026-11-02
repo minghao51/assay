@@ -2,8 +2,9 @@
 
 **Authored 2026-10-26; status refreshed 2026-11-02 (usability batch complete, after ug-23).** The authoring date records when the
 contract was written, not the current implementation state. As of 2026-10-31, R-01…R-08, R-14
-and R-15 are implemented and merged-verified; **R-09 is implemented at `d85dec2` (uxv-1, 2026-11-03)**
-and R-10…R-13 remain open (the frontier is uxv-2, then uxv-3 → uxv-4 → uxv-5); **R-16 is implemented at `f667a87`** under the maintainer's
+and R-15 are implemented and merged-verified; **R-09 is implemented at `d85dec2` (uxv-1)** and **R-10 at
+`b487788` (uxv-2)**, both 2026-11-03, while R-11…R-13 remain open (the frontier is uxv-3, then uxv-4
+→ uxv-5); **R-16 is implemented at `f667a87`** under the maintainer's
 UX-D1 Option C ruling (2026-10-30); **ug-16 profile click-to-act is implemented at `3b494f5`**
 under the settled typed-refusal design and **ug-17 collapsed section state summaries at
 `9a31cd6`**, **ug-4 capability-true grid interaction language at `784805c`**, **ug-5
@@ -382,7 +383,7 @@ the overlay-aware profile it deliberately does _not_ implement is a separate eng
 | R-06, R-07  | ug-7      | implemented                                                                | `9c29da4` + evidence `8367fbd`                                                    |
 | R-08        | ug-8      | implemented                                                                | `cb64c32`, gate determinism `b6fb78a` (gd-1)                                      |
 | R-09        | uxv-1     | implemented — `d85dec2` (defined scheme-aware surface, no colour fallback) | visual queue row uxv-1 + `.changeset/uxv-1-telemetry-surface-token.md`            |
-| R-10        | uxv-2     | open — dependency-gated (after uxv-1)                                      | visual queue row uxv-2 (also owns the ug-8 copy classes)                          |
+| R-10        | uxv-2     | implemented — `b487788` (token layer + named controls)                     | visual queue row uxv-2 + `.changeset/uxv-2-design-tokens.md`                      |
 | R-11        | uxv-3     | open — dependency-gated (after uxv-2)                                      | visual queue row uxv-3 (two-line headers from R-14 exist)                         |
 | R-12        | uxv-4     | open — dependency-gated (after ug-3 and uxv-3)                             | visual queue row uxv-4                                                            |
 | R-13        | uxv-5     | open — dependency-gated (after uxv-1…4; ug-3/7/8)                          | visual queue row uxv-5                                                            |
