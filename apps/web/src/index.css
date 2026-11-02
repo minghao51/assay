@@ -2204,12 +2204,22 @@ h1 {
   right: 0.5rem;
 }
 
+/*
+ * The Settings dialog and the first-run telemetry disclosure are the two
+ * floating telemetry surfaces: both are `role="dialog"` panels laid over the
+ * page, so they take the elevated surface the export dialog uses rather than
+ * the page surface (which would leave the panel indistinguishable from the
+ * body in both schemes). `--color-surface-elevated` is declared in BOTH scheme
+ * blocks. No colour fallback: a token typo must resolve to nothing and fail
+ * the contrast evidence visibly instead of silently painting the panel white
+ * in dark mode (uxv-1/R-09).
+ */
 .telemetry-settings-dialog,
 .telemetry-disclosure {
   border: 1px solid var(--color-border-panel-subtle);
   border-radius: 6px;
   padding: 0.75rem 1rem;
-  background: var(--color-surface-panel, #fff);
+  background: var(--color-surface-elevated);
   max-width: 42rem;
 }
 

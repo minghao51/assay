@@ -358,6 +358,37 @@ function defineScans(scheme: 'light' | 'dark'): void {
     )
     await scanAndGate(page, `pipeline panel (gated, ${scheme})`, scheme)
   })
+
+  test(`[${scheme}] telemetry Settings dialog has no unallowlisted critical/serious violations`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    // uxv-1 / R-09: the Settings dialog is a real, always-reachable surface
+    // (the header affordance is present in every state), so it gets the same
+    // both-scheme, empty-allowlist bar as the panels. Before the token repair
+    // its undefined surface token fell back to `#fff`, leaving light body text
+    // on white in dark mode — a `color-contrast` failure this scan now fails on.
+    await page.goto('/')
+    await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
+      timeout: 20_000,
+    })
+    await page.getByTestId('settings-toggle').click()
+    const dialog = page.getByTestId('settings-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(page.getByTestId('telemetry-toggle')).toBeVisible()
+    await expect(page.getByTestId('settings-close')).toBeVisible()
+
+    // Non-vacuity: the dialog really paints the scheme's surface. In dark mode
+    // a white panel is precisely the R-09 defect, so it cannot pass silently.
+    const painted = await dialog.evaluate((element) => getComputedStyle(element).backgroundColor)
+    if (scheme === 'dark') {
+      expect(painted, 'dark Settings dialog must not paint a white surface').not.toBe(
+        'rgb(255, 255, 255)',
+      )
+    }
+
+    await scanAndGate(page, `telemetry Settings dialog (idle, ${scheme})`, scheme)
+  })
 }
 
 /**
