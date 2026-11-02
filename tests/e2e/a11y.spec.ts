@@ -367,7 +367,12 @@ function defineScans(scheme: 'light' | 'dark'): void {
     // (the header affordance is present in every state), so it gets the same
     // both-scheme, empty-allowlist bar as the panels. Before the token repair
     // its undefined surface token fell back to `#fff`, leaving light body text
-    // on white in dark mode — a `color-contrast` failure this scan now fails on.
+    // on white in dark mode. Caveat, to keep the evidence honest: under that
+    // mutant this test fails at the dark pre-scan surface pin below, which runs
+    // BEFORE `scanAndGate` — so axe never executes here and reports no
+    // contrast violation for this surface. The 1.21:1 white-on-white figure
+    // comes from the direct browser contrast measurement in
+    // tests/e2e/theme.spec.ts, not from an axe scan.
     await page.goto('/')
     await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'idle', {
       timeout: 20_000,

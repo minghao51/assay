@@ -31,7 +31,10 @@ import { assertNoCriticalOrSerious, scanA11y, summarizeViolations } from '../e2e
  *    computed background, measured in Chromium (never JSDOM);
  *  - the axe scan stays green under the UNCHANGED empty allowlist;
  *  - the Settings dialog (the other R-09 surface) is equally readable here;
- *  - every intercepted collector request was aborted (nothing was delivered).
+ *  - the configured runtime really ATTEMPTED at least one collector send, and
+ *    every intercepted request was then aborted (nothing was delivered). Zero
+ *    attempts fail the gate instead of passing it vacuously: `every(...)` is
+ *    trivially true on an empty array, so the attempt count is asserted first.
  */
 
 const COLLECTOR_ORIGIN = 'https://collector.example.invalid'
@@ -279,10 +282,21 @@ for (const scheme of ['light', 'dark'] as const) {
     console.log(
       `[telemetry] intercepted ${String(intercepted.length)} collector request(s): ${JSON.stringify(intercepted)}`,
     )
-    expect(intercepted.every((request) => request.url.startsWith(COLLECTOR_ORIGIN))).toBe(true)
+    // Non-vacuity FIRST: the `every(...)` proofs below are trivially true on
+    // an empty array, so a build that stopped attempting collector sends would
+    // pass the privacy gate silently. Prove an attempt happened, then prove it
+    // was blocked.
+    expect(
+      intercepted.length,
+      `[${scheme}] the configured build must attempt at least one collector send — zero attempts would make the abort proof vacuous`,
+    ).toBeGreaterThan(0)
+    expect(
+      intercepted.every((request) => request.url.startsWith(COLLECTOR_ORIGIN)),
+      `[${scheme}] every intercepted request must target the configured collector origin`,
+    ).toBe(true)
     expect(
       intercepted.every((request) => request.aborted),
-      'every intercepted collector request must be aborted — nothing may be delivered',
+      `[${scheme}] every intercepted collector request must be aborted — nothing may be delivered`,
     ).toBe(true)
   })
 }
