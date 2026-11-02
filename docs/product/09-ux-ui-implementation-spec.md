@@ -1,6 +1,6 @@
 # Assay UX/UI Implementation Spec
 
-**Authored 2026-10-26; status refreshed 2026-11-02.** The authoring date records when the
+**Authored 2026-10-26; status refreshed 2026-11-02 (after ug-22).** The authoring date records when the
 contract was written, not the current implementation state. As of 2026-10-31, R-01…R-08, R-14
 and R-15 are implemented and merged-verified; R-09…R-13 remain open (uxv-1 is eligible pending an
 exclusive CSS/theme-test reservation); **R-16 is implemented at `f667a87`** under the maintainer's
@@ -60,8 +60,12 @@ and record inspector`) with roving focus landing on the target row. ug-11 (Grid)
   filter replacement when filters are active. **ug-21 (Shell) is implemented at `8458ad1`**: the
   opening state shows a genuinely indeterminate, named `<progress>` (no value, no percentage) and a
   `Cancel opening` control that returns the app to idle through the existing session-token guard, so
-  a cancelled open's late result is discarded. Grid and Panels lanes complete; next runtime row is
-  ug-22 (Shell), then ug-23. Adjustable SQL sizing remains design-only. All other
+  a cancelled open's late result is discarded. **ug-22 (Shell) is implemented at `e73dda4`**: the
+  sticky-nav reading order is schema, filters, grid, validation, compare, sql, editing, history,
+  export, record, profile, pipeline — a pure `WORKBENCH_SECTIONS` array edit with **no DOM reorder**
+  (ADR 0044 / D14 + the q-15 placement ruling authorize nav order only; the section element order,
+  heading map and two-pane layout are unchanged). Grid and Panels lanes complete; the only remaining
+  runtime row is ug-23 (Shell). Adjustable SQL sizing remains design-only. All other
   requirements are bounded by queue prerequisites and scope; no broad redesign is authorized.
 
 ## 2. Requirements and UI states
@@ -369,8 +373,9 @@ the overlay-aware profile it deliberately does _not_ implement is a separate eng
 | R-16        | ug-10     | implemented — `f667a87` (UX-D1 Option C)                         | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7 + spec §2 |
 
 **Rows without a requirement ID.** ug-4/ug-5/ug-6/ug-11/ug-12/ug-17/ug-18/ug-19/ug-20 and (as of
-2026-11-02) **ug-21** implement queue findings rather than an `R-` contract and are not listed above:
-ug-21 (opening progress + session-token cancel) is **implemented at `8458ad1`**; the owning record is
-the [usability queue](../process/handoff/20261026-usability-queue.md) ug-21 row and
-[handoff §9](../process/handoff.md). The `Opening` row in §2's state-completeness table carries the
-behavioural contract.
+2026-11-02) **ug-21** and **ug-22** implement queue findings rather than an `R-` contract and are not
+listed above: ug-21 (opening progress + session-token cancel) is **implemented at `8458ad1`** and
+ug-22 (sticky-nav reading order, no DOM reorder) at `e73dda4`; the owning record is the
+[usability queue](../process/handoff/20261026-usability-queue.md) rows and
+[handoff §9](../process/handoff.md). The `Opening` row in §2's state-completeness table carries
+ug-21's behavioural contract, and §1 above records ug-22's nav-order-only boundary.

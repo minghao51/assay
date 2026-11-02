@@ -1,20 +1,20 @@
 # UX/UI Pickup Prompts — current pack
 
-**Refreshed 2026-11-02 (docs only; ug-21 closure pass).** This is a small ready-to-paste pack for the **current**
+**Refreshed 2026-11-02 (docs only; ug-22 closure pass).** This is a small ready-to-paste pack for the **current**
 frontier, not an archive of completed dispatches. Re-read the live queues and the tree before
 every use; a prompt never overrides a closed/claimed/blocked row.
 
 ## Current state
 
-- **Merged-verified code tip `8458ad1`** (ug-21) over the previous docs closure, with this pass's
-  docs commit on top: **223 unit files / 3338 tests, e2e 205 passed + 1 skipped, coverage
-  89.15/83.89/91.41/90.73, docs links 119/0, ADR 46, 186 changesets — all gates exit 0**
-  (`/tmp/assay-ux-ug21-merged/`, logs `/tmp/assay-ux-ug21-merged-logs/`).
-  **21 of the 23 usability rows are CLOSED**; the Grid and Panels lanes are complete.
-- **Remaining runtime rows — both Shell:** **ug-22 → ug-23**. Both touch
-  `apps/web/src/App.tsx`, so they **must be dispatched sequentially** (one row at a time); the next
-  row's base is whatever `main` is after the previous row's docs commit. Do not redispatch closed
-  rows **ug-1…ug-21**.
+- **Merged-verified code tip `e73dda4`** (ug-22) over the previous docs closure, with this pass's
+  docs commit on top: **223 unit files / 3339 tests, e2e 205 passed + 1 skipped, coverage
+  89.15/83.89/91.41/90.73, docs links 119/0, ADR 46, 187 changesets — all gates exit 0**
+  (`/tmp/assay-ux-ug22-merged/`, logs `/tmp/assay-ux-ug22-merged-logs/`; the default 4173 was held by
+  a foreign preview server, so that merged e2e ran on the documented alternate 4573/4579/4580).
+  **22 of the 23 usability rows are CLOSED**; the Grid and Panels lanes are complete.
+- **Remaining runtime row — Shell:** **ug-23** (the four code-observation riders), which must run
+  alone because it reserves `apps/web/src/App.tsx`, `grid/FilterBar.tsx` and `edit/op-summary.ts`.
+  Do not redispatch closed rows **ug-1…ug-22**.
 - **Visual row:** **uxv-1** is factually eligible **only** with an exclusive CSS/theme-test
   reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated and **uxv-6** is
   design-only/deferred.
@@ -125,7 +125,7 @@ silent scope growth. Report files, requirement evidence, exact commands/exit cod
 results, logs and blockers.
 ```
 
-## 3d. Worker — ug-22 (Shell) — READY (next dispatch; base = the current `main` tip, which contains `8458ad1`)
+## 3d. Worker — ug-22 (Shell) — CONSUMED (ug-22 CLOSED at `e73dda4`; two commits, one request-changes round)
 
 ```text
 Implement exactly ug-22: nav reading order (ruling-compliant).
@@ -159,7 +159,7 @@ one bounded chore(web): commit plus changeset. No push, no self-approval, no sco
 files, requirement evidence, exact commands/exit codes/counts, mutation results, logs and blockers.
 ```
 
-## 3e. Worker — ug-23 (Shell) — READY
+## 3e. Worker — ug-23 (Shell) — READY (next dispatch; base = the current `main` tip, which contains `e73dda4`)
 
 ```text
 Implement exactly ug-23: code-observation riders CO-1…CO-4.
@@ -264,9 +264,10 @@ VERDICT: request-changes
 
 ## 6. Thread sequencing and shared-file reservations
 
-- **ug-22 → ug-23 are strictly sequential** (both touch `apps/web/src/App.tsx`; ug-21 closed at
-  `8458ad1`). Start the next row only after the previous row is integrated and its docs commit is on
-  `main`; use that tip as the base. Never run two of these threads concurrently.
+- **ug-23 is the last row** (touches `apps/web/src/App.tsx`, `grid/FilterBar.tsx`,
+  `edit/op-summary.ts`; ug-21 closed at `8458ad1`, ug-22 at `e73dda4`). Start it only after the
+  previous row is integrated and its docs commit is on `main`; use that tip as the base. Never run
+  two of these threads concurrently.
 - **Shared-file reservations:** ug-21 reserves `App.tsx` + `lib/app.ts`; ug-22 reserves `App.tsx` +
   the nav/heading pins; ug-23 reserves `App.tsx` + `grid/FilterBar.tsx` + `edit/op-summary.ts`.
   State the reservation in each worker brief.

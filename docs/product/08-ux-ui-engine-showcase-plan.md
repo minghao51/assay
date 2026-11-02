@@ -12,11 +12,11 @@ The MVP is complete; this work improves its presentation and usability, not its 
 scopes and readiness. The ug queue now records the ug-1/ug-7 clarifications and ug-10 decision
 block. The proposal language below is rationale, not a competing live dispatch instruction.
 
-**Implementation status (2026-11-02):** 21 of the 23 usability rows are CLOSED and
-merged-verified — the Grid and Panels lanes are complete, and ug-21 (opening progress + cancel)
-landed at `8458ad1`. The two remaining rows are both Shell: **ug-22** (nav reading order) and
-**ug-23** (code-observation riders). They share `App.tsx`, so dispatch them **sequentially**, not in
-parallel. The visual rows
+**Implementation status (2026-11-02):** 22 of the 23 usability rows are CLOSED and
+merged-verified — the Grid and Panels lanes are complete, ug-21 (opening progress + cancel) landed at
+`8458ad1` and ug-22 (sticky-nav reading order, no DOM reorder) at `e73dda4`. The last runtime row is
+**ug-23** (the four code-observation riders), which reserves `App.tsx`, `grid/FilterBar.tsx` and
+`edit/op-summary.ts`, so it runs alone. The visual rows
 (uxv-1…uxv-5) and uxv-6 remain as the execution queue records them. This note updates status only;
 the rationale and wave plan below are unchanged.
 
