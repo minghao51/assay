@@ -2,9 +2,9 @@
 
 **Authored 2026-10-26; status refreshed 2026-11-02 (usability batch complete, after ug-23).** The authoring date records when the
 contract was written, not the current implementation state. As of 2026-10-31, R-01…R-08, R-14
-and R-15 are implemented and merged-verified; **R-09 is implemented at `d85dec2` (uxv-1)** and **R-10 at
-`b487788` (uxv-2)**, both 2026-11-03, while R-11…R-13 remain open (the frontier is uxv-3, then uxv-4
-→ uxv-5); **R-16 is implemented at `f667a87`** under the maintainer's
+and R-15 are implemented and merged-verified; **R-09 is implemented at `d85dec2` (uxv-1)**,
+**R-10 at `b487788` (uxv-2)** and **R-11 at `cd4fb3f` (uxv-3)**, all 2026-11-03, while R-12/R-13
+remain open (the frontier is uxv-4, then uxv-5); **R-16 is implemented at `f667a87`** under the maintainer's
 UX-D1 Option C ruling (2026-10-30); **ug-16 profile click-to-act is implemented at `3b494f5`**
 under the settled typed-refusal design and **ug-17 collapsed section state summaries at
 `9a31cd6`**, **ug-4 capability-true grid interaction language at `784805c`**, **ug-5
@@ -205,7 +205,12 @@ The ready workspace top should be ≤140px at the supported desktop samples, abs
 error or additional guidance. Additional copy/zoom may increase height; scroll rather than clip.
 
 Grid scroll viewport candidate: `clamp(280px, calc(100dvh - 240px), 640px)`, with `vh` fallback.
-This yields 460/640/640px at the three desktop heights, before borders. Keep 28px row geometry,
+This yields 460/640/640px at the three desktop heights, before borders. **Implemented 2026-11-03 at
+`fb195b4` with the reserve adjusted to 280px** (`clamp(280px, calc(100dvh - 280px), 640px)`): the
+240px candidate put the grid footer's last pixel at 728.27px — 28.27px below the 700px fold — and
+defeated the 1024×700 acceptance (and 1440×900, footer bottom 916.27px), so the reserved-height
+constant was raised within uxv-3 as this section allows; the measured reserve is 268.27px and the
+implemented heights are **420/620/640px**, leaving 11.73px of slack at 1024×700. Keep 28px row geometry,
 header measurement, horizontal scroll, overscan/window contracts and record dock placement.
 Assert heading, column headers, first ready row and normal grid footer visible at 1024×700;
 if real header/footer measurements defeat that acceptance, adjust the reserved-height constant
@@ -375,21 +380,21 @@ R-09…R-13. **R-16 is implemented** at `f667a87` (UX-D1 Option C, 2026-10-30), 
 the overlay-aware profile it deliberately does _not_ implement is a separate engine-track candidate
 (planning only). uxv-6 has no requirement row and remains design-only/deferred.
 
-| Requirement | Owner row | Status (2026-11-02)                                                        | Record                                                                            |
-| ----------- | --------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| R-01, R-02  | ug-1      | implemented                                                                | `e92c0dd` (usability queue §1)                                                    |
-| R-03, R-04  | ug-2      | implemented                                                                | `8e5fd62`                                                                         |
-| R-05        | ug-3      | implemented                                                                | `5253c06`                                                                         |
-| R-06, R-07  | ug-7      | implemented                                                                | `9c29da4` + evidence `8367fbd`                                                    |
-| R-08        | ug-8      | implemented                                                                | `cb64c32`, gate determinism `b6fb78a` (gd-1)                                      |
-| R-09        | uxv-1     | implemented — `d85dec2` (defined scheme-aware surface, no colour fallback) | visual queue row uxv-1 + `.changeset/uxv-1-telemetry-surface-token.md`            |
-| R-10        | uxv-2     | implemented — `b487788` (token layer + named controls)                     | visual queue row uxv-2 + `.changeset/uxv-2-design-tokens.md`                      |
-| R-11        | uxv-3     | open — dependency-gated (after uxv-2)                                      | visual queue row uxv-3 (two-line headers from R-14 exist)                         |
-| R-12        | uxv-4     | open — dependency-gated (after ug-3 and uxv-3)                             | visual queue row uxv-4                                                            |
-| R-13        | uxv-5     | open — dependency-gated (after uxv-1…4; ug-3/7/8)                          | visual queue row uxv-5                                                            |
-| R-14        | ug-13     | implemented                                                                | `36cead3` + test-only `793ba90`                                                   |
-| R-15        | ug-9      | implemented                                                                | `71fa03a` + Critical fix `385649b`                                                |
-| R-16        | ug-10     | implemented — `f667a87` (UX-D1 Option C)                                   | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7 + spec §2 |
+| Requirement | Owner row | Status (2026-11-02)                                                          | Record                                                                            |
+| ----------- | --------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| R-01, R-02  | ug-1      | implemented                                                                  | `e92c0dd` (usability queue §1)                                                    |
+| R-03, R-04  | ug-2      | implemented                                                                  | `8e5fd62`                                                                         |
+| R-05        | ug-3      | implemented                                                                  | `5253c06`                                                                         |
+| R-06, R-07  | ug-7      | implemented                                                                  | `9c29da4` + evidence `8367fbd`                                                    |
+| R-08        | ug-8      | implemented                                                                  | `cb64c32`, gate determinism `b6fb78a` (gd-1)                                      |
+| R-09        | uxv-1     | implemented — `d85dec2` (defined scheme-aware surface, no colour fallback)   | visual queue row uxv-1 + `.changeset/uxv-1-telemetry-surface-token.md`            |
+| R-10        | uxv-2     | implemented — `b487788` (token layer + named controls)                       | visual queue row uxv-2 + `.changeset/uxv-2-design-tokens.md`                      |
+| R-11        | uxv-3     | implemented — `cd4fb3f` (fluid canvas, compact header, 420/620/640 viewport) | visual queue row uxv-3 + `.changeset/uxv-3-desktop-canvas.md`                     |
+| R-12        | uxv-4     | open — dependency-gated (after ug-3 and uxv-3)                               | visual queue row uxv-4                                                            |
+| R-13        | uxv-5     | open — dependency-gated (after uxv-1…4; ug-3/7/8)                            | visual queue row uxv-5                                                            |
+| R-14        | ug-13     | implemented                                                                  | `36cead3` + test-only `793ba90`                                                   |
+| R-15        | ug-9      | implemented                                                                  | `71fa03a` + Critical fix `385649b`                                                |
+| R-16        | ug-10     | implemented — `f667a87` (UX-D1 Option C)                                     | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7 + spec §2 |
 
 **Rows without a requirement ID.** ug-4/ug-5/ug-6/ug-11/ug-12/ug-17/ug-18/ug-19/ug-20 and (as of
 2026-11-02) **ug-21** and **ug-22** implement queue findings rather than an `R-` contract and are not

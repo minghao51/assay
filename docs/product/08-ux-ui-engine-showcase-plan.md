@@ -17,9 +17,10 @@ Grid, Panels and Shell lanes are complete, with ug-21 (opening progress + cancel
 ug-22 (sticky-nav reading order, no DOM reorder) at `e73dda4` and ug-23 (the four code-observation
 riders) at `07a37d4`. The visual lane is under way: **uxv-1 (R-09) is CLOSED at `d85dec2`** (a defined
 scheme-aware surface for the Settings dialog and telemetry disclosure, with the configured-disclosure
-leg proven against an endpoint-bearing bundle) and **uxv-2 (R-10) at `b487788`** (bounded token layer
-and named-control adoption, exactly two accent primaries, no bare element selector), so the frontier
-is **uxv-3 → uxv-4 → uxv-5**, with uxv-6 design-only. This note updates status only; the rationale and wave plan below are
+leg proven against an endpoint-bearing bundle) **uxv-2 (R-10) at `b487788`** (bounded token layer and
+named-control adoption, exactly two accent primaries, no bare element selector) and **uxv-3 (R-11) at
+`cd4fb3f`** (fluid canvas to the measured 1024/1440/1920 matrix, compact header, measured 420/620/640
+grid viewport), so the frontier is **uxv-4 → uxv-5**, with uxv-6 design-only. This note updates status only; the rationale and wave plan below are
 unchanged.
 
 ## 1. Recommendation

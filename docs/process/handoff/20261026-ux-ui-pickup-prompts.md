@@ -1,24 +1,24 @@
 # UX/UI Pickup Prompts — current pack
 
-**Refreshed 2026-11-03 (docs only; uxv-2 closure pass).** This is a small ready-to-paste pack for the **current**
+**Refreshed 2026-11-03 (docs only; uxv-3 closure pass).** This is a small ready-to-paste pack for the **current**
 frontier, not an archive of completed dispatches. Re-read the live queues and the tree before
 every use; a prompt never overrides a closed/claimed/blocked row.
 
 ## Current state
 
-- **Merged-verified code tip `b487788`** (uxv-2) over the previous docs closure, with this pass's
-  docs commit on top: **226 unit files / 3399 tests, e2e 211 passed + 1 skipped, coverage
-  89.15/83.89/91.42/90.73, docs links 119/0, ADR 46, 190 changesets — all gates exit 0**
-  (`/tmp/assay-ux-uxv2-merged/`, logs `/tmp/assay-ux-uxv2-merged-logs/`; default ports).
+- **Merged-verified code tip `cd4fb3f`** (uxv-3) over the previous docs closure, with this pass's
+  docs commit on top: **227 unit files / 3403 tests, e2e 216 passed + 1 skipped, coverage
+  89.15/83.89/91.42/90.73, docs links 119/0, ADR 46, 191 changesets — all gates exit 0**
+  (`/tmp/assay-ux-uxv3-merged/`, logs `/tmp/assay-ux-uxv3-merged-logs/`; default ports).
   **All 23 usability rows are CLOSED — the batch is complete**; the Grid, Panels and Shell lanes are
   all closed, and the visual lane has started.
 - **No runtime usability row remains; the visual lane is active.** **uxv-1 (R-09) is CLOSED** at
-  `d85dec2` and **uxv-2 (R-10) at `b487788`**, so the frontier is **uxv-3 → uxv-4 → uxv-5**, strictly
-  sequential (all touch `index.css`, and uxv-3 also touches `App.tsx` header/open/status classes).
-  uvx-6 stays design-only. Do not redispatch any closed row **ug-1…ug-23**, **uxv-1** or **uxv-2**;
-  anything that reopens a lane (e.g. the recorded `row-uninsert` domain-gloss trigger, uxv-2's
-  two-of-nine browser focus coverage, or its declared-but-unadopted type/radius aliases that uxv-3/5
-  inherit) is a **new** row or an explicitly recorded rider.
+  `d85dec2`, **uxv-2 (R-10) at `b487788`** and **uxv-3 (R-11) at `cd4fb3f`**, so the frontier is
+  **uxv-4 → uxv-5**, strictly sequential. uxv-6 stays design-only. Do not redispatch any closed row
+  **ug-1…ug-23**, **uxv-1**, **uxv-2** or **uxv-3**; anything that reopens a lane (e.g. the recorded
+  `row-uninsert` domain-gloss trigger, uxv-2's two-of-nine browser focus coverage, uxv-3's unpinned
+  Settings-over-Open check, or the unadopted `--radius-md/lg`/`--font-family-mono` that uxv-5
+  inherits) is a **new** row or an explicitly recorded rider.
 - **Visual row:** **uxv-1** is factually eligible **only** with an exclusive CSS/theme-test
   reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated and **uxv-6** is
   design-only/deferred.
