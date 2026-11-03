@@ -792,17 +792,15 @@ h1 {
 
 .grid-viewport {
   /*
-   * uxv-3 / R-11: bounded grid height (spec §4). The viewport follows the
-   * window between a 280px floor and a 640px ceiling and reserves a constant
-   * 280px for everything above/below it (compact ready header, Grid heading,
-   * and the real footer). `vh` first for older engines
-   * that do not know `dvh`; the `dvh` line wins where it is supported, so a
-   * mobile URL bar can never squeeze the rows. Measured reserved space at
-   * 1024×700 is 258px (ready top 127 + heading 62 + the footer plus its 4px
-   * gap 58) — the 280px constant keeps the mandatory 1024×700 acceptance
-   * (heading, column headers, first row AND the whole footer visible) green
-   * with ~18px of slack; the 240px candidate left the footer ~24px below the
-   * fold, so the constant is the measured one (see the task report).
+   * uxv-3 / R-11: the grid's scroll viewport is bounded so the ready frame stays usable without the
+   * page scrolling for the grid's sake. The reserve is the MEASURED space above and below the
+   * viewport, not the spec's 240px candidate: at 1024×700 that reserve is 268.27px
+   * (211.27px above the viewport + a 3px gap + the 54px footer), so a 280px reserve yields a 420px
+   * viewport with the footer's last pixel at 688.27 — 11.73px of slack below 700. The 240px
+   * candidate would give a 460px viewport, put the footer's last pixel at 728.27 (28.27px below the
+   * fold at 700) and defeat 1440×900 as well (footer bottom 916.27). Row geometry stays 28px, the
+   * header measurement, horizontal scroll, overscan contracts and the record dock are untouched, and
+   * the JS row estimate is never changed; extra copy or zoom scrolls rather than clips.
    */
   height: clamp(280px, calc(100vh - 280px), 640px);
   height: clamp(280px, calc(100dvh - 280px), 640px);
