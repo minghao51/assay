@@ -25,7 +25,7 @@ document details the post-MVP structure and carries the launch-readiness checkli
   top points here. Scenarios in docs 07 that reference VS Code (e.g. "open the same workflow in
   VS Code") are post-MVP acceptance criteria for PT-V, not MVP gaps.
 
-## 2. Where things stand (evidence base, updated 2026-09-27)
+## 2. Where things stand (evidence base, updated 2026-11-03)
 
 - **Surfaces:** web app (inspect/nested/edit/export/validate/diff), CLI (`assay validate`,
   `assay diff`), shared pure packages (`@assay/domain`, `@assay/contracts`, `@assay/validation`,
@@ -42,6 +42,7 @@ document details the post-MVP structure and carries the launch-readiness checkli
   the first remote run and again after the `actions/*` SHA-pin (M2/M3 done; org-transfer +
   public flip remain maintainer calls); no npm org claim; no demo dataset. A11y CI landed
   2026-09-24 (pt0-4): dual-scheme axe scans gated in CI, empty deferred-findings allowlist.
+- **UX/UI programme — COMPLETE (2026-11-03):** the post-M6 usability and visual work shipped and merged-verified: **[usability queue](../process/handoff/20261026-usability-queue.md) ug-1…ug-23 (23/23)** and **[visual queue](../process/handoff/20261026-ux-ui-execution-queue.md) uxv-0…uxv-5**, so every requirement in the [implementation spec](09-ux-ui-implementation-spec.md) (R-01…R-16) is implemented. Last code verification (clean worktree, default ports): 227 unit files / 3408 tests, e2e 217 passed + 1 skipped, coverage 89.15/83.89/91.42/90.73, docs links 120/0, 46 ADRs, 192 changesets; the rehearsal deliverable is [product/10](10-ux-ui-demo-rehearsal.md). Deferred by design and needing a maintainer decision before any code: **uxv-6** (adjustable SQL sizing, UX-D2) and the overlay-aware profile candidate ([20261030-overlay-profile-candidate.md](../process/handoff/20261030-overlay-profile-candidate.md)).
 - **Whole-repo audit (2026-09-22):** seven-lane read-only audit of every package/app/infra
   ([report](../reviews/2026-09-22-whole-repo-implementation-audit.md)) — 2 criticals (BLOB CSV
   formula-injection bypass; web cell-editor wrong-row commit), ~35 warnings, structural gaps.

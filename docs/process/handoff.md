@@ -1,13 +1,14 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-11-02. **Current lane:** UX usability + visual continuation. The
+**Last updated:** 2026-11-03. **Current lane:** launch readiness — the UX/UI programme is complete. The
 [usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) in 23 rows (ug-1…ug-23):
-**ug-1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/20 are CLOSED**, 3 rows are open (none decision-blocked), so 3
-rows remain (the Grid and Panels lanes are complete). Dispatch from the queue, not the review. The
-[visual queue](handoff/20261026-ux-ui-execution-queue.md) owns uxv-0…uxv-6: uxv-0 is recorded,
-**uxv-1 is eligible only with an exclusive CSS/theme-test reservation**, uxv-2…uxv-5 are
-dependency-gated and uxv-6 is deferred. Next runtime row is **ug-21 (Shell)**, then ug-22/ug-23. Everything waiting on a human, a decision, or a remote operation is consolidated in the
+**all 23 are CLOSED** and merged-verified (Shell, Grid and Panels lanes complete). The
+[visual queue](handoff/20261026-ux-ui-execution-queue.md) owns uxv-0…uxv-6: **uxv-0…uxv-5 are CLOSED**
+and merged-verified (R-09…R-13 implemented), and **uxv-6 is design-only/deferred** behind a maintainer
+decision. **No runtime UX row remains**; the programme's records are §2 (verified state), the two queue
+files and §9, and the rehearsal deliverable is [product/10](../product/10-ux-ui-demo-rehearsal.md).
+Everything waiting on a human, a decision, or a remote operation is consolidated in the
 [open-asks checklist](handoff/20261019-open-asks.md) (refreshed 2026-10-29 against this
 index). The earlier G0-readiness/recorded-gap batch (gb-1…gb-5, [queue](handoff/20261019-g0-readiness-queue.md))
 and repository maintenance are CLOSED; their queues carry the record. This is the current-state
@@ -51,26 +52,11 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 
 **Verified state (2026-10-19):** slice 2 CLOSED with ptv2-8 (exit acceptance) integrated as `bce449f` after an independent reviewer approve (one request-changes round added independently-normalized refusal evidence). Forced typecheck **20**, unit **3027/191**, coverage **87.84/81.97/88.65/89.29** above floors, build **12**, browser **175 + 1 skip**, native **9**, spike **15 pins**, real-VSCode **10/10 scenarios** (full MVP-scenario-11 chain: validate 1/0/1/0 → confirmed-key diff 1/1/1 → report + copy delivery; offline JSON/JSONL opens; six staged-diff installed-CLI legs; acceptance agreement). Closure records: [slice-2 queue](handoff/20261014-ptv-slice2-queue.md) and the [G0-readiness/recorded-gap batch](handoff/20261019-g0-readiness-queue.md). **164 pending changesets at that date (live count 172 on 2026-10-29)**, doc links **107/0** at that date, ADRs **46**.
 
-**Push / remote CI:** user-authorized normal `main` pushes verified at
-`3a3a94b`/`ddd72f4`/`1f6cbb9` (remote SHA equality, 0/0 divergence), on
-2026-10-28 for the UX batch: `a3f2733..0bd9866` (18 commits: ug-1/ug-2/ug-7/
-ug-3/ug-8 + gd-1 + their process records), and most recently at **`dee10f8`**
-on 2026-10-29 (the docs pack and UX-D1 draft; remote SHA equality at that revision).
-**`ea41533`** (the follow-up docs reconciliation) is **local-only — HEAD is 1 ahead of
-`origin/main`, 0 behind** and is not pushed. The current checkout still holds another agent's
-uncommitted `README.md`, `docs/assets/` and `.dsh/` work; those edits are **not
-pushed**, and no agent may claim otherwise. CI
-runs [38615821301](https://github.com/minghao51/assay/actions/runs/38615821301),
-[38616340554](https://github.com/minghao51/assay/actions/runs/38616340554)
-and later runs on `1f6cbb9` failed **before any steps ran**: GitHub reports
-account payments failed **or** spending limit needs increasing. No code gate
-ran remotely; user deferred this blocker 2026-10-15. Human **[M6](manual-actions.md)**
-must restore Actions billing/limit access, then re-run latest `main` CI.
-No billing, visibility, publication or force-push change is authorized; local
-green is not remote green. Remote hygiene: four dependabot branches were
-force-updated on the origin remote 2026-10-17 (github-actions pin,
-apache-arrow 21, vite plugin-react, npm minor-patch); triage is pending and
-none are merged.
+**UX/UI programme verified state (2026-11-03):** both UX queues' runtime rows are **CLOSED** — usability **ug-1…ug-23 (23/23)** and visual **uxv-0…uxv-5** — so every requirement in the [implementation spec](../product/09-ux-ui-implementation-spec.md) (R-01…R-16) is implemented and merged-verified. Last code verification (clean worktree `cd4fb3f`…`6457113`, default ports, `CI=1 pnpm exec playwright test --retries=0`): **227 unit files / 3408 tests, e2e 217 passed + 1 skipped, coverage 89.15/83.89/91.42/90.73** (floors unchanged), docs links **120/0**, ADR **46**, **192** changesets. uxv-5 added one documentation file only ([rehearsal pack](../product/10-ux-ui-demo-rehearsal.md)), verified docs-only (links/prettier/ADR index) with no runtime delta. Deferred by design: **uxv-6** (SQL sizing) and the overlay-aware profile candidate are design-only and need a maintainer decision before any code. Records: [usability queue](handoff/20261026-usability-queue.md) §1/§2/§5, [visual queue](handoff/20261026-ux-ui-execution-queue.md) §2/§4, [pickup pack](handoff/20261026-ux-ui-pickup-prompts.md), and §6/§9 above.
+
+**Push / remote CI:** the last verified push is **`dee10f8`** (2026-10-29). Since then local `main` has accumulated the whole UX/UI programme **unpushed**: at this revision HEAD is **66 commits ahead of `origin/main` and 0 behind**, so remote CI does not describe this tree. Earlier episodes were verified pushed at `3a3a94b`/`ddd72f4`/`1f6cbb9` and `a3f2733..0bd9866` (18 commits, 2026-10-28); `ea41533` (the 2026-10-29 docs reconciliation) is likewise **local-only**. No push authorization was given for this batch and workers never pushed. The current checkout still holds another agent's uncommitted `README.md`, `docs/assets/` and `.dsh/` work; those edits are **not pushed**, and no agent may claim otherwise — note that this foreign `.dsh/**` content also makes the repo-root `pnpm format:check` fail locally, so gates are run in clean isolated worktrees.
+
+**Remote CI is M6-blocked:** runs [38615821301](https://github.com/minghao51/assay/actions/runs/38615821301) and [38616340554](https://github.com/minghao51/assay/actions/runs/38616340554) — and later runs on `1f6cbb9` — failed **before any steps ran**: GitHub reports account payments failed **or** a spending limit that needs increasing, so **no code gate ran remotely**. The user deferred this on 2026-10-15; human **[M6](manual-actions.md)** must restore Actions billing/limit access and then re-run the latest `main`. No billing, visibility, publication or force-push change is authorized, and **local green is not remote green**. Remote hygiene: four dependabot branches were force-updated on origin on 2026-10-17 (github-actions pin, apache-arrow 21, vite plugin-react, npm minor-patch); triage is pending and none are merged.
 
 **Release boundary:** complete local CLI tarball closure is verified, but
 registry distribution of private runtime dependencies remains an explicit
@@ -121,7 +107,9 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ### Active
 
-[Usability queue](handoff/20261026-usability-queue.md): **active** —
+**UX/UI programme: COMPLETE (2026-11-03).** Both queues' runtime rows are CLOSED and merged-verified — usability **ug-1…ug-23 (23/23)** and visual **uxv-0…uxv-5** — so every requirement in the [implementation spec](../product/09-ux-ui-implementation-spec.md) (R-01…R-16) is implemented. The only UX items left are design-only and need a maintainer decision: **uxv-6** (SQL sizing, UX-D2) and the overlay-aware profile candidate. Current verified state: §2; per-row evidence: the two queue files and §9; the rehearsal deliverable is [product/10](../product/10-ux-ui-demo-rehearsal.md). The paragraphs below keep the per-row record.
+
+[Usability queue](handoff/20261026-usability-queue.md): **closed** —
 23 rows (ug-1…ug-23; **23 CLOSED: ug-1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/20/21/22/23**, 0 open,
 none decision-blocked — **batch complete** — all three lanes closed) across three lanes (Shell /
 Grid / Panels) owning the
@@ -157,6 +145,8 @@ it is separate maintenance, not a rider on this UX/UI batch.
 - [PT-V slice-1 queue](handoff/20261002-ptv-slice1-queue.md): five rows closed
   2026-10-11; §5 contains the slice-2 candidate list.
 - [Q-15/PT-P2 carry-over queue](handoff/20261002-q15-queue.md): closed.
+- [Visual execution queue](handoff/20261026-ux-ui-execution-queue.md) — **closed 2026-11-03**: uxv-0…uxv-5 all landed and merged-verified (R-09 theme completeness, R-10 token layer + named controls, R-11 desktop canvas, R-12 idle engine explanation, R-13 rehearsal pack); uxv-6 stays design-only.
+- [UX/UI pickup pack](handoff/20261026-ux-ui-pickup-prompts.md) — **historical; do not dispatch**: every runtime row in the pack is closed; it is retained as the audit trail for how the rows were briefed.
 - Earlier queue index and detailed outcomes: [historical snapshot](handoff-snapshot-20261014.md).
 - [October 11 pickup pack](handoff/20261011-p3-ptv-pickup.md) is **historical;
   do not dispatch**. Every implementation row in that pack has landed.
