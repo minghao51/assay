@@ -25,10 +25,11 @@ sources. Where a step did not reproduce, or a claim could not be checked, it is 
 - The built web bundle was served with
   `pnpm --filter @assay/web exec vite preview --port 4273 --strictPort` (HTTP 200).
 - Browser walks ran in real Chromium through a Playwright driver script (evidence, not a product
-  change). Like the committed journey specs, the script removes
-  `window.showOpenFilePicker`/`showSaveFilePicker`, so opens ride the hidden
-  `<input type="file">` fallback and exports ride the anchor-download fallback — the real File System
-  Access picker path was **not** exercised (§6).
+  change). Like the committed journey specs, the Chapter 2 driver removes
+  `window.showOpenFilePicker`/`showSaveFilePicker`, so its opens ride the hidden
+  `<input type="file">` fallback and its exports ride the anchor-download fallback; Chapter 1 needs no
+  picker at all (the example builds an in-memory `File`). The real File System Access picker path was
+  therefore **not** exercised (§6).
 - Light/dark were driven with `prefers-color-scheme` emulation at 1440×900, the same mechanism the
   committed theme specs use. Screenshots are artifacts for human review, never pixel baselines.
 
@@ -124,7 +125,9 @@ This manual run emitted:
          "bPath":"/tmp/assay-m6-5-journey-<run>/orders-b.jsonl"}}
 ```
 
-(`<run>` is a random per-run directory suffix; the exact suffixes of the recorded run are in §7.)
+The recorded run's suffixes were **`A769De`** for the M5 dataset/contract and **`vw887E`** for the M6
+pair (the automated leg generated its own, different suffixes — see §3.2 and §7). `<run>` below stands
+for whichever per-run suffix a reader's own generation produces.
 
 Shapes were verified on disk, not from comments: dataset A is **7 JSONL lines / 7 rows** with
 `order_id, region, amount`; the contract is `orders-basic` **v1** declaring **9 rules**; the M6 pair
@@ -232,7 +235,7 @@ matching raw files, not on an invisible overlay.
 
 ## 4. Inputs and provenance
 
-| Chapter | Input                      | Committed?                                | Source                                                                    | Path in the recorded run                                         |
+| Chapter | Input                      | Committed?                                | Source                                                                    | Path shape (recorded suffixes in §3.1/§7)                        |
 | ------- | -------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | 1       | nested JSONL example       | **Yes — the only committed demo fixture** | `fixtures/jsonl/nested.jsonl` via `?raw` in `apps/web/src/App.tsx`        | in-memory `File('nested.jsonl')`                                 |
 | 2 M5    | dataset A (7 rows)         | No — per-run temp                         | `writeValidationDatasetA()` in `tests/e2e/support/validation-datasets.ts` | `/tmp/assay-m5-3-a-<run>/orders-dirty-a.jsonl`                   |
@@ -251,9 +254,10 @@ repaired-export agreement is claimed anywhere in this document.
 - **"Processed locally" is not "zero network requests".** The data never leaves the machine, but on
   this build loading a JSONL dataset (including the bundled example) issues a real
   `GET https://extensions.duckdb.org/v1.4.3/wasm_mvp/json.duckdb_extension.wasm` (HTTP 200) — the
-  DuckDB-WASM extension autoload, whose URL is compiled into the shipped engine binary. No collector
-  host was contacted, and the endpoint-free build contains no collector string. Anyone rehearsing
-  offline should pre-warm or block that fetch.
+  DuckDB-WASM extension autoload. The base host and the versioned path template are compiled into the
+  shipped engine binary; the concrete platform/filename segment is composed at runtime, so the exact
+  URL is not a literal in the bundle. No collector host was contacted, and the endpoint-free build
+  contains no collector string. Anyone rehearsing offline should pre-warm or block that fetch.
 - **CLI agreement is base-view only** unless stated otherwise: agreement is claimed for matching raw
   files (the pre-fix report and the M6 pair) and for the explicitly exported, reopened copy (the
   post-repair validation). It is never claimed for an invisible browser editing session.
@@ -265,6 +269,9 @@ repaired-export agreement is claimed anywhere in this document.
   (contracts) only; Parquet/CSV paths were not re-rehearsed here.
 - **Overlay/export boundary:** the source file is never modified; every statement about repaired data
   refers to the staged view or to an exported copy.
+- **Human approval still gates the public surface.** This document rehearses the shipped product
+  locally; new public demo-data curation, publication and any live telemetry collector remain
+  maintainer decisions (see the [manual actions](../process/manual-actions.md) list).
 
 ## 6. Known gaps
 
@@ -278,6 +285,10 @@ repaired-export agreement is claimed anywhere in this document.
 - **M6 zero-state and >K legs** were covered by the automated run, not walked manually.
 - **M6 profile deltas** were read from the running UI and CLI (which agreed field-for-field) rather
   than re-derived from scratch with native SQL; row counts were independently re-derived.
+- **The automated leg's temp paths are inferred, not printed.** The journey specs do not print the
+  directories they generate, so "the automated leg used different inputs" rests on a before/after
+  snapshot of `/tmp/assay-m5-3-a-*` and `/tmp/assay-m6-5-journey-*` (exactly two new directories
+  appeared, neither matching the manual run's), not on a logged path.
 - **The exported copy was not reopened in the browser** — only in the CLI.
 - **One unexplained console warning** (`Buffering missing file: assay-export-1`) appeared once during
   the M5 copy export.
@@ -289,7 +300,11 @@ repaired-export agreement is claimed anywhere in this document.
 ## 7. Evidence and how to reproduce
 
 Recorded evidence (logs, screenshots, exported artifacts) lives outside the repository under
-`/tmp/assay-ux-uxv5-worker-logs/` for this run; it is not committed. To reproduce:
+`/tmp/assay-ux-uxv5-worker-logs/` for this run; it is not committed. The recorded run generated
+`/tmp/assay-m5-3-a-A769De/` (dataset A, 7 rows, plus the 9-rule contract) and
+`/tmp/assay-m6-5-journey-vw887E/` (the 5+5 comparison pair); the automated leg created
+`/tmp/assay-m5-3-a-5FivBD/` and `/tmp/assay-m6-5-journey-alUVT6/` (from the before/after snapshot in
+§6). To reproduce:
 
 ```bash
 # 1. build and serve the shipped UI (stock, telemetry-unset environment)
