@@ -62,8 +62,9 @@ design-only/deferred) and the [pickup pack](process/handoff/20261026-ux-ui-picku
 the rehearsal deliverable in [product/10](product/10-ux-ui-demo-rehearsal.md) and the merged
 evidence in [handoff §6/§9](process/handoff.md). No runtime claim precedes a clean-worktree gate
 baseline; the original programme's last code verification is recorded in handoff §2.
-New bounded maintenance is tracked in the
-[2026-11-03 audit follow-up](process/handoff/20261103-ux-audit-followup.md), not in the retired pickup pack.
+The [2026-11-03 audit follow-up](process/handoff/20261103-ux-audit-followup.md) also closed on
+2026-11-04 (documentation reconciliation, isolated verification/CI and keyboard accessibility).
+Its queue records current verification and optional residuals; the retired pickup pack is not dispatchable.
 
 ### Reviews (`reviews/`)
 

@@ -175,8 +175,8 @@ jobs:
     name: configured telemetry disclosure (isolated)
     runs-on: ubuntu-latest
     # Headroom, not a measurement: this lane repeats the e2e job's stock build
-    # and browser install, then runs two browser legs (15 s worst-case poll
-    # each). 30 min kills a wedged browser/webServer far short of the 6-hour
+    # and browser install, then runs the configured-disclosure browser legs
+    # (each attempt poll is bounded at 15 s). 30 min kills a wedged browser/webServer far short of the 6-hour
     # default ceiling without depending on a single local timing.
     timeout-minutes: 30
     # Least privilege: this lane only reads the repository (audit AR-R2).

@@ -17,6 +17,13 @@ in [§7](#7-evidence-and-how-to-reproduce) — none was copied from the spec or 
 sources. Where a step did not reproduce, or a claim could not be checked, it is stated in
 [§5](#5-what-this-does-not-claim) and [§6](#6-known-gaps) rather than smoothed over.
 
+**Keyboard addendum (2026-11-04, `fc6fd0f`):** the historical Enter/Escape gap in §2.3/§6 was
+fixed by [ux-a3](../process/handoff/20261103-ux-audit-followup.md). Fresh explicit row activation
+now focuses the inspector; Escape closes and restores the opener, while validation/diff row jumps
+retain their grid-focus policy. Both-scheme `record-keyboard.spec.ts` and the configured disclosure
+modal keyboard legs pass. The counts and Tab trail below remain the `b40e37a` observations, not a
+new full rehearsal at the later commit; no replacement cumulative Tab counts are claimed.
+
 ## 1. How the rehearsal ran
 
 - `pnpm build` under the stock environment exits 0 but is entirely turbo cache hits; to rehearse
@@ -83,6 +90,8 @@ The 20 rows are the honest UNNEST semantics of this fixture: `tags` contributes 
 rows, empty lists contribute zero and each of the two NULL lists contributes one NULL row.
 
 ### 2.3 Keyboard-only pass (light and dark)
+
+Historical `b40e37a` trail; the inspector focus/close portion is superseded by the keyboard addendum above.
 
 From `document.body`, Tab-only navigation completed the whole path in both schemes with identical
 results:

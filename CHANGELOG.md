@@ -12,6 +12,18 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Fixed — disclosure and record keyboard accessibility (2026-11-04)
+
+- The telemetry disclosure is a real modal with neutral initial focus, Tab/Shift+Tab containment,
+  an inert background and connected-opener restoration. Escape keeps it open without selecting
+  either choice; existing preferences, disclosure copy and telemetry behavior are unchanged.
+- Explicit grid row activation focuses the record inspector so Escape closes and restores the
+  opener. Validation/diff row jumps and record stepping retain their focus policy. A regression
+  guards focus requests across an overlapping overlay-revision/stale-render transition.
+- The isolated configured-disclosure regression suite now has a dedicated CI job, package-direct
+  configured builds, a fail-fast endpoint check and bounded attempt polling. Its local equivalent
+  is verified; remote execution remains blocked by the existing Actions billing prerequisite.
+
 ### Changed — web usability and visual programme (2026-11-03)
 
 - Clearer first-run/opening/error recovery, cancellable opening, discoverable keyboard and editing controls, row identity/navigation, filter composition and validation/profile/pipeline on-ramps.

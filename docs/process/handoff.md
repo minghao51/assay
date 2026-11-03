@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-11-04. **Current lane:** bounded UX audit follow-up + launch readiness; the original UX/UI programme is complete. The
+**Last updated:** 2026-11-04. **Current lane:** launch readiness; the original UX/UI programme and bounded audit follow-up are complete. The
 [usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) in 23 rows (ug-1…ug-23):
 **all 23 are CLOSED** and merged-verified (Shell, Grid and Panels lanes complete). The
@@ -8,11 +8,12 @@
 and merged-verified (R-09…R-13 implemented), and **uxv-6 is design-only/deferred** behind a maintainer
 decision. **No original runtime UX row remains.** The new
 [audit follow-up queue](handoff/20261103-ux-audit-followup.md) owns documentation repair,
-verification/CI hardening and keyboard accessibility; it does not reopen the closed queues.
+verification/CI hardening and keyboard accessibility; all three follow-up rows are now closed.
+It did not reopen the original queues.
 The programme's records are §2 (verified state), the two queue
 files and §9, and the rehearsal deliverable is [product/10](../product/10-ux-ui-demo-rehearsal.md).
 Everything waiting on a human, a decision, or a remote operation is consolidated in the
-[open-asks checklist](handoff/20261019-open-asks.md) (refreshed 2026-11-03 against this
+[open-asks checklist](handoff/20261019-open-asks.md) (refreshed 2026-11-04 against this
 index). The earlier G0-readiness/recorded-gap batch (gb-1…gb-5, [queue](handoff/20261019-g0-readiness-queue.md))
 and repository maintenance are CLOSED; their queues carry the record. This is the current-state
 index, not the execution-history archive.
@@ -57,13 +58,15 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 
 **UX/UI programme verified state (2026-11-03):** both UX queues' runtime rows are **CLOSED** — usability **ug-1…ug-23 (23/23)** and visual **uxv-0…uxv-5** — so every requirement in the [implementation spec](../product/09-ux-ui-implementation-spec.md) (R-01…R-16) is implemented and merged-verified. Last code verification (clean worktree `cd4fb3f`…`6457113`, default ports, `CI=1 pnpm exec playwright test --retries=0`): **227 unit files / 3408 tests, e2e 217 passed + 1 skipped, coverage 89.15/83.89/91.42/90.73** (floors unchanged), docs links **120/0**, ADR **46**, **192** changesets. uxv-5 added one documentation file only ([rehearsal pack](../product/10-ux-ui-demo-rehearsal.md)), verified docs-only (links/prettier/ADR index) with no runtime delta. Deferred by design: **uxv-6** (SQL sizing) and the overlay-aware profile candidate are design-only and need a maintainer decision before any code. Records: [usability queue](handoff/20261026-usability-queue.md) §1/§2/§5, [visual queue](handoff/20261026-ux-ui-execution-queue.md) §2/§4, [pickup pack](handoff/20261026-ux-ui-pickup-prompts.md), and §6/§9 above.
 
-**Latest audit-follow-up verification (2026-11-04):** ux-a2 integrated and independently approved at
-`9489773` (test/CI only). Clean isolated merged gates: **228 unit files / 3418 tests**, e2e **217
-passed + 1 skipped**, coverage **89.15/83.89/91.42/90.73**, docs links **121/0**, ADR **46**, **192**
-changesets. Dedicated configured-disclosure CI job added; its local equivalent passed **2 tests**, all
-**4 collector attempts aborted, 0 delivered**; stock restored endpoint-free and **31 focused stock
-legs passed**. Logs `/tmp/assay-uxa2-merged-logs/`. This is local verification, not a remote-CI claim.
-Current remaining row is ux-a3 keyboard accessibility in the audit queue.
+**Latest audit-follow-up verification (2026-11-04):** ux-a1…ux-a3 are **CLOSED**. Last verified
+code is `fc6fd0f` (native disclosure modal lifecycle and explicit record-open focus, including a
+reviewer-discovered stale-render race fix). Clean isolated merged gates: **230 unit files / 3441
+tests**, e2e **219 passed + 1 skipped**, coverage **89.19/83.90/91.47/90.78**, docs links **121/0**,
+ADR **46**, **193** pending changesets. Configured disclosure **6 passed** in both schemes with
+collector routes aborted before navigation; original AA legs logged 4 aborted attempts, 0 delivered.
+Stock restored endpoint-free, **31 focused stock legs passed**; direct web typecheck also passed.
+Logs `/tmp/assay-uxa3-merged-logs/`. No active row remains in the audit queue; optional future QoL is
+listed there and is not implicitly authorized. Remote CI is still M6-blocked, not verified green.
 
 **Push / remote CI:** the last verified push is **`dee10f8`** (2026-10-29). Since then local `main` has accumulated the whole UX/UI programme **unpushed**: at audit baseline `6920469`, HEAD was **67 commits ahead of `origin/main` and 0 behind** (re-measure for later revisions), so remote CI does not describe this tree. Earlier episodes were verified pushed at `3a3a94b`/`ddd72f4`/`1f6cbb9` and `a3f2733..0bd9866` (18 commits, 2026-10-28); `ea41533` (the 2026-10-29 docs reconciliation) is likewise **local-only**. No push authorization was given for this batch and workers never pushed. The current checkout still holds another agent's uncommitted `README.md`, `docs/assets/` and `.dsh/` work; those edits are **not pushed**, and no agent may claim otherwise — note that this foreign `.dsh/**` content also makes the repo-root `pnpm format:check` fail locally, so gates are run in clean isolated worktrees.
 
@@ -149,12 +152,13 @@ PT-Q q-5b and q-7 **landed 2026-10-19** (records fk/fl below). The remaining q-6
 performance-probe harness is tracked under [product/04 §7](../product/04-post-mvp-track.md);
 it is separate maintenance, not a rider on this UX/UI batch.
 
-### Current audit follow-up
+### Completed audit follow-up
 
 - [2026-11-03 UX audit follow-up](handoff/20261103-ux-audit-followup.md): ux-a1 documentation repair
   closed at `12d6154` after independent approve and clean-worktree prettier/links **121/0**/ADR **46**.
   ux-a2 closed at `9489773` after independent approve and full clean merged gates (§2).
-  Current: ux-a3 bounded keyboard accessibility; exact focus-policy reservation is in the queue.
+  ux-a3 closed at `fc6fd0f` after the stale-render race fix, independent re-review and full clean
+  merged gates (§2). All three rows are closed; optional residuals remain separately listed.
   Fresh bounded rows; original ug/uxv implementation rows stay closed. Exact reservations and gates
   are in that queue. Deferred SQL/profile scope and all human release boundaries are unchanged.
 - Token residual disposition: `--radius-md`, `--radius-lg` and `--font-family-mono` remain deliberately
@@ -198,6 +202,14 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-04 (**hd**) — ux-a3 **CLOSED** at `fc6fd0f`; the [audit follow-up](handoff/20261103-ux-audit-followup.md)
+  is complete. Native disclosure modal focus/Tab/inertness, Escape without an implicit choice, and
+  explicit record activation → inspector focus → Escape/restore are pinned; Show row/step/editing
+  behavior remains intact. Independent review found a same-commit overlay-revision focus race;
+  regression plus guard fixed it, then fresh-session approve. Clean merged gates: 3441 tests,
+  e2e219+1skip, configured6, restored31, coverage89.19/83.90/91.47/90.78, docs121/0, ADR46,
+  193 changesets (§2). No push or remote-green claim.
 
 - 2026-11-04 (**hc**) — ux-a2 **CLOSED** at `9489773`: dedicated isolated configured-telemetry CI
   job, package-direct endpoint build/proof, bounded attempt polling and source/config regression pins.

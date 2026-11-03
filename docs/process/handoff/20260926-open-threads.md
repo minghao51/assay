@@ -10,7 +10,7 @@
 > **Current pointer (2026-11-04):** September counts and remote-CI successes below are historical.
 > Original usability (23/23) and visual implementation (uxv-0…uxv-5) are closed. New maintenance is
 > the [audit follow-up](20261103-ux-audit-followup.md): docs reconciliation, configured telemetry
-> verification/CI (ux-a1/2 now closed), then bounded keyboard accessibility (ux-a3 in progress).
+> verification/CI and bounded keyboard accessibility (ux-a1…ux-a3 now all closed).
 > Current verified code evidence lives in
 > [handoff §2](../handoff.md); the audit baseline `6920469` had 192 pending changesets and docs 120/0.
 > Actions remains M6-blocked; local green is not remote green. SQL sizing/overlay profiling remain

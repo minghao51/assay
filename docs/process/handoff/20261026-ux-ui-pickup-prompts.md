@@ -5,9 +5,9 @@ The consumed worker briefs below are historical evidence, not ready-to-paste aut
 New maintenance is tracked in the [audit follow-up queue](20261103-ux-audit-followup.md);
 read the [live handoff](../handoff.md) and its owning queue before any dispatch.
 
-## Current state
+## Original programme close snapshot (historical)
 
-- **Merged-verified code tip `6457113`** (uxv-4) remains the last code change; **uxv-5 adds one
+- **At original programme closure, merged-verified code tip `6457113`** (uxv-4) was the last code change; **uxv-5 adds one
   documentation file** (`docs/product/10-ux-ui-demo-rehearsal.md`): **227 unit files / 3408 tests,
   e2e 217 passed + 1 skipped, coverage 89.15/83.89/91.42/90.73, docs links 120/0, ADR 46, 192
   changesets** (`/tmp/assay-ux-uxv4-merged/`; the doc delta was verified docs-only with links,

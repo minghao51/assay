@@ -365,6 +365,17 @@ config change and was deliberately not taken inside uxv-1.)
 Finally re-run stock theme/telemetry tests against restored stock output. Attach real light/dark
 screenshots and axe results; a JSDOM/happy-dom style assertion alone cannot prove contrast.
 
+### Keyboard maintenance addendum (ux-a3, 2026-11-04)
+
+At `fc6fd0f`, the disclosure is a native modal with neutral initial focus, contained Tab/Shift+Tab,
+an inert background and connected-opener restoration. Escape leaves it open without choosing or
+changing a preference. Existing copy, preference/event/storage and opt-out contracts are unchanged.
+Explicit grid row activation opts into inspector focus once an honest record is rendered; Escape
+then closes and restores the opener. Validation/diff Show row and Prev/Next retain their focus
+policy. A regression covers an overlay revision arriving during the first stale/render transition.
+Verification and residuals: [audit follow-up ux-a3](../process/handoff/20261103-ux-audit-followup.md).
+This is bounded maintenance, not authorization for SQL sizing or overlay-aware profiling.
+
 ## 7. Explicit STOP/decision register
 
 | ID    | Decision / blocked work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Who resolves / safe default                                                                                                                                    |
