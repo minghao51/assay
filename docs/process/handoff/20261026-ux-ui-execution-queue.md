@@ -12,8 +12,9 @@ tests, e2e 217 passed + 1 skipped, coverage 89.15/83.89/91.42/90.73, ADR 46, 192
 uxv-5 delta is documentation only (docs links **120/0**, no runtime changeset).
 This queue owns **uxv-0…uxv-6**; [ug-1…ug-23](20261026-usability-queue.md) retain their feature
 ownership. Requirements/copy/geometry: [implementation spec](../../product/09-ux-ui-implementation-spec.md).
-Rationale: [plan](../../product/08-ux-ui-engine-showcase-plan.md). Start here:
-[pickup prompts](20261026-ux-ui-pickup-prompts.md).
+Rationale: [plan](../../product/08-ux-ui-engine-showcase-plan.md). Historical briefs:
+[retired pickup prompts](20261026-ux-ui-pickup-prompts.md). Current maintenance:
+[audit follow-up](20261103-ux-audit-followup.md).
 
 ## 1. Dispatch rules
 

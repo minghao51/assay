@@ -144,7 +144,8 @@ it is separate maintenance, not a rider on this UX/UI batch.
 ### Current audit follow-up
 
 - [2026-11-03 UX audit follow-up](handoff/20261103-ux-audit-followup.md): ux-a1 documentation repair
-  in progress, then ux-a2 isolated configured-telemetry CI/verification and ux-a3 keyboard accessibility.
+  closed at `12d6154` after independent approve and clean-worktree prettier/links **121/0**/ADR **46**.
+  Current: ux-a2 isolated configured-telemetry CI/verification; ux-a3 keyboard accessibility follows.
   Fresh bounded rows; original ug/uxv implementation rows stay closed. Exact reservations and gates
   are in that queue. Deferred SQL/profile scope and all human release boundaries are unchanged.
 - Token residual disposition: `--radius-md`, `--radius-lg` and `--font-family-mono` remain deliberately
