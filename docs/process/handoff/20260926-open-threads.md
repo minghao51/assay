@@ -11,8 +11,8 @@
 > historical. GitHub Actions has been M6-blocked since 2026-10-15. The local runtime baseline is
 > recorded at `385649b` — 195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage
 > 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 119/0), ADR 46. The live
-> frontier is the **visual lane** (usability batch complete; uxv-1 `d85dec2`, uxv-2 `b487788`, uxv-3 `cd4fb3f`) with
-> **uxv-4 next**, then uxv-5. Live changesets: **191**.
+> frontier is the **visual lane** (usability batch complete; uxv-1 `d85dec2`, uxv-2 `b487788`, uxv-3 `cd4fb3f`, uxv-4 `6457113`) with
+> **uxv-5 next** (the last row). Live changesets: **192**.
 > Use [handoff](../handoff.md) and the
 > [usability](20261026-usability-queue.md)/[visual](20261026-ux-ui-execution-queue.md) queues for
 > current state; the September evidence below is preserved, not dispatchable.
@@ -62,7 +62,8 @@
    CLOSED 2026-11-03** at `b487788` (bounded token layer + named-control adoption, exactly two accent
    primaries, no bare element selector) and **uxv-3 (R-11) CLOSED 2026-11-03** at `cd4fb3f` (fluid
    canvas to the 1024/1440/1920 matrix, compact header, measured 420/620/640 grid viewport), and the
-   frontier is **uxv-4** → uxv-5.
+   **uxv-4 (R-12) CLOSED 2026-11-03** at `6457113` (byte-exact static idle engine line + note), and the
+   frontier is **uxv-5** — the last row.
    Baseline recorded at `385649b`: 195 unit files / 3089 tests, e2e 185 passed + 1 skipped,
    coverage 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 119/0), ADR 46.
    **ug-14 (Shell) CLOSED 2026-10-30** at `c694eca` (199f/3121t, e2e 186p+1s, coverage
@@ -89,7 +90,8 @@
    code-observation riders — **batch complete**) and **uxv-1 (Visual) CLOSED 2026-11-03** at
    `d85dec2` (225f/3353t, e2e 208p+1s, coverage 89.15/83.89/91.42/90.73; R-09) and **uxv-2 (Visual)
    CLOSED 2026-11-03** at `b487788` (226f/3399t, e2e 211p+1s, coverage unchanged; R-10) and **uxv-3
-   (Visual) CLOSED 2026-11-03** at `cd4fb3f` (227f/3403t, e2e 216p+1s, coverage unchanged; R-11).
+   (Visual) CLOSED 2026-11-03** at `cd4fb3f` (227f/3403t, e2e 216p+1s, coverage unchanged; R-11) and
+   **uxv-4 (Visual) CLOSED 2026-11-03** at `6457113` (227f/3408t, e2e 217p+1s, coverage unchanged; R-12).
    The UX-D1 [amendment brief](20261029-ux-d1-amendment.md) is **DECIDED (Option C, 2026-10-30)** and
    **ug-10 landed at `f667a87`** (R-16 implemented); the overlay-aware profile is a planning-only
    engine candidate ([20261030-overlay-profile-candidate.md](20261030-overlay-profile-candidate.md)). Historical ug evidence/commits are in the usability queue §1/§5;
