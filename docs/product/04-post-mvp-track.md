@@ -27,21 +27,9 @@ document details the post-MVP structure and carries the launch-readiness checkli
 
 ## 2. Where things stand (evidence base, updated 2026-11-03)
 
-- **Surfaces:** web app (inspect/nested/edit/export/validate/diff), CLI (`assay validate`,
-  `assay diff`), shared pure packages (`@assay/domain`, `@assay/contracts`, `@assay/validation`,
-  `@assay/diff`), engine (DuckDB-WASM in the browser worker + `@duckdb/node-api` behind the
-  `./node` seam for the CLI, ADR 0041), headless grid (ADR 0022), data-sources with
-  capability detection. `apps/vscode` is a placeholder.
-- **Quality posture:** six gates green at every integration (vitest 1866, e2e 144 + 1 skip,
-  typecheck 18/18, build 9/9); the AR queue (2026-09-22/23) closed both of its criticals; engine conformance suite + data-source behavior suite +
-  seeded property suites with exact non-vacuity pins; every milestone closed with an exit
-  journey asserting cross-surface agreement (M5 validation, M6 diff); adversarial
-  worker/reviewer protocol for every task ([handoff operating model](../process/handoff/operating-model.md)).
-- **Not yet done (all tracked, none blocking local use):** telemetry is **implemented** (t-1/t-2/t-3 landed 2026-09-29 — pure `@assay/telemetry` core + web/CLI emission + opt-out/disclosure UX + the [collector operator contract](../engineering/07-telemetry-collector.md); design `../engineering/06-telemetry-design.md`, ADR 0045; opt-out per ADR 0037, metadata-only per ADR 0025 — **collector deployment remains the G0 tail; the **public disclosure landed 2026-10-19 ([telemetry disclosure](../telemetry-disclosure.md), gb-1)**); remote **now exists** — private
-  [`minghao51/assay`](https://github.com/minghao51/assay), `main` pushed 2026-09-21, CI green on
-  the first remote run and again after the `actions/*` SHA-pin (M2/M3 done; org-transfer +
-  public flip remain maintainer calls); no npm org claim; no demo dataset. A11y CI landed
-  2026-09-24 (pt0-4): dual-scheme axe scans gated in CI, empty deferred-findings allowlist.
+- **Surfaces (current):** web + CLI implement inspect/nested/edit/export/validate/diff and pipeline/DCR workflows. Desktop VS Code slice 2 closed 2026-10-19 with offline JSON/JSONL/Parquet viewing, immutable-source session editing/history, create-only export, effective-view validation, confirmed-key staged diff with installed-CLI agreement, Git context and the compare command. `apps/vscode` is implemented, not a placeholder; vscode-web remains RE-SCOPE (D18).
+- **Quality evidence:** the dated original-programme close counts are in the next bullet; [handoff §2](../process/handoff.md) and the [audit follow-up](../process/handoff/20261103-ux-audit-followup.md) own subsequent verification. Earlier September counts (1866 unit tests, e2e 144 + 1 skip, typecheck 18, build 9) are historical, not the November baseline. Independent worker/reviewer gates remain required ([operating model](../process/handoff/operating-model.md)).
+- **Launch boundary (current):** telemetry implementation and the [public disclosure](../telemetry-disclosure.md) have landed; self-hosted collector deployment remains a human action ([operator contract](../engineering/07-telemetry-collector.md)). Last recorded verified push is `dee10f8` (2026-10-29); later UX work is local-only. Earlier remote-CI successes are historical: Actions has been M6-blocked since 2026-10-15, and local green is not remote green. npm org claim, trademark/domain clearance, demo source approval, registry/publication decisions and org-transfer/public visibility remain human-gated; see the [open-asks map](../process/handoff/20261019-open-asks.md).
 - **UX/UI programme — COMPLETE (2026-11-03):** the post-M6 usability and visual work shipped and merged-verified: **[usability queue](../process/handoff/20261026-usability-queue.md) ug-1…ug-23 (23/23)** and **[visual queue](../process/handoff/20261026-ux-ui-execution-queue.md) uxv-0…uxv-5**, so every requirement in the [implementation spec](09-ux-ui-implementation-spec.md) (R-01…R-16) is implemented. Last code verification (clean worktree, default ports): 227 unit files / 3408 tests, e2e 217 passed + 1 skipped, coverage 89.15/83.89/91.42/90.73, docs links 120/0, 46 ADRs, 192 changesets; the rehearsal deliverable is [product/10](10-ux-ui-demo-rehearsal.md). Deferred by design and needing a maintainer decision before any code: **uxv-6** (adjustable SQL sizing, UX-D2) and the overlay-aware profile candidate ([20261030-overlay-profile-candidate.md](../process/handoff/20261030-overlay-profile-candidate.md)).
 - **Whole-repo audit (2026-09-22):** seven-lane read-only audit of every package/app/infra
   ([report](../reviews/2026-09-22-whole-repo-implementation-audit.md)) — 2 criticals (BLOB CSV

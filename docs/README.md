@@ -57,11 +57,13 @@ This documentation set is intended to be sufficient to start implementation whil
 merged-verified: usability **ug-1…ug-23 (23/23)** and visual **uxv-0…uxv-5**, so every requirement
 in the [implementation spec](product/09-ux-ui-implementation-spec.md) (R-01…R-16) is implemented. The
 records live in the [usability queue](process/handoff/20261026-usability-queue.md), the
-[visual execution queue](process/handoff/20261026-ux-ui-execution-queue.md) (uvx-6 remains
+[visual execution queue](process/handoff/20261026-ux-ui-execution-queue.md) (uxv-6 remains
 design-only/deferred) and the [pickup pack](process/handoff/20261026-ux-ui-pickup-prompts.md), with
 the rehearsal deliverable in [product/10](product/10-ux-ui-demo-rehearsal.md) and the merged
 evidence in [handoff §6/§9](process/handoff.md). No runtime claim precedes a clean-worktree gate
-baseline; the last code verification is recorded in handoff §2.
+baseline; the original programme's last code verification is recorded in handoff §2.
+New bounded maintenance is tracked in the
+[2026-11-03 audit follow-up](process/handoff/20261103-ux-audit-followup.md), not in the retired pickup pack.
 
 ### Reviews (`reviews/`)
 

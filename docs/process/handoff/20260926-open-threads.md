@@ -7,15 +7,13 @@
 > `pnpm changeset status` green (92 pending changesets, au2 included; tooling validated 2026-09-24, see the
 > changesets row below). Roster + dispatch runbook: [operating-model §7.6](operating-model.md).
 >
-> **Current pointer (2026-11-02):** the September counts and “remote CI green” above are
-> historical. GitHub Actions has been M6-blocked since 2026-10-15. The local runtime baseline is
-> recorded at `385649b` — 195 unit files / 3089 tests, e2e 185 passed + 1 skipped, coverage
-> 88.08/82.24/89.08/89.60, docs 116/0 at that revision (current pack 119/0), ADR 46. The live
-> frontier is the **visual lane** (usability batch complete; uxv-1 `d85dec2`, uxv-2 `b487788`, uxv-3 `cd4fb3f`, uxv-4 `6457113`, uxv-5 `e3ae857`) with
-> **no runtime UX row remains** (uxv-5 closed; uxv-6 is design-only). Live changesets: **192**; docs links **120/0**.
-> Use [handoff](../handoff.md) and the
-> [usability](20261026-usability-queue.md)/[visual](20261026-ux-ui-execution-queue.md) queues for
-> current state; the September evidence below is preserved, not dispatchable.
+> **Current pointer (2026-11-03):** September counts and remote-CI successes below are historical.
+> Original usability (23/23) and visual implementation (uxv-0…uxv-5) are closed. New maintenance is
+> the [audit follow-up](20261103-ux-audit-followup.md): docs reconciliation, configured telemetry
+> verification/CI, then bounded keyboard accessibility. Current verified code evidence lives in
+> [handoff §2](../handoff.md); the audit baseline `6920469` had 192 pending changesets and docs 120/0.
+> Actions remains M6-blocked; local green is not remote green. SQL sizing/overlay profiling remain
+> design-only and no closed row below is dispatch authorization.
 >
 > **This file is a map, not a second copy:** every thread points at its authoritative row or file
 > (single-ownership discipline, doc-queue dr-2). When a thread closes, strike its row here and
@@ -51,12 +49,11 @@
    v1 accepted (ADR 0046)** → P3 queue authoring unblocked; **PT-V slice 1 GO on the
    desktop-extension webview** (vscode-web stays RE-SCOPE) → PT-V slice-1 planning next. No active
    queue. G0 tail stays human-only (§3).
-7. **Now (2026-10-31): usability + visual continuation is the active pickup** —
+7. **Historical implementation trail (2026-10-31 through 2026-11-03), not active pickup** —
    [usability queue](20261026-usability-queue.md) (23 rows; **all ug-1…ug-23 CLOSED** — batch complete)
    and [visual queue](20261026-ux-ui-execution-queue.md)
-   (**uxv-0 recorded; uxv-1 eligible only with an exclusive CSS/theme-test reservation; uxv-2…5
-   dependency-gated; uxv-6 deferred**). No usability row remains (Grid, Panels and Shell
-   lanes complete). The visual lane is open: **uxv-1 (R-09) CLOSED 2026-11-03** at `d85dec2`
+   (**uxv-0…uxv-5 closed; uxv-6 deferred/design-only**). No usability row remains (Grid, Panels and Shell
+   lanes complete). The visual lane subsequently closed: **uxv-1 (R-09) CLOSED 2026-11-03** at `d85dec2`
    (defined scheme-aware surface for the Settings dialog and telemetry disclosure, no colour
    fallback, configured-disclosure leg proven against an endpoint-bearing bundle), **uxv-2 (R-10)
    CLOSED 2026-11-03** at `b487788` (bounded token layer + named-control adoption, exactly two accent
@@ -151,8 +148,8 @@
   a source-only mutation false-passes (recorded in operating-model §7.6 after the pt0-4 review).
 - Changeset tooling validated (`privatePackages.version`): contributors' `pnpm changeset` works;
   `pnpm version-packages` stays reserved for the first release cut (M1).
-- Reviewer gate lists must include `pnpm format:check` — it is NOT in CI, so a missed
-  prettier pass reaches main silently (q-5 did; fixed in `cb14a10`).
+- Reviewer gate lists must include `pnpm format:check`; it is now also in CI. The historical q-5
+  missed-prettier incident (`cb14a10`) predates that enforcement.
 - Reviewer reports MUST end with the literal verdict line; a missing line = no verdict —
   re-dispatch a focused confirmation rather than inferring (exercised on the TS-6 lane, 2026-09-26).
 - Worker/reviewer loop: briefs to `/tmp` per §7.6; workers on shifted ports; reviewers

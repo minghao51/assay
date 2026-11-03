@@ -12,6 +12,13 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed — web usability and visual programme (2026-11-03)
+
+- Clearer first-run/opening/error recovery, cancellable opening, discoverable keyboard and editing controls, row identity/navigation, filter composition and validation/profile/pipeline on-ramps.
+- Theme-aware telemetry surfaces, a bounded spacing/type/control token layer, a fluid desktop canvas and compact header, and an honest static DuckDB-WASM explanation on the idle screen.
+- Added a two-chapter [demo rehearsal](docs/product/10-ux-ui-demo-rehearsal.md) with explicit staged-edit/export/CLI boundaries. The bundled example needs no external sample-data download, but the web engine may fetch its JSON extension; this is not a cold-cache offline guarantee.
+- Original usability and visual implementation queues are closed. Follow-up documentation, verification and keyboard-accessibility maintenance is tracked separately; SQL sizing and overlay-aware profiling remain design-only. No publication is implied.
+
 ### Added — offline JSON/JSONL open in the desktop reader (2026-10-19)
 
 - The VS Code surface now vendors DuckDB's matching `json` extension

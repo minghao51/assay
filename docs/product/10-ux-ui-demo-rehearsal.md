@@ -137,6 +137,10 @@ the repaired M5 export.
 
 ### 3.2 The automated journey leg
 
+The command below records the original run, including its reusable-server setting; it is not
+current verification guidance. It does not independently prove server/build identity. Use §7's
+fresh-server recipe for new evidence; the historical result and logs below are not rewritten.
+
 ```bash
 env -u CI ASSAY_E2E_PORT_WEB=4273 ASSAY_E2E_PORT_ENGINE=4279 ASSAY_E2E_PORT_DS=4280 \
   DUCKDB=/tmp/duckdb pnpm exec playwright test tests/e2e/m5-exit-journey.spec.ts tests/e2e/m6-exit-journey.spec.ts
@@ -257,7 +261,10 @@ repaired-export agreement is claimed anywhere in this document.
   DuckDB-WASM extension autoload. The base host and the versioned path template are compiled into the
   shipped engine binary; the concrete platform/filename segment is composed at runtime, so the exact
   URL is not a literal in the bundle. No collector host was contacted, and the endpoint-free build
-  contains no collector string. Anyone rehearsing offline should pre-warm or block that fetch.
+  contains no collector string. Blocking that fetch alone does **not** make a cold-cache JSONL
+  open work offline. This web rehearsal does not establish offline support: keep extension access
+  available, or independently verify the required cached extension in the exact browser context
+  before disconnecting. The desktop vendored-extension guarantee is a different surface.
 - **CLI agreement is base-view only** unless stated otherwise: agreement is claimed for matching raw
   files (the pre-fix report and the M6 pair) and for the explicitly exported, reopened copy (the
   post-repair validation). It is never claimed for an invisible browser editing session.
@@ -307,7 +314,8 @@ Recorded evidence (logs, screenshots, exported artifacts) lives outside the repo
 §6). To reproduce:
 
 ```bash
-# 1. build and serve the shipped UI (stock, telemetry-unset environment)
+# 1. build stock output; record `git rev-parse HEAD` and tool versions
+# Run the manual preview separately; stop it with Ctrl-C before automated verification.
 env -u ASSAY_TELEMETRY_ENDPOINT -u ASSAY_TELEMETRY_TOKEN -u ASSAY_NO_TELEMETRY \
   pnpm exec turbo run build --force
 pnpm --filter @assay/web exec vite preview --port 4273 --strictPort
@@ -319,9 +327,11 @@ import { writeExitJourneyPair } from "./tests/e2e/support/diff-datasets.ts";
 console.log(JSON.stringify({ validation: writeValidationDatasetA(), diff: writeExitJourneyPair() }));
 '
 
-# 3. prove the two journeys still pass end to end
-env -u CI ASSAY_E2E_PORT_WEB=4273 ASSAY_E2E_PORT_ENGINE=4279 ASSAY_E2E_PORT_DS=4280 \
-  DUCKDB=/tmp/duckdb pnpm exec playwright test tests/e2e/m5-exit-journey.spec.ts tests/e2e/m6-exit-journey.spec.ts
+# 3. automated verification: choose all three ports free; never reuse the manual preview
+# CI=1 makes Playwright refuse existing servers; --retries=0 exposes first-run failures.
+env -u ASSAY_TELEMETRY_ENDPOINT -u ASSAY_TELEMETRY_TOKEN -u ASSAY_NO_TELEMETRY \
+  CI=1 ASSAY_E2E_PORT_WEB=4373 ASSAY_E2E_PORT_ENGINE=4379 ASSAY_E2E_PORT_DS=4380 \
+  DUCKDB=/tmp/duckdb pnpm exec playwright test tests/e2e/m5-exit-journey.spec.ts tests/e2e/m6-exit-journey.spec.ts --retries=0
 ```
 
 A plain `pnpm build` is often a full turbo cache hit; force it (or delete `apps/web/dist`) before

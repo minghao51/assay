@@ -1,8 +1,9 @@
-# UX/UI Pickup Prompts — current pack
+# UX/UI Pickup Prompts — historical, consumed pack
 
-**Refreshed 2026-11-03 (docs only; uxv-5 closure pass — visual runtime rows complete).** This is a small ready-to-paste pack for the **current**
-frontier, not an archive of completed dispatches. Re-read the live queues and the tree before
-every use; a prompt never overrides a closed/claimed/blocked row.
+**Retired 2026-11-03 — do not dispatch from this pack.** All original runtime rows are closed.
+The consumed worker briefs below are historical evidence, not ready-to-paste authorization.
+New maintenance is tracked in the [audit follow-up queue](20261103-ux-audit-followup.md);
+read the [live handoff](../handoff.md) and its owning queue before any dispatch.
 
 ## Current state
 
@@ -12,8 +13,8 @@ every use; a prompt never overrides a closed/claimed/blocked row.
   changesets** (`/tmp/assay-ux-uxv4-merged/`; the doc delta was verified docs-only with links,
   prettier and the ADR index).
   **All 23 usability rows are CLOSED — the batch is complete**; the Grid, Panels and Shell lanes are
-  all closed, and the visual lane has started.
-- **No runtime usability row remains; the visual lane is active.** **uxv-1 (R-09) is CLOSED** at
+  all closed, as is the original visual lane's implementation work.
+- **No original runtime UX row remains.** **uxv-1 (R-09) is CLOSED** at
   `d85dec2`, **uxv-2 (R-10) at `b487788`**, **uxv-3 (R-11) at `cd4fb3f`**, **uxv-4 (R-12) at
   `6457113`** and **uxv-5 (R-13) at `e3ae857`** (the
   [rehearsal pack](../../product/10-ux-ui-demo-rehearsal.md)). **Every runtime row in both UX queues
@@ -23,17 +24,17 @@ every use; a prompt never overrides a closed/claimed/blocked row.
   trigger, uxv-2's two-of-nine browser focus coverage, uxv-3's unpinned Settings-over-Open check,
   uxv-4's inherited body styling for the engine lines, or uxv-5's evidence-only prose numbers) is a
   **new** row or an explicitly recorded rider.
-- **Visual row:** **uxv-1** is factually eligible **only** with an exclusive CSS/theme-test
-  reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated and **uxv-6** is
-  design-only/deferred.
+- **Dispatch disposition:** uxv-1…uxv-5 are closed, not eligible or dependency-gated.
+  uxv-6 remains design-only/deferred; the audit follow-up is a separate bounded queue.
 - **Ownership:** the usability queue owns R-01…R-08, R-14, R-15 and R-16; the
   [visual queue](20261026-ux-ui-execution-queue.md) owns R-09…R-13.
 - **Roster (user-requested):** worker **`opencode-go/deepseek-v4.1-flash`**; independent reviewer
   **`opencode-go/mimo-v2.6-flash`** at **thinking high** (switched from `openai-codex/gpt-6-luna`
   on 2026-10-31 when the Luna credit was exhausted). Never implement and approve the same change.
   Serialize provider sessions.
-- **Push/remote:** latest verified push is **`dee10f8`**. At this refresh local `main` is **42
-  commits ahead / 0 behind** `origin/main` and **not pushed**. The local uncommitted `README.md`,
+- **Push/remote:** latest recorded verified push is **`dee10f8`**. Subsequent UX changes are
+  local-only; re-measure divergence with `git rev-list --left-right --count origin/main...HEAD`
+  rather than treating this historical pack as a live counter. The local uncommitted `README.md`,
   `docs/assets/` and `.dsh/` are another agent's work: leave them untouched and do not describe the
   checkout as clean. **Workers never push**, and no blanket remote/push permission is granted by
   this pack or by an old handoff episode. Remote CI remains M6-blocked; local green is not remote
@@ -43,48 +44,18 @@ every use; a prompt never overrides a closed/claimed/blocked row.
   [implementation spec](../../product/09-ux-ui-implementation-spec.md) §8. Closed worker briefs
   were deliberately removed; cite those records instead of re-running them.
 
-## 1. Orchestrator — paste into a new session
+## 1. Orchestrator prompt — RETIRED
 
-```text
-You are the Assay UX/UI orchestrator. Continue the current pack; do not restart the investigation
-or redesign broadly.
-
-Read first, in order: AGENTS.md; docs/process/handoff.md §§4–6; operating-model.md fully;
-docs/process/handoff/20261026-usability-queue.md §1–§5; docs/product/09-ux-ui-implementation-spec.md
-fully (especially §6 gates, §7 STOPs, §8 index); docs/process/handoff/20261026-ux-ui-pickup-prompts.md;
-the live Shell rows ug-21/ug-22/ug-23; ADR 0044 and the q-15 placement ruling.
-
-Current truth to confirm, not assume: branch/commit/status, queue owners, toolchain, ports. At the
-2026-11-02 refresh: main tip 8297e67 (docs) over merged-verified code 5bad2c3; 223 unit files /
-3334 tests, e2e 204p+1s, coverage 89.14/83.88/91.41/90.73, docs 119/0, ADR 46, 185 changesets; 20 of
-23 usability rows CLOSED (Grid and Panels lanes complete). If HEAD is later, re-run a fresh baseline
-from a clean isolated worktree at your chosen base before runtime dispatch. Preserve all foreign
-uncommitted work (README.md, docs/assets/, .dsh/). Never reset/stash/delete unknown work.
-
-The three remaining rows are all Shell and all touch apps/web/src/App.tsx: dispatch them
-SEQUENTIALLY (ug-21 -> ug-22 -> ug-23), one bounded row per worker, with an independent reviewer per
-row. Reserve apps/web/src/App.tsx explicitly in every brief (plus lib/app.ts for ug-21 and
-grid/FilterBar.tsx + edit/op-summary.ts for ug-23). Shell ports 4273/4279/4280. Do not dispatch
-uxv-1 unless you hold an exclusive CSS/theme-test reservation. Do not redispatch closed rows
-ug-1…ug-20.
-
-Roster: worker opencode-go/deepseek-v4.1-flash; independent reviewer
-opencode-go/mimo-v2.6-flash at thinking high. Workers never push; local main is not pushed. Use the
-briefs in §3c–§3e. Record starting commit, clean-status evidence, environment, ports, exit codes and
-log paths under /tmp. A request-changes verdict returns to a fresh worker brief quoting the exact
-fixes. Integrate only independently approved rows and re-run merged gates. Update the owning queue,
-handoff index/changelog, spec status and open-threads map in the same change. Do not mark the UX
-program complete because one row lands.
-
-First response: checkout/queue state, proposed base, reservations for the next row, blockers, and
-the single next dispatch.
-```
+The original paste-ready prompt was consumed by ug-21…ug-23 and uxv-1…uxv-5.
+It is deliberately not a current dispatch template: use the
+[audit follow-up queue](20261103-ux-audit-followup.md) and the [live handoff](../handoff.md).
+Confirm each new row's base, reservations and independent-review gates before starting.
 
 ## 2. Historical worker briefs
 
 Closed rows' briefs (ug-14, ug-4, ug-16, …) were deliberately removed from this pack. Their
 authoritative evidence lives in the [usability queue](20261026-usability-queue.md) rows and
-[handoff §9](../handoff.md). Use §3c as the current shape of a bounded worker brief.
+[handoff §9](../handoff.md). Sections 3c–4 retain consumed briefs for provenance only.
 
 ## 3c. Worker — ug-21 (Shell) — CONSUMED (ug-21 CLOSED at `8458ad1`; kept as the brief shape)
 
@@ -272,10 +243,9 @@ VERDICT: request-changes
 
 ## 6. Thread sequencing and shared-file reservations
 
-- **The usability batch is complete** (ug-21 closed at `8458ad1`, ug-22 at `e73dda4`, ug-23 at
-  `07a37d4`). The next UX work is **uxv-1**, which needs the exclusive `index.css` + theme/telemetry
-  test reservation stated in §4; uxv-2…uxv-5 stay dependency-gated behind it. Never run two UX
-  threads concurrently.
+- **The original usability and visual batches are complete.** ug-21 closed at `8458ad1`,
+  ug-22 at `e73dda4`, ug-23 at `07a37d4`; uxv-1…uxv-5 are also closed. There is no next
+  dispatch in this pack. The reservations below describe consumed work, not active claims.
 - **Shared-file reservations:** ug-21 reserves `App.tsx` + `lib/app.ts`; ug-22 reserves `App.tsx` +
   the nav/heading pins; ug-23 reserves `App.tsx` + `grid/FilterBar.tsx` + `edit/op-summary.ts`.
   State the reservation in each worker brief.
