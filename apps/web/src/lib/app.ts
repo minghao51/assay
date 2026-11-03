@@ -17,6 +17,18 @@ export const IDLE_CAPABILITY =
 /** R-03 supported-format line (exact copy). Mirrors the picker's accept list. */
 export const IDLE_FORMATS = 'Opens .parquet · .csv · .jsonl · .json' as const
 
+/**
+ * R-12 idle engine explanation and supporting sentence (exact copy). Static
+ * text only: it names the engine and the local execution model as facts about
+ * the product, not as live state — no connection/engine status, spinner,
+ * benchmark, timing, memory or version claim, no engine-driven conditional and
+ * no new network request or telemetry event (ADR 0025, ADR 0037). Both strings
+ * are rendered on the idle screen only, beside the R-03 copy above.
+ */
+export const IDLE_ENGINE_LINE = 'Powered by DuckDB-WASM · local query execution' as const
+export const IDLE_ENGINE_NOTE =
+  'Dataset contents are processed locally. Edits are staged; export writes a copy.' as const
+
 /** R-05 idle example action and helper (exact copy). */
 export const IDLE_EXAMPLE_ACTION = 'Try with example data' as const
 export const IDLE_EXAMPLE_HELPER = 'Explore nested fields with a small synthetic example.' as const

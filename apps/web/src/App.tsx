@@ -44,6 +44,8 @@ import {
   DROP_WITHOUT_FILE,
   IDLE_CAPABILITY,
   IDLE_DROP_HINT,
+  IDLE_ENGINE_LINE,
+  IDLE_ENGINE_NOTE,
   IDLE_EXAMPLE_ACTION,
   IDLE_EXAMPLE_HELPER,
   IDLE_FORMATS,
@@ -1596,6 +1598,14 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           <div className="idle-intro" data-testid="idle-intro">
             <p data-testid="idle-capability">{IDLE_CAPABILITY}</p>
             <p data-testid="idle-formats">{IDLE_FORMATS}</p>
+            {/*
+             * R-12: the engine explanation is static copy, not engine state —
+             * it renders only inside this idle block and reads nothing from
+             * the session, engine or telemetry. No live status, benchmark,
+             * memory or version claim and no new request/event.
+             */}
+            <p data-testid="idle-engine-line">{IDLE_ENGINE_LINE}</p>
+            <p data-testid="idle-engine-note">{IDLE_ENGINE_NOTE}</p>
             <p className="idle-drop-hint" data-testid="idle-drop-hint">
               {IDLE_DROP_HINT}
             </p>

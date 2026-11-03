@@ -60,3 +60,54 @@ test('cold start shows task-oriented idle copy, not roadmap/docs copy', async ({
     expect(visible).not.toContain(forbidden)
   }
 })
+
+// R-12 (uxv-4): the idle engine explanation is static copy on the built app's
+// idle frame only. The literals are declared here (not imported) so this pin
+// fails if the shipped bundle's text drifts from the spec's verbatim strings.
+const IDLE_ENGINE_LINE = 'Powered by DuckDB-WASM · local query execution'
+const IDLE_ENGINE_NOTE =
+  'Dataset contents are processed locally. Edits are staged; export writes a copy.'
+
+test('idle engine explanation is static, idle-only and free of live/benchmark claims', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  await expect(page.getByTestId('idle-engine-line')).toHaveText(IDLE_ENGINE_LINE)
+  await expect(page.getByTestId('idle-engine-note')).toHaveText(IDLE_ENGINE_NOTE)
+
+  // Both live inside the idle block, in the same frame that carries the R-03
+  // capability sentence.
+  const idleIntro = page.getByTestId('idle-intro')
+  await expect(idleIntro.getByTestId('idle-capability')).toBeVisible()
+  await expect(idleIntro.getByTestId('idle-engine-line')).toHaveCount(1)
+  await expect(idleIntro.getByTestId('idle-engine-note')).toHaveCount(1)
+
+  // Static text: no live region and no forbidden claim kind (live status,
+  // benchmark, timing, memory or version) in the idle block's rendered text.
+  const idleText = await idleIntro.innerText()
+  for (const claim of [
+    'connected',
+    'online',
+    'offline',
+    'status',
+    'benchmark',
+    'latency',
+    'throughput',
+    'memory',
+    'faster',
+    'version',
+    'v1.',
+    'v2.',
+  ]) {
+    expect(idleText.toLowerCase()).not.toContain(claim)
+  }
+
+  // Opening a dataset replaces the idle frame, so neither line survives it.
+  await page.getByTestId('example-data-button').click()
+  await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready', {
+    timeout: 20_000,
+  })
+  await expect(page.getByTestId('idle-engine-line')).toHaveCount(0)
+  await expect(page.getByTestId('idle-engine-note')).toHaveCount(0)
+})

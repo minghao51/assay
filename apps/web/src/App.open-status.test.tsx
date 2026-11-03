@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
 import { App } from './App'
 import type { ArrowTableLike } from './grid/provider'
-import { OPEN_CANCEL_LABEL, OPEN_PROGRESS_LABEL } from './lib/app'
+import {
+  IDLE_ENGINE_LINE,
+  IDLE_ENGINE_NOTE,
+  OPEN_CANCEL_LABEL,
+  OPEN_PROGRESS_LABEL,
+} from './lib/app'
 
 /**
  * ux-2 (UX-2 + UX-10) pins, driven through the REAL App composition root with
@@ -190,10 +195,81 @@ describe('R-03 — first-run idle screen copy', () => {
     expect(alert.textContent).toContain('corrupt dataset')
     expect(screen.queryByTestId('idle-intro')).toBeNull()
     expect(screen.queryByTestId('idle-capability')).toBeNull()
+    expect(screen.queryByTestId('idle-engine-line')).toBeNull()
+    expect(screen.queryByTestId('idle-engine-note')).toBeNull()
     expect(screen.queryByTestId('example-data-button')).toBeNull()
     expect(screen.queryByTestId('example-data-helper')).toBeNull()
     expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('error')
     expect(screen.getByTestId('open-button').hasAttribute('disabled')).toBe(false)
+  })
+})
+
+/**
+ * R-12 (uxv-4): the idle engine explanation. Both lines are static copy on the
+ * idle screen only — they name the engine and the local execution model and
+ * make no live-status, benchmark, timing, memory or version claim. The
+ * forbidden-wording scan is over the idle block's own rendered text, so a
+ * future live badge or metric inside that block trips it.
+ */
+describe('R-12 — idle engine explanation', () => {
+  it('renders both byte-exact lines in the idle block and no live/benchmark wording', () => {
+    render(<App />)
+
+    const intro = screen.getByTestId('idle-intro')
+    expect(screen.getByTestId('idle-engine-line').textContent).toBe(IDLE_ENGINE_LINE)
+    expect(screen.getByTestId('idle-engine-note').textContent).toBe(IDLE_ENGINE_NOTE)
+
+    // Static text: they live inside the idle block, after the capability and
+    // format lines, and carry no role that would make them an announcement.
+    for (const id of ['idle-engine-line', 'idle-engine-note']) {
+      const line = screen.getByTestId(id)
+      expect(line.parentElement).toBe(intro)
+      expect(line.tagName).toBe('P')
+      expect(line.getAttribute('role')).toBeNull()
+      expect(line.hasAttribute('aria-live')).toBe(false)
+    }
+
+    const text = intro.textContent ?? ''
+    for (const claim of [
+      'connected',
+      'online',
+      'offline',
+      'status',
+      'benchmark',
+      'latency',
+      'throughput',
+      'memory',
+      'faster',
+      'version',
+      'v1.',
+      'v2.',
+    ]) {
+      expect(text.toLowerCase()).not.toContain(claim)
+    }
+  })
+
+  it('does not render either line while opening', async () => {
+    h.deferOpen = true
+    render(<App />)
+    expect(screen.getByTestId('idle-engine-line')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('opening')
+    expect(screen.queryByTestId('idle-engine-line')).toBeNull()
+    expect(screen.queryByTestId('idle-engine-note')).toBeNull()
+  })
+
+  it('does not render either line once a dataset is open', async () => {
+    render(<App />)
+    await open()
+
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    expect(screen.queryByTestId('idle-intro')).toBeNull()
+    expect(screen.queryByTestId('idle-engine-line')).toBeNull()
+    expect(screen.queryByTestId('idle-engine-note')).toBeNull()
   })
 })
 
