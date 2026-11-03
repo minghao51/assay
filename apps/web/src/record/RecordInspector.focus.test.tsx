@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GridViewportModel } from '@assay/grid'
 import { RecordInspector } from './RecordInspector'
@@ -135,6 +136,28 @@ function Inspector({
 
 function inspector(): HTMLElement {
   return screen.getByTestId('record-inspector')
+}
+
+/**
+ * A parent that bumps `overlayRevision` in the SAME commit batch as the
+ * child's fresh `opened` dispatch (recovered ux-a3 reviewer drill). The mount
+ * effect's `setRevision(1)` lands after the child's open effect, so React
+ * re-renders once with `state.kind === 'open'` but a context read at the NEW
+ * revision — i.e. the panel first paints the stale-until-reloaded placeholder,
+ * which has no focusable `sectionRef` target.
+ */
+function RevisionRaceHarness(): React.ReactElement {
+  const [revision, setRevision] = useState(0)
+  useEffect(() => {
+    setRevision(1)
+  }, [])
+  return (
+    <Inspector
+      model={fakeModel([{ name: 'id', type: 'BIGINT' }], [1])}
+      request={{ rowIndex: 0, seq: 1, focusOnOpen: true }}
+      overlayRevision={revision}
+    />
+  )
 }
 
 afterEach(() => {
@@ -334,5 +357,21 @@ describe('RecordInspector — pending explicit open and focus retirement (ux-a3)
     })
     expect(screen.queryByTestId('record-inspector')).toBeNull()
     expect(document.activeElement).toBe(opener)
+  })
+
+  it('keeps the focus request through a stale reload render before it lands', async () => {
+    const opener = addOpener()
+    opener.focus()
+    render(<RevisionRaceHarness />)
+
+    // The first honest paint is the precedence check: the stale placeholder is
+    // a <section role=status> without the container's focus target, so a focus
+    // request consumed there would silently no-op and never come back.
+    await waitFor(() => {
+      expect(inspector().getAttribute('data-stale')).toBeNull()
+      expect(document.activeElement).toBe(inspector())
+    })
+    expect(document.activeElement).toBe(inspector())
+    expect(inspector().getAttribute('aria-label')).toBe('Record inspector — row 1')
   })
 })

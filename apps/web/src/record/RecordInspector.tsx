@@ -574,12 +574,15 @@ export function RecordInspector({
    * here when their slot lands). Deliberately NOT keyed on anything: it runs
    * after every commit, consumes the one-shot request, and is a no-op
    * otherwise — so a step, an overlay reload, a model notification or an
-   * expansion can never re-focus the panel.
+   * expansion can never re-focus the panel. It must also survive the
+   * stale-until-reloaded commit: `needsReload` paints the placeholder section,
+   * which has no focus target, so consuming the request there would silently
+   * no-op and the honestly-rendered record would never be focused.
    */
   useEffect(() => {
     const pending = openFocusRef.current
     if (pending === null) return
-    if (state.kind !== 'open' || shifted) return
+    if (state.kind !== 'open' || shifted || needsReload || sectionRef.current === null) return
     openFocusRef.current = null
     if (pending.deferred) {
       const current = document.activeElement instanceof HTMLElement ? document.activeElement : null
