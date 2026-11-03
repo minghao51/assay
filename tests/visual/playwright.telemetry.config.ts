@@ -50,9 +50,18 @@ export default defineConfig({
   },
   webServer: [
     {
-      // Serves the CONFIGURED web build (`apps/web/dist`, built by
-      // `ASSAY_TELEMETRY_ENDPOINT=… pnpm build`) — no custom vite config, so
-      // the app source under test is the production source, unchanged.
+      // Serves the CONFIGURED web build (`apps/web/dist`). Configure the web
+      // package DIRECTLY (implementation spec §6) — never by exporting the
+      // endpoint and running the root `pnpm build`: turbo 2.x strict env mode
+      // drops the undeclared variable (`turbo.json` declares no `env`) and
+      // usually replays a stock cache hit, so the emitted bundle would carry no
+      // endpoint and this leg would assert nothing. Build and PROVE it first:
+      //   env -u ASSAY_NO_TELEMETRY -u ASSAY_TELEMETRY_TOKEN \
+      //     ASSAY_TELEMETRY_ENDPOINT=https://collector.example.invalid/ingest \
+      //     pnpm --filter @assay/web build
+      //   grep -r collector.example.invalid apps/web/dist  # must print a hit
+      // No custom vite config, so the app source under test is the production
+      // source, unchanged.
       command: `pnpm --filter @assay/web exec vite preview --host 127.0.0.1 --port ${PORT_WEB} --strictPort`,
       port: PORT_WEB,
       reuseExistingServer: false,

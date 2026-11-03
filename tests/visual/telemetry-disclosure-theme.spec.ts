@@ -275,10 +275,19 @@ for (const scheme of ['light', 'dark'] as const) {
     )
     assertNoCriticalOrSerious(results.violations)
 
-    // 6. Privacy: give the runtime's bounded flush window a chance to try, then
-    //    prove every intercepted collector request was aborted. The stock build
-    //    never gets here; a configured build must not deliver anything.
-    await page.waitForTimeout(2_500)
+    // 6. Privacy: the runtime flushes on a bounded debounce, so poll for the
+    //    first attempt instead of sleeping a fixed amount — a fixed sleep is
+    //    both slower than needed and unbounded evidence (it can pass by luck on
+    //    a slow runner or fail on a fast one). Polling stops as soon as the
+    //    configured build proves it tried, and the non-vacuity/abort assertions
+    //    below still do the actual proving. The stock build never gets here; a
+    //    configured build must not deliver anything.
+    await expect
+      .poll(() => intercepted.length, {
+        timeout: 15_000,
+        message: `[${scheme}] the configured build must attempt at least one collector send — zero attempts would make the abort proof vacuous`,
+      })
+      .toBeGreaterThan(0)
     console.log(
       `[telemetry] intercepted ${String(intercepted.length)} collector request(s): ${JSON.stringify(intercepted)}`,
     )

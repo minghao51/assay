@@ -166,6 +166,85 @@ jobs:
           retention-days: 5
           if-no-files-found: ignore
 
+  # ux-a2 (implementation spec §6): uxv-1 shipped the configured-disclosure leg
+  # but it ran only by hand, so a regression in that leg (or in this job) could
+  # merge unnoticed. This job is the isolated, disposable home of that proof:
+  # the stock `verify`/`e2e` jobs stay endpoint-free, and nothing is restored
+  # here because nothing outside this job consumes the configured `dist`.
+  configured-telemetry:
+    name: configured telemetry disclosure (isolated)
+    runs-on: ubuntu-latest
+    # Headroom, not a measurement: this lane repeats the e2e job's stock build
+    # and browser install, then runs two browser legs (15 s worst-case poll
+    # each). 30 min kills a wedged browser/webServer far short of the 6-hour
+    # default ceiling without depending on a single local timing.
+    timeout-minutes: 30
+    # Least privilege: this lane only reads the repository (audit AR-R2).
+    permissions:
+      contents: read
+    env:
+      # The leg must fail rather than retry: a flake here is evidence of a real
+      # ordering/privacy problem, not something to paper over (spec §6).
+      CI: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # Stock workspace build FIRST: the isolated webServer trio also serves the
+      # built engine/data-sources preview harnesses. The stock web bundle this
+      # produces is then replaced by the configured one below.
+      - run: pnpm build
+
+      # Configured web build, package-direct by design (spec §6): a root
+      # `pnpm build` here would be a strict-env-mode variable drop plus a stock
+      # turbo cache hit, leaving a stock bundle and a vacuous leg.
+      - name: Build the configured web bundle directly
+        run: |
+          env -u ASSAY_NO_TELEMETRY -u ASSAY_TELEMETRY_TOKEN \
+            ASSAY_TELEMETRY_ENDPOINT=https://collector.example.invalid/ingest \
+            pnpm --filter @assay/web build
+
+      # Non-vacuity gate: a cache hit or a stale `dist` must fail here instead of
+      # letting the browser leg pass against a stock bundle (spec §6).
+      - name: Prove the endpoint is baked into the emitted bundle
+        run: |
+          if ! grep -rq 'collector.example.invalid' apps/web/dist; then
+            echo '::error::apps/web/dist carries no configured endpoint — the disclosure leg would be vacuous'
+            exit 1
+          fi
+
+      # The leg itself: explicit isolated config (outside the stock tests/e2e
+      # discovery), zero retries. The spec registers the aborting collector
+      # route before any navigation and every intercepted request must be
+      # aborted, so no metadata can be delivered.
+      - name: Run the configured disclosure leg
+        run: pnpm exec playwright test --config tests/visual/playwright.telemetry.config.ts --retries=0
+
+      # Failure-only artefacts; the leg keeps trace/screenshot/video off, so a
+      # green run uploads nothing. Same short retention as the e2e lane.
+      - name: Upload configured telemetry failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: configured-telemetry-failure-artifacts
+          path: |
+            test-results
+            playwright-report
+          retention-days: 5
+          if-no-files-found: ignore
+
   vscode-verify:
     name: VS Code real extension host / offline harness
     runs-on: ubuntu-latest
