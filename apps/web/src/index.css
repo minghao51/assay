@@ -215,19 +215,29 @@
   box-sizing: border-box;
 }
 
+/*
+ * uxv-3 / R-11: fluid desktop canvas. The page gutter is the ONLY horizontal
+ * inset and `main` has no width cap, so the shell is exactly
+ * `viewport - 2 × gutter` wide at every size (spec §4 geometry matrix):
+ * 16px gutters through 1024–1439px, 24px from 1440px up. Below 1024px the
+ * gutter step is unchanged and the single-column stack keeps the same
+ * ordering/DOM relationship it had before (only the inset value moved).
+ */
 body {
   font-family:
     system-ui,
     -apple-system,
     sans-serif;
   margin: 0;
-  padding: 2rem;
+  padding: var(--space-4);
   color: var(--color-text);
   background: var(--color-surface);
 }
 
-main {
-  max-width: 72rem;
+@media (min-width: 1440px) {
+  body {
+    padding: var(--space-6);
+  }
 }
 
 /*
@@ -368,6 +378,51 @@ main {
 .export-format-option input:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+
+/* ---- Compact ready header + fluid desktop canvas (uxv-3 / R-11) --------
+ *
+ * The ready frame's shell-owned top stack is `<h1>`, the tagline, the open
+ * flow (Open CTA + status + dataset summary) and then the workspace. Before
+ * uxv-3 that stack pushed the workspace ~225px down. These four scoped
+ * classes are the whole layout change: they only tighten the margins and
+ * adopt the uxv-2 type/space tokens on nodes that already exist — no node is
+ * added, moved, renamed or duplicated, and every accessible name, testid and
+ * copy string stays byte-identical (spec §4 "compact header uses scoped
+ * layout classes on existing nodes").
+ *
+ * Nothing here clips: the budget pins the top of `.workbench-layout` at
+ * ≤140px in the normal ready state, and any further copy (disclosure, open
+ * error, retry guidance) still grows the document and scrolls.
+ */
+
+/* Page title: 24px from the type scale, with the default UA margins removed so
+   the header's height is exactly the line box plus the gaps declared below. */
+.workbench-heading {
+  margin: 0;
+  font-size: var(--font-size-page-title);
+  line-height: 1.2;
+}
+
+/* Tagline: one UI-scale line directly under the title. */
+.workbench-tagline {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-ui);
+  line-height: 1.3;
+}
+
+/* The open flow (Open CTA, phase status, dataset summary) keeps its block flow
+   and its inline spacing; only the leading gap is tightened. */
+.workbench-open-flow {
+  margin: var(--space-1) 0 0;
+}
+
+/* Dataset summary line (`Dataset · N rows · M columns`): metadata scale, one
+   trailing-margin-free line, so it cannot push the workspace down. */
+.workbench-table-info {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-metadata);
+  line-height: 1.3;
 }
 
 /* ---- Workbench shell slice 1 (ux-6) ---- */
@@ -608,8 +663,12 @@ main {
 @media (min-width: 1024px) {
   .workbench-layout {
     display: grid;
-    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-    gap: 1rem;
+    /* uxv-3 / R-11: the tool pane is a fixed 320px column at 1024–1199px and
+       360px from 1200px up (spec §4 fluid rule); the center column takes the
+       rest, so the grid column is main − pane − 16px gap: 656 / 1016 /
+       1496px. */
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: var(--space-4);
     align-items: start;
   }
 
@@ -678,6 +737,15 @@ main {
   }
 }
 
+/* uxv-3 / R-11: the pane grows one step at 1200px. The collapsed-rail rule
+   above is attribute-scoped (higher specificity), so the rail survives this
+   step unchanged at every desktop width. */
+@media (min-width: 1200px) {
+  .workbench-layout {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+}
+
 .workbench-section {
   min-width: 0;
 }
@@ -723,7 +791,21 @@ h1 {
 }
 
 .grid-viewport {
-  height: 480px;
+  /*
+   * uxv-3 / R-11: bounded grid height (spec §4). The viewport follows the
+   * window between a 280px floor and a 640px ceiling and reserves a constant
+   * 280px for everything above/below it (compact ready header, Grid heading,
+   * and the real footer). `vh` first for older engines
+   * that do not know `dvh`; the `dvh` line wins where it is supported, so a
+   * mobile URL bar can never squeeze the rows. Measured reserved space at
+   * 1024×700 is 258px (ready top 127 + heading 62 + the footer plus its 4px
+   * gap 58) — the 280px constant keeps the mandatory 1024×700 acceptance
+   * (heading, column headers, first row AND the whole footer visible) green
+   * with ~18px of slack; the 240px candidate left the footer ~24px below the
+   * fold, so the constant is the measured one (see the task report).
+   */
+  height: clamp(280px, calc(100vh - 280px), 640px);
+  height: clamp(280px, calc(100dvh - 280px), 640px);
   /* One scroll context owns both axes: wide column tracks pan here (the
      header, now a child, pans with the rows); vertical virtualization keeps
      working because this remains the virtualizer's scroll element. */

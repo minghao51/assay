@@ -147,7 +147,7 @@ export function createSqlRequestLedger(): SqlRequestLedger {
 function LiveTableInfo({ model }: { model: GridViewportModel }) {
   useSyncExternalStore(model.subscribe, model.getVersion)
   return (
-    <p data-testid="table-info">
+    <p className="workbench-table-info" data-testid="table-info">
       Dataset · <span data-testid="grid-total-rows">{model.totalRows ?? 0}</span> rows ·{' '}
       <span data-testid="grid-column-count">{model.schema?.length ?? 0}</span> columns
     </p>
@@ -295,7 +295,7 @@ const INNER_DISCLOSURE_SECTIONS: ReadonlySet<WorkbenchSectionId> = new Set<Workb
  * press expands), which is why it is derived from the same boolean rather than
  * a fixed string. The nav keeps "Workbench sections".
  */
-export function paneToggleLabel(collapsed: boolean): string {
+function paneToggleLabel(collapsed: boolean): string {
   return collapsed ? 'Expand workbench pane' : 'Collapse workbench pane'
 }
 
@@ -1581,8 +1581,8 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   return (
     <TelemetryProvider runtime={telemetry}>
       <main>
-        <h1>{APP_NAME}</h1>
-        <p>{TAGLINE}</p>
+        <h1 className="workbench-heading">{APP_NAME}</h1>
+        <p className="workbench-tagline">{TAGLINE}</p>
         <TelemetrySettings />
         {disclosureOpen && (
           <TelemetryDisclosure
@@ -1607,7 +1607,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           </div>
         )}
 
-        <section data-testid="open-flow">
+        <section className="workbench-open-flow" data-testid="open-flow">
           <button
             type="button"
             className="open-button"

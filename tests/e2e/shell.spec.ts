@@ -22,6 +22,11 @@ import {
 //   4. Below 1024px the SAME DOM renders as the slice-1 single-column stack
 //      (schema → grid → the tool sections), scroll-never-clip.
 //   5. The complete heading map holds in BOTH layouts (open state).
+//   6. uxv-3 / R-11 (spec §4 "Geometry"): the four-sample matrix (16/24px
+//      gutters, fluid main, 320/360px pane, 16px gap, fluid grid column),
+//      the ≤140px ready-workspace top budget, the clamped grid viewport
+//      height and the 1024×700 first-paint acceptance — all real-browser box
+//      measurements on the normal, no-disclosure ready frame.
 //
 // Assertions stay on stable testids/ARIA; no dataset values are read or
 // logged (ADR 0025).
@@ -298,4 +303,211 @@ test('record dock shows the closed-state hint until a row is selected', async ({
   await row(page, 0).click()
   await expect(page.getByTestId('record-inspector')).toBeVisible()
   await expect(hint).toHaveCount(0)
+})
+
+/* ---- uxv-3 / R-11: the spec §4 desktop geometry matrix ---------------------
+ *
+ * Real-browser box measurements at the four matrix samples, the ready-workspace
+ * top budget, the bounded grid viewport height and the 1024×700 first-paint
+ * acceptance. Everything below is a deterministic geometry read (bounding
+ * boxes and `getComputedStyle`) on the committed 5-row fixture in the normal,
+ * no-disclosure ready state — no screenshots, no pixel baselines, no dataset
+ * values. Allowed tolerance is the spec's ±2px box-measurement window.
+ */
+
+/** Spec §4 geometry tolerance for box measurement. */
+const GEOMETRY_TOLERANCE_PX = 2
+
+/** Ready-workspace top budget (spec §4). */
+const READY_TOP_BUDGET_PX = 140
+
+/** One desktop matrix row from spec §4. */
+interface DesktopSample {
+  readonly label: string
+  readonly width: number
+  readonly height: number
+  readonly gutters: number
+  readonly mainWidth: number
+  readonly paneWidth: number
+  readonly gridColumnWidth: number
+  readonly gridViewportHeight: number
+}
+
+/**
+ * The three desktop samples. Gutter step 16 → 24 at 1440px; pane step
+ * 320 → 360 at 1200px; 16px gap; grid column = main − pane − gap. The grid
+ * viewport height is `clamp(280px, calc(100dvh − 280px), 640px)` (see the
+ * `.grid-viewport` rule and the uxv-3 report for why the reserve is 280).
+ */
+const DESKTOP_SAMPLES: readonly DesktopSample[] = [
+  {
+    label: '1024×700',
+    width: 1024,
+    height: 700,
+    gutters: 16,
+    mainWidth: 992,
+    paneWidth: 320,
+    gridColumnWidth: 656,
+    gridViewportHeight: 420,
+  },
+  {
+    label: '1440×900',
+    width: 1440,
+    height: 900,
+    gutters: 24,
+    mainWidth: 1392,
+    paneWidth: 360,
+    gridColumnWidth: 1016,
+    gridViewportHeight: 620,
+  },
+  {
+    label: '1920×1080',
+    width: 1920,
+    height: 1080,
+    gutters: 24,
+    mainWidth: 1872,
+    paneWidth: 360,
+    gridColumnWidth: 1496,
+    gridViewportHeight: 640,
+  },
+]
+
+/** A measured box; every matrix assertion reads one of these. */
+interface MeasuredBox {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** Box of one selector inside the page; a missing box fails the test loudly. */
+async function measure(page: Page, selector: string): Promise<MeasuredBox> {
+  const box = await page.locator(selector).first().boundingBox()
+  if (box === null) throw new Error(`missing bounding box for ${selector}`)
+  return box
+}
+
+/** Assert one measurement against the matrix row within the ±2px tolerance. */
+function expectMatrixValue(actual: number, expected: number, label: string): void {
+  expect(
+    Math.abs(actual - expected),
+    `${label}: measured ${String(Math.round(actual * 100) / 100)}px, matrix ${String(expected)}px (±${String(GEOMETRY_TOLERANCE_PX)}px)`,
+  ).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX)
+}
+
+/** No horizontal document overflow anywhere: scroll, never clip (ux-1). */
+async function expectNoHorizontalClip(page: Page): Promise<void> {
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+}
+
+for (const sample of DESKTOP_SAMPLES) {
+  test(`uxv-3 geometry at ${sample.label}: gutters, main, pane, gap, grid column`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: sample.width, height: sample.height })
+    await openDefault(page)
+    // Normal ready state: no telemetry disclosure, no open error, no extra
+    // guidance — the frame the matrix is defined on.
+    await expect(page.getByTestId('telemetry-disclosure')).toHaveCount(0)
+    await expect(page.getByTestId('open-error')).toHaveCount(0)
+
+    const main = await measure(page, 'main')
+    const pane = await measure(page, '.workbench-tools')
+    const gridColumn = await measure(page, '#section-grid')
+    const layout = await measure(page, '.workbench-layout')
+
+    // Outer gutters: the page inset is the only horizontal inset (no
+    // `main { max-width }` cap), so both gutters equal the gutter step.
+    expectMatrixValue(main.x, sample.gutters, 'left gutter')
+    expectMatrixValue(sample.width - (main.x + main.width), sample.gutters, 'right gutter')
+    expectMatrixValue(main.width, sample.mainWidth, 'main width')
+
+    // Two-pane tracks: fixed pane, 16px gap, fluid center column.
+    expectMatrixValue(pane.width, sample.paneWidth, 'pane width')
+    expectMatrixValue(gridColumn.x - (pane.x + pane.width), 16, 'pane/grid gap')
+    expectMatrixValue(gridColumn.width, sample.gridColumnWidth, 'grid column width')
+
+    // The pane is beside the grid column and starts at the same top edge.
+    expect(Math.abs(gridColumn.y - pane.y)).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX)
+
+    // Ready workspace top budget (compact header) and the bounded grid height.
+    expect(
+      layout.y,
+      `ready workspace top: measured ${String(layout.y)}px, budget ≤${String(READY_TOP_BUDGET_PX)}px`,
+    ).toBeGreaterThan(0)
+    expect(layout.y).toBeLessThanOrEqual(READY_TOP_BUDGET_PX)
+    const gridViewport = await measure(page, '[data-testid="grid-viewport"]')
+    expectMatrixValue(gridViewport.height, sample.gridViewportHeight, 'grid viewport height')
+
+    // Scroll, never clip, with the wide canvas in place.
+    await expectNoHorizontalClip(page)
+  })
+}
+
+test('uxv-3 geometry at 900×900: 16px gutters and the single-column stack', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 })
+  await openDefault(page)
+  await expect(page.getByTestId('telemetry-disclosure')).toHaveCount(0)
+
+  const main = await measure(page, 'main')
+  const gridColumn = await measure(page, '#section-grid')
+  const layout = await measure(page, '.workbench-layout')
+
+  expectMatrixValue(main.x, 16, 'left gutter')
+  expectMatrixValue(900 - (main.x + main.width), 16, 'right gutter')
+  expectMatrixValue(main.width, 868, 'main width')
+
+  // Below the 1024px breakpoint there is no pane box: the same DOM renders as
+  // the slice-1 stack, so the grid column IS the available stack width.
+  await expect(page.locator('.workbench-pane-head')).toBeHidden()
+  expectMatrixValue(gridColumn.width, 868, 'grid column (available stack width)')
+  expectMatrixValue(gridColumn.x, main.x, 'grid column left edge')
+  expect(layout.y).toBeLessThanOrEqual(READY_TOP_BUDGET_PX)
+
+  await expectNoHorizontalClip(page)
+})
+
+test('uxv-3: 1024×700 first paint shows heading, column headers, first row and the whole footer', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 700 })
+  await openDefault(page)
+  await waitForReadyRow(page, 0)
+
+  // Section heading (the shell's Grid toggle, title + purpose) …
+  await expect(page.getByTestId('section-toggle-grid')).toBeInViewport({ ratio: 1 })
+  await expect(page.getByTestId('section-purpose-grid')).toBeInViewport({ ratio: 1 })
+  // … the column headers …
+  await expect(page.locator('[data-testid="grid-viewport"] .grid-header')).toBeInViewport({
+    ratio: 1,
+  })
+  await expect(page.locator('[data-testid="grid-header-cell"]').first()).toBeInViewport({
+    ratio: 1,
+  })
+  // … the first ready data row, fully inside the vertical viewport. The row's
+  // column track is wider than a 1024px center column (that is what
+  // `grid-horizontal.spec.ts` pins), so this is a vertical-containment
+  // assertion plus a presence-in-viewport one — never a horizontal one.
+  await expect(row(page, 0)).toBeInViewport()
+  const gridViewport = await measure(page, '[data-testid="grid-viewport"]')
+  const firstRow = await measure(page, '[data-testid="grid-row"][data-row-index="0"]')
+  expect(firstRow.y).toBeGreaterThanOrEqual(gridViewport.y)
+  expect(firstRow.y + firstRow.height).toBeLessThanOrEqual(gridViewport.y + gridViewport.height + 1)
+  expect(firstRow.y + firstRow.height).toBeLessThanOrEqual(700)
+  // … and the NORMAL grid footer (edit hint + the Keyboard/Diagnostics
+  // disclosures), entirely inside the 700px-tall viewport.
+  const footer = page.locator('.grid-footer')
+  await expect(footer).toBeInViewport({ ratio: 1 })
+  await expect(page.getByTestId('grid-edit-hint')).toBeInViewport({ ratio: 1 })
+  await expect(page.getByTestId('grid-diagnostics')).toBeVisible()
+
+  const footerBox = await measure(page, '.grid-footer')
+  expect(
+    footerBox.y + footerBox.height,
+    `grid footer bottom: measured ${String(footerBox.y + footerBox.height)}px of a 700px viewport`,
+  ).toBeLessThanOrEqual(700)
 })
