@@ -2079,9 +2079,17 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                       queryBusy={gridBusy}
                       onSortBusyChange={setGridSorting}
                       onOpenRecord={(rowIndex) => {
+                        // ux-a3: explicit row activation (Enter on a focused
+                        // row or a row click — the same gesture) is the ONE
+                        // request that lands focus in the inspector, so the
+                        // next Escape/Close returns to the row instead of the
+                        // recorded 18-Tab walk. Validation/diff "Show row"
+                        // jumps and the dock's Prev/Next step go through
+                        // `navigateToRow` and keep their focus policy.
                         setRecordRequest((previous) => ({
                           rowIndex,
                           seq: (previous?.seq ?? 0) + 1,
+                          focusOnOpen: true,
                         }))
                       }}
                       onNestedAction={runNestedAction}

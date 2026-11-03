@@ -61,9 +61,21 @@ import type { RecordTreeBuildOptions, RecordTreeNode } from './record-tree'
  *   pending gesture resolves when the slot lands — unless a structural epoch
  *   shift intervened or the slot settled `error`, in which case it is dropped
  *   rather than pointed at a different record.
- * - **Focus is not stolen on open** — grid keyboard navigation continues
- *   where it was; the Close button is a plain focusable button (Enter/Space),
- *   and Escape closes when focus is inside the panel.
+ * - **Focus.** Historical policy (kept for every request that does not opt
+ *   in): the panel NEVER steals focus — grid keyboard navigation continues
+ *   where it was, the Close button is a plain focusable button (Enter/Space),
+ *   and Escape closes when focus is inside the panel. ux-a3 adds ONE opt-in:
+ *   an explicit grid row activation (Enter or a row click — the same gesture)
+ *   sets `RecordRequest.focusOnOpen`, and a FRESH open of that request lands
+ *   focus on the panel container once the requested record is honestly on
+ *   display, so the next Escape/Close closes the panel instead of stranding
+ *   the user on the grid (the recorded 18-Tab gap). Validation/diff "Show
+ *   row" jumps and the dock's Prev/Next step keep their existing focus policy
+ *   (no flag) — ug-12's roving grid focus and the dock's own controls are
+ *   untouched. A focus request never re-fires for a step, an overlay value
+ *   reload, a model notification or an expansion, and it retires (rather
+ *   than stealing focus late) when the user deliberately moved focus while a
+ *   pending row was still loading.
  * - **Placement.** Rendered by App as a section directly under the grid it
  *   inspects (see App.tsx) — the app composes single-column disclosure
  *   panels; a side layout would introduce a new layout concept.
@@ -73,6 +85,15 @@ import type { RecordTreeBuildOptions, RecordTreeNode } from './record-tree'
 export interface RecordRequest {
   readonly rowIndex: number
   readonly seq: number
+  /**
+   * ux-a3: set ONLY by explicit grid row activation (Enter on a focused row or
+   * a row click — the same gesture, wired in App's `onOpenRecord`). A fresh
+   * open of such a request lands focus on the inspector container once the
+   * requested record is honestly rendered. Absent (or false) keeps the
+   * historical no-focus-steal policy: panel "Show row" jumps and the dock's
+   * Prev/Next step never touch focus.
+   */
+  readonly focusOnOpen?: boolean
 }
 
 interface RecordInspectorProps {
@@ -303,6 +324,29 @@ export function RecordInspector({
    * close when it is still connected).
    */
   const openerRef = useRef<HTMLElement | null>(null)
+  /**
+   * ux-a3: the one-shot focus request for a FRESH explicit row open (see
+   * `RecordRequest.focusOnOpen`). Set in the open effect, consumed exactly
+   * once by the effect below, and cleared on every gesture that is dropped or
+   * superseded so a stale request can never steal focus later.
+   */
+  const openFocusRef = useRef<{
+    readonly deferred: boolean
+    readonly opener: HTMLElement | null
+  } | null>(null)
+  /** The panel container, the non-modal focus target of a fresh explicit open. */
+  const sectionRef = useRef<HTMLElement | null>(null)
+  /**
+   * ux-a3: the focus owner and readiness seen when the CURRENT gesture arrived.
+   * A gesture made on a still-loading row resolves later; if the user moved
+   * focus elsewhere in the meantime, the record still opens (when valid) but
+   * the focus request retires rather than yanking focus away from them.
+   */
+  const gestureRef = useRef<{
+    seq: number
+    opener: HTMLElement | null
+    deferred: boolean
+  } | null>(null)
   const [expanded, setExpanded] = useState<ExpandedPaths>(() => new Set<string>())
   /**
    * AR-W8: the tree is capped (length + depth) so a large list cell cannot
@@ -409,17 +453,30 @@ export function RecordInspector({
     if (request === null) {
       handledSeqRef.current = null
       pendingContextRef.current = null
+      gestureRef.current = null
+      openFocusRef.current = null
       return
     }
     if (handledSeqRef.current === request.seq) return // already opened or dropped
     const slot = model.getRow(request.rowIndex)
+    if (gestureRef.current?.seq !== request.seq) {
+      // ux-a3: the focus owner and readiness THIS gesture arrived under. Both
+      // are read once per gesture (a later model notification re-runs this
+      // effect with the same `seq` and must not re-baseline them).
+      gestureRef.current = {
+        seq: request.seq,
+        opener: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+        deferred: slot.status !== 'ready',
+      }
+    }
     if (slot.status === 'error') {
       // Out-of-range index or a failed span: the gesture can never be
       // satisfied at this position, so drop it explicitly (via the same
       // callback that clears the request on user close) instead of leaving
-      // it pending forever.
+      // it pending forever. Nothing was opened, so no focus request survives.
       handledSeqRef.current = request.seq
       pendingContextRef.current = null
+      openFocusRef.current = null
       onClosedRef.current()
       return
     }
@@ -448,6 +505,7 @@ export function RecordInspector({
       // as the epoch-shift rule closes an already-open panel.
       handledSeqRef.current = request.seq
       pendingContextRef.current = null
+      openFocusRef.current = null
       onClosedRef.current()
       return
     }
@@ -461,6 +519,17 @@ export function RecordInspector({
     if (!openRef.current) {
       openerRef.current =
         document.activeElement instanceof HTMLElement ? document.activeElement : null
+      // ux-a3: only a FRESH explicit row activation opts into taking focus; a
+      // step (already-open panel) or a request without the flag keeps the
+      // historical policy. `deferred` records that the row was still loading
+      // when the user asked, so a late landing can bow out if they moved on.
+      openFocusRef.current =
+        request.focusOnOpen === true
+          ? {
+              deferred: gestureRef.current?.deferred === true,
+              opener: gestureRef.current?.opener ?? null,
+            }
+          : null
     }
     setExpanded(new Set<string>()) // every open starts collapsed — a fresh look
     // AR-W8: every open starts capped; the user can expand on request.
@@ -498,6 +567,29 @@ export function RecordInspector({
     state.kind === 'open' &&
     currentContext !== null &&
     recordContextNeedsReload(state.context, currentContext)
+
+  /**
+   * ux-a3: land the fresh explicit-open focus request exactly once, after a
+   * render that actually shows the requested record (pending gestures resolve
+   * here when their slot lands). Deliberately NOT keyed on anything: it runs
+   * after every commit, consumes the one-shot request, and is a no-op
+   * otherwise — so a step, an overlay reload, a model notification or an
+   * expansion can never re-focus the panel.
+   */
+  useEffect(() => {
+    const pending = openFocusRef.current
+    if (pending === null) return
+    if (state.kind !== 'open' || shifted) return
+    openFocusRef.current = null
+    if (pending.deferred) {
+      const current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      // The row was still loading when the user asked, and they have since
+      // moved focus somewhere else on purpose: the record still opens, but the
+      // focus request retires instead of pulling focus back.
+      if (current !== null && current !== document.body && current !== pending.opener) return
+    }
+    sectionRef.current?.focus()
+  })
 
   useEffect(() => {
     if (!shifted) return
@@ -609,11 +701,13 @@ export function RecordInspector({
 
   return (
     <section
+      ref={sectionRef}
       className="record"
       data-testid="record-inspector"
       data-row-index={state.rowIndex}
       role="region"
       aria-label={`Record inspector — row ${String(displayRowNumber(state.rowIndex))}`}
+      tabIndex={-1}
       onKeyDown={onKeyDown}
     >
       <h2 className="visually-hidden">Record</h2>

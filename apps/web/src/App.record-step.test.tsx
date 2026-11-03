@@ -226,3 +226,48 @@ describe('ug-11 — record dock Prev/Next through App', () => {
     expect(document.activeElement).toBe(gridRow(0))
   })
 })
+
+/**
+ * ux-a3: the flag wiring at the composition root. Explicit row activation
+ * (Enter on a focused row / a row click) is the ONE request App flags with
+ * `focusOnOpen`, so the opened inspector owns focus and Escape returns it to
+ * the row. Panel "Show row" jumps are pinned by
+ * `App.row-jump-announcement.test.tsx` (focus stays on the target row), so the
+ * two halves together prove the flag is scoped to row activation only.
+ */
+describe('ux-a3 — explicit row activation lands focus in the inspector (App)', () => {
+  it('focuses the inspector on row Enter and on row click, Escape returns to the row', async () => {
+    await open()
+
+    // Keyboard activation: the row is the roving tab stop and keeps focus.
+    gridRow(0).focus()
+    await act(async () => {
+      fireEvent.keyDown(gridRow(0), { key: 'Enter' })
+    })
+    const inspector = await screen.findByTestId('record-inspector')
+    expect(document.activeElement).toBe(inspector)
+    expect(inspector.getAttribute('data-row-index')).toBe('0')
+    expect(inspector.getAttribute('tabindex')).toBe('-1')
+
+    // Escape closes from the focused container and hands focus back to the row
+    // that opened it — no 18-Tab walk back to the grid.
+    await act(async () => {
+      fireEvent.keyDown(inspector, { key: 'Escape' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('record-inspector')).toBeNull()
+    })
+    expect(document.activeElement).toBe(gridRow(0))
+
+    // The same explicit pointer affordance (a row click) takes the same path.
+    gridRow(1).focus()
+    await act(async () => {
+      fireEvent.click(gridRow(1))
+    })
+    const pointerInspector = await screen.findByTestId('record-inspector')
+    await waitFor(() => {
+      expect(document.activeElement).toBe(pointerInspector)
+    })
+    expect(pointerInspector.getAttribute('data-row-index')).toBe('1')
+  })
+})

@@ -75,6 +75,34 @@ interface ContrastReading {
   readonly ratio: number
 }
 
+/** The current focus owner as seen from the page (ux-a3 modal leg). */
+interface FocusReport {
+  readonly tag: string | null
+  readonly id: string
+  readonly testId: string | null
+  readonly insideDialog: boolean
+}
+
+/** Read the focused element and whether it is inside the disclosure dialog. */
+async function activeFocus(page: Page): Promise<FocusReport> {
+  return page.evaluate(() => {
+    const dialog = document.querySelector('[data-testid="telemetry-disclosure"]')
+    const active = document.activeElement
+    const element = active instanceof HTMLElement ? active : null
+    return {
+      tag: active?.tagName ?? null,
+      id: element?.id ?? '',
+      testId: element?.getAttribute('data-testid') ?? null,
+      insideDialog: dialog !== null && active !== null && dialog.contains(active),
+    }
+  })
+}
+
+/** Persisted telemetry preference (null = never written). */
+async function storedPreference(page: Page): Promise<string | null> {
+  return page.evaluate(() => window.localStorage.getItem('assay.telemetry'))
+}
+
 /**
  * Register the collector black hole. MUST run before any navigation so no
  * request can escape, and it records what it blocked as evidence.
@@ -238,8 +266,42 @@ for (const scheme of ['light', 'dark'] as const) {
       copyReading?.background,
       `[${scheme}] the disclosure copy must sit on the surface token, not a fallback colour`,
     ).toBe(token)
+    // ux-a3: a native `<dialog>` also brings the UA `canvastext` colour. The
+    // scoped `.telemetry-disclosure` rule must keep the panel on the app's own
+    // text token, so a top-layer surface can never silently repaint with a UA
+    // default (the same discipline R-09 applied to the background token).
+    const textToken = await resolveToken(page, '--color-text')
+    expect(
+      copyReading?.color,
+      `[${scheme}] the disclosure copy must paint --color-text, not the UA dialog colour`,
+    ).toBe(textToken)
 
-    // 3. The other R-09 surface in the same configured context: the Settings
+    // 3. axe on the disclosure in its REAL modal state, with the SAME empty
+    //    allowlist the stock scans use (ux-a3: the panel is a native dialog in
+    //    the UA top layer now, so this is the scan that covers it).
+    const modalResults = await scanA11y(page)
+    console.log(
+      `[a11y] configured disclosure modal (${scheme})\n${summarizeViolations(modalResults.violations)}`,
+    )
+    assertNoCriticalOrSerious(modalResults.violations)
+
+    // 4. Screenshots are review artifacts for the reviewer (never committed,
+    //    never asserted: pixel baselines are environment-dependent). Taken
+    //    while the disclosure is still on screen.
+    await testInfo.attach(`configured-disclosure-${scheme}`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    })
+
+    // 5. ux-a3: the disclosure is a genuine modal now, so the page behind it is
+    //    inert — the Settings surface can only be reached AFTER an explicit
+    //    consent choice (that inertness is the point, and is pinned by the
+    //    keyboard leg below). "Keep anonymous usage on" preserves exactly the
+    //    default-on state this leg measures; no preference is written.
+    await page.getByTestId('telemetry-keep-on').click()
+    await expect(disclosure).toHaveCount(0)
+
+    // 6. The other R-09 surface in the same configured context: the Settings
     //    dialog is equally readable in this scheme.
     await page.getByTestId('settings-toggle').click()
     const settings = page.getByTestId('settings-dialog')
@@ -261,21 +323,14 @@ for (const scheme of ['light', 'dark'] as const) {
       ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT)
     }
 
-    // 4. Screenshots are review artifacts for the reviewer (never committed,
-    //    never asserted: pixel baselines are environment-dependent).
-    await testInfo.attach(`configured-disclosure-${scheme}`, {
-      body: await page.screenshot({ fullPage: true }),
-      contentType: 'image/png',
-    })
-
-    // 5. axe, with the SAME empty allowlist the stock scans use.
+    // 7. axe on the post-consent page + Settings dialog (same empty allowlist).
     const results = await scanA11y(page)
     console.log(
       `[a11y] configured disclosure (${scheme})\n${summarizeViolations(results.violations)}`,
     )
     assertNoCriticalOrSerious(results.violations)
 
-    // 6. Privacy: poll for the first collector attempt with a bounded timeout
+    // 8. Privacy: poll for the first collector attempt with a bounded timeout
     //    instead of always sleeping 2.5 seconds. The assertions below still
     //    require at least one attempt and prove every intercepted request aborted.
     await expect
@@ -303,5 +358,155 @@ for (const scheme of ['light', 'dark'] as const) {
       intercepted.every((request) => request.aborted),
       `[${scheme}] every intercepted collector request must be aborted — nothing may be delivered`,
     ).toBe(true)
+  })
+}
+
+/**
+ * ux-a3 — the disclosure's genuine modal keyboard life cycle, in BOTH schemes,
+ * on the same configured/synthetic setup (collector route registered BEFORE
+ * navigation, service workers blocked by the config, fresh storage per test —
+ * so every test here is a real first run and nothing can be delivered).
+ *
+ * What the browser (not JSDOM) proves here:
+ *  - the panel IS a native modal: `dialog` + `:modal`, so the page behind it is
+ *    genuinely inert — it cannot be focused or clicked — instead of a panel
+ *    that only looks modal;
+ *  - initial focus is the neutral title (reading before choosing), and
+ *    Tab/Shift+Tab cycle only the two explicit actions without ever reaching
+ *    the page behind the dialog;
+ *  - Escape is a NO-OP: no dismissal, no preference write, no implicit consent
+ *    (the native `cancel` is consumed), so consent stays explicit (ADR 0037);
+ *  - each explicit choice dismisses and records exactly what it says. On a
+ *    genuine first run there IS no pre-open focus owner (the page had nothing
+ *    focused yet), so the dismissal assertion is "no focus is stranded on the
+ *    removed dialog" — restoration to a real opener is pinned by the component
+ *    test and, for the record inspector, by `record-keyboard.spec.ts`.
+ */
+for (const scheme of ['light', 'dark'] as const) {
+  test(`[${scheme}] configured disclosure is a real modal: initial focus, Tab containment, inert page, Escape is not consent`, async ({
+    page,
+  }) => {
+    test.setTimeout(180_000)
+    const intercepted: InterceptedRequest[] = []
+    // BEFORE navigation: no metadata may reach the collector while the modal
+    // is driven by the keyboard.
+    await blockCollector(page, intercepted)
+
+    await page.goto('/')
+    const disclosure = page.getByTestId('telemetry-disclosure')
+    await expect(disclosure).toBeVisible({ timeout: 30_000 })
+    await page.emulateMedia({ colorScheme: scheme })
+
+    // 1. Genuine native modal (the UA top layer), not a decorated section.
+    expect(await disclosure.evaluate((element) => element.tagName)).toBe('DIALOG')
+    expect(await disclosure.evaluate((element) => element.matches(':modal'))).toBe(true)
+
+    // 2. Initial focus is the neutral title, never an implicit choice.
+    const initial = await activeFocus(page)
+    expect(initial.insideDialog, `[${scheme}] initial focus must be inside the dialog`).toBe(true)
+    expect(initial.id).toBe('telemetry-disclosure-title')
+    expect(initial.testId).not.toBe('telemetry-keep-on')
+    expect(initial.testId).not.toBe('telemetry-turn-off')
+
+    // 3. Tab containment: the four presses alternate between the two explicit
+    //    actions and never leave the dialog.
+    const forward: (string | null)[] = []
+    for (let step = 0; step < 4; step += 1) {
+      await page.keyboard.press('Tab')
+      const focus = await activeFocus(page)
+      expect(focus.insideDialog, `[${scheme}] Tab ${String(step + 1)} left the dialog`).toBe(true)
+      forward.push(focus.testId)
+    }
+    expect(forward).toEqual([
+      'telemetry-keep-on',
+      'telemetry-turn-off',
+      'telemetry-keep-on',
+      'telemetry-turn-off',
+    ])
+    // Shift+Tab walks the same two controls backwards.
+    await page.keyboard.press('Shift+Tab')
+    expect((await activeFocus(page)).testId).toBe('telemetry-keep-on')
+    await page.keyboard.press('Shift+Tab')
+    expect((await activeFocus(page)).testId).toBe('telemetry-turn-off')
+
+    // 4. The page behind the modal is genuinely inert: an outside control
+    //    cannot take focus, and a pointer press at its real coordinates does
+    //    not activate it (the top layer swallows the click).
+    const backgroundTookFocus = await page.evaluate(() => {
+      const toggle = document.querySelector<HTMLElement>('[data-testid="settings-toggle"]')
+      if (toggle === null) throw new Error('the background Settings toggle is missing')
+      toggle.focus()
+      return document.activeElement === toggle
+    })
+    expect(
+      backgroundTookFocus,
+      `[${scheme}] the page behind a native modal dialog must not be focusable`,
+    ).toBe(false)
+    expect((await activeFocus(page)).insideDialog).toBe(true)
+
+    const toggleBox = await page.getByTestId('settings-toggle').boundingBox()
+    expect(toggleBox, `[${scheme}] the background control must have a box to click`).not.toBeNull()
+    if (toggleBox !== null) {
+      await page.mouse.click(toggleBox.x + toggleBox.width / 2, toggleBox.y + toggleBox.height / 2)
+    }
+    await expect(page.getByTestId('settings-dialog')).toBeHidden()
+    await expect(disclosure).toBeVisible()
+
+    // 5. Escape is consumed: the dialog stays open, no preference is written
+    //    and focus is not dropped anywhere.
+    await page.keyboard.press('Escape')
+    await expect(disclosure).toBeVisible()
+    expect(await disclosure.evaluate((element) => element.matches(':modal'))).toBe(true)
+    expect(
+      await storedPreference(page),
+      `[${scheme}] Escape must never write a consent preference`,
+    ).toBeNull()
+    expect((await activeFocus(page)).insideDialog).toBe(true)
+    // The mount bookkeeping is untouched: the disclosure is still recorded as
+    // shown (that flag is not consent).
+    expect(
+      await page.evaluate(() => window.localStorage.getItem('assay.telemetry.disclosure')),
+    ).toBe('1')
+
+    // 6. The explicit "Turn it off" choice: the only path that writes 'off'.
+    await page.getByTestId('telemetry-turn-off').click()
+    await expect(page.getByTestId('telemetry-disclosure')).toHaveCount(0)
+    expect(await storedPreference(page)).toBe('off')
+    // No focus is stranded on the removed dialog.
+    expect(await activeFocus(page)).toMatchObject({ tag: 'BODY', insideDialog: false })
+    await expect(page.getByTestId('settings-toggle')).toBeVisible()
+  })
+
+  test(`[${scheme}] configured disclosure "Keep anonymous usage on" dismisses without changing the preference`, async ({
+    page,
+  }) => {
+    test.setTimeout(180_000)
+    const intercepted: InterceptedRequest[] = []
+    await blockCollector(page, intercepted)
+
+    await page.goto('/')
+    const disclosure = page.getByTestId('telemetry-disclosure')
+    await expect(disclosure).toBeVisible({ timeout: 30_000 })
+    await page.emulateMedia({ colorScheme: scheme })
+    expect(await disclosure.evaluate((element) => element.matches(':modal'))).toBe(true)
+
+    // Keyboard: Tab from the neutral title to the first action, then Enter.
+    await page.keyboard.press('Tab')
+    expect((await activeFocus(page)).testId).toBe('telemetry-keep-on')
+    await page.keyboard.press('Enter')
+
+    await expect(page.getByTestId('telemetry-disclosure')).toHaveCount(0)
+    expect(
+      await storedPreference(page),
+      `[${scheme}] "Keep anonymous usage on" must not write a preference`,
+    ).toBeNull()
+    expect(await activeFocus(page)).toMatchObject({ tag: 'BODY', insideDialog: false })
+
+    // The Settings surface (now reachable) still reads default-on: the choice
+    // really kept collection enabled rather than merely closing the dialog.
+    await page.getByTestId('settings-toggle').click()
+    const settings = page.getByTestId('settings-dialog')
+    await expect(settings).toBeVisible()
+    await expect(page.getByTestId('telemetry-toggle')).toBeChecked()
   })
 }

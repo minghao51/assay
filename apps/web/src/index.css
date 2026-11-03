@@ -2492,8 +2492,22 @@ h1 {
   max-width: 42rem;
 }
 
+/*
+ * ux-a3: the disclosure is a real modal `<dialog>` now (UA top layer), not an
+ * in-flow section. Exactly two scoped necessities:
+ *  - a native dialog paints its text from the UA `canvastext` system colour,
+ *    not from the app's palette. Inheriting `--color-text` keeps the panel on
+ *    the same scheme token as every other surface (pinned: the copy must
+ *    paint the resolved token, never the UA default) and keeps the R-09 AA
+ *    proof measuring the app's own colours;
+ *  - `margin: auto` keeps the UA's own centred modal placement (`inset: 0`
+ *    plus auto margins), replacing the in-flow `1rem 0` block margin.
+ * The surface/border/radius/padding above are unchanged: no token, theme or
+ * global layout change.
+ */
 .telemetry-disclosure {
-  margin: 1rem 0;
+  margin: auto;
+  color: var(--color-text);
 }
 
 .telemetry-disclosure-copy {
