@@ -1,26 +1,28 @@
 # UX/UI Pickup Prompts — current pack
 
-**Refreshed 2026-11-03 (docs only; uxv-4 closure pass).** This is a small ready-to-paste pack for the **current**
+**Refreshed 2026-11-03 (docs only; uxv-5 closure pass — visual runtime rows complete).** This is a small ready-to-paste pack for the **current**
 frontier, not an archive of completed dispatches. Re-read the live queues and the tree before
 every use; a prompt never overrides a closed/claimed/blocked row.
 
 ## Current state
 
-- **Merged-verified code tip `6457113`** (uxv-4) over the previous docs closure, with this pass's
-  docs commit on top: **227 unit files / 3408 tests, e2e 217 passed + 1 skipped, coverage
-  89.15/83.89/91.42/90.73, docs links 119/0, ADR 46, 192 changesets — all gates exit 0**
-  (`/tmp/assay-ux-uxv4-merged/`, logs `/tmp/assay-ux-uxv4-merged-logs/`; default ports).
+- **Merged-verified code tip `6457113`** (uxv-4) remains the last code change; **uxv-5 adds one
+  documentation file** (`docs/product/10-ux-ui-demo-rehearsal.md`): **227 unit files / 3408 tests,
+  e2e 217 passed + 1 skipped, coverage 89.15/83.89/91.42/90.73, docs links 120/0, ADR 46, 192
+  changesets** (`/tmp/assay-ux-uxv4-merged/`; the doc delta was verified docs-only with links,
+  prettier and the ADR index).
   **All 23 usability rows are CLOSED — the batch is complete**; the Grid, Panels and Shell lanes are
   all closed, and the visual lane has started.
 - **No runtime usability row remains; the visual lane is active.** **uxv-1 (R-09) is CLOSED** at
-  `d85dec2`, **uxv-2 (R-10) at `b487788`**, **uxv-3 (R-11) at `cd4fb3f`** and **uxv-4 (R-12) at
-  `6457113`**, so the only remaining row is **uxv-5** — the rehearsal pack, a documentation
-  deliverable (orchestrator-owned `docs/product/10-ux-ui-demo-rehearsal.md`, worker evidence in
-  `/tmp`). uxv-6 stays design-only. Do not redispatch any closed row **ug-1…ug-23** or
-  **uxv-1…uxv-4**; anything that reopens a lane (e.g. the recorded `row-uninsert` domain-gloss
-  trigger, uxv-2's two-of-nine browser focus coverage, uxv-3's unpinned Settings-over-Open check, or
-  uxv-4's inherited body styling for the engine lines) is a **new** row or an explicitly recorded
-  rider.
+  `d85dec2`, **uxv-2 (R-10) at `b487788`**, **uxv-3 (R-11) at `cd4fb3f`**, **uxv-4 (R-12) at
+  `6457113`** and **uxv-5 (R-13) at `e3ae857`** (the
+  [rehearsal pack](../../product/10-ux-ui-demo-rehearsal.md)). **Every runtime row in both UX queues
+  is CLOSED**; uxv-6 is design-only and needs a maintainer decision before any code, and the
+  remaining launch work is the human-only list. Do not redispatch any closed row **ug-1…ug-23** or
+  **uxv-1…uxv-5**; anything that reopens a lane (e.g. the recorded `row-uninsert` domain-gloss
+  trigger, uxv-2's two-of-nine browser focus coverage, uxv-3's unpinned Settings-over-Open check,
+  uxv-4's inherited body styling for the engine lines, or uxv-5's evidence-only prose numbers) is a
+  **new** row or an explicitly recorded rider.
 - **Visual row:** **uxv-1** is factually eligible **only** with an exclusive CSS/theme-test
   reservation held by the orchestrator. **uxv-2…uxv-5** stay dependency-gated and **uxv-6** is
   design-only/deferred.

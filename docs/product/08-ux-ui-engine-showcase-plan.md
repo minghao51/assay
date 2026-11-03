@@ -20,8 +20,9 @@ scheme-aware surface for the Settings dialog and telemetry disclosure, with the 
 leg proven against an endpoint-bearing bundle) **uxv-2 (R-10) at `b487788`** (bounded token layer and
 named-control adoption, exactly two accent primaries, no bare element selector) **uxv-3 (R-11) at
 `cd4fb3f`** (fluid canvas to the measured 1024/1440/1920 matrix, compact header, measured 420/620/640
-grid viewport) and **uxv-4 (R-12) at `6457113`** (the static idle engine line and note), so the only
-remaining row is **uxv-5** (the rehearsal pack), with uxv-6 design-only. This note updates status only; the rationale and wave plan below are
+grid viewport) and **uxv-4 (R-12) at `6457113`** (the static idle engine line and note) and **uxv-5 (R-13) at
+`e3ae857`** (the [rehearsal pack](10-ux-ui-demo-rehearsal.md)), so **every runtime row in the visual
+queue is closed**; uxv-6 is design-only and deferred behind a maintainer decision. This note updates status only; the rationale and wave plan below are
 unchanged.
 
 ## 1. Recommendation

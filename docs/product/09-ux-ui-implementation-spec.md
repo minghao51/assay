@@ -3,8 +3,9 @@
 **Authored 2026-10-26; status refreshed 2026-11-02 (usability batch complete, after ug-23).** The authoring date records when the
 contract was written, not the current implementation state. As of 2026-10-31, R-01…R-08, R-14
 and R-15 are implemented and merged-verified; **R-09 is implemented at `d85dec2` (uxv-1)**,
-**R-10 at `b487788` (uxv-2)**, **R-11 at `cd4fb3f` (uxv-3)** and **R-12 at
-`6457113` (uxv-4)**, all 2026-11-03, while R-13 remains open (the frontier is uxv-5); **R-16 is implemented at `f667a87`** under the maintainer's
+**R-10 at `b487788` (uxv-2)**, **R-11 at `cd4fb3f` (uxv-3)**, **R-12 at `6457113`
+(uxv-4)** and **R-13 at `e3ae857` (uxv-5)**, all 2026-11-03 — **every requirement in this spec is now
+implemented**; only uxv-6 (design-only, no requirement row) remains deferred; **R-16 is implemented at `f667a87`** under the maintainer's
 UX-D1 Option C ruling (2026-10-30); **ug-16 profile click-to-act is implemented at `3b494f5`**
 under the settled typed-refusal design and **ug-17 collapsed section state summaries at
 `9a31cd6`**, **ug-4 capability-true grid interaction language at `784805c`**, **ug-5
@@ -391,7 +392,7 @@ the overlay-aware profile it deliberately does _not_ implement is a separate eng
 | R-10        | uxv-2     | implemented — `b487788` (token layer + named controls)                       | visual queue row uxv-2 + `.changeset/uxv-2-design-tokens.md`                      |
 | R-11        | uxv-3     | implemented — `cd4fb3f` (fluid canvas, compact header, 420/620/640 viewport) | visual queue row uxv-3 + `.changeset/uxv-3-desktop-canvas.md`                     |
 | R-12        | uxv-4     | implemented — `6457113` (static idle engine line + note)                     | visual queue row uxv-4 + `.changeset/uxv-4-idle-engine-explanation.md`            |
-| R-13        | uxv-5     | open — dependency-gated (after uxv-1…4; ug-3/7/8)                            | visual queue row uxv-5                                                            |
+| R-13        | uxv-5     | implemented — `e3ae857` (two-chapter rehearsal pack)                         | [rehearsal doc](10-ux-ui-demo-rehearsal.md) + visual queue row uxv-5              |
 | R-14        | ug-13     | implemented                                                                  | `36cead3` + test-only `793ba90`                                                   |
 | R-15        | ug-9      | implemented                                                                  | `71fa03a` + Critical fix `385649b`                                                |
 | R-16        | ug-10     | implemented — `f667a87` (UX-D1 Option C)                                     | [amendment brief](../process/handoff/20261029-ux-d1-amendment.md) §4/§7 + spec §2 |
