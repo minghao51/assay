@@ -7,10 +7,11 @@
 > `pnpm changeset status` green (92 pending changesets, au2 included; tooling validated 2026-09-24, see the
 > changesets row below). Roster + dispatch runbook: [operating-model §7.6](operating-model.md).
 >
-> **Current pointer (2026-11-03):** September counts and remote-CI successes below are historical.
+> **Current pointer (2026-11-04):** September counts and remote-CI successes below are historical.
 > Original usability (23/23) and visual implementation (uxv-0…uxv-5) are closed. New maintenance is
 > the [audit follow-up](20261103-ux-audit-followup.md): docs reconciliation, configured telemetry
-> verification/CI, then bounded keyboard accessibility. Current verified code evidence lives in
+> verification/CI (ux-a1/2 now closed), then bounded keyboard accessibility (ux-a3 in progress).
+> Current verified code evidence lives in
 > [handoff §2](../handoff.md); the audit baseline `6920469` had 192 pending changesets and docs 120/0.
 > Actions remains M6-blocked; local green is not remote green. SQL sizing/overlay profiling remain
 > design-only and no closed row below is dispatch authorization.

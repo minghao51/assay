@@ -323,7 +323,12 @@ then restoration **and a rebuild of restored source** before claiming a clean ve
 All Playwright legs use freshly built output. Add missing requirement tests; existing file names
 are starting points, not proof that their current assertions already cover this spec.
 
-### Configured-disclosure theme evidence (uxv-1)
+### Configured-disclosure theme evidence (uxv-1; CI-hardened by ux-a2)
+
+The dedicated `configured-telemetry` job in `.github/workflows/ci.yml` now runs this isolated leg
+in its own disposable checkout: stock harness build, direct configured web build, fail-fast endpoint
+check, then explicit Playwright config with zero retries. Its local equivalent passed at `9489773`;
+remote execution remains M6-blocked. The manual sequence below is for isolated local verification.
 
 Stock `telemetry.spec.ts` intentionally asserts no disclosure; do **not** run that stock suite
 against a configured build or introduce a production testing hook. Add an isolated
@@ -340,9 +345,9 @@ sending metadata to a collector. Preserve consent copy, emission and storage con
 # package directly, then prove the endpoint is actually baked in before running the leg:
 env -u ASSAY_NO_TELEMETRY -u ASSAY_TELEMETRY_TOKEN \
   ASSAY_TELEMETRY_ENDPOINT=https://collector.example.invalid/ingest pnpm --filter @assay/web build
-grep -r collector.example.invalid apps/web/dist   # must print a hit; no hit = the leg would be vacuous
-ASSAY_E2E_PORT_WEB=4473 ASSAY_E2E_PORT_ENGINE=4479 ASSAY_E2E_PORT_DS=4480 \
-  pnpm exec playwright test --config tests/visual/playwright.telemetry.config.ts
+grep -r collector.example.invalid apps/web/dist   # must hit; fail fast if endpoint absent
+CI=1 ASSAY_E2E_PORT_WEB=4473 ASSAY_E2E_PORT_ENGINE=4479 ASSAY_E2E_PORT_DS=4480 \
+  pnpm exec playwright test --config tests/visual/playwright.telemetry.config.ts --retries=0
 # Restore: a cache-hit rebuild does NOT delete the configured chunk, so remove the output first and
 # then verify the endpoint is gone before any stock run.
 rm -rf apps/web/dist
@@ -350,8 +355,10 @@ env -u ASSAY_TELEMETRY_ENDPOINT -u ASSAY_TELEMETRY_TOKEN -u ASSAY_NO_TELEMETRY p
 grep -r collector.example.invalid apps/web/dist   # must print nothing
 ```
 
-The two `grep` lines are part of the evidence, not decoration: without them a cache hit or a stale
-`dist` can make the configured leg pass against a stock or mixed build. (A cleaner long-term fix is
+The first `grep` is a fail-fast build diagnostic: without the endpoint, the browser leg still
+fails its disclosure-visibility assertions, but only after their timeout. The second `grep` checks
+that restoring stock output left no configured chunks. Presence alone does not establish server
+identity; keep fresh preview servers, explicit configuration and the configured/stock separation. (A cleaner long-term fix is
 declaring `ASSAY_TELEMETRY_ENDPOINT`/`TOKEN`/`NO_TELEMETRY` in `turbo.json`'s `env`; that is a root
 config change and was deliberately not taken inside uxv-1.)
 
