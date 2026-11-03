@@ -209,19 +209,21 @@ jobs:
 
       # Configured web build, package-direct by design (spec §6): a root
       # `pnpm build` here would be a strict-env-mode variable drop plus a stock
-      # turbo cache hit, leaving a stock bundle and a vacuous leg.
+      # turbo cache hit, leaving a stock bundle that fails the
+      # disclosure-visibility assertions.
       - name: Build the configured web bundle directly
         run: |
           env -u ASSAY_NO_TELEMETRY -u ASSAY_TELEMETRY_TOKEN \
             ASSAY_TELEMETRY_ENDPOINT=https://collector.example.invalid/ingest \
             pnpm --filter @assay/web build
 
-      # Non-vacuity gate: a cache hit or a stale `dist` must fail here instead of
-      # letting the browser leg pass against a stock bundle (spec §6).
+      # Fail-fast build check: report a missing configured endpoint before
+      # launching the browser. Without this check an endpoint-free build still
+      # fails the disclosure-visibility assertions, but only after their timeout.
       - name: Prove the endpoint is baked into the emitted bundle
         run: |
           if ! grep -rq 'collector.example.invalid' apps/web/dist; then
-            echo '::error::apps/web/dist carries no configured endpoint — the disclosure leg would be vacuous'
+            echo '::error::apps/web/dist carries no configured endpoint — refusing to start the disclosure leg'
             exit 1
           fi
 

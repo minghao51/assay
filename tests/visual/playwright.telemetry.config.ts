@@ -55,7 +55,8 @@ export default defineConfig({
       // endpoint and running the root `pnpm build`: turbo 2.x strict env mode
       // drops the undeclared variable (`turbo.json` declares no `env`) and
       // usually replays a stock cache hit, so the emitted bundle would carry no
-      // endpoint and this leg would assert nothing. Build and PROVE it first:
+      // endpoint, so the disclosure-visibility assertions would fail after their
+      // timeout. Build and check the endpoint first for a faster diagnosis:
       //   env -u ASSAY_NO_TELEMETRY -u ASSAY_TELEMETRY_TOKEN \
       //     ASSAY_TELEMETRY_ENDPOINT=https://collector.example.invalid/ingest \
       //     pnpm --filter @assay/web build

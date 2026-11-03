@@ -20,9 +20,10 @@ import { describe, expect, it } from 'vitest'
  *    timeout, frozen install, Chromium, and SHA-pinned `uses:` refs;
  * 3. the configured bundle being produced by the ROOT Turbo build (or the
  *    stock build not preceding it), i.e. the turbo 2.x strict-env-mode
- *    variable drop plus stock cache hit that makes the leg vacuous;
+ *    variable drop plus stock cache hit that leaves the disclosure absent;
  * 4. the endpoint-presence proof vanishing or moving AFTER the browser leg
- *    (a stock/mixed `dist` would then pass silently);
+ *    (losing a fail-fast build diagnostic; an endpoint-free build still fails
+ *    the browser's disclosure-visibility assertions);
  * 5. the leg being invoked implicitly (retries on, or the stock `test:e2e`
  *    discovery) instead of by the explicit isolated config with zero retries;
  * 6. the spec's load-bearing privacy ordering regressing (collector route
@@ -200,8 +201,8 @@ describe('ux-a2 dedicated configured-telemetry CI job', () => {
     )
     expect(proofIndex, 'an endpoint-presence proof step must exist').toBeGreaterThanOrEqual(0)
     expect(legIndex, 'the configured leg must be invoked').toBeGreaterThanOrEqual(0)
-    // Ordering is the whole point: a stock or mixed `dist` must fail before a
-    // browser is ever launched.
+    // Fail early with a build diagnostic rather than waiting for the
+    // disclosure-visibility assertion to time out on an endpoint-free build.
     expect(proofIndex).toBeLessThan(legIndex)
 
     const proof = steps[proofIndex] ?? ''
@@ -272,9 +273,8 @@ describe('ux-a2 configured-disclosure leg source', () => {
   })
 
   it('waits for the first attempt with bounded polling, never a fixed sleep', () => {
-    // A fixed sleep is unbounded evidence: it can pass by luck on a slow runner
-    // and always costs the full duration. Any `waitForTimeout` here is the
-    // regression the row removes.
+    // A fixed sleep always costs its full duration and does not synchronize
+    // with the observed attempt. Polling waits for that condition with a bound.
     expect(VISUAL_SPEC).not.toContain('waitForTimeout')
     expect(VISUAL_SPEC).toMatch(/expect\s*\.poll\(/)
     expect(VISUAL_SPEC).toMatch(/\.poll\(\(\) => intercepted\.length,[\s\S]{0,200}?timeout: 15_000/)

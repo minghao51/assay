@@ -275,13 +275,9 @@ for (const scheme of ['light', 'dark'] as const) {
     )
     assertNoCriticalOrSerious(results.violations)
 
-    // 6. Privacy: the runtime flushes on a bounded debounce, so poll for the
-    //    first attempt instead of sleeping a fixed amount — a fixed sleep is
-    //    both slower than needed and unbounded evidence (it can pass by luck on
-    //    a slow runner or fail on a fast one). Polling stops as soon as the
-    //    configured build proves it tried, and the non-vacuity/abort assertions
-    //    below still do the actual proving. The stock build never gets here; a
-    //    configured build must not deliver anything.
+    // 6. Privacy: poll for the first collector attempt with a bounded timeout
+    //    instead of always sleeping 2.5 seconds. The assertions below still
+    //    require at least one attempt and prove every intercepted request aborted.
     await expect
       .poll(() => intercepted.length, {
         timeout: 15_000,
