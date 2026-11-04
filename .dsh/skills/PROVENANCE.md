@@ -17,8 +17,10 @@ These MIT notices apply to the adapted `tdd/` and `diagnosing-bugs/` content, in
   - `tdd`: removed the `GLOSSARY.md` reference (generalized to "project domain vocabulary"),
     removed the `codebase-design` skill cross-reference, removed the `code-review`
     skill cross-reference.
-  - `diagnosing-bugs`: generalized the `GLOSSARY.md` sentence; everything else verbatim,
-    including `scripts/hitl-loop.template.sh`.
+  - `diagnosing-bugs`: the original import note reports a generalized `GLOSSARY.md` sentence
+    and otherwise verbatim content. The later Assay integration added the helper template's
+    privacy/placeholder comments and repository formatting, as described above; the current
+    template is therefore adapted, not a byte-identical upstream copy.
 - The other skills in that pack (flows like `grill-me`, `triage`, `implement-spec`, and the
   `codebase-design` vocabulary) were evaluated and deliberately not installed — see session
   discussion 2026-10-27. `code-review` is a candidate for later adoption with its

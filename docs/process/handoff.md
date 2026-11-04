@@ -115,7 +115,7 @@ these or widen publication/telemetry boundaries in a packaging fix.
   model never both implements and reviews. The earlier maintainer preference (2026-10-17:
   `zai/glm-5.3-flash` first, Luna reviewer; Luna implements with parent review when the GLM lane
   429s) is historical.
-  Serialized dispatches; briefs/logs in `/tmp`. Push authorization is episode-specific: the
+  Serialized dispatches; briefs/logs in `/tmp`. Push authorization is episode-specific:
   this episode authorizes a normal `main` push; verify current remote SHA equality rather than reusing historical ahead/behind counts.
   **Workers never push**, and publication remains
   unauthorized.
@@ -219,7 +219,9 @@ implementation task; parent independently reviews, verifies and integrates.
   optional `.dsh` development skills, plus a normal `main` push. Corrected unsupported Arrow input
   claims and stale VS Code status, retained both upstream MIT notices, documented unknown import
   revision and policy precedence, and expanded the gate checklist. Root formatting, doc links,
-  ADR index, SVG static-safety validation and shell-template syntax checks pass. No runtime/package
+  ADR index, SVG static-safety validation and shell-template syntax checks pass. Independent
+  MiMo Flash high review approved `548bbfb`; follow-up wording clarifies template adaptation.
+  No runtime/package
   code or visibility/publication/billing change; push/remote-CI status must be verified separately.
 
 - 2026-11-04 (**hd**) — ux-a3 **CLOSED** at `fc6fd0f`; the [audit follow-up](handoff/20261103-ux-audit-followup.md)
