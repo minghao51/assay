@@ -328,7 +328,8 @@ are starting points, not proof that their current assertions already cover this 
 The dedicated `configured-telemetry` job in `.github/workflows/ci.yml` now runs this isolated leg
 in its own disposable checkout: stock harness build, direct configured web build, fail-fast endpoint
 check, then explicit Playwright config with zero retries. Its local equivalent passed at `9489773`;
-remote execution remains M6-blocked. The manual sequence below is for isolated local verification.
+remote status is tracked in [handoff §2](../process/handoff.md), not inferred from local green.
+The manual sequence below is for isolated local verification.
 
 Stock `telemetry.spec.ts` intentionally asserts no disclosure; do **not** run that stock suite
 against a configured build or introduce a production testing hook. Add an isolated

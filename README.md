@@ -17,7 +17,8 @@ pipeline P1–P3 and local DCR generation are implemented, and desktop VS Code
 supports offline viewing, session-only overlay editing and undo/redo, safe new-file export,
 validation, confirmed-key diff and Git workflows (slice 2 closed 2026-10-19).
 The web usability/visual programme and its audit follow-up are also complete.
-Next: human-gated launch readiness (G0); remote CI still needs Actions billing restored (M6). See the
+Next: human-gated launch readiness (G0); current push and remote-CI observations are recorded in the
+[handoff](docs/process/handoff.md). See the
 [execution roadmap](docs/product/03-execution-roadmap.md) and the
 [post-MVP track](docs/product/04-post-mvp-track.md).
 

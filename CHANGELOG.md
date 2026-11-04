@@ -22,7 +22,7 @@ Until the first tagged release, everything accumulates under _Unreleased_.
   guards focus requests across an overlapping overlay-revision/stale-render transition.
 - The isolated configured-disclosure regression suite now has a dedicated CI job, package-direct
   configured builds, a fail-fast endpoint check and bounded attempt polling. Its local equivalent
-  is verified; remote execution remains blocked by the existing Actions billing prerequisite.
+  is verified; current remote execution/results are tracked separately in the project handoff.
 
 ### Changed — web usability and visual programme (2026-11-03)
 

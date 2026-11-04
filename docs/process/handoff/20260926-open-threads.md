@@ -13,7 +13,8 @@
 > verification/CI and bounded keyboard accessibility (ux-a1…ux-a3 now all closed).
 > Current verified code evidence lives in
 > [handoff §2](../handoff.md); the audit baseline `6920469` had 192 pending changesets and docs 120/0.
-> Actions remains M6-blocked; local green is not remote green. SQL sizing/overlay profiling remain
+> A later authorized push started remote CI; verify the current run via handoff §2 rather than
+> assuming the historical M6 before-step billing failure still applies. Local green is not remote green. SQL sizing/overlay profiling remain
 > design-only and no closed row below is dispatch authorization.
 >
 > **This file is a map, not a second copy:** every thread points at its authoritative row or file

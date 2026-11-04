@@ -66,12 +66,15 @@ ADR **46**, **193** pending changesets. Configured disclosure **6 passed** in bo
 collector routes aborted before navigation; original AA legs logged 4 aborted attempts, 0 delivered.
 Stock restored endpoint-free, **31 focused stock legs passed**; direct web typecheck also passed.
 Logs `/tmp/assay-uxa3-merged-logs/`. No active row remains in the audit queue; optional future QoL is
-listed there and is not implicitly authorized. Remote CI is still M6-blocked, not verified green.
+listed there and is not implicitly authorized. That local verification did not establish remote
+CI success; the later push/run observation below supersedes the old billing-block assumption.
 
 **Push / remote CI (2026-11-04 integration episode):** the user authorized adopting the remaining
 README/usage-SVG and optional `.dsh` skills, and a normal, non-force `main` push. The prior verified
-push was `dee10f8` (2026-10-29); after fetching origin, the pre-import tip `af985f7` was 75 ahead / 0
-behind. Those are dated pre-push facts, not a live divergence counter. Verify the eventual push by
+push before this episode was `dee10f8` (2026-10-29). The normal push to `1769a71` succeeded;
+local HEAD and `git ls-remote` agreed and divergence was 0/0 before this status-note update.
+The earlier pre-import tip `af985f7` was 75 ahead / 0 behind: a dated fact, not a live counter.
+Verify subsequent documentation pushes by
 comparing `git rev-parse HEAD` with `git ls-remote --heads origin main`; no blanket permission for
 publication, visibility, billing, tags or force-push follows from this authorization.
 
@@ -82,7 +85,20 @@ three checks. Repository-root `pnpm format:check` passes after formatting the im
 there is no longer a foreign `.dsh` formatting exception. Exact original upstream import revision
 was not recorded and is not claimed. Historical preservation notes below describe earlier episodes.
 
-**Remote CI is M6-blocked:** runs [38615821301](https://github.com/minghao51/assay/actions/runs/38615821301) and [38616340554](https://github.com/minghao51/assay/actions/runs/38616340554) — and later runs on `1f6cbb9` — failed **before any steps ran**: GitHub reports account payments failed **or** a spending limit that needs increasing, so **no code gate ran remotely**. The user deferred this on 2026-10-15; human **[M6](manual-actions.md)** must restore Actions billing/limit access and then re-run the latest `main`. No billing, visibility, publication or force-push change is authorized, and **local green is not remote green**. Remote hygiene: four dependabot branches were force-updated on origin on 2026-10-17 (github-actions pin, apache-arrow 21, vite plugin-react, npm minor-patch); triage is pending and none are merged.
+**Remote CI observation (2026-11-04):** [run 41758900607](https://github.com/minghao51/assay/actions/runs/41758900607)
+for pushed `1769a71` was **in progress**, with checkout/setup/dependency installation completed and
+all four jobs executing (including the new configured-telemetry job). Thus the historical
+before-any-steps billing failure does **not** describe this observed run. Its conclusion was still
+pending; do not infer remote green or claim the account's billing configuration was changed by an
+agent. Later documentation pushes may supersede/cancel this run under the workflow concurrency
+policy: check the run matching the current remote HEAD, not merely the latest remembered run ID.
+
+Historical M6 evidence is preserved: [38615821301](https://github.com/minghao51/assay/actions/runs/38615821301)
+and [38616340554](https://github.com/minghao51/assay/actions/runs/38616340554) failed before steps on
+payment/spending-limit annotations, deferred by the user on 2026-10-15. [M6](manual-actions.md) now
+awaits latest-main CI verification; account actions remain human-only if an access failure recurs.
+No billing, visibility, publication or force-push change is authorized. Local green is not remote green.
+Dependabot triage remains separate; this push did not merge dependency branches.
 
 **Release boundary:** complete local CLI tarball closure is verified, but
 registry distribution of private runtime dependencies remains an explicit
@@ -214,6 +230,11 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-04 (**hf**) — Normal push `dee10f8..1769a71` verified by local/remote SHA equality and
+  0/0 divergence; checkout clean. Actions run `41758900607` started all four jobs and completed
+  setup steps, superseding the old before-any-steps billing-block assumption. Result still pending
+  at observation; no remote-green, billing-change or publication claim. Current run must match HEAD.
 
 - 2026-11-04 (**he**) — User authorized integration of the previously foreign README/usage SVG and
   optional `.dsh` development skills, plus a normal `main` push. Corrected unsupported Arrow input
