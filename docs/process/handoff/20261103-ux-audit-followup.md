@@ -24,6 +24,12 @@ Not authorized by this batch: global restyling, adopting unused radius/mono alia
 
 ## 4. Verification record
 
+**Later tooling disposition (2026-11-04):** the user authorized integrating the previously foreign
+README/usage SVG and optional `.dsh` skills. Their licenses and policy precedence are now documented;
+the imported markdown is formatted and repo-root formatting passes. The foreign-file/format warnings
+in the dated audit snapshot below are historical, not an active exception. This did not change the
+runtime verification at `fc6fd0f` or authorize publication/billing changes.
+
 Final merged verification at `fc6fd0f` (Node24.13.0, pnpm11.26.0, DuckDB1.5.5; clean isolated worktree): all format/lint/typecheck/unit/build/full-e2e/coverage/docs/ADR gates exit 0. Stock ports4573/4579/4580, configured4493/4499/4500; telemetry environment names unset for stock. Configured direct-build endpoint present, original two AA legs logged four aborted attempts and no deliveries; all six tests used pre-navigation abort routes with service workers blocked. Generated web output removed before direct stock rebuild; endpoint absent and 31 stock legs green. Direct web typecheck additionally passed without Turbo. LSP reported no errors but only 2/8 paths confirmed clean (6 inconclusive); compiler/lint/tests provide the broader verification, not an empty diagnostic cache.
 
 Residuals: the same-commit revision race has a component regression, not a real-event-order browser reproduction. First-run disclosure has no real trigger to restore to; connected-opener restoration is component-pinned, while record opener restoration is browser-pinned. One worker coverage attempt hit a pipeline test timeout and passed on unchanged-budget rerun; the final orchestrator full gates passed without retry. Optional focus-ring inventory and Settings/Open overlap pins remain outside this batch. Remote CI is still unexecuted/M6-blocked; no push/publication occurred.

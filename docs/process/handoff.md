@@ -68,7 +68,19 @@ Stock restored endpoint-free, **31 focused stock legs passed**; direct web typec
 Logs `/tmp/assay-uxa3-merged-logs/`. No active row remains in the audit queue; optional future QoL is
 listed there and is not implicitly authorized. Remote CI is still M6-blocked, not verified green.
 
-**Push / remote CI:** the last verified push is **`dee10f8`** (2026-10-29). Since then local `main` has accumulated the whole UX/UI programme **unpushed**: at audit baseline `6920469`, HEAD was **67 commits ahead of `origin/main` and 0 behind** (re-measure for later revisions), so remote CI does not describe this tree. Earlier episodes were verified pushed at `3a3a94b`/`ddd72f4`/`1f6cbb9` and `a3f2733..0bd9866` (18 commits, 2026-10-28); `ea41533` (the 2026-10-29 docs reconciliation) is likewise **local-only**. No push authorization was given for this batch and workers never pushed. The current checkout still holds another agent's uncommitted `README.md`, `docs/assets/` and `.dsh/` work; those edits are **not pushed**, and no agent may claim otherwise — note that this foreign `.dsh/**` content also makes the repo-root `pnpm format:check` fail locally, so gates are run in clean isolated worktrees.
+**Push / remote CI (2026-11-04 integration episode):** the user authorized adopting the remaining
+README/usage-SVG and optional `.dsh` skills, and a normal, non-force `main` push. The prior verified
+push was `dee10f8` (2026-10-29); after fetching origin, the pre-import tip `af985f7` was 75 ahead / 0
+behind. Those are dated pre-push facts, not a live divergence counter. Verify the eventual push by
+comparing `git rev-parse HEAD` with `git ls-remote --heads origin main`; no blanket permission for
+publication, visibility, billing, tags or force-push follows from this authorization.
+
+The previously foreign files are now adopted with user authorization: the README/diagram no longer
+advertise Arrow/Feather input; the optional developer skills retain both upstream MIT notices and
+explicitly defer to project policy. The gate skill now names the complete runtime gate, not just
+three checks. Repository-root `pnpm format:check` passes after formatting the imported skill files;
+there is no longer a foreign `.dsh` formatting exception. Exact original upstream import revision
+was not recorded and is not claimed. Historical preservation notes below describe earlier episodes.
 
 **Remote CI is M6-blocked:** runs [38615821301](https://github.com/minghao51/assay/actions/runs/38615821301) and [38616340554](https://github.com/minghao51/assay/actions/runs/38616340554) — and later runs on `1f6cbb9` — failed **before any steps ran**: GitHub reports account payments failed **or** a spending limit that needs increasing, so **no code gate ran remotely**. The user deferred this on 2026-10-15; human **[M6](manual-actions.md)** must restore Actions billing/limit access and then re-run the latest `main`. No billing, visibility, publication or force-push change is authorized, and **local green is not remote green**. Remote hygiene: four dependabot branches were force-updated on origin on 2026-10-17 (github-actions pin, apache-arrow 21, vite plugin-react, npm minor-patch); triage is pending and none are merged.
 
@@ -104,7 +116,7 @@ these or widen publication/telemetry boundaries in a packaging fix.
   `zai/glm-5.3-flash` first, Luna reviewer; Luna implements with parent review when the GLM lane
   429s) is historical.
   Serialized dispatches; briefs/logs in `/tmp`. Push authorization is episode-specific: the
-  latest recorded verified push is `dee10f8`; `ea41533` and subsequent UX work are local-only (re-measure divergence, do not reuse the historical one-commit count).
+  this episode authorizes a normal `main` push; verify current remote SHA equality rather than reusing historical ahead/behind counts.
   **Workers never push**, and publication remains
   unauthorized.
 
@@ -202,6 +214,13 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-04 (**he**) — User authorized integration of the previously foreign README/usage SVG and
+  optional `.dsh` development skills, plus a normal `main` push. Corrected unsupported Arrow input
+  claims and stale VS Code status, retained both upstream MIT notices, documented unknown import
+  revision and policy precedence, and expanded the gate checklist. Root formatting, doc links,
+  ADR index, SVG static-safety validation and shell-template syntax checks pass. No runtime/package
+  code or visibility/publication/billing change; push/remote-CI status must be verified separately.
 
 - 2026-11-04 (**hd**) — ux-a3 **CLOSED** at `fc6fd0f`; the [audit follow-up](handoff/20261103-ux-audit-followup.md)
   is complete. Native disclosure modal focus/Tab/inertness, Escape without an implicit choice, and

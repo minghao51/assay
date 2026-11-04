@@ -2,19 +2,22 @@
 
 > Understand any dataset before your code does.
 
+![Assay usage overview: open local structured data, inspect and validate it, stage repairs, then export a reviewed copy](docs/assets/assay-usage-overview.svg)
+
 Assay is **the local-first data workbench**: inspect, understand,
 validate, compare, repair, transform, review, and govern structured datasets
-(Parquet, JSONL, JSON, CSV, Arrow/Feather) directly in the browser or the `assay` CLI —
-with no data leaving your machine, and a long-term path toward governed data
+(Parquet, JSONL, JSON and CSV), with browser, CLI and desktop VS Code workflows —
+dataset contents stay on your machine by default, with a long-term path toward governed data
 products and an enterprise data control plane.
 
 **Status: MVP feature milestones complete (M0–M6, closed 2026-09-21).** The
 local-first core — inspect, nested data, edit, export, validate, and diff,
 with exact agreement between the browser app and the CLI — works end-to-end;
 pipeline P1–P3 and local DCR generation are implemented, and desktop VS Code
-opens/inspects datasets offline with session-only overlay editing and undo/redo.
-Packaging/CI maintenance is closed. Next: safe new-file export, validation,
-diff and Git workflows in VS Code (remaining slice 2), alongside launch readiness (G0). See the
+supports offline viewing, session-only overlay editing and undo/redo, safe new-file export,
+validation, confirmed-key diff and Git workflows (slice 2 closed 2026-10-19).
+The web usability/visual programme and its audit follow-up are also complete.
+Next: human-gated launch readiness (G0); remote CI still needs Actions billing restored (M6). See the
 [execution roadmap](docs/product/03-execution-roadmap.md) and the
 [post-MVP track](docs/product/04-post-mvp-track.md).
 
@@ -75,7 +78,7 @@ Start at [`docs/README.md`](docs/README.md). Highlights:
 ## Repository layout
 
 ```text
-apps/        web (Vite/React), cli, vscode (desktop inspect + overlay edits; remaining slice 2 queued)
+apps/        web (Vite/React), cli, vscode (desktop MVP workflow; slice 2 complete)
 packages/    domain, core, ui, grid, engine family
              (engine + engine-duckdb + engine-parquet),
              data-sources,
@@ -95,6 +98,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Durable decisions are recorded as
 [SECURITY.md](SECURITY.md).
 
 ## License
+
+Vendored development skills retain their upstream MIT notices; see
+[skill provenance](.dsh/skills/PROVENANCE.md). They are optional tooling, not application dependencies.
 
 [AGPL-3.0-or-later](LICENSE) — decision record: [ADR 0036](docs/adr/0036-agpl-license.md).
 The open core is free software; hosted collaboration and enterprise surfaces
