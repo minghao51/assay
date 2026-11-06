@@ -1,10 +1,6 @@
 # rd-3b — conditional task visibility: contract and migration plan
 
-**Status: PREPARED, NOT AUTHORIZED. No code has been changed for rd-3b.** This document is the
-exact contract the maintainer is asked to approve (approval wording in §11). It exists because the
-[slice-1 amendment](20261104-rd-decisions-and-runtime-scope.md) deferred conditional visibility on
-purpose: hiding inactive sections changes how every legacy journey reaches a panel, so the test
-migration must be designed before it is written.
+**Status: AUTHORIZED 2026-11-04 by the maintainer (_"approve on the rd-3b, lets proceed with that"_), baseline `d85c995`.** Scope is bounded to this document; the authorization record is [decisions and runtime scope](20261104-rd-decisions-and-runtime-scope.md) §7. The contract was written **before** any code, because the [slice-1 amendment](20261104-rd-decisions-and-runtime-scope.md) deferred conditional visibility on purpose: hiding inactive sections changes how every legacy journey reaches a panel, so the test migration had to be designed first.
 
 **Authority chain:** [SV-D08 = B](20261104-rd-decisions-and-runtime-scope.md) (task-led),
 [UI-RD-01](20261104-rd-decisions-and-runtime-scope.md) §3.2 ("conditional hiding at ≥1024px is the
@@ -330,6 +326,9 @@ allowlist pressure; any request to hide at <1024px; any push.
 > the new visibility spec, with the §3 invariants and §7 file reservations unchanged. One web writer,
 > independent reviewer, full gates from the committed revision including the configured/restored
 > telemetry legs, no push. Stop on any condition in §10.
+
+_Superseded 2026-11-04: the maintainer gave exactly this authorization — [decisions record §7](20261104-rd-decisions-and-runtime-scope.md).
+The paragraph below is kept as the pre-authorization gate it was._
 
 Until that instruction exists, **rd-3b remains PROPOSED and no production or test file may be
 changed for it.**

@@ -115,3 +115,29 @@ implementation episode: see [map §6.4](20261104-svg-implementation-map.md) for 
 **Still not done / not authorized:** rd-3b (contract prepared, awaiting explicit scope approval),
 rd-5…rd-7, optional SV-D02…SV-D05, run-origin metadata, any human usability study (RD-T07 remains
 unsatisfied), and any push/publication.
+
+## 7. rd-3b authorization (2026-11-04, maintainer)
+
+**Instruction.** The maintainer approved the prepared slice: _"approve on the rd-3b, lets proceed
+with that."_ That is the explicit scope approval the [rd-3b contract](20261104-rd3b-conditional-visibility-contract.md)
+§11 asks for, and it is bounded to exactly that document.
+
+**Authorized scope (no widening without a new instruction):**
+
+1. The two `@media (min-width: 1024px)` rules in §2.1 — hide sections outside the active task and
+   hide inactive nav groups, both `display: none`, both keeping every section mounted.
+2. The single focus guard in §2.3 (focus the checked radio when focus would otherwise sit inside a
+   newly hidden section).
+3. The task-aware e2e helper rewrite (§4.2) and the measured migration of the 9 single-task and 10
+   cross-task specs (§4.3), plus the unit/CSS pins (§5) and the new `workbench-visibility` browser
+   spec with its three negative controls (§6).
+4. The file reservations in §7 and one `.changeset/*.md` for `@assay/web`.
+
+**Still forbidden:** the §3 invariants (no `packages/**`, sessions hooks, engine/grid/export bytes,
+copy, telemetry semantics, thresholds), the §10 stop conditions, any push/publication, and any
+rd-5/rd-6/rd-7 or SV-D02…SV-D05 work.
+
+**Baseline:** `d85c995` (clean tree; rd-3/rd-4 CLOSED, merged-verified, copy table enforced).
+**Dispatch model:** one web writer (`deepseek-v4.1-flash`), then an independent reviewer
+(`openai-codex/gpt-6-luna` xhigh) who did not implement it. Workers do not commit to `main` and do
+not push.
