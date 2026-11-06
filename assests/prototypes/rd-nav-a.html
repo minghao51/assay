@@ -1,0 +1,2775 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Assay · rd-1 prototype A — incremental navigation</title>
+    <style>
+      /* Design tokens copied verbatim from apps/web/src/index.css (light scheme,
+         source bba491a): spacing 4/8/12/16/24/32, control 32/36, radii 4/6/8,
+         type 14/16/13/24, and the colour tokens used below. */
+      :root {
+        --space-1: 0.25rem;
+        --space-2: 0.5rem;
+        --space-3: 0.75rem;
+        --space-4: 1rem;
+        --space-6: 1.5rem;
+        --space-8: 2rem;
+        --control-height-compact: 2rem;
+        --control-height: 2.25rem;
+        --radius-sm: 0.25rem;
+        --radius-md: 0.375rem;
+        --radius-lg: 0.5rem;
+        --font-family-ui: system-ui, -apple-system, sans-serif;
+        --font-family-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+        --font-size-ui: 0.875rem;
+        --font-size-body: 1rem;
+        --font-size-metadata: 0.8125rem;
+        --font-size-page-title: 1.5rem;
+        color-scheme: light;
+        --color-surface: #fff;
+        --color-surface-subtle: #fafafa;
+        --color-surface-alt: #f7f7f8;
+        --color-surface-elevated: #fbfcfe;
+        --color-hover: #eee;
+        --color-row-hover: #eef3f9;
+        --color-editor-null: #f0f0f0;
+        --color-dirty-cell: #fff5cc;
+        --color-dirty-row: #fffaf0;
+        --color-dirty-row-alt: #faf5e8;
+        --color-dirty-marker: #e0a800;
+        --color-text: #1a1a1a;
+        --color-text-secondary: #555;
+        --color-text-muted: #666;
+        --color-text-faint: #777;
+        --color-text-code: #334;
+        --color-text-loading: #999;
+        --color-accent-text: #23364d;
+        --color-accent-surface: #eef3f9;
+        --color-accent-subtle: #e7eef7;
+        --color-accent-border: #b9c6d4;
+        --color-focus: #4a7db5;
+        --color-ok-text: #2d4d2d;
+        --color-ok-subtle: #eef7ee;
+        --color-ok-border: #9cba97;
+        --color-warning-text: #860;
+        --color-stale-text: #630;
+        --color-stale-border: #ca0;
+        --color-error-text: #b00020;
+        --color-null-text: #806330;
+        --color-border: #ccc;
+        --color-border-light: #ddd;
+        --color-border-subtle: #eee;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0 0 var(--space-8);
+        font-family: var(--font-family-ui);
+        font-size: var(--font-size-body);
+        color: var(--color-text);
+        background: var(--color-surface-alt);
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+      }
+
+      code,
+      pre {
+        font-family: var(--font-family-mono);
+        color: var(--color-text-code);
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+
+      /* --------------------------- harness (outside the frame) -------------- */
+      .harness,
+      .scope {
+        max-width: 1440px;
+        margin: 0 auto;
+      }
+
+      .harness {
+        padding: var(--space-4) var(--space-6) var(--space-3);
+      }
+
+      .harness h1 {
+        margin: 0 0 var(--space-2);
+        font-size: var(--font-size-ui);
+      }
+
+      .eyebrow {
+        margin: 0 0 var(--space-1);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .harness-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2) var(--space-6);
+        align-items: flex-start;
+        margin-top: var(--space-3);
+        padding-top: var(--space-3);
+        border-top: 1px solid var(--color-border-light);
+      }
+
+      .harness-group > h2 {
+        margin: 0 0 var(--space-2);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-secondary);
+      }
+
+      .buttons,
+      .context-actions,
+      .contract-row,
+      .run-row,
+      .dock-nav,
+      .dialog-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+      }
+
+      .buttons {
+        gap: var(--space-1);
+        max-width: 640px;
+      }
+
+      .btn {
+        min-height: var(--control-height-compact);
+        padding: 0 var(--space-3);
+        font: inherit;
+        font-size: var(--font-size-ui);
+        color: var(--color-text);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+
+      .btn:hover {
+        background: var(--color-hover);
+      }
+
+      .btn[disabled] {
+        color: var(--color-text-loading);
+        background: var(--color-surface-subtle);
+        cursor: not-allowed;
+      }
+
+      .btn-primary {
+        font-weight: 600;
+        color: var(--color-accent-text);
+        background: var(--color-accent-subtle);
+        border-color: var(--color-accent-border);
+      }
+
+      .btn-small {
+        min-height: 1.75rem;
+        padding: 0 var(--space-2);
+        font-size: var(--font-size-metadata);
+      }
+
+      .btn[aria-pressed='true'] {
+        border-color: var(--color-focus);
+        box-shadow: inset 0 0 0 1px var(--color-focus);
+      }
+
+      .step-label {
+        margin: var(--space-3) 0 0;
+        padding: var(--space-2) var(--space-3);
+        font-size: var(--font-size-ui);
+        color: var(--color-accent-text);
+        background: var(--color-accent-surface);
+        border-left: 3px solid var(--color-focus);
+        border-radius: var(--radius-sm);
+      }
+
+      .keyboard-note,
+      .proto-note {
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+
+      .keyboard-note {
+        margin: var(--space-2) 0 0;
+      }
+
+      .toggle {
+        display: inline-flex;
+        gap: var(--space-2);
+        align-items: center;
+        font-size: var(--font-size-ui);
+      }
+
+      /* --------------------------- frame ------------------------------------ */
+      .stage {
+        padding: 0 var(--space-6) var(--space-6);
+        overflow-x: auto;
+      }
+
+      .frame {
+        position: relative;
+        width: 1440px;
+        min-height: 900px;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+      }
+
+      .app {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        min-height: 900px;
+      }
+
+      .app-header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+        align-items: center;
+        padding: var(--space-3) var(--space-4);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+
+      .app-header h1 {
+        margin: 0;
+        font-size: var(--font-size-page-title);
+        line-height: 1.1;
+      }
+
+      .tagline {
+        margin: 0;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+
+      .spacer {
+        flex: 1 1 auto;
+      }
+
+      .table-info {
+        margin: 0;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-secondary);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        align-items: start;
+        flex: 1 1 auto;
+      }
+
+      .layout[data-pane='collapsed'] {
+        grid-template-columns: 48px minmax(0, 1fr);
+      }
+
+      /* --------------------------- tool pane -------------------------------- */
+      .tools {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        max-height: 900px;
+        overflow-y: auto;
+        padding: var(--space-2) var(--space-3) var(--space-4);
+        background: var(--color-surface);
+        border-right: 1px solid var(--color-border-subtle);
+      }
+
+      .pane-head {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .pane-toggle {
+        min-width: var(--control-height-compact);
+        min-height: var(--control-height-compact);
+        font: inherit;
+        color: var(--color-text-secondary);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border-light);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+
+      .workbench-nav {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        margin-bottom: var(--space-2);
+        padding: var(--space-1) 0 var(--space-2);
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+
+      .nav-group-label {
+        margin: var(--space-2) 0 var(--space-1);
+        font-size: var(--font-size-metadata);
+        font-weight: 700;
+        color: var(--color-text-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .nav-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-1);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .nav-list a {
+        display: inline-block;
+        min-height: 1.75rem;
+        padding: 0 var(--space-2);
+        font-size: var(--font-size-metadata);
+        line-height: 1.75rem;
+        color: var(--color-accent-text);
+        text-decoration: none;
+        background: var(--color-accent-surface);
+        border: 1px solid var(--color-accent-border);
+        border-radius: var(--radius-sm);
+      }
+
+      .nav-list a:hover {
+        background: var(--color-accent-subtle);
+      }
+
+      .nav-workspace {
+        margin: var(--space-2) 0 0;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+
+      .nav-workspace a {
+        color: var(--color-accent-text);
+      }
+
+      /* --------------------------- sections ---------------------------------- */
+      .section {
+        padding: var(--space-1) 0;
+        border-top: 1px solid var(--color-border-subtle);
+        scroll-margin-top: var(--space-8);
+      }
+
+      .section-toggle {
+        display: flex;
+        gap: var(--space-2);
+        align-items: baseline;
+        width: 100%;
+        min-height: var(--control-height);
+        padding: var(--space-1) var(--space-2);
+        font: inherit;
+        text-align: left;
+        color: var(--color-text);
+        background: none;
+        border: 0;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+
+      .section-toggle:hover {
+        background: var(--color-hover);
+      }
+
+      .section-marker {
+        width: 1ch;
+        color: var(--color-text-muted);
+      }
+
+      .section-text {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .section-label {
+        font-size: var(--font-size-ui);
+        font-weight: 600;
+      }
+
+      .section-purpose {
+        margin: 0;
+        padding: 0 var(--space-2);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+
+      .section-toggle .section-purpose {
+        padding: 0;
+      }
+
+      .section-summary {
+        font-size: var(--font-size-metadata);
+        color: var(--color-warning-text);
+      }
+
+      .section-body {
+        padding: var(--space-1) var(--space-2) var(--space-3);
+        font-size: var(--font-size-ui);
+      }
+
+      .section-body h2,
+      .dock-head h3 {
+        margin: 0 0 var(--space-1);
+        font-size: var(--font-size-body);
+      }
+
+      .section-body p {
+        margin: 0 0 var(--space-2);
+      }
+
+      /* --------------------------- annotations ------------------------------- */
+      .annot {
+        display: flex;
+        gap: var(--space-2);
+        margin: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        font-size: var(--font-size-metadata);
+        color: var(--color-stale-text);
+        background: var(--color-surface-subtle);
+        border: 1px dashed var(--color-stale-border);
+        border-radius: var(--radius-sm);
+      }
+
+      .annot p {
+        margin: 0;
+      }
+
+      .annot-num {
+        flex: 0 0 auto;
+        width: 1.25rem;
+        height: 1.25rem;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        line-height: 1.25rem;
+        text-align: center;
+        color: var(--color-surface);
+        background: var(--color-stale-border);
+        border-radius: 50%;
+      }
+
+      body.annotations-off .annot {
+        display: none;
+      }
+
+      /* --------------------------- center column ----------------------------- */
+      .center {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .context-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2) var(--space-3);
+        align-items: center;
+        padding: var(--space-2) var(--space-4);
+        background: var(--color-surface-elevated);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+
+      .context-dataset,
+      .context-state {
+        margin: 0;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-secondary);
+      }
+
+      .context-dataset strong {
+        color: var(--color-text);
+      }
+
+      .context-actions {
+        margin-left: auto;
+      }
+
+      .context-state {
+        font-size: var(--font-size-ui);
+        font-weight: 600;
+        color: var(--color-text);
+      }
+
+      .context-state[data-tone='stale'] {
+        color: var(--color-warning-text);
+      }
+
+      .context-state[data-tone='fail'] {
+        color: var(--color-error-text);
+      }
+
+      .context-state[data-tone='ok'] {
+        color: var(--color-ok-text);
+      }
+
+      .chip {
+        min-height: 1.75rem;
+        padding: 0 var(--space-2);
+        font: inherit;
+        font-size: var(--font-size-metadata);
+        color: var(--color-accent-text);
+        background: var(--color-accent-subtle);
+        border: 1px solid var(--color-accent-border);
+        border-radius: 999px;
+        cursor: pointer;
+      }
+
+      /* --------------------------- grid -------------------------------------- */
+      .grid-wrap {
+        padding: var(--space-3) var(--space-4);
+      }
+
+      .grid-scroll {
+        overflow-x: auto;
+        border: 1px solid var(--color-border-light);
+        border-radius: var(--radius-sm);
+      }
+
+      .grid {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: var(--font-size-metadata);
+      }
+
+      .grid th,
+      .grid td {
+        padding: var(--space-1) var(--space-2);
+        text-align: left;
+        white-space: nowrap;
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+
+      .grid thead th {
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        background: var(--color-surface-subtle);
+        border-bottom: 1px solid var(--color-border-light);
+      }
+
+      .grid .cell-num {
+        width: 3rem;
+        text-align: right;
+        color: var(--color-text-faint);
+        background: var(--color-surface-subtle);
+      }
+
+      .grid tbody tr {
+        cursor: pointer;
+      }
+
+      .grid tbody tr:hover td {
+        background: var(--color-row-hover);
+      }
+
+      .grid tbody tr[tabindex]:focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: -2px;
+      }
+
+      .grid tr.is-dirty td {
+        background: var(--color-dirty-row);
+      }
+
+      .grid tr.is-dirty .cell-fund_size {
+        background: var(--color-dirty-cell);
+      }
+
+      .dirty-marker {
+        color: var(--color-dirty-marker);
+      }
+
+      .null {
+        padding: 0 var(--space-1);
+        font-family: var(--font-family-mono);
+        font-size: 0.75rem;
+        color: var(--color-null-text);
+        background: var(--color-editor-null);
+        border-radius: var(--radius-sm);
+      }
+
+      .cell-btn {
+        padding: 0 var(--space-1);
+        font: inherit;
+        font-size: var(--font-size-metadata);
+        color: inherit;
+        background: none;
+        border: 1px dashed transparent;
+        border-radius: var(--radius-sm);
+        cursor: text;
+      }
+
+      .cell-btn:hover {
+        border-color: var(--color-accent-border);
+      }
+
+      .cell-editor {
+        width: 6.5rem;
+        min-height: 1.5rem;
+        padding: 0 var(--space-1);
+        font: inherit;
+        font-size: var(--font-size-metadata);
+        border: 1px solid var(--color-focus);
+        border-radius: var(--radius-sm);
+      }
+
+      .grid-hint,
+      .grid-footer,
+      .record-hint,
+      .dock-nav .hint {
+        margin: var(--space-2) 0 0;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+
+      /* --------------------------- record dock -------------------------------- */
+      .record-hint {
+        margin: 0;
+      }
+
+      .record-dock {
+        margin-top: var(--space-2);
+        padding: var(--space-3);
+        background: var(--color-surface-subtle);
+        border: 1px solid var(--color-border-light);
+        border-radius: var(--radius-md);
+      }
+
+      .dock-head {
+        display: flex;
+        gap: var(--space-2);
+        align-items: baseline;
+        margin-bottom: var(--space-2);
+      }
+
+      .dock-head h3 {
+        font-size: var(--font-size-ui);
+      }
+
+      .dock-fields {
+        display: grid;
+        grid-template-columns: 8rem minmax(0, 1fr);
+        gap: var(--space-1) var(--space-3);
+        margin: 0 0 var(--space-2);
+        font-size: var(--font-size-metadata);
+      }
+
+      .dock-fields dt {
+        color: var(--color-text-muted);
+      }
+
+      .dock-fields dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .staged-chip {
+        margin-left: var(--space-2);
+        padding: 0 var(--space-1);
+        font-size: 0.6875rem;
+        color: var(--color-warning-text);
+        background: var(--color-dirty-cell);
+        border: 1px solid var(--color-dirty-marker);
+        border-radius: 999px;
+      }
+
+      /* --------------------------- validation --------------------------------- */
+      .contract-info,
+      .validation-intro {
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-secondary);
+      }
+
+      .verdict {
+        margin: 0 0 var(--space-2);
+        font-weight: 600;
+      }
+
+      .validation-stale {
+        margin: 0 0 var(--space-2);
+        padding: var(--space-2);
+        color: var(--color-stale-text);
+        background: var(--color-dirty-row-alt);
+        border-left: 3px solid var(--color-stale-border);
+        border-radius: var(--radius-sm);
+      }
+
+      .rules {
+        margin: 0;
+        padding-left: var(--space-4);
+      }
+
+      .rules > li {
+        margin-bottom: var(--space-2);
+      }
+
+      .rule-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: baseline;
+      }
+
+      .rule-count {
+        margin-left: auto;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+
+      li.rule[data-failing='true'] .rule-count {
+        font-weight: 600;
+        color: var(--color-error-text);
+      }
+
+      .rule-samples {
+        margin: var(--space-1) 0 var(--space-1) var(--space-3);
+        padding: 0;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-secondary);
+        list-style: none;
+      }
+
+      .rule-samples li {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-1);
+        align-items: baseline;
+      }
+
+      .filter-replacement {
+        margin-left: var(--space-2);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+
+      /* --------------------------- export dialog ------------------------------ */
+      .dialog-backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        background: rgb(0 0 0 / 0.32);
+      }
+
+      /* `display: grid` above would otherwise defeat the UA `[hidden]` rule. */
+      [hidden] {
+        display: none !important;
+      }
+
+      .export-dialog {
+        width: 34rem;
+        max-width: calc(100% - var(--space-8));
+        padding: var(--space-4);
+        font-size: var(--font-size-ui);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+      }
+
+      .export-dialog h2 {
+        margin: 0 0 var(--space-2);
+        font-size: var(--font-size-body);
+      }
+
+      .export-dialog p {
+        margin: 0 0 var(--space-2);
+      }
+
+      .export-formats {
+        margin: 0 0 var(--space-2);
+        padding: var(--space-2);
+        border: 1px solid var(--color-border-light);
+        border-radius: var(--radius-sm);
+      }
+
+      .export-format-option {
+        margin-right: var(--space-3);
+      }
+
+      .export-result {
+        padding: var(--space-2);
+        color: var(--color-ok-text);
+        background: var(--color-ok-subtle);
+        border: 1px solid var(--color-ok-border);
+        border-radius: var(--radius-sm);
+      }
+
+      .dialog-actions {
+        justify-content: flex-end;
+        margin-top: var(--space-3);
+      }
+
+      /* --------------------------- scope panel -------------------------------- */
+      .scope {
+        padding: var(--space-4) var(--space-6);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-secondary);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
+      }
+
+      .scope h2 {
+        margin: 0 0 var(--space-2);
+        font-size: var(--font-size-ui);
+        color: var(--color-text);
+      }
+
+      .scope ul {
+        margin: 0;
+        padding-left: var(--space-4);
+      }
+
+      .scope li {
+        margin-bottom: var(--space-1);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="harness">
+      <p class="eyebrow">rd-1 · alternative A</p>
+      <h1>Assay · rd-1 prototype A — incremental navigation (isolated, synthetic data)</h1>
+
+      <div class="harness-row">
+        <div class="harness-group">
+          <h2 id="scenarios-label">Scenarios</h2>
+          <div class="buttons" role="group" aria-labelledby="scenarios-label">
+            <button type="button" class="btn" data-scenario="1" aria-pressed="true">
+              1 · No contract
+            </button>
+            <button type="button" class="btn" data-scenario="2" aria-pressed="false">
+              2 · Failing verdict
+            </button>
+            <button type="button" class="btn" data-scenario="3" aria-pressed="false">
+              3 · Stale after repair
+            </button>
+            <button type="button" class="btn" data-scenario="4" aria-pressed="false">
+              4 · Rechecked valid
+            </button>
+            <button type="button" class="btn" data-scenario="5" aria-pressed="false">
+              5 · Comparison stale
+            </button>
+            <button type="button" class="btn" data-scenario="6" aria-pressed="false">
+              6 · Export
+            </button>
+          </div>
+        </div>
+
+        <div class="harness-group">
+          <h2 id="walkthrough-label">J2 walkthrough</h2>
+          <div class="buttons" role="group" aria-labelledby="walkthrough-label">
+            <button type="button" class="btn" data-step="1">1 Load the supplied contract</button>
+            <button type="button" class="btn" data-step="2">2 Validate — 1 of 9 rules fail</button>
+            <button type="button" class="btn" data-step="3">
+              3 Show row for the failing sample
+            </button>
+            <button type="button" class="btn" data-step="4">4 Repair the scalar</button>
+            <button type="button" class="btn" data-step="5">5 Notice the stale verdict</button>
+            <button type="button" class="btn" data-step="6">6 Explicitly recheck</button>
+            <button type="button" class="btn" data-step="7">7 Review the change and export</button>
+          </div>
+        </div>
+
+        <div class="harness-group">
+          <h2>Overlays</h2>
+          <label class="toggle">
+            <input type="checkbox" id="annotations-toggle" checked />
+            Show annotations
+          </label>
+        </div>
+      </div>
+
+      <p class="step-label" id="step-instruction">
+        Step — · Pick a scenario or walk the numbered steps. Nothing in this page validates, exports
+        or writes on its own; every state change comes from a control you press.
+      </p>
+
+      <p class="keyboard-note" id="keyboard-note">
+        <strong>Keyboard:</strong> Tab moves through native controls, Enter/Space activates buttons,
+        Escape closes the record dock and the export dialog. No custom shortcuts are added in this
+        alternative.
+      </p>
+    </header>
+
+    <div class="stage">
+      <div
+        class="frame"
+        role="group"
+        aria-label="Simulated Assay window — synthetic data, not a screenshot"
+      >
+        <div class="app">
+          <header class="app-header">
+            <h1>Assay</h1>
+            <p class="tagline">The local-first data workbench</p>
+            <span class="spacer"></span>
+            <p class="table-info" id="table-info">12 rows × 10 columns</p>
+            <button type="button" class="btn" id="open-data-file">Open a data file…</button>
+            <button type="button" class="btn" id="open-settings">Settings</button>
+          </header>
+          <p class="proto-note" id="open-file-note" role="status" hidden>
+            Prototype: no file is opened. This frame only shows the synthetic nested.jsonl dataset.
+          </p>
+
+          <div class="layout" data-pane="expanded">
+            <div class="tools">
+              <div class="pane-head">
+                <button
+                  type="button"
+                  class="pane-toggle"
+                  id="pane-toggle"
+                  aria-expanded="true"
+                  aria-controls="workbench-tools-body"
+                  aria-label="Collapse workbench pane"
+                  title="Collapse workbench pane"
+                >
+                  <span aria-hidden="true">◂</span>
+                </button>
+              </div>
+
+              <div class="tools-body" id="workbench-tools-body">
+                <nav class="workbench-nav" aria-label="Workbench sections">
+                  <p class="nav-group-label" id="nav-explore-label">Explore</p>
+                  <ul class="nav-list" aria-labelledby="nav-explore-label">
+                    <li>
+                      <a href="#section-schema" aria-describedby="section-schema-purpose">Schema</a>
+                    </li>
+                    <li>
+                      <a href="#section-filters" aria-describedby="section-filters-purpose"
+                        >Filters</a
+                      >
+                    </li>
+                    <li><a href="#section-sql" aria-describedby="section-sql-purpose">SQL</a></li>
+                    <li>
+                      <a href="#section-profile" aria-describedby="section-profile-purpose"
+                        >Profile</a
+                      >
+                    </li>
+                  </ul>
+
+                  <p class="nav-group-label" id="nav-check-label">Check</p>
+                  <ul class="nav-list" aria-labelledby="nav-check-label">
+                    <li>
+                      <a href="#section-validation" aria-describedby="section-validation-purpose"
+                        >Validation</a
+                      >
+                    </li>
+                    <li>
+                      <a href="#section-compare" aria-describedby="section-compare-purpose"
+                        >Compare</a
+                      >
+                    </li>
+                  </ul>
+
+                  <p class="nav-group-label" id="nav-change-label">Change</p>
+                  <ul class="nav-list" aria-labelledby="nav-change-label">
+                    <li>
+                      <a href="#section-editing" aria-describedby="section-editing-purpose"
+                        >Editing</a
+                      >
+                    </li>
+                    <li>
+                      <a href="#section-history" aria-describedby="section-history-purpose"
+                        >History</a
+                      >
+                    </li>
+                    <li>
+                      <a href="#section-export" aria-describedby="section-export-purpose">Export</a>
+                    </li>
+                  </ul>
+
+                  <p class="nav-group-label" id="nav-prepare-label">Prepare</p>
+                  <ul class="nav-list" aria-labelledby="nav-prepare-label">
+                    <li>
+                      <a href="#section-pipeline" aria-describedby="section-pipeline-purpose"
+                        >Pipeline</a
+                      >
+                    </li>
+                  </ul>
+
+                  <p class="nav-workspace">
+                    Workspace: <a href="#section-grid">Grid</a> ·
+                    <a href="#section-record">Record</a>
+                  </p>
+                </nav>
+
+                <aside class="annot" data-annot="3">
+                  <span class="annot-num" aria-hidden="true">3</span>
+                  <p>
+                    Prototype-only aid: four group labels on the existing 12-link nav and nothing
+                    else. The pane's section order below is unchanged (Schema, Editing, Export,
+                    History, Validation, Compare, Filters, SQL, Profile, Pipeline), and Grid/Record
+                    stay in the centre column — listed apart as "Workspace", not as task tools.
+                    Anchors are native links, no tab roles.
+                  </p>
+                </aside>
+
+                <!-- Schema — inner disclosure (the panel owns its own toggle) -->
+                <section class="section" id="section-schema" data-section="schema">
+                  <h2 class="visually-hidden">Schema</h2>
+                  <p class="section-purpose" id="section-schema-purpose">Fields and types</p>
+                  <div class="section-body">
+                    <button
+                      type="button"
+                      class="section-toggle"
+                      id="schema-inner-toggle"
+                      aria-expanded="true"
+                      aria-controls="schema-inner-body"
+                    >
+                      <span class="section-marker" aria-hidden="true">▾</span>
+                      <span class="section-label">Fields (10)</span>
+                    </button>
+                    <div id="schema-inner-body">
+                      <ul class="nav-list" id="schema-columns" aria-label="Columns"></ul>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- Editing — managed -->
+                <section class="section" id="section-editing" data-section="editing">
+                  <h2 class="visually-hidden">Editing</h2>
+                  <button
+                    type="button"
+                    class="section-toggle"
+                    data-section-toggle="editing"
+                    aria-expanded="false"
+                    aria-controls="section-editing-content"
+                    aria-describedby="section-editing-purpose"
+                    aria-label="Expand Editing"
+                    title="Expand Editing"
+                  >
+                    <span class="section-marker" aria-hidden="true">▸</span>
+                    <span class="section-text">
+                      <span class="section-label">Editing</span>
+                      <span class="section-purpose" id="section-editing-purpose" style="padding: 0"
+                        >Stage edits in this session</span
+                      >
+                    </span>
+                  </button>
+                  <div class="section-body" id="section-editing-content" hidden>
+                    <p class="proto-note">
+                      The edit toolbar (Insert row, pending-change summary) renders here in the
+                      current app; this prototype stages changes only through the grid.
+                    </p>
+                  </div>
+                </section>
+
+                <!-- Export — managed -->
+                <section class="section" id="section-export" data-section="export">
+                  <h2 class="visually-hidden">Export</h2>
+                  <button
+                    type="button"
+                    class="section-toggle"
+                    data-section-toggle="export"
+                    aria-expanded="false"
+                    aria-controls="section-export-content"
+                    aria-describedby="section-export-purpose"
+                    aria-label="Expand Export"
+                    title="Expand Export"
+                  >
+                    <span class="section-marker" aria-hidden="true">▸</span>
+                    <span class="section-text">
+                      <span class="section-label">Export</span>
+                      <span class="section-purpose" id="section-export-purpose" style="padding: 0"
+                        >Write a reviewed copy</span
+                      >
+                    </span>
+                  </button>
+                  <div class="section-body" id="section-export-content" hidden>
+                    <h2 class="visually-hidden">Export</h2>
+                    <button type="button" class="btn" id="export-open" data-act="open-export">
+                      Export a copy…
+                    </button>
+                  </div>
+                </section>
+
+                <!-- History — managed, ug-17 summary -->
+                <section class="section" id="section-history" data-section="history">
+                  <h2 class="visually-hidden">History</h2>
+                  <button
+                    type="button"
+                    class="section-toggle"
+                    data-section-toggle="history"
+                    aria-expanded="false"
+                    aria-controls="section-history-content"
+                    aria-describedby="section-history-purpose"
+                    aria-label="Expand History"
+                    title="Expand History"
+                  >
+                    <span class="section-marker" aria-hidden="true">▸</span>
+                    <span class="section-text">
+                      <span class="section-label">History</span>
+                      <span class="section-purpose" id="section-history-purpose" style="padding: 0"
+                        >Review and undo staged edits</span
+                      >
+                      <span class="section-summary" id="section-history-summary" hidden>
+                        History · 1 pending
+                      </span>
+                    </span>
+                  </button>
+                  <div class="section-body" id="section-history-content" hidden>
+                    <p class="proto-note" id="history-line">No staged operations.</p>
+                    <ol id="history-list" hidden>
+                      <li>Edit <code>fund_size</code> on row 5 (A-1005)</li>
+                    </ol>
+                  </div>
+                </section>
+
+                <!-- Validation — managed, ug-17 summary -->
+                <section class="section" id="section-validation" data-section="validation">
+                  <h2 class="visually-hidden">Validation</h2>
+                  <button
+                    type="button"
+                    class="section-toggle"
+                    data-section-toggle="validation"
+                    aria-expanded="false"
+                    aria-controls="section-validation-content"
+                    aria-describedby="section-validation-purpose"
+                    aria-label="Expand Validation"
+                    title="Expand Validation"
+                  >
+                    <span class="section-marker" aria-hidden="true">▸</span>
+                    <span class="section-text">
+                      <span class="section-label">Validation</span>
+                      <span
+                        class="section-purpose"
+                        id="section-validation-purpose"
+                        style="padding: 0"
+                        >Check data against rules</span
+                      >
+                      <span class="section-summary" id="section-validation-summary" hidden>
+                        Validation · 1 failing
+                      </span>
+                    </span>
+                  </button>
+                  <div class="section-body" id="section-validation-content" hidden>
+                    <section aria-label="Validation" class="validation" id="validation-panel">
+                      <h2>Validation</h2>
+                      <p class="validation-intro">
+                        Load a data contract (YAML) and run it against the open dataset. A
+                        <code>.yaml</code> file chosen here is read as a <strong>contract</strong>,
+                        not as a dataset. Nothing is uploaded — validation runs locally, on this
+                        machine.
+                      </p>
+
+                      <div class="contract-row">
+                        <button
+                          type="button"
+                          class="btn"
+                          id="validation-open-contract"
+                          data-act="open-contract"
+                        >
+                          Open a contract…
+                        </button>
+                        <span class="contract-info" id="validation-contract-info" hidden>
+                          contract <code>nested/assets</code> version 1 · 9 rules
+                        </span>
+                      </div>
+
+                      <p id="validation-zero">
+                        No contract loaded. Open a contract YAML to define what this dataset should
+                        look like.
+                      </p>
+
+                      <div class="run-row">
+                        <button
+                          type="button"
+                          class="btn btn-primary"
+                          id="validation-run"
+                          data-act="validate"
+                          disabled
+                        >
+                          Validate
+                        </button>
+                        <span class="proto-note" id="validation-run-hint"
+                          >Load a contract first.</span
+                        >
+                      </div>
+
+                      <div id="validation-report" hidden>
+                        <p class="verdict" role="status" id="validation-verdict" tabindex="-1"></p>
+                        <p class="validation-stale" role="status" id="validation-stale" hidden>
+                          This verdict is <strong>stale</strong> — the dataset changed after it was
+                          computed, so it no longer reflects the current edits. Re-validate for a
+                          fresh result.
+                        </p>
+                        <ol class="rules" id="validation-rules"></ol>
+                      </div>
+
+                      <aside class="annot" data-annot="4">
+                        <span class="annot-num" aria-hidden="true">4</span>
+                        <p>
+                          Staleness is derived: the verdict remembers the overlay revision it was
+                          computed at and goes stale when the current revision differs. A staged
+                          edit bumps that revision even when it turns out to be a no-op. The banner
+                          above quotes the current source wording; the design record proposes a
+                          narrower “the session’s staged state changed after it was computed”
+                          sentence for that reason. Nothing re-runs automatically.
+                        </p>
+                      </aside>
+
+                      <aside class="annot" data-annot="5">
+                        <span class="annot-num" aria-hidden="true">5</span>
+                        <p>
+                          Source behaviour: the replacement note renders only while a filter is
+                          already active, so pressing the button yields "Replaces the current 1
+                          filter", and at zero filters no note renders at all — which is why
+                          "Replaces the current 0 filters" never appears here.
+                        </p>
+                      </aside>
+                    </section>
+                  </div>
+                </section>
+
+                <!-- Compare — managed, ug-17 summary -->
+                <section class="section" id="section-compare" data-section="compare">
+                  <h2 class="visually-hidden">Compare</h2>
+                  <button
+                    type="button"
+                    class="section-toggle"
+                    data-section-toggle="compare"
+                    aria-expanded="false"
+                    aria-controls="section-compare-content"
+                    aria-describedby="section-compare-purpose"
+                    aria-label="Expand Compare"
+                    title="Expand Compare"
+                  >
+                    <span class="section-marker" aria-hidden="true">▸</span>
+                    <span class="section-text">
+                      <span class="section-label">Compare</span>
+                      <span class="section-purpose" id="section-compare-purpose" style="padding: 0"
+                        >Diff two datasets by key</span
+                      >
+                      <span class="section-summary" id="section-compare-summary" hidden>
+                        Compare · 1 changed
+                      </span>
+                    </span>
+                  </button>
+                  <div class="section-body" id="section-compare-content" hidden>
+                    <p id="compare-line">No comparison loaded.</p>
+                    <button
+                      type="button"
+                      class="btn"
+                      id="compare-rerun"
+                      data-act="rerun-diff"
+                      hidden
+                    >
+                      Rerun row diff
+                    </button>
+                    <p class="proto-note">
+                      Prototype copy: the real Compare panel owns its own diff wording; only the
+                      stale/fresh distinction and the summary count are modelled here.
+                    </p>
+                  </div>
+                </section>
+
+                <!-- Filters — inner disclosure -->
+                <section class="section" id="section-filters" data-section="filters">
+                  <h2 class="visually-hidden">Filters</h2>
+                  <p class="section-purpose" id="section-filters-purpose">
+                    Show only matching rows
+                  </p>
+                  <div class="section-body">
+                    <button
+                      type="button"
+                      class="section-toggle"
+                      id="filters-inner-toggle"
+                      aria-expanded="false"
+                      aria-controls="filters-inner-body"
+                    >
+                      <span class="section-marker" aria-hidden="true">▸</span>
+                      <span class="section-label">Filters</span>
+                    </button>
+                    <div id="filters-inner-body" hidden>
+                      <p class="proto-note">
+                        The filter bar renders here in the current app; this prototype only tracks
+                        the filter count shown in the Validation replacement note.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- SQL — managed -->
+                <section class="section" id="section-sql" data-section="sql">
+                  <h2 class="visually-hidden">SQL</h2>
+                  <button
+                    type="button"
+                    class="section-toggle"
+                    data-section-toggle="sql"
+                    aria-expanded="false"
+                    aria-controls="section-sql-content"
+                    aria-describedby="section-sql-purpose"
+                    aria-label="Expand SQL"
+                    title="Expand SQL"
+                  >
+                    <span class="section-marker" aria-hidden="true">▸</span>
+                    <span class="section-text">
+                      <span class="section-label">SQL</span>
+                      <span class="section-purpose" id="section-sql-purpose" style="padding: 0"
+                        >Query with DuckDB SQL</span
+                      >
+                    </span>
+                  </button>
+                  <div class="section-body" id="section-sql-content" hidden>
+                    <p class="proto-note">
+                      The DuckDB SQL editor renders here in the current app; no query runs in this
+                      prototype.
+                    </p>
+                  </div>
+                </section>
+
+                <!-- Profile — inner disclosure -->
+                <section class="section" id="section-profile" data-section="profile">
+                  <h2 class="visually-hidden">Profile</h2>
+                  <p class="section-purpose" id="section-profile-purpose">
+                    Column statistics summary
+                  </p>
+                  <div class="section-body">
+                    <button
+                      type="button"
+                      class="section-toggle"
+                      id="profile-inner-toggle"
+                      aria-expanded="false"
+                      aria-controls="profile-inner-body"
+                    >
+                      <span class="section-marker" aria-hidden="true">▸</span>
+                      <span class="section-label">Profile</span>
+                    </button>
+                    <div id="profile-inner-body" hidden>
+                      <p class="proto-note">
+                        Column statistics render here in the current app; nothing is profiled in
+                        this prototype.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- Pipeline — managed, last in the pane -->
+                <section class="section" id="section-pipeline" data-section="pipeline">
+                  <h2 class="visually-hidden">Pipeline</h2>
+                  <button
+                    type="button"
+                    class="section-toggle"
+                    data-section-toggle="pipeline"
+                    aria-expanded="false"
+                    aria-controls="section-pipeline-content"
+                    aria-describedby="section-pipeline-purpose"
+                    aria-label="Expand Pipeline"
+                    title="Expand Pipeline"
+                  >
+                    <span class="section-marker" aria-hidden="true">▸</span>
+                    <span class="section-text">
+                      <span class="section-label">Pipeline</span>
+                      <span class="section-purpose" id="section-pipeline-purpose" style="padding: 0"
+                        >Chained contract checks</span
+                      >
+                    </span>
+                  </button>
+                  <div class="section-body" id="section-pipeline-content" hidden>
+                    <p class="proto-note">
+                      Chained contract checks render here in the current app; this prototype holds
+                      no pipeline state.
+                    </p>
+                  </div>
+                </section>
+              </div>
+            </div>
+
+            <div class="center">
+              <div class="context-bar">
+                <p class="context-dataset">
+                  <strong>Current dataset view</strong><span id="ctx-dataset-detail"></span>
+                </p>
+                <button type="button" class="chip" id="ctx-back" data-act="back-to-findings" hidden>
+                  Back to findings
+                </button>
+                <div class="context-actions">
+                  <p class="context-state" role="status" id="ctx-state" tabindex="-1"></p>
+                  <button type="button" class="btn btn-primary" id="ctx-primary" data-act="">
+                    Open a contract…
+                  </button>
+                  <button type="button" class="btn" id="ctx-secondary" data-act="" hidden>
+                    Review findings
+                  </button>
+                </div>
+              </div>
+
+              <aside class="annot" data-annot="1">
+                <span class="annot-num" aria-hidden="true">1</span>
+                <p>
+                  Prototype-only: the sentence on the right is a shell-level next-action state
+                  machine (no contract → not checked → failing → stale → comparison stale → valid).
+                  It never runs anything itself — every button is a real button you press, and
+                  validation still starts only from Validate/Recheck. "Current dataset view" is the
+                  neutral name for base-plus-overlay; nothing here calls it an "edited view".
+                </p>
+              </aside>
+
+              <aside class="annot" data-annot="2">
+                <span class="annot-num" aria-hidden="true">2</span>
+                <p>
+                  Prototype-only: the "Back to findings" chip appears after a Show row jump and
+                  returns to Validation. It is app-local UI state (a session-level return marker) —
+                  not stored, not exported and not part of any verdict.
+                </p>
+              </aside>
+
+              <section class="section" id="section-grid" data-section="grid">
+                <h2 class="visually-hidden">Grid</h2>
+                <button
+                  type="button"
+                  class="section-toggle"
+                  data-section-toggle="grid"
+                  aria-expanded="true"
+                  aria-controls="section-grid-content"
+                  aria-describedby="section-grid-purpose"
+                  aria-label="Collapse Grid"
+                  title="Collapse Grid"
+                >
+                  <span class="section-marker" aria-hidden="true">▾</span>
+                  <span class="section-text">
+                    <span class="section-label">Grid</span>
+                    <span class="section-purpose" id="section-grid-purpose" style="padding: 0"
+                      >Browse the rows</span
+                    >
+                  </span>
+                </button>
+                <div class="section-body grid-wrap" id="section-grid-content">
+                  <div class="grid-scroll">
+                    <table class="grid" aria-label="Dataset rows">
+                      <thead>
+                        <tr>
+                          <th class="cell-num" scope="col">#</th>
+                          <th scope="col">id</th>
+                          <th scope="col">name</th>
+                          <th scope="col">fund_size</th>
+                          <th scope="col">tags</th>
+                          <th scope="col">meta</th>
+                        </tr>
+                      </thead>
+                      <tbody id="grid-body"></tbody>
+                    </table>
+                  </div>
+                  <p class="grid-hint">
+                    Double-click a cell to edit · Enter edits the focused cell · Esc cancels
+                  </p>
+                  <p class="grid-footer">
+                    Rows 1–6 of 12 · sorted by the dataset's natural order (no sort applied)
+                  </p>
+                </div>
+              </section>
+
+              <aside class="annot" data-annot="6">
+                <span class="annot-num" aria-hidden="true">6</span>
+                <p>
+                  Prototype-only mechanics: 6 of the 12 rows are rendered, each row is one tab stop
+                  and Enter opens the inspector (the real grid uses a roving cell-focus model). A
+                  committed cell edits this file's in-memory array and bumps the overlay revision —
+                  no engine, no write. The verdict is derived from row 5's synthetic fund_size,
+                  which is how one repair clears the one failing rule.
+                </p>
+              </aside>
+
+              <section class="section" id="section-record" data-section="record">
+                <h2 class="visually-hidden">Record</h2>
+                <p class="section-purpose" id="section-record-purpose">Inspect one row in full</p>
+                <div class="section-body">
+                  <p class="record-hint" id="record-hint">
+                    Select a row to inspect it here — press Enter or double-click a row.
+                  </p>
+                  <div
+                    class="record-dock"
+                    id="record-dock"
+                    tabindex="-1"
+                    role="group"
+                    aria-label="Record inspector — row 5"
+                    hidden
+                  >
+                    <div class="dock-head">
+                      <h3 id="record-title">Record inspector — row 5</h3>
+                      <span class="spacer"></span>
+                      <button
+                        type="button"
+                        class="btn btn-small"
+                        id="dock-close-top"
+                        data-act="close-dock"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <dl class="dock-fields">
+                      <dt>id</dt>
+                      <dd id="field-id">A-1005</dd>
+                      <dt>name</dt>
+                      <dd id="field-name">Meridian Growth II</dd>
+                      <dt>fund_size</dt>
+                      <dd>
+                        <span id="field-fund_size">-1</span
+                        ><span class="staged-chip" id="field-staged" hidden>staged</span>
+                      </dd>
+                      <dt>tags</dt>
+                      <dd id="field-tags">core, europe</dd>
+                      <dt>closed_at</dt>
+                      <dd id="field-closed_at"><span class="null">NULL</span></dd>
+                      <dt>vintage</dt>
+                      <dd id="field-vintage">2021</dd>
+                    </dl>
+                    <div class="dock-nav">
+                      <button
+                        type="button"
+                        class="btn btn-small"
+                        id="dock-prev"
+                        data-act="dock-prev"
+                        aria-label="Previous row"
+                      >
+                        <span aria-hidden="true">◀</span> Prev
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-small"
+                        id="dock-next"
+                        data-act="dock-next"
+                        aria-label="Next row"
+                      >
+                        <span aria-hidden="true">▶</span> Next
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-small"
+                        id="dock-close"
+                        data-act="close-dock"
+                      >
+                        Close
+                      </button>
+                      <span class="hint">Escape closes the dock and returns focus to the row.</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <aside class="annot" data-annot="7">
+                <span class="annot-num" aria-hidden="true">7</span>
+                <p>
+                  Existing behaviour kept: the dock opens on row activation and is the one dock in
+                  the centre column, with no shell toggle. Escape closes it while focus is inside
+                  (source behaviour in <code>RecordInspector</code>), Close is a plain button, and
+                  both return focus to the row. The repair value is the only state this prototype
+                  mutates.
+                </p>
+              </aside>
+            </div>
+          </div>
+
+          <div class="dialog-backdrop" id="export-backdrop" hidden>
+            <section
+              class="export-dialog"
+              id="export-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="export-dialog-title"
+              tabindex="-1"
+            >
+              <h2 id="export-dialog-title">Export a copy</h2>
+              <p>
+                Writes a <strong>new file</strong> with the current edited view. The opened file is
+                not changed — Assay never rewrites the source.
+              </p>
+              <p id="export-staged" hidden>
+                Includes <span id="export-staged-count">1</span> staged change — review in History
+              </p>
+              <fieldset class="export-formats">
+                <legend>Format</legend>
+                <label class="export-format-option">
+                  <input type="radio" name="export-format" value="parquet" checked /> Parquet
+                </label>
+                <label class="export-format-option">
+                  <input type="radio" name="export-format" value="csv" /> CSV
+                </label>
+                <label class="export-format-option">
+                  <input type="radio" name="export-format" value="jsonl" /> JSON Lines
+                </label>
+              </fieldset>
+              <p id="export-format-description">Columnar binary; preserves column types exactly.</p>
+              <p>
+                The engine applies fixed, deterministic options for each format. There are no
+                user-adjustable options in this version.
+              </p>
+              <p>
+                Exports the <strong>complete edited dataset</strong> — all
+                <span id="export-view-rows">12 rows</span> in natural order. Grid filters and
+                sorting are not applied.
+              </p>
+              <p class="export-result" role="status" id="export-result" hidden>
+                Exported 12 rows as Parquet (2.4 KB) to a new file. The opened file is unchanged.
+              </p>
+              <div class="dialog-actions">
+                <button type="button" class="btn" id="export-close">Close</button>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  id="export-confirm"
+                  data-act="export-confirm"
+                >
+                  Export a copy…
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <aside class="annot" data-annot="8">
+            <span class="annot-num" aria-hidden="true">8</span>
+            <p>
+              The export dialog is taken from the current app's copy and keeps
+              <code>role="dialog"</code>, <code>aria-modal="true"</code>, a Tab trap and focus
+              return to the opener. Pressing "Export a copy…" only reveals the success sentence with
+              synthetic numbers: nothing is written, downloaded or saved anywhere, and there is no
+              working state to interrupt, so Escape always closes it here.
+            </p>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <footer class="scope">
+      <h2>Scope of this prototype</h2>
+      <ul>
+        <li>
+          Synthetic data only — the 12 rows, 10 columns, 9 rules and the 2.4 KB export size are
+          hand-written; no dataset was opened or processed.
+        </li>
+        <li>
+          No engine, no network, no telemetry — nothing is queried, uploaded, measured or logged.
+        </li>
+        <li>
+          Built from the source tree at commit <code>bba491a</code>; labels, section purposes,
+          tokens and copy are copied from that tree.
+        </li>
+        <li>
+          Not a shipped UI — this is a design checkpoint (rd-1) for comparison with other
+          alternatives; no product code was changed to produce it.
+        </li>
+        <li>No participant testing has been performed with this file.</li>
+        <li>Numbers are illustrative, and every state change is driven by a control you press.</li>
+      </ul>
+    </footer>
+
+    <script>
+      ;(function () {
+        'use strict'
+
+        var TOTAL_ROWS = 12
+        var VISIBLE_ROWS = 6
+
+        var COLUMNS = [
+          'id',
+          'name',
+          'fund_size',
+          'tags',
+          'meta',
+          'closed_at',
+          'vintage',
+          'region',
+          'strategy',
+          'committed_at',
+        ]
+
+        var ROWS = [
+          {
+            id: 'A-1001',
+            name: 'Northwind Credit',
+            fund_size: 240,
+            tags: 'credit, us',
+            meta: '{ segment, country }',
+            closed_at: '2024-03-14',
+            vintage: 2019,
+          },
+          {
+            id: 'A-1002',
+            name: 'Harbor Ridge',
+            fund_size: 512,
+            tags: 'equity, us',
+            meta: '{ sector }',
+            closed_at: '2024-01-08',
+            vintage: 2020,
+          },
+          {
+            id: 'A-1003',
+            name: 'Cedar Lane',
+            fund_size: 87,
+            tags: 'real-assets',
+            meta: '{ segment }',
+            closed_at: '2023-11-30',
+            vintage: 2018,
+          },
+          {
+            id: 'A-1004',
+            name: 'Bluepeak',
+            fund_size: 1450,
+            tags: 'equity, apac',
+            meta: '{ sector, country }',
+            closed_at: '2024-05-02',
+            vintage: 2022,
+          },
+          {
+            id: 'A-1005',
+            name: 'Meridian Growth II',
+            fund_size: -1,
+            tags: 'core, europe',
+            meta: null,
+            closed_at: null,
+            vintage: 2021,
+          },
+          {
+            id: 'A-1006',
+            name: 'Stonebrook',
+            fund_size: 320,
+            tags: 'credit, emea',
+            meta: '{ segment }',
+            closed_at: '2024-02-19',
+            vintage: 2020,
+          },
+          {
+            id: 'A-1007',
+            name: 'Lattice Park',
+            fund_size: 660,
+            tags: 'equity, us',
+            meta: '{ sector }',
+          },
+          {
+            id: 'A-1008',
+            name: 'Quarry Bend',
+            fund_size: 95,
+            tags: 'credit, us',
+            meta: '{ segment }',
+          },
+          { id: 'A-1009', name: 'Sable Point', fund_size: 1200, tags: 'real-assets', meta: null },
+          {
+            id: 'A-1010',
+            name: 'Grove Street',
+            fund_size: 410,
+            tags: 'equity, emea',
+            meta: '{ country }',
+          },
+          {
+            id: 'A-1011',
+            name: 'Tamarind Bay',
+            fund_size: 275,
+            tags: 'credit, apac',
+            meta: '{ segment }',
+          },
+          {
+            id: 'A-1012',
+            name: 'Wexford Row',
+            fund_size: 900,
+            tags: 'core, us',
+            meta: '{ sector }',
+          },
+        ]
+
+        var RULES = [
+          { id: 'id-unique', label: 'id unique', column: 'id', fact: true },
+          { id: 'id-not-null', label: 'id not null', column: 'id' },
+          { id: 'name-not-null', label: 'name not null', column: 'name' },
+          { id: 'fund_size-min', label: 'fund_size >= 0', column: 'fund_size', filterable: true },
+          { id: 'fund_size-type', label: 'fund_size declared type', column: 'fund_size' },
+          { id: 'tags-not-null', label: 'tags not null', column: 'tags' },
+          { id: 'tags-allowed', label: 'tags in allowed set', column: 'tags' },
+          { id: 'meta-nullable', label: 'meta nullable', column: 'meta', fact: true },
+          { id: 'row-count-min', label: 'row count >= 1', fact: true },
+        ]
+
+        var FORMAT_DESCRIPTIONS = {
+          parquet: 'Columnar binary; preserves column types exactly.',
+          csv: 'Text table; cells that could start a spreadsheet formula get a leading apostrophe.',
+          jsonl: 'One JSON object per line; values are written as they are.',
+        }
+
+        function defaults() {
+          return {
+            contractLoaded: false,
+            verdict: null,
+            verdictRevision: -1,
+            overlayRevision: 0,
+            stagedOps: 0,
+            comparison: 'none',
+            compareChanged: 0,
+            recordOpen: false,
+            recordRow: 5,
+            jumpReturn: false,
+            activeFilters: 0,
+            fundSize: -1,
+            exportOpen: false,
+            exportResult: false,
+            exportOpener: null,
+            paneCollapsed: false,
+            openSections: ['grid'],
+          }
+        }
+
+        var PATCHES = {
+          1: {},
+          2: {
+            contractLoaded: true,
+            verdict: 'failing',
+            verdictRevision: 0,
+            openSections: ['grid', 'validation'],
+          },
+          3: {
+            contractLoaded: true,
+            verdict: 'failing',
+            verdictRevision: 0,
+            overlayRevision: 1,
+            stagedOps: 1,
+            fundSize: 1200,
+            openSections: ['grid', 'validation'],
+          },
+          4: {
+            contractLoaded: true,
+            verdict: 'valid',
+            verdictRevision: 1,
+            overlayRevision: 1,
+            stagedOps: 1,
+            fundSize: 1200,
+            comparison: 'fresh',
+            compareChanged: 1,
+            openSections: ['grid', 'validation'],
+          },
+          5: {
+            contractLoaded: true,
+            verdict: 'valid',
+            verdictRevision: 1,
+            overlayRevision: 1,
+            stagedOps: 1,
+            fundSize: 1200,
+            comparison: 'stale',
+            compareChanged: 1,
+            openSections: ['grid', 'compare'],
+          },
+          6: {
+            contractLoaded: true,
+            verdict: 'valid',
+            verdictRevision: 1,
+            overlayRevision: 1,
+            stagedOps: 1,
+            fundSize: 1200,
+            comparison: 'fresh',
+            compareChanged: 1,
+            openSections: ['grid', 'export'],
+            exportOpen: true,
+          },
+        }
+
+        var state = defaults()
+
+        var STEPS = [
+          {
+            n: 1,
+            instruction:
+              'Step 1 — Load the supplied contract. Pressing "Open a contract…" loads nested/assets (9 rules) and the slot reads "Contract loaded — not checked yet": nothing has run.',
+            run: function () {
+              applyPatch({ contractLoaded: true, openSections: ['grid', 'validation'] })
+              focusSoon('#validation-open-contract')
+            },
+          },
+          {
+            n: 2,
+            instruction:
+              'Step 2 — Validate. The verdict reads "1 of 9 rules fail (12 rows checked)." This step installs exactly what pressing Validate produces; no auto-run exists.',
+            run: function () {
+              applyScenario(2)
+              focusSoon('#validation-verdict')
+            },
+          },
+          {
+            n: 3,
+            instruction:
+              'Step 3 — Show row for the failing sample. The dock opens on row 5 and the context bar offers "Back to findings".',
+            run: function () {
+              applyScenario(2)
+              showRow(5)
+            },
+          },
+          {
+            n: 4,
+            instruction:
+              'Step 4 — Repair the scalar: type 1200 into the focused cell and press Enter. The verdict goes stale; nothing re-validates.',
+            run: function () {
+              applyScenario(2)
+              focusSoon('[data-row="5"] .cell-fund_size .cell-btn', function () {
+                startEdit(5)
+              })
+            },
+          },
+          {
+            n: 5,
+            instruction:
+              'Step 5 — Notice the stale verdict: the next action becomes Recheck, and "Validation · 1 failing" keeps its count without claiming freshness.',
+            run: function () {
+              applyScenario(3)
+              focusSoon('#ctx-state')
+            },
+          },
+          {
+            n: 6,
+            instruction:
+              'Step 6 — Explicitly recheck with Recheck. The verdict becomes "Valid: 0 violations across 9 rules (12 rows checked)." and the failing summary disappears.',
+            run: function () {
+              if (!isStale()) applyScenario(3)
+              validate()
+              focusSoon('#validation-verdict')
+            },
+          },
+          {
+            n: 7,
+            instruction:
+              'Step 7 — Review the staged change in History, then export a copy. The dialog reports 1 staged change and the synthetic success sentence; nothing is written.',
+            run: function () {
+              if (state.stagedOps === 0) applyScenario(4)
+              if (state.openSections.indexOf('export') === -1) state.openSections.push('export')
+              openExport('#export-open')
+            },
+          },
+        ]
+
+        /* ------------------------------ helpers ------------------------------ */
+
+        function $(selector, root) {
+          return (root || document).querySelector(selector)
+        }
+
+        function $all(selector, root) {
+          return Array.prototype.slice.call((root || document).querySelectorAll(selector))
+        }
+
+        function focusSoon(selector, before) {
+          window.setTimeout(function () {
+            var node = $(selector)
+            if (!node) return
+            if (before) before()
+            node = $(selector)
+            if (!node) return
+            if (node.tagName === 'A' || node.tagName === 'BUTTON' || node.tagName === 'INPUT') {
+              node.focus()
+            } else if (node.hasAttribute('tabindex')) {
+              node.focus()
+            }
+            node.scrollIntoView({ block: 'center' })
+          }, 0)
+        }
+
+        function isStale() {
+          return state.verdict !== null && state.verdictRevision !== state.overlayRevision
+        }
+
+        function failingCount() {
+          return state.verdict === 'failing' ? 1 : 0
+        }
+
+        function row5() {
+          return ROWS[4]
+        }
+
+        function setRow5FundSize(value) {
+          ROWS[4].fund_size = value
+        }
+
+        /* ------------------------------ state -------------------------------- */
+
+        function resetState() {
+          var fresh = defaults()
+          Object.keys(fresh).forEach(function (key) {
+            state[key] = fresh[key]
+          })
+          state.openSections = fresh.openSections.slice()
+        }
+
+        function clearEditors() {
+          $all('.cell-editor').forEach(function (input) {
+            input.parentNode.classList.remove('is-editing')
+          })
+        }
+
+        function applyPatch(patch) {
+          resetState()
+          Object.keys(patch).forEach(function (key) {
+            if (key === 'openSections') {
+              state.openSections = patch.openSections.slice()
+            } else {
+              state[key] = patch[key]
+            }
+          })
+          // The row-5 scalar is the one mutating value: always resync it.
+          setRow5FundSize(state.fundSize)
+          render()
+        }
+
+        function applyScenario(number) {
+          clearEditors()
+          applyPatch(PATCHES[number] || {})
+          $all('[data-scenario]').forEach(function (button) {
+            button.setAttribute(
+              'aria-pressed',
+              button.dataset.scenario === String(number) ? 'true' : 'false',
+            )
+          })
+        }
+
+        /* ------------------------------ actions ------------------------------ */
+
+        function validate() {
+          var failing = Number(row5().fund_size) < 0
+          state.verdict = failing ? 'failing' : 'valid'
+          state.verdictRevision = state.overlayRevision
+          render()
+        }
+
+        function openContract() {
+          state.contractLoaded = true
+          state.verdict = null
+          state.verdictRevision = -1
+          if (state.openSections.indexOf('validation') === -1) state.openSections.push('validation')
+          render()
+        }
+
+        function showRow(index) {
+          state.recordOpen = true
+          state.recordRow = index
+          state.jumpReturn = true
+          render()
+          var dock = $('#record-dock')
+          if (dock) dock.focus()
+        }
+
+        function closeDock(returnToRow) {
+          if (!state.recordOpen) return
+          var row = state.recordRow
+          state.recordOpen = false
+          render()
+          if (returnToRow !== false) {
+            var tr = $('tr[data-row="' + String(row) + '"]')
+            if (tr) tr.focus()
+          }
+        }
+
+        function stepDock(delta) {
+          var next = Math.min(TOTAL_ROWS, Math.max(1, state.recordRow + delta))
+          if (next === state.recordRow) return
+          state.recordRow = next
+          render()
+          var dock = $('#record-dock')
+          if (dock) dock.focus()
+        }
+
+        function reviewFindings() {
+          state.jumpReturn = false
+          if (state.openSections.indexOf('validation') === -1) {
+            state.openSections.push('validation')
+          }
+          render()
+          focusSoon('#validation-verdict')
+        }
+
+        function rerunDiff() {
+          state.comparison = 'fresh'
+          render()
+        }
+
+        function startEdit(index) {
+          render()
+          var tr = $('tr[data-row="' + String(index) + '"]')
+          if (!tr) return
+          var cell = tr.querySelector('.cell-fund_size')
+          if (!cell) return
+          var existing = cell.querySelector('input')
+          if (existing) {
+            existing.focus()
+            existing.select()
+            return
+          }
+          var current = String(ROWS[index - 1].fund_size)
+          var input = document.createElement('input')
+          input.type = 'text'
+          input.className = 'cell-editor'
+          input.value = current
+          input.setAttribute('aria-label', 'Edit fund_size for row ' + String(index))
+          cell.textContent = ''
+          cell.appendChild(input)
+          input.focus()
+          input.select()
+          input.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              commitEdit(index, input.value)
+            } else if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              render()
+              var button = $('tr[data-row="' + String(index) + '"] .cell-fund_size .cell-btn')
+              if (button) button.focus()
+            }
+          })
+        }
+
+        function commitEdit(index, raw) {
+          var value = String(raw).trim()
+          if (value === '') return
+          var numeric = Number(value)
+          var stored = Number.isFinite(numeric) ? numeric : value
+          ROWS[index - 1].fund_size = stored
+          state.overlayRevision = state.overlayRevision + 1
+          state.stagedOps = state.stagedOps + 1
+          render()
+          var button = $('tr[data-row="' + String(index) + '"] .cell-fund_size .cell-btn')
+          if (button) button.focus()
+        }
+
+        function openExport(openerSelector) {
+          state.exportOpen = true
+          state.exportResult = false
+          state.exportOpener = openerSelector ? $(openerSelector) : document.activeElement
+          render()
+          var dialog = $('#export-dialog')
+          if (dialog) dialog.focus()
+        }
+
+        function closeExport() {
+          var opener = state.exportOpener
+          state.exportOpen = false
+          state.exportResult = false
+          render()
+          if (opener && document.contains(opener)) {
+            opener.focus()
+          } else {
+            var fallback = $('#export-open')
+            if (fallback) fallback.focus()
+          }
+        }
+
+        /* ------------------------------ render ------------------------------- */
+
+        function nullMarker() {
+          var span = document.createElement('span')
+          span.className = 'null'
+          span.textContent = 'NULL'
+          return span
+        }
+
+        function renderGrid() {
+          var body = $('#grid-body')
+          if (!body) return
+          body.textContent = ''
+          ROWS.slice(0, VISIBLE_ROWS).forEach(function (row, position) {
+            var number = position + 1
+            var tr = document.createElement('tr')
+            tr.dataset.row = String(number)
+            tr.dataset.act = 'open-record'
+            tr.tabIndex = 0
+            tr.title = 'Open the record inspector for row ' + String(number)
+            if (number === 5 && state.stagedOps > 0) tr.classList.add('is-dirty')
+
+            var gutter = document.createElement('td')
+            gutter.className = 'cell-num'
+            gutter.textContent = String(number)
+            tr.appendChild(gutter)
+
+            ;['id', 'name', 'fund_size', 'tags', 'meta'].forEach(function (key) {
+              var td = document.createElement('td')
+              td.className = 'cell-' + key
+              if (key === 'fund_size') {
+                var button = document.createElement('button')
+                button.type = 'button'
+                button.className = 'cell-btn'
+                button.dataset.act = 'edit-cell'
+                button.dataset.row = String(number)
+                button.setAttribute('aria-label', 'Edit fund_size for row ' + String(number))
+                button.textContent = String(row.fund_size)
+                td.appendChild(button)
+                if (number === 5 && state.stagedOps > 0) {
+                  var marker = document.createElement('span')
+                  marker.className = 'dirty-marker'
+                  marker.setAttribute('aria-hidden', 'true')
+                  marker.textContent = ' ●'
+                  td.appendChild(marker)
+                  var announced = document.createElement('span')
+                  announced.className = 'visually-hidden'
+                  announced.textContent = ' Staged change'
+                  td.appendChild(announced)
+                }
+              } else if (key === 'meta' && (row.meta === null || row.meta === undefined)) {
+                td.appendChild(nullMarker())
+              } else {
+                td.textContent = row[key] === null || row[key] === undefined ? '' : String(row[key])
+              }
+              tr.appendChild(td)
+            })
+            body.appendChild(tr)
+          })
+        }
+
+        function renderContextBar() {
+          var staged = state.stagedOps
+          var parts = [
+            '12 rows × 10 columns',
+            String(staged) + ' staged ' + (staged === 1 ? 'operation' : 'operations'),
+          ]
+          if (state.activeFilters > 0) {
+            parts.push(
+              String(state.activeFilters) +
+                ' ' +
+                (state.activeFilters === 1 ? 'filter' : 'filters') +
+                ' active',
+            )
+          }
+          $('#ctx-dataset-detail').textContent = ' · ' + parts.join(' · ')
+
+          var action = currentAction()
+          var stateNode = $('#ctx-state')
+          stateNode.textContent = action.text
+          stateNode.dataset.tone = action.tone
+
+          var primary = $('#ctx-primary')
+          primary.textContent = action.primary.label
+          primary.dataset.act = action.primary.act
+          primary.hidden = false
+
+          var secondary = $('#ctx-secondary')
+          if (action.secondary) {
+            secondary.textContent = action.secondary.label
+            secondary.dataset.act = action.secondary.act
+            secondary.hidden = false
+          } else {
+            secondary.hidden = true
+          }
+
+          $('#ctx-back').hidden = !state.jumpReturn
+        }
+
+        function currentAction() {
+          if (!state.contractLoaded) {
+            return {
+              text: 'No contract loaded',
+              tone: 'stale',
+              primary: { label: 'Open a contract…', act: 'open-contract' },
+            }
+          }
+          if (state.verdict === null) {
+            return {
+              text: 'Contract loaded — not checked yet',
+              tone: 'stale',
+              primary: { label: 'Validate', act: 'validate' },
+            }
+          }
+          if (isStale()) {
+            return {
+              text: "Verdict stale — the session's staged state changed after it was computed",
+              tone: 'stale',
+              primary: { label: 'Recheck', act: 'validate' },
+              secondary: { label: 'Review findings', act: 'review' },
+            }
+          }
+          if (state.verdict === 'failing') {
+            return {
+              // The bar names the consequence, not a copy of the count: the
+              // verdict and the section summary already carry the numbers.
+              text: 'The current check found failures',
+              tone: 'fail',
+              primary: { label: 'Review findings', act: 'review' },
+            }
+          }
+          if (state.comparison === 'stale') {
+            return {
+              text: "Comparison stale — the session's staged state changed after it ran",
+              tone: 'stale',
+              primary: { label: 'Review comparison', act: 'rerun-diff' },
+            }
+          }
+          return {
+            text: 'Verdict is current — no violations',
+            tone: 'ok',
+            primary: { label: 'Export a copy…', act: 'open-export' },
+          }
+        }
+
+        function renderSections() {
+          $all('[data-section-toggle]').forEach(function (button) {
+            var id = button.dataset.sectionToggle
+            var open = state.openSections.indexOf(id) !== -1
+            var title = button.querySelector('.section-label').textContent
+            var label = (open ? 'Collapse ' : 'Expand ') + title
+            button.setAttribute('aria-expanded', open ? 'true' : 'false')
+            button.setAttribute('aria-label', label)
+            button.title = label
+            button.querySelector('.section-marker').textContent = open ? '▾' : '▸'
+            var content = document.getElementById('section-' + id + '-content')
+            if (content) content.hidden = !open
+            var summary = document.getElementById('section-' + id + '-summary')
+            var describedBy = 'section-' + id + '-purpose'
+            if (summary && !summary.hidden)
+              describedBy = describedBy + ' section-' + id + '-summary'
+            button.setAttribute('aria-describedby', describedBy)
+          })
+
+          var validationSummary = $('#section-validation-summary')
+          if (validationSummary) {
+            var showValidation = failingCount() > 0
+            validationSummary.hidden = !showValidation
+            validationSummary.textContent = showValidation
+              ? 'Validation · ' + String(failingCount()) + ' failing'
+              : ''
+          }
+
+          var historySummary = $('#section-history-summary')
+          if (historySummary) {
+            var showHistory = state.stagedOps > 0
+            historySummary.hidden = !showHistory
+            historySummary.textContent = showHistory
+              ? 'History · ' + String(state.stagedOps) + ' pending'
+              : ''
+          }
+
+          var compareSummary = $('#section-compare-summary')
+          if (compareSummary) {
+            var showCompare = state.compareChanged > 0
+            compareSummary.hidden = !showCompare
+            compareSummary.textContent = showCompare
+              ? 'Compare · ' + String(state.compareChanged) + ' changed'
+              : ''
+          }
+        }
+
+        function renderValidation() {
+          $('#validation-contract-info').hidden = !state.contractLoaded
+          $('#validation-zero').hidden = state.contractLoaded
+          $('#validation-run').disabled = !state.contractLoaded
+          $('#validation-run-hint').hidden = state.contractLoaded
+
+          var report = $('#validation-report')
+          var hasVerdict = state.verdict !== null
+          report.hidden = !hasVerdict
+          if (hasVerdict) {
+            $('#validation-verdict').textContent =
+              state.verdict === 'valid'
+                ? 'Valid: 0 violations across ' + String(RULES.length) + ' rules (12 rows checked).'
+                : String(failingCount()) +
+                  ' of ' +
+                  String(RULES.length) +
+                  ' rules fail (12 rows checked).'
+          }
+          $('#validation-stale').hidden = !isStale()
+
+          renderRules(hasVerdict)
+        }
+
+        function renderRules(hasVerdict) {
+          var list = $('#validation-rules')
+          if (!list) return
+          list.textContent = ''
+          if (!hasVerdict) return
+          RULES.forEach(function (rule) {
+            var failing = rule.id === 'fund_size-min' && state.verdict === 'failing'
+            var li = document.createElement('li')
+            li.className = 'rule'
+            li.dataset.rule = rule.id
+            li.dataset.failing = failing ? 'true' : 'false'
+
+            var head = document.createElement('div')
+            head.className = 'rule-head'
+
+            var idNode = document.createElement('code')
+            idNode.textContent = rule.id
+            head.appendChild(idNode)
+
+            var label = document.createElement('span')
+            label.className = 'rule-label'
+            label.textContent = rule.label
+            if (rule.column) {
+              label.textContent = rule.label + ' — '
+              var column = document.createElement('code')
+              column.textContent = rule.column
+              label.appendChild(column)
+            }
+            head.appendChild(label)
+
+            var count = document.createElement('span')
+            count.className = 'rule-count'
+            if (rule.fact) {
+              count.textContent = failing ? 'Violated' : 'Holds'
+            } else {
+              count.textContent = failing ? '1 of 12 rows (8.3%)' : '0 of 12 rows (0%)'
+            }
+            head.appendChild(count)
+            li.appendChild(head)
+
+            if (failing) {
+              var samples = document.createElement('ul')
+              samples.className = 'rule-samples'
+              var sample = document.createElement('li')
+              var key = document.createElement('span')
+              key.className = 'sample-key'
+              key.textContent = 'A-1005'
+              sample.appendChild(key)
+              sample.appendChild(document.createTextNode(' value '))
+              var value = document.createElement('code')
+              value.textContent = String(row5().fund_size)
+              sample.appendChild(value)
+              sample.appendChild(document.createTextNode(' '))
+              var showRowButton = document.createElement('button')
+              showRowButton.type = 'button'
+              showRowButton.className = 'btn btn-small'
+              showRowButton.dataset.act = 'show-row'
+              showRowButton.dataset.row = '5'
+              showRowButton.textContent = 'Show row'
+              sample.appendChild(showRowButton)
+              samples.appendChild(sample)
+              li.appendChild(samples)
+            }
+
+            if (rule.filterable) {
+              var filterButton = document.createElement('button')
+              filterButton.type = 'button'
+              filterButton.className = 'btn btn-small'
+              filterButton.dataset.act = 'filter-failures'
+              filterButton.textContent = 'Show only failing rows'
+              li.appendChild(filterButton)
+
+              var replacement = document.createElement('span')
+              replacement.className = 'filter-replacement'
+              replacement.dataset.replacement = ''
+              replacement.hidden = state.activeFilters === 0
+              replacement.textContent =
+                'Replaces the current ' +
+                String(state.activeFilters) +
+                ' ' +
+                (state.activeFilters === 1 ? 'filter' : 'filters')
+              li.appendChild(replacement)
+            }
+
+            list.appendChild(li)
+          })
+        }
+
+        function renderHistory() {
+          var line = $('#history-line')
+          var list = $('#history-list')
+          if (state.stagedOps === 0) {
+            line.hidden = false
+            line.textContent = 'No staged operations.'
+            list.hidden = true
+            return
+          }
+          line.hidden = true
+          list.hidden = false
+        }
+
+        function renderCompare() {
+          var line = $('#compare-line')
+          var rerun = $('#compare-rerun')
+          if (state.comparison === 'none') {
+            line.textContent = 'No comparison loaded.'
+            rerun.hidden = true
+          } else if (state.comparison === 'stale') {
+            line.textContent =
+              'Comparison stale — the dataset changed after the last run. ' +
+              String(state.compareChanged) +
+              ' changed row from that run is not current.'
+            rerun.hidden = false
+          } else {
+            line.textContent =
+              'Comparison fresh — ' + String(state.compareChanged) + ' changed row from this run.'
+            rerun.hidden = true
+          }
+        }
+
+        function renderRecord() {
+          var dock = $('#record-dock')
+          var hint = $('#record-hint')
+          dock.hidden = !state.recordOpen
+          hint.hidden = state.recordOpen
+          if (!state.recordOpen) return
+          var index = state.recordRow
+          var row = ROWS[index - 1]
+          $('#record-title').textContent = 'Record inspector — row ' + String(index)
+          dock.setAttribute('aria-label', 'Record inspector — row ' + String(index))
+          $('#field-id').textContent = row.id
+          $('#field-name').textContent = row.name
+          $('#field-fund_size').textContent = String(row.fund_size)
+          $('#field-staged').hidden = !(index === 5 && state.stagedOps > 0)
+          $('#field-tags').textContent = row.tags
+          var closed = $('#field-closed_at')
+          closed.textContent = ''
+          if (row.closed_at === null || row.closed_at === undefined) {
+            closed.appendChild(nullMarker())
+          } else {
+            closed.textContent = String(row.closed_at)
+          }
+          $('#field-vintage').textContent = row.vintage === undefined ? 'NULL' : String(row.vintage)
+          $('#dock-prev').disabled = index <= 1
+          $('#dock-next').disabled = index >= TOTAL_ROWS
+        }
+
+        function renderExport() {
+          var backdrop = $('#export-backdrop')
+          backdrop.hidden = !state.exportOpen
+          if (!state.exportOpen) state.exportResult = false
+          var staged = $('#export-staged')
+          if (state.stagedOps > 0) {
+            staged.hidden = false
+            $('#export-staged-count').textContent = String(state.stagedOps)
+            staged.lastChild.textContent =
+              ' staged ' + (state.stagedOps === 1 ? 'change' : 'changes') + ' — review in History'
+          } else {
+            staged.hidden = true
+          }
+          $('#export-result').hidden = !state.exportResult
+        }
+
+        function renderPane() {
+          var layout = $('.layout')
+          layout.dataset.pane = state.paneCollapsed ? 'collapsed' : 'expanded'
+          var toggle = $('#pane-toggle')
+          var label = state.paneCollapsed ? 'Expand workbench pane' : 'Collapse workbench pane'
+          toggle.setAttribute('aria-label', label)
+          toggle.title = label
+          toggle.setAttribute('aria-expanded', state.paneCollapsed ? 'false' : 'true')
+          toggle.firstElementChild.textContent = state.paneCollapsed ? '▸' : '◂'
+          $('#workbench-tools-body').hidden = state.paneCollapsed
+        }
+
+        function render() {
+          renderPane()
+          renderContextBar()
+          renderSections()
+          renderValidation()
+          renderGrid()
+          renderHistory()
+          renderCompare()
+          renderRecord()
+          renderExport()
+        }
+
+        /* ------------------------------ wiring ------------------------------- */
+
+        function toggleSection(id, forceOpen) {
+          var index = state.openSections.indexOf(id)
+          var open = forceOpen === true ? true : index === -1
+          if (open && index === -1) state.openSections.push(id)
+          if (!open && index !== -1) state.openSections.splice(index, 1)
+          render()
+        }
+
+        function bindStatic() {
+          $('#schema-columns').textContent = ''
+          COLUMNS.forEach(function (name) {
+            var li = document.createElement('li')
+            var code = document.createElement('code')
+            code.textContent = name
+            li.appendChild(code)
+            $('#schema-columns').appendChild(li)
+          })
+
+          $('#pane-toggle').addEventListener('click', function () {
+            state.paneCollapsed = !state.paneCollapsed
+            render()
+          })
+
+          $all('[data-scenario]').forEach(function (button) {
+            button.addEventListener('click', function () {
+              applyScenario(Number(button.dataset.scenario))
+              if (state.exportOpen) {
+                var dialog = $('#export-dialog')
+                if (dialog) dialog.focus()
+              }
+            })
+          })
+
+          $all('[data-step]').forEach(function (button) {
+            button.addEventListener('click', function () {
+              var step = STEPS[Number(button.dataset.step) - 1]
+              if (!step) return
+              $('#step-instruction').textContent = step.instruction
+              step.run()
+            })
+          })
+
+          $('#annotations-toggle').addEventListener('change', function (event) {
+            document.body.classList.toggle('annotations-off', !event.target.checked)
+          })
+
+          $('#open-data-file').addEventListener('click', function () {
+            $('#open-file-note').hidden = false
+          })
+
+          $('#open-settings').addEventListener('click', function () {
+            $('#open-file-note').hidden = false
+            $('#open-file-note').textContent =
+              'Prototype: telemetry settings are not modelled; this page sends nothing.'
+          })
+
+          $('#schema-inner-toggle').addEventListener('click', function () {
+            var button = $('#schema-inner-toggle')
+            var open = button.getAttribute('aria-expanded') === 'true'
+            button.setAttribute('aria-expanded', open ? 'false' : 'true')
+            button.querySelector('.section-marker').textContent = open ? '▸' : '▾'
+            $('#schema-inner-body').hidden = open
+          })
+
+          ;['filters', 'profile'].forEach(function (id) {
+            var button = document.getElementById(id + '-inner-toggle')
+            button.addEventListener('click', function () {
+              var open = button.getAttribute('aria-expanded') === 'true'
+              button.setAttribute('aria-expanded', open ? 'false' : 'true')
+              button.querySelector('.section-marker').textContent = open ? '▸' : '▾'
+              document.getElementById(id + '-inner-body').hidden = open
+            })
+          })
+
+          $all('.workbench-nav a').forEach(function (link) {
+            link.addEventListener('click', function (event) {
+              var target = link.getAttribute('href').slice(1)
+              if (target.indexOf('section-') !== 0) return
+              var id = target.slice('section-'.length)
+              if (id === 'grid' || id === 'record') return
+              if (document.querySelector('[data-section-toggle="' + id + '"]')) {
+                toggleSection(id, true)
+                event.preventDefault()
+                var section = document.getElementById(target)
+                if (section) section.scrollIntoView({ block: 'start' })
+              }
+            })
+          })
+
+          $('#export-confirm').addEventListener('click', function () {
+            state.exportResult = true
+            render()
+          })
+          $('#export-close').addEventListener('click', closeExport)
+
+          $all('input[name="export-format"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+              $('#export-format-description').textContent = FORMAT_DESCRIPTIONS[radio.value] || ''
+            })
+          })
+
+          document.addEventListener('click', function (event) {
+            var trigger = event.target.closest('[data-act]')
+            if (!trigger) return
+            var act = trigger.dataset.act
+            if (trigger.tagName === 'A' && trigger.getAttribute('href')) return
+            if (act === 'open-contract') {
+              openContract()
+            } else if (act === 'validate') {
+              validate()
+            } else if (act === 'review') {
+              reviewFindings()
+            } else if (act === 'open-export') {
+              openExport(trigger.id ? '#' + trigger.id : null)
+            } else if (act === 'rerun-diff') {
+              rerunDiff()
+            } else if (act === 'back-to-findings') {
+              reviewFindings()
+            } else if (act === 'show-row') {
+              showRow(Number(trigger.dataset.row || '5'))
+            } else if (act === 'open-record') {
+              state.recordOpen = true
+              state.recordRow = Number(trigger.dataset.row)
+              render()
+              var dock = $('#record-dock')
+              if (dock) dock.focus()
+            } else if (act === 'edit-cell') {
+              startEdit(Number(trigger.dataset.row))
+              event.preventDefault()
+            } else if (act === 'close-dock') {
+              closeDock(true)
+            } else if (act === 'dock-prev') {
+              stepDock(-1)
+            } else if (act === 'dock-next') {
+              stepDock(1)
+            } else if (act === 'filter-failures') {
+              state.activeFilters = 1
+              render()
+              focusSoon('#validation-rules [data-act="filter-failures"]')
+            }
+          })
+
+          document.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter') return
+            var tr = event.target.closest && event.target.closest('tr[data-row]')
+            if (!tr) return
+            if (event.target.closest('button') || event.target.closest('input')) return
+            event.preventDefault()
+            state.recordOpen = true
+            state.recordRow = Number(tr.dataset.row)
+            render()
+            var dock = $('#record-dock')
+            if (dock) dock.focus()
+          })
+
+          $('#record-dock').addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !state.exportOpen) {
+              event.preventDefault()
+              closeDock(true)
+            }
+          })
+
+          var dialog = $('#export-dialog')
+
+          dialog.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              closeExport()
+              return
+            }
+            if (event.key !== 'Tab') return
+            var focusables = $all(
+              'button, input, [href], select, textarea, [tabindex]:not([tabindex="-1"])',
+              dialog,
+            ).filter(function (node) {
+              return !node.disabled && node.offsetParent !== null
+            })
+            if (focusables.length === 0) return
+            var first = focusables[0]
+            var last = focusables[focusables.length - 1]
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault()
+              last.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault()
+              first.focus()
+            }
+          })
+
+          $('#export-backdrop').addEventListener('click', function (event) {
+            if (event.target === event.currentTarget) closeExport()
+          })
+        }
+
+        bindStatic()
+        applyScenario(1)
+        $('#step-instruction').textContent =
+          'Step — · Pick a scenario or walk the numbered steps. Nothing in this page validates, exports or writes on its own; every state change comes from a control you press.'
+      })()
+    </script>
+  </body>
+</html>

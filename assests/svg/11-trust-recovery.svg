@@ -1,0 +1,569 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">11 / Trust is built in the edges, not just the happy path</title>
+  <desc id="desc">
+    Small, contextual settings; specific recovery actions; no misleading progress or privacy
+    claims.. Design proposal, not a runtime screenshot. All dataset values and counts are synthetic
+    illustrations. See README for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 11
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    11 / Trust is built in the edges, not just the happy path
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Small, contextual settings; specific recovery actions; no misleading progress or privacy claims.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    CURRENT SAFEGUARDS / PROPOSED CONSISTENT STATE PRESENTATION
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    11
+  </text>
+  <rect x="64" y="244" width="704" height="284" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="84"
+    y="275"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Privacy and usage metadata
+  </text>
+  <text
+    x="84"
+    y="302"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    A compact Settings surface, not a new account or security console.
+  </text>
+  <text
+    x="86"
+    y="347"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Anonymous operational metadata
+  </text>
+  <rect x="648" y="325" width="92" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="659"
+    y="344"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    OFF
+  </text>
+  <text
+    x="86"
+    y="388"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Dataset processing stays local by default.
+  </text>
+  <text
+    x="86"
+    y="419"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    No cell values, raw SQL results or sensitive filenames in telemetry.
+  </text>
+  <text
+    x="86"
+    y="450"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Show collection disclosure when configured; provide opt-out.
+  </text>
+  <text
+    x="86"
+    y="481"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Build-time hard-off disables the toggle with an explanation.
+  </text>
+  <rect x="792" y="244" width="744" height="284" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="812"
+    y="275"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Keyboard and interaction help
+  </text>
+  <text
+    x="812"
+    y="302"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Proposed consolidated guide; existing help is grid-contextual.
+  </text>
+  <text
+    x="814"
+    y="348"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Grid: arrows / Home / End / Tab; visible roving focus.
+  </text>
+  <text
+    x="814"
+    y="379"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Focused cell: Enter edits; Esc cancels; Ctrl/Cmd+C copies.
+  </text>
+  <text
+    x="814"
+    y="410"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Focused row: Enter inspects. Do not conflate these modes.
+  </text>
+  <text
+    x="814"
+    y="441"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    History: Ctrl/Cmd+Z; Shift+Z / Y redo; preserve native text undo.
+  </text>
+  <text
+    x="814"
+    y="472"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    SQL: Ctrl/Cmd+Enter runs; results remain separate from the grid.
+  </text>
+  <rect x="64" y="552" width="472" height="144" rx="6" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="80"
+    y="578"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Opening…
+  </text>
+  <text
+    x="80"
+    y="604"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Indeterminate progress, not a fake %.
+  </text>
+  <text
+    x="80"
+    y="627"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Cancel abandons this UI request.
+  </text>
+  <text
+    x="80"
+    y="650"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Late completion must not reopen it.
+  </text>
+  <rect x="560" y="552" width="472" height="144" rx="6" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="576"
+    y="578"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    No rows match these filters
+  </text>
+  <text
+    x="576"
+    y="604"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    The dataset is not empty.
+  </text>
+  <text
+    x="576"
+    y="627"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Show active chips and Clear filters.
+  </text>
+  <text
+    x="576"
+    y="650"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Do not change the source to fix the view.
+  </text>
+  <rect x="1056" y="552" width="480" height="144" rx="6" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="1072"
+    y="578"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Validation / comparison stale
+  </text>
+  <text
+    x="1072"
+    y="604"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Keep the previous result visible.
+  </text>
+  <text
+    x="1072"
+    y="627"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Say what changed; offer explicit rerun.
+  </text>
+  <text
+    x="1072"
+    y="650"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Never relabel a stale verdict as fresh.
+  </text>
+  <rect x="64" y="720" width="472" height="158" rx="6" fill="#fdf0ef" stroke="#fdf0ef" />
+  <text
+    x="80"
+    y="746"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    This section could not render
+  </text>
+  <text
+    x="80"
+    y="772"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Grid + staged changes remain available.
+  </text>
+  <text
+    x="80"
+    y="795"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Retry resets this section only.
+  </text>
+  <text
+    x="80"
+    y="818"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Close section returns focus to navigation.
+  </text>
+  <rect x="560" y="720" width="472" height="158" rx="6" fill="#fdf0ef" stroke="#fdf0ef" />
+  <text
+    x="576"
+    y="746"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Export destination refused
+  </text>
+  <text
+    x="576"
+    y="772"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    The opened source stays unchanged.
+  </text>
+  <text
+    x="576"
+    y="795"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Choose a different destination.
+  </text>
+  <text
+    x="576"
+    y="818"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Only show success after delivery confirms.
+  </text>
+  <rect x="1056" y="720" width="480" height="158" rx="6" fill="#fdf0ef" stroke="#fdf0ef" />
+  <text
+    x="1072"
+    y="746"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Operation rejected safely
+  </text>
+  <text
+    x="1072"
+    y="772"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Explain the supported type or constraint.
+  </text>
+  <text
+    x="1072"
+    y="795"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Keep the previous accepted overlay.
+  </text>
+  <text
+    x="1072"
+    y="818"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Use a collapsed technical-detail disclosure.
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 A request is not an interruption
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Cancel wording must match actual engine capabilities.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No fabricated scan percentages or automatic retries.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Failure is local, recovery is explicit
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Panel retry does not restart the session.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Grid retry may lose a draft; reload loses session edits.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Status beyond color
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Use text + icon/border, polite busy announcements.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Dialog focus, Escape, return focus and modal isolation matter.
+  </text>
+</svg>

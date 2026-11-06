@@ -1,0 +1,1052 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">08 / A pipeline users can read, inspect and trust</title>
+  <desc id="desc">
+    Expose the implemented local runner through a clear ordered plan—not an imaginary graph editor..
+    Design proposal, not a runtime screenshot. All dataset values and counts are synthetic
+    illustrations. See README for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 08
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    08 / A pipeline users can read, inspect and trust
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Expose the implemented local runner through a clear ordered plan—not an imaginary graph editor.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    CURRENT P1–P3 BACKEND + ORDERED WEB UI / PROPOSED PRESENTATION
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    08
+  </text>
+  <text
+    x="56"
+    y="193"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="22"
+    font-weight="650"
+  >
+    Assay
+  </text>
+  <rect x="150" y="168" width="166" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="162"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Open data file…
+  </text>
+  <text
+    x="336"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    orders.parquet
+  </text>
+  <text
+    x="495"
+    y="192"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    12 rows · 5 columns
+  </text>
+  <rect x="710" y="173" width="145" height="28" rx="14" fill="#eef7f0" stroke="#eef7f0" />
+  <text
+    x="721"
+    y="192"
+    fill="#216044"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    Local processing
+  </text>
+  <rect x="1330" y="168" width="106" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1342"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Settings
+  </text>
+  <rect x="1448" y="168" width="96" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1460"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Help
+  </text>
+  <path d="M32 212 L1568 212" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="48" y="228" width="320" height="676" rx="6" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="66"
+    y="258"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="1"
+  >
+    WORKBENCH
+  </text>
+  <text
+    x="337"
+    y="258"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="22"
+    font-weight="400"
+  >
+    ‹
+  </text>
+  <text
+    x="64"
+    y="277"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Schema
+  </text>
+  <text
+    x="162"
+    y="277"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Filters
+  </text>
+  <text
+    x="260"
+    y="277"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Validation
+  </text>
+  <text
+    x="64"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Compare
+  </text>
+  <text
+    x="162"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    SQL
+  </text>
+  <text
+    x="260"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Editing
+  </text>
+  <text
+    x="64"
+    y="343"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    History
+  </text>
+  <text
+    x="162"
+    y="343"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Export
+  </text>
+  <text
+    x="260"
+    y="343"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Profile
+  </text>
+  <rect x="59" y="359" width="95" height="27" rx="4" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="64"
+    y="376"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    Pipeline
+  </text>
+  <path d="M64 398 L352 398" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="66"
+    y="432"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="21"
+    font-weight="600"
+  >
+    Pipeline
+  </text>
+  <text
+    x="390"
+    y="254"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="20"
+    font-weight="600"
+  >
+    Grid
+  </text>
+  <text
+    x="448"
+    y="254"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Browse the rows
+  </text>
+  <rect x="1266" y="232" width="144" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="1277"
+    y="251"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    File as opened
+  </text>
+  <rect x="1422" y="228" width="122" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1434"
+    y="252"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Record ↵
+  </text>
+  <rect x="390" y="278" width="1154" height="222" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <rect x="391" y="279" width="1152" height="38" rx="4" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    #
+  </text>
+  <text
+    x="482.78"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    order_id
+  </text>
+  <text
+    x="678.96"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    country
+  </text>
+  <text
+    x="886.6800000000001"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    amount
+  </text>
+  <text
+    x="1071.32"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    tags
+  </text>
+  <text
+    x="1290.58"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    metadata
+  </text>
+  <text
+    x="402"
+    y="342"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    1
+  </text>
+  <text
+    x="482.78"
+    y="342"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1001
+  </text>
+  <text
+    x="678.96"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    GB
+  </text>
+  <text
+    x="886.6800000000001"
+    y="342"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    42.00
+  </text>
+  <text
+    x="1071.32"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail]
+  </text>
+  <text
+    x="1290.58"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 354 L1544 354" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="354" width="1152" height="36" rx="0" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="378"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    2
+  </text>
+  <text
+    x="482.78"
+    y="378"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1002
+  </text>
+  <text
+    x="678.96"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    US
+  </text>
+  <text
+    x="886.6800000000001"
+    y="378"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    18.50
+  </text>
+  <text
+    x="1071.32"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [trial]
+  </text>
+  <text
+    x="1290.58"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M390 390 L1544 390" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="390" width="1152" height="36" rx="0" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="402"
+    y="414"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    3
+  </text>
+  <text
+    x="482.78"
+    y="414"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1003
+  </text>
+  <text
+    x="678.96"
+    y="414"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    NULL
+  </text>
+  <text
+    x="886.6800000000001"
+    y="414"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    64.00
+  </text>
+  <text
+    x="1071.32"
+    y="414"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail, new]
+  </text>
+  <text
+    x="1290.58"
+    y="414"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 426 L1544 426" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="426" width="1152" height="36" rx="0" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="450"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    4
+  </text>
+  <text
+    x="482.78"
+    y="450"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1004
+  </text>
+  <text
+    x="678.96"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    CA
+  </text>
+  <text
+    x="886.6800000000001"
+    y="450"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    28.00
+  </text>
+  <text
+    x="1071.32"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    []
+  </text>
+  <text
+    x="1290.58"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M390 462 L1544 462" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="402"
+    y="487"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Rows 1–4 of 12 · logical row identity retained
+  </text>
+  <text
+    x="1284"
+    y="487"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    ← → navigate · Keyboard help
+  </text>
+  <text
+    x="66"
+    y="468"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Chained contract checks
+  </text>
+  <rect x="64" y="488" width="288" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="76"
+    y="512"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Load pipeline definition…
+  </text>
+  <text
+    x="66"
+    y="555"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Validate the DAG before running.
+  </text>
+  <text
+    x="66"
+    y="585"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Inspect SQL and dependencies.
+  </text>
+  <text
+    x="66"
+    y="615"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Preview uses the grid renderer.
+  </text>
+  <text
+    x="66"
+    y="645"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Run locally; reveal each outcome.
+  </text>
+  <rect x="64" y="708" width="288" height="36" rx="6" fill="#23364d" stroke="#23364d" />
+  <text
+    x="76"
+    y="732"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Run pipeline locally
+  </text>
+  <rect x="64" y="766" width="288" height="120" rx="6" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="80"
+    y="792"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Gate refusal is not success
+  </text>
+  <text
+    x="80"
+    y="818"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Downstream publish stays blocked.
+  </text>
+  <text
+    x="80"
+    y="841"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Show the check and next action.
+  </text>
+  <text
+    x="80"
+    y="864"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No silent publish / scheduling.
+  </text>
+  <rect x="390" y="522" width="1154" height="364" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="410"
+    y="553"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Execution plan · deterministic topological order
+  </text>
+  <text
+    x="410"
+    y="580"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Illustrated gate failure. The grid remains available while the plan explains the result.
+  </text>
+  <rect x="412" y="611" width="1110" height="53" rx="5" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="428"
+    y="644"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    01
+  </text>
+  <text
+    x="488"
+    y="644"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="600"
+  >
+    Source
+  </text>
+  <text
+    x="750"
+    y="644"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Parquet input
+  </text>
+  <rect x="1374" y="623" width="132" height="28" rx="14" fill="#eef7f0" stroke="#eef7f0" />
+  <text
+    x="1385"
+    y="642"
+    fill="#216044"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    READY
+  </text>
+  <rect x="412" y="674" width="1110" height="53" rx="5" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="428"
+    y="707"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    02
+  </text>
+  <text
+    x="488"
+    y="707"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="600"
+  >
+    SQL / transform
+  </text>
+  <text
+    x="750"
+    y="707"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Generated SQL inspectable
+  </text>
+  <rect x="1374" y="686" width="132" height="28" rx="14" fill="#eef7f0" stroke="#eef7f0" />
+  <text
+    x="1385"
+    y="705"
+    fill="#216044"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    DONE
+  </text>
+  <rect x="412" y="737" width="1110" height="53" rx="5" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="428"
+    y="770"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    03
+  </text>
+  <text
+    x="488"
+    y="770"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="600"
+  >
+    Validate
+  </text>
+  <text
+    x="750"
+    y="770"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Contract check: 1 failure
+  </text>
+  <rect x="1374" y="749" width="132" height="28" rx="14" fill="#fdf0ef" stroke="#fdf0ef" />
+  <text
+    x="1385"
+    y="768"
+    fill="#9f3030"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    FAILED
+  </text>
+  <rect x="412" y="800" width="1110" height="53" rx="5" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="428"
+    y="833"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    04
+  </text>
+  <text
+    x="488"
+    y="833"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="600"
+  >
+    Publish gate
+  </text>
+  <text
+    x="750"
+    y="833"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Requires validation success
+  </text>
+  <rect x="1374" y="812" width="132" height="28" rx="14" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="1385"
+    y="831"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    BLOCKED
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Inspect before executing
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    IR validation, cycle / dependency errors and generated SQL.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Source, transform, SQL, validate and publish are explicit.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Materialization is logical
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Ephemeral / view / table / cache / incremental / export / publish.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Unsupported engine mappings refuse, never pretend to run.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Lineage without a hosted catalog
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    P1–P3 support local lineage and candidate references.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Drag/drop DAG authoring is a future proposal in board 15.
+  </text>
+</svg>

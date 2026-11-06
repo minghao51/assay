@@ -1,0 +1,518 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">09 / A portable change artifact, not a pretend approval</title>
+  <desc id="desc">
+    Make local Dataset Change Requests legible while preserving canonical, value-free v1 bytes..
+    Design proposal, not a runtime screenshot. All dataset values and counts are synthetic
+    illustrations. See README for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 09
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    09 / A portable change artifact, not a pretend approval
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Make local Dataset Change Requests legible while preserving canonical, value-free v1 bytes.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    CURRENT LOCAL DCR V1 GENERATION / PROPOSED ARTIFACT INSPECTOR
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    09
+  </text>
+  <text
+    x="64"
+    y="199"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="22"
+    font-weight="650"
+  >
+    Assay / Local change artifact
+  </text>
+  <rect x="1194" y="174" width="342" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="1205"
+    y="193"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    LOCAL · NO APPROVAL WORKFLOW
+  </text>
+  <path d="M32 220 L1568 220" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="64" y="244" width="432" height="628" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="84"
+    y="275"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Build a review artifact
+  </text>
+  <text
+    x="84"
+    y="302"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Logical versions, not file-name identity.
+  </text>
+  <text
+    x="86"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Base dataset / version
+  </text>
+  <text
+    x="86"
+    y="388"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    orders / v1
+  </text>
+  <text
+    x="86"
+    y="434"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Candidate dataset / version
+  </text>
+  <text
+    x="86"
+    y="480"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    orders / v2
+  </text>
+  <text
+    x="86"
+    y="526"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Candidate from a pipeline run
+  </text>
+  <text
+    x="86"
+    y="572"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Explicit row key: order_id
+  </text>
+  <rect x="84" y="656" width="392" height="136" rx="6" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="100"
+    y="682"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Build refusals stay visible
+  </text>
+  <text
+    x="100"
+    y="708"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Invalid references / missing explicit keys
+  </text>
+  <text
+    x="100"
+    y="731"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Oversized payload / failed gate
+  </text>
+  <text
+    x="100"
+    y="754"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Existing output path → choose a new file
+  </text>
+  <rect x="520" y="244" width="1016" height="330" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="540"
+    y="275"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    What changes?
+  </text>
+  <text
+    x="540"
+    y="302"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Summary view of bounded embedded evidence; no cell values.
+  </text>
+  <text
+    x="542"
+    y="352"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    Schema drift
+  </text>
+  <text
+    x="804"
+    y="352"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Field additions, removals, type changes
+  </text>
+  <text
+    x="542"
+    y="401"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    Column deltas
+  </text>
+  <text
+    x="804"
+    y="401"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Available profile / distribution summaries
+  </text>
+  <text
+    x="542"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    Row diff
+  </text>
+  <text
+    x="804"
+    y="450"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Counts and column changes; explicit keys
+  </text>
+  <text
+    x="542"
+    y="499"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    Validation + lineage
+  </text>
+  <text
+    x="804"
+    y="499"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Checks and local execution provenance
+  </text>
+  <rect x="520" y="598" width="1016" height="274" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="540"
+    y="629"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Inspect the canonical artifact
+  </text>
+  <text
+    x="540"
+    y="656"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Illustrative header only—not a complete executable artifact.
+  </text>
+  <text
+    x="542"
+    y="699"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    format: assay-dcr
+  </text>
+  <text
+    x="542"
+    y="731"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    version: 1
+  </text>
+  <text
+    x="542"
+    y="763"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    … bounded value-free payloads …
+  </text>
+  <rect x="1000" y="681" width="514" height="115" rx="6" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="1016"
+    y="707"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Privacy findings: NOT COMPUTED
+  </text>
+  <text
+    x="1016"
+    y="733"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Not “no privacy risks found”.
+  </text>
+  <text
+    x="1016"
+    y="756"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No comments, approvals or policy verdicts in v1.
+  </text>
+  <rect x="542" y="812" width="274" height="36" rx="6" fill="#23364d" stroke="#23364d" />
+  <text
+    x="554"
+    y="836"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Generate a new YAML artifact
+  </text>
+  <text
+    x="840"
+    y="837"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No timestamp / full-content-hash promise.
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Avoid social-workflow confusion
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    A local DCR is a standalone review artifact.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    It is not a hosted PR, approval state or privacy scanner.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Determinism is a UX property
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Same canonical inputs yield byte-stable YAML.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No cell values, silent key inference or invented evidence.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Artifact inspection is proposed
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Generation exists; this richer reading surface is a vision.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Hosted review is deliberately separated in board 14.
+  </text>
+</svg>

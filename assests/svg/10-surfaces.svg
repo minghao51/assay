@@ -1,0 +1,536 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">10 / One workflow, three complementary surfaces</title>
+  <desc id="desc">
+    Share semantics—not unsupported UI parity or promises about publication.. Design proposal, not a
+    runtime screenshot. All dataset values and counts are synthetic illustrations. See README for
+    capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 10
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    10 / One workflow, three complementary surfaces
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Share semantics—not unsupported UI parity or promises about publication.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    CURRENT WEB / DESKTOP VS CODE / CLI • PROPOSED CROSS-SURFACE GUIDANCE
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    10
+  </text>
+  <text
+    x="64"
+    y="202"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="25"
+    font-weight="600"
+  >
+    Continue the task where you already work
+  </text>
+  <rect x="64" y="238" width="472" height="482" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="84"
+    y="269"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Web workbench
+  </text>
+  <text
+    x="84"
+    y="296"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Fast, local exploration
+  </text>
+  <rect x="560" y="238" width="472" height="482" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="580"
+    y="269"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Desktop VS Code
+  </text>
+  <text
+    x="580"
+    y="296"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Keep dataset work beside code
+  </text>
+  <rect x="1056" y="238" width="472" height="482" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1076"
+    y="269"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    CLI / CI
+  </text>
+  <text
+    x="1076"
+    y="296"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Repeatable checks over raw files
+  </text>
+  <text
+    x="86"
+    y="345"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Open → inspect → SQL → profile
+  </text>
+  <text
+    x="86"
+    y="388"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Overlay editing + history
+  </text>
+  <text
+    x="86"
+    y="431"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Explicit validation + staged compare
+  </text>
+  <text
+    x="86"
+    y="474"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Export an effective-view copy
+  </text>
+  <text
+    x="86"
+    y="517"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Picker or download fallback
+  </text>
+  <text
+    x="86"
+    y="560"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Telemetry toggle when configured
+  </text>
+  <text
+    x="582"
+    y="345"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Offline engine assets bundled
+  </text>
+  <text
+    x="582"
+    y="388"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Supported scalar edits; others read-only
+  </text>
+  <text
+    x="582"
+    y="431"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Session undo / redo; no source saves
+  </text>
+  <text
+    x="582"
+    y="474"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Validation + confirmed-key diff
+  </text>
+  <text
+    x="582"
+    y="517"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Git branch / state context
+  </text>
+  <text
+    x="582"
+    y="560"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Create-only export; no telemetry
+  </text>
+  <rect x="1076" y="328" width="432" height="216" rx="6" fill="#23364d" stroke="#23364d" />
+  <text
+    x="1092"
+    y="363"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    assay profile data.parquet
+  </text>
+  <text
+    x="1092"
+    y="392"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    assay validate data.parquet
+  </text>
+  <text
+    x="1092"
+    y="421"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    --contract rules.yaml
+  </text>
+  <text
+    x="1092"
+    y="450"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    assay diff a.parquet b.parquet
+  </text>
+  <text
+    x="1092"
+    y="479"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    --key order_id
+  </text>
+  <text
+    x="1092"
+    y="508"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    --format json
+  </text>
+  <text
+    x="1078"
+    y="582"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Also: pipeline validate / run, dcr
+  </text>
+  <text
+    x="1078"
+    y="617"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Raw-file checks have no web overlay.
+  </text>
+  <text
+    x="1078"
+    y="652"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Run against the exported copy for agreement.
+  </text>
+  <rect x="64" y="744" width="736" height="142" rx="6" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="80"
+    y="770"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Source checkout is the documented setup
+  </text>
+  <text
+    x="80"
+    y="796"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Node ≥22 · pnpm via Corepack · pnpm install · pnpm dev
+  </text>
+  <text
+    x="80"
+    y="819"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Build before browser e2e; install Playwright Chromium for tests.
+  </text>
+  <text
+    x="80"
+    y="842"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    CLI examples show command vocabulary, not a public npm install promise.
+  </text>
+  <rect x="824" y="744" width="704" height="142" rx="6" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="840"
+    y="770"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Automation has meaningful outcomes
+  </text>
+  <text
+    x="840"
+    y="796"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Validate: 0 valid / 1 failing; diff: 0 same / 1 different; 2 errors.
+  </text>
+  <text
+    x="840"
+    y="819"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Pipeline / DCR have command-specific status meanings: consult --help.
+  </text>
+  <text
+    x="840"
+    y="842"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Desktop extension ≠ vscode-web; browser extension support is not shipped.
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Guarantee semantics, not identical UI
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Web and VS Code both preserve the original file.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Desktop export refuses any existing destination.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Keep setup claims current
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No npm publication or collector deployment is assumed.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Web offline availability depends on engine/app assets.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Declared formats need verification
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    VS Code metadata mentions Arrow / Feather / IPC.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    That is not proof of engine support; do not advertise input.
+  </text>
+</svg>

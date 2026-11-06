@@ -1,0 +1,500 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">15 / Future preparation without an orchestration maze</title>
+  <desc id="desc">
+    Build on the local pipeline model; separate authoring, ingestion and production operations..
+    Design proposal, not a runtime screenshot. All dataset values and counts are synthetic
+    illustrations. See README for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 15
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    15 / Future preparation without an orchestration maze
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Build on the local pipeline model; separate authoring, ingestion and production operations.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    FUTURE AUTHORING + P4 DEMAND-LED ADAPTERS + GATED P5 • NOT IMPLEMENTED
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    15
+  </text>
+  <text
+    x="64"
+    y="201"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="23"
+    font-weight="650"
+  >
+    Assay / Visual preparation studio
+  </text>
+  <rect x="1208" y="174" width="324" height="28" rx="14" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="1219"
+    y="193"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    PROPOSED AUTHORING
+  </text>
+  <rect x="64" y="268" width="350" height="146" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="84"
+    y="299"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Source
+  </text>
+  <text
+    x="84"
+    y="326"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    glob / partitions / shards
+  </text>
+  <text
+    x="84"
+    y="386"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Inspect schema + generated plan
+  </text>
+  <path d="M414 341 L437 341" stroke="#23364d" stroke-width="3" fill="none" />
+  <rect x="438" y="268" width="350" height="146" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="458"
+    y="299"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Transform
+  </text>
+  <text
+    x="458"
+    y="326"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    forms or SQL
+  </text>
+  <text
+    x="458"
+    y="386"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Inspect schema + generated plan
+  </text>
+  <path d="M788 341 L811 341" stroke="#23364d" stroke-width="3" fill="none" />
+  <rect x="812" y="268" width="350" height="146" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="832"
+    y="299"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Validate
+  </text>
+  <text
+    x="832"
+    y="326"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    contract + preview
+  </text>
+  <text
+    x="832"
+    y="386"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Inspect schema + generated plan
+  </text>
+  <path d="M1162 341 L1185 341" stroke="#23364d" stroke-width="3" fill="none" />
+  <rect x="1186" y="268" width="350" height="146" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1206"
+    y="299"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Publish
+  </text>
+  <text
+    x="1206"
+    y="326"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    explicit gate
+  </text>
+  <text
+    x="1206"
+    y="386"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Inspect schema + generated plan
+  </text>
+  <rect x="64" y="446" width="722" height="426" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="84"
+    y="477"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Author with structure; retain the SQL
+  </text>
+  <text
+    x="84"
+    y="504"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Future graph interactions always need a keyboard / ordered-plan equivalent.
+  </text>
+  <text
+    x="86"
+    y="548"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Select · filter · rename · cast · derive · sort
+  </text>
+  <text
+    x="86"
+    y="586"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Aggregate · join · deduplicate · pivot / unpivot
+  </text>
+  <text
+    x="86"
+    y="624"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Flatten · explode · nested path edits
+  </text>
+  <text
+    x="86"
+    y="662"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Preview: affected counts + before / after sample + schema
+  </text>
+  <text
+    x="86"
+    y="700"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Recipes: reproducible SQL / declarative YAML, not hidden state
+  </text>
+  <text
+    x="86"
+    y="738"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Advanced grid: range selection, fill / paste, freeze / resize / reorder
+  </text>
+  <text
+    x="86"
+    y="776"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Export tuning: compression, row groups, partitions, schema rules
+  </text>
+  <rect x="810" y="446" width="726" height="426" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="830"
+    y="477"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Integrations are boundaries, not dependencies
+  </text>
+  <text
+    x="830"
+    y="504"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Demand and gates decide order; the local runner remains independently useful.
+  </text>
+  <text
+    x="832"
+    y="548"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    P4 dbt inspect / import / export; SQLMesh plans and environments
+  </text>
+  <text
+    x="832"
+    y="586"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    P5 dlt ingestion and Dagster orchestration adapters
+  </text>
+  <text
+    x="832"
+    y="624"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Scheduling / backfills belong to production orchestration
+  </text>
+  <text
+    x="832"
+    y="662"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Data assets: multi-file logical tables, train / validation / test splits
+  </text>
+  <text
+    x="832"
+    y="700"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Formats: Arrow / Feather input and Avro / ORC / Delta / Iceberg
+  </text>
+  <text
+    x="832"
+    y="738"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Quality: cross-field / cross-row / semantic and distribution rules
+  </text>
+  <text
+    x="832"
+    y="776"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Adapters: Arrow schema, dbt, Pandera, Great Expectations, CI reports
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Do not confuse SQL with visual support
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    SQL may express joins or aggregation today.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    That does not mean visual join / pivot / recipe editors exist.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Keep roles distinct
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Transform DAG ≠ ingestion service ≠ scheduler.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No dbt / SQLMesh / Dagster runtimes inside pipeline core.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 This is the unshipped-spec register
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Search, saved queries, bulk edits and advanced formats need work.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    README records the rest of the broader feature taxonomy.
+  </text>
+</svg>

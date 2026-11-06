@@ -1,0 +1,1132 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">05 / Repair reversibly. Export deliberately.</title>
+  <desc id="desc">
+    Keep edits typed, reviewable and undoable; preserve the immutable source file.. Design proposal,
+    not a runtime screenshot. All dataset values and counts are synthetic illustrations. See README
+    for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 05
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    05 / Repair reversibly. Export deliberately.
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Keep edits typed, reviewable and undoable; preserve the immutable source file.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    CURRENT CAPABILITY / PROPOSED PRESENTATION
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    05
+  </text>
+  <text
+    x="56"
+    y="193"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="22"
+    font-weight="650"
+  >
+    Assay
+  </text>
+  <rect x="150" y="168" width="166" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="162"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Open data file…
+  </text>
+  <text
+    x="336"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    orders.parquet
+  </text>
+  <text
+    x="495"
+    y="192"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    12 rows · 5 columns
+  </text>
+  <rect x="710" y="173" width="145" height="28" rx="14" fill="#eef7f0" stroke="#eef7f0" />
+  <text
+    x="721"
+    y="192"
+    fill="#216044"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    Local processing
+  </text>
+  <rect x="875" y="173" width="244" height="28" rx="14" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="886"
+    y="192"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    3 staged · source unchanged
+  </text>
+  <rect x="1330" y="168" width="106" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1342"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Settings
+  </text>
+  <rect x="1448" y="168" width="96" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1460"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Help
+  </text>
+  <path d="M32 212 L1568 212" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="48" y="228" width="320" height="676" rx="6" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="66"
+    y="258"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="1"
+  >
+    WORKBENCH
+  </text>
+  <text
+    x="337"
+    y="258"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="22"
+    font-weight="400"
+  >
+    ‹
+  </text>
+  <text
+    x="64"
+    y="277"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Schema
+  </text>
+  <text
+    x="162"
+    y="277"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Filters
+  </text>
+  <text
+    x="260"
+    y="277"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Validation
+  </text>
+  <text
+    x="64"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Compare
+  </text>
+  <text
+    x="162"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    SQL
+  </text>
+  <text
+    x="260"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Editing
+  </text>
+  <rect x="59" y="326" width="95" height="27" rx="4" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="64"
+    y="343"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    History
+  </text>
+  <text
+    x="162"
+    y="343"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Export
+  </text>
+  <text
+    x="260"
+    y="343"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Profile
+  </text>
+  <text
+    x="64"
+    y="376"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Pipeline
+  </text>
+  <path d="M64 398 L352 398" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="66"
+    y="432"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="21"
+    font-weight="600"
+  >
+    History
+  </text>
+  <text
+    x="390"
+    y="254"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="20"
+    font-weight="600"
+  >
+    Grid
+  </text>
+  <text
+    x="448"
+    y="254"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Browse the rows
+  </text>
+  <rect x="1266" y="232" width="144" height="28" rx="14" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="1277"
+    y="251"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    Edited view
+  </text>
+  <rect x="1422" y="228" width="122" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1434"
+    y="252"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Record ↵
+  </text>
+  <rect x="390" y="278" width="1154" height="258" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <rect x="391" y="279" width="1152" height="38" rx="4" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    #
+  </text>
+  <text
+    x="482.78"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    order_id
+  </text>
+  <text
+    x="678.96"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    country
+  </text>
+  <text
+    x="886.6800000000001"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    total
+  </text>
+  <text
+    x="1071.32"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    tags
+  </text>
+  <text
+    x="1290.58"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    metadata
+  </text>
+  <text
+    x="402"
+    y="342"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    1
+  </text>
+  <text
+    x="482.78"
+    y="342"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1001
+  </text>
+  <text
+    x="678.96"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    GB
+  </text>
+  <text
+    x="886.6800000000001"
+    y="342"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    42.00
+  </text>
+  <text
+    x="1071.32"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail]
+  </text>
+  <text
+    x="1290.58"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 354 L1544 354" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="354" width="1152" height="36" rx="0" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="378"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    2
+  </text>
+  <text
+    x="482.78"
+    y="378"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1002
+  </text>
+  <text
+    x="678.96"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    US
+  </text>
+  <text
+    x="886.6800000000001"
+    y="378"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    18.50
+  </text>
+  <text
+    x="1071.32"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [trial]
+  </text>
+  <text
+    x="1290.58"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M390 390 L1544 390" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="390" width="1152" height="36" rx="0" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="402"
+    y="414"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    3
+  </text>
+  <text
+    x="482.78"
+    y="414"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1003
+  </text>
+  <rect
+    x="669.96"
+    y="393"
+    width="201.72000000000003"
+    height="30"
+    rx="3"
+    fill="#fff5df"
+    stroke="#795019"
+  />
+  <text
+    x="678.96"
+    y="414"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    GB
+  </text>
+  <text
+    x="886.6800000000001"
+    y="414"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    64.00
+  </text>
+  <text
+    x="1071.32"
+    y="414"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail, new]
+  </text>
+  <text
+    x="1290.58"
+    y="414"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 426 L1544 426" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="426" width="1152" height="36" rx="0" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="450"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    4
+  </text>
+  <text
+    x="482.78"
+    y="450"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1004
+  </text>
+  <text
+    x="678.96"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    CA
+  </text>
+  <text
+    x="886.6800000000001"
+    y="450"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    28.00
+  </text>
+  <text
+    x="1071.32"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    []
+  </text>
+  <text
+    x="1290.58"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M390 462 L1544 462" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="402"
+    y="486"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    5
+  </text>
+  <text
+    x="482.78"
+    y="486"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1005
+  </text>
+  <text
+    x="678.96"
+    y="486"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    US
+  </text>
+  <text
+    x="886.6800000000001"
+    y="486"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    39.00
+  </text>
+  <text
+    x="1071.32"
+    y="486"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [new]
+  </text>
+  <text
+    x="1290.58"
+    y="486"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 498 L1544 498" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="402"
+    y="523"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Rows 1–5 of 12 · logical row identity retained
+  </text>
+  <text
+    x="1284"
+    y="523"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    ← → navigate · Keyboard help
+  </text>
+  <text
+    x="66"
+    y="468"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Review and undo staged edits
+  </text>
+  <rect x="64" y="490" width="134" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="76"
+    y="514"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Undo
+  </text>
+  <rect x="210" y="490" width="142" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="222"
+    y="514"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Redo
+  </text>
+  <text
+    x="66"
+    y="548"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="600"
+  >
+    1 Set country → GB
+  </text>
+  <text
+    x="66"
+    y="575"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    base #3 · typed cell edit
+  </text>
+  <path d="M64 595 L352 595" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="66"
+    y="636"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="600"
+  >
+    2 Rename amount → total
+  </text>
+  <text
+    x="66"
+    y="663"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    column operation
+  </text>
+  <path d="M64 683 L352 683" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="66"
+    y="724"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="600"
+  >
+    3 Insert row
+  </text>
+  <text
+    x="66"
+    y="751"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    logical identity assigned
+  </text>
+  <path d="M64 771 L352 771" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="64" y="816" width="288" height="70" rx="6" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="80"
+    y="842"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Session only
+  </text>
+  <text
+    x="80"
+    y="868"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Export before closing / replacing.
+  </text>
+  <rect x="390" y="558" width="546" height="328" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="410"
+    y="589"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Typed change controls
+  </text>
+  <text
+    x="410"
+    y="616"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Existing capabilities, grouped by user intent.
+  </text>
+  <text
+    x="412"
+    y="655"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Cell: set value / set NULL
+  </text>
+  <text
+    x="412"
+    y="687"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Row: insert / delete
+  </text>
+  <text
+    x="412"
+    y="719"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Column: rename / cast
+  </text>
+  <text
+    x="412"
+    y="751"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Preview non-trivial column changes
+  </text>
+  <text
+    x="412"
+    y="783"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Rejected operation → explain and roll back
+  </text>
+  <text
+    x="412"
+    y="815"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Undo / redo without stealing text-editor undo
+  </text>
+  <rect x="956" y="558" width="588" height="328" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="976"
+    y="589"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Export a reviewed copy
+  </text>
+  <text
+    x="976"
+    y="616"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Proposed compact review step over existing save semantics.
+  </text>
+  <text
+    x="978"
+    y="653"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Format
+  </text>
+  <rect x="1078" y="630" width="214" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1090"
+    y="654"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Parquet ▾
+  </text>
+  <text
+    x="978"
+    y="701"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Parquet · CSV · JSONL · JSON · Arrow IPC stream
+  </text>
+  <text
+    x="978"
+    y="730"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Export the full edited dataset, not grid filters / sort.
+  </text>
+  <text
+    x="978"
+    y="759"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Arrow export is interchange-only; Assay cannot reopen it.
+  </text>
+  <text
+    x="978"
+    y="788"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    The opened source is never overwritten.
+  </text>
+  <rect x="978" y="824" width="206" height="36" rx="6" fill="#23364d" stroke="#23364d" />
+  <text
+    x="990"
+    y="848"
+    fill="#ffffff"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Review / export copy
+  </text>
+  <rect x="1198" y="824" width="168" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1210"
+    y="848"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Keep editing
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Make dirty state unmistakable
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Marked cells + one staged-count badge + one Undo/Redo pair.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    History expands on the first operation, not every edit.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Preview and reject safely
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Cast conversion failures must not partially apply.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Typed errors retain the draft and a clear recovery path.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Save semantics vary by surface
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Fallback download and VS Code use new-copy semantics.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    CSV is formula-safe; partition / compression UI is not implied.
+  </text>
+</svg>

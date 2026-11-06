@@ -1,0 +1,467 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">13 / Future AI that proposes, never silently mutates</title>
+  <desc id="desc">
+    A dataset-native semantic view plus a deterministic proposal review boundary.. Design proposal,
+    not a runtime screenshot. All dataset values and counts are synthetic illustrations. See README
+    for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 13
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    13 / Future AI that proposes, never silently mutates
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    A dataset-native semantic view plus a deterministic proposal review boundary.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    FUTURE / GATED M8 + AI ASSISTANCE • NOT IMPLEMENTED
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    13
+  </text>
+  <text
+    x="64"
+    y="201"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="23"
+    font-weight="650"
+  >
+    Assay / AI dataset mode
+  </text>
+  <rect x="1156" y="174" width="376" height="28" rx="14" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="1167"
+    y="193"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    G2 EVIDENCE + EXPLICIT CONSENT
+  </text>
+  <rect x="64" y="244" width="432" height="628" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="84"
+    y="275"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Recognize dataset structure
+  </text>
+  <text
+    x="84"
+    y="302"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Proposed local semantic lenses.
+  </text>
+  <text
+    x="86"
+    y="345"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Chat messages / roles
+  </text>
+  <text
+    x="86"
+    y="386"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Prompt and completion pairs
+  </text>
+  <text
+    x="86"
+    y="427"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Tool-call traces
+  </text>
+  <text
+    x="86"
+    y="468"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Evaluation records
+  </text>
+  <text
+    x="86"
+    y="509"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Classification / instruction data
+  </text>
+  <rect x="84" y="609" width="392" height="167" rx="6" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="100"
+    y="635"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Diagnostics, not invented verdicts
+  </text>
+  <text
+    x="100"
+    y="661"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Role order / empty content / duplicates
+  </text>
+  <text
+    x="100"
+    y="684"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Malformed tools / structured outputs
+  </text>
+  <text
+    x="100"
+    y="707"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Token count and context-overflow risks
+  </text>
+  <text
+    x="100"
+    y="730"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Each needs a deterministic, tested check.
+  </text>
+  <rect x="520" y="244" width="1016" height="274" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="540"
+    y="275"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Conversation / evaluation lens
+  </text>
+  <text
+    x="540"
+    y="302"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Untrusted message content remains inert text, never executable markup.
+  </text>
+  <text
+    x="542"
+    y="344"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    System Summarize a local dataset.
+  </text>
+  <text
+    x="542"
+    y="386"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    User Explain the missing-country finding.
+  </text>
+  <text
+    x="542"
+    y="428"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Assistant Proposed explanation, linked to check evidence.
+  </text>
+  <text
+    x="542"
+    y="485"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    Eval compare: accuracy · pass rate · rubrics · graders · latency · tokens · cost
+  </text>
+  <rect x="520" y="542" width="1016" height="330" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="540"
+    y="573"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Review an AI proposal before it becomes a change
+  </text>
+  <text
+    x="540"
+    y="600"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No external provider call without an explicit data-sharing boundary.
+  </text>
+  <text
+    x="542"
+    y="641"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Intent: map schema / classify / suggest rules / explain anomalies / repair / transform.
+  </text>
+  <text
+    x="542"
+    y="676"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    1 Show data scope and provider permission before sending anything.
+  </text>
+  <text
+    x="542"
+    y="711"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    2 Show deterministic SQL or a native rule with affected-row preview.
+  </text>
+  <text
+    x="542"
+    y="746"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    3 User reviews and applies; existing overlay + history retain control.
+  </text>
+  <text
+    x="542"
+    y="781"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    4 Validate the effective view; export only as a deliberate copy.
+  </text>
+  <rect x="542" y="820" width="232" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="554"
+    y="844"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Review deterministic plan
+  </text>
+  <rect x="790" y="820" width="182" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="802"
+    y="844"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Reject proposal
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Keep the core independent
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No AI account or provider is required for local workflows.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No silent upload, mutation or governed-data approval.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Checks must have evidence
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Separate deterministic diagnostics from model explanations.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Expose unsupported schema patterns and uncertain recognition.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Track, do not pre-authorize
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    M8 / G2 and provider design remain future work.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    This board is a direction, not a new accepted architecture.
+  </text>
+</svg>

@@ -1,0 +1,477 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">One local workbench. A complete data journey.</title>
+  <desc id="desc">
+    Start with the artifact, reveal the next useful action, and make every result’s scope visible..
+    Design proposal, not a runtime screenshot. All dataset values and counts are synthetic
+    illustrations. See README for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 00
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    One local workbench. A complete data journey.
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Start with the artifact, reveal the next useful action, and make every result’s scope visible.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    READING MAP / PROPOSED UX • CURRENT AND FUTURE TRACKS SEPARATED
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    00
+  </text>
+  <text
+    x="64"
+    y="201"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1"
+  >
+    THE CORE LOOP
+  </text>
+  <text
+    x="64"
+    y="241"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="26"
+    font-weight="600"
+  >
+    Understand → verify → repair → export a reviewed copy
+  </text>
+  <text
+    x="64"
+    y="274"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    No upload required for core work. Keep the dataset visible; tools act beside it.
+  </text>
+  <text
+    x="64"
+    y="299"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    These boards connect capabilities without claiming every drawn control already exists.
+  </text>
+  <a href="01-welcome.svg">
+    <rect x="64" y="344" width="472" height="142" rx="6" fill="#ffffff" stroke="#ccd3db" />
+    <text
+      x="84"
+      y="375"
+      fill="#1a1a1a"
+      font-family="system-ui, sans-serif"
+      font-size="19"
+      font-weight="600"
+    >
+      Start safely
+    </text>
+    <rect x="84" y="395" width="72" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+    <text
+      x="95"
+      y="414"
+      fill="#23364d"
+      font-family="system-ui, sans-serif"
+      font-size="13"
+      font-weight="600"
+    >
+      01
+    </text>
+    <text
+      x="84"
+      y="455"
+      fill="#555555"
+      font-family="system-ui, sans-serif"
+      font-size="15"
+      font-weight="400"
+    >
+      Open · example · setup
+    </text>
+  </a>
+  <a href="02-explore.svg">
+    <rect x="560" y="344" width="472" height="142" rx="6" fill="#ffffff" stroke="#ccd3db" />
+    <text
+      x="580"
+      y="375"
+      fill="#1a1a1a"
+      font-family="system-ui, sans-serif"
+      font-size="19"
+      font-weight="600"
+    >
+      Understand
+    </text>
+    <rect x="580" y="395" width="72" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+    <text
+      x="591"
+      y="414"
+      fill="#23364d"
+      font-family="system-ui, sans-serif"
+      font-size="13"
+      font-weight="600"
+    >
+      02–04
+    </text>
+    <text
+      x="580"
+      y="455"
+      fill="#555555"
+      font-family="system-ui, sans-serif"
+      font-size="15"
+      font-weight="400"
+    >
+      Grid · nested SQL · profile
+    </text>
+  </a>
+  <a href="05-repair-export.svg">
+    <rect x="1056" y="344" width="472" height="142" rx="6" fill="#ffffff" stroke="#ccd3db" />
+    <text
+      x="1076"
+      y="375"
+      fill="#1a1a1a"
+      font-family="system-ui, sans-serif"
+      font-size="19"
+      font-weight="600"
+    >
+      Repair reversibly
+    </text>
+    <rect x="1076" y="395" width="72" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+    <text
+      x="1087"
+      y="414"
+      fill="#23364d"
+      font-family="system-ui, sans-serif"
+      font-size="13"
+      font-weight="600"
+    >
+      05
+    </text>
+    <text
+      x="1076"
+      y="455"
+      fill="#555555"
+      font-family="system-ui, sans-serif"
+      font-size="15"
+      font-weight="400"
+    >
+      Typed edits · history · export
+    </text>
+  </a>
+  <a href="06-validation.svg">
+    <rect x="64" y="510" width="472" height="142" rx="6" fill="#ffffff" stroke="#ccd3db" />
+    <text
+      x="84"
+      y="541"
+      fill="#1a1a1a"
+      font-family="system-ui, sans-serif"
+      font-size="19"
+      font-weight="600"
+    >
+      Verify the change
+    </text>
+    <rect x="84" y="561" width="72" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+    <text
+      x="95"
+      y="580"
+      fill="#23364d"
+      font-family="system-ui, sans-serif"
+      font-size="13"
+      font-weight="600"
+    >
+      06–07
+    </text>
+    <text
+      x="84"
+      y="621"
+      fill="#555555"
+      font-family="system-ui, sans-serif"
+      font-size="15"
+      font-weight="400"
+    >
+      Contracts · confirmed-key diff
+    </text>
+  </a>
+  <a href="08-pipeline.svg">
+    <rect x="560" y="510" width="472" height="142" rx="6" fill="#ffffff" stroke="#ccd3db" />
+    <text
+      x="580"
+      y="541"
+      fill="#1a1a1a"
+      font-family="system-ui, sans-serif"
+      font-size="19"
+      font-weight="600"
+    >
+      Prepare and govern locally
+    </text>
+    <rect x="580" y="561" width="72" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+    <text
+      x="591"
+      y="580"
+      fill="#23364d"
+      font-family="system-ui, sans-serif"
+      font-size="13"
+      font-weight="600"
+    >
+      08–09
+    </text>
+    <text
+      x="580"
+      y="621"
+      fill="#555555"
+      font-family="system-ui, sans-serif"
+      font-size="15"
+      font-weight="400"
+    >
+      Pipeline · gates · DCR artifact
+    </text>
+  </a>
+  <a href="10-surfaces.svg">
+    <rect x="1056" y="510" width="472" height="142" rx="6" fill="#ffffff" stroke="#ccd3db" />
+    <text
+      x="1076"
+      y="541"
+      fill="#1a1a1a"
+      font-family="system-ui, sans-serif"
+      font-size="19"
+      font-weight="600"
+    >
+      Work anywhere, confidently
+    </text>
+    <rect x="1076" y="561" width="72" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+    <text
+      x="1087"
+      y="580"
+      fill="#23364d"
+      font-family="system-ui, sans-serif"
+      font-size="13"
+      font-weight="600"
+    >
+      10–12
+    </text>
+    <text
+      x="1076"
+      y="621"
+      fill="#555555"
+      font-family="system-ui, sans-serif"
+      font-size="15"
+      font-weight="400"
+    >
+      VS Code · CLI · settings · layouts
+    </text>
+  </a>
+  <rect x="64" y="704" width="712" height="144" rx="6" fill="#eef7f0" stroke="#eef7f0" />
+  <text
+    x="80"
+    y="730"
+    fill="#216044"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Current foundation
+  </text>
+  <text
+    x="80"
+    y="756"
+    fill="#216044"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Web + CLI + desktop VS Code; pipeline P1–P3; local DCR v1.
+  </text>
+  <text
+    x="80"
+    y="779"
+    fill="#216044"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Shared deterministic checks, immutable inputs, explicit export.
+  </text>
+  <rect x="800" y="704" width="736" height="144" rx="6" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="816"
+    y="730"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    13–15 · Future vision, not launch scope
+  </text>
+  <text
+    x="816"
+    y="756"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    AI, enterprise and ecosystem screens are separate, gated proposals.
+  </text>
+  <text
+    x="816"
+    y="779"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Arrow/Feather input, advanced grid and bulk dataset work are not shipped.
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Read in journey order
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    01–09 cover the local workflow.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    10–12 define continuity and resilient states.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Use the matrix
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    README maps features to boards and source files.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    A capability can exist without its proposed UI.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Treat this as guidance
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    No ADR, gate, implementation queue or scope is replaced.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    All numbers, dataset names and cells are synthetic.
+  </text>
+</svg>

@@ -1,0 +1,941 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">12 / The same workbench, adapted—not reinvented</title>
+  <desc id="desc">
+    Desktop-first tools-left geometry, readable dark mode, and honest narrow-window fallback..
+    Design proposal, not a runtime screenshot. All dataset values and counts are synthetic
+    illustrations. See README for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#11161d" stroke="#465363" />
+  <text
+    x="32"
+    y="30"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 12
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    12 / The same workbench, adapted—not reinvented
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Desktop-first tools-left geometry, readable dark mode, and honest narrow-window fallback.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#d0e1f6"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    PROPOSED DARK REFERENCE + EXISTING RESPONSIVE CONTRACT
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#1a222c" stroke="#465363" />
+  <text
+    x="32"
+    y="1100"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    12
+  </text>
+  <text
+    x="64"
+    y="200"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="22"
+    font-weight="650"
+  >
+    Assay / Desktop dark reference
+  </text>
+  <rect x="1242" y="174" width="290" height="28" rx="14" fill="#26384c" stroke="#26384c" />
+  <text
+    x="1253"
+    y="193"
+    fill="#d0e1f6"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    NO NEW THEME SETTING
+  </text>
+  <rect x="64" y="238" width="980" height="632" rx="6" fill="#11161d" stroke="#465363" />
+  <text
+    x="88"
+    y="273"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    1440 × 900 reference · tools + persistent grid
+  </text>
+  <rect x="88" y="298" width="252" height="546" rx="6" fill="#1a222c" stroke="#465363" />
+  <text
+    x="106"
+    y="333"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Schema
+  </text>
+  <text
+    x="106"
+    y="380"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    order_id INTEGER
+  </text>
+  <text
+    x="106"
+    y="420"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    country VARCHAR
+  </text>
+  <text
+    x="106"
+    y="460"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    amount DOUBLE
+  </text>
+  <text
+    x="106"
+    y="500"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    tags ▾ LIST
+  </text>
+  <text
+    x="106"
+    y="540"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    metadata ▾ STRUCT
+  </text>
+  <rect x="360" y="298" width="660" height="330" rx="6" fill="#1a222c" stroke="#465363" />
+  <rect x="361" y="299" width="658" height="38" rx="4" fill="#11161d" stroke="#11161d" />
+  <text
+    x="372"
+    y="324"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    #
+  </text>
+  <text
+    x="418.2"
+    y="324"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    order_id
+  </text>
+  <text
+    x="530.4"
+    y="324"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    country
+  </text>
+  <text
+    x="649.2"
+    y="324"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    amount
+  </text>
+  <text
+    x="754.8"
+    y="324"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    tags
+  </text>
+  <text
+    x="880.2"
+    y="324"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    metadata
+  </text>
+  <text
+    x="372"
+    y="362"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    1
+  </text>
+  <text
+    x="418.2"
+    y="362"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1001
+  </text>
+  <text
+    x="530.4"
+    y="362"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    GB
+  </text>
+  <text
+    x="649.2"
+    y="362"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    42.00
+  </text>
+  <text
+    x="754.8"
+    y="362"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail]
+  </text>
+  <text
+    x="880.2"
+    y="362"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M360 374 L1020 374" stroke="#465363" stroke-width="1" fill="none" />
+  <rect x="361" y="374" width="658" height="36" rx="0" fill="#11161d" stroke="#11161d" />
+  <text
+    x="372"
+    y="398"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    2
+  </text>
+  <text
+    x="418.2"
+    y="398"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1002
+  </text>
+  <text
+    x="530.4"
+    y="398"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    US
+  </text>
+  <text
+    x="649.2"
+    y="398"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    18.50
+  </text>
+  <text
+    x="754.8"
+    y="398"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [trial]
+  </text>
+  <text
+    x="880.2"
+    y="398"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M360 410 L1020 410" stroke="#465363" stroke-width="1" fill="none" />
+  <rect x="361" y="410" width="658" height="36" rx="0" fill="#26384c" stroke="#26384c" />
+  <text
+    x="372"
+    y="434"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    3
+  </text>
+  <text
+    x="418.2"
+    y="434"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1003
+  </text>
+  <rect
+    x="521.4"
+    y="413"
+    width="112.80000000000007"
+    height="30"
+    rx="3"
+    fill="#40341f"
+    stroke="#f3d291"
+  />
+  <text
+    x="530.4"
+    y="434"
+    fill="#f3d291"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    GB
+  </text>
+  <text
+    x="649.2"
+    y="434"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    64.00
+  </text>
+  <text
+    x="754.8"
+    y="434"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail, new]
+  </text>
+  <text
+    x="880.2"
+    y="434"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M360 446 L1020 446" stroke="#465363" stroke-width="1" fill="none" />
+  <rect x="361" y="446" width="658" height="36" rx="0" fill="#11161d" stroke="#11161d" />
+  <text
+    x="372"
+    y="470"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    4
+  </text>
+  <text
+    x="418.2"
+    y="470"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1004
+  </text>
+  <text
+    x="530.4"
+    y="470"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    CA
+  </text>
+  <text
+    x="649.2"
+    y="470"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    28.00
+  </text>
+  <text
+    x="754.8"
+    y="470"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    []
+  </text>
+  <text
+    x="880.2"
+    y="470"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M360 482 L1020 482" stroke="#465363" stroke-width="1" fill="none" />
+  <text
+    x="372"
+    y="506"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    5
+  </text>
+  <text
+    x="418.2"
+    y="506"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1005
+  </text>
+  <text
+    x="530.4"
+    y="506"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    US
+  </text>
+  <text
+    x="649.2"
+    y="506"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    39.00
+  </text>
+  <text
+    x="754.8"
+    y="506"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [new]
+  </text>
+  <text
+    x="880.2"
+    y="506"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M360 518 L1020 518" stroke="#465363" stroke-width="1" fill="none" />
+  <rect x="361" y="518" width="658" height="36" rx="0" fill="#11161d" stroke="#11161d" />
+  <text
+    x="372"
+    y="542"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    6
+  </text>
+  <text
+    x="418.2"
+    y="542"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1006
+  </text>
+  <text
+    x="530.4"
+    y="542"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    DE
+  </text>
+  <text
+    x="649.2"
+    y="542"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    52.00
+  </text>
+  <text
+    x="754.8"
+    y="542"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail]
+  </text>
+  <text
+    x="880.2"
+    y="542"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M360 554 L1020 554" stroke="#465363" stroke-width="1" fill="none" />
+  <text
+    x="372"
+    y="578"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    7
+  </text>
+  <text
+    x="418.2"
+    y="578"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1007
+  </text>
+  <text
+    x="530.4"
+    y="578"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    FR
+  </text>
+  <text
+    x="649.2"
+    y="578"
+    fill="#eef2f7"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    14.00
+  </text>
+  <text
+    x="754.8"
+    y="578"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    NULL
+  </text>
+  <text
+    x="880.2"
+    y="578"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M360 590 L1020 590" stroke="#465363" stroke-width="1" fill="none" />
+  <text
+    x="372"
+    y="615"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Rows 1–7 of 12 · logical row identity retained
+  </text>
+  <text
+    x="760"
+    y="615"
+    fill="#d0e1f6"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    ← → navigate · Keyboard help
+  </text>
+  <rect x="360" y="666" width="660" height="118" rx="6" fill="#26384c" stroke="#26384c" />
+  <text
+    x="376"
+    y="692"
+    fill="#d0e1f6"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Record · base #3
+  </text>
+  <text
+    x="376"
+    y="718"
+    fill="#d0e1f6"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    The inspector docks below the grid, not in a third rail.
+  </text>
+  <text
+    x="376"
+    y="741"
+    fill="#d0e1f6"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Horizontal data overflow scrolls inside its own region.
+  </text>
+  <rect x="1068" y="238" width="468" height="632" rx="6" fill="#1a222c" stroke="#465363" />
+  <text
+    x="1088"
+    y="269"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Narrow window fallback
+  </text>
+  <text
+    x="1088"
+    y="296"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Below 1024px: scroll, never clip.
+  </text>
+  <rect x="1088" y="344" width="428" height="88" rx="6" fill="#11161d" stroke="#465363" />
+  <text
+    x="1104"
+    y="374"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    Sticky section navigation
+  </text>
+  <text
+    x="1104"
+    y="404"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Reach tools without hunting
+  </text>
+  <rect x="1088" y="454" width="428" height="88" rx="6" fill="#11161d" stroke="#465363" />
+  <text
+    x="1104"
+    y="484"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    Grid above tool stack
+  </text>
+  <text
+    x="1104"
+    y="514"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Data remains the primary artifact
+  </text>
+  <rect x="1088" y="564" width="428" height="88" rx="6" fill="#11161d" stroke="#465363" />
+  <text
+    x="1104"
+    y="594"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    Collapsed tool sections
+  </text>
+  <text
+    x="1104"
+    y="624"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Reveal only the current task
+  </text>
+  <rect x="1088" y="674" width="428" height="88" rx="6" fill="#11161d" stroke="#465363" />
+  <text
+    x="1104"
+    y="704"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    Record and result regions
+  </text>
+  <text
+    x="1104"
+    y="734"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Maintain focus and reading order
+  </text>
+  <text
+    x="1088"
+    y="809"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    900px window ≠ phone support.
+  </text>
+  <text
+    x="1088"
+    y="836"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    At zoom, wrap and scroll rather than shrink text.
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Preserve the accepted shell
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    ≥1024: tools-left + grid; record below grid.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Minimum supported viewport remains 1024 × 700.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Translate semantic colors
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Focus / NULL / staged / stale / fail stay distinguishable.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Dark mode follows existing scheme handling, not a new preference.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#eef2f7"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Do not copy board dimensions blindly
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    1600 × 1120 boards include development annotations.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#b5c0cc"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Runtime geometry and 28px rows remain spec-controlled.
+  </text>
+</svg>

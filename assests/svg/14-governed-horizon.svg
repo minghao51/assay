@@ -1,0 +1,467 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">14 / Future governed products, with real enforcement</title>
+  <desc id="desc">
+    Collaboration belongs in a separate control plane—not inside the local file-opening path..
+    Design proposal, not a runtime screenshot. All dataset values and counts are synthetic
+    illustrations. See README for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 14
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    14 / Future governed products, with real enforcement
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Collaboration belongs in a separate control plane—not inside the local file-opening path.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    FUTURE / HOSTED G3 + ENTERPRISE G4 • NOT IMPLEMENTED
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    14
+  </text>
+  <text
+    x="64"
+    y="201"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="23"
+    font-weight="650"
+  >
+    Assay / Governed product workspace
+  </text>
+  <rect x="1226" y="174" width="306" height="28" rx="14" fill="#fff5df" stroke="#fff5df" />
+  <text
+    x="1237"
+    y="193"
+    fill="#795019"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    GATED CONCEPT
+  </text>
+  <rect x="64" y="244" width="432" height="628" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="84"
+    y="275"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Catalog and product identity
+  </text>
+  <text
+    x="84"
+    y="302"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Proposed team workspace, not current local UI.
+  </text>
+  <text
+    x="86"
+    y="345"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Product · owner · version
+  </text>
+  <text
+    x="86"
+    y="387"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Schema + profile + contract
+  </text>
+  <text
+    x="86"
+    y="429"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Provenance + lineage
+  </text>
+  <text
+    x="86"
+    y="471"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Classification and sensitivity
+  </text>
+  <text
+    x="86"
+    y="513"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Promotion through environments
+  </text>
+  <text
+    x="86"
+    y="555"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="17"
+    font-weight="400"
+  >
+    Directory / partition / split assets
+  </text>
+  <rect x="84" y="656" width="392" height="136" rx="6" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="100"
+    y="682"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    Control plane ≠ data plane
+  </text>
+  <text
+    x="100"
+    y="708"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Hosted metadata and review state
+  </text>
+  <text
+    x="100"
+    y="731"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Governed remote queries and connectors
+  </text>
+  <text
+    x="100"
+    y="754"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Default local workflow stays available.
+  </text>
+  <rect x="520" y="244" width="1016" height="284" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="540"
+    y="275"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Team Dataset Change Request
+  </text>
+  <text
+    x="540"
+    y="302"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Future review extends—but must not silently redefine—local v1 artifacts.
+  </text>
+  <text
+    x="542"
+    y="344"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Evidence: schema · quality · drift · privacy findings when actually computed
+  </text>
+  <text
+    x="542"
+    y="382"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Collaboration: comments · requested reviewers · approvals
+  </text>
+  <text
+    x="542"
+    y="420"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Policy: classification, export restrictions and environment promotion
+  </text>
+  <text
+    x="542"
+    y="458"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Audit: access · exports · policy changes · AI / transform executions
+  </text>
+  <rect x="520" y="552" width="1016" height="320" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="540"
+    y="583"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Policy controls with an explicit enforcement boundary
+  </text>
+  <text
+    x="540"
+    y="610"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    A badge is not authorization. A browser preview is not a remote gateway.
+  </text>
+  <text
+    x="542"
+    y="641"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    RBAC + ABAC: region / department / domain / classification / environment
+  </text>
+  <text
+    x="542"
+    y="673"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Remote row-level policies; column redaction / hash / partial reveal / tokenization
+  </text>
+  <text
+    x="542"
+    y="705"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    SSO / identity separate from authorization; policy evaluation must be enforced
+  </text>
+  <text
+    x="542"
+    y="737"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    TLS + standard KMS / BYOK / envelope encryption; no custom cryptography
+  </text>
+  <text
+    x="542"
+    y="769"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Object storage and Parquet column encryption only where supported
+  </text>
+  <rect x="542" y="820" width="196" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="554"
+    y="844"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Request review
+  </text>
+  <rect x="754" y="820" width="234" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="766"
+    y="844"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Inspect policy decision
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Gates prevent scope leakage
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Hosted workspaces / auth / approvals require G3 evidence.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Gateway / enterprise policies and product investment require G4.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Truthful privacy and security
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Not-computed checks are never shown as passed.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Optional encrypted local metadata is also future, not shipped.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Standards over invented security
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Accepted security ADRs constrain future implementation.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Specific provider, connector and policy UX needs separate design.
+  </text>
+</svg>

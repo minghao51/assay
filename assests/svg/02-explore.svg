@@ -1,0 +1,1301 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1120"
+  viewBox="0 0 1600 1120"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">02 / The dataset stays at the center</title>
+  <desc id="desc">
+    Schema, filters, sorting and record inspection reinforce one shared sense of place.. Design
+    proposal, not a runtime screenshot. All dataset values and counts are synthetic illustrations.
+    See README for capability boundaries and sources.
+  </desc>
+  <rect x="0" y="0" width="1600" height="1120" rx="0" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="30"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="650"
+    letter-spacing="1.4"
+  >
+    ASSAY / PRODUCT VISION 02
+  </text>
+  <text
+    x="32"
+    y="74"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="30"
+    font-weight="650"
+  >
+    02 / The dataset stays at the center
+  </text>
+  <text
+    x="32"
+    y="108"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="400"
+  >
+    Schema, filters, sorting and record inspection reinforce one shared sense of place.
+  </text>
+  <text
+    x="32"
+    y="136"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="0.7"
+  >
+    CURRENT CAPABILITY / PROPOSED PRESENTATION
+  </text>
+  <rect x="32" y="154" width="1536" height="770" rx="10" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="32"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    DESIGN GUIDANCE ONLY • synthetic data • no runtime changes • sources and acceptance notes in
+    README.md
+  </text>
+  <text
+    x="1515"
+    y="1100"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="650"
+  >
+    02
+  </text>
+  <text
+    x="56"
+    y="193"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="22"
+    font-weight="650"
+  >
+    Assay
+  </text>
+  <rect x="150" y="168" width="166" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="162"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Open data file…
+  </text>
+  <text
+    x="336"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="600"
+  >
+    orders.parquet
+  </text>
+  <text
+    x="495"
+    y="192"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    12 rows · 5 columns
+  </text>
+  <rect x="710" y="173" width="145" height="28" rx="14" fill="#eef7f0" stroke="#eef7f0" />
+  <text
+    x="721"
+    y="192"
+    fill="#216044"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    Local processing
+  </text>
+  <rect x="1330" y="168" width="106" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1342"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Settings
+  </text>
+  <rect x="1448" y="168" width="96" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1460"
+    y="192"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Help
+  </text>
+  <path d="M32 212 L1568 212" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="48" y="228" width="320" height="676" rx="6" fill="#f3f5f7" stroke="#ccd3db" />
+  <text
+    x="66"
+    y="258"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="12"
+    font-weight="650"
+    letter-spacing="1"
+  >
+    WORKBENCH
+  </text>
+  <text
+    x="337"
+    y="258"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="22"
+    font-weight="400"
+  >
+    ‹
+  </text>
+  <rect x="59" y="260" width="95" height="27" rx="4" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="64"
+    y="277"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    Schema
+  </text>
+  <text
+    x="162"
+    y="277"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Filters
+  </text>
+  <text
+    x="260"
+    y="277"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Validation
+  </text>
+  <text
+    x="64"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Compare
+  </text>
+  <text
+    x="162"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    SQL
+  </text>
+  <text
+    x="260"
+    y="310"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Editing
+  </text>
+  <text
+    x="64"
+    y="343"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    History
+  </text>
+  <text
+    x="162"
+    y="343"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Export
+  </text>
+  <text
+    x="260"
+    y="343"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Profile
+  </text>
+  <text
+    x="64"
+    y="376"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Pipeline
+  </text>
+  <path d="M64 398 L352 398" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="66"
+    y="432"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="21"
+    font-weight="600"
+  >
+    Schema
+  </text>
+  <text
+    x="390"
+    y="254"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="20"
+    font-weight="600"
+  >
+    Grid
+  </text>
+  <text
+    x="448"
+    y="254"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Browse the rows
+  </text>
+  <rect x="1266" y="232" width="144" height="28" rx="14" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="1277"
+    y="251"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="600"
+  >
+    File as opened
+  </text>
+  <rect x="1422" y="228" width="122" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1434"
+    y="252"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Record ↵
+  </text>
+  <text
+    x="66"
+    y="470"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Fields and types
+  </text>
+  <text
+    x="66"
+    y="495"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    5 columns · nested paths below
+  </text>
+  <text
+    x="66"
+    y="534"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="500"
+  >
+    order_id
+  </text>
+  <text
+    x="249"
+    y="534"
+    fill="#555555"
+    font-family="ui-monospace, monospace"
+    font-size="12"
+    font-weight="400"
+  >
+    INTEGER
+  </text>
+  <text
+    x="66"
+    y="571"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="500"
+  >
+    country
+  </text>
+  <text
+    x="249"
+    y="571"
+    fill="#555555"
+    font-family="ui-monospace, monospace"
+    font-size="12"
+    font-weight="400"
+  >
+    VARCHAR
+  </text>
+  <text
+    x="66"
+    y="608"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="500"
+  >
+    amount
+  </text>
+  <text
+    x="249"
+    y="608"
+    fill="#555555"
+    font-family="ui-monospace, monospace"
+    font-size="12"
+    font-weight="400"
+  >
+    DOUBLE
+  </text>
+  <text
+    x="66"
+    y="645"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="500"
+  >
+    tags ▾
+  </text>
+  <text
+    x="249"
+    y="645"
+    fill="#555555"
+    font-family="ui-monospace, monospace"
+    font-size="12"
+    font-weight="400"
+  >
+    LIST
+  </text>
+  <text
+    x="66"
+    y="682"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="500"
+  >
+    item
+  </text>
+  <text
+    x="249"
+    y="682"
+    fill="#555555"
+    font-family="ui-monospace, monospace"
+    font-size="12"
+    font-weight="400"
+  >
+    VARCHAR
+  </text>
+  <text
+    x="66"
+    y="719"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="500"
+  >
+    metadata ▾
+  </text>
+  <text
+    x="249"
+    y="719"
+    fill="#555555"
+    font-family="ui-monospace, monospace"
+    font-size="12"
+    font-weight="400"
+  >
+    STRUCT
+  </text>
+  <text
+    x="66"
+    y="756"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="500"
+  >
+    channel
+  </text>
+  <text
+    x="249"
+    y="756"
+    fill="#555555"
+    font-family="ui-monospace, monospace"
+    font-size="12"
+    font-weight="400"
+  >
+    VARCHAR
+  </text>
+  <path d="M64 794 L352 794" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="66"
+    y="825"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="600"
+  >
+    Nested field selected?
+  </text>
+  <text
+    x="66"
+    y="851"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Extract path · Flatten · Explode
+  </text>
+  <text
+    x="66"
+    y="875"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Actions reveal generated SQL.
+  </text>
+  <rect x="390" y="278" width="1154" height="366" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <rect x="391" y="279" width="1152" height="38" rx="4" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    #
+  </text>
+  <text
+    x="482.78"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    order_id
+  </text>
+  <text
+    x="678.96"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    country
+  </text>
+  <text
+    x="886.6800000000001"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    amount
+  </text>
+  <text
+    x="1071.32"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    tags
+  </text>
+  <text
+    x="1290.58"
+    y="304"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    metadata
+  </text>
+  <text
+    x="402"
+    y="342"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    1
+  </text>
+  <text
+    x="482.78"
+    y="342"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1001
+  </text>
+  <text
+    x="678.96"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    GB
+  </text>
+  <text
+    x="886.6800000000001"
+    y="342"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    42.00
+  </text>
+  <text
+    x="1071.32"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail]
+  </text>
+  <text
+    x="1290.58"
+    y="342"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 354 L1544 354" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="354" width="1152" height="36" rx="0" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="378"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    2
+  </text>
+  <text
+    x="482.78"
+    y="378"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1002
+  </text>
+  <text
+    x="678.96"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    US
+  </text>
+  <text
+    x="886.6800000000001"
+    y="378"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    18.50
+  </text>
+  <text
+    x="1071.32"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [trial]
+  </text>
+  <text
+    x="1290.58"
+    y="378"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M390 390 L1544 390" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="390" width="1152" height="36" rx="0" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="402"
+    y="414"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    3
+  </text>
+  <text
+    x="482.78"
+    y="414"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1003
+  </text>
+  <text
+    x="678.96"
+    y="414"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    NULL
+  </text>
+  <text
+    x="886.6800000000001"
+    y="414"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    64.00
+  </text>
+  <text
+    x="1071.32"
+    y="414"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail, new]
+  </text>
+  <text
+    x="1290.58"
+    y="414"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 426 L1544 426" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="426" width="1152" height="36" rx="0" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="450"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    4
+  </text>
+  <text
+    x="482.78"
+    y="450"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1004
+  </text>
+  <text
+    x="678.96"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    CA
+  </text>
+  <text
+    x="886.6800000000001"
+    y="450"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    28.00
+  </text>
+  <text
+    x="1071.32"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    []
+  </text>
+  <text
+    x="1290.58"
+    y="450"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M390 462 L1544 462" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="402"
+    y="486"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    5
+  </text>
+  <text
+    x="482.78"
+    y="486"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1005
+  </text>
+  <text
+    x="678.96"
+    y="486"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    US
+  </text>
+  <text
+    x="886.6800000000001"
+    y="486"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    39.00
+  </text>
+  <text
+    x="1071.32"
+    y="486"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [new]
+  </text>
+  <text
+    x="1290.58"
+    y="486"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 498 L1544 498" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="498" width="1152" height="36" rx="0" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="522"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    6
+  </text>
+  <text
+    x="482.78"
+    y="522"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1006
+  </text>
+  <text
+    x="678.96"
+    y="522"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    DE
+  </text>
+  <text
+    x="886.6800000000001"
+    y="522"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    52.00
+  </text>
+  <text
+    x="1071.32"
+    y="522"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail]
+  </text>
+  <text
+    x="1290.58"
+    y="522"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M390 534 L1544 534" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="402"
+    y="558"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    7
+  </text>
+  <text
+    x="482.78"
+    y="558"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1007
+  </text>
+  <text
+    x="678.96"
+    y="558"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    FR
+  </text>
+  <text
+    x="886.6800000000001"
+    y="558"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    14.00
+  </text>
+  <text
+    x="1071.32"
+    y="558"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    NULL
+  </text>
+  <text
+    x="1290.58"
+    y="558"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: web}
+  </text>
+  <path d="M390 570 L1544 570" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <rect x="391" y="570" width="1152" height="36" rx="0" fill="#f3f5f7" stroke="#f3f5f7" />
+  <text
+    x="402"
+    y="594"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    8
+  </text>
+  <text
+    x="482.78"
+    y="594"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    1008
+  </text>
+  <text
+    x="678.96"
+    y="594"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    US
+  </text>
+  <text
+    x="886.6800000000001"
+    y="594"
+    fill="#1a1a1a"
+    font-family="ui-monospace, monospace"
+    font-size="14"
+    font-weight="400"
+  >
+    78.00
+  </text>
+  <text
+    x="1071.32"
+    y="594"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    [retail]
+  </text>
+  <text
+    x="1290.58"
+    y="594"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    {channel: app}
+  </text>
+  <path d="M390 606 L1544 606" stroke="#ccd3db" stroke-width="1" fill="none" />
+  <text
+    x="402"
+    y="631"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    Rows 1–8 of 12 · logical row identity retained
+  </text>
+  <text
+    x="1284"
+    y="631"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="13"
+    font-weight="400"
+  >
+    ← → navigate · Keyboard help
+  </text>
+  <rect x="390" y="664" width="1154" height="222" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="410"
+    y="695"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="19"
+    font-weight="600"
+  >
+    Record · base #3
+  </text>
+  <text
+    x="410"
+    y="722"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Prev / Next step through immediate visible neighbours.
+  </text>
+  <rect x="1282" y="682" width="106" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1294"
+    y="706"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    ← Prev
+  </text>
+  <rect x="1400" y="682" width="122" height="36" rx="6" fill="#ffffff" stroke="#ccd3db" />
+  <text
+    x="1412"
+    y="706"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="600"
+  >
+    Next →
+  </text>
+  <text
+    x="414"
+    y="754"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    order_id 1003
+  </text>
+  <text
+    x="414"
+    y="783"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    country NULL
+  </text>
+  <text
+    x="414"
+    y="812"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    metadata { channel: &quot;web&quot; }
+  </text>
+  <text
+    x="414"
+    y="841"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="400"
+  >
+    tags [ &quot;retail&quot;, &quot;new&quot; ]
+  </text>
+  <rect x="918" y="742" width="600" height="118" rx="6" fill="#eef3f9" stroke="#eef3f9" />
+  <text
+    x="934"
+    y="768"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="15"
+    font-weight="650"
+  >
+    One row, not a second dataset
+  </text>
+  <text
+    x="934"
+    y="794"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Logical row identity survives filtering, sorting and edits.
+  </text>
+  <text
+    x="934"
+    y="817"
+    fill="#23364d"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Enter / double-click opens the full-depth inspector.
+  </text>
+  <text
+    x="32"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    01 Readable data, honest scope
+  </text>
+  <text
+    x="32"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    NULL is explicit; nested cells show bounded previews.
+  </text>
+  <text
+    x="32"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Do not imply range selection or bulk paste is shipped.
+  </text>
+  <text
+    x="552"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    02 Filters are reversible
+  </text>
+  <text
+    x="552"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Compose field / operator / typed value; show removable chips.
+  </text>
+  <text
+    x="552"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Announce Filtering… / Sorting…; show a real empty result.
+  </text>
+  <text
+    x="1072"
+    y="960"
+    fill="#1a1a1a"
+    font-family="system-ui, sans-serif"
+    font-size="16"
+    font-weight="650"
+  >
+    03 Keep the keyboard in the loop
+  </text>
+  <text
+    x="1072"
+    y="987"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Visible cell focus; arrow navigation; copy focused display value.
+  </text>
+  <text
+    x="1072"
+    y="1009"
+    fill="#555555"
+    font-family="system-ui, sans-serif"
+    font-size="14"
+    font-weight="400"
+  >
+    Row jumps focus the grid and announce the base row number.
+  </text>
+</svg>

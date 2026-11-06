@@ -1,0 +1,2770 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Assay · rd-1 prototype B — task-led workbench (isolated)</title>
+    <!--
+      ASSAY — rd-1 PROTOTYPE B (task-led workbench), 2026-11-04.
+
+      This is a design-checkpoint artifact, NOT shipped UI and NOT a screenshot of
+      the product. It is a single self-contained file: no engine, no network, no
+      storage, no telemetry, no fonts or images. All data is synthetic.
+
+      Built to mirror the real source at revision bba491a:
+        - apps/web/src/App.tsx            section ids, purpose subtitles, nav, pane,
+                                          grid/record composition, export wiring
+        - apps/web/src/validation/ValidationPanel.tsx   validate/verdict/stale/sample copy
+        - apps/web/src/diff/DiffPanel.tsx               A/B, keys, stale, run copy
+        - apps/web/src/export/ExportDialog.tsx          whole-dataset + staged copy
+        - apps/web/src/edit/HistoryPanel.tsx            cursor + outcome copy
+        - apps/web/src/edit/EditToolbar.tsx             staged-edits explanation
+        - apps/web/src/index.css                        spacing/type/colour tokens
+      Labels quoted from source are marked in the annotations; the rest is
+      prototype scaffolding.
+
+      The load-bearing design question: does grouping the twelve peer sections
+      into four user goals (Explore / Check / Change / Prepare) and carrying one
+      persistent next action beside the grid make the validation → finding →
+      row → repair → stale → explicit recheck journey easier WITHOUT losing any
+      existing tool, session state or keyboard route?
+    -->
+    <style>
+      /* ---------------------------------------------------------------------
+       * Tokens copied from apps/web/src/index.css (light scheme values).
+       * Spacing 4/8/12/16/24/32 · controls 32/36 · radii 4/6/8 · type 14/16/13/24
+       * ------------------------------------------------------------------- */
+      :root {
+        --space-1: 0.25rem;
+        --space-2: 0.5rem;
+        --space-3: 0.75rem;
+        --space-4: 1rem;
+        --space-6: 1.5rem;
+        --space-8: 2rem;
+        --control-height-compact: 2rem;
+        --control-height: 2.25rem;
+        --radius-sm: 0.25rem;
+        --radius-md: 0.375rem;
+        --radius-lg: 0.5rem;
+        --font-family-ui: system-ui, -apple-system, sans-serif;
+        --font-family-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+        --font-size-ui: 0.875rem;
+        --font-size-body: 1rem;
+        --font-size-metadata: 0.8125rem;
+        --font-size-page-title: 1.5rem;
+
+        --color-surface: #fff;
+        --color-surface-subtle: #fafafa;
+        --color-surface-alt: #f7f7f8;
+        --color-surface-elevated: #fbfcfe;
+        --color-hover: #eee;
+        --color-row-hover: #eef3f9;
+        --color-dirty-cell: #fff5cc;
+        --color-dirty-row: #fffaf0;
+        --color-dirty-marker: #e0a800;
+        --color-text: #1a1a1a;
+        --color-text-secondary: #555;
+        --color-text-muted: #666;
+        --color-text-faint: #777;
+        --color-accent-text: #23364d;
+        --color-accent-surface: #eef3f9;
+        --color-accent-subtle: #e7eef7;
+        --color-accent-border: #b9c6d4;
+        --color-focus: #4a7db5;
+        --color-ok-text: #2d4d2d;
+        --color-ok-subtle: #eef7ee;
+        --color-ok-border: #9cba97;
+        --color-warning-text: #860;
+        --color-stale-text: #630;
+        --color-stale-border: #ca0;
+        --color-error-text: #b00020;
+        --color-error-subtle: #f5e9e9;
+        --color-null-text: #806330;
+        --color-border: #ccc;
+        --color-border-strong: #bbb;
+        --color-border-subtle: #eee;
+      }
+
+      /* -------------------------------- harness -------------------------- */
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: var(--space-4);
+        background: #eceff3;
+        color: var(--color-text);
+        font-family: var(--font-family-ui);
+        font-size: var(--font-size-ui);
+        line-height: 1.45;
+      }
+      .harness {
+        max-width: 1520px;
+        margin: 0 auto var(--space-4);
+        padding: var(--space-4);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-lg);
+      }
+      .harness h1 {
+        margin: 0 0 var(--space-1);
+        font-size: 1.125rem;
+      }
+      .harness .sub {
+        margin: 0 0 var(--space-3);
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-metadata);
+      }
+      .harness-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        margin-bottom: var(--space-2);
+      }
+      .harness-row .label {
+        min-width: 7.5rem;
+        color: var(--color-text-muted);
+        font-size: var(--font-size-metadata);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .harness :where(button),
+      .app :where(button) {
+        min-height: var(--control-height-compact);
+        padding: 0 var(--space-3);
+        font: inherit;
+        color: var(--color-text);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      .harness :where(button:hover),
+      .app :where(button:hover) {
+        background: var(--color-hover);
+      }
+      .harness button[aria-pressed='true'],
+      .harness button.is-active {
+        color: var(--color-accent-text);
+        background: var(--color-accent-subtle);
+        border-color: var(--color-accent-border);
+        font-weight: 600;
+      }
+      .harness .step-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-1);
+      }
+      .instruction {
+        margin: var(--space-2) 0 0;
+        padding: var(--space-2) var(--space-3);
+        background: var(--color-accent-surface);
+        border-left: 3px solid var(--color-focus);
+        border-radius: var(--radius-sm);
+        font-size: var(--font-size-ui);
+      }
+      .instruction strong {
+        color: var(--color-accent-text);
+      }
+
+      /* --------------------------------- frame --------------------------- */
+      .frame-wrap {
+        max-width: 1520px;
+        margin: 0 auto;
+        padding: var(--space-2);
+        background: #dfe3e9;
+        border-radius: var(--radius-lg);
+        overflow-x: auto;
+      }
+      .frame {
+        width: 1440px;
+        min-height: 900px;
+        padding: var(--space-4);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-md);
+        transition: width 120ms ease;
+      }
+      .frame.narrow {
+        width: 900px;
+      }
+      .app {
+        font-size: var(--font-size-body);
+      }
+      .app h1 {
+        margin: 0;
+        font-size: var(--font-size-page-title);
+        line-height: 1.2;
+      }
+      .app-header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+        align-items: flex-end;
+        justify-content: space-between;
+        margin-bottom: var(--space-3);
+      }
+      .app-tagline {
+        margin: 0;
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-ui);
+      }
+      .app-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+      .app button.primary {
+        color: var(--color-accent-text);
+        background: var(--color-accent-surface);
+        border-color: var(--color-accent-border);
+        font-weight: 600;
+      }
+      .app :focus-visible,
+      .harness :focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+      }
+      .visually-hidden {
+        position: absolute !important;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .skip-link {
+        position: absolute;
+        left: var(--space-4);
+        top: -3rem;
+        padding: var(--space-2);
+        background: var(--color-surface);
+        border: 1px solid var(--color-focus);
+        border-radius: var(--radius-sm);
+        z-index: 50;
+      }
+      .skip-link:focus {
+        top: var(--space-1);
+      }
+
+      /* ------------------------------- layout ---------------------------- */
+      .layout {
+        display: grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        gap: var(--space-4);
+        align-items: start;
+      }
+      .tools {
+        position: sticky;
+        top: var(--space-2);
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        padding: var(--space-1) var(--space-3) var(--space-3);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+      }
+      .pane-head {
+        display: flex;
+        justify-content: flex-end;
+      }
+      .pane-toggle {
+        min-width: var(--control-height-compact);
+        padding: 0 var(--space-1);
+      }
+      .tools[data-pane='collapsed'] {
+        padding: var(--space-1);
+      }
+      .tools[data-pane='collapsed'] .tools-body {
+        display: none;
+      }
+      .center {
+        min-width: 0;
+      }
+
+      /* task switcher: a single-select radio group with roving tabindex.
+         ARIA radios (not tabs) because no tabpanel element exists: choosing a
+         task filters which sections are visible inside one pane. */
+      .task-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-1);
+        margin: var(--space-2) 0 var(--space-1);
+        padding: var(--space-1);
+        background: var(--color-surface-alt);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
+      }
+      .task-tabs [role='radio'] {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        align-items: flex-start;
+        min-height: var(--control-height);
+        padding: var(--space-1) var(--space-2);
+        font-weight: 600;
+        background: transparent;
+        border: 1px solid transparent;
+      }
+      .task-tabs [role='radio'][aria-checked='true'] {
+        background: var(--color-surface);
+        border-color: var(--color-accent-border);
+        color: var(--color-accent-text);
+        box-shadow: inset 0 -2px 0 var(--color-focus);
+      }
+      .task-purpose {
+        margin: 0 0 var(--space-1);
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-metadata);
+      }
+      .task-links,
+      .workspace-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-1) var(--space-2);
+        align-items: center;
+        margin: 0 0 var(--space-2);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+      .task-links a,
+      .workspace-links a {
+        color: var(--color-accent-text);
+      }
+      .task-scope[data-task]:not([data-active='true']) .task-links {
+        display: none;
+      }
+      .frame.narrow .task-links {
+        display: none;
+      }
+      /* The four task scopes are grouping wrappers only: display:contents keeps
+         every section a layout child of the pane (and of the narrow flex stack),
+         so hiding an inactive task never moves or remounts a section. */
+      .task-scope {
+        display: contents;
+      }
+      .task-scope[data-task]:not([data-active='true']) .anno {
+        display: none;
+      }
+
+      /* workbench sections (mirror WorkbenchSection: managed vs inner) */
+      .ws {
+        border-top: 1px solid var(--color-border-subtle);
+        padding-top: var(--space-2);
+        margin-top: var(--space-2);
+      }
+      .ws:first-of-type {
+        border-top: 0;
+        margin-top: var(--space-2);
+      }
+      .ws-toggle {
+        display: flex;
+        gap: var(--space-2);
+        width: 100%;
+        padding: var(--space-1) 0;
+        text-align: left;
+        background: none;
+        border: 0;
+        border-radius: var(--radius-sm);
+      }
+      .ws-toggle:hover {
+        background: var(--color-hover);
+      }
+      .ws-toggle .marker {
+        color: var(--color-text-muted);
+      }
+      .ws-text {
+        display: flex;
+        flex-direction: column;
+      }
+      .ws-label {
+        font-weight: 600;
+      }
+      .ws-purpose {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: var(--font-size-metadata);
+      }
+      .ws-summary {
+        color: var(--color-stale-text);
+        font-size: var(--font-size-metadata);
+        font-weight: 600;
+      }
+      .ws-summary[hidden] {
+        display: none;
+      }
+      .ws-body[hidden] {
+        display: none;
+      }
+      .ws-body {
+        padding: var(--space-2) 0 var(--space-3);
+      }
+      .ws-body h2 {
+        margin: 0 0 var(--space-2);
+        font-size: var(--font-size-ui);
+      }
+      .inner-purpose {
+        display: block;
+        margin: var(--space-2) 0 var(--space-1);
+        color: var(--color-text-muted);
+        font-size: var(--font-size-metadata);
+      }
+
+      /* ----------------------------- context bar ------------------------- */
+      .context-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2) var(--space-3);
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        background: var(--color-surface-subtle);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-metadata);
+      }
+      .ctx-facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        color: var(--color-text-secondary);
+      }
+      .ctx-label {
+        color: var(--color-text);
+        font-weight: 600;
+      }
+      .ctx-dot {
+        color: var(--color-text-faint);
+      }
+      .ctx-action {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+      }
+      .ctx-state {
+        max-width: 34rem;
+        color: var(--color-text);
+      }
+      .ctx-state.is-stale {
+        color: var(--color-stale-text);
+        font-weight: 600;
+      }
+      .ctx-state.is-error {
+        color: var(--color-error-text);
+      }
+      .app button.link {
+        padding: 0;
+        min-height: 0;
+        color: var(--color-accent-text);
+        background: none;
+        border: 0;
+        text-decoration: underline;
+      }
+      .app button.chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: var(--control-height-compact);
+        padding: 0 var(--space-2);
+        color: var(--color-accent-text);
+        background: var(--color-accent-surface);
+        border: 1px solid var(--color-accent-border);
+        border-radius: 999px;
+        font-size: var(--font-size-metadata);
+      }
+      .app button[hidden] {
+        display: none;
+      }
+      .app button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      /* -------------------------------- grid ----------------------------- */
+      .grid-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        margin-bottom: var(--space-1);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+      .grid-hint {
+        margin: 0 0 var(--space-1);
+        color: var(--color-text-muted);
+        font-size: var(--font-size-metadata);
+      }
+      table.grid {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: var(--font-family-mono);
+        font-size: var(--font-size-metadata);
+        border: 1px solid var(--color-border);
+      }
+      table.grid th,
+      table.grid td {
+        padding: 0.28rem var(--space-2);
+        text-align: left;
+        white-space: nowrap;
+        border-bottom: 1px solid var(--color-border-subtle);
+        border-right: 1px solid var(--color-border-subtle);
+      }
+      table.grid thead th {
+        position: sticky;
+        top: 0;
+        background: var(--color-surface-alt);
+        font-family: var(--font-family-ui);
+        font-weight: 600;
+      }
+      table.grid tbody tr:nth-child(even) {
+        background: var(--color-surface-subtle);
+      }
+      table.grid tbody tr:hover {
+        background: var(--color-row-hover);
+      }
+      table.grid tbody tr[aria-selected='true'] {
+        background: var(--color-accent-surface);
+        outline: 2px solid var(--color-focus);
+        outline-offset: -2px;
+      }
+      table.grid tbody tr.dirty {
+        background: var(--color-dirty-row);
+      }
+      table.grid tbody tr:focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: -2px;
+      }
+      .row-num {
+        color: var(--color-text-faint);
+        font-family: var(--font-family-ui);
+        text-align: right;
+      }
+      .dirty-flag {
+        color: var(--color-dirty-marker);
+        font-family: var(--font-family-ui);
+        font-weight: 700;
+      }
+      .cell-button {
+        min-height: 0;
+        padding: 0;
+        font: inherit;
+        text-align: left;
+        background: none;
+        border: 0;
+        border-radius: var(--radius-sm);
+      }
+      .cell-button:hover {
+        background: var(--color-accent-subtle);
+      }
+      .dirty-cell .cell-button {
+        background: var(--color-dirty-cell);
+        font-weight: 600;
+      }
+      .cell-input {
+        width: 7rem;
+        padding: 0 var(--space-1);
+        font: inherit;
+        border: 1px solid var(--color-focus);
+        border-radius: var(--radius-sm);
+      }
+      .null-marker {
+        color: var(--color-null-text);
+        font-style: italic;
+      }
+      .grid-footer {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+        align-items: center;
+        justify-content: space-between;
+        margin-top: var(--space-1);
+        padding-top: var(--space-1);
+        border-top: 1px solid var(--color-border-subtle);
+        color: var(--color-text-muted);
+        font-size: var(--font-size-metadata);
+      }
+
+      /* ------------------------------- record ---------------------------- */
+      .record {
+        margin-top: var(--space-3);
+        padding: var(--space-2) var(--space-3);
+        background: var(--color-surface-subtle);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+      }
+      .record[hidden] {
+        display: none;
+      }
+      .record-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        justify-content: space-between;
+      }
+      .record h2 {
+        margin: 0;
+        font-size: var(--font-size-ui);
+      }
+      .record dl {
+        display: grid;
+        grid-template-columns: 8rem minmax(0, 1fr);
+        gap: var(--space-1) var(--space-2);
+        margin: var(--space-2) 0 0;
+        font-family: var(--font-family-mono);
+        font-size: var(--font-size-metadata);
+      }
+      .record dt {
+        color: var(--color-text-muted);
+        font-family: var(--font-family-ui);
+      }
+      .record dd {
+        margin: 0;
+      }
+      .record-hint {
+        margin: var(--space-2) 0 0;
+        color: var(--color-text-muted);
+        font-size: var(--font-size-metadata);
+      }
+
+      /* ------------------------------- panels ---------------------------- */
+      .panel-copy {
+        margin: 0 0 var(--space-2);
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-metadata);
+      }
+      .row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        margin-bottom: var(--space-2);
+      }
+      .verdict {
+        margin: 0 0 var(--space-1);
+        font-weight: 600;
+      }
+      .verdict.is-fail {
+        color: var(--color-error-text);
+      }
+      .verdict.is-ok {
+        color: var(--color-ok-text);
+      }
+      .stale-banner {
+        margin: var(--space-1) 0;
+        padding: var(--space-1) var(--space-2);
+        color: var(--color-stale-text);
+        background: #fffaf0;
+        border: 1px solid var(--color-stale-border);
+        border-radius: var(--radius-sm);
+        font-size: var(--font-size-metadata);
+      }
+      .stale-banner[hidden],
+      .ok-banner[hidden] {
+        display: none;
+      }
+      .ok-banner {
+        margin: var(--space-1) 0;
+        padding: var(--space-1) var(--space-2);
+        color: var(--color-ok-text);
+        background: var(--color-ok-subtle);
+        border: 1px solid var(--color-ok-border);
+        border-radius: var(--radius-sm);
+        font-size: var(--font-size-metadata);
+      }
+      ol.rules {
+        margin: 0;
+        padding-left: var(--space-4);
+      }
+      ol.rules li {
+        margin-bottom: var(--space-1);
+        font-size: var(--font-size-metadata);
+      }
+      ol.rules li.failing {
+        color: var(--color-error-text);
+      }
+      .rule-id {
+        font-family: var(--font-family-mono);
+      }
+      .rule-count {
+        color: var(--color-text-secondary);
+        margin-left: var(--space-1);
+      }
+      .sample {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        margin: var(--space-1) 0 0;
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-metadata);
+      }
+      .sample code {
+        color: var(--color-text);
+      }
+      .filter-note {
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-metadata);
+      }
+      .filters-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-1);
+        margin: var(--space-1) 0;
+      }
+      .filter-chip {
+        display: inline-flex;
+        gap: var(--space-1);
+        align-items: center;
+        padding: 2px var(--space-2);
+        color: var(--color-accent-text);
+        background: var(--color-accent-surface);
+        border: 1px solid var(--color-accent-border);
+        border-radius: 999px;
+        font-size: var(--font-size-metadata);
+      }
+      .filter-chip button {
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: inherit;
+        font-size: 1rem;
+        line-height: 1;
+      }
+      .history-list {
+        margin: 0 0 var(--space-1);
+        padding-left: var(--space-4);
+        font-size: var(--font-size-metadata);
+      }
+      .history-cursor {
+        margin: 0 0 var(--space-1);
+        color: var(--color-text-muted);
+        font-size: var(--font-size-metadata);
+      }
+      .edit-copy {
+        margin: 0 0 var(--space-2);
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-metadata);
+      }
+      .diff-ab {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-2);
+        margin-bottom: var(--space-2);
+        font-size: var(--font-size-metadata);
+      }
+      .diff-ab div {
+        padding: var(--space-2);
+        background: var(--color-surface-alt);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-sm);
+      }
+      .diff-ab strong {
+        display: block;
+      }
+      .key-line {
+        margin: 0 0 var(--space-2);
+        font-size: var(--font-size-metadata);
+      }
+      .mode-note {
+        margin: var(--space-1) 0 0;
+        color: var(--color-text-muted);
+        font-size: var(--font-size-metadata);
+      }
+
+      /* ------------------------------- dialog ---------------------------- */
+      .dialog-backdrop {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 6vh var(--space-4);
+        background: rgb(20 26 34 / 45%);
+        z-index: 40;
+      }
+      .dialog-backdrop[hidden] {
+        display: none;
+      }
+      .dialog {
+        width: min(44rem, 100%);
+        max-height: 80vh;
+        overflow: auto;
+        padding: var(--space-4);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 18px 40px rgb(20 26 34 / 25%);
+      }
+      .dialog h2 {
+        margin: 0 0 var(--space-2);
+        font-size: 1.125rem;
+      }
+      .dialog fieldset {
+        margin: 0 0 var(--space-2);
+        padding: var(--space-2);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--radius-sm);
+      }
+      .dialog legend {
+        padding: 0 var(--space-1);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-muted);
+      }
+      .dialog .format-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        font-size: var(--font-size-metadata);
+      }
+      .dialog-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        justify-content: flex-end;
+        margin-top: var(--space-3);
+      }
+      .dialog-result {
+        margin: var(--space-1) 0;
+        padding: var(--space-2);
+        color: var(--color-ok-text);
+        background: var(--color-ok-subtle);
+        border: 1px solid var(--color-ok-border);
+        border-radius: var(--radius-sm);
+        font-size: var(--font-size-metadata);
+      }
+      .dialog-result[hidden] {
+        display: none;
+      }
+      .dialog-note {
+        margin: var(--space-2) 0 0;
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-secondary);
+      }
+
+      /* ----------------------------- annotations ------------------------- */
+      .anno {
+        display: block;
+        margin: var(--space-2) 0;
+        padding: var(--space-1) var(--space-2);
+        background: #fbf7ff;
+        border: 1px dashed #9a7fbf;
+        border-radius: var(--radius-sm);
+        color: #3f2c58;
+        font-size: var(--font-size-metadata);
+        line-height: 1.4;
+      }
+      .anno::before {
+        content: 'annotation · ';
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 0.6875rem;
+        letter-spacing: 0.04em;
+      }
+      .anno strong {
+        font-weight: 700;
+      }
+      body.annotations-off .anno {
+        display: none;
+      }
+      .scope {
+        max-width: 1520px;
+        margin: var(--space-4) auto 0;
+        padding: var(--space-3) var(--space-4);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-lg);
+        font-size: var(--font-size-metadata);
+        color: var(--color-text-secondary);
+      }
+      .scope h2 {
+        margin: 0 0 var(--space-1);
+        font-size: var(--font-size-ui);
+        color: var(--color-text);
+      }
+      .scope ul {
+        margin: 0;
+        padding-left: var(--space-4);
+      }
+
+      /* ---------------------------- narrow (<1024) ----------------------- */
+      /* Mirrors today's slice-1 stack: one DOM, CSS order restores the stack
+         and the grid is promoted above the tool sections. In this alternative
+         the task strip becomes a group jump list and NOTHING is hidden, so
+         ADR 0044's narrow contract (every section reachable, scroll never
+         clip) is unchanged. */
+      .frame.narrow .layout {
+        display: flex;
+        flex-direction: column;
+      }
+      .frame.narrow .tools,
+      .frame.narrow .center {
+        display: contents;
+      }
+      .frame.narrow .tools-body {
+        display: contents;
+      }
+      .frame.narrow .pane-head {
+        display: none;
+      }
+      .frame.narrow .task-tabs {
+        order: 0;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      .frame.narrow .task-purpose {
+        order: 1;
+      }
+      .frame.narrow #section-schema {
+        order: 2;
+      }
+      .frame.narrow #section-grid {
+        order: 3;
+      }
+      .frame.narrow #section-editing {
+        order: 4;
+      }
+      .frame.narrow #section-export {
+        order: 5;
+      }
+      .frame.narrow #section-history {
+        order: 6;
+      }
+      .frame.narrow #section-validation {
+        order: 7;
+      }
+      .frame.narrow #section-compare {
+        order: 8;
+      }
+      .frame.narrow #section-filters {
+        order: 9;
+      }
+      .frame.narrow #section-record {
+        order: 10;
+      }
+      .frame.narrow #section-sql {
+        order: 11;
+      }
+      .frame.narrow #section-profile {
+        order: 12;
+      }
+      .frame.narrow #section-pipeline {
+        order: 13;
+      }
+      .frame.narrow .context-bar {
+        order: 2;
+      }
+      /* Annotations explain the desktop composition; at narrow they would sit
+         between stacked sections and obscure the stack the frame is showing. */
+      .frame.narrow .anno {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ============================== harness ============================= -->
+    <header class="harness">
+      <h1>Assay · rd-1 prototype B — task-led workbench</h1>
+      <p class="sub">
+        Isolated design artifact · synthetic data · no engine, network, storage or telemetry ·
+        source basis <code>bba491a</code> · not a shipped UI. Scenario and walkthrough controls are
+        prototype scaffolding; the frame below is the composition under review.
+      </p>
+      <div class="harness-row">
+        <span class="label">Scenario</span>
+        <div class="step-list" id="scenarios">
+          <button type="button" data-scenario="no-contract">1 · No contract</button>
+          <button type="button" data-scenario="failing">2 · Failing verdict</button>
+          <button type="button" data-scenario="stale">3 · Stale after repair</button>
+          <button type="button" data-scenario="valid">4 · Rechecked valid</button>
+          <button type="button" data-scenario="diff">5 · Comparison stale</button>
+          <button type="button" data-scenario="export">6 · Export</button>
+        </div>
+      </div>
+      <div class="harness-row">
+        <span class="label">J2 walkthrough</span>
+        <div class="step-list" id="steps">
+          <button type="button" data-step="1">1 Load contract</button>
+          <button type="button" data-step="2">2 Validate</button>
+          <button type="button" data-step="3">3 Show row</button>
+          <button type="button" data-step="4">4 Repair scalar</button>
+          <button type="button" data-step="5">5 Notice stale</button>
+          <button type="button" data-step="6">6 Recheck</button>
+          <button type="button" data-step="7">7 Review + export</button>
+        </div>
+      </div>
+      <div class="harness-row">
+        <span class="label">View</span>
+        <button type="button" id="toggle-anno" aria-pressed="true">Annotations on</button>
+        <button type="button" id="toggle-narrow" aria-pressed="false">Narrow 900px</button>
+        <button type="button" id="reset-all">Reset prototype</button>
+        <span class="sub" style="margin: 0">
+          Keyboard: Tab / Shift+Tab · task strip uses ← → Home End · Enter edits the focused
+          <code>fund_size</code> cell · Escape closes the record dock or dialog.
+        </span>
+      </div>
+      <p class="instruction" id="instruction" role="status">
+        <strong id="instruction-label">Start:</strong>
+        <span id="instruction-text"
+          >scenario 1 — no contract loaded. Tab to the task strip; the context bar names the one
+          next action, and no panel pretends a check has run.</span
+        >
+      </p>
+    </header>
+
+    <!-- =============================== frame ============================== -->
+    <div class="frame-wrap">
+      <div class="frame" id="frame">
+        <a class="skip-link" href="#section-grid">Skip to the data grid</a>
+        <main class="app">
+          <header class="app-header">
+            <div>
+              <h1>Assay</h1>
+              <p class="app-tagline">The local-first data workbench</p>
+            </div>
+            <div class="app-actions">
+              <button type="button" id="settings">Settings</button>
+              <button type="button" class="primary" id="open-file">Open a data file…</button>
+              <span id="table-info">12 rows × 10 columns</span>
+            </div>
+          </header>
+
+          <div class="layout">
+            <!-- ------------------------- tool pane ------------------------ -->
+            <aside class="tools" id="tools" data-pane="expanded" aria-label="Workbench tools">
+              <div class="pane-head">
+                <button
+                  type="button"
+                  class="pane-toggle"
+                  id="pane-toggle"
+                  aria-expanded="true"
+                  aria-controls="tools-body"
+                  aria-label="Collapse workbench pane"
+                  title="Collapse workbench pane"
+                >
+                  ◂
+                </button>
+              </div>
+              <div class="tools-body" id="tools-body">
+                <div
+                  class="task-tabs"
+                  role="radiogroup"
+                  aria-label="Workbench task"
+                  aria-describedby="task-purpose"
+                  id="task-tabs"
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    id="task-explore"
+                    aria-checked="true"
+                    tabindex="0"
+                  >
+                    Explore
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    id="task-check"
+                    aria-checked="false"
+                    tabindex="-1"
+                  >
+                    Check
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    id="task-change"
+                    aria-checked="false"
+                    tabindex="-1"
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    id="task-prepare"
+                    aria-checked="false"
+                    tabindex="-1"
+                  >
+                    Prepare
+                  </button>
+                </div>
+                <p class="task-purpose" id="task-purpose">
+                  Understand what is in the file: fields, filters, query and statistics.
+                </p>
+                <nav class="workspace-links" aria-label="Workspace">
+                  <span>Workspace:</span>
+                  <a href="#section-grid">Grid</a>
+                  <a href="#section-record">Record</a>
+                  <span class="mode-note">— the persistent artifact and its dock.</span>
+                </nav>
+
+                <div class="anno">
+                  <strong>Task membership is navigation only.</strong> The four task choices regroup
+                  the twelve existing sections; they are not separate datasets or sessions. Every
+                  section is mounted for the whole dataset session (today's collapsed bodies are
+                  already mounted with <code>hidden</code>), so switching tasks cannot drop the
+                  overlay, history cursor, filter drafts, typed text, B staging or query results.
+                  Inactive groups are hidden, never unmounted.
+                </div>
+
+                <!-- Explore -->
+                <div class="task-scope" data-task="explore">
+                  <nav class="task-links" aria-label="Explore sections">
+                    <span>In this task:</span>
+                    <a href="#section-schema" data-nav-section="schema">Schema</a>
+                    <a href="#section-filters" data-nav-section="filters">Filters</a>
+                    <a href="#section-sql" data-nav-section="sql">SQL</a>
+                    <a href="#section-profile" data-nav-section="profile">Profile</a>
+                  </nav>
+                  <section class="ws" id="section-schema" data-section="schema" data-task="explore">
+                    <p class="inner-purpose">Fields and types</p>
+                    <div class="ws-body">
+                      <h2 class="visually-hidden">Schema</h2>
+                      <button type="button" id="schema-toggle" aria-expanded="true">
+                        ▾ 10 fields
+                      </button>
+                      <ul style="margin: 8px 0 0; padding-left: 20px; font-size: 13px">
+                        <li><code>id</code> VARCHAR · primary key</li>
+                        <li><code>name</code> VARCHAR</li>
+                        <li><code>fund_size</code> BIGINT</li>
+                        <li><code>tags</code> VARCHAR[] · nested</li>
+                        <li><code>meta</code> STRUCT(country VARCHAR, tier VARCHAR) · nested</li>
+                      </ul>
+                    </div>
+                  </section>
+
+                  <section
+                    class="ws"
+                    id="section-filters"
+                    data-section="filters"
+                    data-task="explore"
+                  >
+                    <p class="inner-purpose">Show only matching rows</p>
+                    <div class="ws-body">
+                      <h2 class="visually-hidden">Filters</h2>
+                      <div class="filters-chip-row" id="filter-chips"></div>
+                      <button type="button" id="filter-compose">Filter on: choose a field…</button>
+                      <p class="mode-note">
+                        Unapplied input changes are shown here only after Apply; a rejected apply
+                        restores the accepted filters and reseeds the draft (current behaviour).
+                      </p>
+                    </div>
+                  </section>
+
+                  <section class="ws" id="section-sql" data-section="sql" data-task="explore">
+                    <button
+                      type="button"
+                      class="ws-toggle"
+                      aria-expanded="false"
+                      aria-controls="body-sql"
+                      data-toggle="sql"
+                    >
+                      <span class="marker" aria-hidden="true">▸</span>
+                      <span class="ws-text">
+                        <span class="ws-label">SQL</span>
+                        <span class="ws-purpose">Query with DuckDB SQL</span>
+                      </span>
+                    </button>
+                    <div class="ws-body" id="body-sql" hidden>
+                      <h2 class="visually-hidden">SQL</h2>
+                      <p class="panel-copy">
+                        Result pages are a bounded view of this query, not a dataset total.
+                      </p>
+                      <p style="margin: 0 0 8px">
+                        <code>select id, name, fund_size from nested limit 100</code>
+                      </p>
+                      <div class="row-actions">
+                        <button type="button" class="primary">Run</button>
+                        <span class="mode-note">Ctrl+Enter runs · Cancel abandons delivery</span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    class="ws"
+                    id="section-profile"
+                    data-section="profile"
+                    data-task="explore"
+                  >
+                    <p class="inner-purpose">Column statistics summary</p>
+                    <div class="ws-body">
+                      <h2 class="visually-hidden">Profile</h2>
+                      <p class="panel-copy">
+                        Statistics describe the file as opened — staged changes are not included.
+                      </p>
+                      <button type="button">Compute profile</button>
+                    </div>
+                  </section>
+
+                  <div class="anno">
+                    <strong>Expert tools stay one click away, with no wizard.</strong> SQL and
+                    Profile remain directly reachable inside Explore; the task strip never gates a
+                    capability behind setup. This alternative does not move SQL into the center
+                    column — that would reopen the deferred sizing decision (SV-D04) and, if a
+                    direction conflicted with ADR 0044, require an accepted superseding ruling.
+                  </div>
+                </div>
+
+                <!-- Check -->
+                <div class="task-scope" data-task="check">
+                  <nav class="task-links" aria-label="Check sections">
+                    <span>In this task:</span>
+                    <a href="#section-validation" data-nav-section="validation">Validation</a>
+                    <a href="#section-compare" data-nav-section="compare">Compare</a>
+                  </nav>
+                  <section
+                    class="ws"
+                    id="section-validation"
+                    data-section="validation"
+                    data-task="check"
+                  >
+                    <button
+                      type="button"
+                      class="ws-toggle"
+                      aria-expanded="true"
+                      aria-controls="body-validation"
+                      data-toggle="validation"
+                    >
+                      <span class="marker" aria-hidden="true">▾</span>
+                      <span class="ws-text">
+                        <span class="ws-label">Validation</span>
+                        <span class="ws-purpose">Check data against rules</span>
+                        <span class="ws-summary" id="summary-validation" hidden
+                          >Validation · 1 failing</span
+                        >
+                      </span>
+                    </button>
+                    <div class="ws-body" id="body-validation">
+                      <h2 class="visually-hidden">Validation</h2>
+                      <div class="row-actions">
+                        <button type="button" id="open-contract">Open a contract…</button>
+                        <input
+                          type="file"
+                          id="contract-file"
+                          class="visually-hidden"
+                          tabindex="-1"
+                          aria-hidden="true"
+                        />
+                        <button type="button" id="validate" disabled>Validate</button>
+                        <button type="button" id="cancel-validate" hidden>Cancel</button>
+                        <span class="mode-note" id="contract-state">No contract loaded.</span>
+                      </div>
+                      <p class="verdict" id="verdict" role="status"></p>
+                      <p class="stale-banner" id="stale-banner" role="status" hidden>
+                        This verdict is <strong>stale</strong> — the session’s staged state changed
+                        after it was computed, so it may no longer reflect the current dataset view.
+                        Re-validate for a fresh result.
+                      </p>
+                      <p class="ok-banner" id="ok-banner" hidden>
+                        This verdict reflects the current dataset view.
+                      </p>
+                      <ol class="rules" id="rules"></ol>
+                      <p class="filter-note" id="filter-note" hidden>
+                        The grid is filtered to failing rows. Applying a failure filter replaces the
+                        current filter list.
+                      </p>
+                    </div>
+                  </section>
+
+                  <section class="ws" id="section-compare" data-section="compare" data-task="check">
+                    <button
+                      type="button"
+                      class="ws-toggle"
+                      aria-expanded="false"
+                      aria-controls="body-compare"
+                      data-toggle="compare"
+                    >
+                      <span class="marker" aria-hidden="true">▸</span>
+                      <span class="ws-text">
+                        <span class="ws-label">Compare</span>
+                        <span class="ws-purpose">Diff two datasets by key</span>
+                      </span>
+                    </button>
+                    <div class="ws-body" id="body-compare" hidden>
+                      <h2 class="visually-hidden">Compare</h2>
+                      <div class="diff-ab">
+                        <div>
+                          <strong>A — open dataset</strong>
+                          the open dataset · 12 rows · current dataset view
+                        </div>
+                        <div>
+                          <strong>B — staged separately</strong>
+                          a second file · 12 rows · open in the diff only
+                        </div>
+                      </div>
+                      <p class="key-line">
+                        Keys: <code>id</code> (confirmed, inferred) · no schema drift · 1 column
+                        delta
+                      </p>
+                      <div class="row-actions">
+                        <button type="button" id="run-diff">Run row diff</button>
+                        <button type="button">Open a comparison file…</button>
+                      </div>
+                      <p class="mode-note" id="diff-state">Not run.</p>
+                      <p class="stale-banner" id="diff-stale" hidden>
+                        This row diff is <strong>stale</strong> — the session’s staged state changed
+                        after it ran, so it may no longer reflect the current dataset view. Re-run
+                        for a fresh comparison.
+                      </p>
+                      <p class="panel-copy" id="diff-result" hidden>
+                        2 added, 2 removed, 2 changed — rows 5 → 5 (keys: id, inferred). Only A-side
+                        rows can be opened in the grid.
+                      </p>
+                    </div>
+                  </section>
+
+                  <div class="anno">
+                    <strong>No copied count.</strong> The context bar is the only always-visible
+                    state surface: it names the consequence and offers the single next action, but
+                    it does not repeat the verdict's numbers. The verdict keeps the detailed
+                    statement and the section summary keeps the local collapsed state, so the count
+                    appears at most twice for the same scope and never in a third surface. No
+                    per-task badge is added. Stale is the one exception the bar repeats, because
+                    stale findings stay readable but no longer describe the current view.
+                  </div>
+                </div>
+
+                <!-- Change -->
+                <div class="task-scope" data-task="change">
+                  <nav class="task-links" aria-label="Change sections">
+                    <span>In this task:</span>
+                    <a href="#section-editing" data-nav-section="editing">Editing</a>
+                    <a href="#section-history" data-nav-section="history">History</a>
+                    <a href="#section-export" data-nav-section="export">Export</a>
+                  </nav>
+                  <section
+                    class="ws"
+                    id="section-editing"
+                    data-section="editing"
+                    data-task="change"
+                  >
+                    <button
+                      type="button"
+                      class="ws-toggle"
+                      aria-expanded="true"
+                      aria-controls="body-editing"
+                      data-toggle="editing"
+                    >
+                      <span class="marker" aria-hidden="true">▾</span>
+                      <span class="ws-text">
+                        <span class="ws-label">Editing</span>
+                        <span class="ws-purpose">Stage edits in this session</span>
+                      </span>
+                    </button>
+                    <div class="ws-body" id="body-editing">
+                      <h2 class="visually-hidden">Editing</h2>
+                      <p class="edit-copy">
+                        Edits are staged in this session; the opened file is never modified. Export
+                        writes a copy.
+                      </p>
+                      <div class="row-actions">
+                        <button type="button">Insert row</button>
+                        <span class="mode-note" id="pending-changes">No staged changes</span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    class="ws"
+                    id="section-history"
+                    data-section="history"
+                    data-task="change"
+                  >
+                    <button
+                      type="button"
+                      class="ws-toggle"
+                      aria-expanded="true"
+                      aria-controls="body-history"
+                      data-toggle="history"
+                    >
+                      <span class="marker" aria-hidden="true">▾</span>
+                      <span class="ws-text">
+                        <span class="ws-label">History</span>
+                        <span class="ws-purpose">Review and undo staged edits</span>
+                        <span class="ws-summary" id="summary-history" hidden
+                          >History · 1 pending</span
+                        >
+                      </span>
+                    </button>
+                    <div class="ws-body" id="body-history">
+                      <h2 class="visually-hidden">History</h2>
+                      <p class="history-cursor" id="history-cursor">No steps yet</p>
+                      <ol class="history-list" id="history-list"></ol>
+                      <div class="row-actions">
+                        <button type="button" id="undo">Undo</button>
+                        <button type="button" id="redo" disabled>Redo</button>
+                        <span class="mode-note">One Undo/Redo pair for the whole workbench.</span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="ws" id="section-export" data-section="export" data-task="change">
+                    <button
+                      type="button"
+                      class="ws-toggle"
+                      aria-expanded="true"
+                      aria-controls="body-export"
+                      data-toggle="export"
+                    >
+                      <span class="marker" aria-hidden="true">▾</span>
+                      <span class="ws-text">
+                        <span class="ws-label">Export</span>
+                        <span class="ws-purpose">Write a reviewed copy</span>
+                      </span>
+                    </button>
+                    <div class="ws-body" id="body-export">
+                      <h2 class="visually-hidden">Export</h2>
+                      <p class="panel-copy">
+                        Exports the whole current dataset — every staged change, natural order.
+                      </p>
+                      <button type="button" id="export-open">Export a copy…</button>
+                    </div>
+                  </section>
+
+                  <div class="anno">
+                    <strong>Delivery is deliberate.</strong> The export dialog is unchanged: a
+                    custom modal with its own focus trap that cannot close while writing, the
+                    whole-effective-dataset scope sentence, the staged-change count, and the
+                    same-source refusal. The task strip does not add a second save path.
+                  </div>
+                </div>
+
+                <!-- Prepare -->
+                <div class="task-scope" data-task="prepare">
+                  <nav class="task-links" aria-label="Prepare sections">
+                    <span>In this task:</span>
+                    <a href="#section-pipeline" data-nav-section="pipeline">Pipeline</a>
+                  </nav>
+                  <section
+                    class="ws"
+                    id="section-pipeline"
+                    data-section="pipeline"
+                    data-task="prepare"
+                  >
+                    <button
+                      type="button"
+                      class="ws-toggle"
+                      aria-expanded="true"
+                      aria-controls="body-pipeline"
+                      data-toggle="pipeline"
+                    >
+                      <span class="marker" aria-hidden="true">▾</span>
+                      <span class="ws-text">
+                        <span class="ws-label">Pipeline</span>
+                        <span class="ws-purpose">Chained contract checks</span>
+                      </span>
+                    </button>
+                    <div class="ws-body" id="body-pipeline">
+                      <h2 class="visually-hidden">Pipeline</h2>
+                      <p class="panel-copy">
+                        The ordered plan, gate evidence and materialization status stay as they are;
+                        no graph editor and no new execution model.
+                      </p>
+                      <div class="row-actions">
+                        <button type="button">Open a pipeline file…</button>
+                        <button type="button" disabled>Run pipeline</button>
+                      </div>
+                      <p class="mode-note">
+                        A refused gate is not a successful publication; previews open in the same
+                        grid model.
+                      </p>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </aside>
+
+            <!-- --------------------------- center ------------------------- -->
+            <div class="center">
+              <div class="context-bar" aria-label="Dataset context">
+                <div class="ctx-facts">
+                  <span class="ctx-label">Current dataset view</span>
+                  <span class="ctx-dot" aria-hidden="true">·</span>
+                  <span>12 rows × 10 columns</span>
+                  <span class="ctx-dot" aria-hidden="true">·</span>
+                  <span id="ctx-staged">No staged operations</span>
+                  <button type="button" class="chip" id="back-chip" hidden>Back to findings</button>
+                </div>
+                <div class="ctx-action">
+                  <span class="ctx-state" id="ctx-state" role="status">No contract loaded</span>
+                  <button type="button" class="primary" id="ctx-button">Open a contract…</button>
+                  <button type="button" class="link" id="ctx-secondary" hidden>
+                    Review findings
+                  </button>
+                </div>
+              </div>
+
+              <section class="ws" id="section-grid" data-section="grid">
+                <h2 class="visually-hidden">Grid</h2>
+                <div class="grid-toolbar">
+                  <span><strong>Grid</strong> · sorted by <code>id</code> ascending</span>
+                  <span id="grid-busy" hidden>Filtering…</span>
+                </div>
+                <p class="grid-hint">
+                  Double-click a cell to edit · Enter edits the focused cell · Esc cancels
+                </p>
+                <table class="grid" aria-label="Dataset rows">
+                  <caption class="visually-hidden">
+                    Synthetic dataset, 12 rows. Row 5 is the repair target.
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" class="row-num">#</th>
+                      <th scope="col">id</th>
+                      <th scope="col">name</th>
+                      <th scope="col">fund_size</th>
+                      <th scope="col">tags</th>
+                      <th scope="col">meta</th>
+                    </tr>
+                  </thead>
+                  <tbody id="grid-body"></tbody>
+                </table>
+                <div class="grid-footer">
+                  <span id="grid-range">Rows 1–6 of 12 · page 1 of 2</span>
+                  <span id="grid-status" role="status"></span>
+                  <span>Values are inert text; nothing in a cell is executed.</span>
+                </div>
+              </section>
+
+              <section class="ws record" id="section-record" data-section="record" hidden>
+                <div class="record-head">
+                  <h2 id="record-title">Record inspector — row 5</h2>
+                  <div class="row-actions">
+                    <button type="button" id="record-prev">◀ Prev</button>
+                    <button type="button" id="record-next">▶ Next</button>
+                    <button type="button" id="record-close">Close</button>
+                  </div>
+                </div>
+                <dl id="record-fields"></dl>
+                <p class="record-hint">Esc closes this inspector and returns focus to the row.</p>
+              </section>
+
+              <div class="anno">
+                <strong>Grid and Record do not move.</strong> The grid stays the persistent center
+                artifact and the record inspector stays the dock below it (ADR 0044). The task strip
+                changes which tool set is visible beside them — never grid internals,
+                virtualization, logical-row identity or provider lifetime. The implementation must
+                prove that a task switch performs zero file opens, worker boots, validation runs or
+                SQL executions (design-record requirement, not a prototype result).
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- ============================== dialog ============================= -->
+    <div class="dialog-backdrop" id="export-backdrop" hidden>
+      <div
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-title"
+        aria-describedby="export-scope"
+      >
+        <h2 id="export-title">Export a copy</h2>
+        <p class="dialog-note">
+          Writes a new file through your browser's save dialog or a download. The opened source file
+          is never modified.
+        </p>
+        <fieldset>
+          <legend>Format</legend>
+          <div class="format-grid">
+            <label><input type="radio" name="format" value="parquet" checked /> Parquet</label>
+            <label><input type="radio" name="format" value="csv" /> CSV</label>
+            <label><input type="radio" name="format" value="jsonl" /> JSON Lines</label>
+            <label><input type="radio" name="format" value="json" /> JSON</label>
+            <label><input type="radio" name="format" value="arrow" /> Arrow IPC stream</label>
+          </div>
+        </fieldset>
+        <p class="dialog-note" id="export-scope">
+          Exports the <strong>complete edited dataset</strong> — all 12 rows in natural order. Grid
+          filters and sorting are not applied.
+        </p>
+        <p class="dialog-note" id="export-staged">Includes 1 staged change — review in History.</p>
+        <p class="dialog-result" id="export-result" role="status" hidden>
+          Exported 12 rows as Parquet (2.4 KB) to a new file. The opened file is unchanged.
+        </p>
+        <div class="dialog-actions">
+          <button type="button" id="export-cancel">Cancel</button>
+          <button type="button" class="primary" id="export-confirm">Export</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- =============================== scope ============================== -->
+    <section class="scope">
+      <h2>What this artifact is — and is not</h2>
+      <ul>
+        <li>
+          Synthetic data only. No file is opened, no query runs, no bytes are written, nothing is
+          stored or transmitted.
+        </li>
+        <li>
+          Built from source at <code>bba491a</code> to test an information architecture, not to
+          prove the product is intuitive.
+          <strong
+            >No participant testing was performed; no human usability evidence exists for this
+            design.</strong
+          >
+        </li>
+        <li>
+          It is not a claim that the redesign is implemented, approved, or that every SVG board
+          capability ships. Deferred decisions (SQL sizing, overlay-aware profile, dirty-session
+          guard, DCR inspector, Help consolidation) are out of scope.
+        </li>
+        <li>
+          Copy quoted from the current source is labelled; annotations are prototype commentary and
+          do not describe shipped behaviour unless they cite a file.
+        </li>
+        <li>
+          Light scheme only at a 1440px frame (plus a 900px narrow mode). The product must still be
+          checked in dark scheme, at 1024×700 / 1440×900 / 1920×1080, at 200% zoom, keyboard-only
+          and with assistive technology.
+        </li>
+      </ul>
+    </section>
+
+    <!-- ============================== scripts ============================= -->
+    <script>
+      ;(function () {
+        'use strict'
+
+        // ------------------------------------------------------------------
+        // State. Everything here is prototype UI state; the real app keeps the
+        // authoritative session data in useEditingSession / useValidationSession
+        // / useDiffSession / usePipelineSession (see the design record).
+        // ------------------------------------------------------------------
+        const S = {
+          scenario: 'no-contract',
+          task: 'explore',
+          contract: false,
+          verdict: 'none', // none | failing | stale | valid
+          staged: 0,
+          diff: 'none', // none | fresh | stale
+          filter: null,
+          row: null,
+          editorRow: null,
+          busy: false,
+          exportOpen: false,
+          exportWorking: false,
+          exportDone: false,
+          annotations: true,
+          narrow: false,
+          focusMemory: Object.create(null),
+        }
+
+        const $ = (id) => document.getElementById(id)
+
+        const ROWS = [
+          {
+            n: 1,
+            id: 'A-1001',
+            name: 'Aster Fund',
+            fund: '500',
+            tags: '["private","eu"]',
+            meta: '{"country":"DE"}',
+          },
+          {
+            n: 2,
+            id: 'A-1002',
+            name: 'Birch Fund',
+            fund: '750',
+            tags: '["public"]',
+            meta: '{"country":"FR"}',
+          },
+          {
+            n: 3,
+            id: 'A-1003',
+            name: 'Cedar Fund',
+            fund: '0',
+            tags: '[]',
+            meta: '{"country":"IE"}',
+          },
+          {
+            n: 4,
+            id: 'A-1004',
+            name: 'Dune Fund',
+            fund: '120',
+            tags: '["private"]',
+            meta: '{"country":"NL"}',
+          },
+          {
+            n: 5,
+            id: 'A-1005',
+            name: 'Beacon Fund',
+            fund: '-1',
+            tags: '["private","eu"]',
+            meta: null,
+          },
+          {
+            n: 6,
+            id: 'A-1006',
+            name: 'Elm Fund',
+            fund: '900',
+            tags: '["public"]',
+            meta: '{"country":"ES"}',
+          },
+          {
+            n: 7,
+            id: 'A-1007',
+            name: 'Fir Fund',
+            fund: '300',
+            tags: '[]',
+            meta: '{"country":"PT"}',
+          },
+          {
+            n: 8,
+            id: 'A-1008',
+            name: 'Gorse Fund',
+            fund: '410',
+            tags: '["private"]',
+            meta: '{"country":"IT"}',
+          },
+          {
+            n: 9,
+            id: 'A-1009',
+            name: 'Hazel Fund',
+            fund: '640',
+            tags: '["public"]',
+            meta: '{"country":"BE"}',
+          },
+          {
+            n: 10,
+            id: 'A-1010',
+            name: 'Iris Fund',
+            fund: '980',
+            tags: '[]',
+            meta: '{"country":"AT"}',
+          },
+          {
+            n: 11,
+            id: 'A-1011',
+            name: 'Juniper Fund',
+            fund: '55',
+            tags: '["private"]',
+            meta: '{"country":"FI"}',
+          },
+          {
+            n: 12,
+            id: 'A-1012',
+            name: 'Kelp Fund',
+            fund: '210',
+            tags: '["public"]',
+            meta: '{"country":"SE"}',
+          },
+        ]
+
+        const RULES = [
+          { id: 'id-required', label: 'id is required', ok: true, count: '0 of 12 rows (0%)' },
+          { id: 'id-unique', label: 'id is unique', ok: true, count: '0 of 12 rows (0%)' },
+          { id: 'name-required', label: 'name is required', ok: true, count: '0 of 12 rows (0%)' },
+          {
+            id: 'fund_size-min',
+            label: 'fund_size >= 0',
+            ok: false,
+            count: '1 of 12 rows (8.3%)',
+            sample: { row: 5, key: 'A-1005', value: '-1' },
+          },
+          { id: 'tags-array', label: 'tags is an array', ok: true, count: '0 of 12 rows (0%)' },
+          {
+            id: 'country-required',
+            label: 'meta.country is required',
+            ok: true,
+            count: '0 of 12 rows (0%)',
+          },
+          {
+            id: 'name-length',
+            label: 'name length between 2 and 80',
+            ok: true,
+            count: '0 of 12 rows (0%)',
+          },
+          {
+            id: 'fund-size-type',
+            label: 'fund_size is an integer',
+            ok: true,
+            count: '0 of 12 rows (0%)',
+          },
+          {
+            id: 'row-count',
+            label: 'row count between 1 and 100',
+            ok: false,
+            exact: true,
+            count: 'Holds',
+          },
+        ]
+
+        const TASK_OF_SECTION = {
+          schema: 'explore',
+          filters: 'explore',
+          sql: 'explore',
+          profile: 'explore',
+          validation: 'check',
+          compare: 'check',
+          editing: 'change',
+          history: 'change',
+          export: 'change',
+          pipeline: 'prepare',
+        }
+
+        const TASK_PURPOSE = {
+          explore: 'Understand what is in the file: fields, filters, query and statistics.',
+          check: 'Find quality issues or explain differences between two versions.',
+          change: 'Make a reversible repair, review staged operations and deliver a copy.',
+          prepare: 'Run deterministic steps and inspect gate and delivery evidence.',
+        }
+
+        const SCENARIO_INSTRUCTION = {
+          'no-contract': {
+            label: 'Scenario 1:',
+            text: 'nothing checked yet. The context bar names the single next action; no panel shows a count because nothing has been checked.',
+          },
+          failing: {
+            label: 'Scenario 2:',
+            text: 'the fresh verdict has one failing rule. The context bar carries the session-level statement and the next action; the in-pane summary stays local.',
+          },
+          stale: {
+            label: 'Scenario 3:',
+            text: 'one staged repair, verdict stale. The old verdict and its sample stay readable; nothing re-runs automatically.',
+          },
+          valid: {
+            label: 'Scenario 4:',
+            text: 'after the explicit recheck the verdict is fresh and valid, while the staged change remains staged (not written anywhere).',
+          },
+          diff: {
+            label: 'Scenario 5:',
+            text: 'a separate comparison went stale. A-side rows remain the only rows that open in the grid; B is not mounted as a second dataset.',
+          },
+          export: {
+            label: 'Scenario 6:',
+            text: 'delivery. The dialog describes the whole current dataset and the staged count; Escape cannot dismiss it mid-write.',
+          },
+        }
+
+        const STEP_INSTRUCTION = {
+          1: {
+            label: 'Step 1 · Load the supplied contract.',
+            text: 'Click “Open a contract…” (a real picker is not simulated). The verdict stays unrun: loading is not validating.',
+          },
+          2: {
+            label: 'Step 2 · Validate.',
+            text: 'Watch the busy state with Cancel, then the fresh verdict. Nothing was checked automatically before this click.',
+          },
+          3: {
+            label: 'Step 3 · Show row.',
+            text: 'The failing sample jumps to logical row 5 and opens the record dock. Check stays active; a “Back to findings” chip appears in the context bar.',
+          },
+          4: {
+            label: 'Step 4 · Repair the scalar.',
+            text: 'The focused grid cell opens a typed editor. Commit with Enter; the staged operation and dirty marker appear, and the verdict becomes stale.',
+          },
+          5: {
+            label: 'Step 5 · Notice stale.',
+            text: 'The context bar states the consequence and offers the explicit action. The old verdict remains readable; no auto-recheck happened.',
+          },
+          6: {
+            label: 'Step 6 · Recheck explicitly.',
+            text: 'Recheck re-runs the current contract against the current view. The verdict becomes fresh; the staged change is still staged.',
+          },
+          7: {
+            label: 'Step 7 · Review and deliver.',
+            text: 'Switch to Change, review the staged operation in History, then open Export. The dialog states the whole-dataset scope.',
+          },
+        }
+
+        // ------------------------------------------------------------------
+        // Rendering
+        // ------------------------------------------------------------------
+        function scenarioState(name) {
+          const base = {
+            contract: true,
+            verdict: 'none',
+            staged: 0,
+            diff: 'none',
+            filter: null,
+            row: null,
+            editorRow: null,
+            exportOpen: false,
+            exportWorking: false,
+            exportDone: false,
+            busy: false,
+          }
+          switch (name) {
+            case 'no-contract':
+              return Object.assign(base, { contract: false })
+            case 'failing':
+              return Object.assign(base, { verdict: 'failing' })
+            case 'stale':
+              return Object.assign(base, { verdict: 'stale', staged: 1, row: 5 })
+            case 'valid':
+              return Object.assign(base, { verdict: 'valid', staged: 1, row: 5 })
+            case 'diff':
+              return Object.assign(base, {
+                verdict: 'valid',
+                staged: 1,
+                row: 5,
+                diff: 'stale',
+              })
+            case 'export':
+              return Object.assign(base, {
+                verdict: 'valid',
+                staged: 1,
+                row: 5,
+                exportOpen: true,
+              })
+            default:
+              return base
+          }
+        }
+
+        function applyScenario(name) {
+          const next = scenarioState(name)
+          S.scenario = name
+          S.contract = next.contract
+          S.verdict = next.verdict
+          S.staged = next.staged
+          S.diff = next.diff
+          S.filter = next.filter
+          S.row = next.row
+          S.editorRow = next.editorRow
+          S.exportOpen = next.exportOpen
+          S.exportWorking = next.exportWorking
+          S.exportDone = next.exportDone
+          S.busy = next.busy
+          render()
+          markScenarioButtons()
+          const copy = SCENARIO_INSTRUCTION[name]
+          if (copy) setInstruction(copy.label, copy.text)
+        }
+
+        function markScenarioButtons() {
+          for (const button of document.querySelectorAll('#scenarios button')) {
+            button.setAttribute(
+              'aria-pressed',
+              button.dataset.scenario === S.scenario ? 'true' : 'false',
+            )
+          }
+        }
+
+        function setInstruction(label, text) {
+          $('instruction-label').textContent = label
+          $('instruction-text').textContent = text
+        }
+
+        function applyTaskVisibility() {
+          for (const section of document.querySelectorAll('.ws[data-task]')) {
+            section.hidden = S.narrow ? false : section.dataset.task !== S.task
+          }
+          for (const scope of document.querySelectorAll('.task-scope[data-task]')) {
+            scope.dataset.active = S.narrow || scope.dataset.task === S.task ? 'true' : 'false'
+          }
+          $('task-purpose').textContent = S.narrow
+            ? 'All tools are stacked below in the documented slice-1 order; the strip jumps to a group.'
+            : TASK_PURPOSE[S.task]
+        }
+
+        function activateTask(task, options) {
+          const opts = options || {}
+          if (task !== S.task) {
+            const active = document.activeElement
+            if (active && active.id && active.closest('.ws[data-task]')) {
+              S.focusMemory[S.task] = active.id
+            }
+            S.task = task
+            for (const radio of document.querySelectorAll('#task-tabs [role="radio"]')) {
+              const selected = radio.id === 'task-' + task
+              radio.setAttribute('aria-checked', selected ? 'true' : 'false')
+              radio.setAttribute('tabindex', selected ? '0' : '-1')
+            }
+            // Sections are hidden, never unmounted. Narrow (<1024) keeps every
+            // section visible to preserve ADR 0044's slice-1 stack.
+            applyTaskVisibility()
+            if (S.narrow && !opts.silent) {
+              const first = document.querySelector('.ws[data-task="' + task + '"]')
+              if (first && typeof first.scrollIntoView === 'function') {
+                first.scrollIntoView({ block: 'start', behavior: 'smooth' })
+              }
+            }
+            if (!opts.silent && opts.focusTab) {
+              const radio = $('task-' + task)
+              if (radio) radio.focus()
+            }
+            render()
+          }
+        }
+
+        function revealSection(sectionId) {
+          const task = TASK_OF_SECTION[sectionId]
+          if (task && task !== S.task) activateTask(task, { silent: true })
+          const section = document.getElementById('section-' + sectionId)
+          if (!section) return
+          const toggle = section.querySelector('[data-toggle]')
+          if (toggle && toggle.getAttribute('aria-expanded') === 'false')
+            setSectionOpen(toggle, true)
+          if (typeof section.scrollIntoView === 'function') {
+            section.scrollIntoView({ block: 'start', behavior: 'smooth' })
+          }
+        }
+
+        function setSectionOpen(toggle, open) {
+          const id = toggle.dataset.toggle
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+          toggle.querySelector('.marker').textContent = open ? '▾' : '▸'
+          const body = $('body-' + id)
+          if (body) body.hidden = !open
+        }
+
+        function render() {
+          // ---- context bar
+          $('ctx-staged').textContent =
+            S.staged === 0
+              ? 'No staged operations'
+              : S.staged === 1
+                ? '1 staged operation'
+                : S.staged + ' staged operations'
+
+          const backChip = $('back-chip')
+          backChip.hidden = !(S.row !== null && S.verdict !== 'none' && S.task !== 'check')
+
+          const state = $('ctx-state')
+          const primary = $('ctx-button')
+          const secondary = $('ctx-secondary')
+          state.className = 'ctx-state'
+          secondary.hidden = true
+
+          if (S.busy) {
+            state.textContent = 'Validating the current dataset view…'
+            primary.textContent = 'Cancel'
+            primary.disabled = false
+            primary.dataset.action = 'cancel-validate'
+          } else if (!S.contract) {
+            state.textContent = 'No contract loaded'
+            primary.textContent = 'Open a contract…'
+            primary.disabled = false
+            primary.dataset.action = 'open-contract'
+          } else if (S.verdict === 'none') {
+            state.textContent = 'Contract loaded — not checked yet'
+            primary.textContent = 'Validate'
+            primary.disabled = false
+            primary.dataset.action = 'validate'
+          } else if (S.verdict === 'failing') {
+            state.textContent = 'The current check found failures'
+            primary.textContent = 'Review findings'
+            primary.disabled = false
+            primary.dataset.action = 'review'
+          } else if (S.verdict === 'stale') {
+            state.textContent =
+              "Verdict stale — the session's staged state changed after it was computed"
+            state.classList.add('is-stale')
+            primary.textContent = 'Recheck'
+            primary.disabled = false
+            primary.dataset.action = 'validate'
+            secondary.hidden = false
+            secondary.textContent = 'Review findings'
+          } else if (S.diff === 'stale') {
+            state.textContent = "Comparison stale — the session's staged state changed after it ran"
+            state.classList.add('is-stale')
+            primary.textContent = 'Review comparison'
+            primary.disabled = false
+            primary.dataset.action = 'rerun-diff'
+            secondary.hidden = false
+            secondary.textContent = 'Review findings'
+          } else if (S.verdict === 'valid') {
+            state.textContent = 'Verdict is current — no violations'
+            primary.textContent = 'Export a copy…'
+            primary.disabled = false
+            primary.dataset.action = 'export'
+          }
+
+          // ---- validation section
+          $('contract-state').textContent = S.contract
+            ? '9 rules loaded · nested-contract.yaml'
+            : 'No contract loaded.'
+          const validate = $('validate')
+          validate.disabled = !S.contract || S.busy
+          validate.textContent = S.busy ? 'Validating…' : 'Validate'
+          $('cancel-validate').hidden = !S.busy
+          const verdict = $('verdict')
+          verdict.className = 'verdict'
+          verdict.textContent =
+            S.verdict === 'failing'
+              ? '1 of 9 rules fail (12 rows checked).'
+              : S.verdict === 'stale'
+                ? '1 of 9 rules fail (12 rows checked).'
+                : S.verdict === 'valid'
+                  ? 'Valid: 0 violations across 9 rules (12 rows checked).'
+                  : ''
+          if (S.verdict === 'failing' || S.verdict === 'stale') verdict.classList.add('is-fail')
+          if (S.verdict === 'valid') verdict.classList.add('is-ok')
+          $('stale-banner').hidden = S.verdict !== 'stale'
+          $('ok-banner').hidden = S.verdict !== 'valid'
+
+          const rules = $('rules')
+          rules.innerHTML = ''
+          if (S.verdict !== 'none') {
+            for (const rule of RULES) {
+              const li = document.createElement('li')
+              const isFailing =
+                !rule.exact && !rule.ok && (S.verdict === 'failing' || S.verdict === 'stale')
+              if (isFailing) li.className = 'failing'
+              const id = document.createElement('code')
+              id.className = 'rule-id'
+              id.textContent = rule.id
+              const label = document.createElement('span')
+              label.textContent = ' ' + rule.label
+              const count = document.createElement('span')
+              count.className = 'rule-count'
+              count.textContent =
+                isFailing && S.verdict === 'valid' ? '0 of 12 rows (0%)' : rule.count
+              li.append(id, label, count)
+              if (isFailing && rule.sample) {
+                const sample = document.createElement('p')
+                sample.className = 'sample'
+                const key = document.createElement('span')
+                key.textContent = rule.sample.key
+                const text = document.createElement('span')
+                text.textContent = ' value '
+                const value = document.createElement('code')
+                value.textContent = rule.sample.value
+                const jump = document.createElement('button')
+                jump.type = 'button'
+                jump.textContent = 'Show row'
+                jump.addEventListener('click', function () {
+                  showRow(rule.sample.row, 'validation')
+                })
+                sample.append(key, text, value, jump)
+                li.append(sample)
+              }
+              if (isFailing) {
+                const filterButton = document.createElement('button')
+                filterButton.type = 'button'
+                filterButton.textContent = 'Show only failing rows'
+                filterButton.style.marginLeft = '8px'
+                filterButton.addEventListener('click', applyFailureFilter)
+                li.append(filterButton)
+                // Matches ValidationPanel: the replacement disclosure renders
+                // only while filters are already active (never "0 filters").
+                if (S.filter) {
+                  const note = document.createElement('span')
+                  note.className = 'filter-note'
+                  note.textContent = ' Replaces the current 1 filter'
+                  li.append(note)
+                }
+              }
+              rules.append(li)
+            }
+          }
+          $('filter-note').hidden = !S.filter
+
+          const summary = $('summary-validation')
+          const checkHasFailures = S.verdict === 'failing' || S.verdict === 'stale'
+          summary.hidden = !(checkHasFailures && S.task === 'check')
+          summary.textContent =
+            S.verdict === 'stale' ? 'Validation · stale' : 'Validation · 1 failing'
+
+          // ---- history
+          const cursor = $('history-cursor')
+          const list = $('history-list')
+          const summaryHistory = $('summary-history')
+          list.innerHTML = ''
+          if (S.staged === 0) {
+            cursor.textContent = 'No steps yet'
+            summaryHistory.hidden = true
+          } else {
+            cursor.textContent = 'Step 1 of 1 applied'
+            const li = document.createElement('li')
+            li.textContent = 'cell set fund_size = 1200 — applied'
+            list.append(li)
+            summaryHistory.hidden = S.task !== 'change'
+            summaryHistory.textContent = 'History · 1 pending'
+          }
+          $('pending-changes').textContent =
+            S.staged === 0 ? 'No staged changes' : '1 staged change (not yet exported)'
+          $('redo').disabled = true
+
+          // ---- filters
+          const chips = $('filter-chips')
+          chips.innerHTML = ''
+          if (S.filter) {
+            const chip = document.createElement('span')
+            chip.className = 'filter-chip'
+            const label = document.createElement('span')
+            label.textContent = S.filter
+            const remove = document.createElement('button')
+            remove.type = 'button'
+            remove.setAttribute('aria-label', 'Remove filter fund_size < 0')
+            remove.textContent = '×'
+            remove.addEventListener('click', function () {
+              S.filter = null
+              render()
+            })
+            chip.append(label, remove)
+            chips.append(chip)
+          }
+
+          // ---- compare
+          $('diff-state').textContent =
+            S.diff === 'none'
+              ? 'Not run.'
+              : S.diff === 'stale'
+                ? 'Ran before the latest staged operation.'
+                : 'Fresh.'
+          $('diff-stale').hidden = S.diff !== 'stale'
+          $('diff-result').hidden = S.diff === 'none'
+
+          // ---- grid
+          renderGrid()
+
+          // ---- record dock
+          const record = $('section-record')
+          record.hidden = S.row === null
+          if (S.row !== null) {
+            const row = ROWS.find((r) => r.n === S.row)
+            $('record-title').textContent = 'Record inspector — row ' + S.row
+            const fields = $('record-fields')
+            fields.innerHTML = ''
+            for (const pair of [
+              ['id', row.id],
+              ['name', row.name],
+              ['fund_size', S.staged ? '1200' : row.fund],
+              ['tags', row.tags],
+              ['meta', row.meta === null ? null : row.meta],
+            ]) {
+              const dt = document.createElement('dt')
+              dt.textContent = pair[0]
+              const dd = document.createElement('dd')
+              if (pair[1] === null) {
+                const span = document.createElement('span')
+                span.className = 'null-marker'
+                span.textContent = 'NULL'
+                dd.append(span)
+              } else {
+                dd.textContent = pair[1]
+              }
+              fields.append(dt, dd)
+            }
+            $('record-prev').disabled = S.row <= 1
+            $('record-next').disabled = S.row >= 12
+          }
+
+          // ---- export dialog
+          const backdrop = $('export-backdrop')
+          backdrop.hidden = !S.exportOpen
+          if (S.exportOpen) {
+            $('export-staged').textContent =
+              S.staged === 0
+                ? 'Includes no staged changes.'
+                : 'Includes 1 staged change — review in History.'
+            $('export-result').hidden = !S.exportDone
+            $('export-confirm').disabled = S.exportWorking
+            $('export-cancel').disabled = S.exportWorking
+            $('export-confirm').textContent = S.exportWorking ? 'Exporting…' : 'Export'
+          }
+        }
+
+        function renderGrid() {
+          const body = $('grid-body')
+          body.innerHTML = ''
+          // The prototype does apply the one failure filter the panel offers, so
+          // the post-click copy ("the grid is filtered to failing rows") is true.
+          const rows = S.filter ? ROWS.filter((row) => row.n === 5) : ROWS.slice(0, 6)
+          $('grid-range').textContent = S.filter
+            ? '1 filtered row of 12 · filters replace the current list'
+            : 'Rows 1–6 of 12 · page 1 of 2'
+          for (const row of rows) {
+            const tr = document.createElement('tr')
+            tr.tabIndex = 0
+            tr.dataset.row = String(row.n)
+            tr.setAttribute('aria-selected', S.row === row.n ? 'true' : 'false')
+            if (row.n === 5 && S.staged > 0) tr.classList.add('dirty')
+
+            const num = document.createElement('td')
+            num.className = 'row-num'
+            num.textContent = String(row.n)
+            tr.append(num)
+
+            for (const key of ['id', 'name']) {
+              const td = document.createElement('td')
+              td.textContent = row[key]
+              tr.append(td)
+            }
+
+            const fundCell = document.createElement('td')
+            if (row.n === 5 && S.staged > 0) fundCell.classList.add('dirty-cell')
+            if (S.editorRow === row.n) {
+              const input = document.createElement('input')
+              input.className = 'cell-input'
+              input.type = 'text'
+              input.value = row.fund === '-1' ? '1200' : row.fund
+              input.setAttribute('aria-label', 'fund_size for row 5')
+              input.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  commitRepair(input.value)
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  S.editorRow = null
+                  render()
+                  focusGridCell(5)
+                }
+              })
+              fundCell.append(input)
+              queueMicrotask(function () {
+                input.focus()
+                input.select()
+              })
+            } else {
+              const button = document.createElement('button')
+              button.type = 'button'
+              button.className = 'cell-button'
+              button.dataset.cell = row.n === 5 ? 'fund-5' : 'fund-' + row.n
+              button.textContent = row.n === 5 && S.staged > 0 ? '1200' : row.fund
+              button.addEventListener('click', function () {
+                if (row.n === 5) openEditor(5)
+              })
+              fundCell.append(button)
+              if (row.n === 5 && S.staged > 0) {
+                const flag = document.createElement('span')
+                flag.className = 'dirty-flag'
+                flag.textContent = ' ●'
+                flag.title = 'Staged change in this session'
+                fundCell.append(flag)
+              }
+            }
+            tr.append(fundCell)
+
+            for (const key of ['tags', 'meta']) {
+              const td = document.createElement('td')
+              if (key === 'meta' && row.meta === null) {
+                const span = document.createElement('span')
+                span.className = 'null-marker'
+                span.textContent = 'NULL'
+                td.append(span)
+              } else {
+                td.textContent = row[key]
+              }
+              tr.append(td)
+            }
+
+            tr.addEventListener('click', function (event) {
+              if (event.target.closest('button, input')) return
+              showRow(row.n, 'grid')
+            })
+            tr.addEventListener('keydown', function (event) {
+              if (event.key === 'Enter' && event.target === tr) {
+                event.preventDefault()
+                showRow(row.n, 'grid')
+              }
+            })
+            body.append(tr)
+          }
+        }
+
+        function openEditor(rowNumber) {
+          S.editorRow = rowNumber
+          S.row = rowNumber
+          render()
+        }
+
+        function commitRepair(raw) {
+          const value = String(raw).trim()
+          if (value === '' || Number.isNaN(Number(value))) {
+            $('grid-status').textContent = 'Enter a number for fund_size.'
+            render()
+            return
+          }
+          if (Number(value) < 0) {
+            $('grid-status').textContent = 'fund_size must be greater than or equal to 0.'
+            render()
+            return
+          }
+          S.editorRow = null
+          S.staged = 1
+          S.row = 5
+          if (S.verdict === 'failing' || S.verdict === 'valid') S.verdict = 'stale'
+          $('grid-status').textContent = 'Updated fund_size in row 5 · 1 staged change.'
+          render()
+        }
+
+        function focusGridCell(rowNumber) {
+          const button = document.querySelector('[data-cell="fund-' + rowNumber + '"]')
+          if (button) button.focus()
+        }
+
+        function showRow(rowNumber, origin) {
+          S.row = rowNumber
+          S.editorRow = null
+          render()
+          const record = $('section-record')
+          if (record && typeof record.scrollIntoView === 'function') {
+            record.scrollIntoView({ block: 'nearest' })
+          }
+          if (origin === 'validation') {
+            const closeButton = $('record-close')
+            if (closeButton) closeButton.focus()
+            setInstruction(
+              'Show row:',
+              'logical row ' +
+                rowNumber +
+                ' is selected and the record dock is open. Check stays active so the finding list is still one action away; the context bar now offers “Back to findings”.',
+            )
+          }
+        }
+
+        function closeRecord(returnFocus) {
+          const row = S.row
+          S.row = null
+          render()
+          if (returnFocus !== false) {
+            const tr = document.querySelector('tr[data-row="' + row + '"]')
+            if (tr) tr.focus()
+          }
+        }
+
+        function applyFailureFilter() {
+          S.filter = 'fund_size < 0'
+          render()
+          $('grid-status').textContent = 'Filters replaced with fund_size < 0 (1 active).'
+        }
+
+        function runValidation() {
+          if (!S.contract || S.busy) return
+          S.busy = true
+          render()
+          window.setTimeout(function () {
+            S.busy = false
+            S.verdict = S.staged > 0 ? 'valid' : 'failing'
+            render()
+          }, 420)
+        }
+
+        function cancelValidation() {
+          S.busy = false
+          render()
+          $('grid-status').textContent = 'Validation cancelled — the previous verdict is unchanged.'
+        }
+
+        // ------------------------------------------------------------------
+        // Dialog focus management (custom trap, matching ExportDialog's shape)
+        // ------------------------------------------------------------------
+        let lastOpener = null
+
+        function openExport() {
+          lastOpener = document.activeElement
+          S.exportOpen = true
+          S.exportDone = false
+          S.exportWorking = false
+          render()
+          const first = document.querySelector('#export-confirm')
+          if (first) first.focus()
+        }
+
+        function closeExport() {
+          if (S.exportWorking) return
+          S.exportOpen = false
+          render()
+          if (lastOpener && document.contains(lastOpener)) lastOpener.focus()
+        }
+
+        function exportFocusables() {
+          return Array.from(
+            document.querySelectorAll(
+              '#export-backdrop button, #export-backdrop input, #export-backdrop [tabindex]:not([tabindex="-1"])',
+            ),
+          ).filter(function (element) {
+            return !element.disabled
+          })
+        }
+
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') {
+            if (S.exportOpen) {
+              if (!S.exportWorking) {
+                event.preventDefault()
+                closeExport()
+              }
+              return
+            }
+            if (S.row !== null) {
+              event.preventDefault()
+              closeRecord()
+              return
+            }
+          }
+          if (S.exportOpen && event.key === 'Tab') {
+            const items = exportFocusables()
+            if (items.length === 0) return
+            const first = items[0]
+            const last = items[items.length - 1]
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault()
+              last.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault()
+              first.focus()
+            }
+          }
+        })
+
+        // ------------------------------------------------------------------
+        // Wiring
+        // ------------------------------------------------------------------
+        $('scenarios').addEventListener('click', function (event) {
+          const button = event.target.closest('button[data-scenario]')
+          if (!button) return
+          applyScenario(button.dataset.scenario)
+        })
+
+        $('steps').addEventListener('click', function (event) {
+          const button = event.target.closest('button[data-step]')
+          if (!button) return
+          const step = button.dataset.step
+          const copy = STEP_INSTRUCTION[step]
+          if (copy) setInstruction(copy.label, copy.text)
+          if (step === '1') {
+            S.contract = true
+            S.verdict = 'none'
+            S.staged = 0
+            S.row = null
+            activateTask('check', { focusTab: false })
+            revealSection('validation')
+            $('open-contract').focus()
+            render()
+          } else if (step === '2') {
+            S.contract = true
+            if (S.verdict === 'none') {
+              activateTask('check')
+              revealSection('validation')
+              runValidation()
+              $('validate').focus()
+            }
+          } else if (step === '3') {
+            if (S.verdict === 'none' || S.verdict === 'valid') S.verdict = 'failing'
+            activateTask('check')
+            revealSection('validation')
+            showRow(5, 'validation')
+          } else if (step === '4') {
+            if (S.verdict === 'none') S.verdict = 'failing'
+            activateTask('explore')
+            const cell = document.querySelector('[data-cell="fund-5"]')
+            if (cell) cell.focus()
+            openEditor(5)
+          } else if (step === '5') {
+            if (S.staged === 0) {
+              S.staged = 1
+              if (S.verdict === 'failing' || S.verdict === 'valid') S.verdict = 'stale'
+            }
+            render()
+            $('ctx-state').scrollIntoView({ block: 'center' })
+            $('ctx-button').focus()
+          } else if (step === '6') {
+            if (S.verdict !== 'stale') S.verdict = 'stale'
+            runValidation()
+            $('ctx-button').focus()
+          } else if (step === '7') {
+            if (S.verdict === 'stale') S.verdict = 'valid'
+            activateTask('change')
+            revealSection('history')
+            window.setTimeout(function () {
+              openExport()
+            }, 60)
+          }
+        })
+
+        $('toggle-anno').addEventListener('click', function () {
+          S.annotations = !S.annotations
+          document.body.classList.toggle('annotations-off', !S.annotations)
+          this.setAttribute('aria-pressed', S.annotations ? 'true' : 'false')
+          this.textContent = S.annotations ? 'Annotations on' : 'Annotations off'
+        })
+
+        $('toggle-narrow').addEventListener('click', function () {
+          S.narrow = !S.narrow
+          $('frame').classList.toggle('narrow', S.narrow)
+          this.setAttribute('aria-pressed', S.narrow ? 'true' : 'false')
+          // Re-applies section visibility: narrow keeps every section visible
+          // (ADR 0044 slice-1 stack), desktop shows the active task only.
+          applyTaskVisibility()
+          setInstruction(
+            S.narrow ? 'Narrow (900px):' : 'Desktop (≥1024px):',
+            S.narrow
+              ? 'the task strip becomes a group jump list and all sections stack in the documented slice-1 order with the grid promoted — no section is hidden and nothing clips.'
+              : 'one task surface at a time beside the persistent grid.',
+          )
+        })
+
+        $('reset-all').addEventListener('click', function () {
+          S.narrow = false
+          $('frame').classList.remove('narrow')
+          $('toggle-narrow').setAttribute('aria-pressed', 'false')
+          activateTask('explore')
+          applyTaskVisibility()
+          applyScenario('no-contract')
+        })
+
+        // pane collapse
+        $('pane-toggle').addEventListener('click', function () {
+          const tools = $('tools')
+          const collapsed = tools.dataset.pane !== 'collapsed'
+          tools.dataset.pane = collapsed ? 'collapsed' : 'expanded'
+          this.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
+          const label = collapsed ? 'Expand workbench pane' : 'Collapse workbench pane'
+          this.setAttribute('aria-label', label)
+          this.title = label
+          this.textContent = collapsed ? '▸' : '◂'
+        })
+
+        // task radio group: click + Arrow/Home/End with roving tabindex
+        $('task-tabs').addEventListener('click', function (event) {
+          const radio = event.target.closest('[role="radio"]')
+          if (!radio) return
+          activateTask(radio.id.replace('task-', ''))
+        })
+
+        $('task-tabs').addEventListener('keydown', function (event) {
+          const radios = Array.from(document.querySelectorAll('#task-tabs [role="radio"]'))
+          const current = radios.indexOf(document.activeElement)
+          if (current === -1) return
+          let next = current
+          if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
+            next = (current + 1) % radios.length
+          else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+            next = (current - 1 + radios.length) % radios.length
+          else if (event.key === 'Home') next = 0
+          else if (event.key === 'End') next = radios.length - 1
+          else return
+          event.preventDefault()
+          const target = radios[next]
+          activateTask(target.id.replace('task-', ''), { silent: true })
+          target.focus()
+        })
+
+        // section toggles
+        for (const toggle of document.querySelectorAll('[data-toggle]')) {
+          toggle.addEventListener('click', function () {
+            setSectionOpen(this, this.getAttribute('aria-expanded') !== 'true')
+          })
+        }
+
+        // validation controls
+        $('open-contract').addEventListener('click', function () {
+          S.contract = true
+          S.verdict = 'none'
+          render()
+          $('grid-status').textContent = 'Contract loaded: 9 rules (synthetic).'
+          $('validate').focus()
+        })
+        $('validate').addEventListener('click', runValidation)
+        $('cancel-validate').addEventListener('click', cancelValidation)
+
+        // context bar actions
+        $('ctx-button').addEventListener('click', function () {
+          const action = this.dataset.action
+          if (action === 'open-contract') {
+            activateTask('check')
+            revealSection('validation')
+            $('open-contract').focus()
+          } else if (action === 'validate') {
+            activateTask('check')
+            revealSection('validation')
+            runValidation()
+          } else if (action === 'cancel-validate') {
+            cancelValidation()
+          } else if (action === 'review') {
+            activateTask('check')
+            revealSection('validation')
+            $('verdict').setAttribute('tabindex', '-1')
+            $('verdict').focus()
+          } else if (action === 'rerun-diff') {
+            activateTask('check')
+            revealSection('compare')
+            setSectionOpen(document.querySelector('[data-toggle="compare"]'), true)
+            $('run-diff').focus()
+          } else if (action === 'export') {
+            activateTask('change')
+            revealSection('export')
+            openExport()
+          }
+        })
+
+        $('ctx-secondary').addEventListener('click', function () {
+          activateTask('check')
+          revealSection('validation')
+          $('verdict').setAttribute('tabindex', '-1')
+          $('verdict').focus()
+        })
+
+        $('back-chip').addEventListener('click', function () {
+          activateTask('check')
+          revealSection('validation')
+          $('verdict').setAttribute('tabindex', '-1')
+          $('verdict').focus()
+        })
+
+        // compare
+        $('run-diff').addEventListener('click', function () {
+          S.diff = 'fresh'
+          render()
+          $('grid-status').textContent =
+            'Row diff complete (prototype): 2 added, 2 removed, 2 changed.'
+        })
+
+        // history
+        $('undo').addEventListener('click', function () {
+          if (S.staged === 0) return
+          S.staged = 0
+          if (S.verdict === 'stale') S.verdict = 'failing'
+          render()
+          $('grid-status').textContent =
+            'Undo: back to the base view; the previous verdict is stale.'
+        })
+
+        // record dock
+        $('record-close').addEventListener('click', function () {
+          closeRecord()
+        })
+        $('record-prev').addEventListener('click', function () {
+          if (S.row !== null && S.row > 1) showRow(S.row - 1, 'step')
+        })
+        $('record-next').addEventListener('click', function () {
+          if (S.row !== null && S.row < 12) showRow(S.row + 1, 'step')
+        })
+
+        // export
+        $('export-open').addEventListener('click', openExport)
+        $('export-cancel').addEventListener('click', closeExport)
+        $('export-confirm').addEventListener('click', function () {
+          if (S.exportWorking) return
+          S.exportWorking = true
+          S.exportDone = false
+          render()
+          window.setTimeout(function () {
+            S.exportWorking = false
+            S.exportDone = true
+            render()
+          }, 520)
+        })
+
+        // start
+        applyTaskVisibility()
+        applyScenario('no-contract')
+      })()
+    </script>
+  </body>
+</html>
