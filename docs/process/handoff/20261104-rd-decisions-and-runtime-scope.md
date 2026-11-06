@@ -178,3 +178,52 @@ Gates and the CDN finding: [map §6.6](20261104-svg-implementation-map.md); runt
 **Why A was chosen:** it uses an existing seam, adds no copy and no second surface, and cannot
 duplicate the message; the rejected alternatives were a grid-footer mirror (two render locations) and
 a context-bar sentence (would need a copy decision and break the one-action rule).
+
+## 9. hf-1 authorization — deterministic e2e extensions (2026-11-04, maintainer)
+
+**Instruction.** _"We should also fix the wasm issues."_ Scoped to the finding in
+[map §6.6](20261104-svg-implementation-map.md): the web e2e open path autoloads the DuckDB-WASM
+Parquet/JSON extensions from `extensions.duckdb.org`, so browser gates inherit an external dependency.
+
+**Measured before authorizing** (probe spec, fresh context, CDN blocked): Parquet and JSONL opens
+fail; CSV is unaffected; serving the **already-committed, checksum-pinned** binaries from
+`apps/vscode/assets/duckdb/*.pinned` through a Playwright route makes both open `ready` with the CDN
+blocked. The desktop surface already vendors exactly these files and blocks the host, so this reuses
+an existing vetted asset rather than introducing one.
+
+**Authorized scope (test harness only):**
+
+1. A shared e2e fixture that intercepts `https://extensions.duckdb.org/**` before any navigation and
+   fulfils it from the pinned binaries (`application/wasm`), aborting unknown paths loudly so a future
+   extension dependency fails visibly instead of silently reaching the network.
+2. Migrating the e2e specs to that fixture so **every** browser context gets it (the interception is
+   per-context; a helper-only route would miss the specs that `goto` directly).
+3. A spec that proves Parquet **and** JSONL open with the real host unreachable, so the determinism
+   claim is pinned rather than assumed.
+
+**Forbidden:** any product/runtime change (no engine, web, bundle, CSP or config change); changing
+what production does; vendoring new binaries (reuse the committed ones, do not "refresh" them);
+touching `packages/**`, `apps/**` non-test source, thresholds, timeouts or allowlists; push.
+**Out of scope by decision:** bundling the extensions into the web build for offline parity — that is
+a product decision (bundle size ≈ 3.6 MB, CSP/supply-chain review) and is NOT authorized here.
+
+**Baseline:** `9c947a4`. **Rollback:** revert the one commit (tests only).
+
+## 10. rd-5 authorization — scope-first (2026-11-04, maintainer)
+
+**Instruction.** _"on the current block, I think we can proceed with your recommendations"_ — the
+recommendation was to take **rd-5** next and scope it before any code, as with rd-3b/rd-3c.
+
+**Scope being authorized:** `rd-5 — compare and reviewed export`, bounded to confirmed-key A/B
+context before row findings, A-only navigation, and whole-current-dataset delivery continuity with
+the existing diff/export semantic, report-byte and CLI-agreement tests preserved. No subset export,
+no second dataset view, no engine/domain/protocol change.
+
+**Decision to make inside the scope (record the choice before dispatch):** whether the context bar's
+diff action stays `Review comparison` (focuses the panel's existing run control, because key state
+lives in the panel) or becomes a one-click rerun, which would require a scoped panel/session change.
+**Default recommendation:** keep `Review comparison` and close the gap only if the journey test shows
+it is a real friction — that avoids widening a session-hook lane the invariants protect.
+
+**Sequencing:** hf-1 (§9) is executed first so rd-5's gate evidence is not polluted by the CDN
+flake. rd-6/rd-7 and SV-D02…SV-D05 remain unauthorized.
