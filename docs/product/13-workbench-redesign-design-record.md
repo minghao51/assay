@@ -468,3 +468,28 @@ Existing uncommitted work (`docs/process/handoff.md` + the untracked SVG/spec pa
 - One unexplained intermittent Parquet-open failure occurred in the first merged full run and did not reproduce on the second, on isolated reruns, in a 12/12 diagnostic loop, or on the pre-rd-3b baseline (14/14). Recorded with its evidence in map §6.5 rather than dismissed.
 - No human usability session or AT review; **RD-T07 remains unsatisfied**, and no usability claim is made.
 - rd-5, rd-6, rd-7 and optional SV-D02…SV-D05 remain unauthorized; nothing was pushed.
+
+## 11. Runtime slice record — rd-3c (2026-11-04)
+
+**Authorized by:** the maintainer's _"lets proceed with A"_, bounded to the [rd-3c contract](../process/handoff/20261104-rd3c-edit-feedback.md) (record: [decisions and runtime scope](../process/handoff/20261104-rd-decisions-and-runtime-scope.md) §8). **Baseline:** `5397b9b`. **Merged:** `acc8aff` (one squashed reviewed commit, one `@assay/web` patch changeset). **Merged gates:** [map §6.6](../process/handoff/20261104-svg-implementation-map.md).
+
+**The defect it closes:** rd-3b exposed only the active task's sections. The durable edit error — engine rejection, cast refusal, non-applied op — renders in the Editing toolbar (Change), so from Explore a sighted user's rejected edit silently reverted. In-tree evidence: the rd-3b migration had to add `activateTask(page, 'change')` to the engine-rejection journey test before it could assert the message. Client-side typed-input rejections (`grid-edit-error`, grid footer) and the polite live region were never affected.
+
+**Delivered:** an `App.tsx` effect that reveals the Editing section through the existing `revealSectionFromNav` seam when `editError` transitions to non-null — activating Change, expanding the section, and scrolling the **section element** into view via a new opt-in `{ scroll?: boolean }` seam option (default `false`, so every other caller is byte-identical in behaviour); a ref guards once-per-error (initialised to the mount value, reset only when the error clears); the no-op case (Change active + Editing open) is skipped; **no focus call anywhere**; `useEditingSession`, the grid, the messages, the live region and every approved string are untouched.
+
+**Deviations from the written contract, reviewed:**
+
+1. **A transient app-local state was added** (`{ id, seq }` scroll request) although the contract said "no new state field". The reviewer judged it acceptable plumbing for the render-then-act scroll (the same shape as the existing `panelFocus`) rather than duplicated durable/session state, and required the changeset wording to say exactly that — the release note now says "no new **durable or session** state" and names the transient request. Corrected at merge.
+2. **"The grid keeps focus" was mis-specified by the orchestrator**, not by the implementer: the reveal adds no focus call, but the commit's own editor unmount leaves `document.activeElement` on `<body>` (pre-existing grid behaviour). The browser pin therefore asserts "focus is not moved into the pane", and the limitation is recorded here rather than claimed away.
+3. **The first implementation did not scroll at all** — the reviewer's Critical: `revealSectionFromNav` is not a link, so it never gets the anchor's scroll. Fixed with the opt-in option above; the reviewer independently re-ran the mutation (dropping `{scroll:true}`) and saw the intended assertion fail. The viewport assertion alone is insensitive at 1024×700 because the pane's content collapses to fit once Explore's sections hide; the load-bearing pin is the recorded `scrollIntoView` request on `section-editing`, which the reviewer accepted in preference to a fragile short-viewport case.
+
+**Independent review:** `openai-codex/gpt-6-luna` xhigh, separate session from the implementer (deepseek-v4.1-flash). Two request-changes rounds (Critical: no scroll; then the release-note accuracy) → **approve**. Its own gates: format/lint/typecheck/unit/build/docs/ADR green, configured telemetry green, restored stock green, its own mutation-and-restore clean, and the focus + ref-guard semantics confirmed correct (returning to Explore with the error still on record stays in Explore; a cleared error then a later error reveals again).
+
+**Residual limitations (carry forward):**
+
+- After a rejected edit the cell editor unmounts and `document.activeElement` falls to `<body>` (pre-existing, unchanged by rd-3c); the reveal itself never moves focus.
+- Identical repeated error text without an intervening clear does not re-reveal. Intended by the ref guard: the user is already in Change with the message visible.
+- The pending-change **detail** stays task-local by decision; the context bar's staged count is the always-visible summary.
+- A collapsed pane rail is respected — the reveal does not auto-expand it, so a rail user still does not see the pane message (announced via the live region only).
+- **The browser gate depends on an external CDN**: the DuckDB-WASM Parquet/JSON extension autoloads from `extensions.duckdb.org`, so full-suite runs intermittently fail in the open phase (3 of 4 runs for this slice; always green on isolated rerun and once fully green). Recorded with the captured URL and a proposed (unauthorized) harness follow-up in map §6.6.
+- No human usability session or AT review; **RD-T07 remains unsatisfied**. No push.

@@ -168,6 +168,13 @@ count is the always-visible summary); a collapsed pane rail is respected; no cop
 field or `useEditingSession` change; no `packages/**`, grid/session/engine/export bytes, telemetry,
 dependency or threshold change; no push. **Baseline:** `5397b9b`.
 
+**Delivered and CLOSED (2026-11-04) — merged `acc8aff`.** The first implementation did not actually
+scroll (the reviewer's Critical: a programmatic reveal never gets a link's `href` scroll), fixed with
+an opt-in `{ scroll?: true }` seam option plus a seq-keyed render-then-scroll effect; the second round
+was the release-note accuracy. Independent `gpt-6-luna` xhigh review: two request-changes → **approve**.
+Gates and the CDN finding: [map §6.6](20261104-svg-implementation-map.md); runtime record:
+[design record §11](../../product/13-workbench-redesign-design-record.md).
+
 **Why A was chosen:** it uses an existing seam, adds no copy and no second surface, and cannot
 duplicate the message; the rejected alternatives were a grid-footer mirror (two render locations) and
 a context-bar sentence (would need a copy decision and break the one-action rule).
