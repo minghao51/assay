@@ -469,6 +469,172 @@ body {
   text-decoration: underline;
 }
 
+/*
+ * UI-RD-01 task navigation. The task switcher is a single-select radio group
+ * (not tabs: the shell has no tabpanel). The section-link groups below it keep
+ * one `section-nav-<id>` link per section. All groups stay exposed in this
+ * slice; the active group is marked and conditional exposure is deferred.
+ */
+.workbench-task-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0.75rem 0 0;
+  padding: 0.35rem 0 0;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+.workbench-task-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 3px;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.workbench-task-choice:focus-visible,
+.workbench-context-primary:focus-visible,
+.workbench-context-chip:focus-visible,
+.workbench-context-link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.workbench-task-choice {
+  flex: 1 1 auto;
+  min-height: var(--control-height-compact);
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-size: var(--font-size-metadata);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.workbench-task-choice:hover {
+  background: var(--color-hover);
+}
+
+.workbench-task-choice[aria-checked='true'] {
+  color: var(--color-accent-text);
+  background: var(--color-surface);
+  border-color: var(--color-accent-border);
+}
+
+.workbench-task-purpose {
+  margin: var(--space-1) 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-metadata);
+}
+
+.workbench-nav-group + .workbench-nav-group {
+  margin-top: 0.2rem;
+}
+
+/*
+ * Dataset/session context bar (rd-3/rd-4): one line of neutral facts plus one
+ * next action. It sits inside the center column so the compact ready-header
+ * budget (R-11) is not re-opened, and it introduces no filename.
+ */
+.workbench-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-metadata);
+}
+
+.workbench-context-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--color-text-secondary);
+}
+
+.workbench-context-label {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.workbench-context-sep {
+  color: var(--color-text-faint);
+}
+
+.workbench-context-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.workbench-context-state {
+  color: var(--color-text);
+}
+
+.workbench-context-state[data-tone='stale'] {
+  color: var(--color-stale-text);
+  font-weight: 600;
+}
+
+.workbench-context-state[data-tone='ok'] {
+  color: var(--color-ok-text);
+}
+
+.workbench-context-primary {
+  min-height: var(--control-height-compact);
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-size: var(--font-size-metadata);
+  font-weight: 600;
+  color: var(--color-accent-text);
+  background: var(--color-accent-surface);
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.workbench-context-primary:hover {
+  background: var(--color-accent-subtle-hover);
+}
+
+.workbench-context-chip {
+  min-height: var(--control-height-compact);
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-size: var(--font-size-metadata);
+  color: var(--color-accent-text);
+  background: var(--color-accent-surface);
+  border: 1px solid var(--color-accent-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.workbench-context-link {
+  min-height: var(--control-height-compact);
+  padding: 0 var(--space-1);
+  font: inherit;
+  font-size: var(--font-size-metadata);
+  color: var(--color-accent-text);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* Anchor target offset: clear the ~2rem pinned nav plus a readable gap. */
 .workbench-section {
   scroll-margin-top: 3.25rem;
@@ -661,6 +827,17 @@ body {
 }
 
 @media (min-width: 1024px) {
+  /* UI-RD-01 (first slice): the active task's tool sections are marked, not
+     hidden. Every section stays reachable (ADR 0044) and every panel stays
+     mounted; conditional task visibility is a follow-up reviewed slice once
+     the legacy panel-expansion journeys are migrated deliberately. */
+  .workbench-tools[data-task='explore'] .workbench-section[data-task='explore'],
+  .workbench-tools[data-task='check'] .workbench-section[data-task='check'],
+  .workbench-tools[data-task='change'] .workbench-section[data-task='change'],
+  .workbench-tools[data-task='prepare'] .workbench-section[data-task='prepare'] {
+    box-shadow: inset 3px 0 0 var(--color-accent-border);
+  }
+
   .workbench-layout {
     display: grid;
     /* uxv-3 / R-11: the tool pane is a fixed 320px column at 1024–1199px and
@@ -793,17 +970,16 @@ h1 {
 .grid-viewport {
   /*
    * uxv-3 / R-11: the grid's scroll viewport is bounded so the ready frame stays usable without the
-   * page scrolling for the grid's sake. The reserve is the MEASURED space above and below the
-   * viewport, not the spec's 240px candidate: at 1024×700 that reserve is 268.27px
-   * (211.27px above the viewport + a 3px gap + the 54px footer), so a 280px reserve yields a 420px
-   * viewport with the footer's last pixel at 688.27 — 11.73px of slack below 700. The 240px
-   * candidate would give a 460px viewport, put the footer's last pixel at 728.27 (28.27px below the
-   * fold at 700) and defeat 1440×900 as well (footer bottom 916.27). Row geometry stays 28px, the
-   * header measurement, horizontal scroll, overscan contracts and the record dock are untouched, and
-   * the JS row estimate is never changed; extra copy or zoom scrolls rather than clips.
+   * page scrolling for the grid's sake. The reserve is the MEASURED chrome above and below the
+   * viewport. rd-3 added the dataset context bar inside the center column (measured 76px at
+   * 1024px, where it wraps), so the reserve moved 280 → 360: at 1024×700 the viewport is 340px and
+   * the footer's last pixel lands at ~692, keeping the whole footer inside the 700px fold (the
+   * pre-context-bar 280px reserve would put it at ~702). The floor/ceiling (280/640) and row
+   * geometry (28px) are unchanged; horizontal scroll, overscan and the record dock are untouched,
+   * and the JS row estimate is never changed — extra copy or zoom scrolls rather than clips.
    */
-  height: clamp(280px, calc(100vh - 280px), 640px);
-  height: clamp(280px, calc(100dvh - 280px), 640px);
+  height: clamp(280px, calc(100vh - 360px), 640px);
+  height: clamp(280px, calc(100dvh - 360px), 640px);
   /* One scroll context owns both axes: wide column tracks pan here (the
      header, now a child, pans with the rows); vertical virtualization keeps
      working because this remains the virtualizer's scroll element. */

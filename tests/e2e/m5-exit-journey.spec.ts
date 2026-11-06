@@ -270,6 +270,9 @@ async function jumpToSample(
   const target = row(page, rowIndex)
   await expect(target).toHaveAttribute('data-status', 'ready')
   await expect(target).toBeInViewport()
+  // rd-4: a finding jump records its origin app-locally, so the context bar
+  // offers an explicit return to the findings. It is never captured run data.
+  await expect(page.getByTestId('context-back-to-findings')).toBeVisible()
 }
 
 /**

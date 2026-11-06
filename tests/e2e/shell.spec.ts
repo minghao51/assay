@@ -42,24 +42,24 @@ const CUSTOMERS = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.par
 const NAV_ORDER = [
   'schema',
   'filters',
-  'grid',
+  'sql',
+  'profile',
   'validation',
   'compare',
-  'sql',
   'editing',
   'history',
   'export',
-  'record',
-  'profile',
   'pipeline',
+  'grid',
+  'record',
 ] as const
 
 /** Two-pane DOM order: tool pane first (tools-left), then the center column. */
 const DOM_ORDER = [
   'schema',
   'editing',
-  'export',
   'history',
+  'export',
   'validation',
   'compare',
   'filters',
@@ -74,8 +74,8 @@ const DOM_ORDER = [
 const HEADING_MAP = [
   'Schema',
   'Editing',
-  'Export',
   'History',
+  'Export',
   'Validation',
   'Compare',
   'Filters',
@@ -136,19 +136,21 @@ test('two-pane shell at ≥1024px: tools left, persistent grid center, rail', as
   await expect(nav.locator('a')).toHaveText([
     'Schema',
     'Filters',
-    'Grid',
+    'SQL',
+    'Profile',
     'Validation',
     'Compare',
-    'SQL',
     'Editing',
     'History',
     'Export',
-    'Record',
-    'Profile',
     'Pipeline',
+    'Grid',
+    'Record',
   ])
-  // q-15 placement ruling: pipeline stays last in the nav as well.
-  await expect(nav.locator('a').last()).toHaveText('Pipeline')
+  // q-15 placement ruling: pipeline stays the last TOOL section; the
+  // Grid/Record workspace anchors follow it.
+  await expect(nav.locator('a').nth(9)).toHaveText('Pipeline')
+  await expect(nav.locator('a').last()).toHaveText('Record')
   for (const id of NAV_ORDER) {
     await expect(page.getByTestId(`section-nav-${id}`)).toHaveAttribute('href', `#section-${id}`)
   }
@@ -336,8 +338,8 @@ interface DesktopSample {
 /**
  * The three desktop samples. Gutter step 16 → 24 at 1440px; pane step
  * 320 → 360 at 1200px; 16px gap; grid column = main − pane − gap. The grid
- * viewport height is `clamp(280px, calc(100dvh − 280px), 640px)` (see the
- * `.grid-viewport` rule and the uxv-3 report for why the reserve is 280).
+ * viewport height is `clamp(280px, calc(100dvh − 360px), 640px)` (see the
+ * `.grid-viewport` rule: the reserve includes the dataset context bar).
  */
 const DESKTOP_SAMPLES: readonly DesktopSample[] = [
   {
@@ -348,7 +350,7 @@ const DESKTOP_SAMPLES: readonly DesktopSample[] = [
     mainWidth: 992,
     paneWidth: 320,
     gridColumnWidth: 656,
-    gridViewportHeight: 420,
+    gridViewportHeight: 340,
   },
   {
     label: '1440×900',
@@ -358,7 +360,7 @@ const DESKTOP_SAMPLES: readonly DesktopSample[] = [
     mainWidth: 1392,
     paneWidth: 360,
     gridColumnWidth: 1016,
-    gridViewportHeight: 620,
+    gridViewportHeight: 540,
   },
   {
     label: '1920×1080',
@@ -418,6 +420,7 @@ for (const sample of DESKTOP_SAMPLES) {
     const main = await measure(page, 'main')
     const pane = await measure(page, '.workbench-tools')
     const gridColumn = await measure(page, '#section-grid')
+    const center = await measure(page, '.workbench-center')
     const layout = await measure(page, '.workbench-layout')
 
     // Outer gutters: the page inset is the only horizontal inset (no
@@ -431,8 +434,10 @@ for (const sample of DESKTOP_SAMPLES) {
     expectMatrixValue(gridColumn.x - (pane.x + pane.width), 16, 'pane/grid gap')
     expectMatrixValue(gridColumn.width, sample.gridColumnWidth, 'grid column width')
 
-    // The pane is beside the grid column and starts at the same top edge.
-    expect(Math.abs(gridColumn.y - pane.y)).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX)
+    // The pane, and the center COLUMN, start at the same top edge. The grid
+    // section sits below the dataset context bar inside that column.
+    expect(Math.abs(center.y - pane.y)).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX)
+    expect(gridColumn.y).toBeGreaterThan(center.y)
 
     // Ready workspace top budget (compact header) and the bounded grid height.
     expect(

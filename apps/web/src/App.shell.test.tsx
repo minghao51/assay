@@ -76,33 +76,33 @@ vi.mock('./lib/engine', () => ({
 afterEach(cleanup)
 
 /**
- * The sticky-nav reading order — ug-22 (2026-11-02): schema, filters, grid,
- * validation, compare, sql, editing, history, export, record, profile,
- * pipeline. ADR 0044 / D14 and the q-15 placement ruling authorize the NAV
- * order only, so this list is deliberately the inverse-looking case of
- * `DOM_ORDER` below: the DOM keeps the two-pane order byte-for-byte.
+ * UI-RD-01 (2026-11-04): the section links are rendered in task membership
+ * order — Explore (schema, filters, sql, profile), Check (validation,
+ * compare), Change (editing, history, export), Prepare (pipeline), then the
+ * Grid/Record workspace anchors. The DOM stays flat with one deliberate
+ * within-Change reorder (History before Export); there are no task wrappers.
  */
 const NAV_ORDER = [
   'schema',
   'filters',
-  'grid',
+  'sql',
+  'profile',
   'validation',
   'compare',
-  'sql',
   'editing',
   'history',
   'export',
-  'record',
-  'profile',
   'pipeline',
+  'grid',
+  'record',
 ] as const
 
 /** The two-pane DOM order: tool pane first (tools-left), then the center. */
 const DOM_ORDER = [
   'schema',
   'editing',
-  'export',
   'history',
+  'export',
   'validation',
   'compare',
   'filters',
@@ -191,8 +191,8 @@ describe('q-15 — workbench two-pane shell', () => {
     expect(Array.from(tools).map((section) => section.getAttribute('data-section'))).toEqual([
       'schema',
       'editing',
-      'export',
       'history',
+      'export',
       'validation',
       'compare',
       'filters',
@@ -294,14 +294,11 @@ describe('q-15 — workbench two-pane shell', () => {
       link.getAttribute('data-testid'),
     )
     expect(linkIds).toEqual(NAV_ORDER.map((id) => `section-nav-${id}`))
-    // q-15 placement ruling: pipeline stays LAST in the nav reading order too.
-    expect(linkIds[linkIds.length - 1]).toBe('section-nav-pipeline')
-    // `filters` now reads before `grid` in the nav (ADR 0044 / D14 authorize the
-    // nav reading order only), while the tool pane's section element order stays
-    // untouched below. The nav↔DOM decoupling itself is pinned in its own test
-    // ("keeps the nav reading order decoupled…"): a `.workbench-tools`-scoped
-    // query never contains `grid` (it renders in `.workbench-center`), so a
-    // grid/filters relation asserted over it would be trivially true.
+    // q-15 placement ruling: pipeline stays the last TOOL section in the nav;
+    // the Grid/Record workspace anchors follow it.
+    expect(linkIds[9]).toBe('section-nav-pipeline')
+    expect(linkIds.slice(10)).toEqual(['section-nav-grid', 'section-nav-record'])
+    // Explore reads filters before grid, and grid is a workspace anchor.
     expect(linkIds.indexOf('section-nav-filters')).toBeLessThan(linkIds.indexOf('section-nav-grid'))
     const domSectionIds = Array.from(
       document.querySelectorAll('.workbench-tools .workbench-section'),
@@ -315,36 +312,52 @@ describe('q-15 — workbench two-pane shell', () => {
     }
   })
 
-  it('keeps the nav reading order decoupled from the two-pane DOM order (ug-22)', async () => {
+  it('groups the nav by task exactly and keeps a flat DOM with one Change reorder', async () => {
     await open()
 
-    // Both sides are read from the RENDERED shell, never from the pinned
-    // literals — this is an observation of the shipped App, not a restatement of
-    // the test's own arrays. (The raw lists themselves are pinned by the two
-    // tests above: the nav order and the two-pane section order.)
-    const navIds = Array.from(screen.getByTestId('section-nav').querySelectorAll('a')).map((link) =>
-      (link.getAttribute('data-testid') ?? '').replace('section-nav-', ''),
-    )
+    const groups = ['explore', 'check', 'change', 'prepare'] as const
+    const expected: Record<(typeof groups)[number], readonly string[]> = {
+      explore: ['schema', 'filters', 'sql', 'profile'],
+      check: ['validation', 'compare'],
+      change: ['editing', 'history', 'export'],
+      prepare: ['pipeline'],
+    }
+    for (const task of groups) {
+      const group = screen.getByTestId(`section-nav-group-${task}`)
+      const ids = Array.from(group.querySelectorAll('a')).map((link) =>
+        (link.getAttribute('data-testid') ?? '').replace('section-nav-', ''),
+      )
+      expect(ids).toEqual([...expected[task]])
+    }
+    // Workspace anchors are not task sections.
+    const workspace = screen.getByTestId('section-nav-group-workspace')
+    expect(
+      Array.from(workspace.querySelectorAll('a')).map((link) => link.getAttribute('data-testid')),
+    ).toEqual(['section-nav-grid', 'section-nav-record'])
+
+    // Flat DOM: the shipped section order (History before Export in Change).
     const domIds = Array.from(document.querySelectorAll('.workbench-section')).map(
       (section) => section.getAttribute('data-section') ?? '',
     )
+    expect(domIds).toEqual([...DOM_ORDER])
+    // No task wrapper elements were introduced.
+    expect(document.querySelector('.workbench-tools .task-scope')).toBeNull()
+    expect(
+      Array.from(document.querySelectorAll('.workbench-tools-body > .workbench-section')).length,
+    ).toBe(10)
+  })
 
-    // Guard against a vacuous comparison: both ids must really be present on
-    // both sides, otherwise both indexes are -1 and the assertions below would
-    // pass for the wrong reason.
-    for (const id of ['filters', 'grid'] as const) {
-      expect(navIds.indexOf(id)).toBeGreaterThanOrEqual(0)
-      expect(domIds.indexOf(id)).toBeGreaterThanOrEqual(0)
-    }
+  it('reopens a collapsed Grid from its workspace anchor (R-07/nav regression)', async () => {
+    await open()
 
-    // ADR 0044 / D14 + the q-15 placement ruling authorize the nav reading order
-    // ONLY, so for these two ids nav and DOM must genuinely disagree: the nav
-    // reads filters (index 1) then grid (index 2), while the two-pane DOM keeps
-    // filters in the tool pane (index 6) and grid as the center column (index
-    // 10). A change that makes the two orders agree — a DOM reorder, or a nav
-    // order copied from the DOM — fails here.
-    expect(navIds.indexOf('grid')).not.toBe(domIds.indexOf('grid'))
-    expect(navIds.indexOf('filters')).not.toBe(domIds.indexOf('filters'))
+    const gridToggle = screen.getByTestId('section-toggle-grid')
+    expect(gridToggle.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(gridToggle)
+    expect(gridToggle.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(screen.getByTestId('section-nav-grid'))
+    expect(gridToggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByTestId('grid')).toBeTruthy()
   })
 
   it('expands the target section when its sticky-nav link is activated', async () => {

@@ -61,6 +61,23 @@ import { engineClient } from './lib/engine'
 import { classifyHistoryShortcut, shouldAutoExpandHistory } from './lib/history-shortcut'
 import { NO_COLUMNS, useModelSlice } from './lib/use-model-slice'
 import { usePipelineSession } from './pipeline/usePipelineSession'
+import { DatasetContextBar } from './workbench/DatasetContextBar'
+import { TaskNav } from './workbench/TaskNav'
+import { deriveNextAction } from './workbench/next-action'
+import type {
+  NextActionContract,
+  NextActionDiff,
+  NextActionValidation,
+} from './workbench/next-action'
+import {
+  DEFAULT_WORKBENCH_TASK,
+  WORKBENCH_SECTIONS,
+  WORKBENCH_SECTION_PURPOSES,
+  sectionsForTask,
+  taskOfSection,
+  type WorkbenchSectionId,
+  type WorkbenchTaskId,
+} from './workbench/tasks'
 import { RecordInspector } from './record/RecordInspector'
 import type { RecordRequest } from './record/RecordInspector'
 import { parseDuckDbType } from './schema/parseType'
@@ -77,7 +94,7 @@ import { useDatasetSession } from './sessions/session-reset'
 import { useEditingSession } from './sessions/useEditingSession'
 import { useValidationSession } from './sessions/useValidationSession'
 import { useDiffSession } from './sessions/useDiffSession'
-import type { Phase, ScrollRequest } from './sessions/types'
+import type { NavigateToRow, Phase, ScrollRequest } from './sessions/types'
 import { readWebTelemetryConfig } from './telemetry/config'
 import {
   diffRunOutcome,
@@ -197,90 +214,19 @@ const MemoRecordInspector = memo(RecordInspector)
 /**
  * q-15 — workbench shell slice 2, the ≥1024px grid-centric two-pane shell
  * (spec docs/product/05-workbench-shell.md §3; ADR 0044). At ≥1024px the grid
- * is the persistent center column and the tool sections (schema, editing,
- * export, history, validation, compare, filters, sql, profile, pipeline) live
- * in a collapsible left pane; below 1024px the SAME DOM renders as the slice-1
- * single-column stack via CSS `display: contents` + `order` (index.css).
+ * is the persistent center column and the tool sections live in a collapsible
+ * left pane; below 1024px the SAME DOM renders as the slice-1 single-column
+ * stack via CSS `display: contents` + `order` (index.css).
  *
- * `WORKBENCH_SECTIONS` is the sticky nav's READING ORDER (ug-22, 2026-11-02):
- * schema, filters, grid, validation, compare, sql, editing, history, export,
- * record, profile, pipeline — the "why do my rows look like this?" loop
- * (filter → validate → compare → query) instead of the pane's file-creation
- * order. It is deliberately decoupled from the two-pane DOM order: **ADR 0044 /
- * D14 and the q-15 placement ruling authorize the nav reading order ONLY** —
- * the section element order in the JSX, the heading map and the two-pane layout
- * are unchanged, so the nav can be reordered without moving a section in the
- * DOM. The heading-map pin (`App.headings.test.tsx`) asserts that unchanged DOM
- * order; `App.shell.test.tsx` pins the nav list and the DOM list separately.
- *
- * Panel-placement ruling (queue 2026-10-02, closes p-5/p2-6): "pipeline" is a
- * tool-pane resident ordered last (after profile) in both layouts — and it is
- * last in the nav reading order too. The former "PROVISIONAL placement" note is
- * resolved; do not reorder the DOM without a new ruling.
- */
-type WorkbenchSectionId =
-  | 'schema'
-  | 'grid'
-  | 'editing'
-  | 'export'
-  | 'history'
-  | 'validation'
-  | 'compare'
-  | 'filters'
-  | 'record'
-  | 'sql'
-  | 'profile'
-  | 'pipeline'
-
-const WORKBENCH_SECTIONS: ReadonlyArray<{
-  readonly id: WorkbenchSectionId
-  readonly title: string
-}> = [
-  { id: 'schema', title: 'Schema' },
-  { id: 'filters', title: 'Filters' },
-  { id: 'grid', title: 'Grid' },
-  { id: 'validation', title: 'Validation' },
-  { id: 'compare', title: 'Compare' },
-  { id: 'sql', title: 'SQL' },
-  { id: 'editing', title: 'Editing' },
-  { id: 'history', title: 'History' },
-  { id: 'export', title: 'Export' },
-  { id: 'record', title: 'Record' },
-  { id: 'profile', title: 'Profile' },
-  // Panel-placement ruling (queue 2026-10-02): tool-pane resident, ordered
-  // last (after profile) in both layouts — see the doc comment above.
-  { id: 'pipeline', title: 'Pipeline' },
-]
-
-/**
- * ug-13 / R-14: one-line purpose subtitle per tool section. `WorkbenchSection`
- * renders it in the section header so it is visible while the section is
- * COLLAPSED (the pane opens with only Schema expanded); the copy is verbatim
- * from the implementation spec §2 R-14 and value-free (ADR 0025). The ids and
- * titles in `WORKBENCH_SECTIONS` are unchanged — this map only adds the
- * subtitle, it never renames or reorders the sections (ADR 0044 / q-15).
- */
-const WORKBENCH_SECTION_PURPOSES: Readonly<Record<WorkbenchSectionId, string>> = {
-  schema: 'Fields and types',
-  grid: 'Browse the rows',
-  filters: 'Show only matching rows',
-  validation: 'Check data against rules',
-  compare: 'Diff two datasets by key',
-  sql: 'Query with DuckDB SQL',
-  editing: 'Stage edits in this session',
-  history: 'Review and undo staged edits',
-  export: 'Write a reviewed copy',
-  record: 'Inspect one row in full',
-  profile: 'Column statistics summary',
-  pipeline: 'Chained contract checks',
-}
-
-/**
- * Tool sections whose own component already owns an `aria-expanded`
- * disclosure (Schema/Filters/Profile — the ux-3/ux-4 pattern). The shell adds
- * no second toggle for these, so ug-7's recoverable close needs a
- * recovery-only parent visibility override instead of the managed open set.
- * Record is deliberately NOT part of this task's tool-body boundary work.
+ * UI-RD-01 (2026-11-04): the sections are grouped into four user tasks in
+ * `workbench/tasks.ts` (Explore/Check/Change/Prepare). This slice MARKS the
+ * active task's sections (pane `data-task` + CSS) and opens its manageable
+ * sections; it does not hide the others, so the section link list
+ * (`section-nav-<id>`) keeps every section directly reachable. Conditional
+ * hiding of inactive tasks is a deferred, separately reviewed slice. Every
+ * section stays mounted — a task switch must never remount a panel. The DOM
+ * stays flat with one deliberate within-Change order (History before Export);
+ * no task wrappers are added, and <1024px is unchanged.
  */
 const INNER_DISCLOSURE_SECTIONS: ReadonlySet<WorkbenchSectionId> = new Set<WorkbenchSectionId>([
   'schema',
@@ -417,8 +363,14 @@ function WorkbenchSection({
   // keep their own collapsed idiom (Filters) and get none from the shell.
   const summaryText = disclosure === 'managed' ? summary : null
   const toggleLabel = `${open ? 'Collapse' : 'Expand'} ${title}`
+  const task = taskOfSection(id)
   return (
-    <section className="workbench-section" id={`section-${id}`} data-section={id}>
+    <section
+      className="workbench-section"
+      id={`section-${id}`}
+      data-section={id}
+      data-task={task ?? undefined}
+    >
       {disclosure === 'managed' && (
         <button
           type="button"
@@ -639,6 +591,24 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const [exportOpen, setExportOpen] = useState(false)
 
   /**
+   * UI-RD-01 app-local navigation state. Neither value is session data: the
+   * active task marks its sections and opens its manageable sections (this
+   * slice does not hide the others), and the jump-origin marker only offers
+   * the return chip. Both reset when a new dataset session starts, and neither
+   * reaches the engine/hooks.
+   */
+  const [activeTask, setActiveTask] = useState<WorkbenchTaskId>(DEFAULT_WORKBENCH_TASK)
+  const [jumpOrigin, setJumpOrigin] = useState<'validation' | 'diff' | null>(null)
+  useEffect(
+    () =>
+      datasetSession.registerReset(() => {
+        setActiveTask(DEFAULT_WORKBENCH_TASK)
+        setJumpOrigin(null)
+      }),
+    [datasetSession],
+  )
+
+  /**
    * q-15 tool-pane state. Component-local shell state ONLY (ADR 0044
    * negative-consequence discipline): nothing here reaches the engine, the grid
    * model, or any session hook, and the grid's first paint is unchanged.
@@ -696,6 +666,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   }, [])
   const revealSectionFromNav = useCallback(
     (id: WorkbenchSectionId) => {
+      // Task-aware reveal: a nested action, a pipeline cross-link or a
+      // section-link click first exposes the owning task, then expands and
+      // anchors the section. Switching the task is presentation only.
+      const task = taskOfSection(id)
+      if (task !== null) setActiveTask(task)
       setRecoveryHiddenSections((previous) => {
         if (!previous.has(id)) return previous
         const next = new Set(previous)
@@ -707,20 +682,22 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     [openSection],
   )
   /**
-   * ug-9/R-15 (b): the gate-failure cross-link's focus request. Reveal/expand
-   * rides the existing `revealSectionFromNav` seam; this sequence exists only
-   * so focus moves to the Validation section AFTER the shell has committed the
-   * expanded body (the SqlPanel/ux-2 render-then-focus pattern). It adds no
-   * navigation mechanism and performs no DOM move.
+   * Render-then-focus seam for reveal actions (ug-9/R-15 and the context bar).
+   * A sequence state commits AFTER the shell has activated the task and
+   * expanded the section, so the target exists and is visible when focused.
+   * It adds no navigation mechanism and performs no DOM move.
    */
-  const [validationFocusSeq, setValidationFocusSeq] = useState(0)
+  const [panelFocus, setPanelFocus] = useState<{ testId: string; seq: number } | null>(null)
+  const focusPanel = useCallback((testId: string) => {
+    setPanelFocus((previous) => ({ testId, seq: (previous?.seq ?? 0) + 1 }))
+  }, [])
   useEffect(() => {
-    if (validationFocusSeq === 0) return
-    const panel = document.querySelector<HTMLElement>('[data-testid="validation-panel"]')
+    if (panelFocus === null) return
+    const panel = document.querySelector<HTMLElement>(`[data-testid="${panelFocus.testId}"]`)
     if (panel === null) return
     if (typeof panel.scrollIntoView === 'function') panel.scrollIntoView({ block: 'start' })
     panel.focus()
-  }, [validationFocusSeq])
+  }, [panelFocus])
   /**
    * q-15 pane rail state: ≥1024px the tool pane collapses to a rail (the
    * center column stays put). Below 1024px the pane head is hidden and the
@@ -858,6 +835,27 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   )
 
   /**
+   * rd-4: the validation and diff jump channels record WHICH panel the user
+   * came from, so the context bar can offer an accurate `Back to findings`.
+   * Record stepping deliberately uses `navigateToRow` directly and never sets
+   * an origin. This is app-local UI state, not captured run metadata.
+   */
+  const jumpToValidationFinding = useCallback<NavigateToRow>(
+    (rowIndex, displayKey) => {
+      setJumpOrigin('validation')
+      navigateToRow(rowIndex, displayKey)
+    },
+    [navigateToRow],
+  )
+  const jumpToDiffFinding = useCallback<NavigateToRow>(
+    (rowIndex, displayKey) => {
+      setJumpOrigin('diff')
+      navigateToRow(rowIndex, displayKey)
+    },
+    [navigateToRow],
+  )
+
+  /**
    * ug-11 (UG-12): the record dock's ◀ Prev / ▶ Next gesture. Stepping is the
    * SAME navigate gesture a panel jump uses — one record request plus one grid
    * scroll request — with no display label, so it stays silent: ug-12's
@@ -954,7 +952,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     overlayRef,
     overlayRevision,
     sourceIdentityRef,
-    navigateToRow,
+    navigateToRow: jumpToValidationFinding,
   })
 
   /**
@@ -1000,9 +998,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     (contract: ContractV1) => {
       handleContractDocument(contract)
       revealSectionFromNav('validation')
-      setValidationFocusSeq((seq) => seq + 1)
+      focusPanel('validation-panel')
     },
-    [handleContractDocument, revealSectionFromNav],
+    [handleContractDocument, revealSectionFromNav, focusPanel],
   )
 
   /**
@@ -1026,8 +1024,105 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     overlayRef,
     overlayRevision,
     sourceIdentityRef,
-    navigateToRow,
+    navigateToRow: jumpToDiffFinding,
   })
+
+  /**
+   * rd-3/rd-4 context bar: one pure derivation from state the App already
+   * owns. The contract kind is normalised (unreadable folds parse/too-large/
+   * read-failed), and the failing-rule count is read from the current verdict
+   * only. The bar never runs anything; the action below calls the SAME
+   * handlers the panels use.
+   */
+  const contractAction: NextActionContract =
+    contractState.kind === 'loaded'
+      ? 'loaded'
+      : contractState.kind === 'none'
+        ? 'none'
+        : 'unreadable'
+  const nextAction = deriveNextAction({
+    contract: contractAction,
+    validation: validationRun.kind as NextActionValidation,
+    validationStale,
+    failingRules: failingRuleCount(validationRun),
+    diff: diffRun.kind as NextActionDiff,
+    diffStale,
+  })
+
+  const revealContextPanel = useCallback(
+    (section: WorkbenchSectionId, testId: string) => {
+      revealSectionFromNav(section)
+      focusPanel(testId)
+    },
+    [revealSectionFromNav, focusPanel],
+  )
+  const handleContextAction = useCallback(() => {
+    switch (nextAction.kind) {
+      case 'open-contract':
+        revealContextPanel('validation', 'validation-open-contract')
+        return
+      case 'review-contract':
+      case 'review-findings':
+        revealContextPanel('validation', 'validation-panel')
+        return
+      case 'review-comparison':
+        revealContextPanel('compare', 'diff-run')
+        return
+      case 'validate':
+        handleValidate()
+        return
+      case 'cancel-validation':
+        handleCancelValidate()
+        return
+      case 'rerun-diff':
+        // The comparison's key mode/manual keys live in the panel, so the bar
+        // reveals the panel and focuses its existing run control instead of
+        // duplicating that state here. The panel remains the single run path.
+        revealContextPanel('compare', 'diff-run')
+        return
+      case 'cancel-diff':
+        handleCancelDiff()
+        return
+      case 'export':
+        // The dialog renders inside the Export section body, so the section
+        // must be open (and Change active) before the dialog mounts. The
+        // dialog owns its own initial focus; do not move focus to the opener.
+        revealSectionFromNav('export')
+        setExportOpen(true)
+        return
+      default:
+        return
+    }
+  }, [
+    nextAction.kind,
+    revealContextPanel,
+    revealSectionFromNav,
+    handleValidate,
+    handleCancelValidate,
+    handleCancelDiff,
+  ])
+  /**
+   * A task choice frames the work: it marks the task's sections in the pane
+   * (CSS) and opens that task's shell-managed sections so the tools are ready
+   * where the choice points. It never hides another section (ADR 0044
+   * reachability, first slice) and never moves focus into content. Inner
+   * disclosures (Schema/Filters/Profile) keep their own state.
+   */
+  const handleSelectTask = useCallback(
+    (task: WorkbenchTaskId) => {
+      setActiveTask(task)
+      for (const id of sectionsForTask(task)) {
+        if (!INNER_DISCLOSURE_SECTIONS.has(id)) openSection(id)
+      }
+    },
+    [openSection],
+  )
+  const handleBackToFindings = useCallback(() => {
+    const origin = jumpOrigin
+    setJumpOrigin(null)
+    if (origin === 'diff') revealContextPanel('compare', 'diff-run')
+    else revealContextPanel('validation', 'validation-panel')
+  }, [jumpOrigin, revealContextPanel])
 
   /**
    * au3-12: resolved below-fold panel components (see `lib/bottom-panels.ts`
@@ -1753,7 +1848,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
              * single-column stack (index.css). One DOM, two CSS layouts.
              */}
             <div className="workbench-layout" data-pane={paneCollapsed ? 'collapsed' : 'expanded'}>
-              <div className="workbench-tools">
+              <div className="workbench-tools" data-task={activeTask}>
                 <div className="workbench-pane-head">
                   <button
                     type="button"
@@ -1776,42 +1871,18 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                   hidden={paneCollapsed}
                 >
                   {/*
-                   * q-15 in-pane nav: in-page anchor links (native
-                   * focusability, no custom key handling, no focus trap); every
-                   * target section carries `scroll-margin-top` so the pinned nav
-                   * never obscures the focused/anchored section. The link order is
-                   * `WORKBENCH_SECTIONS` (the ug-22 reading order), which is
-                   * independent of the pane's DOM order — see the array's doc
-                   * comment; activating a link also expands its target section in
-                   * the pane.
+                   * UI-RD-01 in-pane navigation: a single-select task radio
+                   * group plus task-grouped section links. The links keep the
+                   * existing `section-nav-<id>` contract (so close-section
+                   * focus and the anchor behaviour are unchanged). Every group
+                   * is rendered and exposed in this slice; the active group is
+                   * marked, and conditional exposure is a deferred slice.
                    */}
-                  <nav
-                    className="workbench-nav"
-                    aria-label="Workbench sections"
-                    data-testid="section-nav"
-                  >
-                    <ul className="workbench-nav-list">
-                      {WORKBENCH_SECTIONS.map((section) => (
-                        <li key={section.id}>
-                          <a
-                            className="workbench-nav-link"
-                            href={`#section-${section.id}`}
-                            data-testid={`section-nav-${section.id}`}
-                            /* ug-13/R-14: same purpose as a description for
-                               the anchors too, so the four inner-disclosure
-                               sections (whose toggles the shell does not own)
-                               still expose it to assistive tech. */
-                            aria-describedby={`section-${section.id}-purpose`}
-                            onClick={() => {
-                              revealSectionFromNav(section.id)
-                            }}
-                          >
-                            {section.title}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </nav>
+                  <TaskNav
+                    activeTask={activeTask}
+                    onSelectTask={handleSelectTask}
+                    onRevealSection={revealSectionFromNav}
+                  />
                   <WorkbenchSection
                     id="schema"
                     disclosure="inner"
@@ -1837,6 +1908,22 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                         onInsertRow={handleInsertRow}
                         pendingSummary={pendingChangesSummary(activeOps(history))}
                         error={editError}
+                      />
+                    </PanelBoundary>
+                  </WorkbenchSection>
+                  <WorkbenchSection
+                    id="history"
+                    open={openSections.has('history')}
+                    onToggle={toggleSection}
+                    summary={historySummary}
+                  >
+                    <PanelBoundary id="history" onClose={closeSection}>
+                      <HistoryPanel
+                        entries={history.entries}
+                        cursor={history.cursor}
+                        onSelectCursor={handleSelectCursor}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
                       />
                     </PanelBoundary>
                   </WorkbenchSection>
@@ -1883,22 +1970,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                           />
                         )}
                       </section>
-                    </PanelBoundary>
-                  </WorkbenchSection>
-                  <WorkbenchSection
-                    id="history"
-                    open={openSections.has('history')}
-                    onToggle={toggleSection}
-                    summary={historySummary}
-                  >
-                    <PanelBoundary id="history" onClose={closeSection}>
-                      <HistoryPanel
-                        entries={history.entries}
-                        cursor={history.cursor}
-                        onSelectCursor={handleSelectCursor}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                      />
                     </PanelBoundary>
                   </WorkbenchSection>
                   {/*
@@ -2062,6 +2133,26 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                 </div>
               </div>
               <div className="workbench-center">
+                {/*
+                 * rd-3/rd-4: one compact dataset/session context bar beside the
+                 * artifact. Neutral facts + exactly one next action; no filename
+                 * and no copied verdict count (see DatasetContextBar).
+                 */}
+                <DatasetContextBar
+                  rows={liveRowCount(
+                    phase.base,
+                    overlayState ?? stateAtCursor(phase.base, history),
+                  )}
+                  columns={schemaColumns.length}
+                  stagedOperations={activeOps(history).length}
+                  next={nextAction}
+                  onAction={handleContextAction}
+                  onSecondaryReview={() => {
+                    revealContextPanel('validation', 'validation-panel')
+                  }}
+                  jumpOrigin={jumpOrigin !== null}
+                  onBackToFindings={handleBackToFindings}
+                />
                 <WorkbenchSection
                   id="grid"
                   open={openSections.has('grid')}

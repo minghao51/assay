@@ -429,8 +429,9 @@ export function ValidationPanel({
           )}
           {stale && (
             <p className="validation-stale" role="status" data-testid="validation-stale">
-              This verdict is <strong>stale</strong> — the dataset changed after it was computed, so
-              it no longer reflects the current edits. Re-validate for a fresh result.
+              This verdict is <strong>stale</strong> — the session's staged state changed after it
+              was computed, so it may no longer reflect the current dataset view. Re-validate for a
+              fresh result.
             </p>
           )}
           <ol className="validation-rules" data-testid="validation-rules">

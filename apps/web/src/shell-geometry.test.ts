@@ -117,9 +117,12 @@ describe('uxv-3 / R-11 fluid desktop canvas', () => {
   it('bounds the grid viewport with a vh fallback before the dvh clamp', () => {
     const bodies = bodiesFor('.grid-viewport').join('\n')
     expect(bodies, 'no hard-coded 480px viewport height').not.toMatch(/height:\s*480px/)
-    const fallback = bodies.indexOf('clamp(280px, calc(100vh - 280px), 640px)')
-    const dynamic = bodies.indexOf('clamp(280px, calc(100dvh - 280px), 640px)')
-    expect(fallback, 'the clamp keeps the 280px floor and 640px ceiling').toBeGreaterThanOrEqual(0)
+    const fallback = bodies.indexOf('clamp(280px, calc(100vh - 360px), 640px)')
+    const dynamic = bodies.indexOf('clamp(280px, calc(100dvh - 360px), 640px)')
+    expect(
+      fallback,
+      'the clamp keeps the 280px floor, the 360px chrome reserve and the 640px ceiling',
+    ).toBeGreaterThanOrEqual(0)
     expect(dynamic, 'the dvh clamp is declared too').toBeGreaterThanOrEqual(0)
     expect(
       dynamic,

@@ -189,6 +189,10 @@ async function openRepresentativeView(page: Page): Promise<void> {
   // Export dialog open (the modal surface, q-3).
   await page.getByTestId('export-open').click()
   await expect(page.getByTestId('export-dialog')).toBeVisible()
+  // Reading a control's base treatment must not race the pointer: opening the
+  // dialog can scroll/focus it so the primary action lands under the mouse and
+  // reports its :hover colour.
+  await page.mouse.move(0, 0)
 
   // uxv-1/R-09: the telemetry Settings dialog open (the floating surface the
   // token repair is about), so the scheme comparison below covers it too.
@@ -585,6 +589,10 @@ test('theme: uxv-2 export actions, telemetry controls and the ug-8 copy classes 
   await expect(page.getByTestId('pending-changes')).toHaveText('1 pending change: 1 row insert.')
   await page.getByTestId('export-open').click()
   await expect(page.getByTestId('export-dialog')).toBeVisible()
+  // Reading a control's base treatment must not race the pointer: opening the
+  // dialog can scroll/focus it so the primary action lands under the mouse and
+  // reports its :hover colour.
+  await page.mouse.move(0, 0)
 
   const visit = async (scheme: 'light' | 'dark'): Promise<void> => {
     await page.emulateMedia({ colorScheme: scheme })

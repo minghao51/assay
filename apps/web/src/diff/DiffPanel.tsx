@@ -691,8 +691,9 @@ export function DiffPanel({
               )}
               {stale && (
                 <p className="diff-stale" role="status" data-testid="diff-stale">
-                  This row diff is <strong>stale</strong> — the dataset changed after it ran, so it
-                  no longer reflects the current view. Run it again for a fresh result.
+                  This row diff is <strong>stale</strong> — the session's staged state changed after
+                  it ran, so it may no longer reflect the current dataset view. Re-run for a fresh
+                  comparison.
                 </p>
               )}
               <div className="diff-aspects" data-testid="diff-aspects">

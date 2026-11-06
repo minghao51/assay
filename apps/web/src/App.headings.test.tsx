@@ -170,8 +170,8 @@ describe('ux-3 — complete heading map (UX-7)', () => {
     expect(h2.map((heading) => heading.textContent)).toEqual([
       'Schema',
       'Editing',
-      'Export',
       'History',
+      'Export',
       'Validation',
       'Compare',
       'Filters',
@@ -195,8 +195,8 @@ describe('ux-3 — complete heading map (UX-7)', () => {
     expect(names).toEqual([
       'Schema',
       'Editing',
-      'Export',
       'History',
+      'Export',
       'Validation',
       'Compare',
       'Filters',
