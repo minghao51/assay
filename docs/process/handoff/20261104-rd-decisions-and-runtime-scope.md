@@ -35,6 +35,8 @@ Read with the [design record](../../product/13-workbench-redesign-design-record.
 
 These replace the previous wording only where the table says so; every other string (R-03, R-05, R-08, R-12, R-14 purposes, R-15, R-16, export dialog, profile hints) is unchanged.
 
+**Copy amendment at integration (2026-11-04, recorded — not a re-decision).** One truth-table state was not enumerated when the copy was approved: the comparison's `binding-errors` state (the comparison cannot bind its keys to the current schema). The implemented derivation needs a truthful sentence for it, and the independent reviewer approved the implementation. The integration orchestrator therefore records the missing string explicitly rather than absorbing it silently: `The comparison needs attention` → `Review comparison` (neutral tone, no count, no filename, no auto-run; it reveals and focuses the panel's existing run control). No other string was added or changed.
+
 ## 3. UI-RD-01 — UI ruling recorded
 
 Authorized under the delegated decision, limited to this redesign:
@@ -80,3 +82,34 @@ Three implementation facts changed the mechanics, not the goal. They are recorde
 3. **Grid viewport reserve.** The context bar is real chrome above the grid inside the center column. The `.grid-viewport` reserve moves from 280px to 360px so the 1024×700 first-paint contract (whole footer in frame) holds; the clamp floor/ceiling (280/640) and pane/center geometry are unchanged. `shell-geometry.test.ts` and `shell.spec.ts` pins were migrated deliberately.
 
 Also recorded: the context bar shows **no filename** (the shell exposes only table id/counts), and its Export action opens the Export section before the existing dialog (the dialog renders inside that section body). The diff action is labelled **Review comparison**, because the comparison's key state lives in the panel and the bar must not duplicate it.
+
+## 6. Integration record (2026-11-04, integration orchestrator)
+
+**Commit authority.** The maintainer's instruction at the end of the implementation episode — the
+paste of §5 of the [next pickup](20261104-rd-next-pickup.md) — directs the orchestrator to inspect
+the working tree, obtain commit authority, commit with a Conventional Commit and **not push**. That
+instruction is the authority recorded here; it is bounded to integrating the already approved
+rd-3/rd-4 slice and its design records. No push, publication, visibility change, dependency, ADR
+rewrite or new runtime scope was authorized, and none happened.
+
+**What was integrated**
+
+| Commit    | Content                                                                                                                                                                                                              |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `d441fc3` | `docs(redesign)`: the SVG board pack (`assests/`), product/11–13 and the five 2026-11-04 handoff records. Additive docs only — no runtime file in this commit.                                                       |
+| `51ff36e` | `feat(web)`: the rd-3/rd-4 slice — `workbench/*`, `App.tsx`, `index.css`, the two stale-copy panel edits, the migrated pins, the new e2e spec, one changeset (`@assay/web` minor) and the handoff active paragraphs. |
+
+**Tree check before committing.** Every touched path was inside the §4 reservation. Rejected as
+_not_ part of the slice: nothing — the untracked `assests/` pack, the product/11–13 records and the
+2026-11-04 handoff records are the rd-0…rd-2 checkpoint's own deliverables, and they are referenced
+by the map/design record, so they were committed as the docs commit rather than left untracked
+(leaving them out would break `docs:links:check` in a clean checkout). No `packages/**`, root
+config, lockfile, ADR, dependency or CLI/VS Code file changed.
+
+**Merged verification** was re-run from a clean worktree at `51ff36e`, not reused from the
+implementation episode: see [map §6.4](20261104-svg-implementation-map.md) for the per-gate table
+(including the configured-telemetry and restored-stock legs).
+
+**Still not done / not authorized:** rd-3b (contract prepared, awaiting explicit scope approval),
+rd-5…rd-7, optional SV-D02…SV-D05, run-origin metadata, any human usability study (RD-T07 remains
+unsatisfied), and any push/publication.

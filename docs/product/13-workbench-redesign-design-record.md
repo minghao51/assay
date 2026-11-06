@@ -389,7 +389,9 @@ Nothing below is authorized by this document. It is the exact scope to approve u
 - No feature claim: every SVG/horizon capability not in §3.1 remains unimplemented; deferred decisions remain open.
 - No fresh full gate baseline and no fresh remote-CI observation; §1.2 states exactly what ran.
 
-## 7. Files added by this checkpoint (all design/evidence, uncommitted)
+## 7. Files added by this checkpoint (design/evidence; committed as `d441fc3`)
+
+These were uncommitted during the checkpoint and are now integrated as the additive commit `d441fc3` (no runtime change in that commit).
 
 | Path                                                      | Kind                                                       |
 | --------------------------------------------------------- | ---------------------------------------------------------- |
@@ -437,6 +439,8 @@ Existing uncommitted work (`docs/process/handoff.md` + the untracked SVG/spec pa
 - The e2e suite now pins first-paint with a 360px grid reserve (context bar chrome), replacing the 280px reserve; this is a deliberate R-11 geometry migration.
 - No human usability session or AT review was run for this slice; RD-T07 remains unsatisfied.
 - The comparison action is `Review comparison` (focuses the panel's existing run control) because key state lives in the panel; a one-click rerun would need a scoped panel/session change.
-- The change is **uncommitted** in the authoring checkout (no commit/push authority in this episode); integration and merged verification are still pending.
+- The change was **uncommitted** during the implementation episode; it is now integrated — see the integration record below.
+
+**Integration and merged verification (2026-11-04, integration orchestrator):** commit authority was given by the maintainer's instruction at the end of the implementation episode (the paste of §5 of the [next pickup](../process/handoff/20261104-rd-next-pickup.md), which directs the orchestrator to inspect the tree and commit, with no push). The approved slice was committed as `51ff36e` after a path-by-path check against the [decisions record](../process/handoff/20261104-rd-decisions-and-runtime-scope.md) and §9 above (no `packages/**`, no root config, no ADR, no lockfile, no dependency); the design/prototype pack went in as `d441fc3`; nothing was pushed. The full gate sequence was then re-run from a **clean `git worktree` at `51ff36e`** (`typecheck` and `build` forced, `0 cached`): format 0, lint 0, typecheck 20/20, unit **235 files / 3494 tests**, coverage **89.10 / 83.86 / 91.39 / 90.68**, build 12/12, docs links **129 files / 0 broken**, ADR **46**, full Playwright **223 passed + 1 skipped, 0 failed** on fresh ports 4673/4679/4680, plus the configured telemetry leg (**6 passed**, 2 collector POSTs aborted, nothing sent) and the restored stock build (**0** endpoint hits; affected stock specs **46 passed**). The per-gate table is map §6.4. The 128/0 docs-link figure above was the authoring-checkout count before the pack was committed; the merged count is 129/0.
 
 **Independent review (rd-3/rd-4):** `openai-codex/gpt-6-luna` xhigh, separate session from the implementer. Round 1 **request-changes** (2 Major: workspace anchors did not reveal a collapsed Grid; a running comparison was not cancellable in every contract/check state; 1 Minor: stale visibility comments). Fixes: workspace anchors now call the reveal seam with regression tests; the running-diff Cancel check moved before every contract/check branch with a full truth-table case; comments/docs corrected. Round 2 **request-changes** on two remaining stale comments (App doc comment and a test name) plus the design-record step text; fixed. Round 3 **approve** — comment-only change verified, no behaviour change. Focused unit suites passed 66/66 and the affected e2e specs 20/20 after the fixes.

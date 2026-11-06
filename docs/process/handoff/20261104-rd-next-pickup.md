@@ -2,9 +2,13 @@
 
 **Authored:** 2026-11-04, at the end of the rd-3/rd-4 implementation episode. Read this before claiming anything.
 
-> **Next thread starts here.** Paste the prompt in §5 verbatim. It assumes no commit was made and no new features are authorized beyond integration + `rd-3b` preparation.
+> **INTEGRATION UPDATE (2026-11-04, later the same day): §1 is DONE.** The slice was committed as `51ff36e` (design pack `d441fc3`), the merged gates were re-run from a clean worktree at that revision, and rd-3/rd-4 are **CLOSED** — evidence in [map §6.4](20261104-svg-implementation-map.md). Nothing was pushed. The next action is **rd-3b scope approval**, not integration: the exact contract, the 55-spec audit and the helper migration plan are in the [rd-3b conditional visibility contract](20261104-rd3b-conditional-visibility-contract.md). Sections 0–1 below are kept as the historical pickup record; §2 remains the live rd-3b brief, now backed by that contract.
+
+> **Next thread starts here.** Paste the prompt in §5 verbatim, then read the contract. It assumes rd-3/rd-4 are integrated (`51ff36e`) and that no new features are authorized beyond `rd-3b` after explicit approval.
 
 ## 0. What state the repository is in
+
+> **Superseded by the integration update above for the HEAD/working-tree/verification rows**; the table is kept as the state this pickup was authored from.
 
 | Item                        | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
