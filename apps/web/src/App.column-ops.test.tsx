@@ -558,3 +558,171 @@ describe('value-free edit rejection (q-8)', () => {
     expect(screen.getByTestId('grid-total-rows').textContent).toBe('1')
   })
 })
+
+/**
+ * rd-3c pin: durable edit feedback from any task.
+ *
+ * The durable `edit-error` (engine rejection, cast refusal, non-applied op)
+ * lives in the Editing section, which rd-3b hides outside Change. The shell
+ * therefore reveals that section through the existing `revealSectionFromNav`
+ * seam when the error transitions to a non-null value — once per error, and
+ * without moving focus. These cases drive the REAL App composition root from
+ * the Explore default (no task activation), so they fail if the reveal is
+ * missing, if it fires on success, or if the ref guard is dropped.
+ *
+ * Scope note: JSDOM has no layout, no scroll containers and no
+ * `scrollIntoView`, so the scroll half of the reveal (the opt-in
+ * `{ scroll: true }` request) is deliberately NOT asserted here — nothing here
+ * could distinguish a scrolled section from an unscrolled one. It is proven in
+ * the browser, from this same Explore default, by the in-viewport assertion in
+ * `tests/e2e/grid-editing.spec.ts` ("engine rejection…"). These cases keep the
+ * trigger and ref-guard semantics (`data-task`, `aria-checked`, section
+ * expansion, message identity), which are layout-independent.
+ */
+describe('durable edit feedback reveals the Editing section (rd-3c)', () => {
+  /** The pane's `data-task` — what the ≥1024px exposure rule keys on. */
+  const paneTask = (): string | null =>
+    document.querySelector('.workbench-tools')?.getAttribute('data-task') ?? null
+  const editingExpanded = (): string | null =>
+    screen.getByTestId('section-toggle-editing').getAttribute('aria-expanded')
+
+  async function renameColumn(from: string, to: string): Promise<void> {
+    const panel = within(screen.getByTestId('schema-panel'))
+    await act(async () => {
+      fireEvent.click(panel.getByRole('button', { name: `Rename column ${from}` }))
+    })
+    const input = panel.getByTestId('column-rename-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: to } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+  }
+
+  async function castColumn(column: string, target: string): Promise<void> {
+    const panel = within(screen.getByTestId('schema-panel'))
+    await act(async () => {
+      fireEvent.click(panel.getByRole('button', { name: `Cast column ${column}` }))
+    })
+    await act(async () => {
+      fireEvent.change(panel.getByTestId('column-cast-select'), { target: { value: target } })
+    })
+    await act(async () => {
+      fireEvent.click(panel.getByTestId('column-cast-commit'))
+    })
+  }
+
+  it('switches the pane to Change and expands Editing for an engine rejection from Explore', async () => {
+    await openFixture()
+    // The rd-3b default: Explore is the active task and Editing is collapsed.
+    expect(paneTask()).toBe('explore')
+    expect(screen.getByTestId('task-explore').getAttribute('aria-checked')).toBe('true')
+    expect(editingExpanded()).toBe('false')
+
+    h.castCheck = 'throw'
+    await castColumn('income', 'INTEGER')
+
+    // The message itself is unchanged (same text, same single place, no
+    // second render) — only its section is now exposed.
+    const alert = screen.getByTestId('edit-error')
+    expect(alert.textContent).toBe(
+      'The engine rejected this edit: engine unavailable. The previous view is unchanged.',
+    )
+    expect(screen.getAllByTestId('edit-error')).toHaveLength(1)
+
+    // The shell activated Change and expanded the Editing section.
+    expect(screen.getByTestId('task-change').getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByTestId('task-explore').getAttribute('aria-checked')).toBe('false')
+    expect(paneTask()).toBe('change')
+    expect(editingExpanded()).toBe('true')
+  })
+
+  it('does not switch tasks for edits that apply', async () => {
+    await openFixture()
+
+    // A successful rename and a successful cast both leave `editError` null,
+    // so no reveal happens: the user stays where they were.
+    await renameColumn('country', 'nation')
+    expect(screen.queryByTestId('edit-error')).toBeNull()
+    expect(screen.getByTestId('task-explore').getAttribute('aria-checked')).toBe('true')
+    expect(paneTask()).toBe('explore')
+    expect(editingExpanded()).toBe('false')
+
+    await castColumn('income', 'DOUBLE')
+    expect(screen.queryByTestId('edit-error')).toBeNull()
+    expect(paneTask()).toBe('explore')
+    expect(editingExpanded()).toBe('false')
+  })
+
+  it('does not re-reveal the same error after the user returns to Explore', async () => {
+    await openFixture()
+    h.castCheck = 'throw'
+    await castColumn('income', 'INTEGER')
+    expect(paneTask()).toBe('change')
+
+    // The user deliberately goes back to Explore with the error still on
+    // record — they must not be yanked back.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('task-explore'))
+    })
+    expect(screen.getByTestId('task-explore').getAttribute('aria-checked')).toBe('true')
+    expect(paneTask()).toBe('explore')
+
+    // Unrelated re-renders (another task selection) do not re-fire either.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('task-explore'))
+    })
+    expect(paneTask()).toBe('explore')
+
+    // Repeating the same failing attempt produces the SAME message, which the
+    // ref guard treats as the same error: still no reveal.
+    await castColumn('income', 'INTEGER')
+    expect(screen.getByTestId('edit-error')).not.toBeNull()
+    expect(paneTask()).toBe('explore')
+  })
+
+  it('reveals again for a later error once the previous one has cleared', async () => {
+    await openFixture()
+    h.castCheck = 'throw'
+    await castColumn('income', 'INTEGER')
+    expect(paneTask()).toBe('change')
+
+    // A successful edit clears the durable error in the session hook, which
+    // resets the guard.
+    h.castCheck = 'ok'
+    await castColumn('income', 'DOUBLE')
+    expect(screen.queryByTestId('edit-error')).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('task-explore'))
+    })
+    expect(paneTask()).toBe('explore')
+
+    // A DIFFERENT later error is a fresh transition and reveals again.
+    h.castCheck = 'refuse'
+    await castColumn('income', 'BIGINT')
+    expect(screen.getByTestId('edit-error').textContent).toContain('No cast was applied')
+    expect(screen.getByTestId('task-change').getAttribute('aria-checked')).toBe('true')
+    expect(paneTask()).toBe('change')
+    expect(editingExpanded()).toBe('true')
+  })
+
+  it('is a no-op when Change is already active with Editing already open', async () => {
+    await openFixture()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('task-change'))
+    })
+    expect(paneTask()).toBe('change')
+    expect(editingExpanded()).toBe('true')
+
+    // An error raised while the target is already exposed: the message appears
+    // in place, nothing is re-activated and nothing re-opens (no scroll jitter).
+    h.castCheck = 'throw'
+    await castColumn('income', 'INTEGER')
+
+    expect(screen.getByTestId('edit-error').textContent).toContain('The engine rejected this edit')
+    expect(screen.getAllByTestId('edit-error')).toHaveLength(1)
+    expect(paneTask()).toBe('change')
+    expect(screen.getByTestId('task-change').getAttribute('aria-checked')).toBe('true')
+    expect(editingExpanded()).toBe('true')
+  })
+})

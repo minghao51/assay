@@ -23,7 +23,11 @@ import { cell, openEditor, row, waitForReadyRow } from './support/grid'
 //   2. typed-constraint rejections are readable and leave state unchanged;
 //      a rejection the engine (not the client) makes — a bad DATE, an
 //      out-of-range BIGINT — surfaces readably, rolls the overlay back, and
-//      leaves the grid recoverable (fix round);
+//      leaves the grid recoverable (fix round). rd-3c: the durable alert
+//      lives in the Change-task Editing section, so the shell reveals it
+//      automatically from any task — asserted here from the Explore default,
+//      with a negative control that an applied edit and the Enter-unchanged
+//      cancel never switch tasks;
 //   3. NULL is a distinct affordance and a distinct rendering (never an empty
 //      string, an unset editor, or an error);
 //   4. insert/delete row journeys;
@@ -42,6 +46,30 @@ test.beforeEach(async ({ page }) => {
       delete (window as { showOpenFilePicker?: unknown }).showOpenFilePicker
     } catch {
       // Non-configurable global would be a Chromium change; fail loudly later.
+    }
+  })
+  // rd-3c: record every programmatic `scrollIntoView` of a SECTION element.
+  // At this desktop size the tool pane fits Change's three sections, so "the
+  // message is in the viewport" alone cannot distinguish a reveal that
+  // scrolled from one that did not (see the note in the engine-rejection
+  // test); the recorded request can. Test-side instrumentation only — no
+  // production hook.
+  await page.addInitScript(() => {
+    const recorded = window as unknown as {
+      __assaySectionScrolls?: { id: string; block: string | null }[]
+    }
+    recorded.__assaySectionScrolls = []
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = function (
+      this: Element,
+      arg?: boolean | ScrollIntoViewOptions,
+    ): void {
+      recorded.__assaySectionScrolls?.push({
+        id: this.id,
+        block: typeof arg === 'object' && arg !== null ? (arg.block ?? null) : null,
+      })
+      if (arg === undefined) original.call(this)
+      else original.call(this, arg)
     }
   })
 })
@@ -146,6 +174,26 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
 }) => {
   await openCustomersFixture(page)
 
+  // rd-3c: the pane starts in Explore — the Editing section is `display: none`
+  // — and is scrolled away from where that section will appear, so "the
+  // message is on screen" below cannot be true by accident. (The tool pane is
+  // its own scroll container at ≥1024px; scrolled to the bottom it is looking
+  // at the last Explore section, not at Editing.)
+  const pane = page.locator('.workbench-tools')
+  await pane.evaluate((element) => {
+    element.scrollTo({ top: element.scrollHeight })
+  })
+  expect(await pane.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  await expect(page.getByTestId('task-explore')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('section-toggle-editing')).not.toBeInViewport()
+
+  // (Sensitivity note for the viewport assertion further down: measured at this
+  // revision and size, once Explore's sections are hidden the pane's
+  // `scrollHeight` collapses to its `clientHeight` (655px), so the Editing
+  // section would sit inside the pane even if the reveal never scrolled. The
+  // user-visible claim is still asserted; the fact that distinguishes a genuine
+  // scroll is the recorded request below.)
+
   // Double-click the DATE column (signup_date, column 3). The client cannot
   // know the draft is invalid (temporal values defer to the engine), so the
   // engine's own rejection must surface readably and the commit must be
@@ -156,6 +204,8 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   const editor = page.getByTestId('grid-editor-input')
   await expect(editor).toHaveValue('2025-01-04')
   await editor.fill(hostileDraft)
+  // The user is editing inside the grid when the engine rejects the value.
+  await expect(editor).toBeFocused()
   await editor.press('Enter')
 
   // Readable, value-free alert. The mvp bundle masks the underlying cast
@@ -163,17 +213,43 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   // (and every other DuckDB error on the overlay-materialization path) to
   // the value-free class before posting (q-8), so the alert carries the
   // class and never the raw engine text or the typed value.
-  // rd-3b: the History panel and the editing toolbar (`edit-error`,
-  // `edit-insert-row`) are Change-task surfaces — the grid itself is the
-  // workspace and stays exposed in every task.
-  await activateTask(page, 'change')
+  //
+  // rd-3c: the durable alert lives in the Editing section (a Change-task
+  // surface), so the shell reveals it automatically — the pane switches to
+  // Change and the Editing section is expanded WITHOUT any task activation
+  // in this test, and without moving focus out of the grid.
+  await expect(page.getByTestId('task-change')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('task-explore')).toHaveAttribute('aria-checked', 'false')
+  await expect(page.locator('.workbench-tools')).toHaveAttribute('data-task', 'change')
+  await expect(page.getByTestId('section-toggle-editing')).toHaveAttribute('aria-expanded', 'true')
+  // ... and the message is actually ON SCREEN, not merely un-hidden: a
+  // programmatic reveal is not a link, so the seam asks for the scroll
+  // explicitly and the Editing section lands inside the pane's viewport. This
+  // starts from the Explore default, where the section was `display: none`.
+  await expect(page.getByTestId('section-toggle-editing')).toBeInViewport()
+  // The reveal actually asked the browser to scroll the SECTION element (not an
+  // inner node), so `.workbench-section { scroll-margin-top }` keeps the pinned
+  // nav off the heading — and it asked exactly once, for this error only.
+  const sectionScrolls = await page.evaluate(
+    () =>
+      (window as unknown as { __assaySectionScrolls?: { id: string; block: string | null }[] })
+        .__assaySectionScrolls ?? [],
+  )
+  expect(sectionScrolls.filter((call) => call.id === 'section-editing')).toEqual([
+    { id: 'section-editing', block: 'start' },
+  ])
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
+  await expect(alert).toBeInViewport()
   await expect(alert).toContainText('rejected')
   await expect(alert).toContainText('the edited view could not be materialized')
   await expect(alert).not.toContainText('_setThrew')
   await expect(alert).not.toContainText('not-a-date')
   await expect(alert).not.toContainText("'; DROP TABLE x --")
+
+  // The client-side rejection surface is untouched: this refusal came from the
+  // engine path, so the grid footer's own `grid-edit-error` stays empty.
+  await expect(page.getByTestId('grid-edit-error')).toHaveCount(0)
 
   // q-3: the engine rejection is ALSO announced through the single polite
   // live region, and the announcement is the same value-free class (the raw
@@ -183,6 +259,26 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await expect(live).not.toContainText('not-a-date')
   await expect(live).not.toContainText("'; DROP TABLE x --")
 
+  // The reveal is scroll/visibility only: it carries no focus call and no DOM
+  // move, so it can never hand focus to the pane (the commit's own
+  // editor-unmount path is untouched by rd-3c).
+  const focusAfterReveal = await page.evaluate(() => {
+    const active = document.activeElement as HTMLElement | null
+    return {
+      tagName: active === null ? null : active.tagName,
+      testId: active === null ? null : active.getAttribute('data-testid'),
+      inToolPane: active !== null && active.closest('.workbench-tools') !== null,
+    }
+  })
+  // Contract: `document.activeElement` is NOT inside the tool pane. Observed
+  // honestly: the commit closes the cell editor and focus falls to <body>
+  // (pre-existing grid behaviour, unchanged by rd-3c) — the reveal itself
+  // focuses nothing, so the task radio and the Editing toggle never take it.
+  expect(
+    focusAfterReveal.inToolPane,
+    `the reveal must not move focus into the pane (focused: ${String(focusAfterReveal.tagName)}/${String(focusAfterReveal.testId)})`,
+  ).toBe(false)
+
   // Recoverable: the previous effective view is restored — every row ready,
   // nothing left perpetually loading, and the edit is not in the history.
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
@@ -190,6 +286,8 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
   await expect(cell(page, 0, 3)).toHaveAttribute('data-dirty', 'false')
   await expect(page.getByTestId('history-undo')).toBeDisabled()
+  // The hostile draft is never echoed into the rendered page (ADR 0025).
+  await expect(page.locator('body')).not.toContainText(hostileDraft)
 
   // A subsequent valid edit still works and clears the alert.
   await openEditor(page, 0, 2)
@@ -198,6 +296,31 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await expect(cell(page, 0, 2)).toHaveText('12345')
   await expect(page.getByTestId('edit-error')).toHaveCount(0)
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+})
+
+test('a successful edit and an Enter-unchanged no-op never switch tasks', async ({ page }) => {
+  // rd-3c negative control: the reveal fires on the transition to a durable
+  // edit error ONLY — an applied edit and the unchanged-draft cancel (which
+  // never reaches the app at all) leave the user in Explore.
+  await openCustomersFixture(page)
+  await expect(page.getByTestId('task-explore')).toHaveAttribute('aria-checked', 'true')
+
+  // 1. A successful typed edit: no durable error, no switch.
+  await openEditor(page, 0, 2)
+  await page.getByTestId('grid-editor-input').fill('12345')
+  await page.getByTestId('grid-editor-input').press('Enter')
+  await expect(cell(page, 0, 2)).toHaveText('12345')
+  await expect(page.getByTestId('edit-error')).toHaveCount(0)
+  await expect(page.getByTestId('task-explore')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.locator('.workbench-tools')).toHaveAttribute('data-task', 'explore')
+
+  // 2. Enter unchanged on a temporal cell is a cancel, not an op: still Explore.
+  await openEditor(page, 0, 3)
+  await page.getByTestId('grid-editor-input').press('Enter')
+  await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
+  await expect(page.getByTestId('edit-error')).toHaveCount(0)
+  await expect(page.getByTestId('task-explore')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.locator('.workbench-tools')).toHaveAttribute('data-task', 'explore')
 })
 
 test('temporal editing: a human-readable draft round-trips, and Enter-unchanged does not brick', async ({

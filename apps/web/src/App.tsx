@@ -609,7 +609,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   )
 
   /**
-   * rd-3b focus guard (the ONE piece of behaviour conditional exposure adds).
+   * rd-3b focus guard (one of the two pieces of behaviour conditional exposure
+   * adds; the other is the rd-3c durable-edit-error reveal, which lives with
+   * the editing session below because it reads `editError`).
    *
    * At ≥1024px the inactive tasks' sections are `display: none`, which removes
    * a focused descendant from the tab order and drops focus to `<body>`. Mouse
@@ -689,8 +691,36 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     // implicitly.
     document.querySelector<HTMLElement>(`[data-testid="section-nav-${id}"]`)?.focus()
   }, [])
+  /**
+   * rd-3c review fix (CR-1): a programmatic reveal is not a link, so the
+   * browser never performs a section anchor's own scroll — the scroll a link
+   * click produces comes from its `href`, which `revealSectionFromNav` does
+   * not navigate to. An opted-in reveal (see the seam below) therefore records a
+   * request here and this effect (the same render-then-act shape as
+   * `panelFocus`) scrolls the SECTION element into view once the commit has
+   * activated the task and expanded the section — `.workbench-section` keeps
+   * its `scroll-margin-top`, so the pinned nav never covers the heading.
+   * Scrolling only: no focus call, no `focus({ preventScroll })` trick, no new
+   * navigation mechanism. The request is keyed by `seq`, so exactly the call
+   * that asked for it scrolls: an unrelated re-render, a re-reveal of the same
+   * error, or the user scrolling the pane afterwards never re-scrolls.
+   */
+  const [revealScroll, setRevealScroll] = useState<{ id: WorkbenchSectionId; seq: number } | null>(
+    null,
+  )
+  useEffect(() => {
+    if (revealScroll === null) return
+    const section = document.getElementById(`section-${revealScroll.id}`)
+    if (section === null) return
+    if (typeof section.scrollIntoView === 'function') section.scrollIntoView({ block: 'start' })
+  }, [revealScroll])
   const revealSectionFromNav = useCallback(
-    (id: WorkbenchSectionId) => {
+    (
+      id: WorkbenchSectionId,
+      // Opt-in scroll: every existing caller omits it and is behaviourally
+      // unchanged (a section-link click already scrolls through its `href`).
+      options: { readonly scroll?: boolean } = {},
+    ) => {
       // Task-aware reveal: a nested action, a pipeline cross-link or a
       // section-link click first exposes the owning task, then expands and
       // anchors the section. Switching the task is presentation only.
@@ -703,6 +733,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         return next
       })
       openSection(id)
+      // A link click scrolls itself; a programmatic reveal asks explicitly.
+      if (options.scroll === true) {
+        setRevealScroll((previous) => ({ id, seq: (previous?.seq ?? 0) + 1 }))
+      }
     },
     [openSection],
   )
@@ -828,6 +862,38 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     handleSelectCursor,
     retryView,
   } = useEditingSession(phase, datasetSession, sourceIdentityRef)
+
+  /**
+   * rd-3c: durable edit feedback from any task.
+   *
+   * The durable `edit-error` (engine rejection, cast refusal, non-applied op)
+   * lives in the Editing section, which is a Change-task surface, so since
+   * rd-3b a rejection raised while another task is active would be invisible —
+   * a sighted user editing a typed/temporal cell from Explore saw a silent
+   * revert. When the error TRANSITIONS to a non-null value, reveal the Editing
+   * section through the existing seam (activate Change, expand, and — the
+   * review fix — scroll the section into view, which a programmatic reveal
+   * does not get for free) and deliberately do NOT move focus: the grid keeps
+   * the user's editing position and roving stop. `revealedEditErrorRef` makes that once per error — it
+   * starts at the mount value (a pre-existing error is never revealed) and
+   * resets when the error clears (a new attempt/commit clears it in the
+   * session hook), so a user who returns to Explore with the error still on
+   * record is not yanked back. The no-op case (Change already active with
+   * Editing already open) is skipped so nothing scrolls when nothing would
+   * change. Nothing else moves: same messages, same sources, same clearing
+   * behaviour, no second render of the text.
+   */
+  const revealedEditErrorRef = useRef<string | null>(editError)
+  useEffect(() => {
+    if (editError === null) {
+      revealedEditErrorRef.current = null
+      return
+    }
+    if (revealedEditErrorRef.current === editError) return
+    revealedEditErrorRef.current = editError
+    if (activeTask === 'change' && openSections.has('editing')) return
+    revealSectionFromNav('editing', { scroll: true })
+  }, [editError, activeTask, openSections, revealSectionFromNav])
 
   /**
    * m5-3/m6-4 jump-to-row gesture. Owned by the composition root because the
