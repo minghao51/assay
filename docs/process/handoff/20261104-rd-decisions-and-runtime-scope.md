@@ -209,6 +209,14 @@ a product decision (bundle size ≈ 3.6 MB, CSP/supply-chain review) and is NOT 
 
 **Baseline:** `9c947a4`. **Rollback:** revert the one commit (tests only).
 
+**Delivered and CLOSED (2026-11-04) — merged `ea38938`.** Tests-only; one squashed reviewed commit, no
+changeset (no package behaviour changes). Independent `gpt-6-luna` xhigh review: **approve**, with its
+own mutation (same-length zero bytes → real-open tests failed; restored byte-identically). Merged gates
+([map §6.6](20261104-svg-implementation-map.md)): unit 236/3511, coverage unchanged, **two consecutive
+full browser runs at 237 passed + 1 skipped, 0 failed** — the browser gate is deterministic for the
+first time in this programme. Production behaviour is untouched: the web app still autoloads from the
+CDN, and web bundling for offline parity remains an unauthorized product decision.
+
 ## 10. rd-5 authorization — scope-first (2026-11-04, maintainer)
 
 **Instruction.** _"on the current block, I think we can proceed with your recommendations"_ — the

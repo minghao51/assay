@@ -269,7 +269,27 @@ Clean `git worktree` at the merged revision, `pnpm install --frozen-lockfile` ex
 | Configured telemetry   | 0             | endpoint in 1 bundle; **6 passed**; collector POSTs aborted                                                                                                                                                                                                                                       |
 | Restored stock         | 0             | **0** endpoint hits; affected specs (`telemetry`, `theme`, `a11y`, `workbench-visibility`, `workbench-tasks`, `shell`, `m5`, `column-ops`, `grid-editing`) **80 passed**                                                                                                                          |
 
-**Environment finding (open, not this slice's fix): the e2e open path depends on a runtime CDN fetch.** `apps/vscode/webview/main.ts` documents that `read_parquet` autoloads the Parquet extension from `extensions.duckdb.org` in DuckDB-WASM, and one failure in this series carried the exact URL: `Failed to execute 'send' on 'XMLHttpRequest': Failed to load 'https://extensions.duckdb.org/v1.4.3/wasm_mvp/json.duckdb_extension.wasm'`. A direct `curl` of that URL returned 200 in 0.3–0.6 s immediately afterwards, so this is not plain connectivity; the pattern is consistent with throttling/contention when many opens fetch the same extension in a short window (the failures clustered during repeated full runs). **Every** open-phase failure in the rd-3b/rd-3c series belongs to this class. Proposed follow-up (**not authorized**): serve/cache the DuckDB-WASM extensions locally for the test harness so browser gates stop depending on a third-party CDN; it is an engine/harness change and needs its own row.
+**Environment finding (open, not this slice's fix): the e2e open path depends on a runtime CDN fetch.** `apps/vscode/webview/main.ts` documents that `read_parquet` autoloads the Parquet extension from `extensions.duckdb.org` in DuckDB-WASM, and one failure in this series carried the exact URL: `Failed to execute 'send' on 'XMLHttpRequest': Failed to load 'https://extensions.duckdb.org/v1.4.3/wasm_mvp/json.duckdb_extension.wasm'`. A direct `curl` of that URL returned 200 in 0.3–0.6 s immediately afterwards, so this is not plain connectivity; the pattern is consistent with throttling/contention when many opens fetch the same extension in a short window (the failures clustered during repeated full runs). **Every** open-phase failure in the rd-3b/rd-3c series belongs to this class.
+
+**Resolved by hf-1 (2026-11-04) — merged `ea38938`.** The harness now serves those autoloads from the
+already-committed, checksum-pinned binaries in `apps/vscode/assets/duckdb` through a per-context
+Playwright route (`tests/e2e/support/fixture.ts`), aborting unknown paths loudly; 55 specs are
+one-line import swaps so every context gets the route, `bench-ttfr` installs it on the fresh context
+it creates, and `tests/e2e/wasm-cache.spec.ts` pins the provenance (served path + byte length, empty
+abort log, page-level bypass detector). Independent `gpt-6-luna` xhigh review: **approve**, with its
+own mutation (same-length zero bytes → both real-open tests failed; restored byte-identically).
+
+| Gate (merged `ea38938`, clean worktree)                   | Result                                                                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| format / lint / typecheck (`--force`) / build (`--force`) | 0 / 0 / 20-20 0-cached / 12-12 0-cached                                                                 |
+| unit / coverage                                           | **236 files / 3511 tests**; **89.11 / 83.87 / 91.40 / 90.69**                                           |
+| docs links / ADR index                                    | 132 files 0 broken / 46 records                                                                         |
+| **full browser, two consecutive runs** (7573… and 7673…)  | **237 passed + 1 skipped, 0 failed** each; one abort line per run = the deliberate unknown-path control |
+
+**Not changed, by decision:** production still autoloads from the CDN, and bundling the extensions
+into the web build for offline parity remains an unauthorized product decision (≈3.6 MB, CSP and
+supply-chain review). The harness change is tests-only — no `apps/**`, `packages/**`, config,
+lockfile, vendored binary or Playwright config change.
 
 ## 7. Evidence and closure record templates
 

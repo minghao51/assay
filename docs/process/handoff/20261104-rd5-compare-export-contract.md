@@ -1,8 +1,8 @@
 # rd-5 — compare and reviewed export: scope contract
 
 **Status: SCOPE PREPARED 2026-11-04 — implementation NOT authorized until the two decisions in §5 are
-answered.** Authorized to scope first (decisions record §10). Baseline `9c947a4`; hf-1 runs first so
-gate evidence is not polluted by the extension CDN.
+answered.** Authorized to scope first (decisions record §10). Baseline `9c947a4`; **hf-1 is CLOSED** (`ea38938`) — the browser gate is now deterministic (two
+consecutive full runs at 237 passed + 1 skipped).
 
 Requirement source: [map](../handoff/20261104-svg-implementation-map.md) row `rd-5`, [review](../../product/12-workbench-redesign-review.md)
 RD-R02/RD-T02 (+RD-R03/04/08), [conservative spec](../../product/11-svg-implementation-spec.md) SV-R11 / SV-T07 / SV-T11 / SV-T15.
