@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 
 // Task M1-3 proof (handoff §6 #3): picking a file → DataSource.open() works,
 // for BOTH picker paths, in real Chromium. The harness

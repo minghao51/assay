@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 
 // Task T2 (handoff §6): worker-side operation serialization. This spec fires
 // four operations CONCURRENTLY against the real DuckDB-WASM worker in

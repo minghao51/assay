@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { median, percentile } from './support/stats'
 
 // Task m2-7 (handoff §6): FIFO head-of-line latency revisit. This spec is the

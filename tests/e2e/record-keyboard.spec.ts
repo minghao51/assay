@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import type { Page } from '@playwright/test'
 import { openFixture } from './support/fixtures'
 import { row, waitForReadyRow } from './support/grid'

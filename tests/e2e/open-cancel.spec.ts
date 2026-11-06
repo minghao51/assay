@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { cell, waitForReadyRow } from './support/grid'
 
 // ug-21 — opening progress + cancel, in real Chromium.

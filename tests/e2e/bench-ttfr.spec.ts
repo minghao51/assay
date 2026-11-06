@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, servePinnedExtensions, test } from './support/fixture'
 import type { CDPSession, Page } from '@playwright/test'
 import { bigFixturePath, BIG_ROW_COUNT, ensureBigFixture } from './support/big-fixture'
 import { median, percentile } from './support/stats'
@@ -198,6 +198,10 @@ test('time-to-first-row and memory over a ~1 GiB Parquet (engine path)', async (
   for (let repeat = 1; repeat <= REPEATS; repeat++) {
     // Fresh page = fresh engine worker = cold DuckDB state per repeat.
     const page = await browser.newPage()
+    // hf-1: `browser.newPage()` opens a NEW context, so the suite fixture's
+    // pinned-extension route does not cover this page — install it before the
+    // first navigation (same committed binaries, same no-network contract).
+    await servePinnedExtensions(page.context())
     try {
       const cdp = await page.context().newCDPSession(page)
       await cdp.send('Performance.enable')

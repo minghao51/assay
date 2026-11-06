@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { cell, waitForReadyRow } from './support/grid'
 
 // ug-15 / UG-6 — drag-and-drop open, in real Chromium.

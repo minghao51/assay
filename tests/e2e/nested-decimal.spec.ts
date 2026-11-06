@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import type { Page } from '@playwright/test'
 
 // Task m4-5 close-out of the m4-4 carry-over: decimals nested inside a struct

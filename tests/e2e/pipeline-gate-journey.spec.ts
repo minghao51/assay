@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 
 // p2-4: a gated pipeline on the real engine. The harness
 // (packages/engine-duckdb/harness) hosts `pipeline-gate-journey-result`:

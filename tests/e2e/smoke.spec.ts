@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './support/fixture'
 
 // Cold-start smoke test. ug-2/R-03 also pins the first-run contract here: the
 // idle screen explains the capability and formats, and the old

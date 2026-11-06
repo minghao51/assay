@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { runScenario } from './support/conformance'
 
 // Task m4-2 (handoff §6): the edit-overlay engine surface — overlay-aware

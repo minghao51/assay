@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import type { Page } from '@playwright/test'
 import { openNestedFixture } from './support/fixtures'
 import { readGridFetchCache } from './support/grid-stats'

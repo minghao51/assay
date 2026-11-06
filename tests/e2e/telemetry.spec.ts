@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 
 /**
  * Telemetry surface e2e (design §6/§8; ADR 0037/0045).

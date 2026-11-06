@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import type { Locator, Page } from '@playwright/test'
 import {
   PIPELINE_DATASET_FIXTURE,

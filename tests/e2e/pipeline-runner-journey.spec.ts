@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import type { RunAllReport } from './support/conformance'
 // The scenario list is the suite package's single source of truth (au3-11,
 // the engine-conformance.spec.ts precedent): the root e2e has no

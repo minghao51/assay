@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { runScenario } from './support/conformance'
 import type { RunAllReport } from './support/conformance'
 

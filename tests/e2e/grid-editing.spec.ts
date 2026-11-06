@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import type { Page } from '@playwright/test'
 import { readGridStats } from './support/grid-stats'
 import { activateTask, openCustomersFixture, openFilterBar } from './support/fixtures'

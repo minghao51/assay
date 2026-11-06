@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { clickAndGetJson, openFlatFixture } from './support/fixtures'
 
 // Task m2-2 (handoff §6): filtered/sorted windows over REAL DuckDB-WASM on a

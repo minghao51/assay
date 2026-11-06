@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import type { Locator, Page } from '@playwright/test'
 import { cell, headerCell, openEditor, row } from './support/grid'
 import { openFixture } from './support/fixtures'

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import type { Page } from '@playwright/test'
 import { activateTask, openCustomersFixture } from './support/fixtures'
 import { castColumn, cell, editCell, headerCell, openEditor, renameColumn } from './support/grid'

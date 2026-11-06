@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { openFixture } from './support/fixtures'
 import { waitForReadyRow } from './support/grid'
 

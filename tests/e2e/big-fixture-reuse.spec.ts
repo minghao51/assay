@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { BIG_ROW_COUNT, metaMatches, sha256File } from './support/big-fixture'
 
 // Negative test for the m1-7 bench-fixture reuse check (T4; m1-7 reviewer

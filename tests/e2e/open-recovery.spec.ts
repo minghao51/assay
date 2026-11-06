@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 
 // ug-14 / UG-5 — open-failure recovery, in a real browser.
 //

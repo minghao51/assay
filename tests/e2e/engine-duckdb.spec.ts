@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './support/fixture'
 import { sha256Bytes } from './support/hash'
 
 // Task M1-2 proof (handoff §6 #2): `query()` returns the first Apache Arrow
