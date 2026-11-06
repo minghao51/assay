@@ -76,6 +76,33 @@ vi.mock('./lib/engine', () => ({
 afterEach(cleanup)
 
 /**
+ * rd-3b focus guard: this environment computes NO layout, so
+ * `getComputedStyle(section).display` is the only thing the guard can be told
+ * about a stylesheet it cannot apply. These tests therefore STUB the layout for
+ * one section and nothing else: the stub stands in for the browser's
+ * `@media (min-width: 1024px)` evaluation, which the real-layout assertions in
+ * `tests/e2e/workbench-visibility.spec.ts` (F-2) own. Every other element still
+ * resolves through the real implementation.
+ */
+const REAL_GET_COMPUTED_STYLE = window.getComputedStyle
+
+afterEach(() => {
+  window.getComputedStyle = REAL_GET_COMPUTED_STYLE
+})
+
+/** Report `display: <value>` for exactly one element (the layout stub). */
+function stubSectionDisplay(section: HTMLElement, display: string): void {
+  window.getComputedStyle = ((element: Element, pseudoElement?: string | null) =>
+    element === section
+      ? ({ display } as unknown as CSSStyleDeclaration)
+      : REAL_GET_COMPUTED_STYLE.call(
+          window,
+          element,
+          pseudoElement,
+        )) as typeof window.getComputedStyle
+}
+
+/**
  * UI-RD-01 (2026-11-04): the section links are rendered in task membership
  * order — Explore (schema, filters, sql, profile), Check (validation,
  * compare), Change (editing, history, export), Prepare (pipeline), then the
@@ -345,6 +372,116 @@ describe('q-15 — workbench two-pane shell', () => {
     expect(
       Array.from(document.querySelectorAll('.workbench-tools-body > .workbench-section')).length,
     ).toBe(10)
+  })
+
+  /**
+   * rd-3b — conditional task visibility, ATTRIBUTE pin only.
+   *
+   * Exposure itself is CSS inside `@media (min-width: 1024px)`, and this
+   * environment applies no stylesheet, so nothing here can observe a computed
+   * `display`. What it does pin is the wiring that CSS keys on: the pane's
+   * single `data-task`, each tool section's owning `data-task`, Grid/Record
+   * carrying NONE (the workspace can never be filtered), and all twelve
+   * sections staying mounted across the switch. The real exposure proof is
+   * `tests/e2e/workbench-visibility.spec.ts` in a browser; the rule shapes are
+   * pinned in `shell-visibility.test.ts`.
+   */
+  it('carries the task attribute the ≥1024px exposure rule reads, per task', async () => {
+    await open()
+
+    const expected: Record<string, readonly string[]> = {
+      explore: ['schema', 'filters', 'sql', 'profile'],
+      check: ['validation', 'compare'],
+      change: ['editing', 'history', 'export'],
+      prepare: ['pipeline'],
+    }
+    const allSections = Array.from(document.querySelectorAll('.workbench-section'))
+    expect(allSections).toHaveLength(12)
+
+    for (const [task, exposed] of Object.entries(expected)) {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(`task-${task}`))
+      })
+      expect(document.querySelector('.workbench-tools')?.getAttribute('data-task')).toBe(task)
+
+      const matching = allSections
+        .filter((section) => section.getAttribute('data-task') === task)
+        .map((section) => section.getAttribute('data-section'))
+      // DOM order of the task's own sections.
+      expect(matching).toEqual(
+        allSections
+          .map((section) => section.getAttribute('data-section') ?? '')
+          .filter((id) => exposed.includes(id)),
+      )
+      // Everything else is either another task's section (so `:not()` hides it)
+      // or workspace (no attribute at all).
+      for (const section of allSections) {
+        const id = section.getAttribute('data-section')
+        if (exposed.includes(id ?? '')) continue
+        const value = section.getAttribute('data-task')
+        if (id === 'grid' || id === 'record') expect(value).toBeNull()
+        else expect(value, id ?? '').not.toBe(task)
+      }
+      // Still mounted, still the same twelve: a task switch never unmounts.
+      expect(document.querySelectorAll('.workbench-section')).toHaveLength(12)
+    }
+  })
+
+  /**
+   * rd-3b F-2, proved deterministically. The browser cannot isolate the guard:
+   * every user-reachable task change in Chromium already moves focus (a real
+   * click focuses the radio, TaskNav focuses it on arrow keys, the reveal seams
+   * focus their target), so `tests/e2e/workbench-visibility.spec.ts` pins the
+   * user-visible guarantee rather than the guard's own branch. Here the branch
+   * IS reachable, because a JSDOM `fireEvent.click` does not move focus: focus
+   * stays inside the SQL panel while the task changes, exactly the state the
+   * guard exists for. The layout is stubbed (see `stubSectionDisplay`) because
+   * no stylesheet is applied in this environment.
+   */
+  it('moves focus to the checked task radio when the focused panel stops being rendered (rd-3b guard)', async () => {
+    await open()
+    fireEvent.click(screen.getByTestId('section-toggle-sql'))
+    const input = screen.getByTestId('sql-input') as HTMLTextAreaElement
+    input.focus()
+    expect(document.activeElement).toBe(input)
+
+    const sqlSection = document.getElementById('section-sql')
+    expect(sqlSection).not.toBeNull()
+    if (sqlSection === null) return
+    // Layout stub: the SQL section is now `display: none` (the ≥1024px rule
+    // for every task except Explore — Change is being chosen next).
+    stubSectionDisplay(sqlSection, 'none')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('task-change'))
+    })
+
+    // Focus left the now-hidden subtree and landed on the checked radio.
+    expect(sqlSection.contains(input)).toBe(true)
+    expect(document.activeElement).toBe(screen.getByTestId('task-change'))
+    expect(screen.getByTestId('task-change').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('leaves focus alone when the focused panel is still rendered (rd-3b guard is inert)', async () => {
+    await open()
+    fireEvent.click(screen.getByTestId('section-toggle-sql'))
+    const input = screen.getByTestId('sql-input') as HTMLTextAreaElement
+    input.focus()
+    expect(document.activeElement).toBe(input)
+
+    const sqlSection = document.getElementById('section-sql')
+    expect(sqlSection).not.toBeNull()
+    if (sqlSection === null) return
+    // Layout stub: the section is still rendered (the <1024px stack, or a
+    // section the active task owns), so the guard must not steal focus.
+    stubSectionDisplay(sqlSection, 'block')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('task-change'))
+    })
+
+    expect(document.activeElement).toBe(input)
+    expect(document.activeElement).not.toBe(screen.getByTestId('task-change'))
   })
 
   it('reopens a collapsed Grid from its workspace anchor (R-07/nav regression)', async () => {

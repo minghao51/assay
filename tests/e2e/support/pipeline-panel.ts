@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
+import { activateTask } from './fixtures'
 
 /**
  * Shared pipeline-panel drive (p-5; p2-6 gates/preview). Every pick gesture —
@@ -143,6 +144,11 @@ export async function openPipelineOnOpenDataset(
   page: Page,
   pipelinePath: string = PIPELINE_FIXTURE,
 ): Promise<void> {
+  // rd-3b: Pipeline is a Prepare section and only the active task's nav group
+  // is exposed at ≥1024px, so the task is selected before its nav link is
+  // focused — a hidden link is not clickable (R4), and this stays the same
+  // real gesture a user makes.
+  await activateTask(page, 'prepare')
   // Keyboard-reachable navigation to the section (the sticky nav's anchor
   // link — the scroll-never-clip gesture at any viewport).
   await page.getByTestId('section-nav-pipeline').focus()

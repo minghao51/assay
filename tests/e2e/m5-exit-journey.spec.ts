@@ -315,7 +315,9 @@ test('M5 exit journey: same contract + same dirty file agree EXACTLY across web 
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
   // q-15: expand the two-pane tool sections this journey drives (validation).
-  await expandAllSections(page)
+  // rd-3b: Validation is a Check section, so the open flow ends on Check; the
+  // fix-all leg edits the grid (the workspace, never filtered).
+  await expandAllSections(page, { endTask: 'check' })
 
   // --- WEB: import the contract through the panel's import control. ---
   chooserPromise = page.waitForEvent('filechooser')

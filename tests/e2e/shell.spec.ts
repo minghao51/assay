@@ -5,9 +5,11 @@ import { row, waitForReadyRow } from './support/grid'
 import {
   RECORD_CLOSED_HINT,
   SECTION_PURPOSES,
+  activateTask,
   expandAllSections,
   openFixture,
 } from './support/fixtures'
+import type { WorkbenchTask } from './support/fixtures'
 
 // q-15 — workbench shell slice 2, the ≥1024px grid-centric two-pane shell
 // (spec docs/product/05-workbench-shell.md §3; ADR 0044). This journey pins
@@ -69,6 +71,23 @@ const DOM_ORDER = [
   'grid',
   'record',
 ] as const
+
+/**
+ * rd-3b: the h2 map each task EXPOSES at ≥1024px, in document order — the
+ * task's own sections (a tool section's h2 lives in its body, so the map is
+ * asserted with every managed section expanded) followed by the always-exposed
+ * Grid/Record workspace headings. The complete twelve-heading map is still in
+ * the DOM (asserted with `includeHidden`) and stays fully exposed at 900px.
+ */
+const TASK_HEADINGS: readonly {
+  readonly task: WorkbenchTask
+  readonly headings: readonly string[]
+}[] = [
+  { task: 'explore', headings: ['Schema', 'Filters', 'SQL', 'Profile', 'Grid', 'Record'] },
+  { task: 'check', headings: ['Validation', 'Compare', 'Grid', 'Record'] },
+  { task: 'change', headings: ['Editing', 'History', 'Export', 'Grid', 'Record'] },
+  { task: 'prepare', headings: ['Pipeline', 'Grid', 'Record'] },
+]
 
 /** The complete h2 map in open state (record open), in two-pane DOM order. */
 const HEADING_MAP = [
@@ -175,7 +194,16 @@ test('two-pane shell at ≥1024px: tools left, persistent grid center, rail', as
     await expect(page.getByTestId(`section-toggle-${id}`)).toHaveAttribute('aria-expanded', 'false')
   }
 
-  // Non-exclusive expansion: opening two sections keeps both open.
+  // Non-exclusive expansion: opening two sections keeps both open. Validation
+  // and Compare are Check sections, and rd-3b exposes only the active task's
+  // sections, so the task is selected first (that is the real user gesture).
+  await activateTask(page, 'check')
+  // Choosing a task opens its manageable sections, so both are collapsed first
+  // and then re-opened: non-exclusive expansion is what this pins.
+  for (const id of ['validation', 'compare']) {
+    const toggle = page.getByTestId(`section-toggle-${id}`)
+    if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click()
+  }
   await page.getByTestId('section-toggle-validation').click()
   await page.getByTestId('section-toggle-compare').click()
   await expect(page.getByTestId('section-toggle-validation')).toHaveAttribute(
@@ -195,9 +223,20 @@ test('two-pane shell at ≥1024px: tools left, persistent grid center, rail', as
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
   // Complete heading map (open state), including the docked Record heading.
+  // rd-3b: the DOM keeps all twelve headings, but only the active task's are
+  // EXPOSED, so the complete map is asserted with `includeHidden` and the
+  // exposed map is asserted per task (the narrow stack below keeps the full
+  // exposed map).
   await expandAllSections(page)
   await openRecord(page)
-  await expect(page.getByRole('heading', { level: 2 })).toHaveText([...HEADING_MAP])
+  await expect(page.getByRole('heading', { level: 2, includeHidden: true })).toHaveText([
+    ...HEADING_MAP,
+  ])
+  for (const { task, headings } of TASK_HEADINGS) {
+    await activateTask(page, task)
+    await expect(page.getByRole('heading', { level: 2 })).toHaveText([...headings])
+  }
+  await activateTask(page, 'explore')
 
   // Pane rail: the tool pane collapses to a rail; the center column stays put.
   //
@@ -274,7 +313,15 @@ test('collapsed sections show their purpose subtitle right after open (no expans
 }) => {
   await openDefault(page)
 
+  // rd-3b: Validation is a Check section, so it is exposed only while Check is
+  // the active task. Choosing a task opens its manageable sections, so the
+  // COLLAPSED state this pin is about is restored with one collapse gesture:
+  // the subtitle must stay visible while the body is closed.
+  await activateTask(page, 'check')
   const validationToggle = page.getByTestId('section-toggle-validation')
+  if ((await validationToggle.getAttribute('aria-expanded')) === 'true') {
+    await validationToggle.click()
+  }
   await expect(validationToggle).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByTestId('section-purpose-validation')).toBeVisible()
   await expect(page.getByTestId('section-purpose-validation')).toHaveText(

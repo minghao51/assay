@@ -11,12 +11,14 @@
  * has always rendered; they move here so the containment rule can be asserted
  * in one pure place instead of being re-typed in the pane and in tests.
  *
- * Task framing is presentation-only: the pane's `data-task` attribute marks
- * the active task's sections (CSS), and choosing a task opens its manageable
- * sections. Conditional hiding of inactive tasks is a deferred reviewed slice,
- * so every section stays reachable today. Sections are always mounted — the
- * shell only ever hides a body (`hidden={!open}`), so a task switch cannot
- * remount a panel or drop its local state.
+ * Task framing is presentation-only: the pane's `data-task` attribute exposes
+ * the active task's sections at ≥1024px (one CSS rule in `index.css`), and
+ * choosing a task opens its manageable sections. At ≥1024px the other tasks'
+ * sections are NOT exposed — they stay mounted and are only `display: none` —
+ * while below 1024px every section stays in the single-column stack (ADR 0044).
+ * Sections are always mounted: the shell only ever hides a section's body
+ * (`hidden={!open}`) or removes a section from the layout with that one rule,
+ * so a task switch cannot remount a panel or drop its local state.
  */
 
 /** The twelve sections the shell renders. Order is the current DOM order. */

@@ -271,7 +271,9 @@ function defineScans(scheme: 'light' | 'dark'): void {
   }) => {
     test.setTimeout(240_000)
     const dataset = writeValidationDatasetA()
-    await openFixture(page, dataset.dataPath, { assertFileNameHidden: true })
+    // rd-3b: the scan stays inside one task — Validation lives in Check, so
+    // the open flow ends on Check and the scan covers the Check frame.
+    await openFixture(page, dataset.dataPath, { assertFileNameHidden: true, task: 'check' })
     await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
 
     // Import the contract and run the real validation op.
@@ -296,7 +298,8 @@ function defineScans(scheme: 'light' | 'dark'): void {
   }) => {
     test.setTimeout(240_000)
     const pair = writeDiffDatasetPair()
-    await openFixture(page, pair.aPath, { assertFileNameHidden: true })
+    // rd-3b: Compare is a Check section — the diff scan runs in the Check frame.
+    await openFixture(page, pair.aPath, { assertFileNameHidden: true, task: 'check' })
     await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
     // Stage side B, confirm the inferred key (default: id), and run the diff.

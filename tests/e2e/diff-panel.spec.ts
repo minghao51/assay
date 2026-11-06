@@ -57,8 +57,10 @@ async function openDatasetA(page: Page, aPath: string): Promise<void> {
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
   // q-15: the two-pane pane starts with only Schema expanded; this journey
-  // needs the Compare panel open (shared open-section step).
-  await expandAllSections(page)
+  // needs the Compare panel open (shared open-section step). rd-3b: Compare is
+  // a Check section and Check sections are `display: none` while Explore is
+  // active, so the open flow ends on Check.
+  await expandAllSections(page, { endTask: 'check' })
 }
 
 async function stageComparison(page: Page, bPath: string): Promise<void> {

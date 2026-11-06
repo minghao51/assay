@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Download, Page } from '@playwright/test'
-import { openFixture, openFilterBar, expandAllSections } from './support/fixtures'
+import { activateTask, openFixture, openFilterBar, expandAllSections } from './support/fixtures'
 import { cell, editCell, row } from './support/grid'
 
 // Task m4-5 proof (handoff §6): the export/rewrite UX over the m4-2 export op.
@@ -181,7 +181,8 @@ async function openFixtureViaFakeFsa(
     timeout: 20_000,
   })
   // q-15: expand the two-pane tool sections (Export/Editing) this spec drives.
-  await expandAllSections(page)
+  // rd-3b: Export and Editing are Change sections, so the flow ends on Change.
+  await expandAllSections(page, { endTask: 'change' })
 }
 
 /**
@@ -203,7 +204,9 @@ test('export a copy from an edited overlay: CSV sanitized, JSONL raw, and the ex
   page,
 }) => {
   test.setTimeout(180_000)
-  await openFixture(page, FIXTURE)
+  // rd-3b: this test drives the editing toolbar and the Export dialog — the
+  // Change task — so the open flow ends on Change.
+  await openFixture(page, FIXTURE, { task: 'change' })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
   // --- Edit the overlay: a formula-injection bait cell + an inserted row. ---
@@ -256,7 +259,7 @@ test('export a copy from an edited overlay: CSV sanitized, JSONL raw, and the ex
   await expect(dialog).toHaveCount(0)
 
   // --- Re-open the exported file through the normal open flow. ---
-  await openFixture(page, jsonlPath)
+  await openFixture(page, jsonlPath, { task: 'change' })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('6')
   await expect(row(page, 0)).toHaveAttribute('data-status', 'ready')
   // The edited bait cell comes back exactly as written (raw JSONL, no guard).
@@ -279,6 +282,8 @@ test('a cast-to-BLOB column exports CSV hex-encoded, never a raw formula (AR-E1)
   await expect(
     page.locator('[data-testid="grid-header-cell"][data-col-name="country"]'),
   ).toHaveAttribute('data-col-type', /BLOB/i)
+  // rd-3b: the cast lives in Schema (Explore); the Export dialog is Change.
+  await activateTask(page, 'change')
   await page.getByTestId('export-open').click()
   const download = await exportFormat(page, 'csv')
   const csvPath = await saveDownload(download)
@@ -291,7 +296,7 @@ test('a cast-to-BLOB column exports CSV hex-encoded, never a raw formula (AR-E1)
 test('the source fixture is never written by an export (ADR 0012)', async ({ page }) => {
   test.setTimeout(180_000)
   const before = readFileSync(FIXTURE)
-  await openFixture(page, FIXTURE)
+  await openFixture(page, FIXTURE, { task: 'change' })
   await editCell(page, 0, 1, 'ZZZ')
   await page.getByTestId('export-open').click()
   const download = await exportFormat(page, 'csv')
@@ -350,7 +355,7 @@ test('an input-fallback session exports via download; the present save picker is
       )
     }
   })
-  await openFixture(page, FIXTURE)
+  await openFixture(page, FIXTURE, { task: 'change' })
   await page.getByTestId('export-open').click()
   await page.getByTestId('export-format-csv').check()
   const download = await exportFormat(page, 'csv')
@@ -419,6 +424,8 @@ test('with a grid filter active, the dialog shows the effective count and the co
   await filterBy(page, 'income', '> 50000')
   await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
 
+  // rd-3b: the filter bar is Explore, the Export dialog is Change.
+  await activateTask(page, 'change')
   await page.getByTestId('export-open').click()
   // NOT the grid's filtered 3: the effective (unfiltered) edited count.
   await expect(page.getByTestId('export-view-rows')).toHaveText('5 rows')
@@ -453,7 +460,7 @@ test('a sort-only view: the dialog says the sorting is not applied and never men
   page,
 }) => {
   test.setTimeout(180_000)
-  await openFixture(page, FIXTURE)
+  await openFixture(page, FIXTURE, { task: 'change' })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
   await sortBy(page, 'income')
   await expect(
@@ -481,7 +488,7 @@ test('the arrow copy is honest: interchange for other tools, no re-open promise,
   page,
 }) => {
   test.setTimeout(180_000)
-  await openFixture(page, FIXTURE)
+  await openFixture(page, FIXTURE, { task: 'change' })
   await page.getByTestId('export-open').click()
   const download = await exportFormat(page, 'arrow')
   await expect(page.getByTestId('export-result')).toContainText('Exported 5 rows as Arrow IPC')

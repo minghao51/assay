@@ -15,7 +15,7 @@ import {
   watchFileChoosers,
   writeGatePipelineFixture,
 } from './support/pipeline-panel'
-import { openFixture } from './support/fixtures'
+import { activateTask, openFixture } from './support/fixtures'
 
 // p-5/p2-6 journey: open a pipeline file → inspect the DAG → run it on the
 // real engine → a node's output opens GRID-NATIVE (the p2-1 view-as-handle
@@ -188,8 +188,11 @@ test('R-15 (a): source + validate nodes bind from App-held state with no file ch
   const fixture = writeGatePipelineFixture()
 
   // Open the dataset, then load the passing contract in Validation (the two
-  // legitimate setup picks — both happen before the spy is armed).
+  // legitimate setup picks — both happen before the spy is armed). rd-3b:
+  // Validation is a Check section, so that leg activates Check; the pipeline
+  // document leg then activates Prepare (inside `openPipelineOnOpenDataset`).
   await openFixture(page, PIPELINE_DATASET_FIXTURE)
+  await activateTask(page, 'check')
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('validation-open-contract').click()
   await (await chooserPromise).setFiles(fixture.passingContractPath)
@@ -252,6 +255,8 @@ test('R-15 (b): gate-failure cross-link loads the run contract into Validation, 
   await openFixture(page, PIPELINE_DATASET_FIXTURE)
   // A DIFFERENT contract is loaded in Validation first, so the cross-link's
   // load is observable (the session visibly replaces it with the run's).
+  // rd-3b: Validation is a Check section — that leg activates Check.
+  await activateTask(page, 'check')
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('validation-open-contract').click()
   await (await chooserPromise).setFiles(fixture.passingContractPath)
@@ -268,12 +273,17 @@ test('R-15 (b): gate-failure cross-link loads the run contract into Validation, 
   await expect(page.getByTestId('pipeline-run-gated-detail')).toContainText('failed 1 rule')
 
   // The section is collapsed before the cross-link, so reveal + expand is a
-  // real state change rather than a vacuous "already open".
+  // real state change rather than a vacuous "already open". rd-3b: the toggle
+  // belongs to the Check frame, so Check is activated for the collapse and the
+  // Prepare frame (the gated run below) is restored afterwards — the cross-link
+  // itself must do the reveal from a filtered state.
+  await activateTask(page, 'check')
   await page.getByTestId('section-toggle-validation').click()
   await expect(page.getByTestId('section-toggle-validation')).toHaveAttribute(
     'aria-expanded',
     'false',
   )
+  await activateTask(page, 'prepare')
 
   // Review-round pin: RE-BIND the validate node to a DIFFERENT (passing)
   // contract AFTER the failed run. The gated detail still belongs to the old

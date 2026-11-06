@@ -30,6 +30,42 @@ export interface OpenFixtureOptions {
    * shell journey (`shell.spec.ts`) passes `false` to pin the real default.
    */
   readonly expandSections?: boolean
+  /**
+   * rd-3b: the task the open flow ends on (default `'explore'`, the shell
+   * default). Sections outside the active task are `display: none` at
+   * ≥1024px, so a spec that drives another task states it here instead of
+   * clicking a hidden control. Forwarded to `expandAllSections` as `endTask`,
+   * so it only applies while `expandSections` is not `false`: a spec that pins
+   * the collapsed first paint calls `activateTask` itself.
+   */
+  readonly task?: WorkbenchTask
+}
+
+/**
+ * rd-3b: the four workbench tasks, in reading order. A task is a navigation
+ * grouping only — never a session, a dataset or an execution scope.
+ */
+export type WorkbenchTask = 'explore' | 'check' | 'change' | 'prepare'
+
+/** Task reading order, used by `expandAllSections`. */
+const WORKBENCH_TASK_ORDER: readonly WorkbenchTask[] = ['explore', 'check', 'change', 'prepare']
+
+/**
+ * rd-3b: which task owns each tool section (`workbench/tasks.ts` is the runtime
+ * authority; this is the spec-side mirror). Grid and Record are the workspace
+ * and have no task, so they are absent here and are never filtered.
+ */
+export const SECTION_TASK: Readonly<Record<string, WorkbenchTask>> = {
+  schema: 'explore',
+  filters: 'explore',
+  sql: 'explore',
+  profile: 'explore',
+  validation: 'check',
+  compare: 'check',
+  editing: 'change',
+  history: 'change',
+  export: 'change',
+  pipeline: 'prepare',
 }
 
 /** Managed sections the shell owns a `section-toggle-<id>` for. */
@@ -68,8 +104,23 @@ export const SECTION_PURPOSES = {
 export const RECORD_CLOSED_HINT =
   'Select a row to inspect it here — press Enter or double-click a row.'
 
-/** Expand one shell-managed section (idempotent). */
-export async function openSection(page: Page, id: string): Promise<void> {
+/** Expand one shell-managed section (idempotent, task-aware). */
+export async function openSection(page: Page, id: string, task?: WorkbenchTask): Promise<void> {
+  // rd-3b: only the active task's sections are exposed at ≥1024px, so the
+  // owning task is activated FIRST — a hidden toggle is not clickable, and
+  // activating never reloads or remounts the panel it reveals.
+  const owner = task ?? SECTION_TASK[id]
+  if (owner !== undefined) await activateTask(page, owner)
+  if (id === 'profile') {
+    // Profile is an inner-disclosure panel (no shell toggle); its own control
+    // is the disclosure, in Explore as before.
+    const profileToggle = page.getByTestId('profile-toggle')
+    if ((await profileToggle.getAttribute('aria-expanded')) !== 'true') {
+      await profileToggle.click()
+    }
+    await expect(profileToggle).toHaveAttribute('aria-expanded', 'true')
+    return
+  }
   const toggle = page.getByTestId(`section-toggle-${id}`)
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
     await toggle.click()
@@ -78,18 +129,46 @@ export async function openSection(page: Page, id: string): Promise<void> {
 }
 
 /**
- * q-15: expand every shell-managed section plus the Profile inner disclosure,
- * so a legacy journey sees the same panel set it saw before the two-pane
- * default (all managed sections open). Safe to call repeatedly.
+ * rd-3b: select a workbench task. Idempotent — it only clicks the radio when
+ * that task is not already checked — so a spec can state the task it needs at
+ * the boundary it needs it instead of tracking the shell's current selection.
  */
-export async function expandAllSections(page: Page): Promise<void> {
-  for (const id of MANAGED_SECTION_IDS) {
-    await openSection(page, id)
+export async function activateTask(page: Page, task: WorkbenchTask): Promise<void> {
+  const radio = page.getByTestId(`task-${task}`)
+  if ((await radio.getAttribute('aria-checked')) !== 'true') {
+    await radio.click()
   }
-  const profileToggle = page.getByTestId('profile-toggle')
-  if ((await profileToggle.getAttribute('aria-expanded')) !== 'true') {
-    await profileToggle.click()
+  await expect(radio).toHaveAttribute('aria-checked', 'true')
+}
+
+/**
+ * q-15: expand every shell-managed tool section plus the Profile inner
+ * disclosure, so a legacy journey sees the same panel set it saw before the
+ * two-pane default (all managed sections open). Safe to call repeatedly.
+ *
+ * rd-3b: exposure is per task at ≥1024px, so the expansion walks the tasks in
+ * reading order and opens each task's own sections while that task is active;
+ * it ends on `endTask` (default Explore, the shell default) so the LAST
+ * activation is the one the calling spec needs. Every section is still opened
+ * — a spec never silently loses its "everything expanded" starting state —
+ * and no visibility is asserted for a section after switching away from it.
+ * Grid (workspace, no `data-task`) is opened once, from any task.
+ */
+export async function expandAllSections(
+  page: Page,
+  options: { readonly endTask?: WorkbenchTask } = {},
+): Promise<void> {
+  const endTask = options.endTask ?? 'explore'
+  await openSection(page, 'grid')
+  for (const task of WORKBENCH_TASK_ORDER) {
+    await activateTask(page, task)
+    for (const id of MANAGED_SECTION_IDS) {
+      if (SECTION_TASK[id] === task) await openSection(page, id, task)
+    }
+    // Profile's inner disclosure belongs to Explore (it is an Explore section).
+    if (task === 'explore') await openSection(page, 'profile', task)
   }
+  await activateTask(page, endTask)
 }
 
 /** Open a fixture through the app's real picker path and wait until ready. */
@@ -111,7 +190,7 @@ export async function openFixture(
     timeout: 20_000,
   })
   if (options.expandSections !== false) {
-    await expandAllSections(page)
+    await expandAllSections(page, { endTask: options.task ?? 'explore' })
   }
   if (options.requireSchemaPanel === true) {
     await expect(page.getByTestId('schema-panel')).toBeVisible()

@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { openFixture } from './support/fixtures'
+import { activateTask, openFixture } from './support/fixtures'
 import { cell, openEditor, waitForReadyRow } from './support/grid'
 
 /**
@@ -65,8 +65,17 @@ test('history auto-expands on the first edit and Undo/Redo shortcuts drive it', 
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
   await waitForReadyRow(page, 0)
 
+  // rd-3b: History is a Change section, so at ≥1024px it is exposed only while
+  // Change is the active task. Choosing a task opens its manageable sections,
+  // so the COLLAPSED precondition the cue must satisfy is restored explicitly;
+  // a user collapse does not spend the one-shot cue (only the first appended
+  // op does), so the cue below is still the only thing that can re-open it.
+  await activateTask(page, 'change')
   const toggle = page.getByTestId('section-toggle-history')
   const body = page.locator('#section-history-content')
+  if ((await toggle.getAttribute('aria-expanded')) === 'true') {
+    await toggle.click()
+  }
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await expect(body).toBeHidden()
   await expect(page.getByTestId('history-item')).toHaveCount(0)

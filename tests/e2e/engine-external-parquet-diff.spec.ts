@@ -131,7 +131,8 @@ test('external-writer DOUBLE columns agree with themselves (row-level: no differ
 }) => {
   test.setTimeout(240_000)
   const pair = writeExternalParquetPair()
-  await openFixture(page, pair.aPath, { assertFileNameHidden: true })
+  // rd-3b: the comparison controls live in Compare, a Check section.
+  await openFixture(page, pair.aPath, { assertFileNameHidden: true, task: 'check' })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('4')
   await stageComparison(page, pair.identicalCopyPath)
   await page.getByTestId('diff-run').click()
@@ -145,7 +146,8 @@ test('external-writer DOUBLE columns never appear changed when only a VARCHAR ce
 }) => {
   test.setTimeout(240_000)
   const pair = writeExternalParquetPair()
-  await openFixture(page, pair.aPath, { assertFileNameHidden: true })
+  // rd-3b: the comparison controls live in Compare, a Check section.
+  await openFixture(page, pair.aPath, { assertFileNameHidden: true, task: 'check' })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('4')
   await stageComparison(page, pair.bPath)
   await page.getByTestId('diff-run').click()
@@ -164,7 +166,8 @@ test('pinned limitation: DOUBLE stats range to near-DBL_MAX fails staging honest
 }) => {
   test.setTimeout(240_000)
   const pair = writeExternalParquetPair()
-  await openFixture(page, pair.aPath, { assertFileNameHidden: true })
+  // rd-3b: the comparison controls live in Compare, a Check section.
+  await openFixture(page, pair.aPath, { assertFileNameHidden: true, task: 'check' })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('4')
 
   // The extreme-range staging fails with the value-free typed error…

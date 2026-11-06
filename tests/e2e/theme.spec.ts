@@ -2,7 +2,7 @@ import path from 'node:path'
 import { mkdir } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { openFixture } from './support/fixtures'
+import { activateTask, openFixture } from './support/fixtures'
 
 // q-2: light/dark theme smoke. Proves the token layer actually drives the UI:
 // the same representative view (grid + open profile panel + open export
@@ -186,7 +186,10 @@ async function openRepresentativeView(page: Page): Promise<void> {
   await page.getByTestId('profile-run').click()
   await expect(page.getByTestId('profile-columns')).toBeVisible({ timeout: 60_000 })
 
-  // Export dialog open (the modal surface, q-3).
+  // Export dialog open (the modal surface, q-3). rd-3b: the dialog renders
+  // inside the Export section — a Change-task surface — so the task is
+  // activated first (Profile above is Explore and stays mounted).
+  await activateTask(page, 'change')
   await page.getByTestId('export-open').click()
   await expect(page.getByTestId('export-dialog')).toBeVisible()
   // Reading a control's base treatment must not race the pointer: opening the
@@ -581,7 +584,9 @@ test('theme: uxv-2 export actions, telemetry controls and the ug-8 copy classes 
   page,
 }) => {
   test.setTimeout(180_000)
-  await openFixture(page, CUSTOMERS_FIXTURE, { assertFileNameHidden: true })
+  // rd-3b: this surface drives the editing toolbar and the Export dialog, both
+  // Change-task sections.
+  await openFixture(page, CUSTOMERS_FIXTURE, { assertFileNameHidden: true, task: 'change' })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
 
   // A staged change makes the export dialog's ug-8 count line render.

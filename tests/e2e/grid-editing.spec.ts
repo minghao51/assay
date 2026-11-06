@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readGridStats } from './support/grid-stats'
-import { openCustomersFixture, openFilterBar } from './support/fixtures'
+import { activateTask, openCustomersFixture, openFilterBar } from './support/fixtures'
 import { cell, openEditor, row, waitForReadyRow } from './support/grid'
 
 // Task m4-3 proof (handoff §6): real cell editing + row ops + dirty state over
@@ -62,6 +62,8 @@ function expectCustomerOrder(page: Page, ids: string[]): Promise<void> {
 
 test('edit → visibility → undo → redo → undo → clean (the exit pin)', async ({ page }) => {
   await openCustomersFixture(page)
+  // rd-3b: the History panel is a Change-task surface.
+  await activateTask(page, 'change')
   const income = cell(page, 0, 2)
   await expect(income).toHaveText('52000')
   await expect(income).toHaveAttribute('data-dirty', 'false')
@@ -161,6 +163,10 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   // (and every other DuckDB error on the overlay-materialization path) to
   // the value-free class before posting (q-8), so the alert carries the
   // class and never the raw engine text or the typed value.
+  // rd-3b: the History panel and the editing toolbar (`edit-error`,
+  // `edit-insert-row`) are Change-task surfaces — the grid itself is the
+  // workspace and stays exposed in every task.
+  await activateTask(page, 'change')
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('rejected')
@@ -220,6 +226,8 @@ test('temporal editing: a human-readable draft round-trips, and Enter-unchanged 
 
 test('NULL is a distinct affordance and rendering, never an empty string', async ({ page }) => {
   await openCustomersFixture(page)
+  // rd-3b: the Undo button lives in the History panel (Change).
+  await activateTask(page, 'change')
   const country = cell(page, 0, 1)
 
   // Set NULL through the dedicated button.
@@ -256,6 +264,8 @@ test('NULL is a distinct affordance and rendering, never an empty string', async
 
 test('insert and delete row journeys are reversible', async ({ page }) => {
   await openCustomersFixture(page)
+  // rd-3b: Insert row and Undo live in the Change task.
+  await activateTask(page, 'change')
 
   // Insert: a new overlay row appears at the end (v1 placement), all NULL,
   // marked inserted.

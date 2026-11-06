@@ -49,7 +49,8 @@ async function openDataset(page: Page, dataPath: string, contractPath: string): 
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('7')
   // q-15: expand the two-pane tool sections this journey drives (validation).
-  await expandAllSections(page)
+  // rd-3b: Validation is a Check section, so the open flow ends on Check.
+  await expandAllSections(page, { endTask: 'check' })
 
   chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('validation-open-contract').click()
@@ -76,7 +77,8 @@ async function reportOrder(page: Page): Promise<string[]> {
 test('zero state downloads a starter contract built from the open schema', async ({ page }) => {
   test.setTimeout(120_000)
   const fixture = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
-  await openFixture(page, fixture)
+  // rd-3b: the zero state and the starter download live in Validation (Check).
+  await openFixture(page, fixture, { task: 'check' })
 
   // The zero state is the on-ramp: no contract is loaded yet.
   await expect(page.getByTestId('validation-contract-none')).toBeVisible()

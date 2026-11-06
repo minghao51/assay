@@ -4,7 +4,7 @@ import type { Download, Locator, Page } from '@playwright/test'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { writeValidationDatasetB } from './support/validation-datasets'
-import { expandAllSections } from './support/fixtures'
+import { activateTask, expandAllSections } from './support/fixtures'
 
 // m5-3 journey 2: the failure report + the invalid-row explorer's honesty
 // edges. On the 120-row dataset B (CLI-derived counts in
@@ -47,7 +47,8 @@ async function openDatasetB(page: Page): Promise<{ dataName: string; contractNam
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText('120')
   // q-15: expand the two-pane tool sections this journey drives (validation).
-  await expandAllSections(page)
+  // rd-3b: Validation is a Check section, so the open flow ends on Check.
+  await expandAllSections(page, { endTask: 'check' })
   chooserPromise = page.waitForEvent('filechooser')
   await page.getByTestId('validation-open-contract').click()
   await (await chooserPromise).setFiles(dataset.contractPath)
@@ -158,6 +159,9 @@ test('bounded sets, filter-to-failures, and the exported report match the screen
   // round 2), and dismissing it restores 120.
   const chip = page.locator('[data-testid="filter-chip"][data-col-name="region"]')
   await expect(chip).toHaveCount(1)
+  // rd-3b: the filter bar (chip removal) is an Explore section, so this is the
+  // Check → Explore boundary; the panel reads below return to Check.
+  await activateTask(page, 'explore')
   await page.locator('[data-testid="filter-active-remove"][data-col-name="region"]').click()
   await expect(page.getByTestId('grid-total-rows')).toHaveText('120')
   await expect(
@@ -165,6 +169,7 @@ test('bounded sets, filter-to-failures, and the exported report match the screen
   ).toHaveCount(0)
 
   // --- Export CSV: new file, sanitized bait, counts == the screen. ---
+  await activateTask(page, 'check')
   const csv = await exportReport(page, 'csv')
   expect(csv.resultText).toContain('downloading it as a new file')
   const csvPath = await saveDownload(csv.download)

@@ -1,0 +1,5 @@
+---
+'@assay/web': minor
+---
+
+Expose only the active workbench task's sections at ≥1024px (rd-3b). Two `@media (min-width: 1024px)` rules hide what the other tasks own — the ten tool sections outside the active task, and the four inactive section-link groups — with `display: none` only, keyed on the pane's `data-task` and each section's `data-task` (`:not([data-task='<task>'])`) plus `workbench-nav-group[data-active='false']`. Every section stays MOUNTED in the same flat DOM, so a task switch re-runs and re-mounts nothing: a typed SQL draft, the diff/key state, the overlay cursor and scroll positions all survive. Grid and Record carry no `data-task` and are the workspace, so they are never filtered. One guard is added: after a task change commits, if focus sits inside a section that is now `display: none`, focus the checked task radio — no announcement, no scroll, no trap. Below 1024px nothing is filtered (ADR 0044 narrow contract unchanged), and no copy, geometry, engine/session/export bytes, telemetry, threshold or dependency changed.

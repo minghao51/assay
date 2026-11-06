@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { openCustomersFixture } from './support/fixtures'
+import { activateTask, openCustomersFixture } from './support/fixtures'
 import { castColumn, cell, editCell, headerCell, openEditor, renameColumn } from './support/grid'
 
 // Task m4-4 proof (handoff §6): column rename/cast UI over the m4-1 op model +
@@ -77,6 +77,10 @@ test('column rename round-trips through the grid and re-keys edits; undo restore
   await expect(cell(page, 0, 1)).toHaveText('ZZ')
   await expect(cell(page, 0, 1)).toHaveAttribute('data-dirty', 'true')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   // Undo the rename: the old name is back, the edit is intact.
   await page.getByTestId('history-undo').click()
   await expect(headerCell(page, 'country')).toBeVisible()
@@ -97,6 +101,10 @@ test('a colliding rename is surfaced readably and leaves the schema unchanged', 
 
   await renameColumn(page, 'country', 'income')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('already exists')
@@ -120,6 +128,10 @@ test('column cast round-trips (values re-typed) and undo restores', async ({ pag
   await expect(headerCell(page, 'signup_date')).toHaveAttribute('data-col-type', 'VARCHAR')
   await expect(cell(page, 0, 3)).toHaveText('2025-01-04')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   // Undo restores the declared type and the epoch rendering.
   await page.getByTestId('history-undo').click()
   await expect(headerCell(page, 'signup_date')).toHaveAttribute('data-col-type', 'DATE')
@@ -163,6 +175,10 @@ test('a cast to the current type is an honest no-op surfaced with its outcome', 
 
   await castColumn(page, 'income', 'BIGINT')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('No change')
@@ -179,6 +195,10 @@ test('an invalid cast spelling is refused before composing an op', async ({ page
 
   await castColumnCustom(page, 'income', 'MAP(INTEGER)')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   await expect(page.getByTestId('column-op-error')).toContainText('not a valid column type')
   await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'BIGINT')
   await expect(page.getByTestId('history-empty')).toBeVisible()
@@ -195,6 +215,10 @@ test('a structurally valid but engine-unknown cast rolls back and alerts recover
   // failure class the m4-3 rollback+alert path must own for schema ops.
   await castColumnCustom(page, 'income', 'VARBIT')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('rejected')
@@ -221,6 +245,10 @@ test('a cast whose NON-FIRST-ROW values cannot convert is refused before commit 
 
   await castColumn(page, 'country', 'INTEGER')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('cannot convert')
@@ -236,7 +264,9 @@ test('a cast whose NON-FIRST-ROW values cannot convert is refused before commit 
   await expect(page.locator('[data-testid="grid-row"][data-status="error"]')).toHaveCount(0)
   await expect(cell(page, 1, 1)).toHaveText('US')
 
-  // A subsequent valid cast still works and clears the refusal.
+  // A subsequent valid cast still works and clears the refusal. The cast
+  // control lives in Schema (Explore), so the task is switched back first.
+  await activateTask(page, 'explore')
   await castColumn(page, 'income', 'DOUBLE')
   await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'DOUBLE')
   await expect(page.getByTestId('edit-error')).toHaveCount(0)
@@ -269,6 +299,10 @@ test('casting to DECIMAL(10,2) renders readable decimals, not <16 bytes> (m4-4 w
   // The old `<16 bytes>` summary is gone from every rendered cell.
   await expect(page.getByTestId('grid-cell').filter({ hasText: 'bytes' })).toHaveCount(0)
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   // Undo restores the BIGINT rendering exactly.
   await page.getByTestId('history-undo').click()
   await expect(headerCell(page, 'income')).toHaveAttribute('data-col-type', 'BIGINT')
@@ -286,6 +320,10 @@ test('a legal cast whose values cannot convert rolls back and alerts recoverably
   // window probe was relied on here).
   await castColumn(page, 'country', 'INTEGER')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('No cast was applied')
@@ -317,6 +355,10 @@ test('history panel lists ops and selective undo leaves a consistent grid', asyn
   await expect(first.getByTestId('history-outcome')).toHaveText('applied')
   await expect(page.getByTestId('history-cursor')).toHaveText('Step 3 of 3 applied')
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   // Selective undo: jump to the state after step 1 (cursor = 1), which must
   // leave a consistent grid — only row 0 edited, the rest at base values.
   await first.click()
@@ -347,6 +389,10 @@ test('a rewind surfaces its redo tail before a new op truncates it', async ({ pa
   await editCell(page, 1, 2, '22222')
   await expect(page.getByTestId('history-redo-tail')).toHaveCount(0)
 
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   // Rewind to just after step 1: the tail is visible with an explicit warning.
   await page.locator('[data-testid="history-entry"][data-index="0"]').click()
   await expect(page.getByTestId('history-redo-tail')).toContainText('1 later step is undone')
@@ -366,6 +412,10 @@ test('a rewind surfaces its redo tail before a new op truncates it', async ({ pa
 
 test('history-panel undo/redo drive the transformation history', async ({ page }) => {
   await openCustomersFixture(page)
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
 
   await editCell(page, 0, 2, '11111')
   await expect(page.getByTestId('history-undo')).toBeEnabled()
@@ -403,6 +453,10 @@ test('temporal Enter-unchanged is a cancel, not a spurious dirty edit (m4-3 carr
   await expect(page.getByTestId('grid-cell-editor')).toHaveCount(0)
   // The cell is NOT dirty and no step was logged: open+Enter cancelled.
   await expect(cell(page, 0, 3)).toHaveAttribute('data-dirty', 'false')
+  // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
+  // transformation history are Change-task surfaces, so the task is activated
+  // before they are read or clicked.
+  await activateTask(page, 'change')
   await expect(page.getByTestId('pending-changes')).toHaveText('No pending changes.')
   await expect(page.getByTestId('history-undo')).toBeDisabled()
   await expect(page.getByTestId('history-empty')).toBeVisible()

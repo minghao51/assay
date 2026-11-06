@@ -460,8 +460,9 @@ async function openDatasetA(page: Page, aPath: string, expectedRows = '5'): Prom
   })
   await expect(page.getByTestId('grid-total-rows')).toHaveText(expectedRows)
   // q-15: the two-pane pane starts with only Schema expanded; this journey
-  // drives the Compare panel (shared open-section step).
-  await expandAllSections(page)
+  // drives the Compare panel (shared open-section step). rd-3b: Compare is a
+  // Check section, so the open flow ends on Check.
+  await expandAllSections(page, { endTask: 'check' })
 }
 
 /** Stage side B through the real comparison control. */

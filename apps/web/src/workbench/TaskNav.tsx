@@ -21,10 +21,11 @@ import {
  *
  * The section links keep the shell's existing `section-nav-<id>` contract:
  * every section keeps one link, so `closeSection` still returns focus to the
- * same link it always did (R-07). All four groups are rendered and exposed in
- * this slice; the active group carries `data-active="true"` as a marker.
- * Conditional exposure of inactive groups is deferred to its own reviewed
- * slice (UI-RD-01 amendment), so no group is hidden today.
+ * same link it always did (R-07). All four groups stay in the DOM; the active
+ * group carries `data-active="true"` and, at ≥1024px, only that group plus
+ * Workspace is exposed (one CSS rule hides `data-active="false"` groups with
+ * `display: none` — <1024px exposes all five). A revealed section therefore
+ * always activates its task first, so its link is never a hidden focus target.
  */
 
 export interface TaskNavProps {

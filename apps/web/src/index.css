@@ -472,8 +472,9 @@ body {
 /*
  * UI-RD-01 task navigation. The task switcher is a single-select radio group
  * (not tabs: the shell has no tabpanel). The section-link groups below it keep
- * one `section-nav-<id>` link per section. All groups stay exposed in this
- * slice; the active group is marked and conditional exposure is deferred.
+ * one `section-nav-<id>` link per section. At ≥1024px only the active task's
+ * group plus Workspace are exposed (`display: none` for the rest, still in the
+ * DOM); below 1024px every group is exposed.
  */
 .workbench-task-nav {
   position: sticky;
@@ -827,10 +828,32 @@ body {
 }
 
 @media (min-width: 1024px) {
-  /* UI-RD-01 (first slice): the active task's tool sections are marked, not
-     hidden. Every section stays reachable (ADR 0044) and every panel stays
-     mounted; conditional task visibility is a follow-up reviewed slice once
-     the legacy panel-expansion journeys are migrated deliberately. */
+  /* UI-RD-01 / rd-3b: only the active task's tool sections are exposed at
+     ≥1024px. The others stay MOUNTED (the same 12 sections remain children of
+     `.workbench-tools-body`, so no panel is unmounted, re-keyed or re-run) and
+     are removed from the layout and the tab order by `display: none` alone.
+     `[data-task]` exists only on the ten tool sections — Grid and Record are
+     the workspace (`taskOfSection()` returns null) and render no attribute, so
+     this rule can never hide them. Below 1024px this query does not apply and
+     every section stays in the single-column stack (ADR 0044). */
+  .workbench-tools[data-task='explore'] .workbench-section[data-task]:not([data-task='explore']),
+  .workbench-tools[data-task='check'] .workbench-section[data-task]:not([data-task='check']),
+  .workbench-tools[data-task='change'] .workbench-section[data-task]:not([data-task='change']),
+  .workbench-tools[data-task='prepare'] .workbench-section[data-task]:not([data-task='prepare']) {
+    display: none;
+  }
+
+  /* The pane nav exposes only the active task's link group plus Workspace. The
+     Workspace group is hard-coded `data-active="true"`, so it is never hidden,
+     and `section-nav-<id>` (the R-07 close-focus target) is exposed whenever it
+     can be the target: revealing a section activates its task first. */
+  .workbench-nav-group[data-active='false'] {
+    display: none;
+  }
+
+  /* The active task's sections keep the inset accent edge. Once the other
+     tasks are not exposed this is redundant as a marker, but it stays: it
+     renders no extra node and keeps `data-task` load-bearing on the pane. */
   .workbench-tools[data-task='explore'] .workbench-section[data-task='explore'],
   .workbench-tools[data-task='check'] .workbench-section[data-task='check'],
   .workbench-tools[data-task='change'] .workbench-section[data-task='change'],

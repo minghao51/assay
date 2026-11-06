@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Download, Page } from '@playwright/test'
-import { openFixture } from './support/fixtures'
+import { activateTask, openFixture } from './support/fixtures'
 import {
   castColumn,
   cell,
@@ -363,7 +363,9 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(page.getByTestId('history-empty')).toHaveCount(0)
 
   // --- 2. Open the fixture through the input-fallback filechooser. ---
-  await openFixture(page, FIXTURE)
+  // rd-3b: this journey drives the editing toolbar, History and Export — the
+  // Change task — so the open flow ends on Change.
+  await openFixture(page, FIXTURE, { task: 'change' })
   await settleGrid(page, 5)
   // Privacy (ADR 0025): the picked file's name never renders.
   await expect(page.locator('main')).not.toContainText('customers.parquet')
@@ -434,7 +436,10 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   const afterOp5 = serializeGrid(await captureGrid(page))
   expect(afterOp5).not.toBe(afterOp4)
 
-  // op6: rename a column.
+  // op6: rename a column. rd-3b: Rename/Cast live in the Schema panel
+  // (Explore), while the editing toolbar and History are Change — the journey
+  // is therefore sequential legs over the same mounted session.
+  await activateTask(page, 'explore')
   await renameColumn(page, 'country', 'nation')
   await expect(headerCell(page, 'nation')).toBeVisible()
   await expect(headerCell(page, 'country')).toHaveCount(0)
@@ -462,6 +467,8 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   // serialized grid, not one spot cell (review warning).
   const beforeRefusal = serializeGrid(await captureGrid(page))
   await castColumn(page, 'nation', 'INTEGER')
+  // The refusal is reported by the editing toolbar, a Change surface.
+  await activateTask(page, 'change')
   const refusal = page.getByTestId('edit-error')
   await expect(refusal).toBeVisible()
   await expect(refusal).toContainText('Cannot cast "nation" to INTEGER')
@@ -621,7 +628,7 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   expect(sha256File(FIXTURE)).toBe(sourceShaBefore)
 
   // --- 8. Re-open the Parquet export through the normal open flow. ---
-  await openFixture(page, parquetPath)
+  await openFixture(page, parquetPath, { task: 'change' })
   await settleGrid(page, 6)
   // Privacy: neither the source fixture's name nor the exported file's OWN
   // basename (the `assay-export.parquet` download under its generated temp
@@ -650,7 +657,7 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(cell(page, 0, 2)).toHaveAttribute('data-dirty', 'false')
 
   // --- 9. Re-open the CSV export; the bait cell comes back sanitized. ---
-  await openFixture(page, csvPath)
+  await openFixture(page, csvPath, { task: 'change' })
   await settleGrid(page, 6)
   await expect(page.locator('main')).not.toContainText('customers.parquet')
   // The CSV export's own basename is absent too (review finding).

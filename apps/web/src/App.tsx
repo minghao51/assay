@@ -219,14 +219,14 @@ const MemoRecordInspector = memo(RecordInspector)
  * stack via CSS `display: contents` + `order` (index.css).
  *
  * UI-RD-01 (2026-11-04): the sections are grouped into four user tasks in
- * `workbench/tasks.ts` (Explore/Check/Change/Prepare). This slice MARKS the
- * active task's sections (pane `data-task` + CSS) and opens its manageable
- * sections; it does not hide the others, so the section link list
- * (`section-nav-<id>`) keeps every section directly reachable. Conditional
- * hiding of inactive tasks is a deferred, separately reviewed slice. Every
- * section stays mounted — a task switch must never remount a panel. The DOM
- * stays flat with one deliberate within-Change order (History before Export);
- * no task wrappers are added, and <1024px is unchanged.
+ * `workbench/tasks.ts` (Explore/Check/Change/Prepare). At ≥1024px the active
+ * task's sections are the only ones EXPOSED (pane `data-task` + one CSS rule);
+ * the others stay mounted and are `display: none`, so a task switch re-runs and
+ * remounts nothing. Choosing a task also opens its manageable sections. Every
+ * section keeps its `section-nav-<id>` link and every link stays exposed while
+ * it can be a focus target, because revealing a section activates its task
+ * first. The DOM stays flat with one deliberate within-Change order (History
+ * before Export); no task wrappers are added, and <1024px is unchanged.
  */
 const INNER_DISCLOSURE_SECTIONS: ReadonlySet<WorkbenchSectionId> = new Set<WorkbenchSectionId>([
   'schema',
@@ -592,10 +592,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
 
   /**
    * UI-RD-01 app-local navigation state. Neither value is session data: the
-   * active task marks its sections and opens its manageable sections (this
-   * slice does not hide the others), and the jump-origin marker only offers
-   * the return chip. Both reset when a new dataset session starts, and neither
-   * reaches the engine/hooks.
+   * active task exposes its sections at ≥1024px (CSS) and opens its manageable
+   * sections, and the jump-origin marker only offers the return chip. Both
+   * reset when a new dataset session starts, and neither reaches the
+   * engine/hooks.
    */
   const [activeTask, setActiveTask] = useState<WorkbenchTaskId>(DEFAULT_WORKBENCH_TASK)
   const [jumpOrigin, setJumpOrigin] = useState<'validation' | 'diff' | null>(null)
@@ -607,6 +607,31 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       }),
     [datasetSession],
   )
+
+  /**
+   * rd-3b focus guard (the ONE piece of behaviour conditional exposure adds).
+   *
+   * At ≥1024px the inactive tasks' sections are `display: none`, which removes
+   * a focused descendant from the tab order and drops focus to `<body>`. Mouse
+   * and keyboard task selection already leave focus on the checked radio
+   * (TaskNav focuses it), and the reveal seams focus their own target, so this
+   * only covers a PROGRAMMATIC change of the outgoing task while focus sits
+   * inside one of its panels. After the change commits, if the focused element
+   * now lives in a section the layout does not render, focus the checked radio.
+   *
+   * The check asks the layout (`getComputedStyle`) instead of re-deriving the
+   * media query and the task rule in JS, so the CSS stays the single source of
+   * exposure truth and this guard is inert below 1024px. No announcement, no
+   * scroll, no focus trap, no new state.
+   */
+  useEffect(() => {
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement)) return
+    const section = active.closest('.workbench-section')
+    if (section === null) return
+    if (window.getComputedStyle(section).display !== 'none') return
+    document.getElementById(`task-${activeTask}`)?.focus()
+  }, [activeTask])
 
   /**
    * q-15 tool-pane state. Component-local shell state ONLY (ADR 0044
@@ -1102,11 +1127,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     handleCancelDiff,
   ])
   /**
-   * A task choice frames the work: it marks the task's sections in the pane
-   * (CSS) and opens that task's shell-managed sections so the tools are ready
-   * where the choice points. It never hides another section (ADR 0044
-   * reachability, first slice) and never moves focus into content. Inner
-   * disclosures (Schema/Filters/Profile) keep their own state.
+   * A task choice frames the work: at ≥1024px it exposes the task's sections
+   * (the others stay mounted behind `display: none`) and opens its
+   * shell-managed sections so the tools are ready where the choice points. It
+   * never unmounts a panel, never touches the session, and never moves focus
+   * into content. Inner disclosures (Schema/Filters/Profile) keep their own
+   * state.
    */
   const handleSelectTask = useCallback(
     (task: WorkbenchTaskId) => {
@@ -1874,9 +1900,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                    * UI-RD-01 in-pane navigation: a single-select task radio
                    * group plus task-grouped section links. The links keep the
                    * existing `section-nav-<id>` contract (so close-section
-                   * focus and the anchor behaviour are unchanged). Every group
-                   * is rendered and exposed in this slice; the active group is
-                   * marked, and conditional exposure is a deferred slice.
+                   * focus and the anchor behaviour are unchanged). All four
+                   * groups stay in the DOM; ≥1024px exposes only the active
+                   * one plus Workspace, and <1024px exposes all of them.
                    */}
                   <TaskNav
                     activeTask={activeTask}
