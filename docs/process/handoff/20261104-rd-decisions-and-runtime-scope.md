@@ -152,3 +152,22 @@ proved by a layout-stubbed unit test with a visible-section control instead; and
 the contract's migration table were wrong (Corrected in the contract §4.3). The review's one
 user-facing consequence — persistent grid-edit feedback lives in the hidden Editing section while
 Explore is active — is recorded as **rd-3c**, PROPOSED and **not authorized**.
+
+## 8. rd-3c authorization (2026-11-04, maintainer)
+
+**Instruction.** The maintainer selected option A for the feedback gap recorded from the rd-3b
+review: _"lets proceed with A"_.
+
+**Authorized scope — exactly the [rd-3c contract](20261104-rd3c-edit-feedback.md):** when the durable
+edit error becomes non-null, reveal the Editing section through the existing `revealSectionFromNav`
+seam (activate Change, expand, scroll) **once per error**, **without moving focus**, skipping the
+no-op case, plus the unit pin, the browser assertion and its negative control, and one changeset.
+
+**Explicitly out of scope:** the pending-change detail stays task-local (the context bar's staged
+count is the always-visible summary); a collapsed pane rail is respected; no copy, test id, state
+field or `useEditingSession` change; no `packages/**`, grid/session/engine/export bytes, telemetry,
+dependency or threshold change; no push. **Baseline:** `5397b9b`.
+
+**Why A was chosen:** it uses an existing seam, adds no copy and no second surface, and cannot
+duplicate the message; the rejected alternatives were a grid-footer mirror (two render locations) and
+a context-bar sentence (would need a copy decision and break the one-action rule).
