@@ -141,3 +141,14 @@ rd-5/rd-6/rd-7 or SV-D02…SV-D05 work.
 **Dispatch model:** one web writer (`deepseek-v4.1-flash`), then an independent reviewer
 (`openai-codex/gpt-6-luna` xhigh) who did not implement it. Workers do not commit to `main` and do
 not push.
+
+**Delivered and CLOSED (2026-11-04) — merged `0b22024`.** One squashed reviewed commit plus one
+`@assay/web` minor changeset; independent `gpt-6-luna` xhigh review returned **approve** after its own
+full gate run and its own mutation-and-restore falsification. Gates: [map §6.5](20261104-svg-implementation-map.md);
+runtime and review record: [design record §10](../../product/13-workbench-redesign-design-record.md).
+Two things about the delivery are recorded rather than glossed: the focus guard's browser negative
+control proved impossible (every browser-reachable task change already moves focus), so the branch is
+proved by a layout-stubbed unit test with a visible-section control instead; and four task labels in
+the contract's migration table were wrong (Corrected in the contract §4.3). The review's one
+user-facing consequence — persistent grid-edit feedback lives in the hidden Editing section while
+Explore is active — is recorded as **rd-3c**, PROPOSED and **not authorized**.

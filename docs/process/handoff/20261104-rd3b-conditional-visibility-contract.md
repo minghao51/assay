@@ -1,6 +1,6 @@
 # rd-3b — conditional task visibility: contract and migration plan
 
-**Status: AUTHORIZED 2026-11-04 by the maintainer (_"approve on the rd-3b, lets proceed with that"_), baseline `d85c995`.** Scope is bounded to this document; the authorization record is [decisions and runtime scope](20261104-rd-decisions-and-runtime-scope.md) §7. The contract was written **before** any code, because the [slice-1 amendment](20261104-rd-decisions-and-runtime-scope.md) deferred conditional visibility on purpose: hiding inactive sections changes how every legacy journey reaches a panel, so the test migration had to be designed first.
+**Status: CLOSED 2026-11-04 — merged `0b22024`, independently approved, gates in [map §6.5](20261104-svg-implementation-map.md), runtime/review record in [design record §10](../../product/13-workbench-redesign-design-record.md).** The maintainer authorized this contract as written (decisions record §7, baseline `d85c995`); the delivered slice kept its scope with four reviewed deviations, recorded in sections §4.3/§6 and in the closure record at the end of this document.
 
 **Authority chain:** [SV-D08 = B](20261104-rd-decisions-and-runtime-scope.md) (task-led),
 [UI-RD-01](20261104-rd-decisions-and-runtime-scope.md) §3.2 ("conditional hiding at ≥1024px is the
@@ -190,6 +190,16 @@ Rules for the helper rewrite:
 
 ### 4.3 Per-file migration list
 
+> **Corrected at closure (2026-11-04).** Four task labels written here were wrong and the implementer
+> followed measured behaviour instead: `m6-exit-journey` and `m5-exit-journey` are **Check** journeys
+> (not Change), `validation-report-export` crosses **`check → explore → check`** (the filter bar, not
+> Change), and `pipeline-dcr-export` is **Prepare-only**. `pipeline-gate-journey` and
+> `pipeline-runner-journey` are engine-harness-only (`page.goto(HARNESS_URL)`, no workbench UI) and
+> need no edit at all. Five files outside the written list also needed a sanctioned R3/R5 edit
+> (`grid-editing`, `theme`, `engine-external-parquet-diff`, `export-rewrite`,
+> `support/pipeline-panel.ts`). The table below is left as written so the estimate and the delivered
+> reality can be compared.
+
 Legend: **T** = needs an explicit `task`/`activateTask`; **L** = needs task legs; **N** = expected
 no edit (re-verify after the CSS change; R1 assertions only).
 
@@ -268,7 +278,11 @@ Negative controls (in the isolated worktree, never on uncommitted user work):
   the tree is clean.
 - Mutate the nav rule to remove `data-active='false'` hiding → the nav-group assertion must fail;
   restore, rebuild.
-- Remove the focus guard → test 4 must fail.
+- ~~Remove the focus guard → test 4 must fail.~~ **Replaced at closure:** no browser-reachable task
+  change leaves focus inside an outgoing section (the radio and every reveal seam already move it), so
+  this control cannot fail and the contract's assumption was wrong. The guard's _branch_ is proved
+  instead by a layout-stubbed unit test with a visible-section control; removing the guard fails that
+  test (observed). The browser spec still pins the user-visible guarantee. Reviewer accepted.
 
 ## 7. File reservations (one web writer)
 
@@ -332,3 +346,19 @@ The paragraph below is kept as the pre-authorization gate it was._
 
 Until that instruction exists, **rd-3b remains PROPOSED and no production or test file may be
 changed for it.**
+
+---
+
+## 12. Closure record (2026-11-04)
+
+| Item                 | Record                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Merged commit        | `0b22024` — one squashed reviewed commit, one `@assay/web` minor changeset                                                                                                                                                                                                                                                                                                         |
+| Baseline             | `d85c995` (rd-3/rd-4 CLOSED, copy table enforced)                                                                                                                                                                                                                                                                                                                                  |
+| Implementation       | one web writer, `opencode-go/deepseek-v4.1-flash`, isolated worktree; no commit to `main`, no push                                                                                                                                                                                                                                                                                 |
+| Independent review   | `openai-codex/gpt-6-luna` xhigh, separate session — **approve**, with its own gate run, its own mutation (`:not(…)` removed → exposure assertion failed, restored byte-identically, rebuilt, clean tree) and a weakening check over five migrated specs                                                                                                                            |
+| Rounds               | one implementation round + one bounded pre-review fix round (guard provability, stale comments)                                                                                                                                                                                                                                                                                    |
+| Merged gates         | [map §6.5](20261104-svg-implementation-map.md): format/lint 0, typecheck 20/20 forced, unit **236 files / 3506 tests**, coverage **89.10/83.86/91.40/90.68**, build 12/12 forced, docs 130/0, ADR 46, full browser **233 passed + 1 skipped** (run 2), configured telemetry **6 passed** with 2 aborted POSTs, restored stock **0** endpoint hits and **70** affected specs passed |
+| Honest caveat        | the first merged full run had one **unexplained** intermittent Parquet-open failure (`232 + 1 skip + 1 fail`); it did not reproduce on the second run, isolated reruns, a 12/12 diagnostic loop, or the pre-rd-3b baseline (14/14). Preserved in map §6.5, not claimed green away                                                                                                  |
+| Residual limitations | persistent edit feedback is task-local (**rd-3c**, PROPOSED/unauthorized); guard branch proved by layout stub; R-07 close-focus not browser-induced outside recovery; **RD-T07** still unsatisfied; no push                                                                                                                                                                        |
+| Rollback             | `git revert 0b22024` restores "mark, don't hide" exactly — no data, URL, router or storage migration                                                                                                                                                                                                                                                                               |
