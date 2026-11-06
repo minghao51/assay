@@ -213,3 +213,97 @@ describe('deriveNextAction — single action invariants', () => {
     }
   })
 })
+
+/**
+ * Approved-copy enforcement (integration accountability, 2026-11-04).
+ *
+ * The context bar may only say what the approved table says. The table lives in
+ * docs/process/handoff/20261104-rd-decisions-and-runtime-scope.md §2; this list
+ * is its machine-enforced mirror, extended once at integration with the row the
+ * table did not originally enumerate (the comparison `binding-errors` state, see
+ * the amendment note in that record).
+ *
+ * The test drives the FULL input cross-product, so a new state, action or
+ * sentence cannot ship without failing here: every derived row must be in the
+ * approved set (no unenumerated copy) and every approved row must be produced by
+ * at least one reachable state (no dead or orphaned copy). Keep the two lists in
+ * step — that is the point.
+ */
+const APPROVED_COPY = [
+  'Validating the current dataset view… → Cancel',
+  'Comparing datasets… → Cancel',
+  'No contract loaded → Open a contract…',
+  'The contract could not be loaded → Review contract',
+  'The last check failed → Retry check',
+  'The contract does not bind to the current schema → Review findings',
+  'Verdict stale — the session’s staged state changed after it was computed → Recheck',
+  'The current check found failures → Review findings',
+  'Check cancelled — the previous result is unchanged → Validate',
+  'Contract loaded — not checked yet → Validate',
+  'The comparison needs attention → Review comparison',
+  'The last comparison failed → Review comparison',
+  'Comparison stale — the session’s staged state changed after it ran → Review comparison',
+  'Verdict is current — no violations → Export a copy…',
+] as const
+
+describe('deriveNextAction — approved copy is exhaustive and closed', () => {
+  const contracts: NextActionInput['contract'][] = ['none', 'unreadable', 'loaded']
+  const validations: NextActionInput['validation'][] = [
+    'idle',
+    'running',
+    'cancelled',
+    'failed',
+    'binding-errors',
+    'verdict',
+  ]
+  const diffs: NextActionInput['diff'][] = [
+    'idle',
+    'running',
+    'cancelled',
+    'failed',
+    'binding-errors',
+    'result',
+  ]
+
+  function row(action: ReturnType<typeof deriveNextAction>): string {
+    return `${action.state} → ${action.action ?? '(no action)'}`
+  }
+
+  it('only ever emits approved copy across the full input cross-product', () => {
+    const produced = new Set<string>()
+    for (const contract of contracts) {
+      for (const validation of validations) {
+        for (const diff of diffs) {
+          // Stale and failing variants are part of the reachable domain; cover
+          // both so a stale/failing branch cannot carry private copy.
+          for (const validationStale of [false, true]) {
+            for (const diffStale of [false, true]) {
+              for (const failingRules of [0, 2]) {
+                produced.add(
+                  row(
+                    deriveNextAction({
+                      contract,
+                      validation,
+                      validationStale,
+                      failingRules,
+                      diff,
+                      diffStale,
+                    }),
+                  ),
+                )
+              }
+            }
+          }
+        }
+      }
+    }
+    expect([...produced].sort()).toEqual([...APPROVED_COPY].sort())
+  })
+
+  it('has no dead approved row and keeps the bar to one primary action', () => {
+    expect(new Set(APPROVED_COPY).size).toBe(APPROVED_COPY.length)
+    // The only classification the copy contract allows a second control in is
+    // the stale verdict (Recheck + Review findings).
+    expect(APPROVED_COPY.filter((entry) => entry.endsWith('Recheck'))).toHaveLength(1)
+  })
+})
