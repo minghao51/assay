@@ -235,3 +235,22 @@ it is a real friction — that avoids widening a session-hook lane the invariant
 
 **Sequencing:** hf-1 (§9) is executed first so rd-5's gate evidence is not polluted by the CDN
 flake. rd-6/rd-7 and SV-D02…SV-D05 remain unauthorized.
+
+## 11. rd-5 execution authorization (2026-11-04, maintainer)
+
+**Instruction.** _"approve on the rd-5, lets proceed"_ — the scope in the [rd-5 contract](20261104-rd5-compare-export-contract.md)
+is authorized for implementation.
+
+**Decisions recorded as part of that approval**
+
+| Decision                                   | Recorded choice                                                                                                                                                                                                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **D1 — A/B labels**                        | **APPROVED**, three exact value-free strings: the intro first sentence, the zero-state sentence, and the staged line, adding “open dataset (A)” / “Comparison file (B)” without duplicating a count (contract D1). Every other diff string is unchanged. |
+| **D2 — bar state for “staged B, not run”** | **(a) leave it and record the limitation.** No new bar state, no new string, no `deriveNextAction` change in this slice.                                                                                                                                 |
+| **D3 — one-click rerun**                   | **No.** Keep `Review comparison`, which focuses the panel's existing run control.                                                                                                                                                                        |
+
+**Scope:** the contract's §4 — `diff/DiffPanel.tsx` copy (D1), the J3 journey bound to the task-led
+shell, its focused tests, one changeset. **Forbidden:** `packages/**`; `sessions/**`; diff/export report
+bytes; logical row identity; CLI-agreement tests; grid/validation/profile/SQL/pipeline logic;
+telemetry; thresholds/timeouts/allowlists; dependencies; push. **Baseline:** `1757b44`. **Rollback:**
+revert the one commit.

@@ -1,8 +1,8 @@
 # rd-5 — compare and reviewed export: scope contract
 
-**Status: SCOPE PREPARED 2026-11-04 — implementation NOT authorized until the two decisions in §5 are
-answered.** Authorized to scope first (decisions record §10). Baseline `9c947a4`; **hf-1 is CLOSED** (`ea38938`) — the browser gate is now deterministic (two
-consecutive full runs at 237 passed + 1 skipped).
+**Status: AUTHORIZED 2026-11-04 — in review (baseline `1757b44`).** The maintainer approved the
+scope (D1 approved; D2 = (a), record the limitation; D3 unchanged). hf-1 is CLOSED (`ea38938`), so the
+browser gate is deterministic. Implementation is bounded to §4 and §5.
 
 Requirement source: [map](../handoff/20261104-svg-implementation-map.md) row `rd-5`, [review](../../product/12-workbench-redesign-review.md)
 RD-R02/RD-T02 (+RD-R03/04/08), [conservative spec](../../product/11-svg-implementation-spec.md) SV-R11 / SV-T07 / SV-T11 / SV-T15.
@@ -42,29 +42,28 @@ Change) with a J3 journey test. Do not re-implement comparison, export or the CL
 
 ## 3. Decisions
 
-### D1 — A/B labels (copy; needs approval)
+### D1 — A/B labels (APPROVED, three exact strings)
 
-Proposed, minimal, value-free, no duplicated counts:
+Value-free, no duplicated counts. The **exact** approved text (this replaces the earlier two-string
+sketch; the zero-state line is the third, because that is where a user first lands in Compare):
 
-- Intro first sentence → “Stage a second dataset version to compare against the open dataset (A).”
-- Staged line → “Comparison file (B) staged — N rows × M columns” (keeps the existing counts, which
-  are B's; A's counts already live in the context bar and must **not** be repeated).
-- B-side sample note stays exactly as shipped (“report only — the comparison file is not shown in the
-  grid”); A-side button stays “Show row”.
+1. Intro, first sentence → “Stage a second dataset version to compare against the open dataset (A).”
+2. Zero state → “No comparison staged. Open a second dataset version to compare against the open
+   dataset (A).” (keep it one sentence, no counts)
+3. Staged line → “Comparison file (B) staged — N rows × M columns” (keeps the existing B counts; A's
+   counts stay only in the context bar and must **not** be repeated).
 
-No other string changes. If approved, the three strings join the approved-copy table with the same
-enforcement rule as rd-3c (`APPROVED_COPY`-style pin or an explicit assertion in the panel tests).
+Unchanged: the B-side sample note (“report only — the comparison file is not shown in the grid”), the
+A-side “Show row” button, and every other string. Each of the three is pinned by an exact-string
+assertion in the panel tests, and no state/action copy changes.
 
-### D2 — the "staged B, not run" bar state (behaviour + copy; needs approval)
+### D2 — the "staged B, not run" bar state (DECIDED: leave it, record it)
 
-Options:
-
-- **(a) Leave it** (default recommendation): the Compare panel is the place to stage and run; the bar
-  keeps `Export a copy…` for a current valid verdict. Record the gap as a known limitation.
-- **(b) Add one approved state:** `Comparisons staged — no comparison has run yet` → `Review
-comparison`, derived from `comparisonState === 'staged' && diffRun.kind === 'idle'`. Requires one new
-  approved string, a new input to `deriveNextAction`, and truth-table + bar tests. Small, but it is new
-  copy and a new derivation branch.
+**Decided: (a) leave it, and record the limitation.** The Compare panel is the place to stage and run;
+the bar keeps `Export a copy…` for a current valid verdict. No new bar state, no new string, no change
+to `deriveNextAction` in this slice. The gap — the derivation only sees the run state, not
+`comparisonState`, so a staged-but-unrun comparison is invisible to the bar — is recorded in design
+record §12 and stays a candidate for a later slice if the J3 journey shows it bites.
 
 ### D3 — one-click rerun (decided: **no**)
 
