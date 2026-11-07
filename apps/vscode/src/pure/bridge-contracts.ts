@@ -21,7 +21,7 @@ export class DatasetOpenError extends Error {
 export const WEBVIEW_ERROR_TEXT: Readonly<Record<DatasetErrorKind, string>> = {
   'missing-file': 'the file does not exist or is not accessible',
   'unsupported-format':
-    'not a supported dataset format (supported: Parquet, CSV, JSONL/NDJSON, JSON, Arrow/Feather/IPC)',
+    'not a supported dataset format (supported: Parquet, CSV, JSONL/NDJSON, JSON)',
   'empty-file': 'the file is empty',
   'read-failed': 'the file could not be read',
   'engine-failed': 'the dataset could not be opened',
@@ -220,7 +220,7 @@ export function validateTestComparisonFixture(value: unknown): string | undefine
   if (typeof value !== 'string' || value.length === 0 || value.length > 128) return undefined
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) return undefined
   if (value.includes('..')) return undefined
-  if (!/\.(csv|jsonl|json|parquet|arrow)$/.test(value)) return undefined
+  if (!/\.(csv|jsonl|json|parquet)$/.test(value)) return undefined
   return value
 }
 

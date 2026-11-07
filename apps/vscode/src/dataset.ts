@@ -312,9 +312,7 @@ export function bridgeDatasetIntoPanel(
                     canSelectMany: false,
                     openLabel: 'Select comparison dataset',
                     filters: {
-                      'Dataset files (Parquet, CSV, JSONL, JSON, Arrow)': [
-                        ...SUPPORTED_FILENAME_PATTERNS,
-                      ],
+                      'Dataset files (Parquet, CSV, JSONL, JSON)': [...SUPPORTED_FILENAME_PATTERNS],
                     },
                   })
                 )?.[0])
@@ -908,7 +906,7 @@ export function registerDatasetSurface(context: vscode.ExtensionContext): void {
           openLabel: 'Open dataset',
           filters: {
             // spread: OpenDialogOptions.filters is a mutable record type
-            'Dataset files (Parquet, CSV, JSONL, JSON, Arrow)': [...SUPPORTED_FILENAME_PATTERNS],
+            'Dataset files (Parquet, CSV, JSONL, JSON)': [...SUPPORTED_FILENAME_PATTERNS],
           },
         })
         if (picked === undefined || picked.length === 0) {

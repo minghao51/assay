@@ -195,7 +195,7 @@ describe('desktop bridge error contracts', () => {
     expect(WEBVIEW_ERROR_TEXT).toEqual({
       'missing-file': 'the file does not exist or is not accessible',
       'unsupported-format':
-        'not a supported dataset format (supported: Parquet, CSV, JSONL/NDJSON, JSON, Arrow/Feather/IPC)',
+        'not a supported dataset format (supported: Parquet, CSV, JSONL/NDJSON, JSON)',
       'empty-file': 'the file is empty',
       'read-failed': 'the file could not be read',
       'engine-failed': 'the dataset could not be opened',
@@ -203,6 +203,8 @@ describe('desktop bridge error contracts', () => {
     for (const kind of Object.keys(WEBVIEW_ERROR_TEXT) as DatasetErrorKind[]) {
       expect(WEBVIEW_ERROR_TEXT[kind]).not.toContain('/private/source.csv')
       expect(WEBVIEW_ERROR_TEXT[kind]).not.toContain('file:///')
+      // D-10 (SV-D07): never advertise Arrow-family input the engine rejects.
+      expect(WEBVIEW_ERROR_TEXT[kind]).not.toMatch(/arrow|feather|ipc/i)
     }
   })
 })

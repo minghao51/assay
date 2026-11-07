@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "displayName": "Assay dataset viewer",
-  "description": "Assay VS Code extension — production dataset surface (PT-V slice 1 ptv1-3): command + custom read-only editor for Parquet/CSV/JSONL/JSON/Arrow with a vendored local-first engine in the webview, plus the R4 webview feasibility spike harness (ptv-1)",
+  "description": "Assay VS Code extension — production dataset surface (PT-V slice 1 ptv1-3): command + custom read-only editor for Parquet/CSV/JSONL/JSON with a vendored local-first engine in the webview, plus the R4 webview feasibility spike harness (ptv-1)",
   "publisher": "assay-spike",
   "license": "AGPL-3.0-or-later",
   "engines": {
@@ -47,15 +47,6 @@
           },
           {
             "filenamePattern": "*.json"
-          },
-          {
-            "filenamePattern": "*.arrow"
-          },
-          {
-            "filenamePattern": "*.feather"
-          },
-          {
-            "filenamePattern": "*.ipc"
           }
         ],
         "priority": "option"

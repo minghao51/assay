@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /** Dataset formats accepted by the desktop bridge. */
-export type DatasetFormat = 'parquet' | 'csv' | 'jsonl' | 'json' | 'arrow'
+export type DatasetFormat = 'parquet' | 'csv' | 'jsonl' | 'json'
 
 /** The filename patterns contributed by the custom editor. */
 export const SUPPORTED_FILENAME_PATTERNS: readonly string[] = [
@@ -10,9 +10,6 @@ export const SUPPORTED_FILENAME_PATTERNS: readonly string[] = [
   '*.jsonl',
   '*.ndjson',
   '*.json',
-  '*.arrow',
-  '*.feather',
-  '*.ipc',
 ]
 
 const SUPPORTED_EXTENSIONS: ReadonlyMap<string, DatasetFormat> = new Map([
@@ -21,9 +18,6 @@ const SUPPORTED_EXTENSIONS: ReadonlyMap<string, DatasetFormat> = new Map([
   ['.jsonl', 'jsonl'],
   ['.ndjson', 'jsonl'],
   ['.json', 'json'],
-  ['.arrow', 'arrow'],
-  ['.feather', 'arrow'],
-  ['.ipc', 'arrow'],
 ])
 
 /** Return only a format-derived filename; caller-supplied names never pass through. */

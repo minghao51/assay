@@ -11,10 +11,12 @@ feasibility spike (queue row **ptv-1**, ruling **D15**; recommendation recorded 
 - **`Assay: Open dataset` command** — `showOpenDialog` (supported-format filters)
   or an explicit URI, then `vscode.workspace.fs.readFile` and a BYTES bridge
   into the webview.
-- **`assay.datasetViewer` custom read-only editor** for the web app's supported
-  open set: `*.parquet`, `*.csv`, `*.jsonl`, `*.ndjson`, `*.json`, `*.arrow`,
-  `*.feather`, `*.ipc` (contributed with `priority: option`, so VS Code's text
-  editor stays the default for text formats). Every format opens **offline**:
+- **`assay.datasetViewer` custom read-only editor** for the four formats the
+  engine reads: `*.parquet`, `*.csv`, `*.jsonl`/`*.ndjson`, `*.json`
+  (contributed with `priority: option`, so VS Code's text editor stays the
+  default for text formats). Arrow-family **input** (`.arrow`, `.feather`,
+  `.ipc`) is not offered: the engine's `detectFileFormat` returns `null` for
+  it. Every format opens **offline**:
   the engine's `parquet` and `json` extensions are vendored, digest-pinned
   build assets (a tampered binary fails the build).
 - **The grid (ptv1-4)** — the headless `GridViewportModel` (`@assay/grid`,
