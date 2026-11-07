@@ -493,3 +493,55 @@ Existing uncommitted work (`docs/process/handoff.md` + the untracked SVG/spec pa
 - A collapsed pane rail is respected — the reveal does not auto-expand it, so a rail user still does not see the pane message (announced via the live region only).
 - **The browser gate depends on an external CDN**: the DuckDB-WASM Parquet/JSON extension autoloads from `extensions.duckdb.org`, so full-suite runs intermittently fail in the open phase (3 of 4 runs for this slice; always green on isolated rerun and once fully green). Recorded with the captured URL and a proposed (unauthorized) harness follow-up in map §6.6.
 - No human usability session or AT review; **RD-T07 remains unsatisfied**. No push.
+
+## 12. Runtime slice record — rd-5 (2026-11-04)
+
+**Authorized by:** the maintainer's _"approve on the rd-5, lets proceed"_, bounded to the [rd-5 contract](../process/handoff/20261104-rd5-compare-export-contract.md)
+(decisions: D1 approved three exact label strings, D2 = leave + record, D3 = no one-click rerun; recorded
+in [decisions and runtime scope](../process/handoff/20261104-rd-decisions-and-runtime-scope.md) §11).
+**Baseline:** `1757b44`. **Merged:** `c8ca73a` (one squashed reviewed commit, one `@assay/web` patch
+changeset). **Merged gates:** [map §6.7](../process/handoff/20261104-svg-implementation-map.md).
+
+**Scope was set by reading the code, not the row title.** The comparison capability, the A-only "Show
+row" jump, the whole-current-dataset export facts and the web/CLI exact agreement already shipped and
+were already pinned. rd-5 therefore delivered only:
+
+- **D1 copy** in `DiffPanel.tsx`, three blocks and nothing else: intro first sentence, the zero state,
+  and the staged line now name **the open dataset (A)** / **the comparison file (B)**. Value-free, and no
+  count is duplicated — the staged line keeps B's existing counts, A's stay in the context bar. The
+  separator inside the approved string is `×` ("Comparison file (B) staged — 5 rows × 5 columns").
+- **Three exact-string pins** (`DiffPanel.test.tsx`) so a partial reword fails rather than passing on a
+  substring.
+- **One J3 journey** (`m6-exit-journey.spec.ts`) bound to the task-led shell from the Explore default:
+  Check → stage B → drift → deltas → keys → row diff → A-side "Show row" lands on the logical row
+  (asserted by the row's `id` cell, the live-region announcement and the inspector, not by position) →
+  B-side is report-only with no jump affordance → stale → bar `Recheck` → bar `Review comparison` →
+  explicit rerun → bar `Export a copy…` lands in **Change** with the dialog reporting the whole effective
+  dataset. Task transitions are asserted (`aria-checked`, pane `data-task`), not only panel contents.
+- **One patch changeset.** No comparison/export logic, session hook, bar copy, report byte, CLI
+  agreement, grid or config change.
+
+**What the scope deliberately did not change (D2):** the context bar cannot see a staged-but-unrun
+comparison — `deriveNextAction` receives the run state only, so a user who has just staged B still sees
+the previous next action until a check is current. The decision was to leave it and record it: the
+Compare panel is where staging and running happen, and adding a bar state would need a new approved
+string plus a new derivation input. Consequence, observed in the journey: reaching the bar's
+compare/export actions requires a current valid verdict, so J3 loads and runs a dataset-level contract
+first. This is a **recorded limitation**, not an implied capability: the bar does not see "staged, not
+run", and the journey does not claim it does.
+
+**Independent review:** `openai-codex/gpt-6-luna` xhigh, separate session from the implementer
+(deepseek-v4.1-flash). Verdict **approve**, no Critical and no Warning about the code; its own mutation
+(intro reverted to "open one") failed the intended assertion, was restored byte-identically and rebuilt.
+It caught one documentation defect of mine: the contract cited "design record §12" before this section
+existed — now it does. It also confirmed the prior M6 tests are untouched and that D2's gap is correctly
+recorded rather than tested-away.
+
+**Residual limitations (carry forward):**
+
+- The bar cannot represent "comparison staged, not run" (D2, above) — a candidate for a later slice if
+  the journey shows it bites.
+- One-click rerun stays out (D3): `Review comparison` focuses the panel's run control because key state
+  lives in the panel.
+- No human usability session or AT review; **RD-T07 remains unsatisfied**, and this slice adds no such
+  claim. rd-6, rd-7 and SV-D02…SV-D05 remain unauthorized; nothing was pushed.

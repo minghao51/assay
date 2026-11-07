@@ -1,8 +1,9 @@
 # rd-5 — compare and reviewed export: scope contract
 
-**Status: AUTHORIZED 2026-11-04 — in review (baseline `1757b44`).** The maintainer approved the
-scope (D1 approved; D2 = (a), record the limitation; D3 unchanged). hf-1 is CLOSED (`ea38938`), so the
-browser gate is deterministic. Implementation is bounded to §4 and §5.
+**Status: CLOSED 2026-11-04 — merged `c8ca73a`, independently approved (no Critical/Warning on
+the code), gates in [map §6.7](20261104-svg-implementation-map.md), runtime record in
+[design record §12](../../product/13-workbench-redesign-design-record.md).** D1 delivered as written,
+D2 left and recorded there, D3 unchanged.
 
 Requirement source: [map](../handoff/20261104-svg-implementation-map.md) row `rd-5`, [review](../../product/12-workbench-redesign-review.md)
 RD-R02/RD-T02 (+RD-R03/04/08), [conservative spec](../../product/11-svg-implementation-spec.md) SV-R11 / SV-T07 / SV-T11 / SV-T15.

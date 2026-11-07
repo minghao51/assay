@@ -254,3 +254,11 @@ shell, its focused tests, one changeset. **Forbidden:** `packages/**`; `sessions
 bytes; logical row identity; CLI-agreement tests; grid/validation/profile/SQL/pipeline logic;
 telemetry; thresholds/timeouts/allowlists; dependencies; push. **Baseline:** `1757b44`. **Rollback:**
 revert the one commit.
+
+**Delivered and CLOSED (2026-11-04) — merged `c8ca73a`.** Independent `gpt-6-luna` xhigh review:
+**approve** (no Critical, no Warning on the code; one documentation defect of the orchestrator's, the
+stale "design record §12" reference, fixed by writing that section). Merged gates: [map §6.7](20261104-svg-implementation-map.md)
+— unit **236 files / 3514 tests**, coverage unchanged, full browser **238 passed + 1 skipped, 0 failed**.
+Runtime record: [design record §12](../../product/13-workbench-redesign-design-record.md), which also
+records the D2 limitation (the bar cannot see a staged-but-unrun comparison) as a limitation, not a
+silent gap.
