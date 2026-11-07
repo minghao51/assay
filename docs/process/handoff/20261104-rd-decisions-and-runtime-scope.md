@@ -306,3 +306,25 @@ option. This is the authorization for the resulting work; nothing outside it is 
 
 4. **Truthfulness:** RD-T07 is an accepted limitation, so no document may say or imply that the
    redesign was validated with users, that it is “intuitive”, or that Help was user-tested.
+
+## 13. rd-7 Help copy — approved (2026-11-04, maintainer)
+
+**Instruction.** _“based on your presentation, i'll approve it”_ — the five-item Help string set presented
+in the [rd-7 contract](20261104-rd7-help-close-contract.md) §4 is approved **byte-exact** as presented
+(title/open control, “What this is”, the four approved task purposes plus the “Choose a task…” line,
+“Formats and locality”, “Keyboard”). No rewording, no items dropped.
+
+**Consequences recorded**
+
+1. rd-7 is **AUTHORIZED and dispatchable** with no open decision. Baseline is the commit that carries this
+   record.
+2. The strings are constrained and must stay so: no count/filename/dataset content (ADR 0025); no offline
+   claim for the web app and no contradiction of `product/09` R-05 (the **formats/locality** paragraph is
+   what carries that honesty); **no user-validation claim** (D-02). If implementation finds a string cannot
+   be both accurate and as approved, it must **stop and report** — it may not silently reword.
+3. Tests pin the approved strings exactly (unit + browser), so a future edit fails until the copy is
+   deliberately changed with a new approval.
+4. Everything else in the rd-7 contract stands: one native-dialog guide, app-local modal arbitration with
+   Export/Telemetry/Settings, existing modal ownership reused, measured performance **recorded** (no
+   wall-clock thresholds, D-04), **RD-T07 recorded as an accepted limitation** (D-02), and the cumulative
+   RD-R/RD-T accounting that closes the redesign.

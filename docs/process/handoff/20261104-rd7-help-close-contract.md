@@ -1,10 +1,8 @@
 # rd-7 — Help, accessibility/performance gates and closure: scope contract
 
-**Status: SCOPE PREPARED 2026-11-04 — blocked on one copy approval (§4) before dispatch.** Authorized by
-decisions §12 (D-02 option A: record the accepted usability limitation; D-03 option A: one minimal
-native-dialog Help; D-04 option A: pin the measured performance baseline, no wall-clock thresholds).
-Baseline: the commit that carries this document. **Sequence:** after rd-6 (closed) — no file overlap now
-that rd-6 changed only a spec.
+**Status: AUTHORIZED 2026-11-04 — READY FOR DISPATCH.** The Help copy in §4 is **approved as
+presented, byte-exact** (decision D-15), so nothing in this contract awaits a decision. Baseline: the
+commit that carries this document. Dispatch to a new agent; rd-6 is CLOSED, so there is no file overlap.
 
 Requirements: [map](20261104-svg-implementation-map.md) row `rd-7`; [review](../../product/12-workbench-redesign-review.md)
 RD-R01…RD-R08 / RD-T01…RD-T08, especially RD-T05 (keyboard/AT/zoom/schemes/modal competition) and RD-T07.
@@ -47,7 +45,7 @@ no navigation, no links out, no telemetry.
 - Copy is **value-free** (ADR 0025): no file names, no counts, no dataset content.
 - Reuse the approved task purposes **byte-exactly** — they are already approved for the task strip.
 
-## 4. Proposed copy (needs approval as a set; nothing ships without it)
+## 4. Approved copy (2026-11-04, byte-exact — copy it verbatim)
 
 **Title and open control:** “Workbench guide” / button label “Help”.
 
@@ -82,8 +80,8 @@ Followed by:
 > Section links move focus to the section. In the grid, arrows move the focused cell and Enter opens the
 > editor. Esc closes a dialog.
 
-Nothing else. If any of this is rejected or reworded, the replacement is the approved string and the
-tests pin the replacement.
+Nothing else. These strings are approved as a set: implement them **verbatim** (including punctuation) and
+pin each with an exact-string test. Any change requires a new approval.
 
 ## 5. Tests (done-when)
 

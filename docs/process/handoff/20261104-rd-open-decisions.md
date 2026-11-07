@@ -76,6 +76,9 @@ acceptance rule), so Help is secondary guidance, not a crutch.
 **Recommendation: A.** It satisfies RD-T05's Help case with one owned modal and no new system; B is
 scope creep without evidence it is needed (see D-02). **Unblocks:** rd-7 Help part.
 
+**Resolved 2026-11-04:** option A, and the exact Help copy was **approved byte-exact** (decision D-15,
+[decisions record §13](20261104-rd-decisions-and-runtime-scope.md); the strings are the rd-7 contract §4).
+
 ### D-04 — rd-7 performance budget: pin measured numbers or invent thresholds?
 
 **Blocks:** rd-7 (RD-T08 expects per-slice performance evidence).
