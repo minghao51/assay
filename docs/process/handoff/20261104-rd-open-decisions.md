@@ -1,5 +1,7 @@
 # Redesign remainder — decisions pending on the maintainer (2026-11-04)
 
+**RESOLVED 2026-11-04 — every item below is resolved to the recommended option** ([decisions record §12](20261104-rd-decisions-and-runtime-scope.md)). This sheet is kept as the record of what was considered and why; **no item on it is still open**. The options stay visible so a later reader can see the alternative that was rejected, not to invite a re-decision.
+
 **Purpose:** one place for every decision that is **still open** after
 rd-3 / rd-3b / rd-3c / rd-4 / rd-5 and hf-1 closed, with the options, the trade-offs and my
 recommendation. Nothing here is authorized by reading it. This is a decision sheet, not a queue:

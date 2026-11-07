@@ -262,3 +262,38 @@ stale "design record §12" reference, fixed by writing that section). Merged gat
 Runtime record: [design record §12](../../product/13-workbench-redesign-design-record.md), which also
 records the D2 limitation (the bar cannot see a staged-but-unrun comparison) as a limitation, not a
 silent gap.
+
+## 12. Redesign remainder — decisions resolved (2026-11-04, maintainer)
+
+**Instruction.** _"lets proceed with your recommendation"_ — every item in the
+[redesign remainder decision sheet](20261104-rd-open-decisions.md) is resolved to the recommended
+option. This is the authorization for the resulting work; nothing outside it is authorized.
+
+| ID       | Decision                         | Resolution                                                                                                                            | Consequence                                                                                                                                        |
+| -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **D-01** | rd-6 scope / SV-D02              | **Option A** — rd-6 reuses the existing ordered runner/gate/preview/lineage/delivery surfaces. SV-D02 and sv-8 stay **closed**.       | rd-6 authorized as an evidence/continuity slice (contract: [rd-6](20261104-rd6-pipeline-context-contract.md)).                                     |
+| **D-02** | RD-T07 human evidence            | **Option A** — record an explicit accepted limitation. **No usability claim.**                                                        | rd-7 records it; the participant protocol stays prepared and unrun; the two synthetic study fixtures stay uncommitted until a study is authorized. |
+| **D-03** | rd-7 Help                        | **Option A** — one native-dialog guide with app-local modal ownership arbitrated against Export/Telemetry/Settings. No per-task Help. | rd-7 authorized for a minimal Help surface.                                                                                                        |
+| **D-04** | rd-7 performance                 | **Option A** — pin the measured baseline and the existing render/query/worker count assertions; **no wall-clock thresholds**.         | rd-7 adds no timing gate.                                                                                                                          |
+| **D-05** | web offline parity               | **Option A** — leave the documented CDN autoload; no bundling.                                                                        | No work. `product/09` R-05 remains the accurate statement.                                                                                         |
+| **D-06** | rd-5 bar gap ("staged, not run") | **Option A** — leave recorded.                                                                                                        | No work.                                                                                                                                           |
+| **D-07** | SV-D03 dirty replacement         | **Option A** — stay deferred.                                                                                                         | No work.                                                                                                                                           |
+| **D-08** | SV-D04 SQL sizing                | **Option A** — stay deferred.                                                                                                         | No work.                                                                                                                                           |
+| **D-09** | SV-D05 overlay profile           | **Option A** — stay deferred.                                                                                                         | No work.                                                                                                                                           |
+| **D-10** | SV-D07 VS Code format truth      | **Option A** — documentation/manifest truth fix **only**; no Arrow input.                                                             | A small `apps/vscode` slice, authorized with exact boundaries below.                                                                               |
+| **D-11** | run-origin metadata              | **Option A** — leave open.                                                                                                            | No work.                                                                                                                                           |
+| **D-12** | push / publication / release     | **Option A** — keep local.                                                                                                            | No push, no publication, no release cut.                                                                                                           |
+
+**Dispatch rules for the resulting work (2026-11-04).**
+
+1. Work is done by **new agents** (fresh sessions), not by the sessions that implemented or reviewed
+   rd-3…rd-5/hf-1. One **web** writer at a time; the independent reviewer must not be the implementer's
+   model/session.
+2. **Sequencing:** **rd-6 first**, then **rd-7** (rd-7 depends on rd-6 and shares `App.tsx`/CSS).
+   **D-10** is disjoint (`apps/vscode` + product docs) and may run in parallel with rd-6.
+3. Every slice keeps the standing invariants (no `packages/**` payload change, no session/engine/grid/
+   export/report byte change, no dependency, no ADR rewrite, no threshold weakening, no push) and the
+   full map §6 gate sequence from the committed revision, plus the configured/restored telemetry legs
+   whenever `App.tsx`/CSS changes.
+4. **Truthfulness:** RD-T07 is an accepted limitation, so no document may say or imply that the
+   redesign was validated with users, that it is “intuitive”, or that Help was user-tested.
