@@ -63,6 +63,21 @@ of them actively misleads the user, stop and report rather than inventing copy.
 grid/record/export/profile/SQL/schema logic; telemetry; thresholds/timeouts/allowlists; dependencies;
 root configs; ADRs; push.
 
+## 4a. Findings recorded during review (not fixed here)
+
+Two **pre-existing** pipeline display defects surfaced while binding the journey. Neither is in scope
+(D-01 option A: no new copy, no derivation change), and neither is silently absorbed:
+
+1. **“Completed before the stop” includes the gate-blocked node** — the runner records the blocked node's
+   refusal outcome, and the panel labels every recorded outcome as completed. The journey therefore
+   asserts node-level facts (status `gated`, downstream `Pending`, no verdict/preview) instead of
+   codifying the misleading set.
+2. **“N outputs” counts gate/publish nodes** — `isOutput = !consumed`, so a five-node plan can read
+   “3 outputs”. The journey deliberately does not pin that number.
+
+Both are recorded as [D-13 and D-14](20261104-rd-open-decisions.md) with a recommendation to decide their
+meaning in a later scoped slice.
+
 ## 5. Gates, review, rollback
 
 Full map §6.1 sequence from the committed revision in a clean worktree; if `App.tsx`/CSS changes, also the

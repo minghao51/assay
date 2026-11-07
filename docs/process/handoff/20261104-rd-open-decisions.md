@@ -174,6 +174,27 @@ lists a private-dependency registry policy and a human release as remaining.
 **Recommendation: A until you want the work shared**; if B, say the remote and branch explicitly, and
 expect the remote-CI observation to be a separate record.
 
+### D-13 — RECORDED FINDING: “Completed before the stop” includes the gate-blocked node
+
+**Found by** the rd-6 review. `packages/engine-duckdb/src/pipeline-runner/runner.ts` records the
+gate-blocked node's refusal in its outcomes before returning `gated`, and `PipelinePanel` labels every
+recorded outcome “Completed before the stop”. So a node that was **stopped by the gate** is presented
+under a “completed” heading. Pre-existing; out of scope for D-01 (fixing it needs copy and/or a
+derivation change).
+
+**Recommendation: record it, do not fix it now.** The rd-6 journey asserts node-level facts (status
+`gated`, downstream `Pending`, no gate verdict/preview) and no longer codifies the misleading set as a
+correct prefix. A later scoped slice should either relabel the section or exclude blocked outcomes.
+
+### D-14 — RECORDED FINDING: “N outputs” counts gate/publish nodes
+
+**Found by** the rd-6 review. `pipeline-model.ts` defines `isOutput = !consumed`, so terminal **gate** and
+**publish** nodes count as “outputs” in the panel summary (a five-node plan can read “3 outputs”).
+Defensible as “terminal plan node”, misleading if read as data outputs.
+
+**Recommendation: record it; do not pin the count.** The journey deliberately does not assert the number.
+Decide the meaning (label only, or a different derivation) in a later slice.
+
 ## 2. What is **not** pending (so it is not re-litigated)
 
 - Route/IA (SV-D08 = B), UI-RD-01, the approved copy table, the slice-1 deferral, hf-1’s tests-only
