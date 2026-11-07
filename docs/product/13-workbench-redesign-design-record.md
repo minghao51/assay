@@ -589,3 +589,240 @@ fixed); the Pipeline section still has no collapsed-state summary, pinned as abs
 close-section focus move remains reachable only through panel recovery. **RD-T07 is unsatisfied** — no human
 usability evidence — and no usability claim is made. rd-7 and SV-D02…SV-D05 boundaries are unchanged; nothing
 was pushed.
+
+## 14. Runtime slice record — rd-7 (Help, accessibility/performance gates) and redesign closure
+
+**Authorized by:** [decisions and runtime scope](../process/handoff/20261104-rd-decisions-and-runtime-scope.md) §12
+(**D-02** option A — RD-T07 recorded as an accepted limitation; **D-03** option A — one native-dialog guide
+with app-local modal ownership; **D-04** option A — measured performance recorded, **no wall-clock threshold**)
+and §13 (the Help copy approved **byte-exact** as D-15). Contract:
+[rd-7 Help/close contract](../process/handoff/20261104-rd7-help-close-contract.md). **Baseline:** `63abff8`
+(the commit that carries the contract and the approved copy). **Merged:** pending — this record is the worker's;
+the merged revision and gates are added at integration.
+
+### 14.1 What was delivered
+
+This slice adds **one secondary guidance surface and no capability**. Nothing in the engine, grid, export,
+validation, diff, pipeline, report-bytes or session layers changed, and no telemetry semantics, copy or
+storage changed.
+
+| File                                           | Change                                                                                                                                                                                                                       |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/help/WorkbenchHelp.tsx`          | **New.** One native `<dialog data-testid="workbench-help">` opened with `showModal()`; approved §4 copy only; Escape closes via the native `cancel` event; both close paths unmount and restore focus to the opener.         |
+| `apps/web/src/help/WorkbenchHelp.test.tsx`     | **New.** Copy gate (every approved string pinned against independent literals), native-dialog/accessible-name pins, both close paths, focus return, Tab wrap, StrictMode, Privacy, and the App-level modal-arbitration pins. |
+| `tests/e2e/workbench-help.spec.ts`             | **New.** 10 browser tests: 6 viewport × scheme combinations, the exact-copy leg, and Export/Settings/Help arbitration with real pointer and keyboard events.                                                                 |
+| `apps/web/src/App.tsx`                         | Header control (`help-open`) inline in the ready header line; `helpOpen` + `settingsOpen` state and one `openModal` derivation; render location; the `helpOpen` guard on the Export opener.                                  |
+| `apps/web/src/index.css`                       | One scoped Help block (header control + guide dialog). No token, geometry or existing rule touched.                                                                                                                          |
+| `apps/web/src/telemetry/TelemetrySettings.tsx` | **Deviation from the file reservation, recorded below:** an optional `onOpenChange` notification prop and a focus return to its own toggle. No telemetry preference, event, storage or copy change.                          |
+| `.changeset/*.md`                              | One `@assay/web` **minor** changeset (new user-visible Help surface).                                                                                                                                                        |
+
+**Stop conditions checked and not hit:** every approved string is both accurate and as approved (the formats
+paragraph is what carries the locality honesty — it promises nothing offline and says the browser app _may_
+download DuckDB's Parquet/JSON reader from `extensions.duckdb.org`, while the desktop app ships them). No new
+trap architecture and no session change was needed for arbitration.
+
+### 14.2 The approved copy as rendered (byte-exact)
+
+Title (the dialog's accessible name) `Workbench guide`; header control label `Help`. Sections in the approved
+order — what this is → the four tasks → formats and locality → keyboard:
+
+1. **What this is** — “Inspect, check, change and deliver a dataset without leaving this machine. Nothing is
+   uploaded; the file you open is never modified. Changes are staged in this session and exported as a new
+   copy.”
+2. **The four tasks** — the already-approved strip purposes, imported from `workbench/tasks.ts` rather than
+   retyped: “Explore — Understand what is in the file: fields, filters, query and statistics.” / “Check — Find
+   quality issues or explain differences between two versions.” / “Change — Make a reversible repair, review
+   staged operations and deliver a copy.” / “Prepare — Run deterministic steps and inspect gate and delivery
+   evidence.”, followed by “Choose a task to see the sections it uses. Grid and Record stay available in every
+   task.”
+3. **Formats and locality** — “Reads Parquet, CSV, JSONL/NDJSON and JSON; Arrow is an export format, not an
+   input. This browser app may download DuckDB's Parquet or JSON reader from `extensions.duckdb.org` the first
+   time it opens such a file, so opening one without a network connection is not guaranteed. The desktop app
+   ships those readers locally.”
+4. **Keyboard** — “The task strip is a radio group: arrow keys move between tasks, Home and End jump to the
+   first and last. Section links move focus to the section. In the grid, arrows move the focused cell and Enter
+   opens the editor. Esc closes a dialog.”
+
+Nothing else: no links out, no navigation, no telemetry, no per-task help. The only string not in §4 is the
+close control's label `Close`, which the required close affordance needs and which reuses the shell's existing
+dialog label (Settings, Export). Each string is pinned twice — once in the component test, once in the browser
+leg — against independent literals, so a partial reword fails.
+
+### 14.3 Modal arbitration (one owned surface at a time)
+
+The existing app-local ownership is reused; there is no modal manager and no second trap.
+
+| While this is open ↓ / try to open → | Help                                                                    | Export                                                              | Settings                                              | Telemetry disclosure                               |
+| ------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| **Help**                             | — (one instance; `helpOpen` is boolean)                                 | Blocked: native top layer is inert **and** the opener returns early | Blocked: native top layer is inert                    | Blocked: native top layer is inert                 |
+| **Export**                           | Blocked: `help-open` is `disabled` (unfocusable, unclickable) + guarded | —                                                                   | Not reachable (its opener is inside the inert region) | n/a (first-run only)                               |
+| **Settings**                         | Blocked: `help-open` is `disabled` + guarded                            | Not reachable                                                       | —                                                     | n/a                                                |
+| **Telemetry disclosure**             | Blocked: `help-open` is `disabled` + guarded **and** the page is inert  | Not reachable                                                       | Not reachable (top layer)                             | — (Esc is a deliberate no-op, ADR 0037; unchanged) |
+
+Closing returns focus to **its own** opener: Help → `help-open`, Export → `export-open` (pre-existing), Settings
+→ `settings-toggle` (added here; previously focus fell to `<body>` when the panel's body was hidden), and the
+disclosure → the pre-open owner (pre-existing, and it has no opener on a genuine first run). Required disclosure
+priority is unchanged: it renders first-run and its control is disabled while it is open; no in-flight export is
+ever dismissed to make room.
+
+### 14.4 Accessibility and recovery pass
+
+`workbench-help.spec.ts` covers 1024×700, 1440×900 and 900×900 in **both** schemes: keyboard-only (Tab to the
+header control, Enter to open), genuine native modality (`:modal`), accessible name from the title, initial focus
+inside, Tab/Shift+Tab confined to the guide, the Close control in view, axe with the **unchanged** (empty)
+`DEFERRED_A11Y` allowlist, no horizontal clip at the dialog, its scroll body or the page, Escape closing onto the
+opener, and the Close control closing onto the opener. The guide's scroll body carries `tabindex="0"`, so the
+region is genuinely keyboard-scrollable (`scrollable-region-focusable`) rather than a `tabindex` lie.
+
+The existing `a11y`, `a11y-keyboard`, `theme`, `record-keyboard`, `panel-recovery`, `grid-virtualization`,
+`shell` and `workbench-*` suites pass **unchanged** — no threshold, timeout, allowlist or assertion was edited
+(counts in 14.7).
+
+### 14.5 Performance record (observed, not a threshold — D-04)
+
+Measured on the **built** app (`vite preview` of `apps/web/dist`) in Chromium with the pinned DuckDB-WASM
+extension route, viewport **1024×700**, fixture `fixtures/parquet/customers.parquet` (5 rows × 4 columns),
+three runs:
+
+| Observation (1024×700)                                      | Run 1                           | Run 2              | Run 3              | How it was measured                                                     |
+| ----------------------------------------------------------- | ------------------------------- | ------------------ | ------------------ | ----------------------------------------------------------------------- |
+| First paint: picker click → first `data-status="ready"` row | 1365 ms                         | 1345 ms            | 1345 ms            | `performance`-free wall clock around the picker gesture in Playwright   |
+| One task switch (Explore → Check), state-preserving         | 27.0 ms                         | 26.3 ms            | 26.8 ms            | wall clock until the pane's `data-task` flips to `check`                |
+| Engine/extension requests across that switch                | 2 → 2                           | 2 → 2              | 2 → 2              | page `request` events (both are the DuckDB-WASM worker/extension)       |
+| Ready workspace top (`.workbench-layout` y)                 | 127.88 px                       | 127.88 px          | 127.88 px          | `getBoundingClientRect` — budget is ≤140 px (`shell.spec.ts`)           |
+| Grid viewport height / grid footer bottom                   | 340 px / 692.27 px              | 340 px / 692.27 px | 340 px / 692.27 px | must fit inside 700 px (`shell.spec.ts` first paint)                    |
+| Rendered rows / column headers                              | 5 / 4                           | 5 / 4              | 5 / 4              | `shell-geometry` + `grid-virtualization` rendered-window pins           |
+| Exposed `h2` map after the switch                           | `Validation`, `Compare`, `Grid` | same               | same               | per-task exposure pin (`shell.spec.ts`, `workbench-visibility.spec.ts`) |
+
+The pre-existing count pins the numbers are compared against are unchanged and unmodified: `shell-geometry`
+(≤140 px ready top, viewport clamp `280…640 px`), `grid-virtualization` (rendered window / fetch counts),
+`App.task-switch` (**zero** extra `open`/`schema`/`rowCount`/`fetchRange` calls across eight switches), and
+`grid`/provider identity and render-count probes (`App.memo-probe`). The rd-7 header control is inline in the
+ready header line, so the geometry above is byte-identical to the pre-slice baseline (measured before and after
+the change: `.workbench-layout` y 127.88 px in both).
+
+**The first-paint figure is NOT comparable to any earlier number in this repository, and no improvement is
+claimed.** The M1 baseline records `1.88–2.11 s` for a first-open observation on a **warm OS page cache** (its own
+record states that a cold-cache first open remains unmeasured), but it was taken on a
+**separate engine harness** against **1–10 GiB fixtures** — a different subject (engine startup on large data), a
+different surface (no shell, no grid, no picker) and a different measurement. This slice's `~1.35 s` is
+**picker-click → first ready grid row** on the **built web app** with a **five-row, 4-column** fixture, so the two
+numbers measure different things and must not be subtracted, ratioed or described as faster/slower. The only
+comparisons this record makes are the ones with an identical subject: the rd-7 header control vs the pre-slice
+geometry (`.workbench-layout` y 127.88 px before and after), and the request-count pins (2 → 2 engine/extension
+requests across a task switch).
+
+**These are observations, not a gate.** D-04 fixes exactly this: a wall-clock threshold on shared CI measures the
+machine, not the product, and would be met by widening the window rather than by staying fast. No new timing
+assertion, budget or benchmark was added; the slice's own performance claim is limited to "no geometry or
+request-count change", which the existing pins already enforce.
+
+### 14.6 RD-T07 — the accepted limitation (D-02), stated plainly
+
+**No human usability evidence exists for this redesign.** No moderated study was run, **no participants were
+recruited**, and **no assistive-technology (screen-reader) review was performed**. The study protocol, the four
+journeys (J1–J4) and the provisional exit criteria in [review §RD-R07](12-workbench-redesign-review.md) are
+prepared but **unrun**, and the two synthetic study fixtures stay uncommitted until a study is authorized (D-02).
+The maintainer accepted this limitation for a limited implementation pilot.
+
+Consequences, recorded so no later reader can mistake them:
+
+- No document may say or imply that the redesign was **validated with users**, that it is **intuitive**, or that
+  the guide was **user-tested**. Automated axe scans are not a substitute for an AT review and are not a
+  usability result.
+- The `1024/1440/900` viewport matrix, the keyboard-only journeys and the axe scans in 14.4 are **engineering**
+  evidence about the interface, not evidence about people.
+- If a study is later authorized, it is a **new** slice: the protocol, the fixtures and the report all need
+  their own approval, and this record's numbers must not be reused as its baseline.
+
+### 14.7 Gates (worker checkout, uncommitted slice on `63abff8`)
+
+Run from the worker's isolated git worktree at `63abff8` with this slice applied (uncommitted),
+`pnpm install --frozen-lockfile` exit 0, Node 24.13.0, pnpm 11.26.0, `/tmp/duckdb` 1.5.5, installed Playwright
+Chromium, `ASSAY_TELEMETRY_ENDPOINT` / `ASSAY_TELEMETRY_TOKEN` / `ASSAY_NO_TELEMETRY` **unset** for the stock legs.
+Logs: `/tmp/assay-rd7-worker/`. The merged record is added at integration from the committed revision.
+
+| Gate                          | Command                                                                                                                                                  | Exit | Observed result                                                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Format                        | `pnpm format:check`                                                                                                                                      | 0    | all matched files use Prettier style                                                                                              |
+| Lint                          | `pnpm lint`                                                                                                                                              | 0    | no findings                                                                                                                       |
+| Typecheck                     | `pnpm exec turbo run typecheck --force`                                                                                                                  | 0    | **20/20 tasks, 0 cached**                                                                                                         |
+| Unit                          | `pnpm test`                                                                                                                                              | 0    | **237 files / 3531 tests passed**, 0 failed (baseline 236 / 3513: +1 file, +18 tests)                                             |
+| Coverage                      | `pnpm test:coverage`                                                                                                                                     | 0    | **89.13 / 83.88 / 91.47 / 90.73** (stmts/branch/fn/lines); floors 83/76/80/84 **unchanged**                                       |
+| Build                         | `pnpm exec turbo run build --force`                                                                                                                      | 0    | **12/12 tasks, 0 cached**                                                                                                         |
+| Docs links                    | `pnpm docs:links:check`                                                                                                                                  | 0    | **136 files, 0 broken links**                                                                                                     |
+| ADR index                     | `pnpm adr:index:check`                                                                                                                                   | 0    | **46 records**                                                                                                                    |
+| Full browser suite            | `CI=1 pnpm exec playwright test --retries=0` (ports **8373/8379/8380**)                                                                                  | 0    | **249 passed + 1 skipped, 0 failed** (2.3 m); the skip is the conditional 1 GiB `bench-ttfr`; includes this slice's 10 Help tests |
+| Configured telemetry leg      | `ASSAY_TELEMETRY_ENDPOINT=https://collector.example.invalid/ingest pnpm --filter @assay/web build`, then the isolated config on ports **8473/8479/8480** | 0    | endpoint present in **1** bundle; **6 passed**; 2 collector POSTs intercepted and **aborted** per scheme (nothing delivered)      |
+| Restored stock build          | remove **only** `apps/web/dist`, `pnpm --filter @assay/web build` (names unset)                                                                          | 0    | **0** endpoint hits in the rebuilt bundle                                                                                         |
+| Restored stock affected specs | `telemetry`, `theme`, `a11y`, `workbench-help`, `workbench-tasks`, `workbench-visibility`, `shell` on fresh ports **8573/8579/8580**                     | 0    | **70 passed, 0 failed**                                                                                                           |
+
+**Negative control (required, run in the same worktree).** The load-bearing behaviour chosen was the **Escape
+close**: the native `cancel` listener was removed from `WorkbenchHelp.tsx` on purpose, the web build was rebuilt,
+and the intended assertions failed — **2 unit tests** (`native cancel (Esc)` and `App`-level `Escape closes it back
+onto the opener`) and **7 of 10** browser tests (the six viewport×scheme tests plus the arbitration test that closes
+with Escape), every failure at the Esc/close assertion, with the copy and Export/Settings arbitration tests still
+green. The file was then restored **byte-identically** (sha256 verified against the pre-mutation copy), the build
+rebuilt, and the suite re-ran green (**18/18** unit, **10/10** browser), with `git status --short` showing only the
+slice's own files. No threshold, timeout, allowlist or assertion was weakened anywhere in this slice.
+
+### 14.8 Closure accounting — RD-R01…RD-R08 / RD-T01…RD-T08
+
+“Evidenced” means a slice record above plus the test that pins the claim; “limited” means the gap is recorded
+here and **not** claimed as delivered.
+
+| Req.       | Status      | Evidence (slice record → pinning test)                                                                                                                                                                                                                                                                                                                                           |
+| ---------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **RD-R01** | Evidenced   | §9 (rd-3): four task choices over the twelve sections, UI-RD-01 membership, flat DOM, radio-group semantics → `workbench/tasks.test.ts`, `TaskNav.test.tsx`, `tests/e2e/workbench-tasks.spec.ts`, `shell.spec.ts` task heading maps.                                                                                                                                             |
+| **RD-R02** | Evidenced   | §9/§12 (rd-4, rd-5): one derived next action, stale verdicts with explicit recheck, whole-dataset export at the point of delivery → `workbench/next-action.test.ts`, `DatasetContextBar.test.tsx`, `tests/e2e/m5-exit-journey.spec.ts`, `m6-exit-journey.spec.ts`. Human observation: **limited** (RD-T07).                                                                      |
+| **RD-R03** | Evidenced   | §9 (rd-3): neutral context facts, no copied count; approved stale sentences only → `DatasetContextBar.test.tsx`, `ValidationPanel.test.tsx`, `DiffPanel.test.tsx`, profile-honesty/filter/export suites.                                                                                                                                                                         |
+| **RD-R04** | Evidenced   | §9/§10 (rd-3, rd-3b): task switching preserves drafts/history/results with zero extra engine work; panels stay mounted → `App.task-switch.test.tsx` (zero `open`/`schema`/`rowCount`/`fetchRange`), `workbench-visibility.spec.ts`, `App.memo-probe.test.tsx`.                                                                                                                   |
+| **RD-R05** | Evidenced   | §9–§14: radio-group task semantics, keyboard/heading/focus paths, native-dialog Help with app-local ownership, both schemes → `a11y.spec.ts`, `a11y-keyboard.spec.ts`, `theme.spec.ts`, `record-keyboard.spec.ts`, `workbench-help.spec.ts` (10 tests), `WorkbenchHelp.test.tsx`. AT/screen-reader review: **not performed** (RD-T07).                                           |
+| **RD-R06** | Evidenced   | §12 (D-01/D-06…D-09): no optional feature was silently added; SV-D02…SV-D05 stay deferred → decisions record §12; the pipeline journey pins the shipped runner/gate/preview/lineage/DCR surfaces only (`pipeline-panel-journey.spec.ts`).                                                                                                                                        |
+| **RD-R07** | **Limited** | No participants, no AT study: 14.6. Nothing was run, so nothing is claimed.                                                                                                                                                                                                                                                                                                      |
+| **RD-R08** | Evidenced   | §9–§14 and map §6.4–§6.9: five merged slices (rd-3/4 `51ff36e`, rd-3b `0b22024`, rd-3c `acc8aff`, rd-5 `c8ca73a`, rd-6 `570e9be`) each with an independent review, a rollback point and merged gates; per-slice render/query/worker counts in 14.5 → `shell-geometry.test.ts`, `grid-virtualization.spec.ts`, `App.task-switch.test.tsx`, CLI/export agreement suites untouched. |
+| **RD-T01** | Evidenced   | rd-0/rd-1/rd-2 design pack (`d441fc3`) and §3: two alternatives, SVG coverage map, approved IA, no fictional backend.                                                                                                                                                                                                                                                            |
+| **RD-T02** | Evidenced   | §9/§12: J2 through real controls without Help dependency → `m5-exit-journey.spec.ts`, `m6-exit-journey.spec.ts`, `next-action.test.ts`. Human observation: **limited**.                                                                                                                                                                                                          |
+| **RD-T03** | Evidenced   | §9/§12: neutral labels, no-op/undo-to-base, draft vs SQL semantics, rollback + double failure → presentation/session/FilterBar unit suites, profile-honesty/filter/export e2e.                                                                                                                                                                                                   |
+| **RD-T04** | Evidenced   | §9/§10: switches preserve drafts/history/results/B staging with zero extra engine/file/query work; late completion/remount ownership → `App.task-switch.test.tsx`, `App.lifecycle.test.tsx`, `App.panel-boundary.test.tsx`, `workbench-visibility.spec.ts`.                                                                                                                      |
+| **RD-T05** | Evidenced   | 14.4 + `a11y.spec.ts`, `a11y-keyboard.spec.ts`, `theme.spec.ts`, `record-keyboard.spec.ts`, `workbench-help.spec.ts`, plus the configured-disclosure/restored-stock legs in 14.7. Modal competition/return paths covered in a real browser.                                                                                                                                      |
+| **RD-T06** | Evidenced   | decisions §12 (D-01, D-06…D-09): no optional feature selected; D-13/D-14 recorded as pre-existing display defects rather than claimed.                                                                                                                                                                                                                                           |
+| **RD-T07** | **Limited** | 14.6 — no participants, no AT study, no usability claim.                                                                                                                                                                                                                                                                                                                         |
+| **RD-T08** | Evidenced   | Map §6.4–§6.9 (five merged gate records) + §14.7: named rollback points, per-slice performance/count pins, preserved CLI/export/DCR and grid suites.                                                                                                                                                                                                                             |
+
+### 14.9 Recorded gaps carried forward (deliberately not fixed here)
+
+| Gap                                                                                               | Recorded by                | Where                            |
+| ------------------------------------------------------------------------------------------------- | -------------------------- | -------------------------------- |
+| The context bar cannot see "comparison staged, not run" (rd-5 D2)                                 | rd-5 (D-06: leave)         | §12, decisions §11/§12           |
+| The bar never reads pipeline state (pipeline blindness)                                           | rd-6 (D-01: leave)         | §13, decisions §12               |
+| "Completed before the stop" includes the gate-blocked node (D-13)                                 | rd-6                       | §13, decisions §12               |
+| “N outputs” counts gate/publish nodes (D-14)                                                      | rd-6                       | §13, decisions §12               |
+| The R-07 close-section focus move is browser-reachable only through panel recovery                | rd-3b/rd-6                 | §10, §13                         |
+| Conditional task visibility hides a task's sections at ≥1024px (by design; all reachable via nav) | rd-3b                      | §10                              |
+| Web offline parity: DuckDB-WASM autoloads its readers from the CDN                                | D-05 (no work)             | decisions §12; `product/09` R-05 |
+| No human usability evidence / no AT review (**RD-T07**)                                           | D-02 (accepted limitation) | 14.6                             |
+
+### 14.10 Deviations and residual limitations of this slice (each recorded, none silent)
+
+1. **One file outside the written reservation:** `apps/web/src/telemetry/TelemetrySettings.tsx` gained an
+   **optional** `onOpenChange` notification prop and a focus return to its own toggle. Without a visibility signal
+   the contract's "Help cannot open over Settings" requirement is unsatisfiable (Settings is a non-modal panel
+   whose open state lived only inside that component, and App owns the arbitration). The prop changes no telemetry
+   preference, event, storage or copy; the panel's standalone behaviour is unchanged when it is omitted, and its
+   existing tests pass unmodified.
+2. **The guide wraps Tab explicitly.** Chromium hands sequential navigation past a native modal's last stop to the
+   browser chrome (`document.activeElement` falls to `<body>`), so "Tab stays inside" needed the same explicit wrap
+   the app's other two dialogs already implement. This is the existing pattern, not a new trap architecture, and
+   the arbitration itself still needs none.
+3. **The guide body keeps an `8rem` minimum height.** It is a real scroll container at every viewport (so the region
+   is honestly keyboard-scrollable and nothing is vertically clipped), which means the content can scroll slightly
+   even where it would fit. A visual choice, no copy and no capability.
+4. **Help `disabled` while another owned surface is open** is the arbitration mechanism for the non-modal Settings
+   panel and for Export; behind the native modals the page is already inert.
+5. **Settings focus return** now moves to the toggle; previously focus fell to `<body>` when the panel's body was
+   hidden. An accessibility improvement inside the same file, pinned in `WorkbenchHelp.test.tsx`.
+6. No human usability session or AT review was run (**RD-T07**, 14.6) and no usability claim is made anywhere.
+
+**Independent review:** pending — this record was written by the implementing agent; approval, the reviewer's own
+mutation and the merged gate record are added at integration. Nothing was pushed.

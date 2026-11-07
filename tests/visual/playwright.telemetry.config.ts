@@ -12,11 +12,15 @@ import { defineConfig } from '@playwright/test'
  * set, and the stock telemetry spec must never run against such a build.
  *
  * This config is the isolated home of that proof: it lives in `tests/visual`,
- * keeps discovery to its own spec via an explicit `testDir`/`testMatch`
+ * keeps discovery to its own specs via an explicit `testDir`/`testMatch`
  * (outside the default `tests/e2e` testDir), and reuses the base settings
- * posture while adding the two safety rails the spec mandates — service
+ * posture while adding the two safety rails the specs mandate — service
  * workers blocked and a context route that aborts every collector request
- * before any navigation (registered by the spec itself).
+ * before any navigation (registered by each spec itself).
+ *
+ * rd-7 adds a second spec here for the same reason: the Help ↔ first-run
+ * disclosure arbitration can only be observed where the disclosure renders,
+ * which is the CONFIGURED build. It uses the identical posture.
  *
  * Assigned ports for this leg: web 4473 / engine 4479 / data-sources 4480
  * (never the stock 4273/4279/4280 set, so a configured preview can never be
@@ -29,9 +33,12 @@ const PORT_DS = Number(process.env['ASSAY_E2E_PORT_DS'] ?? 4480)
 
 export default defineConfig({
   // This config lives in tests/visual, so '.' keeps discovery isolated here;
-  // `testMatch` pins it to the single configured-disclosure spec.
+  // `testMatch` pins it to the configured-build specs only:
+  //  - `telemetry-disclosure-theme.spec.ts` (uxv-1/R-09 disclosure theme), and
+  //  - `workbench-help-disclosure.spec.ts` (rd-7 Help ↔ first-run disclosure
+  //    arbitration, which needs the configured build to render the modal).
   testDir: '.',
-  testMatch: '**/telemetry-disclosure-theme.spec.ts',
+  testMatch: ['**/telemetry-disclosure-theme.spec.ts', '**/workbench-help-disclosure.spec.ts'],
   // Never inherit a committed `.only`.
   forbidOnly: !!process.env['CI'],
   fullyParallel: false,

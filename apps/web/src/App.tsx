@@ -108,6 +108,7 @@ import type { WebTelemetryRuntime } from './telemetry/runtime'
 import { TelemetryProvider } from './telemetry/TelemetryContext'
 import { TelemetryDisclosure } from './telemetry/TelemetryDisclosure'
 import { TelemetrySettings } from './telemetry/TelemetrySettings'
+import { WorkbenchHelp, WORKBENCH_HELP_OPEN_LABEL } from './help/WorkbenchHelp'
 
 /**
  * R-07 request-consumption ledger. App owns exactly one ledger for the
@@ -589,6 +590,39 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * (ADR 0012).
    */
   const [exportOpen, setExportOpen] = useState(false)
+
+  /**
+   * rd-7 (D-03): the ONE global Help surface, plus the telemetry Settings
+   * panel's open state. Both are component-local UI state — no session, no
+   * engine, no telemetry event — and `settingsOpen` exists only so App can
+   * arbitrate modal ownership: the guide's opener is disabled while any other
+   * owned surface is open (Settings is a non-modal panel, so nothing else
+   * would stop a second dialog opening on top of it).
+   */
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  /**
+   * App-local modal ownership, reused rather than replaced: Export, Settings and
+   * the first-run telemetry disclosure already own their own open state, and
+   * Help joins that set. At most one surface is open at a time — the disclosure
+   * and Help are native modals (the page behind them is inert), while Export
+   * and Settings are guarded at the opener instead of with a new trap.
+   */
+  const openModal: 'disclosure' | 'help' | 'export' | 'settings' | null = helpOpen
+    ? 'help'
+    : disclosureOpen
+      ? 'disclosure'
+      : exportOpen
+        ? 'export'
+        : settingsOpen
+          ? 'settings'
+          : null
+  /**
+   * The guide's opener is disabled while a DIFFERENT surface owns the modal,
+   * and stays enabled while the guide itself is open: it is the focus-return
+   * target, and a disabled control cannot take focus back.
+   */
+  const helpBlocked = openModal !== null && openModal !== 'help'
 
   /**
    * UI-RD-01 app-local navigation state. Neither value is session data: the
@@ -1772,11 +1806,26 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       <main>
         <h1 className="workbench-heading">{APP_NAME}</h1>
         <p className="workbench-tagline">{TAGLINE}</p>
-        <TelemetrySettings />
+        <TelemetrySettings
+          onOpenChange={(open) => {
+            setSettingsOpen(open)
+          }}
+        />
         {disclosureOpen && (
           <TelemetryDisclosure
             onDismiss={() => {
               setDisclosureOpen(false)
+            }}
+          />
+        )}
+        {/*
+         * rd-7: the one global guide. Rendered only while open (like the export
+         * dialog), so the closed state costs no DOM, no heading and no tab stop.
+         */}
+        {helpOpen && (
+          <WorkbenchHelp
+            onClose={() => {
+              setHelpOpen(false)
             }}
           />
         )}
@@ -1863,6 +1912,28 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
               <span key={openAnnouncement.seq}>{openAnnouncement.text}</span>
             )}
           </span>
+          {/*
+           * rd-7 (D-03) header control: the ONE way into the guide, present in
+           * every phase. It is inline in this header line and no taller than the
+           * Open control beside it, so in the ready frame it adds no line box
+           * (the ≤140px ready-top and the 1024×700 first-paint budgets measure
+           * byte-identically to the pre-slice baseline). Modal arbitration lives
+           * in `openModal`: while Export, Settings or the telemetry disclosure
+           * is open this control is disabled — neither clickable nor focusable.
+           */}
+          <button
+            type="button"
+            className="workbench-help-open"
+            data-testid="help-open"
+            aria-haspopup="dialog"
+            disabled={helpBlocked}
+            onClick={() => {
+              if (helpBlocked) return
+              setHelpOpen(true)
+            }}
+          >
+            {WORKBENCH_HELP_OPEN_LABEL}
+          </button>
           {phase.kind === 'error' && (
             // UG-5: a failed open states a one-line human cause (classified,
             // never the raw DuckDB diagnostic), offers the same open path back
@@ -2032,6 +2103,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                           className="export-open"
                           data-testid="export-open"
                           onClick={() => {
+                            // rd-7 modal ownership: the guide is a native modal,
+                            // so this control is already inert behind it — the
+                            // guard covers the programmatic paths (a dispatched
+                            // activation, the context bar's export action)
+                            // without adding a trap.
+                            if (helpOpen) return
                             setExportOpen(true)
                           }}
                         >

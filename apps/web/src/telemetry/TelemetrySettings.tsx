@@ -11,24 +11,47 @@
  * later sends (§6.5). When `ASSAY_NO_TELEMETRY` was set at build time the
  * toggle is present but disabled (build-time hard-off, no override).
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTelemetry } from './TelemetryContext'
 
-export function TelemetrySettings() {
+export interface TelemetrySettingsProps {
+  /**
+   * rd-7 (D-03) modal-ownership seam: App needs to know this panel is open so
+   * the header's Help control can be disabled while it is. Notification only —
+   * the panel keeps its own open state and its standalone behaviour is
+   * unchanged when the prop is omitted. No telemetry preference, event or copy
+   * is involved.
+   */
+  readonly onOpenChange?: (open: boolean) => void
+}
+
+export function TelemetrySettings({ onOpenChange }: TelemetrySettingsProps = {}) {
   const telemetry = useTelemetry()
   const [open, setOpen] = useState(false)
   const [enabled, setEnabled] = useState(() => telemetry.getPreference() !== 'off')
+  /**
+   * rd-7: the toggle is the panel's opener, so closing the panel from its own
+   * Close control returns focus there instead of dropping it to `<body>` when
+   * the `hidden` body unmounts its focused button.
+   */
+  const toggleRef = useRef<HTMLButtonElement | null>(null)
+
+  const changeOpen = (next: boolean): void => {
+    setOpen(next)
+    onOpenChange?.(next)
+  }
 
   return (
     <div className="telemetry-settings">
       <button
+        ref={toggleRef}
         type="button"
         className="telemetry-settings-toggle"
         data-testid="settings-toggle"
         aria-expanded={open}
         aria-controls="telemetry-settings-dialog"
         onClick={() => {
-          setOpen((previous) => !previous)
+          changeOpen(!open)
         }}
       >
         Settings
@@ -69,7 +92,8 @@ export function TelemetrySettings() {
           className="telemetry-settings-close"
           data-testid="settings-close"
           onClick={() => {
-            setOpen(false)
+            changeOpen(false)
+            toggleRef.current?.focus()
           }}
         >
           Close
