@@ -314,6 +314,12 @@ in the [rd-7 contract](20261104-rd7-help-close-contract.md) §4 is approved **by
 (title/open control, “What this is”, the four approved task purposes plus the “Choose a task…” line,
 “Formats and locality”, “Keyboard”). No rewording, no items dropped.
 
+**Delivered (2026-11-04):** rd-7 merged as `2ddd67a` (+ test pin `de342da`), independently approved after two
+request-changes rounds; merged gates in [map §6.10](20261104-svg-implementation-map.md); runtime/review record in
+[design record §14](../../product/13-workbench-redesign-design-record.md). **The redesign is complete.** RD-T07
+remains an accepted limitation — no usability claim exists — and the recorded gaps (D-13/D-14, the rd-5 D2 bar
+gap, the bar's pipeline blindness, the panel-recovery-only close focus) stay open by decision.
+
 **Consequences recorded**
 
 1. rd-7 is **AUTHORIZED and dispatchable** with no open decision. Baseline is the commit that carries this

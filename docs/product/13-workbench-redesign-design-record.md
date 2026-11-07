@@ -824,5 +824,24 @@ here and **not** claimed as delivered.
    hidden. An accessibility improvement inside the same file, pinned in `WorkbenchHelp.test.tsx`.
 6. No human usability session or AT review was run (**RD-T07**, 14.6) and no usability claim is made anywhere.
 
-**Independent review:** pending — this record was written by the implementing agent; approval, the reviewer's own
-mutation and the merged gate record are added at integration. Nothing was pushed.
+**Independent review and integration (2026-11-04).** Merged as `2ddd67a`; one post-merge test pin as `de342da`.
+Reviewer: `openai-codex/gpt-6-luna` xhigh, separate session from the implementer (deepseek-v4.1-flash).
+Round 1 **request-changes**, one Critical: the Help ↔ first-run-disclosure arbitration was proven only in jsdom —
+the stock build can never render the disclosure — fixed by a configured-leg browser proof
+(`tests/visual/workbench-help-disclosure.spec.ts`, wired into that leg's `testMatch`) asserting the disabled
+opener, the inert page, the handler guard, the dismissal hand-off, and focus return. The reviewer independently
+mutated `App.tsx` to leave Help enabled and saw the spec fail at `toBeDisabled()`. Round 2 **request-changes** on
+one wording error (this record called M1's figure a cold-start observation; M1 is warm-cache with cold first open
+unmeasured) — fixed. Round 3 **approve**.
+
+**A miss worth recording.** Neither the implementer nor the reviewer re-ran the unit suite after the slice changed
+the configured leg's `testMatch` from a string to an array, and `apps/web/src/telemetry/telemetry-ci.test.ts` pins
+that source text. The **merged** run caught it (`1 failed | 236 passed`); the pin now requires **both** discovery
+patterns (`de342da`), which is stricter than before. Process note for later slices: **a config-source pin is a unit
+test — changing the config requires the unit suite, not just the config's own leg.**
+
+**Merged gates** (clean checkout at `de342da`; per-gate table in [map §6.10](../process/handoff/20261104-svg-implementation-map.md)):
+format/lint 0, typecheck 20/20 forced, unit **237 files / 3531 tests**, coverage **89.13 / 83.88 / 91.47 / 90.73**,
+build 12/12 forced, docs links 136/0, ADR 46, full stock browser **249 passed + 1 skipped**, configured telemetry
+leg **7 passed** (endpoint in one bundle, collector posts aborted), restored stock **0** endpoint hits and **75**
+affected specs passed. Nothing was pushed.

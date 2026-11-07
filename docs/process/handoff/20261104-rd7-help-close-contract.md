@@ -1,8 +1,8 @@
 # rd-7 — Help, accessibility/performance gates and closure: scope contract
 
-**Status: AUTHORIZED 2026-11-04 — READY FOR DISPATCH.** The Help copy in §4 is **approved as
-presented, byte-exact** (decision D-15), so nothing in this contract awaits a decision. Baseline: the
-commit that carries this document. Dispatch to a new agent; rd-6 is CLOSED, so there is no file overlap.
+**Status: CLOSED 2026-11-04 — merged `2ddd67a` (+ test pin `de342da`), independently approved, gates in
+[map §6.10](20261104-svg-implementation-map.md), review and runtime record in [design record §14](../../product/13-workbench-redesign-design-record.md).**
+The approved copy shipped byte-exact; RD-T07 remains an accepted limitation and no usability claim is made.
 
 Requirements: [map](20261104-svg-implementation-map.md) row `rd-7`; [review](../../product/12-workbench-redesign-review.md)
 RD-R01…RD-R08 / RD-T01…RD-T08, especially RD-T05 (keyboard/AT/zoom/schemes/modal competition) and RD-T07.
