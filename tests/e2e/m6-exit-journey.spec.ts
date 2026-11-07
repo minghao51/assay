@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from './support/fixture'
@@ -9,7 +9,8 @@ import {
   writeExitJourneyOverKPair,
   writeExitJourneyPair,
 } from './support/diff-datasets'
-import { expandAllSections } from './support/fixtures'
+import { expandAllSections, openFixture } from './support/fixtures'
+import { row, waitForReadyRow } from './support/grid'
 
 // Task m6-5 (handoff §6) — the M6 EXIT JOURNEY, the final MVP task: the two
 // diff surfaces must agree EXACTLY on the same two files, and the docs-07
@@ -948,4 +949,180 @@ test('M6 exit journey >K selection: both surfaces select the SAME 100 of 120 add
   expect(bodyText).not.toContain(aName)
   expect(bodyText).not.toContain(bName)
   expect(readFileSync(webPath, 'utf8')).not.toContain(dir)
+})
+
+/**
+ * rd-5 J3 — compare and reviewed export, bound to the task-led shell.
+ *
+ * The journey walks the REAL controls from the Explore default: Check (the
+ * task radio) → stage B → the three approved A/B labels → schema drift →
+ * distribution deltas → row-diff keys, in that order → confirm the inferred
+ * key and run the row diff → an A-side "Show row" lands on the logical row
+ * (base #3 = id 4) → a B-side sample is report-only (no jump affordance) →
+ * an edit makes the frozen comparison stale → the bar names the stale CHECK
+ * first (Recheck) → once the verdict is current again the bar names the stale
+ * comparison (Review comparison) → the bar reveals and focuses the panel's
+ * existing run control → rerun → the bar's `Export a copy…` lands in Change
+ * with the export dialog open, describing the whole effective dataset.
+ *
+ * Only existing fixtures and helpers are used: the m6-5 agreement pair and
+ * the m6-4 open/stage/run helpers. The temp contract is the dataset-level
+ * `min-rows: 1` pattern workbench-visibility.spec.ts already uses — the bar
+ * consults the comparison only after the check is current (next-action.ts),
+ * so a clean verdict is what makes the comparison's stale action reachable.
+ * No count is copied into a second surface: the panel keeps its own facts,
+ * the bar keeps one consequence and one action, and the dialog keeps its own
+ * row count.
+ */
+test('J3 compare and reviewed export: Check → stale → rerun → Export a copy… lands in Change', async ({
+  page,
+}) => {
+  test.setTimeout(300_000)
+
+  const pair = writeExitJourneyPair()
+  const dir = mkdtempSync(path.join(tmpdir(), 'assay-rd5-j3-'))
+  const contractPath = path.join(dir, 'rd5-pass.yaml')
+  writeFileSync(contractPath, 'format: v1\nname: rd5-pass\nversion: 1\ndataset:\n  min-rows: 1\n')
+
+  const aspect = (name: string) =>
+    page.locator(`[data-testid="diff-aspect"][data-aspect="${name}"]`)
+
+  // --- Explore default: nothing chosen yet, the grid is the persistent center.
+  await openFixture(page, pair.aPath, { expandSections: false, assertFileNameHidden: true })
+  await waitForReadyRow(page, 0)
+  await expect(page.getByTestId('task-explore')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.locator('.workbench-tools')).toHaveAttribute('data-task', 'explore')
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+
+  // --- Reach Compare through the real task control (Check owns Compare).
+  await page.getByTestId('task-check').click()
+  await expect(page.getByTestId('task-check')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('task-explore')).toHaveAttribute('aria-checked', 'false')
+  await expect(page.locator('.workbench-tools')).toHaveAttribute('data-task', 'check')
+  await expect(page.getByTestId('section-toggle-compare')).toHaveAttribute('aria-expanded', 'true')
+
+  // --- D1 labels, before anything is staged: the intro names side A and the
+  // zero state is one sentence naming side A, with no counts.
+  await expect(page.getByTestId('diff-intro')).toHaveText(
+    'Stage a second dataset version to compare against the open dataset (A). The comparison file is read locally, is not added to the grid, and nothing is uploaded. Schema drift is shown first, then per-column distribution deltas, then — after you confirm keys — the row-level diff.',
+  )
+  await expect(page.getByTestId('diff-comparison-none')).toHaveText(
+    'No comparison staged. Open a second dataset version to compare against the open dataset (A).',
+  )
+
+  // --- Stage B through the real comparison control; the staged line names
+  // side B and keeps the B-only counts (A's counts stay in the context bar).
+  await stageComparison(page, pair.bPath)
+  await expect(page.getByTestId('diff-comparison-info')).toHaveText(
+    'Comparison file (B) staged — 5 rows × 5 columns',
+  )
+
+  // --- The honesty order: drift → deltas → keys, then the row diff.
+  expect(await isBefore(page, 'diff-schema-drift', 'diff-column-deltas')).toBe(true)
+  expect(await isBefore(page, 'diff-column-deltas', 'diff-key-selection')).toBe(true)
+  await expect(page.getByTestId('diff-schema-finding')).toHaveCount(4)
+  await expect(page.getByTestId('diff-column-delta')).toHaveCount(4)
+  await expect(page.getByTestId('diff-key-outcome')).toHaveText(
+    EXPECTED.inference.outcomeDisclosure,
+  )
+
+  // --- Confirm the inferred key and run the row diff.
+  await runInferredDiff(page)
+  await expect(page.getByTestId('diff-verdict')).toHaveText(
+    '2 added, 2 removed, 2 changed — rows 5 → 5 (keys: id, inferred).',
+  )
+  expect(await isBefore(page, 'diff-key-selection', 'diff-result')).toBe(true)
+
+  // --- A-side "Show row": base #3 is the A row with id 4, and the jump lands
+  // on THAT logical row (the grid cell proves the identity, not the position).
+  const removedSamples = aspect('removed').getByTestId('diff-sample')
+  await expect(removedSamples.nth(0).getByTestId('diff-sample-key')).toHaveText('base #3')
+  await expect(removedSamples.nth(0).getByTestId('diff-sample-jump')).toHaveText('Show row')
+  await removedSamples.nth(0).getByTestId('diff-sample-jump').click()
+  const jumped = row(page, 3)
+  await expect(jumped).toHaveAttribute('data-status', 'ready')
+  await expect(jumped).toBeFocused()
+  await expect(jumped).toBeInViewport()
+  await expect(jumped.locator('[data-testid="grid-cell"][data-col-name="id"]')).toHaveText('4')
+  await expect(page.getByTestId('edit-live-region')).toHaveText(
+    'Showing base #3 in the grid and record inspector',
+  )
+  await expect(page.getByTestId('record-inspector')).toContainText('a4')
+
+  // --- B-side samples are report-only: the staged comparison never becomes a
+  // grid, so there is no jump affordance and the note states why.
+  const addedSamples = aspect('added').getByTestId('diff-sample')
+  await expect(addedSamples.nth(0).getByTestId('diff-sample-key')).toHaveText('b #3')
+  await expect(addedSamples.nth(0).getByTestId('diff-sample-report-only')).toHaveText(
+    '(report only — the comparison file is not shown in the grid)',
+  )
+  await expect(addedSamples.nth(0).getByTestId('diff-sample-jump')).toHaveCount(0)
+
+  // --- A clean check: a dataset-level contract validates the open dataset.
+  // This is what lets the bar reach delivery/compare states at all.
+  const contractChooser = page.waitForEvent('filechooser')
+  await page.getByTestId('validation-open-contract').click()
+  await (await contractChooser).setFiles(contractPath)
+  await expect(page.getByTestId('validation-contract-name')).toHaveText('rd5-pass')
+  await page.getByTestId('validation-run').click()
+  await expect(page.getByTestId('validation-verdict')).toContainText('Valid: 0 violations', {
+    timeout: 60_000,
+  })
+  await expect(page.getByTestId('context-state')).toHaveText('Verdict is current — no violations')
+  await expect(page.getByTestId('context-action')).toHaveText('Export a copy…')
+
+  // --- Edit the grid: the staged state changed AFTER the diff ran, so the
+  // frozen comparison is stale. The bar names the stale CHECK first — the
+  // comparison's action only becomes reachable behind a current verdict.
+  await page
+    .locator('[data-testid="grid-row"][data-row-index="0"] [data-testid="grid-row-delete"]')
+    .click()
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('4')
+  await expect(page.getByTestId('diff-stale')).toBeVisible()
+  await expect(page.getByTestId('context-state')).toContainText('Verdict stale')
+  await expect(page.getByTestId('context-action')).toHaveText('Recheck')
+  await page.getByTestId('context-action').click()
+
+  // --- With the verdict current again the bar names the stale comparison and
+  // offers its one review action (D3: it focuses the panel, it does not rerun).
+  await expect(page.getByTestId('context-state')).toHaveText(
+    'Comparison stale \u2014 the session\u2019s staged state changed after it ran',
+  )
+  await expect(page.getByTestId('context-action')).toHaveText('Review comparison')
+  await page.getByTestId('context-action').click()
+  await expect(page.getByTestId('task-check')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.locator('.workbench-tools')).toHaveAttribute('data-task', 'check')
+  await expect(page.getByTestId('section-toggle-compare')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByTestId('diff-run')).toBeFocused()
+
+  // --- Rerun through the panel's existing control: fresh facts, no stale flag.
+  // The deleted id 1 row is now absent from A, so B's id 1 joins the added set
+  // (3 added: b #0/b #3/b #4); removed and changed are unchanged.
+  await page.getByTestId('diff-run').click()
+  await expect(page.getByTestId('diff-verdict')).toHaveText(
+    '3 added, 2 removed, 2 changed — rows 4 → 5 (keys: id, inferred).',
+  )
+  await expect(page.getByTestId('diff-stale')).toHaveCount(0)
+  await expect(page.getByTestId('context-state')).toHaveText('Verdict is current — no violations')
+  await expect(page.getByTestId('context-action')).toHaveText('Export a copy…')
+
+  // --- Delivery from the bar: it lands in Change with the dialog open, and
+  // the dialog describes the WHOLE effective dataset (4 rows, the one staged
+  // change, no filtered-subset note) — never a subset.
+  await page.getByTestId('context-action').click()
+  await expect(page.getByTestId('task-change')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('task-check')).toHaveAttribute('aria-checked', 'false')
+  await expect(page.locator('.workbench-tools')).toHaveAttribute('data-task', 'change')
+  await expect(page.getByTestId('section-toggle-export')).toHaveAttribute('aria-expanded', 'true')
+  const dialog = page.getByTestId('export-dialog')
+  await expect(dialog).toBeVisible()
+  await expect(page.getByTestId('export-view-note')).toContainText('complete edited dataset')
+  await expect(page.getByTestId('export-view-rows')).toHaveText(
+    `${(await page.getByTestId('grid-total-rows').textContent()) ?? ''} rows`,
+  )
+  await expect(page.getByTestId('export-view-rows')).toHaveText('4 rows')
+  await expect(page.getByTestId('export-staged-count')).toHaveText(
+    'Includes 1 staged change — review in History',
+  )
+  await expect(page.getByTestId('export-filtered-note')).toHaveCount(0)
 })

@@ -397,10 +397,10 @@ export function DiffPanel({
     <section className="diff-panel" data-testid="diff-panel" aria-label="Dataset comparison">
       <h2>Compare</h2>
       <p className="diff-intro" data-testid="diff-intro">
-        Stage a second dataset version to compare against the open one. The comparison file is read
-        locally, is <strong>not added to the grid</strong>, and nothing is uploaded. Schema drift is
-        shown first, then per-column distribution deltas, then — after you confirm keys — the
-        row-level diff.
+        Stage a second dataset version to compare against the open dataset (A). The comparison file
+        is read locally, is <strong>not added to the grid</strong>, and nothing is uploaded. Schema
+        drift is shown first, then per-column distribution deltas, then — after you confirm keys —
+        the row-level diff.
       </p>
 
       <div className="diff-stage-row">
@@ -427,8 +427,8 @@ export function DiffPanel({
         />
         {comparison.kind === 'staged' && (
           <span data-testid="diff-comparison-info">
-            comparison staged —{' '}
-            <span data-testid="diff-comparison-rows">{rowCountText(comparison.rowCountB)}</span>,{' '}
+            Comparison file (B) staged —{' '}
+            <span data-testid="diff-comparison-rows">{rowCountText(comparison.rowCountB)}</span> ×{' '}
             <span data-testid="diff-comparison-columns">{String(comparison.schemaB.length)}</span>{' '}
             columns
           </span>
@@ -437,8 +437,8 @@ export function DiffPanel({
 
       {comparison.kind === 'none' && (
         <p className="diff-zero-state" data-testid="diff-comparison-none">
-          No comparison staged. Open a second dataset version to see schema drift, distribution
-          deltas and the row-level diff against the open dataset.
+          No comparison staged. Open a second dataset version to compare against the open dataset
+          (A).
         </p>
       )}
       {comparison.kind === 'staging' && (

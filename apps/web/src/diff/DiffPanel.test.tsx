@@ -93,3 +93,36 @@ describe('DiffPanel key-candidate list', () => {
     }
   })
 })
+
+/**
+ * rd-5 D1: the three approved A/B orientation strings are pinned by exact
+ * strings, not substrings, so the copy cannot drift silently. Side A's counts
+ * stay in the context bar only — the staged line keeps side B's counts alone.
+ */
+describe('DiffPanel A/B orientation copy (rd-5 D1)', () => {
+  it('names side A in the intro first sentence and leaves the rest unchanged', () => {
+    renderPanel({ kind: 'none' })
+
+    expect(screen.getByTestId('diff-intro').textContent).toBe(
+      'Stage a second dataset version to compare against the open dataset (A). The comparison file is read locally, is not added to the grid, and nothing is uploaded. Schema drift is shown first, then per-column distribution deltas, then — after you confirm keys — the row-level diff.',
+    )
+  })
+
+  it('names side A in the zero state as one sentence with no counts', () => {
+    renderPanel({ kind: 'none' })
+
+    expect(screen.getByTestId('diff-comparison-none').textContent).toBe(
+      'No comparison staged. Open a second dataset version to compare against the open dataset (A).',
+    )
+  })
+
+  it('names side B on the staged line and keeps only side B counts', () => {
+    renderPanel(staged([]))
+
+    expect(screen.getByTestId('diff-comparison-info').textContent).toBe(
+      'Comparison file (B) staged — 3 rows × 0 columns',
+    )
+    expect(screen.getByTestId('diff-comparison-rows').textContent).toBe('3 rows')
+    expect(screen.getByTestId('diff-comparison-columns').textContent).toBe('0')
+  })
+})
