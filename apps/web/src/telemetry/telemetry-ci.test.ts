@@ -283,7 +283,14 @@ describe('ux-a2 configured-disclosure leg source', () => {
   it('keeps the config isolated, fresh-served and correctly documented', () => {
     // Discovery isolation: this config is the only home of the leg.
     expect(VISUAL_CONFIG).toMatch(/testDir: '\.'/)
-    expect(VISUAL_CONFIG).toContain("testMatch: '**/telemetry-disclosure-theme.spec.ts'")
+    // rd-7: the configured leg hosts TWO proofs — the disclosure theme and the
+    // Help-vs-first-run-disclosure arbitration — so the discovery pattern is an
+    // array. Assert both are present (a dropped pattern silently shrinks the
+    // leg) rather than the old single-string form.
+    const testMatch = VISUAL_CONFIG.match(/testMatch: \[([\s\S]*?)\]/)
+    expect(testMatch, 'the configured leg declares a testMatch array').not.toBeNull()
+    expect(testMatch?.[1]).toContain("'**/telemetry-disclosure-theme.spec.ts'")
+    expect(testMatch?.[1]).toContain("'**/workbench-help-disclosure.spec.ts'")
     expect(VISUAL_CONFIG).toMatch(/serviceWorkers: 'block'/)
     // Every preview server must be fresh-built output, never a stale one.
     expect(VISUAL_CONFIG.match(/reuseExistingServer: false/g) ?? []).toHaveLength(3)
