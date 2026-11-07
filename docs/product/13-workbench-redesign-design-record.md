@@ -545,3 +545,47 @@ recorded rather than tested-away.
   lives in the panel.
 - No human usability session or AT review; **RD-T07 remains unsatisfied**, and this slice adds no such
   claim. rd-6, rd-7 and SV-D02…SV-D05 remain unauthorized; nothing was pushed.
+
+## 13. Runtime slice record — rd-6 (2026-11-04)
+
+**Authorized by:** decisions §12 (D-01 option A — reuse the existing pipeline surfaces; SV-D02/sv-8 stay
+closed). **Baseline:** `d17a1ca`. **Merged:** `570e9be` (test-only; no changeset). **Merged gates:**
+[map §6.9](../process/handoff/20261104-svg-implementation-map.md).
+
+**Scope set by reading the code, again.** The ordered `<ol>` plan, per-node statuses, gate refusal, preview,
+lineage and canonical DCR delivery already shipped and were pinned. rd-6 therefore added **no runtime
+surface** and **no copy**: it bound the Prepare journey to the task strip and proved the claims the
+contract calls load-bearing.
+
+**Delivered:** one Prepare journey from the Explore default — task framing asserted (radio state, pane
+`data-task`, exposed/hidden sets), ordered `<ol>` document order equal to the plan order, real per-node
+statuses, a strict gate refusal leaving the downstream tail `Pending` with no gate verdict and no preview
+handle while the refusal names the blocking gate and the run says the next node was not executed,
+preview/lineage/DCR evidence visible in Prepare with exactly one rendered count, the gate→validation
+cross-link switching to Check with focus and a focusable nav link, and Prepare→Check→Prepare preserving the
+frame and mount identity with no extra engine request.
+
+**Two pre-existing display defects found while binding it — recorded, not fixed:**
+
+- **D-13** — the runner records the gate-blocked node's refusal outcome and the panel labels every recorded
+  outcome “Completed before the stop”, so a stopped node reads as completed. The journey asserts node-level
+  facts and explicitly does **not** pin the misleading set or label.
+- **D-14** — `isOutput = !consumed` counts terminal gate/publish nodes as “outputs” (a five-node plan can
+  read “3 outputs”). The journey deliberately does not assert that number.
+
+Both need copy and/or derivation changes, which D-01 forbids; they are recorded in the decision sheet with a
+recommendation to decide their meaning in a later scoped slice.
+
+**Independent review:** `openai-codex/gpt-6-luna` xhigh, separate session. Round 1 **request-changes** with one
+Critical — the journey asserted `publish_out` inside “Completed before the stop” while the same test asserted
+its status is `gated`, i.e. it codified the defect as a correct prefix. Fixed by asserting only the protected
+node's absence (`tail`) plus the presence of the nodes the refusal depended on, with the defect cited by source
+location; round 2 **approve**, with the reviewer's own `blockedGates → []` mutation confirming the
+downstream-stop claim still fails correctly.
+
+**Residual limitations:** D-13/D-14 above; the context bar still cannot see pipeline state (it can read
+`No contract loaded` while the pipeline has a bound contract — recorded under D-01 and pinned as a fact, not
+fixed); the Pipeline section still has no collapsed-state summary, pinned as absent by the journey; the R-07
+close-section focus move remains reachable only through panel recovery. **RD-T07 is unsatisfied** — no human
+usability evidence — and no usability claim is made. rd-7 and SV-D02…SV-D05 boundaries are unchanged; nothing
+was pushed.

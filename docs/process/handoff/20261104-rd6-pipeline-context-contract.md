@@ -1,8 +1,9 @@
 # rd-6 — pipeline and artifact context: scope contract
 
-**Status: AUTHORIZED 2026-11-04** (decision D-01, option A: reuse the existing surfaces). Baseline is the
-commit that carries this document. **Sequence:** rd-6 runs **before** rd-7; D-10 (`apps/vscode` truth
-fix) is disjoint and may run in parallel. Work goes to a **new agent**, reviewed by a different model.
+**Status: CLOSED 2026-11-04 — merged `570e9be`, independently approved, gates in
+[map §6.9](20261104-svg-implementation-map.md), runtime record in [design record §13](../../product/13-workbench-redesign-design-record.md).**
+Test-only: no runtime file changed, so no changeset. The two display defects found during review are
+recorded as D-13/D-14, not fixed (D-01 forbids copy/derivation changes in this slice).
 
 Requirements: [map](20261104-svg-implementation-map.md) row `rd-6`; [review](../../product/12-workbench-redesign-review.md)
 RD-R03/04/06/08 and RD-T03/04/06/08; [conservative spec](../../product/11-svg-implementation-spec.md)

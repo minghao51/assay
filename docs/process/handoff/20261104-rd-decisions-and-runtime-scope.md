@@ -295,7 +295,10 @@ option. This is the authorization for the resulting work; nothing outside it is 
    export/report byte change, no dependency, no ADR rewrite, no threshold weakening, no push) and the
    full map §6 gate sequence from the committed revision, plus the configured/restored telemetry legs
    whenever `App.tsx`/CSS changes.
-   **Delivered so far:** **D-10 is CLOSED** — merged `7105963`, independently approved, gates in
+   **Delivered so far:** **rd-6 is CLOSED** — merged `570e9be`, independently approved after one Critical
+   fix (the journey initially pinned a misleading “completed” set that included the gate-blocked node), test-only,
+   gates in [map §6.9](20261104-svg-implementation-map.md). Its two pre-existing display defects are recorded as
+   **D-13/D-14** rather than fixed. **D-10 is CLOSED** — merged `7105963`, independently approved, gates in
    [map §6.8](20261104-svg-implementation-map.md). The VS Code surface no longer offers or advertises
    Arrow/Feather/IPC **input**; export, transport and result-type statements are untouched, and Arrow input
    stays unimplemented. The remaining authorized work is **rd-6** (in review) and **rd-7** (queued after

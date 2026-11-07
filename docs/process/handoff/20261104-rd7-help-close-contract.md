@@ -22,7 +22,7 @@ surface is secondary guidance, and D-02 means **no usability claim** is made any
 2. **Accessibility/recovery pass** — Help in both schemes at 1024/1440/900, keyboard-only, Esc, focus
    return to the opener, one-modal-at-a-time; the existing axe/keyboard/theme/recovery suites re-run
    unchanged.
-3. **Performance record** — measure and record the current numbers in design record §13 (first paint at
+3. **Performance record** — measure and record the current numbers in design record §14 (first paint at
    1024×700, task-switch cost, and the existing render/query/worker count pins). **No new thresholds.**
 4. **RD-T07 record** — the explicit accepted limitation (no participants, no AT study), stated in design
    record §13 and in the map row, with the prohibition on “validated/intuitive” wording.
@@ -106,7 +106,7 @@ app-local modal ownership is reused.
 
 ## 6. Performance record (no new gate)
 
-Capture, in design record §13, the measured values from the built app at 1024×700: first-paint
+Capture, in design record §14, the measured values from the built app at 1024×700: first-paint
 (picker→first row), a task switch (state-preserving, zero extra engine work), and the existing pinned
 counts (`shell-geometry`, `grid-virtualization` fetch counts, `App.task-switch` call counts). State
 plainly that these are observations, not a threshold, and why (D-04: a wall-clock gate on shared CI is
