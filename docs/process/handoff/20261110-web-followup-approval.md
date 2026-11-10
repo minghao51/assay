@@ -67,7 +67,7 @@ copy and every genuine-output label. No global replacement of the word "output".
 | `pnpm test`                                  | 0    | **237 test files, 3531 tests passed**, 0 failed                                                        |
 | `pnpm test:coverage`                         | 0    | stmts 89.13, branch 83.88, funcs 91.47, lines 90.73 (17171/19264, 11625/13859, 2790/3050, 15543/17130) |
 | `pnpm exec turbo run build --force`          | 0    | 12/12 tasks                                                                                            |
-| `pnpm docs:links:check`                      | 0    | 140 files, 0 broken links                                                                              |
+| `pnpm docs:links:check`                      | 0    | 140 files, 0 broken links (141 in later runs — this record adds a file)                                |
 | `pnpm adr:index:check`                       | 0    | 46 records                                                                                             |
 | `CI=1 pnpm exec playwright test --retries=0` | 0    | **249 passed, 1 skipped**, 0 failed, 0 flaky                                                           |
 
@@ -85,13 +85,13 @@ their listed owners or separate gates.
 
 ### 3.2 Approved-subset manifest (dispatch index)
 
-| Row                                                           | Status after this record         | Next action                                                                                                       |
-| ------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| WF-00                                                         | **CLOSED**                       | evidence above                                                                                                    |
-| WF-02                                                         | **READY** — first runtime writer | one writer, isolated worktree, independent review, merged gates                                                   |
-| WF-01P                                                        | **READY** — read-only            | produce matrix + proposed scope-A fallback, then STOP                                                             |
-| WF-05                                                         | **READY** — read-only design     | successor lifecycle spec + transition/copy tables, no code                                                        |
-| WF-01, WF-03, WF-04, WF-06, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected           | need a new decision (WFD-06 matrix approval for WF-01; WFD-03/04/05/07 approvals or a new selection for the rest) |
+| Row                                                           | Status after this record     | Next action                                                                                                       |
+| ------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| WF-00                                                         | **CLOSED**                   | evidence above                                                                                                    |
+| WF-02                                                         | **CLOSED `b65e304`**         | merged + verified; integration record §6                                                                          |
+| WF-01P                                                        | **NEXT** — read-only         | produce matrix + proposed scope-A fallback, then STOP for WFD-06 approval                                         |
+| WF-05                                                         | **READY** — read-only design | successor lifecycle spec + transition/copy tables, no code                                                        |
+| WF-01, WF-03, WF-04, WF-06, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected       | need a new decision (WFD-06 matrix approval for WF-01; WFD-03/04/05/07 approvals or a new selection for the rest) |
 
 ## 4. Invariants carried into every dispatched row
 
@@ -109,5 +109,32 @@ guidance copy. ADR 0044 and the accepted ADRs are not rewritten; a durable new d
   grid until the matrix is approved and a separate runtime row lands.
 - **WF-O2** — nested previews, Record tree and untyped SQL results keep raw/declared-type-free temporal
   output even after a scalar fix.
-- **Pipeline labels** — remain misleading until WF-02 is merged and verified.
+- **Pipeline labels** — **fixed in WF-02** (`b65e304`); the count's `isOutput` derivation is deliberately unchanged (D-14), so a node read only by a validate/publish gate is still counted as "terminal".
 - **D-06, D-11, D-07 runtime, SV-D02/03/04/05, SV-F01…F07** — unchanged.
+
+## 6. Row WF-02 — integration record (pipeline label honesty)
+
+**Selected requirements / approved decision and copy:** WF-02 / **T-WF02** / **WFD-08 label-only**, exact strings in §2.5 above (approved 2026-11-10). Preserve node sets, per-node statuses, `isOutput` derivation, run-outcome model, runner, IR and every canonical DCR/report/export byte; change visible wording only.
+
+| Field                 | Value                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline              | `764151c` on `main`, clean worktree (WF-00 baseline `76c1945`)                                                                                                                                                                                                                                                                                                        |
+| Worker commit         | `855114a` — branch `wf-02`, worktree `../dataworkbench-wf-02` (writer `opencode-go/deepseek-v4.1-flash`, one Conventional Commit)                                                                                                                                                                                                                                     |
+| Reviewer-approved SHA | `855114a` — independent `openai-codex/gpt-6-luna` (explicit xhigh), **VERDICT: approve**, zero critical/warning findings                                                                                                                                                                                                                                              |
+| Merged SHA            | `b65e304` — cherry-picked onto `main`, no conflicts                                                                                                                                                                                                                                                                                                                   |
+| Changed files         | `.changeset/wf-02-pipeline-label-honesty.md`, `apps/web/src/pipeline/PipelinePanel.tsx`, `apps/web/src/App.pipeline.test.tsx`, `tests/e2e/pipeline-panel-journey.spec.ts` — exactly the reserved set (4 files, +53/−26)                                                                                                                                               |
+| Deviations            | None requiring new authority. Three additive test-side choices inside the reserved files, disclosed by the worker and accepted by the reviewer: heading positive + old-claim-absent pins where the heading previously had no coverage; one count-free plural pin (`terminal nodes`); the three recorded-defect comment rewrites with every pinned node fact retained. |
+
+**Evidence.** Worker gates 9/9 exit 0 (`/tmp/assay-wf-02-logs/`); reviewer gates 9/9 exit 0 (`/tmp/assay-wf-02-review-logs/`); **merged** gates at `b65e304` 9/9 exit 0 (`/tmp/assay-wf02-merged/`): format, lint, typecheck 20/20 forced, **237 files / 3531 tests**, coverage **89.13 / 83.88 / 91.47 / 90.73**, build 12/12 forced, links 141/0, ADR index 46, browser **249 passed + 1 skipped, 0 failed, 0 flaky**. No failed run; nothing retried to green.
+
+**Mutation / negative control.** Worker drill A (badge → `output`) and drill B (heading → `Completed before the stop:`) each failed the intended assertion at the built `dist` after `build --force`, then restored byte-identically (`sha256 2fe626c6…`, panel blob back to `f89b750`), rebuilt and went green with a clean tree. Reviewer added an **independent** drill the worker had not used (summary label → `endpoint`), failing `'1 terminal node'` at `pipeline-panel-journey.spec.ts:90` with `…· 1 endpoint node ·…`, restored byte-identically, 5/5 green, temporary worktree removed.
+
+**Configured/restored telemetry legs:** **not applicable** — required only for App/header/CSS/modal/build-config changes (spec §6.2); the merged path list contains none. No configured endpoint was built, no collector was contacted, no token used.
+
+**No semantic change proof:** `git diff --name-only 764151c..HEAD` is the four paths above; zero diff lines in `packages/**`, `pipeline-model.ts`, `pipeline-state.ts`, `usePipelineSession.ts`, `sanitize.ts`, `dcr-export.ts`, the runner, `index.css`, `App.tsx`, help copy, docs, or the lockfile. `pipeline-model.test.ts` `isOutput` expectations untouched. `Preview output`, schema/materialized-relation wording, candidate references and DCR/export copy byte-identical.
+
+**Recorded limitations.** (1) Testids `pipeline-node-output` and `pipeline-run-gated-completed` keep their old names by approval — retained, not renames. (2) The count still comes from the unchanged `isOutput` derivation (`!consumed` over transform/sql inputs), so nodes read only by a validate/publish gate also count as terminal; WFD-08 leaves that derivation alone, and the changeset/tests/comments say so rather than implying a delivery count. (3) The 0-node grammar case is unreachable with real plans (asserted by construction, not by a fixture). (4) The summary singular assertion uses `toContain`, so it does not independently exclude a trailing `s` — the reviewer noted the ternary still renders the correct singular.
+
+**Release-note wording:** the changeset says the three labels changed and that node sets, statuses, the derivation, the model, the runner, the IR and canonical bytes did not — no "outputs are now deliveries" claim.
+
+**Final status:** WF-02 **CLOSED**. Next: read-only **WF-01P** matrix (then stop for WFD-06 approval), read-only **WF-05** design. Worktree/branch cleanup performed after the merged run.
