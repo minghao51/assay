@@ -87,7 +87,7 @@ test('pipeline journey: open → inspect → run → preview output (keyboard-op
     await expect(statusText(page, nodeId)).toHaveText('Pending')
   }
   await expect(page.getByTestId('pipeline-source-pending')).toBeVisible()
-  await expect(page.getByTestId('pipeline-summary')).toContainText('1 output')
+  await expect(page.getByTestId('pipeline-summary')).toContainText('1 terminal node')
   // Lineage (arch §16) is an ordered list, not a graph.
   await expect(page.getByTestId('pipeline-lineage-datasets')).toContainText('customers')
   // Privacy (ADR 0025): the picked pipeline file's name never renders.
@@ -551,11 +551,13 @@ test('rd-6 Prepare journey: ordered plan, real statuses, gate refusal, cross-lin
   await expect(page.getByTestId('pipeline-summary')).toContainText(
     '1 validate node awaiting a contract',
   )
-  // NOT asserted: the summary's "N outputs". Its `isOutput` derivation counts
-  // every node no transform consumes (a gate and a publish included), which is
-  // a pre-existing panel derivation outside this slice's scope — pinning the
-  // number here would endorse it and pinning the "correct" one would need a
-  // runtime change no decision authorizes (recorded in the rd-6 report).
+  // NOT asserted here: the summary's terminal-node NUMBER. WF-02 relabels it
+  // `N terminal node(s)`, but it still comes from the `isOutput` derivation:
+  // every node whose id is never a transform/sql input — a validate gate, a
+  // publish, and anything only those read. So it is a count of nodes with no
+  // transform consumer, never a count of deliveries, saves or successful
+  // artifacts. Pinning the exact number in this journey would pin that
+  // derivation, not the label, which is out of this row's scope.
 
   // The plan is a semantic <ol> whose DOM order is the file's execution order.
   expect(
@@ -615,7 +617,7 @@ test('rd-6 Prepare journey: ordered plan, real statuses, gate refusal, cross-lin
     'gate',
   )
   await expect(pipelineNode(page, 'publish_out').getByTestId('pipeline-node-output')).toHaveText(
-    'output',
+    'terminal',
   )
   await expect(page.getByTestId('pipeline-run-status')).toHaveAttribute('data-state', 'idle')
   await expect(page.getByTestId('pipeline-run-status')).toHaveText('Not run yet.')
@@ -687,22 +689,28 @@ test('rd-6 Prepare journey: ordered plan, real statuses, gate refusal, cross-lin
   )
   // The run's RECORDED OUTCOMES must not reach the downstream node.
   //
-  // RECORDED DEFECT, not fixed here (fixing it needs new copy and/or a new
-  // derivation, which D-01 forbids): the panel prints this set under
-  // "Completed before the stop" even though its last entry is the
-  // gate-blocked publish — the runner records that publish's own outcome
-  // before returning `gated`
+  // The panel prints this set under "Recorded node outcomes:" (WF-02), not
+  // under a completion claim: the runner records the gate-blocked publish's own
+  // outcome before returning `gated`
   // (packages/engine-duckdb/src/pipeline-runner/runner.ts:503-505), and the
-  // panel labels every recorded outcome as completed
-  // (apps/web/src/pipeline/PipelinePanel.tsx:777-787). So neither the set's
-  // contents nor its label is asserted as a true "completed prefix" here: the
-  // node-level facts above carry the meaning (the blocked publish is `gated`,
-  // `tail` is `Pending` with no verdict and no preview handle), and the set is
-  // checked only for the absence of the node the refusal protected.
+  // heading in apps/web/src/pipeline/PipelinePanel.tsx names that honestly
+  // ("Recorded node outcomes:"). So the set is what the run recorded, refusals
+  // included — the node-level facts above carry each node's actual result (the
+  // blocked publish is `gated`, `tail` is `Pending` with no verdict and no
+  // preview handle), and the set is checked for its recorded members and for
+  // the absence of the node the refusal protected.
   const recordedOutcomes = await page
     .getByTestId('pipeline-run-gated-completed')
     .locator('code')
     .allInnerTexts()
+  // The heading is the honest label (WF-02): it names the run's recording, and
+  // the old completion claim is gone rather than merely reworded elsewhere.
+  await expect(page.getByTestId('pipeline-run-gated-completed')).toContainText(
+    'Recorded node outcomes:',
+  )
+  await expect(page.getByTestId('pipeline-run-gated-completed')).not.toContainText(
+    'Completed before the stop',
+  )
   expect(recordedOutcomes).not.toContain('tail')
   // The refusal is real: the nodes it depends on did execute and are recorded.
   expect(recordedOutcomes).toEqual(expect.arrayContaining(['customers', 'sg', 'gate']))
@@ -856,8 +864,8 @@ test('rd-6 Prepare journey: ordered plan, real statuses, gate refusal, cross-lin
   expect(await readPlan(page)).toEqual(planInPrepare)
   await expect(page.getByTestId('pipeline-run-status')).toHaveAttribute('data-state', 'gated')
   // The same recorded outcome set, still without the downstream node — the
-  // round trip re-ran nothing (the label caveat in step 4 applies: the set's
-  // "completed" wording is the recorded defect, deliberately not pinned).
+  // round trip re-ran nothing (step 4's heading reads "Recorded node
+  // outcomes:", so this set is the run's recording, not a completion prefix).
   expect(
     await page.getByTestId('pipeline-run-gated-completed').locator('code').allInnerTexts(),
   ).not.toContain('tail')

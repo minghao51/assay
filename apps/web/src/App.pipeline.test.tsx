@@ -611,11 +611,11 @@ describe('pipeline panel — inspect, sources (C2), run, outputs (p-5)', () => {
     await openDataset('primary.jsonl')
     await openPipeline(PIPELINE_YAML)
 
-    // Summary: authored name + node count + output count + pending sources.
+    // Summary: authored name + node count + terminal-node count + pending sources.
     const summary = screen.getByTestId('pipeline-summary')
     expect(summary.textContent).toContain('web_pin')
     expect(summary.textContent).toContain('4 nodes in execution order')
-    expect(summary.textContent).toContain('1 output')
+    expect(summary.textContent).toContain('1 terminal node')
     expect(summary.textContent).toContain('1 source awaiting a dataset')
 
     // The ordered list: topological (execution) order with kinds/relations.
@@ -1046,6 +1046,10 @@ describe('pipeline panel — gates, contracts, lineage, badges, preview (p2-6)',
     expect(screen.getByTestId('pipeline-summary').textContent).toContain(
       '1 validate node awaiting a contract',
     )
+    // Label grammar (WF-02): the summary badge pluralizes to "terminal nodes"
+    // for a pipeline with more than one terminal node. Only the form is pinned
+    // here — the count itself follows the panel's `isOutput` derivation.
+    expect(screen.getByTestId('pipeline-summary').textContent).toContain('terminal nodes')
     const kinds = screen
       .getAllByTestId('pipeline-node')
       .map((node) => node.getAttribute('data-node-kind'))

@@ -457,8 +457,8 @@ export function PipelinePanel({
             <code data-testid="pipeline-name">
               {sanitizePipelineText(fileState.pipeline.pipeline)}
             </code>{' '}
-            · {String(view.length)} nodes in execution order · {String(outputs.length)} output
-            {outputs.length === 1 ? '' : 's'}
+            · {String(view.length)} nodes in execution order · {String(outputs.length)} terminal
+            node{outputs.length === 1 ? '' : 's'}
             {unboundSourceCount > 0 && (
               <>
                 {' '}
@@ -520,7 +520,7 @@ export function PipelinePanel({
                   <span data-testid="pipeline-node-status">{statusText(status, outcome)}</span>
                   {node.isOutput && (
                     <span className="pipeline-node-output" data-testid="pipeline-node-output">
-                      output
+                      terminal
                     </span>
                   )}
                   {outcome?.materialization === 'export' && outcome.exportPath !== undefined && (
@@ -775,7 +775,7 @@ export function PipelinePanel({
                 )}
               </p>
               <p data-testid="pipeline-run-gated-completed">
-                Completed before the stop:{' '}
+                Recorded node outcomes:{' '}
                 {runState.outcomes.length === 0
                   ? 'none'
                   : runState.outcomes.map((outcome, index) => (
