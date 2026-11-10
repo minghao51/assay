@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-11-04. **Current lane:** launch readiness; the original UX/UI programme and bounded audit follow-up are complete. The
+**Last updated:** 2026-11-10. **Current lane:** launch readiness; web/SVG follow-up planning (no runtime authorization); the original UX/UI programme and bounded audit follow-up are complete. The
 [usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) in 23 rows (ug-1…ug-23):
 **all 23 are CLOSED** and merged-verified (Shell, Grid and Panels lanes complete). The
@@ -17,6 +17,8 @@ Everything waiting on a human, a decision, or a remote operation is consolidated
 index). The earlier G0-readiness/recorded-gap batch (gb-1…gb-5, [queue](handoff/20261019-g0-readiness-queue.md))
 and repository maintenance are CLOSED; their queues carry the record. This is the current-state
 index, not the execution-history archive.
+
+**Latest web-interface pickup (2026-11-10, planning only):** the [plan audit/corrections](../reviews/2026-11-10-web-svg-followup-audit.md), [full specification](../product/14-web-interface-followup-spec.md), [implementation map and decisions](handoff/20261110-web-followup-map.md) and [agent briefs](handoff/20261110-web-followup-pickups.md) supersede the preceding conversational P0/P1 recommendations. All 17 SVG boards and old sv/rd residuals are classified. rd remains complete; no WF runtime row is authorized. Important corrections: tasks are navigation, not read-only modes; replacing the central grid conflicts with ADR 0044; profile/histogram and SQL-status claims were retracted. The source-backed replacement issue includes cancelling a picker from a clean ready session, not only dirty edits. Temporal display first targets scalar grid/display-copy, with nested/Record/SQL parity separate. Next orchestrator obtains explicit WFD selection, then fresh WF-00 preflight, then one bounded writer/reviewer at a time. Old dated status entries below are history; use the new map for current follow-up dispatch. No participant/AT evidence or new runtime gate result is claimed by this planning pass.
 
 ## 0. How to use this document
 

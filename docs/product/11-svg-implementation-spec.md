@@ -1,5 +1,7 @@
 # SVG vision → implementation specification
 
+> **Historical conservative fallback, not the current dispatch spec (2026-11-10).** The task-led rd route was selected and completed instead. Preserve this requirement vocabulary, but do not treat all SV items as either pending runtime tickets or implemented by association. New planning: [audited follow-up](../reviews/2026-11-10-web-svg-followup-audit.md), [specification](14-web-interface-followup-spec.md), [map](../process/handoff/20261110-web-followup-map.md). Help is now shipped (rd-7); D-10 fixed current VS Code input claims; optional/horizon decisions remain separate. No runtime authorization follows from either specification.
+
 **Authored:** 2026-11-04. **Status: proposed follow-on specification; no runtime work authorized or implemented by this document.** Source audit baseline: `bba491a`. Revalidate at pickup; this is not a fresh runtime-gate result.
 
 **Start:** [stack review and recommended redesign route](12-workbench-redesign-review.md) → [implementation map and decisions](../process/handoff/20261104-svg-implementation-map.md) → this conservative-route specification → [dispatch prompts](../process/handoff/20261104-svg-pickup-prompts.md). Visual references and capability audit: [SVG pack](../../assests/svg/README.md).

@@ -1,4 +1,6 @@
-# SVG vision implementation map — next orchestrator pickup
+# SVG vision implementation map — historical rd/sv record
+
+> **Current pickup, 2026-11-10:** the task-led rd programme (including rd-3b/3c, hf-1 and D-10) is **CLOSED**; rd-7 is `2ddd67a` (+ test pin `de342da`), with merged gates in §6.10. Conservative sv-0…sv-7 was not selected. Use the [audited follow-up map](20261110-web-followup-map.md), [specification](../../product/14-web-interface-followup-spec.md) and [briefs](20261110-web-followup-pickups.md) for new scope decisions. **No WF runtime row is authorized.** Earlier status/next-step prose below is dated history, not live dispatch authority; do not repeat rd-0…rd-7 pickups or execute the fallback alongside the selected route. Optional/deferred/horizon requirements remain separately gated.
 
 **Authored:** 2026-11-04. **Status (updated 2026-11-04, after the rd-3b slice): rd-3, rd-3b and rd-4 are CLOSED and merged-verified — `51ff36e` (rd-3/rd-4, design pack `d441fc3`) and `0b22024` (rd-3b, contract [rd-3b conditional visibility](20261104-rd3b-conditional-visibility-contract.md)); merged gate records are §6.4 and §6.5, and rd-3b's runtime/review record is design record §10.** **Next: rd-5 is NOT authorized.** `rd-3c` (persistent edit feedback outside the active task) is a recorded PROPOSED follow-up, also unauthorized. rd-5…rd-7 remain unauthorized. Start with the [next pickup](20261104-rd-next-pickup.md).
 
