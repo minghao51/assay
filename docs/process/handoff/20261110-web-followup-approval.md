@@ -85,13 +85,13 @@ their listed owners or separate gates.
 
 ### 3.2 Approved-subset manifest (dispatch index)
 
-| Row                                                           | Status after this record     | Next action                                                                                                       |
-| ------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| WF-00                                                         | **CLOSED**                   | evidence above                                                                                                    |
-| WF-02                                                         | **CLOSED `b65e304`**         | merged + verified; integration record §6                                                                          |
-| WF-01P                                                        | **NEXT** — read-only         | produce matrix + proposed scope-A fallback, then STOP for WFD-06 approval                                         |
-| WF-05                                                         | **READY** — read-only design | successor lifecycle spec + transition/copy tables, no code                                                        |
-| WF-01, WF-03, WF-04, WF-06, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected       | need a new decision (WFD-06 matrix approval for WF-01; WFD-03/04/05/07 approvals or a new selection for the rest) |
+| Row                                                           | Status after this record     | Next action                                                                                                                                        |
+| ------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WF-00                                                         | **CLOSED**                   | evidence above                                                                                                                                     |
+| WF-02                                                         | **CLOSED `b65e304`**         | merged + verified; integration record §6                                                                                                           |
+| WF-01P                                                        | **DELIVERED 2026-11-10**     | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7) |
+| WF-05                                                         | **READY** — read-only design | successor lifecycle spec + transition/copy tables, no code                                                                                         |
+| WF-01, WF-03, WF-04, WF-06, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected       | need a new decision (WFD-06 matrix approval for WF-01; WFD-03/04/05/07 approvals or a new selection for the rest)                                  |
 
 ## 4. Invariants carried into every dispatched row
 
@@ -138,3 +138,51 @@ guidance copy. ADR 0044 and the accepted ADRs are not rewritten; a durable new d
 **Release-note wording:** the changeset says the three labels changed and that node sets, statuses, the derivation, the model, the runner, the IR and canonical bytes did not — no "outputs are now deliveries" claim.
 
 **Final status:** WF-02 **CLOSED**. Next: read-only **WF-01P** matrix (then stop for WFD-06 approval), read-only **WF-05** design. Worktree/branch cleanup performed after the merged run.
+
+## 7. Row WF-01P — read-only temporal matrix (delivered, decision pending)
+
+**Status:** evidence delivered; **no implementation and no acceptance claim**. The artifact is
+[reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md)
+(read-only agent at `4051704`; main checkout byte-identical afterwards — verified: clean tree, no stray
+worktree or branch). Nothing was patched, no fixture committed, no formatter/editor/test edited.
+
+**Method actually used:** a throwaway detached worktree plus a probe-only Playwright page importing the
+pinned app source, driving the real `DuckDbEngineClient` (DuckDB-WASM 1.32.0 → DuckDB v1.4.3, Arrow 17)
+and `DuckDbGridProvider` base **and** overlay paths; synthetic Parquet built with `/tmp/duckdb`; 44 live
+expressions, 27 columns × 2 rows, 152 described cells, plus alias/precision/profile/Record probes. All
+matrix values were machine-rendered from the captured probe JSON.
+
+**Load-bearing observations (all observed, not inferred):**
+
+1. `DATE`, `TIMESTAMP` and `TIMESTAMP WITH TIME ZONE` all arrive as **numbers in epoch ms**; `TIMESTAMP`
+   can be **fractional** (`…123.456`). `TIME` arrives as **bigint microseconds-since-midnight**.
+   `formatCell`'s `instanceof Date` branch is therefore **dead code** for engine payloads (0 of 152 cells).
+2. Base and overlay projections are **identical** for all 27 columns (same Arrow unit, same JS shape);
+   the only divergence is a failure, not a value (see 4).
+3. `TIMESTAMP_S`/`TIMESTAMP_MS` collapse to `TIMESTAMP` after a Parquet round-trip; `TIMESTAMP_NS` keeps
+   `NANOSECOND` and its sub-millisecond digits are **already lost** in delivery (`delivered*1000`
+   non-integral). `TIMESTAMPTZ`/`TIMETZ` offsets are **unrecoverable** — the Arrow type carries no zone
+   and DuckDB text is already `+00` / zone-free.
+4. `TIMESTAMP 'infinity'` **throws inside Arrow's accessor during projection** (both paths) — it never
+   reaches a formatter, so no scalar formatter can cover it; fixing it needs the projection/engine
+   boundary, which WF-01P is forbidden to touch. Reported as a blocker, not silently absorbed.
+5. Grid display and focused copy are already in **perfect parity** (151/151 pairs); the **editor draft
+   already renders temporal values correctly** (`temporalDraft`), and extracting that helper into the
+   formatter is **byte-equivalent** for editor seeds — but it inherits ms truncation, a
+   `-0.001 → 1970-01-01T00:00:00.000Z` snap, and NS display at ms.
+6. Consumers with **no** declared type: SQL results (`formatCell(cell)`) and the Record tree
+   (`RecordRowInput` has no type channel). Nested preview receives the type but ignores it for temporals.
+   These stay **WF-O2**, as WFD-06 scope A already says.
+
+**The one decision this row needs (WFD-06):** either display fractional-millisecond payloads at ms
+precision by reusing `temporalDraft` byte-for-byte (accepting truncation and the negative-sub-ms snap),
+or fall back to the raw delivered number whenever `delivered*1000` is not an integer (bit-honest, but the
+grid would then disagree with the editor draft for those cells). Everything else in the observed matrix
+supports the direction already recorded as WFD-06=A.
+
+**Not verified (explicit):** named-timezone `AT TIME ZONE` conversion (ICU not pinned/available), no
+React-rendered panel, no file-picker journey, no CSV/JSONL temporal sniffing, no clipboard/DOM-title
+observation, editor submission/export fidelity untested. Browser locale was Asia/Singapore while delivery
+was timezone-independent — a useful control, not a non-UTC-display proof.
+
+**Final status:** WF-01P **DELIVERED**; WF-01 remains **BLOCKED** pending the approval above.
