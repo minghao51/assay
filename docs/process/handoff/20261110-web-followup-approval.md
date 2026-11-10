@@ -85,13 +85,13 @@ their listed owners or separate gates.
 
 ### 3.2 Approved-subset manifest (dispatch index)
 
-| Row                                                           | Status after this record     | Next action                                                                                                                                        |
-| ------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| WF-00                                                         | **CLOSED**                   | evidence above                                                                                                                                     |
-| WF-02                                                         | **CLOSED `b65e304`**         | merged + verified; integration record §6                                                                                                           |
-| WF-01P                                                        | **DELIVERED 2026-11-10**     | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7) |
-| WF-05                                                         | **READY** — read-only design | successor lifecycle spec + transition/copy tables, no code                                                                                         |
-| WF-01, WF-03, WF-04, WF-06, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected       | need a new decision (WFD-06 matrix approval for WF-01; WFD-03/04/05/07 approvals or a new selection for the rest)                                  |
+| Row                                                           | Status after this record | Next action                                                                                                                                        |
+| ------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WF-00                                                         | **CLOSED**               | evidence above                                                                                                                                     |
+| WF-02                                                         | **CLOSED `b65e304`**     | merged + verified; integration record §6                                                                                                           |
+| WF-01P                                                        | **DELIVERED 2026-11-10** | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7) |
+| WF-05                                                         | **DELIVERED 2026-11-10** | design at [handoff/20261110-wf05-replacement-design.md](20261110-wf05-replacement-design.md); **stops for M-D1…M-D12 sign-off** (§8)               |
+| WF-01, WF-03, WF-04, WF-06, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected   | need a new decision (WFD-06 matrix approval for WF-01; WFD-03/04/05/07 approvals or a new selection for the rest)                                  |
 
 ## 4. Invariants carried into every dispatched row
 
@@ -186,3 +186,37 @@ observation, editor submission/export fidelity untested. Browser locale was Asia
 was timezone-independent — a useful control, not a non-UTC-display proof.
 
 **Final status:** WF-01P **DELIVERED**; WF-01 remains **BLOCKED** pending the approval above.
+
+## 8. Row WF-05 — replacement-safety design (delivered, decisions pending)
+
+**Status:** design delivered; **no runtime code and no WF-06 authority**. Artifact:
+[handoff/20261110-wf05-replacement-design.md](20261110-wf05-replacement-design.md) (read-only agent at
+`c883b42`; main checkout clean before and after). Feasibility claims were spot-checked in source by the
+orchestrator (`beginSession` at `App.tsx:1611`/`:1592`; ready subtree gated at `:1965`; Open disabled only
+while `opening` at `:1856-1864`; `setExportOpen(false)` at `:1619`; no `hasAppliedChanges` yet).
+
+**Headline feasibility result:** preservation of the live session across picker cancel/failure is
+achievable **without** an engine, protocol or `session-reset.ts` change — B-side comparison staging already
+holds a second table under one session (`useDiffSession.ts:107-140`), `open()` allocates a fresh table id
+and a failed open rolls itself back. The deferred-`beginSession` fix is _ordering in `App.tsx`_. The honest
+gap is **no per-table release** (`dispose()` is terminal), so an adoption-retired table leaks for the app
+lifetime; the design bounds it to ≤1 per adoption and zero per cancelled/failed candidate by not offering
+Cancel during candidate open.
+
+**Two defects found inside the same boundary (not fixed, not authorized here):**
+
+1. **Clicking Open while editing** blur-commits the draft (`DataGrid.tsx:1275` → `edit/session.ts:419-425`)
+   and then `beginSession` destroys it in the same click — a commit-then-destroy race.
+2. **Open is not disabled while the Export dialog is open**, and `openDataFile` calls `setExportOpen(false)`
+   (`App.tsx:1619`), unmounting the inline Export dialog mid-`working` while `run()` keeps writing — the
+   Escape/Close guard is bypassed and the result line is lost.
+
+**Sign-off needed before WF-06 (numbered M-D1…M-D12 in the design §10):** preservation scope (clean
+sessions preserved with no dialog), dirty-only native-dialog guard, guard-before-pick ordering,
+`hasAppliedChanges` as the dirty predicate (revision/length/cursor/`activeOps` each provably wrong), redo-tail
+not dirty, A→B→A accepted as an over-report, never committing drafts from the replacement path, no Cancel
+during candidate open, `Choose a replacement file…` as the destructive label, accepted no-`release-table`
+carry-over, fresh guard after an export, and native `<dialog>` modality.
+
+**Final status:** WF-05 **DELIVERED**; WF-06 remains **BLOCKED** pending those signatures plus its own
+runtime brief and fresh baseline.
