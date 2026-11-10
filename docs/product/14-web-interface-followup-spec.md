@@ -1,6 +1,6 @@
 # Web interface follow-up — implementation specification
 
-**Date:** 2026-11-10. **Status:** proposed handoff specification; **no runtime authorization**. Baseline inspected: `7fa1e78`.
+**Date:** 2026-11-10. **Status:** proposed handoff specification. **Partial authorization recorded 2026-11-10** in the [approval record](../process/handoff/20261110-web-followup-approval.md): read-only WF-01P, runtime WF-02 and read-only WF-05 design are selected; every other row in this spec stays unauthorized. Baseline inspected: `7fa1e78`; WF-00 preflight green at `76c1945`.
 
 Read the [audit and corrections](../reviews/2026-11-10-web-svg-followup-audit.md), [task/decision map](../process/handoff/20261110-web-followup-map.md) and [dispatch briefs](../process/handoff/20261110-web-followup-pickups.md). This specification preserves accepted [ADR 0044](../adr/0044-workbench-shell-two-pane.md), UI-RD-01 and the [rd decisions](../process/handoff/20261104-rd-decisions-and-runtime-scope.md). “Must” below constrains a **selected, approved** row; it does not authorize that row.
 

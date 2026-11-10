@@ -2,6 +2,8 @@
 
 **Planning only. Do not dispatch from this file until the living [map](20261110-web-followup-map.md) marks the chosen row READY.** The previous conversational “P0 bundle” is superseded by the [audited corrections](../../reviews/2026-11-10-web-svg-followup-audit.md). No runtime implementation, study, architectural change or remote operation was authorized by asking for this handoff.
 
+**Selection now exists (2026-11-10):** the [approval record](20261110-web-followup-approval.md) marks WF-02, WF-01P and WF-05-design READY and closes WF-00 at `76c1945`. These briefs are dispatch-ready only for those three rows; WF-02's copy strings are approved in that record's §2.5.
+
 ## 1. Orchestrator pickup (first session)
 
 ```text
