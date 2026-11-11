@@ -91,7 +91,7 @@ their listed owners or separate gates.
 | WF-02                                           | **CLOSED `b65e304`**                      | merged + verified; integration record §6                                                                                                                                                                                                                       |
 | WF-01P                                          | **DELIVERED 2026-11-10**                  | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7)                                                                                                             |
 | WF-05                                           | **SIGNED 2026-11-10**                     | design + adopted M-D1…M-D12 (3 amendments) in [design §12](20261110-wf05-replacement-design.md); not yet a sufficient WF-06 contract                                                                                                                           |
-| WF-01                                           | **READY — dispatchable**                  | WFD-06 approved as §9 (scope A, option B); needs its own brief + fresh baseline at dispatch                                                                                                                                                                    |
+| WF-01                                           | **CLOSED `b6b773d`**                      | merged + verified; integration record §10 (WFD-06=B, one approved deviation)                                                                                                                                                                                   |
 | WF-03, WF-04, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected                    | need a new decision (WFD-03/04/05/07 approvals or a new selection for the rest)                                                                                                                                                                                |
 | WF-06                                           | **BLOCKED — needs A1+A2 in the contract** | M-D10 lifetime question cleared by [ADR 0047](../../adr/0047-web-session-replacement-retains-retired-tables.md); still needs A1 candidate-overlay isolation + A2 clean-path editor rule written into the transition table, plus explicit runtime authorization |
 
@@ -247,12 +247,21 @@ reading is not recoverable.
 
 **Approved display contract (scope A: scalar grid cells + focused display-value copy only).**
 
-| Delivered column                                                                            | Render                                                                                                                                                                                                                                                                                 | Fallback (raw text)                                                                                                                                   |
-| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATE`                                                                                      | `YYYY-MM-DD` in UTC                                                                                                                                                                                                                                                                    | not a finite number, or `abs(ms) > 8.64e15`                                                                                                           |
-| `TIMESTAMP`, `TIMESTAMP_S`, `TIMESTAMP_MS`, `TIMESTAMP WITH TIME ZONE` (epoch-ms number)    | `YYYY-MM-DDTHH:mm:ssZ` when the microsecond part is 0; `YYYY-MM-DDTHH:mm:ss.SSSZ` when only milliseconds are present; `YYYY-MM-DDTHH:mm:ss.SSSSSSZ` when microseconds are present. Computed as `us = Math.round(ms * 1000)`; UTC arithmetic only, no locale/`Intl`, no invented offset | `ms * 1000` is **not** integral (e.g. `TIMESTAMP_NS` payloads or any lossy delivery) → the raw delivered number, never a truncated or rounded instant |
-| `TIME`, `TIME WITH TIME ZONE` (bigint microseconds since midnight)                          | `HH:mm:ss` when `us % 1_000_000 === 0`, else `HH:mm:ss.SSSSSS`; never a Unix instant and never a date                                                                                                                                                                                  | `us` negative, `>= 86_400_000_000`, or not an integer number/bigint                                                                                   |
-| strings (including temporal-looking), NULL, unknown/untyped columns, `INTERVAL`, non-finite | unchanged                                                                                                                                                                                                                                                                              | —                                                                                                                                                     |
+| Delivered column                                                                                                  | Render                                                                                                                                                                                                                                                                                 | Fallback (raw text)                                                                                                                                   |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATE`                                                                                                            | `YYYY-MM-DD` in UTC                                                                                                                                                                                                                                                                    | not a finite number, or `abs(ms) > 8.64e15`                                                                                                           |
+| `TIMESTAMP`, `TIMESTAMP_S`, `TIMESTAMP_MS`, `TIMESTAMP WITH TIME ZONE` (epoch-ms number) — **not** `TIMESTAMP_NS` | `YYYY-MM-DDTHH:mm:ssZ` when the microsecond part is 0; `YYYY-MM-DDTHH:mm:ss.SSSZ` when only milliseconds are present; `YYYY-MM-DDTHH:mm:ss.SSSSSSZ` when microseconds are present. Computed as `us = Math.round(ms * 1000)`; UTC arithmetic only, no locale/`Intl`, no invented offset | `ms * 1000` is **not** integral (e.g. `TIMESTAMP_NS` payloads or any lossy delivery) → the raw delivered number, never a truncated or rounded instant |
+| `TIME`, `TIME WITH TIME ZONE` (bigint microseconds since midnight)                                                | `HH:mm:ss` when `us % 1_000_000 === 0`, else `HH:mm:ss.SSSSSS`; never a Unix instant and never a date                                                                                                                                                                                  | `us` negative, `>= 86_400_000_000`, or not an integer number/bigint                                                                                   |
+| strings (including temporal-looking), NULL, unknown/untyped columns, `INTERVAL`, non-finite                       | unchanged                                                                                                                                                                                                                                                                              | —                                                                                                                                                     |
+
+**Clarification recorded with the WF-01 review (2026-11-10).** `TIMESTAMP_NS` columns **always** take the raw
+fallback, whatever the delivered float looks like. The independent reviewer proved that the precision guard
+(`ms * 1000` is integral) is _not_ evidence of recoverability, because the multiplication itself rounds: a source
+`1709214312123456001n` arrives as ms `1709214312123.456`, whose `× 1000` is exactly `1709214312123456`, so a
+value-based rule would render `…12.123456Z` while silently dropping the `001` ns. Precision is therefore decided
+by provenance (the declared type), not by the number. No tolerance was added on purpose — a tolerance would admit
+genuinely lossy payloads, and the narrow consequence (raw for a handful of sub-millisecond µs values in the first
+milliseconds after the epoch) is the accepted trade-off.
 
 **Explicit non-goals and invariants.**
 
@@ -272,3 +281,54 @@ reading is not recoverable.
 **WF-01 status:** policy gate cleared. Dispatch still needs its own brief (formatter + copy + tests +
 fixture reservation) and a freshly measured committed baseline. This decision does not authorize WF-03,
 WF-04, WF-06, WF-07, WF-08, WF-09, WF-O1 or WF-O2.
+
+## 10. Row WF-01 — integration record (exact-precision temporal display)
+
+**Selected requirements / approved decision:** WF-01 / **T-WF01** / **WFD-06=B** (§9) — scope A, scalar grid cells
+plus focused display-value copy.
+
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Baseline           | `acfcf23` on `main` (runtime tree identical to `b65e304`, whose full suite was green; delta verified docs-only)                                                                                                                                                                                                                                                                                                                                                                      |
+| Worker commits     | `9ca0328` (implementation) → `2209663` (review fix round), branch `wf-01`, worktree `../dataworkbench-wf-01` (writer `opencode-go/deepseek-v4.1-flash`)                                                                                                                                                                                                                                                                                                                              |
+| Reviewer           | `openai-codex/gpt-6-luna`, explicit **xhigh**, two fresh sessions: **request-changes** on the precision hole, then **approve** of the fix commit                                                                                                                                                                                                                                                                                                                                     |
+| Merged             | `b4e0cc3` + `b6b773d` cherry-picked onto `main`, no conflicts                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Changed files      | `.changeset/wf-01-temporal-display.md`, `apps/web/src/grid/{format.ts,format.test.ts,copy-cell.test.ts,temporal-display.ts,temporal-display.test.ts}`, `tests/e2e/temporal-display.spec.ts` (new), `tests/e2e/{column-ops,grid-editing,m4-exit-journey}.spec.ts` (**approved deviation**, below), `fixtures/parquet/{generate.sh,manifest.json,temporal.parquet}`                                                                                                                    |
+| Approved deviation | The map reserved an _additive_ browser spec, but three existing specs asserted the defect itself (raw epoch-ms text for `DATE` cells). The orchestrator approved updating them on three conditions, all verified by the reviewer: every changed assertion is defect-encoding only; no assertion/case/skip/coverage dropped (`column-ops` now proves cast re-typing via `data-col-type`); the M4 exit journey still pins byte-exact CSV of **raw** values and unchanged source bytes. |
+
+**Contract conformance (observed):** `DATE` → `2024-02-29` / `1969-12-31`; `TIMESTAMP` ms-exact → `…12.123Z`;
+µs → `…12.123456Z`; whole second → `…12Z`; pre-1970 `-0.001` → `1969-12-31T23:59:59.999999Z`; `TIMESTAMPTZ` →
+UTC instant with no invented offset; `TIME` → `13:45:12.123456` / `00:00:00` / `23:59:59.999999`; `TIMESTAMP_NS` →
+**raw always** (see the §9 clarification); non-finite, out-of-range and string/untyped payloads → raw.
+
+**Evidence.** Worker gates 9/9 (`/tmp/assay-wf-01-logs/`), first reviewer 9/9 (`/tmp/assay-wf-01-review-logs/`),
+fix-round worker 9/9, re-reviewer focused gates + full `pnpm test`, and **merged** gates at `b6b773d` 9/9
+(`/tmp/assay-wf01-merged/`): **238 files / 3554 tests**, coverage **89.15 / 83.92 / 91.49 / 90.75**, 12/12 build
+tasks, 144 links, 47 ADRs, browser **253 passed + 1 skipped, 0 failed/flaky**. No failed run; nothing retried to
+green.
+
+**Fixture.** One synthetic 677-byte `temporal.parquet` added via the existing generator (`d DATE, ts TIMESTAMP,
+ts_ns TIMESTAMP_NS, t TIME`; leap-day+µs, pre-1970 sub-ms, midnight+ms-exact NS, all-NULL). The four pre-existing
+fixtures are byte-identical (`sha256sum -c`), the manifest matches, and regeneration reproduces all five hashes.
+`fixtures.test.ts` bidirectional check green.
+
+**Mutations / negative controls.** Worker: ms/µs factor reverted and `.sssZ` forced — each failed the intended
+assertion at built `dist`. Reviewer: `Math.floor` → `Math.trunc` — failed at
+`temporal-display.spec.ts:107` (`1970-01-01T00:00:00.0000-1Z`). Fix round: NS exclusion removed — failed with
+`expected '2024-02-29T13:45:12.123456Z' to be null`. Every drill restored byte-identically and rebuilt.
+
+**Configured/restored telemetry legs:** not applicable — no App/header/CSS/modal/build-config path in the changed
+list; verified against the path list by the reviewer, not accepted on assertion.
+
+**Recorded limitations.** Nested cell previews, the Record tree and untyped SQL results still render raw temporals
+(WF-O2, pinned by tests so a later row cannot widen silently); `TIMESTAMP 'infinity'` still throws inside Arrow's
+projection accessor before any formatter (separate projection-boundary blocker, unclaimed); display and the
+ms-only editor draft diverge for sub-millisecond cells **by approval** (pinned in the browser spec); a `DATE`
+payload that is not an exact whole day renders raw; the near-epoch sub-ms false negative documented in §9.
+
+**Release note:** `@assay/web: patch` — typed date/time cells now render UTC ISO-like text at their delivered
+precision, with raw fallback where precision is not representable; storage, overlay, editor, filters and export
+are unchanged.
+
+**Final status:** WF-01 **CLOSED**. Worktree/branch removed after the merged run. Selected subset now: WF-00,
+WF-02, WF-01, WF-01P, WF-05 all delivered or closed; WF-10 closure rests on the remaining selected rows.
