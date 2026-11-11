@@ -85,14 +85,15 @@ their listed owners or separate gates.
 
 ### 3.2 Approved-subset manifest (dispatch index)
 
-| Row                                                    | Status after this record | Next action                                                                                                                                        |
-| ------------------------------------------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| WF-00                                                  | **CLOSED**               | evidence above                                                                                                                                     |
-| WF-02                                                  | **CLOSED `b65e304`**     | merged + verified; integration record §6                                                                                                           |
-| WF-01P                                                 | **DELIVERED 2026-11-10** | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7) |
-| WF-05                                                  | **DELIVERED 2026-11-10** | design at [handoff/20261110-wf05-replacement-design.md](20261110-wf05-replacement-design.md); **stops for M-D1…M-D12 sign-off** (§8)               |
-| WF-01                                                  | **READY — dispatchable** | WFD-06 approved as §9 (scope A, option B); needs its own brief + fresh baseline at dispatch                                                        |
-| WF-03, WF-04, WF-06, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected   | need a new decision (WFD-03/04/05/07 approvals, WF-06 contract sign-off, or a new selection for the rest)                                          |
+| Row                                             | Status after this record            | Next action                                                                                                                                                                   |
+| ----------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WF-00                                           | **CLOSED**                          | evidence above                                                                                                                                                                |
+| WF-02                                           | **CLOSED `b65e304`**                | merged + verified; integration record §6                                                                                                                                      |
+| WF-01P                                          | **DELIVERED 2026-11-10**            | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7)                            |
+| WF-05                                           | **SIGNED 2026-11-10**               | design + adopted M-D1…M-D12 (3 amendments) in [design §12](20261110-wf05-replacement-design.md); not yet a sufficient WF-06 contract                                          |
+| WF-01                                           | **READY — dispatchable**            | WFD-06 approved as §9 (scope A, option B); needs its own brief + fresh baseline at dispatch                                                                                   |
+| WF-03, WF-04, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected              | need a new decision (WFD-03/04/05/07 approvals or a new selection for the rest)                                                                                               |
+| WF-06                                           | **BLOCKED — contract insufficient** | needs A1 candidate-overlay isolation + A2 clean-path editor rule in the transition table, plus an M-D10 ADR (unbounded table retention) or separately authorized release work |
 
 ## 4. Invariants carried into every dispatched row
 
@@ -219,8 +220,20 @@ not dirty, A→B→A accepted as an over-report, never committing drafts from th
 during candidate open, `Choose a replacement file…` as the destructive label, accepted no-`release-table`
 carry-over, fresh guard after an export, and native `<dialog>` modality.
 
-**Final status:** WF-05 **DELIVERED**; WF-06 remains **BLOCKED** pending those signatures plus its own
-runtime brief and fresh baseline.
+**Sign-off (2026-11-10, delegated):** the maintainer delegated the M-D1…M-D12 decisions to an independent
+subagent review. The reviews ran on `openai-codex/gpt-6-luna` (the requested `gpt-sol-6.1` id does not exist
+in the model store; the override resolved to the reviewer's pinned Luna — recorded, not glossed). Adopted:
+M-D1/2/4/5/6/8/9/11/12 ACCEPT; **M-D3 AMEND** (candidate preparation must use a candidate-local empty
+overlay, never the live session's `overlayRef`); **M-D7 AMEND** (an invalid/unsettled editor draft blocks
+**clean** as well as dirty replacement, read synchronously, after commit settlement); **M-D10 AMEND** (no
+finite table-lifetime bound is claimed — each post-`engine.open` failure or stale return retains a table, so
+retention is unbounded until `dispose()`; accepting that needs a **new ADR**, otherwise release work must be
+separately authorized). Exact replacement text and the four source-verified corrections to the design are in
+[design §12](20261110-wf05-replacement-design.md).
+
+**Final status:** WF-05 **SIGNED with amendments**; WF-06 remains **BLOCKED** — it is **not** a sufficient
+runtime contract yet (A1 + A2 must land in the transition table, and M-D10 needs an ADR or authorized release
+work). No runtime authority follows from this sign-off.
 
 ## 9. WFD-06 decision — option B, exact-precision display (approved 2026-11-10)
 

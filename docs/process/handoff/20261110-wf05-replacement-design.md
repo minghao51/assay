@@ -856,3 +856,72 @@ SQL sizing (SV-D04), overlay profiling (SV-D05) or ADR 0044.
   this row asserts no test result.
 
 **Stop point: the maintainer decisions M-D1…M-D12 above. WF-06 is not started.**
+
+## 12. Sign-off adopted 2026-11-10 (delegated review) — WF-06 still blocked
+
+The maintainer delegated the M-D1…M-D12 sign-off to an independent subagent review. Two independent
+read-only reviews ran on `openai-codex/gpt-6-luna` (the requested `gpt-sol-6.1` id does not exist in the
+configured model store, and the model override resolved to the reviewer agent's pinned Luna — recorded here
+rather than glossed over). The second run was deliberately not told the first run's verdict; it verified the
+source independently and found materially more. The stricter findings are adopted. Both reviews agree the
+design is **not yet a sufficient WF-06 contract**.
+
+**Adopted decisions.**
+
+| ID    | Verdict   | Adopted choice                                                                                                                                                          |
+| ----- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M-D1  | ACCEPT    | Clean sessions survive picker cancel and every candidate failure with **no** guard.                                                                                     |
+| M-D2  | ACCEPT    | Dirty-only guard; its action _initiates_ selection, it does not claim replacement already happened.                                                                     |
+| M-D3  | **AMEND** | Guard before picker for dirty sessions, **and** candidate preparation must use a **candidate-local empty overlay** built from the candidate's own base. See A1.         |
+| M-D4  | ACCEPT    | `hasAppliedChanges` (applied outcome in `entries[0..cursor)`) **after mutations settle**; the alternatives are provably wrong.                                          |
+| M-D5  | ACCEPT    | Redo-tail-only is clean; losing the redo buffer on adoption is explicit.                                                                                                |
+| M-D6  | ACCEPT    | A→B→A stays dirty (protecting logged work, not comparing net view).                                                                                                     |
+| M-D7  | **AMEND** | The invalid/unsettled editor rule must also block the **clean** path, read synchronously, and wait for commit settlement. See A2.                                       |
+| M-D8  | ACCEPT    | No Cancel during candidate open, because no engine interrupt exists; the UI must show progress and must not look cancellable.                                           |
+| M-D9  | ACCEPT    | `Choose a replacement file…` as the destructive label.                                                                                                                  |
+| M-D10 | **AMEND** | **No finite table-lifetime bound is claimed.** Accepting unbounded retention needs a **new ADR**; otherwise WF-06 waits for separately authorized release work. See A3. |
+| M-D11 | ACCEPT    | Export ends the intent; a later replacement is a fresh gesture.                                                                                                         |
+| M-D12 | ACCEPT    | Native `<dialog>` modality, with modal arbitration and connected-opener focus return.                                                                                   |
+
+**A1 (replaces M-D3):** _"For dirty sessions, show the guard before the picker. Candidate schema, row-count
+and model-load requests must use a candidate-local empty overlay based on the candidate's own base; they
+must not read the live session's `overlayRef`. Only after adoption resets the session and publishes the
+candidate overlay may the provider follow the active session overlay. If this cannot be guaranteed, stop and
+split the design rather than claim candidate-readiness preservation."_
+
+**A2 (replaces M-D7):** _"Before **any** ready-state Open gesture enters `guard` or `choosing`,
+synchronously read the current editor state. If a cell draft is invalid, start no picker or replacement
+intent, show the value-free notice, and focus the actual editor; this applies to clean and dirty sessions.
+Report editor state synchronously to an App-owned ref, not solely through a post-render notification. A valid
+blur commit must settle through success or full rollback before dirty is evaluated, using the settled
+`historyRef.current`. Other local drafts are never auto-applied; Stay, picker cancellation and candidate
+failure preserve them, while successful adoption discards them."_
+
+**A3 (replaces M-D10):** _"No finite table-lifetime bound is claimed. Each successful adoption retains the
+retired table; any failure or stale return after `engine.open` succeeds also retains that candidate table.
+Repeated replacements and retries can therefore retain an unbounded number of registered tables/files until
+terminal `dispose()`. Accept this limitation only by a new ADR; otherwise WF-06 must wait for separately
+authorized release work."_
+
+**Corrections to this document's own claims (verified in source by the reviews):**
+
+1. §5's _"zero orphan per cancelled/failed candidate"_ is **false**. `runOpen` rolls back only failures
+   inside registration/view creation (`engine-executor.ts:476-499`); after it returns a handle, a
+   `schema`/`rowCount`/`model.load()`/panel-preload failure reaches App's catch with no release
+   (`App.tsx:1680-1717, 1733-1751`). Repeated retries grow without bound.
+2. **Stale-chain returns leak too**: each post-open token-mismatch return (`App.tsx:1684, 1690, 1692, 1709,
+1715`) drops the chain holding a registered handle — reachable today via `cancelOpen` while schema work is
+   pending.
+3. §4.3's candidate provider inherits today's closure (`provider.ts:182-208` reads `overlayRef`), so a dirty
+   live session would make candidate `model.load()` evaluate the **old** overlay against the new table. This is
+   the reason A1 exists.
+4. Comparison staging is **weaker evidence than claimed**: it opens a second registered table while ready and
+   profiles it; it does not prove candidate adoption with an isolated overlay.
+
+**ADR requirement:** a new ADR is required _only_ if the project accepts unbounded table/file retention
+(M-D10). It would record acceptance, not authorize engine-protocol work. Accepted ADRs are not rewritten.
+
+**Contract-sufficiency verdict: NOT sufficient for WF-06 yet.** Missing before a runtime brief: the A1
+candidate-overlay isolation/rebinding rule implemented in the design's transition table; the A2 rule applied
+to the clean path; and an explicit M-D10 decision (ADR) or authorized release work. WF-06 remains **BLOCKED**
+and no runtime authority follows from this sign-off.
