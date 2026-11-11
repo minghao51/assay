@@ -19,6 +19,11 @@
       "description": "Nested structs/lists with nullable inner fields (50 rows)"
     },
     {
+      "name": "temporal.parquet",
+      "sha256": "fb46a9d18f815a86495c837b7bb12c74657cd8cbe8f293f3ff346f54db5d98e0",
+      "description": "Temporal families: DATE, TIMESTAMP (microseconds), TIMESTAMP_NS (lossy delivery), TIME; NULL/pre-1970/leap-day rows (4 rows)"
+    },
+    {
       "name": "wide.parquet",
       "sha256": "8a4adbdf7dcbfc56ca4654aa0a9b92d3af4aa053a17f01ce25bb77d3bb6e116c",
       "description": "Multi-row-group (10 x 100), nulls, low-cardinality bucket column"

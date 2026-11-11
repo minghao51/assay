@@ -55,6 +55,29 @@ COPY (
     CASE WHEN i % 3 = 0 THEN NULL ELSE i * 1.5 END AS value_maybe_null
   FROM range(1000) t(i)
 ) TO 'wide.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 100, COMPRESSION ZSTD);
+
+-- 5. Temporal column families (wf-01 display conformance). A declared temporal
+--    type only survives a Parquet round-trip, so this fixture is the only way
+--    to open DATE / TIMESTAMP / TIMESTAMP_NS / TIME through the real engine.
+--    Rows (deliberately ordered least→most degenerate):
+--      0 leap day + microseconds (DATE, TIMESTAMP µs, TIME µs)
+--      1 pre-1970 sub-millisecond instant (`-0.001` ms at the epoch)
+--      2 midnight / whole second (DATE), and a millisecond-exact
+--        TIMESTAMP_NS value — the fraction WIDTH follows the value there,
+--        so it renders `.123Z` while row 0's ns payload stays raw
+--      3 the all-NULL row
+COPY (
+  SELECT * FROM (
+    VALUES
+      (DATE '2024-02-29', TIMESTAMP '2024-02-29 13:45:12.123456',
+       TIMESTAMP_NS '2024-02-29 13:45:12.123456789', TIME '13:45:12.123456'),
+      (DATE '1969-12-31', TIMESTAMP '1969-12-31 23:59:59.999999',
+       TIMESTAMP_NS '1969-12-31 23:59:59.999999999', TIME '23:59:59.999999'),
+      (DATE '1970-01-01', TIMESTAMP '2024-02-29 00:00:00',
+       TIMESTAMP_NS '2024-02-29 13:45:12.123', TIME '00:00:00'),
+      (NULL, NULL, NULL, NULL)
+  ) AS t(d, ts, ts_ns, t)
+) TO 'temporal.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 SQL
 
 DUCKDB_VERSION="$("$DUCKDB" --version)"
@@ -69,6 +92,8 @@ const descriptions = {
   'nested.parquet': 'Nested structs/lists with nullable inner fields (50 rows)',
   'llm.parquet': 'LLM chat/eval records, list-of-structs, incl. missing system turn',
   'wide.parquet': 'Multi-row-group (10 x 100), nulls, low-cardinality bucket column',
+  'temporal.parquet':
+    'Temporal families: DATE, TIMESTAMP (microseconds), TIMESTAMP_NS (lossy delivery), TIME; NULL/pre-1970/leap-day rows (4 rows)',
 }
 const files = Object.entries(descriptions)
   .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

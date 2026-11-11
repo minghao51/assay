@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { formatCell } from './format'
+import { parseDuckDbType } from '../schema/parseType'
 
 describe('formatCell (total, deterministic DOM projection of cell values)', () => {
   it('formats scalars through String()', () => {
@@ -18,6 +19,24 @@ describe('formatCell (total, deterministic DOM projection of cell values)', () =
 
   it('formats timestamps as ISO strings', () => {
     expect(formatCell(new Date('2026-01-02T03:04:05.000Z'))).toBe('2026-01-02T03:04:05.000Z')
+  })
+
+  it('renders typed temporals from their delivered epoch-ms/µs payloads (wf-01)', () => {
+    // The measured delivery (WF-01P §2): no payload is ever a `Date`, so the
+    // `Date` branch above never fires for engine data. DATE/TIMESTAMP arrive as
+    // epoch milliseconds (fractional when µs are carried); TIME as bigint µs.
+    expect(formatCell(1709164800000, 'DATE')).toBe('2024-02-29')
+    expect(formatCell(1709214312123.456, 'TIMESTAMP')).toBe('2024-02-29T13:45:12.123456Z')
+    expect(formatCell(1709214312123, 'TIMESTAMP_MS')).toBe('2024-02-29T13:45:12.123Z')
+    expect(formatCell(1709214312000, 'TIMESTAMP_S')).toBe('2024-02-29T13:45:12Z')
+    expect(formatCell(49512123456n, 'TIME')).toBe('13:45:12.123456')
+    // The lossy `TIMESTAMP_NS` delivery is not recoverable: raw number, never a
+    // truncated instant.
+    expect(formatCell(1709214312123.4568, 'TIMESTAMP_NS')).toBe('1709214312123.4568')
+    // A parsed type tree passed by the grid behaves exactly like the string.
+    expect(formatCell(1709214312123.456, undefined, parseDuckDbType('TIMESTAMP'))).toBe(
+      '2024-02-29T13:45:12.123456Z',
+    )
   })
 
   it('summarizes binary values without dumping bytes', () => {

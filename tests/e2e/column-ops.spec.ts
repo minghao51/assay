@@ -118,10 +118,12 @@ test('a colliding rename is surfaced readably and leaves the schema unchanged', 
 test('column cast round-trips (values re-typed) and undo restores', async ({ page }) => {
   await openCustomersFixture(page)
 
-  // DATE cells cross the boundary as epoch-ms numbers (m3-1), so the cast to
-  // VARCHAR is visibly a re-typing: the same date renders as ISO text.
+  // wf-01: a DATE cell now renders its calendar day (the approved WFD-06=B
+  // display), so the cast to VARCHAR is no longer visible in the CELL TEXT —
+  // it is visible in the DECLARED TYPE, which is what this test pins at each
+  // stage: DATE → VARCHAR (engine re-typing) → undo back to DATE.
   await expect(headerCell(page, 'signup_date')).toHaveAttribute('data-col-type', 'DATE')
-  await expect(cell(page, 0, 3)).toHaveText('1735948800000')
+  await expect(cell(page, 0, 3)).toHaveText('2025-01-04')
 
   await castColumn(page, 'signup_date', 'VARCHAR')
 
@@ -132,10 +134,10 @@ test('column cast round-trips (values re-typed) and undo restores', async ({ pag
   // transformation history are Change-task surfaces, so the task is activated
   // before they are read or clicked.
   await activateTask(page, 'change')
-  // Undo restores the declared type and the epoch rendering.
+  // Undo restores the declared type (and with it the DATE display).
   await page.getByTestId('history-undo').click()
   await expect(headerCell(page, 'signup_date')).toHaveAttribute('data-col-type', 'DATE')
-  await expect(cell(page, 0, 3)).toHaveText('1735948800000')
+  await expect(cell(page, 0, 3)).toHaveText('2025-01-04')
   await expect(page.getByTestId('history-undo')).toBeDisabled()
 })
 

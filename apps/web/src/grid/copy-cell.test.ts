@@ -63,6 +63,29 @@ describe('composeCellCopyText — copy the display value, never String(raw)', ()
     expect(composeCellCopyText(value, 'TIMESTAMP')).toBe(formatCell(value, 'TIMESTAMP'))
   })
 
+  it('copies typed temporals exactly as the cell renders them (wf-01)', () => {
+    // The cell body and the focused copy both compose through `formatCell`, so
+    // the clipped text is byte-identical to what the user sees — for every
+    // fraction width, and for the raw fallback of a lossy delivery.
+    const cases: ReadonlyArray<readonly [unknown, string, string]> = [
+      [1709164800000, 'DATE', '2024-02-29'],
+      [1709214312123.456, 'TIMESTAMP', '2024-02-29T13:45:12.123456Z'],
+      [1709214312123, 'TIMESTAMP_MS', '2024-02-29T13:45:12.123Z'],
+      [1709214312000, 'TIMESTAMP_S', '2024-02-29T13:45:12Z'],
+      [-0.001, 'TIMESTAMP', '1969-12-31T23:59:59.999999Z'],
+      [49512123456n, 'TIME', '13:45:12.123456'],
+      [0n, 'TIME', '00:00:00'],
+      [1709214312123.4568, 'TIMESTAMP_NS', '1709214312123.4568'],
+    ]
+    for (const [value, type, expected] of cases) {
+      const copied = composeCellCopyText(value, type)
+      expect(copied, `${type}: ${String(value)}`).toBe(expected)
+      expect(copied, `${type}: rendered cell text`).toBe(formatCell(value, type))
+    }
+    // A NULL temporal cell has nothing to copy (the empty announcement fires).
+    expect(composeCellCopyText(null, 'TIMESTAMP')).toBeNull()
+  })
+
   it('copies a boolean as its display text', () => {
     expect(composeCellCopyText(false, 'BOOLEAN')).toBe('false')
     expect(composeCellCopyText(true, 'BOOLEAN')).toBe('true')

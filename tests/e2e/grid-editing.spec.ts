@@ -342,9 +342,9 @@ test('temporal editing: a human-readable draft round-trips, and Enter-unchanged 
   await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
   await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
   await expect(page.getByTestId('edit-error')).toHaveCount(0)
-  // Display formatting is out of m4-3 scope, so the cell still shows the
-  // engine's epoch representation — but it is a ready cell, not an error.
-  await expect(cell(page, 0, 3)).toHaveText('1735948800000')
+  // wf-01: the DATE cell now renders its calendar day instead of the engine's
+  // epoch representation — a ready cell, not an error.
+  await expect(cell(page, 0, 3)).toHaveText('2025-01-04')
 })
 
 test('NULL is a distinct affordance and rendering, never an empty string', async ({ page }) => {

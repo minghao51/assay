@@ -64,9 +64,12 @@ import { sha256File } from './support/hash'
 
 const FIXTURE = path.join(process.cwd(), 'fixtures', 'parquet', 'customers.parquet')
 
-/** The fixture's DATE cells render as engine epoch-ms (m3-1 display policy). */
-const EPOCH_2025_01_04 = '1735948800000'
-const EPOCH_2025_03_01 = '1740787200000'
+/**
+ * The fixture's DATE cells render as their UTC calendar day (wf-01, the approved
+ * WFD-06=B display), not the engine's raw epoch-ms payload.
+ */
+const DATE_2025_01_04 = '2025-01-04'
+const DATE_2025_03_01 = '2025-03-01'
 
 /**
  * The ENTIRE expected CSV export, byte for byte (review finding: the previous
@@ -643,12 +646,12 @@ test('M4 exit journey: edit everything, undo to a byte-identical grid, export, a
   await expect(headerCell(page, 'signup_date')).toHaveAttribute('data-col-type', 'DATE')
   // …and the values match the edited state.
   await expect(cell(page, 0, 2)).toHaveText('123456') // edited income
-  await expect(cell(page, 0, 3)).toHaveText(EPOCH_2025_01_04) // DATE re-renders as epoch
+  await expect(cell(page, 0, 3)).toHaveText(DATE_2025_01_04) // DATE re-renders as its calendar day
   await expect(cell(page, 1, 1)).toHaveAttribute('data-null', 'true') // the NULL edit
   await expect(cell(page, 3, 1)).toHaveText('=SUM(A1:A2)') // bait raw in Parquet
   await expect(cell(page, 4, 0)).toHaveText('5') // delete stays undone
   await expect(cell(page, 4, 2)).toHaveText('75000')
-  await expect(cell(page, 4, 3)).toHaveText(EPOCH_2025_03_01)
+  await expect(cell(page, 4, 3)).toHaveText(DATE_2025_03_01)
   await expect(cell(page, 5, 1)).toHaveText('ZZ') // the inserted row round-trips
   await expect(row(page, 5)).not.toHaveAttribute('data-inserted') // a new base version
   // A re-opened file is a fresh session: clean indicators, no overlay.

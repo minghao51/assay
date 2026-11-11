@@ -20,8 +20,23 @@
  * `DecimalBigNum` is a `Uint32Array` subclass, so the old `Uint8Array`
  * binary check missed it and the nested preview summarized it as
  * `<16 bytes>`. See `decimal.ts`.
+ *
+ * wf-01 (WFD-06 = B): the declared-type channel now also drives **temporal**
+ * cells. A measured probe of the real engine found that no payload is ever a
+ * `Date`: `DATE`/`TIMESTAMP*` arrive as epoch-**millisecond** numbers (often
+ * fractional, carrying the delivered µs) and `TIME` as a **bigint of
+ * microseconds since midnight**, so every typed temporal cell used to render
+ * as a raw number and the `Date` branch was dead code for engine data. Those
+ * families now render the approved UTC ISO-like text at their exactly
+ * delivered precision, and fall back to the raw number whenever that
+ * precision is not recoverable (never a truncation, never a fabricated
+ * instant). See `temporal-display.ts`. Scope is scalar cells plus the focused
+ * display-value copy, which composes through this same function; nested
+ * previews, the Record tree and untyped SQL results keep raw temporals
+ * (WF-O2).
  */
 import { formatDecimalForParsedType } from './decimal'
+import { formatTemporalForParsedType } from './temporal-display'
 import { formatNestedPreview } from './nested-preview'
 import { parseDuckDbType } from '../schema/parseType'
 import type { DuckDbType } from '../schema/parseType'
@@ -46,6 +61,10 @@ export function formatCell(value: unknown, type?: string, parsedType?: DuckDbTyp
   if (parsed !== null) {
     const decimal = formatDecimalForParsedType(value, parsed)
     if (decimal !== null) return decimal
+    // wf-01: temporal families only; every other type (and every payload the
+    // temporal decoder cannot read exactly) returns null and keeps its path.
+    const temporal = formatTemporalForParsedType(value, parsed)
+    if (temporal !== null) return temporal
   }
   if (value instanceof Date) return value.toISOString()
   if (value instanceof Uint8Array) return `<${String(value.length)} bytes>`
