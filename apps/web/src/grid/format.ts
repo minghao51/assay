@@ -30,7 +30,9 @@
  * families now render the approved UTC ISO-like text at their exactly
  * delivered precision, and fall back to the raw number whenever that
  * precision is not recoverable (never a truncation, never a fabricated
- * instant). See `temporal-display.ts`. Scope is scalar cells plus the focused
+ * instant) — including **every** `TIMESTAMP_NS` column, whose declared
+ * precision the Arrow→rows projection already dropped. See
+ * `temporal-display.ts`. Scope is scalar cells plus the focused
  * display-value copy, which composes through this same function; nested
  * previews, the Record tree and untyped SQL results keep raw temporals
  * (WF-O2).

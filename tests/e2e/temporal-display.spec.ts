@@ -17,7 +17,10 @@ import { cell, row, waitForReadyRow } from './support/grid'
  *
  * 1. the approved display text per family and per fraction width, including a
  *    pre-1970 sub-millisecond instants (never snapped onto the epoch);
- * 2. the raw-number fallback for the lossy `TIMESTAMP_NS` delivery;
+ * 2. that a `TIMESTAMP_NS` column always keeps its raw number — the Arrow→rows
+ *    projection folds ns into a float ms, so its precision is not representable
+ *    whatever the delivered float looks like (an integral `ms * 1000` is a
+ *    rounding artefact, not evidence of recovery);
  * 3. that the focused display-value copy is byte-identical to the cell text;
  * 4. that display never leaks into storage: the Record tree (no declared-type
  *    channel — the WF-O2 residual) still shows the raw payload, and the inline
@@ -107,14 +110,13 @@ test('typed temporal cells render UTC ISO-like text at the delivered precision',
   await expect(cell(page, 1, COL_TS)).toHaveText('1969-12-31T23:59:59.999999Z')
   await expect(cell(page, 1, COL_TIME)).toHaveText('23:59:59.999999')
 
-  // Row 2 — midnight/whole second (no fraction at all), and a millisecond-exact
-  // TIMESTAMP_NS value: the fraction WIDTH follows the VALUE, not the column
-  // type, so the ns column renders `.123Z` here while row 0's ns payload stays
-  // raw (next test).
+  // Row 2 — midnight/whole second (no fraction at all), and a ms-exact
+  // TIMESTAMP_NS value: the ns column stays RAW even here, because the
+  // declared precision cannot survive the transport (next test explains why).
   await waitForReadyRow(page, 2)
   await expect(cell(page, 2, COL_DATE)).toHaveText('1970-01-01')
   await expect(cell(page, 2, COL_TS)).toHaveText('2024-02-29T00:00:00Z')
-  await expect(cell(page, 2, COL_TS_NS)).toHaveText('2024-02-29T13:45:12.123Z')
+  await expect(cell(page, 2, COL_TS_NS)).toHaveText('1709214312123')
   await expect(cell(page, 2, COL_TIME)).toHaveText('00:00:00')
 
   // Row 3 — NULL stays a NULL affordance, not an empty or fabricated instant.
@@ -124,16 +126,16 @@ test('typed temporal cells render UTC ISO-like text at the delivered precision',
   }
 })
 
-test('the lossy TIMESTAMP_NS delivery keeps its raw number, never a truncated instant', async ({
+test('every TIMESTAMP_NS cell keeps its raw number — its precision is not representable', async ({
   page,
 }) => {
   await openTemporal(page)
   await waitForReadyRow(page, 0)
 
-  // `…12.123456789` arrives as `1709214312123.4568` ms: `ms * 1000` is not
-  // integral, so the delivered precision is NOT recoverable and the approved
-  // fallback is the raw delivered number (approval record §9) — no rounding to
-  // `.123457Z`, no silent truncation to `.123Z`.
+  // `…12.123456789` arrives as `1709214312123.4568` ms: ns are already gone
+  // from the float, so the delivered precision is NOT recoverable and the
+  // approved fallback is the raw delivered number (approval record §9) — no
+  // rounding to `.123457Z`, no silent truncation to `.123Z`.
   const nsCell = cell(page, 0, COL_TS_NS)
   await expect(nsCell).toHaveText(/^1709214312123\.\d+$/)
   await expect(nsCell).not.toContainText('T')
@@ -141,6 +143,16 @@ test('the lossy TIMESTAMP_NS delivery keeps its raw number, never a truncated in
   // The pre-1970 ns payload is equally unreadable exactly and stays raw.
   await waitForReadyRow(page, 1)
   await expect(cell(page, 1, COL_TS_NS)).toHaveText(/^-0\.0+\d+$/)
+
+  // The decisive leg: row 2's ns value is millisecond-exact (`…12.123`), so
+  // `ms * 1000` IS integral — the integrality guard alone would format it as
+  // `…12.123Z`. Provenance decides instead: an ns column is never formatted,
+  // because the projection dropped sub-µs digits the delivery cannot prove
+  // were zero (a source `…123456001` looks identical after the fold).
+  await waitForReadyRow(page, 2)
+  const exactNsCell = cell(page, 2, COL_TS_NS)
+  await expect(exactNsCell).toHaveText('1709214312123')
+  await expect(exactNsCell).not.toContainText('T')
 })
 
 test('the focused display-value copy is byte-identical to the rendered cell', async ({ page }) => {

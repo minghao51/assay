@@ -32,7 +32,6 @@ describe('temporalDisplayFamily — which declared labels map to which family', 
       'TIMESTAMP',
       'TIMESTAMP_S',
       'TIMESTAMP_MS',
-      'TIMESTAMP_NS',
       'TIMESTAMP WITH TIME ZONE',
       'TIMESTAMPTZ',
       'DATETIME',
@@ -43,6 +42,16 @@ describe('temporalDisplayFamily — which declared labels map to which family', 
     }
     for (const label of ['TIME', 'TIME WITH TIME ZONE', 'TIMETZ']) {
       expect(temporalDisplayFamily(date(label)), label).toBe('time')
+    }
+  })
+
+  it('leaves TIMESTAMP_NS unclaimed — the transport cannot carry its precision', () => {
+    // Provenance, not payload: ns are folded into a float ms by the Arrow→rows
+    // projection, so an ns column must never reach the timestamp formatter —
+    // even when the delivered float looks exactly recoverable (see the
+    // `ms * 1000` integrality regression below).
+    for (const label of ['TIMESTAMP_NS', 'timestamp_ns']) {
+      expect(temporalDisplayFamily(date(label)), label).toBeNull()
     }
   })
 
@@ -127,16 +136,44 @@ describe('TIMESTAMP — UTC ISO-like at the exactly delivered precision', () => 
   })
 
   it('keeps the raw number when the delivered precision is not exactly recoverable', () => {
-    // `TIMESTAMP_NS`: ns are already lost inside the float ms, so `ms * 1000`
-    // is not integral — the approved fallback is the raw delivered number.
-    expect(formatted(1709214312123.4568, 'TIMESTAMP_NS')).toBeNull()
-    expect(formatted(-0.000001, 'TIMESTAMP_NS')).toBeNull()
+    // `ms * 1000` non-integral in a timestamp family: the delivered value is
+    // genuinely lossy, so the approved fallback is the raw delivered number.
+    expect(formatted(1709214312123.4568, 'TIMESTAMP')).toBeNull()
+    // The accepted narrow false negative: a sub-µs value within a few ms of the
+    // epoch scales to a non-integral µs count and stays raw. A tolerance here
+    // would also admit genuinely lossy payloads, so none is applied.
+    expect(formatted(-0.000001, 'TIMESTAMP')).toBeNull()
     expect(formatted(Number.NaN, 'TIMESTAMP')).toBeNull()
     expect(formatted(Number.POSITIVE_INFINITY, 'TIMESTAMP')).toBeNull()
     expect(formatted(8640009504000000, 'TIMESTAMP')).toBeNull()
     // A shape mismatch (a bigint in a timestamp column) is not recovered.
     expect(formatted(1709214312123n, 'TIMESTAMP')).toBeNull()
     expect(formatted('2024-02-29T13:45:12Z', 'TIMESTAMP')).toBeNull()
+  })
+})
+
+describe('TIMESTAMP_NS — always raw: the transport cannot carry nanoseconds', () => {
+  it('keeps the cell raw when ms * 1000 IS integral — the precision is not representable', () => {
+    // The reviewer's exact reproduction. A source `TIMESTAMP_NS` of
+    // `1709214312123456001n` arrives as `1709214312123.456` ms, and the
+    // multiplication itself rounds: `× 1000` is *exactly* `1709214312123456`.
+    // So an integrality guard would pass and the cell would render
+    // `…12.123456Z`, silently dropping the trailing `001` ns and implying a µs
+    // precision the transport discarded. Provenance decides instead: the
+    // declared label says ns, the delivery says float ms — raw text stands.
+    expect(1709214312123.456 * 1000).toBe(1709214312123456)
+    expect(formatted(1709214312123.456, 'TIMESTAMP_NS')).toBeNull()
+    expect(formatCell(1709214312123.456, 'TIMESTAMP_NS')).toBe('1709214312123.456')
+  })
+
+  it('keeps every delivered ns payload raw — lossy, ms-exact and pre-1970 alike', () => {
+    // The observed lossy delivery (`…12.123456789` ns → `1709214312123.4568`).
+    expect(formatCell(1709214312123.4568, 'TIMESTAMP_NS')).toBe('1709214312123.4568')
+    // A millisecond-exact ns value (`…12.123` → `1709214312123`) is still not
+    // formatted: nothing in the delivery proves the dropped ns digits were 0.
+    expect(formatCell(1709214312123, 'TIMESTAMP_NS')).toBe('1709214312123')
+    // `1969-12-31 23:59:59.999999999` → `-0.000001` ms, equally unreadable.
+    expect(formatCell(-0.000001, 'TIMESTAMP_NS')).toBe('-0.000001')
   })
 })
 

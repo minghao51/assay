@@ -27,14 +27,29 @@
  * | timestamp | epoch ms (may be fractional)    | `YYYY-MM-DDTHH:mm:ss[.SSS[SSS]]Z` (UTC)     |
  * | time      | µs since midnight (bigint)       | `HH:mm:ss[.SSSSSS]`                        |
  *
+ * `TIMESTAMP_NS` is absent from that table on purpose: an ns column has no
+ * display family at all and always keeps the raw delivered text (see below).
+ *
  * Exactness rules (the whole point of option B over the editor's ms-only
  * draft):
  *
- * - Timestamps are decoded through `us = Math.round(ms * 1000)`, and **only**
- *   when `ms * 1000` is exactly integral. `TIMESTAMP_NS` delivers
- *   `1709214312123.4568`, whose `× 1000` is not integral (ns are already lost
- *   inside the float ms), so it keeps its raw text instead of pretending to a
- *   precision the transport does not carry.
+ * - A `TIMESTAMP_NS` column **never** claims a formatted instant. The
+ *   Arrow→rows projection folds nanoseconds into a **float millisecond**, so
+ *   the sub-µs digits are already gone when the value reaches the main thread:
+ *   the column's declared precision is not representable in the delivery at
+ *   all. Provenance — the declared label — decides that, not the payload.
+ * - Every other timestamp family is decoded through
+ *   `us = Math.round(ms * 1000)`, and **only** when `ms * 1000` is exactly
+ *   integral. That guard is defence in depth against a genuinely lossy
+ *   delivery; it is **not** evidence that ns survived, because the
+ *   multiplication itself rounds: a source `TIMESTAMP_NS` of
+ *   `…12.123456001` arrives as `1709214312123.456` ms, whose `× 1000` is the
+ *   *exactly integral* `1709214312123456` — the guard would pass while the
+ *   trailing `001` ns is gone and the cell would imply a µs precision the
+ *   transport no longer carries. No tolerance is applied, because widening the
+ *   guard would admit precisely the lossy payloads it exists to reject; the
+ *   accepted trade-off is a narrow false negative for sub-µs values within a
+ *   few milliseconds of the epoch (they stay raw).
  * - The calendar/clock fields come from `new Date(floor(ms))` — **never** from
  *   a fractional millisecond, because `new Date(0.4)` silently truncates.
  *   The sub-millisecond remainder is appended explicitly, which is what makes
@@ -86,16 +101,29 @@ function primitiveBase(label: string): string {
  * every ordinary numeric/text type stay on their existing paths).
  *
  * The label set is the one the engine actually delivers plus its documented
- * aliases: `DATE`; `TIMESTAMP`, `TIMESTAMP_S`, `TIMESTAMP_MS`, `TIMESTAMP_NS`,
+ * aliases: `DATE`; `TIMESTAMP`, `TIMESTAMP_S`, `TIMESTAMP_MS`,
  * `TIMESTAMP WITH TIME ZONE` (the engine prints this — `TIMESTAMPTZ` never
  * appears in a delivered schema) and `DATETIME`; `TIME`, `TIME WITH TIME ZONE`
  * and `TIMETZ`.
+ *
+ * `TIMESTAMP_NS` is deliberately **unclaimed**, so it always takes the raw
+ * fallback: its declared precision cannot survive the Arrow→rows projection.
+ * See the guard note in `formatTimestampDisplay` for why an integral
+ * `ms * 1000` is not evidence to the contrary.
  */
 export function temporalDisplayFamily(type: DuckDbType | null): TemporalDisplayFamily | null {
   if (type === null || type.kind !== 'primitive') return null
   const base = primitiveBase(type.label)
   if (base === 'DATE') return 'date'
   if (base === 'TIME' || base === 'TIMETZ') return 'time'
+  // Nanoseconds cannot be delivered: the projection folds them into a float
+  // millisecond, discarding the sub-µs digits before any formatter runs. An
+  // integral `ms * 1000` is **not** proof of recovery — the multiplication
+  // itself rounds (`1709214312123.456 × 1000` is the exactly integral
+  // `1709214312123456`, while its ns source `…123456001` lost its last three
+  // digits) — so an ns column must stay raw rather than assert a µs precision
+  // the transport already dropped. Provenance decides, never the float.
+  if (base === 'TIMESTAMP_NS') return null
   if (base === 'DATETIME' || base.startsWith('TIMESTAMP')) return 'timestamp'
   return null
 }
@@ -129,9 +157,12 @@ function formatDateDisplay(ms: number): string | null {
 function formatTimestampDisplay(ms: number): string | null {
   if (!Number.isFinite(ms)) return null
   if (Math.abs(ms) > MAX_DATE_MS) return null
-  // The recovery precondition: µs are exactly recoverable only when the
-  // delivered milliseconds scale to a whole microsecond. `TIMESTAMP_NS`
-  // payloads (and every other lossy delivery) fail this and stay raw.
+  // Defence in depth against a genuinely lossy delivery: µs are read only when
+  // the delivered milliseconds scale to a whole microsecond. This is NOT the
+  // provenance rule — `TIMESTAMP_NS` is already excluded by its declared label,
+  // because `ms * 1000` being integral is not evidence of recovery (the
+  // multiplication rounds; see `temporalDisplayFamily`). There is deliberately
+  // no tolerance: widening this would admit genuinely lossy payloads.
   if (!Number.isInteger(ms * US_PER_MS)) return null
   // Floor to whole milliseconds for the calendar/clock fields and carry the
   // sub-millisecond remainder separately: `new Date(0.4)` would truncate, and
