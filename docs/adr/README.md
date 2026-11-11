@@ -53,6 +53,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0044 | Grid-Centric Two-Pane Workbench Shell                                           |
 | 0045 | Telemetry Design Adopted (Typed Allowlisted Schema, Self-Hosted Collector)      |
 | 0046 | Define a Canonical Local DCR Artifact Format (v1)                               |
+| 0047 | Web session replacement retains retired engine tables                           |
 
 ## Proposed
 

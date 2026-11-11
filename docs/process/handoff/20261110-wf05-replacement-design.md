@@ -918,8 +918,10 @@ authorized release work."_
 4. Comparison staging is **weaker evidence than claimed**: it opens a second registered table while ready and
    profiles it; it does not prove candidate adoption with an isolated overlay.
 
-**ADR requirement:** a new ADR is required _only_ if the project accepts unbounded table/file retention
-(M-D10). It would record acceptance, not authorize engine-protocol work. Accepted ADRs are not rewritten.
+**ADR requirement — resolved 2026-11-10:** the maintainer accepted unbounded table/file retention, recorded as
+[ADR 0047](../../adr/0047-web-session-replacement-retains-retired-tables.md) (Accepted; it records the limitation
+and grants no engine-protocol authority). Accepted ADRs are not rewritten — a future per-table release primitive
+would supersede that ADR rather than edit it.
 
 **Contract-sufficiency verdict: NOT sufficient for WF-06 yet.** Missing before a runtime brief: the A1
 candidate-overlay isolation/rebinding rule implemented in the design's transition table; the A2 rule applied
