@@ -94,6 +94,7 @@ their listed owners or separate gates.
 | WF-01                                           | **CLOSED `b6b773d`**                      | merged + verified; integration record §10 (WFD-06=B, one approved deviation)                                                                                                                                                                                   |
 | WF-03, WF-04, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected                    | need a new decision (WFD-03/04/05/07 approvals or a new selection for the rest)                                                                                                                                                                                |
 | WF-06                                           | **BLOCKED — needs A1+A2 in the contract** | M-D10 lifetime question cleared by [ADR 0047](../../adr/0047-web-session-replacement-retains-retired-tables.md); still needs A1 candidate-overlay isolation + A2 clean-path editor rule written into the transition table, plus explicit runtime authorization |
+| WF-10                                           | **CLOSED (selected subset)**              | [closure record](20261110-wf10-selected-closure.md): five selected rows traced to merged/read-only evidence, residuals carried forward, no overclaim                                                                                                           |
 
 ## 4. Invariants carried into every dispatched row
 
@@ -330,5 +331,6 @@ payload that is not an exact whole day renders raw; the near-epoch sub-ms false 
 precision, with raw fallback where precision is not representable; storage, overlay, editor, filters and export
 are unchanged.
 
-**Final status:** WF-01 **CLOSED**. Worktree/branch removed after the merged run. Selected subset now: WF-00,
-WF-02, WF-01, WF-01P, WF-05 all delivered or closed; WF-10 closure rests on the remaining selected rows.
+**Final status:** WF-01 **CLOSED**. Worktree/branch removed after the merged run. Selected subset: WF-00, WF-02,
+WF-01 and WF-01P are closed/delivered; WF-05 is signed with its contract revision under review; **WF-10 is CLOSED for
+this subset** in [the closure record](20261110-wf10-selected-closure.md).
