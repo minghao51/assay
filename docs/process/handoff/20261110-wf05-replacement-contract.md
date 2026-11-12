@@ -26,7 +26,7 @@ either comes from the source, from ADR 0047, or from the adopted M-D1…M-D12 se
 
 ---
 
-# WF-05 v4 — replacement-safety contract (read-only; sufficient for a WF-06 brief)
+## Contract body (v4 text, verified in v5)
 
 **Row:** WF-05 under **WFD-01 = B**. Supersedes the _contract_ portions of
 `docs/process/handoff/20261110-wf05-replacement-design.md` (v1 at `c883b42`); **v3** superseded v2 after an
