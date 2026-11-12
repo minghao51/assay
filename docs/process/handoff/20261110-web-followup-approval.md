@@ -85,16 +85,16 @@ their listed owners or separate gates.
 
 ### 3.2 Approved-subset manifest (dispatch index)
 
-| Row                                             | Status after this record                  | Next action                                                                                                                                                                                                                                                    |
-| ----------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| WF-00                                           | **CLOSED**                                | evidence above                                                                                                                                                                                                                                                 |
-| WF-02                                           | **CLOSED `b65e304`**                      | merged + verified; integration record §6                                                                                                                                                                                                                       |
-| WF-01P                                          | **DELIVERED 2026-11-10**                  | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7)                                                                                                             |
-| WF-05                                           | **SIGNED 2026-11-10**                     | design + adopted M-D1…M-D12 (3 amendments) in [design §12](20261110-wf05-replacement-design.md); not yet a sufficient WF-06 contract                                                                                                                           |
-| WF-01                                           | **CLOSED `b6b773d`**                      | merged + verified; integration record §10 (WFD-06=B, one approved deviation)                                                                                                                                                                                   |
-| WF-03, WF-04, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected                    | need a new decision (WFD-03/04/05/07 approvals or a new selection for the rest)                                                                                                                                                                                |
-| WF-06                                           | **BLOCKED — needs A1+A2 in the contract** | M-D10 lifetime question cleared by [ADR 0047](../../adr/0047-web-session-replacement-retains-retired-tables.md); still needs A1 candidate-overlay isolation + A2 clean-path editor rule written into the transition table, plus explicit runtime authorization |
-| WF-10                                           | **CLOSED (selected subset)**              | [closure record](20261110-wf10-selected-closure.md): five selected rows traced to merged/read-only evidence, residuals carried forward, no overclaim                                                                                                           |
+| Row                                             | Status after this record                   | Next action                                                                                                                                                         |
+| ----------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WF-00                                           | **CLOSED**                                 | evidence above                                                                                                                                                      |
+| WF-02                                           | **CLOSED `b65e304`**                       | merged + verified; integration record §6                                                                                                                            |
+| WF-01P                                          | **DELIVERED 2026-11-10**                   | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7)                  |
+| WF-05                                           | **CONTRACT VERIFIED 2026-11-10**           | [v5 contract](20261110-wf05-replacement-contract.md) — four review rounds, final verdict sufficient; v1 design retained as history                                  |
+| WF-01                                           | **CLOSED `b6b773d`**                       | merged + verified; integration record §10 (WFD-06=B, one approved deviation)                                                                                        |
+| WF-03, WF-04, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected                     | need a new decision (WFD-03/04/05/07 approvals or a new selection for the rest)                                                                                     |
+| WF-06                                           | **READY — awaiting runtime authorization** | contract is verified ([v5](20261110-wf05-replacement-contract.md)); needs an explicit go, its own brief and a fresh baseline. ADR 0047 covers the lifetime question |
+| WF-10                                           | **CLOSED (selected subset)**               | [closure record](20261110-wf10-selected-closure.md): five selected rows traced to merged/read-only evidence, residuals carried forward, no overclaim                |
 
 ## 4. Invariants carried into every dispatched row
 
@@ -233,9 +233,10 @@ until `dispose()`; the maintainer accepted that limitation on 2026-11-10, which 
 durably). Exact replacement text and the four source-verified corrections to the design are in
 [design §12](20261110-wf05-replacement-design.md).
 
-**Final status:** WF-05 **SIGNED with amendments**; WF-06 remains **BLOCKED** — it is **not** a sufficient
-runtime contract yet (A1 + A2 must land in the transition table; the M-D10 lifetime question is cleared by
-[ADR 0047](../../adr/0047-web-session-replacement-retains-retired-tables.md)). No runtime authority follows from this sign-off.
+**Final status:** WF-05 **contract verified** — the A1/A2/A3 rules and the four source corrections landed in the
+[v5 contract](20261110-wf05-replacement-contract.md) after four review rounds (final verdict sufficient), and the lifetime
+question is settled by [ADR 0047](../../adr/0047-web-session-replacement-retains-retired-tables.md). WF-06 is therefore
+**READY pending explicit runtime authorization** — a verified contract is not dispatch authority. No runtime authority follows from this sign-off.
 
 ## 9. WFD-06 decision — option B, exact-precision display (approved 2026-11-10)
 

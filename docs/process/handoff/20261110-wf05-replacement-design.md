@@ -1,5 +1,10 @@
 # WF-05 — replacement-safety design (read-only successor contract, unapproved)
 
+> **Superseded by the [v5 contract](20261110-wf05-replacement-contract.md) (verified sufficient 2026-11-10).**
+> This document is retained as history: it holds the original sequence analysis, the copy candidates, the sign-off
+> (§12) with the A1/A2/A3 amendment text, and the four source corrections. Read the v5 contract for the rules a
+> WF-06 worker implements; read this file for how they were decided.
+
 **Status:** design only, **no runtime authority**. WF-06 stays BLOCKED until the maintainer signs the
 numbered decisions in §10 and a fresh WF-06 brief reserves real seams. Produced under row WF-05 as
 approved in the [approval record](20261110-web-followup-approval.md) (WFD-01=B,
