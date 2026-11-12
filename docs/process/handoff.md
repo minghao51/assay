@@ -161,6 +161,18 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ### Active
 
+**Web-interface follow-up — subset executed, remainder decision-gated (2026-11-10).** The
+[approval record](handoff/20261110-web-followup-approval.md) records the maintainer's dated decisions
+(WFD-01=B, WFD-02=A, WFD-06=B, WFD-08 label-only, WFD-09 subset) and the executed evidence: **WF-00** preflight
+(`76c1945`), **WF-02** pipeline-label honesty (`b65e304`), **WF-01** exact-precision temporal display (`b6b773d`),
+read-only **WF-01P** matrix, **WF-05** verified contract
+([v5](handoff/20261110-wf05-replacement-contract.md)) with **ADR 0047** accepted, and **WF-10** closure for that
+subset ([record](handoff/20261110-wf10-selected-closure.md)). Dispatch only rows that record marks READY:
+**WF-06** (replacement runtime) needs an explicit authorization, a brief and a fresh baseline; **WF-03/04/07** need
+WFD-05/03/07 decisions; **WF-08/09/WF-O1/O2** are unselected. Current open asks are indexed in
+[open-asks §0](handoff/20261019-open-asks.md). No participant or AT evidence exists (RD-T07), and nothing is pushed.
+The historical queues below remain closed records, not a second dispatch list.
+
 **SVG vision follow-on — planning only (2026-11-04).** The [SVG pack](../../assests/svg/README.md) now has a proposed [implementation map](handoff/20261104-svg-implementation-map.md), [specification](../product/11-svg-implementation-spec.md) and [pickup prompts](handoff/20261104-svg-pickup-prompts.md). Following the user's openness to larger UI changes, the [stack/UX review](../product/12-workbench-redesign-review.md) recommends validating a bounded task-led redesign (rd-0…rd-7); conservative Phase A (sv-0…sv-7) remains a fallback, not its prerequisite. The map now separates design/IA selection from runtime scope and corrects snapshot/no-op/filter-draft assumptions against actual source. Existing engine/session/data guarantees remain; selected structural changes need explicit UI/ADR decisions. No runtime task is claimed or authorized by authoring the pack; optional DCR inspection/dirty-replacement protection, deferred SQL/profile work and future/gated tracks remain separate decisions. This does not reopen or change the closure of the programmes below.
 
 **rd-0…rd-2 design checkpoint complete (2026-11-04, docs/prototypes only).** Authorized design work produced the [design record](../product/13-workbench-redesign-design-record.md) (source-qualified friction inventory, recommended IA **B** — four task goals in the existing tools-left pane with the grid/record composition unchanged — and A as the explicit fallback), two isolated keyboard-operable [prototypes](../../assests/prototypes/README.md), and the [rd-2 usability protocol](handoff/20261104-rd2-usability-protocol.md). No participant session ran, so **RD-T07 remains unsatisfied**; the heuristic walkthrough is recorded as non-evidence. No production runtime, ADR, dependency, gate, push or release change was made, and conservative `sv-*` Phase A was not executed. The checkpoint was independently reviewed (`openai-codex/gpt-6-luna` xhigh; three request-changes rounds → **approved**, record in the design record §8) with no runtime/ADR/dependency/commit change. **Resolved 2026-11-04 under the delegated instruction:** SV-D08 = B (task-led), UI-RD-01 recorded, copy approved, SV-D01 = rd-3 + rd-4 only — see the [decisions and runtime scope](handoff/20261104-rd-decisions-and-runtime-scope.md). rd-3b (deferred conditional visibility), rd-5…rd-7 and optional SV-D02…SV-D05 remain OPEN/unauthorized.
