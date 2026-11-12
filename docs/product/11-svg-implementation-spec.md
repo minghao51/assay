@@ -14,7 +14,10 @@
 
 **Recommended next step:** the `rd-0…rd-2` stack/journey audit, prototype and design-selection checkpoint in [product/12](12-workbench-redesign-review.md), before choosing runtime scope. **Conservative fallback if explicitly selected:** Phase A, tasks **sv-0…sv-7**, covering web presentation, secondary Help, truthful captions, filter/edit/export clarity and quality/pipeline legibility. Do not run fallback Phase A as mandatory preparation for the redesign or rebuild the MVP from the pictures.
 
-**Separate optional follow-ons:** session-only DCR inspection (**sv-8**) and a dirty-session replacement guard (**sv-9**) require their own decisions. Expanded SQL (**sv-10**) and edited-view profiling (**sv-11**) remain deferred. Horizon **sv-12** is planning only.
+**Separate optional follow-ons:** session-only DCR inspection (**sv-8**) and a dirty-session replacement guard (**sv-9**) require their own decisions. **2026-11-10:** sv-9's
+design was commissioned and its successor contract verified ([v5](../process/handoff/20261110-wf05-replacement-contract.md)),
+with the lifetime question settled by [ADR 0047](../adr/0047-web-session-replacement-retains-retired-tables.md); the
+runtime row (WF-06) is **READY but unauthorised**. sv-8 (DCR inspection) is unchanged and still deferred. Expanded SQL (**sv-10**) and edited-view profiling (**sv-11**) remain deferred. Horizon **sv-12** is planning only.
 
 The present user request reviews stack fit and explicitly permits consideration of larger redesign. It authorizes this review/specification amendment, not runtime implementation, publication, remote operations, gate passage or migration of existing queues. Bigger UI options must be structured and validated, not rejected solely because the old layout exists. The next agent may begin read-only reconciliation; obtain an execution instruction selecting a phase before claiming feature rows. See the map's approval wording.
 

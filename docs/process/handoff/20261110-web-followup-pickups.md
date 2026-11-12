@@ -2,7 +2,13 @@
 
 **Planning only. Do not dispatch from this file until the living [map](20261110-web-followup-map.md) marks the chosen row READY.** The previous conversational “P0 bundle” is superseded by the [audited corrections](../../reviews/2026-11-10-web-svg-followup-audit.md). No runtime implementation, study, architectural change or remote operation was authorized by asking for this handoff.
 
-**Selection now exists (2026-11-10):** the [approval record](20261110-web-followup-approval.md) marks WF-02, WF-01P and WF-05-design READY and closes WF-00 at `76c1945`. These briefs are dispatch-ready only for those three rows; WF-02's copy strings are approved in that record's §2.5.
+**Consumed (2026-11-10):** the [approval record](20261110-web-followup-approval.md) authorised WF-02, WF-01P and
+WF-05-design, and all three have since been executed — WF-02 merged `b65e304`, WF-01P's matrix delivered
+([reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md)), WF-05's contract
+verified ([v5](20261110-wf05-replacement-contract.md)); WF-01 followed once WFD-06 was settled as option B and merged
+`b6b773d`. **The briefs below are therefore history, not a dispatch queue.** Reusable material: the WF-02 envelope and
+copy table, the WF-01P read-only method, and the WF-05 question table. WF-06 still has no brief by design — it needs an
+explicit runtime authorization and its own reservation, and WF-03/WF-04/WF-07 still need their WFD decisions.
 
 ## 1. Orchestrator pickup (first session)
 
