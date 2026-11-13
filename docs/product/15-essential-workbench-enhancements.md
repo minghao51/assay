@@ -1,7 +1,14 @@
 # Essential web-workbench enhancements — proposed direction
 
 **Date:** 2026-11-12. **Baseline researched:** `aba9880`.
-**Status: PROPOSAL ONLY — no implementation, runtime dispatch, new ADR acceptance, or publication authorized.**
+**Status at publication (2026-11-12): proposal only.**
+
+**First-wave selection recorded 2026-11-13:** the maintainer has since asked to proceed. The
+[first-wave handoff](../process/handoff/20261113-essential-workbench-pickup.md) and
+[implementation specification](16-essential-workbench-first-wave-spec.md) now select WF-06 runtime subject
+to fresh preflight, plus EW-02D/03D/04D design work. They supersede only this document's earlier blanket
+unapproved status for that bounded selection; all other candidates and unresolved design/runtime gates
+remain proposed. Use the handoff's current register, not the publication-time status language below.
 
 Evidence: [functional comparison and 24 official sources](../reviews/2026-11-12-essential-workbench-comparison.md).
 Authority: [canonical roadmap](03-execution-roadmap.md), accepted [ADRs](../adr/README.md), and the

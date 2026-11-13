@@ -8,6 +8,8 @@ accepted ADR, closed rd row or prior deferral is rewritten. Read it together wit
 [audit](../../reviews/2026-11-10-web-svg-followup-audit.md), the
 [specification](../../product/14-web-interface-followup-spec.md) and the [map](20261110-web-followup-map.md).
 
+**Dated continuation (2026-11-13):** the [essential-workbench first-wave record](20261113-essential-workbench-pickup.md) now selects WF-06 runtime after fresh preflight and names its specification/reservation. Only its prior runtime-authorization blocker is superseded; other WFD choices/unselected rows and the old selected-subset closure stay as recorded. The manifest below points at the new status owner; later authorization-pending prose is historical.
+
 ## 1. Approved scope (WFD-09)
 
 ```text
@@ -85,16 +87,16 @@ their listed owners or separate gates.
 
 ### 3.2 Approved-subset manifest (dispatch index)
 
-| Row                                             | Status after this record                   | Next action                                                                                                                                                         |
-| ----------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| WF-00                                           | **CLOSED**                                 | evidence above                                                                                                                                                      |
-| WF-02                                           | **CLOSED `b65e304`**                       | merged + verified; integration record §6                                                                                                                            |
-| WF-01P                                          | **DELIVERED 2026-11-10**                   | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7)                  |
-| WF-05                                           | **CONTRACT VERIFIED 2026-11-10**           | [v5 contract](20261110-wf05-replacement-contract.md) — four review rounds, final verdict sufficient; v1 design retained as history                                  |
-| WF-01                                           | **CLOSED `b6b773d`**                       | merged + verified; integration record §10 (WFD-06=B, one approved deviation)                                                                                        |
-| WF-03, WF-04, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected                     | need a new decision (WFD-03/04/05/07 approvals or a new selection for the rest)                                                                                     |
-| WF-06                                           | **READY — awaiting runtime authorization** | contract is verified ([v5](20261110-wf05-replacement-contract.md)); needs an explicit go, its own brief and a fresh baseline. ADR 0047 covers the lifetime question |
-| WF-10                                           | **CLOSED (selected subset)**               | [closure record](20261110-wf10-selected-closure.md): five selected rows traced to merged/read-only evidence, residuals carried forward, no overclaim                |
+| Row                                             | Status after this record                     | Next action                                                                                                                                                                           |
+| ----------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WF-00                                           | **CLOSED**                                   | evidence above                                                                                                                                                                        |
+| WF-02                                           | **CLOSED `b65e304`**                         | merged + verified; integration record §6                                                                                                                                              |
+| WF-01P                                          | **DELIVERED 2026-11-10**                     | matrix at [reviews/2026-11-10-wf01p-temporal-matrix.md](../../reviews/2026-11-10-wf01p-temporal-matrix.md); **stops for the WFD-06 decision** (§7)                                    |
+| WF-05                                           | **CONTRACT VERIFIED 2026-11-10**             | [v5 contract](20261110-wf05-replacement-contract.md) — four review rounds, final verdict sufficient; v1 design retained as history                                                    |
+| WF-01                                           | **CLOSED `b6b773d`**                         | merged + verified; integration record §10 (WFD-06=B, one approved deviation)                                                                                                          |
+| WF-03, WF-04, WF-07, WF-08, WF-09, WF-O1, WF-O2 | BLOCKED / not selected                       | need a new decision (WFD-03/04/05/07 approvals or a new selection for the rest)                                                                                                       |
+| WF-06                                           | **SELECTED 2026-11-13 — awaiting preflight** | Runtime selection/brief in [first-wave handoff](20261113-essential-workbench-pickup.md); no code claimed. EW-00 must be green and the dispatch envelope filled before implementation. |
+| WF-10                                           | **CLOSED (selected subset)**                 | [closure record](20261110-wf10-selected-closure.md): five selected rows traced to merged/read-only evidence, residuals carried forward, no overclaim                                  |
 
 ## 4. Invariants carried into every dispatched row
 

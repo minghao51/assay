@@ -10,6 +10,12 @@ verified ([v5](20261110-wf05-replacement-contract.md)); WF-01 followed once WFD-
 copy table, the WF-01P read-only method, and the WF-05 question table. WF-06 still has no brief by design — it needs an
 explicit runtime authorization and its own reservation, and WF-03/WF-04/WF-07 still need their WFD decisions.
 
+**WF-06 continuation (2026-11-13):** the missing runtime selection, reservation and concrete brief now live
+in the [first-wave pickup](20261113-essential-workbench-pickup.md) and
+[specification](../../product/16-essential-workbench-first-wave-spec.md). Use those for WF-06; the
+“no generic brief provided” and authorization-pending text below remains dated history, not its current
+status. No other old WF row is selected by this continuation.
+
 ## 1. Orchestrator pickup (first session)
 
 ```text

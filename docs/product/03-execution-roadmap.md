@@ -85,6 +85,14 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
 
 ## 4. Now / Next / Later
 
+**Local essential-workbench continuation (2026-11-13):** the maintainer selected the bounded first investment
+from the [essential-workflow proposal](15-essential-workbench-enhancements.md). The
+[first-wave handoff](../process/handoff/20261113-essential-workbench-pickup.md) is the live dispatch index:
+EW-00 fresh preflight, WF-06 session-preservation runtime, and design-only EW-02D/03D/04D. The
+[specification](16-essential-workbench-first-wave-spec.md) carries reservations, safety contracts and stop
+rules. No deeper EW runtime, new gate passage, persistence, hosted/AI or release scope follows. This is a
+local T1/T2 follow-up, not a reopened MVP or completed implementation.
+
 ### Now (this quarter)
 
 - [x] M0 repository bootstrap — done 2026-09-14 (see `../process/project-start-checklist.md`).

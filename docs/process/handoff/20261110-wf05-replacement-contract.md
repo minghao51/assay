@@ -1,6 +1,14 @@
 # WF-05 v5 — replacement-safety contract (verified sufficient for a WF-06 brief)
 
-**Status: contract verified, runtime still unauthorised.** This document is the authoritative successor contract
+**Status at verification (2026-11-10): contract verified; this design alone grants no runtime authority.**
+
+**Dated continuation (2026-11-13):** WF-06 runtime is now selected in the
+[first-wave handoff](20261113-essential-workbench-pickup.md), subject to fresh baseline gates and its
+[specification/reservation](../../product/16-essential-workbench-first-wave-spec.md). No implementation is
+claimed here. Use that specification's IC-01…05 for the narrowly clarified reporting/test shorthand; all
+other lifecycle/copy/retention requirements below remain binding. Earlier authorization-pending sentences
+below are historical and are superseded only by this explicit selection.
+This document is the authoritative successor contract
 for replacement safety. WF-06 has **no** runtime authority from it: a runtime row needs the maintainer's explicit go,
 its own brief and a fresh baseline. Read it with
 [the approval record](20261110-web-followup-approval.md) (WFD-01=B, M-D1…M-D12) and
