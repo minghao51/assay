@@ -2014,7 +2014,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const startReplacementGate = (gateModal: OwnedModal | null, respectDirtyGuard: boolean): void => {
     const livePhase = phaseRef.current
     if (livePhase.kind !== 'ready') return
-    clearReplacementNotices()
+    // v5 §3.2: the gate runs FIRST — before any dialog, picker, await or state
+    // write. Notices are cleared only once the verdict is known; a refusal then
+    // sets its own notice, so a stale notice can never be cleared by a gesture
+    // the gate refused for another reason, and the gate never observes a render
+    // it caused.
     const verdict = evaluateReadyGesture({
       openModal: gateModal,
       intent: intentRef.current,
@@ -2024,6 +2028,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       gridBusy,
       history: historyRef.current,
     })
+    clearReplacementNotices()
     if (verdict.kind === 'refuse') {
       applyReplacementRefusal(verdict.reason)
       return
@@ -2051,7 +2056,16 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     setExportOpen(true)
   }
 
-  /** T5 — the guard's destructive action re-enters `choosing` (modal closed). */
+  /**
+   * T5 — the guard's destructive action re-enters `choosing`.
+   *
+   * `ReplaceGuard` closes the native dialog element SYNCHRONOUSLY before it
+   * calls this handler (v5 §3.2/T5: "the modal closed first, so G1 passes"),
+   * so the picker that `acquireReplacementCandidate` invokes below is never
+   * started behind an open modal. The intent also drops to `none` before the
+   * gate so G2 passes for this one transition; `otherModal` is the G1 input and
+   * still refuses if another owned surface is open.
+   */
   const chooseFromGuard = (): void => {
     if (phaseRef.current.kind !== 'ready') return
     setIntent(NO_REPLACEMENT_INTENT)
@@ -2634,7 +2648,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     open={!recoveryHiddenSections.has('schema')}
                   >
                     <PanelBoundary id="schema" onClose={closeSection}>
+                      {/* WF-06 (T8/§3.4): a dataset-identity key makes the
+                          adoption discard this panel's rename/cast drafts once,
+                          while a candidate preparation (intent-only, same
+                          tableId) never remounts it. */}
                       <MemoSchemaPanel
+                        key={phase.tableId}
                         columns={schemaColumns}
                         onAction={runNestedAction}
                         onRenameColumn={handleRenameColumn}
@@ -2797,7 +2816,14 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                     open={!recoveryHiddenSections.has('filters')}
                   >
                     <PanelBoundary id="filters" onClose={closeSection}>
-                      <FilterBar model={phase.model} onPendingChange={setGridFiltering} />
+                      {/* WF-06 (T8): the filter compose/row drafts are local
+                          to this panel; the dataset key discards them at
+                          adoption only. */}
+                      <FilterBar
+                        key={phase.tableId}
+                        model={phase.model}
+                        onPendingChange={setGridFiltering}
+                      />
                     </PanelBoundary>
                   </WorkbenchSection>
                   <WorkbenchSection
@@ -2807,7 +2833,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                   >
                     <PanelBoundary id="sql" onClose={closeSection}>
                       {panelModules === null ? null : (
+                        // WF-06 (T8): the SQL statement is a local draft —
+                        // "preserved by Stay; lost at adoption".
                         <panelModules.SqlPanel
+                          key={phase.tableId}
                           tableId={phase.tableId}
                           runRequest={sqlRequest}
                           claimRequest={claimSqlRequest}

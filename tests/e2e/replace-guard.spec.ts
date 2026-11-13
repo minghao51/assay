@@ -53,6 +53,9 @@ type HarnessWindow = typeof window & {
     hold: boolean
     held: boolean
     release: (() => void) | null
+    /** Holds every `engine/overlay-cast-check` request (N14's deterministic gate). */
+    holdCast: boolean
+    heldCasts: Array<() => void>
   }
   __assayReadyAnnouncements?: string[]
 }
@@ -84,7 +87,13 @@ test.beforeEach(async ({ page }) => {
     }
     const harness = window as HarnessWindow
     harness.__assayEngineMessages = []
-    harness.__assayReplaceGate = { hold: false, held: false, release: null }
+    harness.__assayReplaceGate = {
+      hold: false,
+      held: false,
+      release: null,
+      holdCast: false,
+      heldCasts: [],
+    }
     const prototype = Worker.prototype as unknown as {
       postMessage: (message: unknown, transfer?: Transferable[]) => void
     }
@@ -106,6 +115,14 @@ test.beforeEach(async ({ page }) => {
             }
             return
           }
+          // N14: park the cast pre-check itself (not the whole FIFO), so the
+          // pending-cast window is stable without any timing dependence.
+          if (type === 'engine/overlay-cast-check' && gate !== undefined && gate.holdCast) {
+            gate.heldCasts.push(() => {
+              original.call(this, message, transfer)
+            })
+            return
+          }
         }
       }
       original.call(this, message, transfer)
@@ -122,6 +139,29 @@ function holdCandidateOpen(page: Page, hold: boolean): Promise<void> {
     const gate = (window as HarnessWindow).__assayReplaceGate
     if (gate !== undefined) gate.hold = next
   }, hold)
+}
+
+function holdCastChecks(page: Page, hold: boolean): Promise<void> {
+  return page.evaluate((next) => {
+    const gate = (window as HarnessWindow).__assayReplaceGate
+    if (gate !== undefined) gate.holdCast = next
+  }, hold)
+}
+
+function heldCastCount(page: Page): Promise<number> {
+  return page.evaluate(() => (window as HarnessWindow).__assayReplaceGate?.heldCasts.length ?? 0)
+}
+
+/** Forward every parked cast check (and stop holding the rest). */
+function releaseHeldCasts(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const gate = (window as HarnessWindow).__assayReplaceGate
+    if (gate === undefined) return 0
+    gate.holdCast = false
+    const held = gate.heldCasts.splice(0)
+    for (const release of held) release()
+    return held.length
+  })
 }
 
 function releaseCandidateOpen(page: Page): Promise<void> {
@@ -165,6 +205,9 @@ test('dirty session: the guard shows the exact copy and Stay preserves everythin
   await openCustomersFixture(page, CUSTOMERS)
   await makeDirty(page)
   const sourceHashBefore = sha256File(CUSTOMERS)
+  // An adoption-disposable draft on the REAL SQL surface (K14/§3.4): Stay must
+  // preserve it byte-for-byte (only an adoption discards it).
+  await page.getByTestId('sql-input').fill('SELECT 8675309 AS prior_session_marker')
 
   await page.getByTestId('open-button').click()
   const guard = page.getByTestId('replace-guard')
@@ -191,6 +234,7 @@ test('dirty session: the guard shows the exact copy and Stay preserves everythin
   await expect(cell(page, 0, 2)).toHaveText('99000')
   await expect(page.getByTestId('section-summary-history')).toHaveText('History · 1 pending')
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  await expect(page.getByTestId('sql-input')).toHaveValue('SELECT 8675309 AS prior_session_marker')
   expect(sha256File(CUSTOMERS)).toBe(sourceHashBefore)
 })
 
@@ -233,6 +277,8 @@ test('dirty session: choosing a valid replacement adopts it once and resets the 
 }) => {
   await openCustomersFixture(page, CUSTOMERS)
   await makeDirty(page)
+  // The same draft, discarded by the adoption (T8/§3.4).
+  await page.getByTestId('sql-input').fill('SELECT 8675309 AS prior_session_marker')
 
   // Count the ready announcements the adoption produces (N11): the live region
   // is observed from here on, so only the adoption's announcement is recorded.
@@ -263,6 +309,9 @@ test('dirty session: choosing a valid replacement adopts it once and resets the 
   await expect(page.getByTestId('edit-error')).toHaveCount(0)
   await expect(page.getByTestId('replace-guard')).toHaveCount(0)
   await waitForReadyRow(page, 0)
+  // The previous session's SQL statement is gone: adoption remounted the tool
+  // panels under the new dataset identity.
+  await expect(page.getByTestId('sql-input')).toHaveValue('')
 
   const announcements = await page.evaluate(
     () => (window as HarnessWindow).__assayReadyAnnouncements ?? [],
@@ -466,33 +515,36 @@ test('N12: preparing a candidate sets aria-busy/inert, focuses the progress line
 test('N14: a pending cast pre-check refuses Open with C16 until the LAST check clears', async ({
   page,
 }) => {
-  test.setTimeout(120_000)
   await openCustomersFixture(page, CUSTOMERS)
 
-  // Occupy the engine FIFO with the slow probe so the cast pre-check is
-  // demonstrably still queued when Open is clicked (the same technique
-  // `profile-panel.spec` uses for its in-flight re-open).
-  await page
-    .getByTestId('sql-input')
-    .fill('SELECT sum(a.i * b.i) FROM range(20000) AS a(i), range(20000) AS b(i)')
-  await page.getByTestId('sql-run').click()
-  await expect(page.getByTestId('sql-panel')).toHaveAttribute('data-state', 'running')
-
-  // Start a cast check; it queues behind the probe.
+  // Deterministic window: the test-side worker gate parks the cast pre-check
+  // request itself, so the check is provably in flight when Open is clicked —
+  // no slow-query FIFO probe, no timer, no timeout widening.
+  await holdCastChecks(page, true)
   const panel = page.getByTestId('schema-panel')
   await panel.locator('[data-testid="column-cast-open"][data-col-name="income"]').click()
   await panel.locator('[data-testid="column-cast-select"]').selectOption('VARCHAR')
   await panel.locator('[data-testid="column-cast-commit"]').click()
   await expect(panel.locator('[data-testid="column-cast-pending"]')).toBeVisible()
+  await expect.poll(() => heldCastCount(page)).toBeGreaterThan(0)
 
   await page.getByTestId('open-button').click()
   await expect(page.getByTestId('replace-cast-notice')).toHaveText(CAST_NOTICE)
   await expect(page.getByTestId('replace-guard')).toHaveCount(0)
   await expect(page.getByTestId('open-status')).toHaveAttribute('data-phase', 'ready')
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  // No chooser was opened by the refused gesture.
+  await expect(page.getByTestId('replace-progress')).toHaveCount(0)
 
-  // The notice clears when the last check settles, and NO guard/picker opens
-  // by itself (the user must gesture again).
-  await expect(page.getByTestId('replace-cast-notice')).toHaveCount(0, { timeout: 60_000 })
+  // Release the parked check: it settles, the cast commits, and C16 clears on
+  // its own — with no guard/picker auto-opening (the user must gesture again).
+  expect(await releaseHeldCasts(page)).toBeGreaterThan(0)
+  await expect(page.getByTestId('replace-cast-notice')).toHaveCount(0)
   await expect(page.getByTestId('replace-guard')).toHaveCount(0)
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  // The released cast really applied: the session now has one staged op.
+  await expect(page.getByTestId('section-summary-history')).toHaveText('History · 1 pending')
+  await expect(
+    page.locator('[data-testid="grid-header-cell"][data-col-name="income"]'),
+  ).toBeVisible()
 })

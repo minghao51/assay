@@ -47,6 +47,8 @@ const UNSUPPORTED_CAUSE =
 const UNREADABLE_CAUSE =
   'The file could not be opened. The file could not be read. It may be corrupt, truncated, or not the format its name suggests.'
 const FAILURE_SUFFIX = ' Nothing in this session changed.'
+/** UG-5's cause-neutral sentence (the classified `unknown` cause). */
+const NEUTRAL_CAUSE = 'The file could not be opened. You can try another file.'
 
 const SCHEMA_A = [
   { name: 'id', type: 'BIGINT' },
@@ -77,6 +79,25 @@ const h = vi.hoisted(() => ({
   picks: [] as Pick[],
   /** Pick requests, so a test can assert the chooser really opened. */
   pickRequests: 0,
+  /** For each picker call: was the guard `<dialog>` still open at that moment? */
+  pickSawOpenGuard: [] as boolean[],
+  /** The gate's inputs are read before any state write: notice presence at call. */
+  gateSawNotice: [] as { draft: boolean; cast: boolean }[],
+  /** Held cast pre-checks (N17): one resolver per column in call order. */
+  castHold: false,
+  castHeld: [] as Array<{
+    column: string
+    resolve: (result: { hasNonConvertibleValues: boolean }) => void
+  }>,
+  /** When set, the candidate's engine schema equals the live SCHEMA_A. */
+  sameSchema: false,
+  /** Parks the NEXT `engine.open` (the `opening-candidate` window). */
+  upcomingOpenGate: null as Promise<void> | null,
+  /** Counting dataset session (a non-adoption path must not reset anything). */
+  beginCalls: 0,
+  token: 0,
+  resets: [] as Array<() => void>,
+  session: null as Record<string, unknown> | null,
   /** Open calls (candidate ids in order). */
   openCalls: [] as string[],
   nextTableId: 1,
@@ -113,6 +134,8 @@ vi.mock('@tanstack/react-virtual', () => ({
 vi.mock('@assay/data-sources/browser', () => ({
   pickDataFile: async (): Promise<{ source: { getFile: () => Promise<File> } } | null> => {
     h.pickRequests += 1
+    const guard = document.querySelector<HTMLDialogElement>('[data-testid="replace-guard"]')
+    h.pickSawOpenGuard.push(guard?.open === true)
     const next = h.picks.shift()
     if (next === undefined || next.cancel === true) return null
     if (next.getFileError !== undefined) {
@@ -127,6 +150,58 @@ vi.mock('@assay/data-sources/browser', () => ({
   },
 }))
 
+/**
+ * WF-06 (K14): a behaviourally identical dataset session that COUNTS
+ * `beginSession`. Every per-domain slot (editing, validation, diff, pipeline,
+ * app-local requests) is reset only through it, so "no adoption ⇒ no reset" is
+ * a single observable proof for all of them.
+ */
+vi.mock('./sessions/session-reset', () => ({
+  useDatasetSession: () => {
+    if (h.session === null) {
+      h.session = {
+        tokenRef: {
+          get current(): number {
+            return h.token
+          },
+        },
+        beginSession: () => {
+          h.beginCalls += 1
+          h.token += 1
+          for (const reset of h.resets) reset()
+          return h.token
+        },
+        registerReset: (reset: () => void) => {
+          h.resets.push(reset)
+          return () => {
+            h.resets = h.resets.filter((registered) => registered !== reset)
+          }
+        },
+      }
+    }
+    return h.session
+  },
+}))
+
+/**
+ * WF-06 (§3.2): record what the gate OBSERVED, so the "gate before any state
+ * write" rule is testable — with notices cleared first, a pre-existing notice
+ * would already be gone when the gate runs.
+ */
+vi.mock('./replace/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./replace/gate')>()
+  return {
+    ...actual,
+    evaluateReadyGesture: (input: Parameters<typeof actual.evaluateReadyGesture>[0]) => {
+      h.gateSawNotice.push({
+        draft: document.querySelector('[data-testid="replace-draft-notice"]') !== null,
+        cast: document.querySelector('[data-testid="replace-cast-notice"]') !== null,
+      })
+      return actual.evaluateReadyGesture(input)
+    },
+  }
+})
+
 vi.mock('./lib/engine', () => {
   const engineClient = {
     open: async (): Promise<{ kind: 'table'; id: string }> => {
@@ -134,6 +209,11 @@ vi.mock('./lib/engine', () => {
         const message = h.openFailure
         h.openFailure = null
         throw new Error(message)
+      }
+      const gate = h.upcomingOpenGate
+      if (gate !== null) {
+        h.upcomingOpenGate = null
+        await gate
       }
       const id = `t${String(h.nextTableId)}`
       h.nextTableId += 1
@@ -146,7 +226,7 @@ vi.mock('./lib/engine', () => {
         h.schemaFailure = null
         throw new Error(message)
       }
-      return handle.id === 't1' ? SCHEMA_A : SCHEMA_B
+      return handle.id === 't1' || h.sameSchema ? SCHEMA_A : SCHEMA_B
     },
     rowCount: async (): Promise<number> => {
       if (h.rowCountFailure !== null) {
@@ -163,13 +243,28 @@ vi.mock('./lib/engine', () => {
     overlaySchema: async () => SCHEMA_A,
     overlayRowCount: async () => 1,
     fetchOverlayRange: async () => ({ batch: fakeBatch(SCHEMA_A), hasMore: false }),
-    overlayCastCheck: async () => ({ hasNonConvertibleValues: false }),
+    // N17: held cast pre-checks, resolved by the test in any order; the held
+    // outcome can be committing (false) or non-committing (true).
+    overlayCastCheck: (
+      _handle: unknown,
+      _overlay: unknown,
+      options: { readonly column: string },
+    ): Promise<{ hasNonConvertibleValues: boolean }> =>
+      new Promise((resolve) => {
+        if (h.castHold) {
+          h.castHeld.push({ column: options.column, resolve })
+          return
+        }
+        resolve({ hasNonConvertibleValues: false })
+      }),
     dispose: async () => undefined,
   }
   return { engineClient }
 })
 
-vi.mock('./sql/SqlPanel', () => ({ SqlPanel: () => null }))
+// The SQL panel is deliberately REAL here (K14/item 9): its local draft is one
+// of the adoption-disposable surfaces this file proves. Only the engine-calling
+// Profile panel stays faked (unrelated to this row).
 vi.mock('./profile/ProfilePanel', () => ({ ProfilePanel: () => null }))
 
 /** Inert telemetry whose emitted event names are recorded for assertions. */
@@ -199,6 +294,16 @@ function failureText(): string {
 beforeEach(() => {
   h.picks = []
   h.pickRequests = 0
+  h.pickSawOpenGuard = []
+  h.gateSawNotice = []
+  h.castHold = false
+  h.castHeld = []
+  h.sameSchema = false
+  h.upcomingOpenGate = null
+  h.beginCalls = 0
+  h.token = 0
+  h.resets = []
+  h.session = null
   h.openCalls = []
   h.nextTableId = 1
   h.openFailure = null
@@ -303,22 +408,6 @@ describe('WF-06 — clean session: choose, prepare, adopt once', () => {
 })
 
 describe('WF-06 — dirty session: the native guard', () => {
-  async function makeDirty(): Promise<void> {
-    // Rename a column: one applied op in the active history prefix.
-    const panel = within(screen.getByTestId('schema-panel'))
-    await act(async () => {
-      fireEvent.click(panel.getByRole('button', { name: 'Rename column label' }))
-    })
-    const input = panel.getByTestId('column-rename-input')
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'tag' } })
-      fireEvent.keyDown(input, { key: 'Enter' })
-    })
-    await waitFor(() => {
-      expect(screen.getByTestId('section-summary-history').textContent).toBe('History · 1 pending')
-    })
-  }
-
   it('shows the byte-exact guard, and Stay preserves the live session', async () => {
     await openFirstDataset()
     await makeDirty()
@@ -566,6 +655,17 @@ describe('WF-06 — candidate failure keeps the live session (C10/C14)', () => {
     // No app-initiated clipboard write anywhere in the failure flow.
     expect(clipboardWrite).not.toHaveBeenCalled()
     expect(execCommand).not.toHaveBeenCalled()
+    // N16 (user-copy half): a USER copy of the visible text is allowed and not
+    // suppressed — no preventDefault, no onCopy handler, and the text stays
+    // selectable (the stylesheet keeps `user-select: text`).
+    const pre = details.querySelector('pre') as HTMLElement
+    const copyEvent = new Event('copy', { bubbles: true, cancelable: true })
+    act(() => {
+      pre.dispatchEvent(copyEvent)
+    })
+    expect(copyEvent.defaultPrevented).toBe(false)
+    expect((pre as unknown as { oncopy: unknown }).oncopy).toBeNull()
+    expect(window.getComputedStyle(pre).userSelect).not.toBe('none')
 
     // The live session is untouched and C11 re-enters choosing.
     expect(liveColumns()).toEqual(COLUMNS_A)
@@ -610,5 +710,305 @@ describe('WF-06 — candidate failure keeps the live session (C10/C14)', () => {
     )
     expect(liveColumns()).toEqual(COLUMNS_A)
     expect(h.openCalls).toEqual(['t1', 't2'])
+  })
+})
+
+/** Apply one rename so the live session is dirty (one applied history op). */
+async function makeDirty(): Promise<void> {
+  const panel = within(screen.getByTestId('schema-panel'))
+  await act(async () => {
+    fireEvent.click(panel.getByRole('button', { name: 'Rename column label' }))
+  })
+  const input = panel.getByTestId('column-rename-input')
+  await act(async () => {
+    fireEvent.change(input, { target: { value: 'tag' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+  })
+  await waitFor(() => {
+    expect(screen.getByTestId('section-summary-history').textContent).toBe('History · 1 pending')
+  })
+}
+
+/**
+ * Drafts the adoption must discard (v5 §3.4 T8): the SQL pane's statement, the
+ * filter compose fields and a column rename/cast draft. They are panel-local
+ * state, preserved by Stay/cancel/failure and lost at adoption — the tool-panel
+ * region is keyed by the dataset identity, so adoption remounts it once.
+ */
+function seedDrafts(): void {
+  fireEvent.change(screen.getByTestId('sql-input'), {
+    target: { value: 'SELECT 8675309 AS prior_session_marker' },
+  })
+  // The FilterBar's compose row is inside its own disclosure; open it first,
+  // then write an unapplied draft (no Apply click — a draft is not a change).
+  if (screen.getByTestId('filter-toggle').getAttribute('aria-expanded') !== 'true') {
+    fireEvent.click(screen.getByTestId('filter-toggle'))
+  }
+  fireEvent.change(screen.getByTestId('filter-compose-value'), {
+    target: { value: 'draft-value' },
+  })
+  const panel = within(screen.getByTestId('schema-panel'))
+  fireEvent.click(panel.getByRole('button', { name: 'Rename column label' }))
+  fireEvent.change(panel.getByTestId('column-rename-input'), {
+    target: { value: 'label_draft' },
+  })
+}
+
+function readDrafts(): { sql: string; filter: string; rename: string | null } {
+  const sql = screen.getByTestId('sql-input') as HTMLTextAreaElement
+  // An absent compose field means the bar's disclosure closed (the remount); a
+  // draft cannot survive it, so absence reads as the empty draft.
+  const filter = screen.queryByTestId('filter-compose-value') as HTMLInputElement | null
+  const rename = within(screen.getByTestId('schema-panel')).queryByTestId('column-rename-input')
+  return {
+    sql: sql.value,
+    filter: filter?.value ?? '',
+    rename: rename === null ? null : (rename as HTMLInputElement).value,
+  }
+}
+
+const SEEDED_DRAFTS = {
+  sql: 'SELECT 8675309 AS prior_session_marker',
+  filter: 'draft-value',
+  rename: 'label_draft',
+}
+
+describe('WF-06 — adoption-disposable drafts (T8/§3.4)', () => {
+  it('preserves SQL/filter/rename drafts across Stay (T3) and resets nothing', async () => {
+    await openFirstDataset()
+    expect(h.beginCalls).toBe(1)
+    // T3 is the DIRTY path's Stay: one applied rename, then the drafts.
+    await makeDirty()
+    seedDrafts()
+    expect(readDrafts()).toEqual(SEEDED_DRAFTS)
+
+    await clickReadyOpen()
+    expect(screen.getByTestId('replace-guard')).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('replace-stay'))
+    })
+    expect(readDrafts()).toEqual(SEEDED_DRAFTS)
+    // No adoption ⇒ NO session reset (the single proof for every slot: editing,
+    // validation, diff, pipeline and the app-local requests).
+    expect(h.beginCalls).toBe(1)
+  })
+
+  it('preserves the same drafts across a picker cancel (T6)', async () => {
+    await openFirstDataset()
+    seedDrafts()
+    h.picks = [{ cancel: true }]
+    await clickReadyOpen()
+    await waitFor(() => {
+      expect(screen.getByTestId('replace-notice')).not.toBeNull()
+    })
+    expect(readDrafts()).toEqual(SEEDED_DRAFTS)
+    expect(h.beginCalls).toBe(1)
+  })
+
+  it('preserves the same drafts across a candidate failure (T9/T9b)', async () => {
+    await openFirstDataset()
+    seedDrafts()
+    h.picks = [{ getFileError: new Error('Invalid Input Error: no magic bytes') }]
+    await clickReadyOpen()
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-error')).not.toBeNull()
+    })
+    expect(readDrafts()).toEqual(SEEDED_DRAFTS)
+    expect(h.beginCalls).toBe(1)
+
+    // T9b (post-registration): the provider/`model.load` rejection keeps them
+    // too — one retained candidate table may exist (ADR 0047), the session is
+    // untouched.
+    h.rowCountFailure = 'view materialization failed'
+    h.picks = [{ file: new File(['id,label\n1,x\n'], 'again.csv') }]
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('replace-retry'))
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-error')).not.toBeNull()
+    })
+    expect(readDrafts()).toEqual(SEEDED_DRAFTS)
+    expect(h.beginCalls).toBe(1)
+  })
+
+  it('discards every draft when a replacement is adopted (T8)', async () => {
+    await openFirstDataset()
+    seedDrafts()
+    // Same column shape on the candidate, so "the draft is gone" cannot be
+    // confused with "the column disappeared".
+    h.sameSchema = true
+    h.picks = [{ file: new File(['id,label\n2,y\n'], 'same-shape.csv') }]
+    await clickReadyOpen()
+    await waitFor(() => {
+      expect(h.openCalls).toEqual(['t1', 't2'])
+    })
+    await waitFor(() => {
+      expect(readDrafts()).toEqual({ sql: '', filter: '', rename: null })
+    })
+    // The remount is the adoption's (one reset), not a preparation one.
+    expect(h.beginCalls).toBe(2)
+    // The panel is back in its idle controls for the same column.
+    expect(
+      within(screen.getByTestId('schema-panel')).getByRole('button', {
+        name: 'Rename column label',
+      }),
+    ).toBeTruthy()
+  })
+
+  it('proves the panel region does NOT remount during candidate preparation (T7)', async () => {
+    await openFirstDataset()
+    seedDrafts()
+    // Park the candidate's `engine.open`, so the whole `opening-candidate`
+    // window is stable: the draft state must be untouched and no reset may have
+    // run yet (the ready subtree did not remount during preparation).
+    let release: () => void = () => undefined
+    h.upcomingOpenGate = new Promise<void>((resolve) => {
+      release = () => {
+        resolve()
+      }
+    })
+    h.picks = [{ file: new File(['id,label\n2,y\n'], 'held.csv') }]
+    await clickReadyOpen()
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-progress')).not.toBeNull()
+    })
+    expect(readDrafts()).toEqual(SEEDED_DRAFTS)
+    expect(h.beginCalls).toBe(1)
+    h.upcomingOpenGate = null
+    release()
+    await waitFor(() => {
+      expect(h.beginCalls).toBe(2)
+    })
+  })
+})
+
+/** Drain the resolved-promise hops of an async chain (no timers). */
+async function flush(ticks = 32): Promise<void> {
+  await act(async () => {
+    for (let index = 0; index < ticks; index += 1) await Promise.resolve()
+  })
+}
+
+/** Open a column's cast editor and submit it (the check may park). */
+async function startCast(column: string, target = 'VARCHAR'): Promise<void> {
+  const panel = within(screen.getByTestId('schema-panel'))
+  await act(async () => {
+    fireEvent.click(panel.getByRole('button', { name: `Cast column ${column}` }))
+  })
+  await act(async () => {
+    fireEvent.change(panel.getByTestId('column-cast-select'), { target: { value: target } })
+  })
+  await act(async () => {
+    fireEvent.click(panel.getByTestId('column-cast-commit'))
+  })
+}
+
+describe('WF-06 — N17: the aggregate cast set, non-committing B first', () => {
+  it('stays refused while ANY check is pending, and clears only when the LAST settles', async () => {
+    await openFirstDataset()
+    h.castHold = true
+    await startCast('id')
+    await startCast('label')
+    expect(h.castHeld.map((held) => held.column)).toEqual(['id', 'label'])
+    expect(document.querySelectorAll('[data-testid="column-cast-pending"]')).toHaveLength(2)
+
+    // Both pending: Open is refused with C16 and no picker/guard appears.
+    await clickReadyOpen()
+    expect(screen.getByTestId('replace-cast-notice').textContent).toBe(APPROVED.cast)
+    expect(screen.queryByTestId('replace-guard')).toBeNull()
+    const picksBefore = h.pickRequests
+    expect(h.pickRequests).toBe(picksBefore)
+
+    // Resolve B FIRST as a NON-COMMITTING outcome (a refusal appends nothing,
+    // so no mutation starts and C15 cannot take precedence): A is still in
+    // flight, so the aggregate must stay blocked.
+    await act(async () => {
+      h.castHeld.find((held) => held.column === 'label')?.resolve({ hasNonConvertibleValues: true })
+    })
+    await flush()
+    expect(document.querySelectorAll('[data-testid="column-cast-pending"]')).toHaveLength(1)
+    expect(screen.getByTestId('replace-cast-notice')).not.toBeNull()
+    await clickReadyOpen()
+    expect(screen.queryByTestId('replace-guard')).toBeNull()
+    expect(h.pickRequests).toBe(picksBefore)
+
+    // Resolve A (also non-committing): count 0, C16 clears, and the next Open
+    // proceeds into the picker.
+    await act(async () => {
+      h.castHeld.find((held) => held.column === 'id')?.resolve({ hasNonConvertibleValues: true })
+    })
+    await flush()
+    expect(document.querySelectorAll('[data-testid="column-cast-pending"]')).toHaveLength(0)
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-cast-notice')).toBeNull()
+    })
+    h.picks = [{ cancel: true }]
+    await clickReadyOpen()
+    expect(h.pickRequests).toBe(picksBefore + 1)
+    await waitFor(() => {
+      expect(screen.getByTestId('replace-notice').textContent).toBe(APPROVED.pickerNotice)
+    })
+  })
+
+  it('runs the gate BEFORE any notice state write (§3.2)', async () => {
+    await openFirstDataset()
+    h.castHold = true
+    await startCast('id')
+    await clickReadyOpen()
+    expect(screen.getByTestId('replace-cast-notice')).not.toBeNull()
+
+    // The gate's own observation: on a second gesture, C16 must still be in the
+    // DOM when `evaluateReadyGesture` runs. Clearing notices first (the round-1
+    // defect) would make this false.
+    const callsBefore = h.gateSawNotice.length
+    await clickReadyOpen()
+    expect(h.gateSawNotice[callsBefore]).toEqual({ draft: false, cast: true })
+
+    // Leave no parked check behind.
+    await act(async () => {
+      h.castHeld.find((held) => held.column === 'id')?.resolve({ hasNonConvertibleValues: true })
+    })
+    await flush()
+  })
+})
+
+describe('WF-06 — T5 closes the guard before the picker, and N9 provider rejection', () => {
+  it('closes the guard dialog synchronously before the gate re-run and the picker (T5)', async () => {
+    await openFirstDataset()
+    await makeDirty()
+    h.picks = [{ file: new File(['order_id,region\n1,SG\n'], 'orders.csv') }]
+    await clickReadyOpen()
+    const guard = screen.getByTestId('replace-guard') as HTMLDialogElement
+    expect(guard.open).toBe(true)
+
+    // Observe only the guard's own pick (the idle open's pick is not the case).
+    h.pickSawOpenGuard = []
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('replace-choose'))
+    })
+    // The picker recorded whether the guard dialog was still open at call time.
+    expect(h.pickSawOpenGuard).toEqual([false])
+    await waitFor(() => {
+      expect(h.openCalls).toEqual(['t1', 't2'])
+    })
+    expect(h.beginCalls).toBe(2)
+  })
+
+  it('keeps the live session when the candidate provider / model.load rejects (N9)', async () => {
+    await openFirstDataset()
+    expect(h.beginCalls).toBe(1)
+    h.picks = [{ file: new File(['order_id,region\n1,SG\n'], 'orders.csv') }]
+    // T9b-class, but the REQUIRED injection: the failure comes from the grid
+    // provider inside `GridViewportModel.load()` (`rowCount()`), after
+    // `engine.open` succeeded — one retained candidate table (ADR 0047).
+    h.rowCountFailure = 'view materialization failed'
+    await clickReadyOpen()
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-error')).not.toBeNull()
+    })
+    expect(failureText()).toBe(NEUTRAL_CAUSE + FAILURE_SUFFIX)
+    expect(liveColumns()).toEqual(COLUMNS_A)
+    expect(h.openCalls).toEqual(['t1', 't2'])
+    expect(h.beginCalls).toBe(1)
   })
 })

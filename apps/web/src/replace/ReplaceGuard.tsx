@@ -118,6 +118,21 @@ export function ReplaceGuard({ onStay, onExport, onChoose }: ReplaceGuardProps) 
     }
   }, [])
 
+  /**
+   * Close the native dialog element SYNCHRONOUSLY, then run an action that
+   * opens another surface (the picker, or the export dialog). v5 §3.2/T5
+   * requires the modal to be closed before the gate is re-run and before the
+   * picker is invoked ("the modal closed first, so G1 passes"); waiting for the
+   * parent's unmount would leave the dialog open across the picker call. Focus
+   * restoration is unchanged — the mount effect's cleanup still returns focus
+   * to the connected opener.
+   */
+  const closeThen = (action: () => void): void => {
+    const dialog = dialogRef.current
+    if (dialog?.open === true) dialog.close()
+    action()
+  }
+
   return (
     <dialog
       ref={dialogRef}
@@ -155,7 +170,10 @@ export function ReplaceGuard({ onStay, onExport, onChoose }: ReplaceGuardProps) 
           type="button"
           className="replace-guard-secondary"
           data-testid="replace-export"
-          onClick={onExportRef.current}
+          onClick={() => {
+            // T4: the guard closes before the existing exporter opens.
+            closeThen(onExportRef.current)
+          }}
         >
           {REPLACE_EXPORT_LABEL}
         </button>{' '}
@@ -163,7 +181,11 @@ export function ReplaceGuard({ onStay, onExport, onChoose }: ReplaceGuardProps) 
           type="button"
           className="replace-guard-primary"
           data-testid="replace-choose"
-          onClick={onChooseRef.current}
+          onClick={() => {
+            // T5: the guard closes before the gate is re-run and before the
+            // picker is invoked.
+            closeThen(onChooseRef.current)
+          }}
         >
           {REPLACE_CHOOSE_LABEL}
         </button>

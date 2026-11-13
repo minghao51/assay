@@ -29,6 +29,8 @@ const h = vi.hoisted(() => ({
   /** Resolvers for held `overlayCastCheck` calls, in call order. */
   castChecks: [] as Array<() => void>,
   castCheckedColumns: [] as string[],
+  /** Per-call outcomes: `true` = non-convertible (a non-committing refusal). */
+  castOutcomes: [] as boolean[],
   /** Resolvers for held `model.refresh()` calls, in call order. */
   refreshes: [] as Array<() => void>,
 }))
@@ -40,10 +42,10 @@ vi.mock('../lib/engine', () => ({
       _overlay: unknown,
       options: { readonly column: string },
     ): Promise<{ readonly hasNonConvertibleValues: boolean }> => {
-      h.castCheckedColumns.push(options.column)
+      const call = h.castCheckedColumns.push(options.column) - 1
       return new Promise((resolve) => {
         h.castChecks.push(() => {
-          resolve({ hasNonConvertibleValues: false })
+          resolve({ hasNonConvertibleValues: h.castOutcomes[call] === true })
         })
       })
     },
@@ -100,6 +102,7 @@ async function tick(): Promise<void> {
 beforeEach(() => {
   h.castChecks = []
   h.castCheckedColumns = []
+  h.castOutcomes = []
   h.refreshes = []
 })
 
@@ -240,6 +243,40 @@ describe('WF-06 useEditingSession — aggregate cast pending (S-A2-4, IC-02, N17
     })
     await tick()
     expect(result.current.castPendingColumnsRef.current.size).toBe(0)
+  })
+
+  it('stays blocked when B settles FIRST as a NON-COMMITTING refusal (N17)', async () => {
+    const { result } = mount()
+    // Both checks are refusals: each appends nothing, so no mutation can start
+    // and C15 can never mask the aggregate (the required N17 shape).
+    h.castOutcomes = [true, true]
+    act(() => {
+      result.current.handleCastColumn('a', 'VARCHAR')
+    })
+    act(() => {
+      result.current.handleCastColumn('b', 'BIGINT')
+    })
+    expect(h.castCheckedColumns).toEqual(['a', 'b'])
+    expect(result.current.castPendingColumnsRef.current.size).toBe(2)
+
+    // B first: a refusal, no cast appended, A still in flight.
+    await act(async () => {
+      h.castChecks[1]?.()
+    })
+    await tick()
+    expect(result.current.castPendingColumnsRef.current.size).toBe(1)
+    expect(result.current.castPendingColumns.has('a')).toBe(true)
+    expect(result.current.castPendingColumns.has('b')).toBe(false)
+    expect(result.current.mutationStateRef.current).toBe(0)
+    expect(h.refreshes).toHaveLength(0)
+
+    // A settles: the aggregate finally reaches 0.
+    await act(async () => {
+      h.castChecks[0]?.()
+    })
+    await tick()
+    expect(result.current.castPendingColumnsRef.current.size).toBe(0)
+    expect(result.current.castPendingCount).toBe(0)
   })
 
   it('keeps per-column identity in the render mirror (SchemaPanel disables one column)', async () => {
