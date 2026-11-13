@@ -157,3 +157,68 @@ Rows marked **accepted** need no action to keep the selected wave closed; they m
 - **Nothing was pushed.** No release, publication, visibility, telemetry-semantic, dependency or
   ADR change was made. Design delivery is not implementation completion; the maintainer still owns
   every copy/proposal and every D-row.
+
+## 8. Handoff to the next pickup
+
+**Rule zero:** this record is evidence, not authority. The next agent records its **own** clean SHA and
+runs **fresh** gates — the counts above must never be reused as a current pass claim. Nothing here
+authorises a runtime row, a push, a dependency or a decision.
+
+**Read order:** `AGENTS.md` → [handoff](../handoff.md) §2/§6 → [operating model](operating-model.md) →
+this record → the [pickup authority](20261113-essential-workbench-pickup.md) (dated selection, envelope,
+stop rules) → [spec product/16](../../product/16-essential-workbench-first-wave-spec.md) → the contract for
+the specific row ([EW-02D](20261113-ew02-scope-contract.md) · [EW-03D](20261113-ew03-csv-contract.md) ·
+[EW-04D](20261113-ew04-bulk-contract.md)).
+
+### 8.1 Maintainer decisions that unblock work (smallest first)
+
+| #   | Decision                                                                                         | Unblocks                                   | Detail                                              |
+| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------ | --------------------------------------------------- |
+| D1  | Select **R1** (`_setThrew` masked SQL errors) as a defect row                                    | Honest failure text everywhere; EW-03D D10 | §6 R1; probe evidence EW-03D §6.1                   |
+| D2  | Accept/decline the **3 EW-02D strings** + answer its 3 open questions                            | EW-02I brief                               | Contract §3/§8; 49 RETAIN rows need no code         |
+| D3  | Resolve **EW-03D D1–D9, D11, D13, D14**; commission **D12's ADR**; settle **D15** version policy | EW-03I scope                               | Contract §8 ledger; D10 depends on D1               |
+| D4  | Resolve **EW-04D D16/D17** (architecture), then **D14 ADR**, **D15 cap**, semantics D1–D13       | EW-04I brief                               | Contract §10; verdict is conditional on seven items |
+| D5  | Decide whether to fund **U4** (wasm arm-class probe) and **U5** (real composer tests)            | EW-04D's conditional verdict               | Contract §9.1 U4/U5                                 |
+| D6  | Decide **R2** (`TIMESTAMP 'infinity'` ownership) and **R3** (human study)                        | R2/R3 rows                                 | §6                                                  |
+| D7  | Reserve a fixture only if real-engine **N9/T9b** must be asserted                                | R8                                         | §6                                                  |
+
+### 8.2 Dispatch order once decisions land
+
+Only one web-runtime writer may be CLAIMED at a time; design/investigation rows are read-only and may run
+alongside. Each row needs a filled envelope, an independent reviewer (different model **and** thinking),
+and fresh baseline gates.
+
+1. **R1 investigation (read-only, no decision needed beyond selection):** root-cause why the MVP bundle
+   throws `_setThrew is not defined`, compare the `eh`/`coi` bundles and worker glue, and return fix
+   options (worker-glue shim vs engine upgrade vs pre-validation) with an ADR recommendation. No source
+   change.
+2. **R1 fix (runtime, small):** only after (1) and D1. Reservation: the worker glue/client error path and
+   its tests; no protocol change without an ADR.
+3. **EW-02I (runtime, small):** only after D2. Three append-only sentences + their literal tests, rebased
+   on post-WF-06 main; nothing else changes.
+4. **EW-03D → EW-03I (runtime, cross-package):** only after D3 and R1. Start from the contract's future
+   reservation; D12 needs its own ADR before any protocol/option-carrier work.
+5. **EW-04D → EW-04I (runtime, cross-package):** only after D4/D5. Start with D16/D17 and the U4 probe; do
+   not issue a brief from the SQL shape alone.
+6. **R2/R3/R8** as decided; **R13** stays unselected.
+
+### 8.3 Paste-ready pickup prompt
+
+```text
+Pick up docs/process/handoff/20261113-ew10-first-wave-integration.md (the first-wave closure and
+residual register). Read AGENTS.md, docs/process/handoff.md §2/§6 and the operating model, then
+the first-wave pickup authority and product/16 before claiming anything. The EW-10 record is
+evidence, not authority: record your own clean SHA and run fresh gates (do not reuse its counts).
+
+WF-06 is merged at ba36091 and the three design contracts are integrated. Do not reopen them.
+The maintainer accepted the boundary: EW-02I needs exact copy acceptance plus a new runtime brief;
+EW-02D's proposals, EW-03D's 15 and EW-04D's 17 decisions (plus its seven verdict conditions) are
+maintainer-owned; EW-05…08 stay unselected.
+
+Start with the decision queue in §8.1. The only row that can begin without a new product decision is
+the read-only R1 investigation (masked browser SQL errors: `ReferenceError: _setThrew is not
+defined`). For every runtime row: fill a dispatch envelope, reserve a branch/worktree and free
+ports, keep one web-runtime writer, run full stock + configured + restored gates, require an
+independent reviewer with mutation controls, and stop rather than choose unresolved policy.
+Never push.
+```
