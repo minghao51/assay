@@ -1,0 +1,591 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1320"
+  viewBox="0 0 1600 1320"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">03 / Review CSV interpretation before adoption</title>
+  <desc id="desc">
+    Essential workbench concept 03. A live session stays untouched while proposed CSV import
+    settings and a bounded token preview sit in the tools pane: delimiter and header intent,
+    detected versus proposed types, a zero-padded identifier kept as text. EW-03D design only.
+    Static drawing, synthetic data, not a runtime screenshot.
+  </desc>
+  <style>
+    text {
+      font-family:
+        system-ui,
+        -apple-system,
+        'Segoe UI',
+        sans-serif;
+    }
+    text.b {
+      font-weight: 650;
+    }
+    text.m {
+      font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    }
+    text.i {
+      font-style: italic;
+    }
+    text.s12 {
+      font-size: 12px;
+    }
+    text.s14 {
+      font-size: 14px;
+    }
+    text.s15 {
+      font-size: 15px;
+    }
+    text.s16 {
+      font-size: 16px;
+    }
+    text.s17 {
+      font-size: 17px;
+    }
+    text.s18 {
+      font-size: 18px;
+    }
+    text.s20 {
+      font-size: 20px;
+    }
+    text.s24 {
+      font-size: 24px;
+    }
+    text.s28 {
+      font-size: 28px;
+    }
+  </style>
+  <rect x="0" y="0" width="1600" height="1320" fill="#f3f5f7" stroke="#ccd3db" stroke-width="1" />
+  <text x="32" y="30" fill="#69737d" class="s12 b" letter-spacing="1.4">
+    ASSAY / ESSENTIAL WORKBENCH 03
+  </text>
+  <rect
+    x="1161.72"
+    y="18"
+    width="406.28"
+    height="22"
+    rx="11"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1364.86" y="33.32" fill="#555c64" class="s12 b" text-anchor="middle">
+    STATIC CONCEPT • synthetic data • not a runtime screenshot
+  </text>
+  <text x="32" y="78" fill="#1a1a1a" class="s28 b">
+    03 / Review CSV interpretation before adoption
+  </text>
+  <text x="32" y="110" fill="#555c64" class="s15">
+    The candidate is described before it is adopted: delimiter, header, detected-versus-proposed
+    types, bounded tokens.
+  </text>
+  <rect
+    x="32"
+    y="126"
+    width="93.26"
+    height="22"
+    rx="11"
+    fill="#fdf4e3"
+    stroke="#e7d3a8"
+    stroke-width="1"
+  />
+  <text x="78.63" y="141.32" fill="#8a5a00" class="s12 b" text-anchor="middle">DESIGN ONLY</text>
+  <rect
+    x="135.26"
+    y="126"
+    width="59.96"
+    height="22"
+    rx="11"
+    fill="#e9f1f9"
+    stroke="#b6cde4"
+    stroke-width="1"
+  />
+  <text x="165.24" y="141.32" fill="#14496f" class="s12 b" text-anchor="middle">EW-03D</text>
+  <rect
+    x="205.22"
+    y="126"
+    width="233.12"
+    height="22"
+    rx="11"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="321.78" y="141.32" fill="#555c64" class="s12 b" text-anchor="middle">
+    BROWSER API + LIFETIME UNDECIDED
+  </text>
+  <text x="454.34" y="144" fill="#2c343d" class="s14">
+    no importer, no settings API and no adoption path is implemented or approved
+  </text>
+  <rect
+    x="32"
+    y="168"
+    width="1536"
+    height="650"
+    rx="10"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="64" y="211" fill="#1a1a1a" class="s16 b">Assay</text>
+  <line x1="140" y1="190" x2="140" y2="218" stroke="#dde3e9" stroke-width="1" />
+  <text x="156" y="211" fill="#555c64" class="s14">Workbench</text>
+  <rect
+    x="268"
+    y="190"
+    width="261.93"
+    height="26"
+    rx="13"
+    fill="#e4f2ef"
+    stroke="#b4dcd4"
+    stroke-width="1"
+  />
+  <text x="398.97" y="208.04" fill="#0f6f63" class="s14" text-anchor="middle">
+    Session · live dataset, unchanged
+  </text>
+  <rect
+    x="1497.16"
+    y="188"
+    width="54.84"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1524.58" y="209" fill="#2c343d" class="s14" text-anchor="middle">Help</text>
+  <rect
+    x="1405.48"
+    y="188"
+    width="83.68"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1447.32" y="209" fill="#2c343d" class="s14" text-anchor="middle">Settings</text>
+  <rect
+    x="1321.01"
+    y="188"
+    width="76.47"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1359.25" y="209" fill="#2c343d" class="s14" text-anchor="middle">Export…</text>
+  <rect
+    x="1250.96"
+    y="188"
+    width="62.05"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1281.99" y="209" fill="#2c343d" class="s14" text-anchor="middle">Open…</text>
+  <line x1="48" y1="232" x2="1552" y2="232" stroke="#dde3e9" stroke-width="1" />
+  <g id="existing-task-navigation">
+    <text x="64" y="256" fill="#1a1a1a" class="s14 b">Explore</text>
+    <text x="164" y="256" fill="#555c64" class="s14">Check</text>
+    <text x="250" y="256" fill="#555c64" class="s14">Change</text>
+    <text x="350" y="256" fill="#555c64" class="s14">Prepare</text>
+    <rect x="64" y="264" width="65" height="2" rx="1" fill="#1d5f9e" />
+  </g>
+  <line x1="48" y1="268" x2="1552" y2="268" stroke="#dde3e9" stroke-width="1" />
+  <rect
+    x="48"
+    y="276"
+    width="320"
+    height="526"
+    rx="6"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <rect
+    x="384"
+    y="276"
+    width="1168"
+    height="398"
+    rx="6"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <rect
+    x="384"
+    y="682"
+    width="1168"
+    height="120"
+    rx="6"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="64" y="302" fill="#1a1a1a" class="s16 b">Tools</text>
+  <g id="csv-controls">
+    <text x="68" y="326" fill="#14496f" class="s12 b" letter-spacing="0.7">
+      CSV IMPORT SETTINGS · PROPOSED
+    </text>
+    <text x="68" y="350" fill="#1a1a1a" class="s14 b">Delimiter · “,” comma</text>
+    <text x="68" y="368" fill="#69737d" class="s12">detected from the sample, not applied</text>
+    <text x="68" y="394" fill="#1a1a1a" class="s14 b">Header · first line as names</text>
+    <text x="68" y="412" fill="#69737d" class="s12">detected, not applied</text>
+    <text x="68" y="440" fill="#14496f" class="s12 b" letter-spacing="0.7">
+      TYPES · DETECTED → PROPOSED
+    </text>
+    <text x="68" y="462" fill="#1a1a1a" class="s14 b m">id</text>
+    <text x="200" y="462" fill="#2c343d" class="s14">STRING · proposed</text>
+    <text x="68" y="484" fill="#1a1a1a" class="s14 b m">customer_id</text>
+    <text x="200" y="484" fill="#0f6f63" class="s14">STRING · held as text</text>
+    <text x="68" y="506" fill="#1a1a1a" class="s14 b m">amount</text>
+    <text x="200" y="506" fill="#555c64" class="s14">DECIMAL · detected</text>
+    <text x="68" y="528" fill="#1a1a1a" class="s14 b m">updated</text>
+    <text x="200" y="528" fill="#555c64" class="s14">DATE · detected</text>
+    <rect
+      x="68"
+      y="556"
+      width="145.36"
+      height="32"
+      rx="7"
+      fill="#f7f9fb"
+      stroke="#dde3e9"
+      stroke-width="1"
+      stroke-dasharray="4 3"
+    />
+    <text x="140.68" y="577" fill="#69737d" class="s14" text-anchor="middle">Preview settings</text>
+    <rect
+      x="68"
+      y="596"
+      width="166.99"
+      height="32"
+      rx="7"
+      fill="#f7f9fb"
+      stroke="#dde3e9"
+      stroke-width="1"
+      stroke-dasharray="4 3"
+    />
+    <text x="151.5" y="617" fill="#69737d" class="s14" text-anchor="middle">
+      Use these settings…
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="68" y="650">Unavailable until capability, coverage and</tspan>
+      <tspan x="68" y="666">source ownership are resolved — no promise</tspan>
+      <tspan x="68" y="682">is made here.</tspan>
+    </text>
+  </g>
+  <g id="csv-token-preview">
+    <rect
+      x="56"
+      y="690"
+      width="304"
+      height="90"
+      rx="6"
+      fill="#ffffff"
+      stroke="#b4dcd4"
+      stroke-width="1"
+    />
+    <text x="68" y="710" fill="#0f6f63" class="s12 b" letter-spacing="0.7">
+      TOKEN PREVIEW · 2 EXAMPLES
+    </text>
+    <text x="68" y="732" fill="#1a1a1a" class="s14 b m">“0017”</text>
+    <text x="160" y="732" fill="#0f6f63" class="s14">→ STRING “0017”</text>
+    <text x="68" y="754" fill="#1a1a1a" class="s14 b m">9007199254740993</text>
+    <text x="68" y="776" fill="#0f6f63" class="s14">held as text, not a number</text>
+  </g>
+  <text x="68" y="792" fill="#69737d" class="s12">Concept only — not approved UI.</text>
+  <g id="csv-live-session">
+    <rect x="384" y="276" width="1168" height="34" fill="#eef2f6" />
+    <text x="396" y="298" fill="#555c64" class="s14 b">#</text>
+    <text x="454" y="298" fill="#555c64" class="s14 b">id</text>
+    <text x="538" y="298" fill="#555c64" class="s14 b">name</text>
+    <text x="774" y="298" fill="#555c64" class="s14 b">status</text>
+    <text x="942" y="298" fill="#555c64" class="s14 b">amount</text>
+    <text x="1068" y="298" fill="#555c64" class="s14 b">region</text>
+    <text x="1214" y="298" fill="#555c64" class="s14 b">batch</text>
+    <text x="1338" y="298" fill="#555c64" class="s14 b">updated</text>
+    <line x1="384" y1="310" x2="1552" y2="310" stroke="#dde3e9" stroke-width="1" />
+    <line x1="384" y1="346" x2="1552" y2="346" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="334" fill="#69737d" class="s14">1</text>
+    <text x="454" y="334" fill="#1a1a1a" class="s14">0001</text>
+    <text x="538" y="334" fill="#1a1a1a" class="s14">Aster Field Survey</text>
+    <text x="774" y="334" fill="#1a1a1a" class="s14">needs review</text>
+    <text x="942" y="334" fill="#1a1a1a" class="s14">12.50</text>
+    <text x="1068" y="334" fill="#1a1a1a" class="s14">north</text>
+    <text x="1214" y="334" fill="#1a1a1a" class="s14">b-01</text>
+    <text x="1338" y="334" fill="#1a1a1a" class="s14">2026-11-03 09:12</text>
+    <line x1="384" y1="382" x2="1552" y2="382" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="370" fill="#69737d" class="s14">2</text>
+    <text x="454" y="370" fill="#1a1a1a" class="s14">0002</text>
+    <text x="538" y="370" fill="#1a1a1a" class="s14">Bright Meadow</text>
+    <text x="774" y="370" fill="#1a1a1a" class="s14">ok</text>
+    <text x="942" y="370" fill="#1a1a1a" class="s14">48.00</text>
+    <text x="1068" y="370" fill="#1a1a1a" class="s14">south</text>
+    <text x="1214" y="370" fill="#1a1a1a" class="s14">b-01</text>
+    <text x="1338" y="370" fill="#1a1a1a" class="s14">2026-11-03 10:40</text>
+    <rect x="384" y="382" width="1168" height="36" fill="#e9f1f9" />
+    <line x1="384" y1="418" x2="1552" y2="418" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="406" fill="#69737d" class="s14">3</text>
+    <text x="454" y="406" fill="#1a1a1a" class="s14">0003</text>
+    <text x="538" y="406" fill="#1a1a1a" class="s14">Cedar Hollow</text>
+    <text x="774" y="406" fill="#1a1a1a" class="s14">needs review</text>
+    <text x="942" y="406" fill="#1a1a1a" class="s14">7.25</text>
+    <text x="1068" y="406" fill="#1a1a1a" class="s14">west</text>
+    <text x="1214" y="406" fill="#1a1a1a" class="s14">b-02</text>
+    <text x="1338" y="406" fill="#1a1a1a" class="s14">2026-11-04 08:05</text>
+    <line x1="384" y1="454" x2="1552" y2="454" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="442" fill="#69737d" class="s14">4</text>
+    <text x="454" y="442" fill="#1a1a1a" class="s14">0004</text>
+    <text x="538" y="442" fill="#1a1a1a" class="s14">Dunlin Marsh</text>
+    <text x="774" y="442" fill="#1a1a1a" class="s14">hold</text>
+    <text x="942" y="442" fill="#1a1a1a" class="s14">91.10</text>
+    <text x="1068" y="442" fill="#1a1a1a" class="s14">east</text>
+    <text x="1214" y="442" fill="#1a1a1a" class="s14">b-02</text>
+    <text x="1338" y="442" fill="#1a1a1a" class="s14">2026-11-04 11:31</text>
+    <line x1="384" y1="490" x2="1552" y2="490" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="478" fill="#69737d" class="s14">5</text>
+    <text x="454" y="478" fill="#1a1a1a" class="s14">0005</text>
+    <text x="538" y="478" fill="#1a1a1a" class="s14">Fern Ridge</text>
+    <text x="774" y="478" fill="#1a1a1a" class="s14">ok</text>
+    <text x="942" y="478" fill="#1a1a1a" class="s14">0.00</text>
+    <text x="1068" y="478" fill="#1a1a1a" class="s14">north</text>
+    <text x="1214" y="478" fill="#1a1a1a" class="s14">b-03</text>
+    <text x="1338" y="478" fill="#1a1a1a" class="s14">2026-11-05 07:58</text>
+    <line x1="384" y1="526" x2="1552" y2="526" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="514" fill="#69737d" class="s14">6</text>
+    <text x="454" y="514" fill="#1a1a1a" class="s14">0006</text>
+    <text x="538" y="514" fill="#1a1a1a" class="s14">Gale Point</text>
+    <text x="774" y="514" fill="#1a1a1a" class="s14">needs review</text>
+    <text x="942" y="514" fill="#1a1a1a" class="s14">33.40</text>
+    <text x="1068" y="514" fill="#1a1a1a" class="s14">west</text>
+    <text x="1214" y="514" fill="#1a1a1a" class="s14">b-03</text>
+    <text x="1338" y="514" fill="#1a1a1a" class="s14">2026-11-05 13:16</text>
+    <line x1="384" y1="562" x2="1552" y2="562" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="550" fill="#69737d" class="s14">7</text>
+    <text x="454" y="550" fill="#1a1a1a" class="s14">0007</text>
+    <text x="538" y="550" fill="#1a1a1a" class="s14">Harrow Fen</text>
+    <text x="774" y="550" fill="#1a1a1a" class="s14">ok</text>
+    <text x="942" y="550" fill="#1a1a1a" class="s14">18.75</text>
+    <text x="1068" y="550" fill="#1a1a1a" class="s14">south</text>
+    <text x="1214" y="550" fill="#1a1a1a" class="s14">b-01</text>
+    <text x="1338" y="550" fill="#1a1a1a" class="s14">2026-11-06 09:44</text>
+    <line x1="384" y1="563" x2="1552" y2="563" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="586" fill="#69737d" class="s12">
+      Live session grid and Record are unchanged: no candidate rows, no import overlay, no
+      replacement.
+    </text>
+    <text x="396" y="604" fill="#69737d" class="s12">
+      Synthetic sample — cells are illustrations, not a fixture.
+    </text>
+    <text x="1540" y="586" fill="#69737d" class="s12" text-anchor="end">7 toy rows</text>
+    <text x="400" y="708" fill="#1a1a1a" class="s16 b">Record</text>
+    <text x="400" y="740" fill="#1a1a1a" class="s14">
+      row 3 · id 0003 · name Cedar Hollow · status needs review · amount 7.25
+    </text>
+    <text x="400" y="778" fill="#69737d" class="s12">
+      The pending CSV candidate is described in the tools pane; it is not this dataset and never
+      enters this grid before adoption.
+    </text>
+  </g>
+  <g id="csv-states">
+    <rect
+      x="32"
+      y="838"
+      width="375"
+      height="244"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="52" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · SETTINGS CHANGED
+    </text>
+    <text x="52" y="888" fill="#1a1a1a" class="s15 b">Stale preview, no adoption</text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="52" y="910">Change the delimiter, the header or a type</tspan>
+      <tspan x="52" y="929">and every earlier preview becomes stale. A</tspan>
+      <tspan x="52" y="948">stale preview can never be adopted.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="52" y="974">The preview must be requested again, and the</tspan>
+      <tspan x="52" y="990">request must show what it used.</tspan>
+    </text>
+    <text fill="#555c64" class="s14">
+      <tspan x="52" y="1024">No auto-recompute and no silent re-sniff.</tspan>
+    </text>
+    <rect
+      x="419"
+      y="838"
+      width="375"
+      height="244"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="439" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · LATE TYPED ERROR
+    </text>
+    <text x="439" y="888" fill="#1a1a1a" class="s15 b">Nothing is adopted</text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="439" y="910">A row beyond the sample fails the proposed</tspan>
+      <tspan x="439" y="929">conversion, so the whole adoption is</tspan>
+      <tspan x="439" y="948">refused and the live session stays.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="439" y="974">count(*) is not proof that every column converted;</tspan>
+      <tspan x="439" y="990">the complete typed check is the acceptance</tspan>
+      <tspan x="439" y="1006">question.</tspan>
+    </text>
+    <text fill="#555c64" class="s14">
+      <tspan x="439" y="1024">Parse-time text is kept: a cast back cannot</tspan>
+      <tspan x="439" y="1043">restore “0017”.</tspan>
+    </text>
+    <rect
+      x="806"
+      y="838"
+      width="375"
+      height="244"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="826" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · CAPABILITY UNAVAILABLE
+    </text>
+    <text x="826" y="888" fill="#1a1a1a" class="s15 b">No advanced promise</text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="826" y="910">If the browser reader does not expose the</tspan>
+      <tspan x="826" y="929">option, the control is absent or disabled</tspan>
+      <tspan x="826" y="948">with the reason stated.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="826" y="974">The plain open path stays available and is not</tspan>
+      <tspan x="826" y="990">turned into a settings wizard.</tspan>
+    </text>
+    <text fill="#555c64" class="s14">
+      <tspan x="826" y="1024">Reader 1.4.3 must be probed in the browser;</tspan>
+      <tspan x="826" y="1043">CLI inference is not evidence.</tspan>
+    </text>
+    <rect
+      x="1193"
+      y="838"
+      width="375"
+      height="244"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="1213" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · CANCEL / FAILURE
+    </text>
+    <text x="1213" y="888" fill="#1a1a1a" class="s15 b">Live work is retained</text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="1213" y="910">Abandoning or failing the preview keeps the</tspan>
+      <tspan x="1213" y="929">live session, its history, findings and</tspan>
+      <tspan x="1213" y="948">Record selection.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="1213" y="974">Whether an already-registered source is owned,</tspan>
+      <tspan x="1213" y="990">released or left until teardown is undecided (ADR</tspan>
+      <tspan x="1213" y="1006">0047 has no release API).</tspan>
+    </text>
+    <text fill="#555c64" class="s14">
+      <tspan x="1213" y="1024">No Cancel control is drawn: this board is a</tspan>
+      <tspan x="1213" y="1043">preview review, not the WF-06 opening</tspan>
+      <tspan x="1213" y="1062">state.</tspan>
+    </text>
+  </g>
+  <rect
+    x="32"
+    y="1094"
+    width="1536"
+    height="32"
+    rx="6"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="48" y="1115" fill="#555c64" class="s12 b" letter-spacing="0.7">ACCEPTANCE PATH</text>
+  <text x="176" y="1115" fill="#2c343d" class="s12">
+    1 Probe the browser WASM reader → 2 Settle source ownership and the complete-check meaning → 3
+    Accept a decision ledger → 4 Separately approved EW-03I brief
+  </text>
+  <g id="csv-decisions">
+    <rect
+      x="32"
+      y="1140"
+      width="1536"
+      height="112"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <rect
+      x="48"
+      y="1156"
+      width="82.6"
+      height="18"
+      rx="9"
+      fill="#fdf4e3"
+      stroke="#e7d3a8"
+      stroke-width="1"
+    />
+    <text x="89.3" y="1169.32" fill="#8a5a00" class="s12 b" text-anchor="middle">UNRESOLVED</text>
+    <text fill="#2c343d" class="s12">
+      <tspan x="156" y="1170">
+        Owner: maintainer. Delimiter, header and duplicate-or-empty names · all-text versus typed
+        columns · date formats · quoted empty versus NULL · sample disclosure · the definition of a
+        complete check · adoption
+      </tspan>
+      <tspan x="156" y="1187">
+        identity · cancel and resource bounds · registration reuse versus a separately approved
+        lifecycle change.
+      </tspan>
+    </text>
+    <rect
+      x="48"
+      y="1196"
+      width="109.24"
+      height="18"
+      rx="9"
+      fill="#e9f1f9"
+      stroke="#b6cde4"
+      stroke-width="1"
+    />
+    <text x="102.62" y="1209.32" fill="#14496f" class="s12 b" text-anchor="middle">
+      EVIDENCE RULES
+    </text>
+    <text fill="#2c343d" class="s12">
+      <tspan x="156" y="1210">
+        Parse-time text preservation cannot be recovered by a later cast · repeated option previews
+        must not create registered tables · a successful count is not exhaustive conversion proof ·
+        recommendations are not
+      </tspan>
+      <tspan x="156" y="1227">
+        accepted defaults. Format expansion (.ndjson, Arrow, XLSX) and any error-skipping policy are
+        outside this drawing.
+      </tspan>
+    </text>
+  </g>
+  <text x="32" y="1284" fill="#69737d" class="s12">
+    Tasks / specification: docs/product/16-essential-workbench-first-wave-spec.md §5 (EW-03D) · ADRs
+    0012 (immutable source), 0029/0030 (SQL), 0047 (table retention) · ADR 0044 (shell).
+  </text>
+  <text x="32" y="1304" fill="#69737d" class="s12">
+    Synthetic data only · the pane is a proposed settings concept, not approved UI · detected values
+    are a header/sample sniff, not a complete typed check · no runtime, reader-version or
+    performance evidence claimed.
+  </text>
+</svg>

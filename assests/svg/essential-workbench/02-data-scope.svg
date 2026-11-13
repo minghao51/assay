@@ -1,0 +1,794 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1320"
+  viewBox="0 0 1600 1320"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">02 / One workbench, explicit data scopes</title>
+  <desc id="desc">
+    Essential workbench concept 02. The same two-pane shell in a dark theme with a filtered, edited
+    synthetic grid: six surfaces mapped to either the original file or the effective edited view.
+    Existing semantics; proposed placement only, EW-02D design output. Static drawing, synthetic
+    data, not a runtime screenshot.
+  </desc>
+  <style>
+    text {
+      font-family:
+        system-ui,
+        -apple-system,
+        'Segoe UI',
+        sans-serif;
+    }
+    text.b {
+      font-weight: 650;
+    }
+    text.m {
+      font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    }
+    text.i {
+      font-style: italic;
+    }
+    text.s12 {
+      font-size: 12px;
+    }
+    text.s14 {
+      font-size: 14px;
+    }
+    text.s15 {
+      font-size: 15px;
+    }
+    text.s16 {
+      font-size: 16px;
+    }
+    text.s17 {
+      font-size: 17px;
+    }
+    text.s18 {
+      font-size: 18px;
+    }
+    text.s20 {
+      font-size: 20px;
+    }
+    text.s24 {
+      font-size: 24px;
+    }
+    text.s28 {
+      font-size: 28px;
+    }
+  </style>
+  <rect x="0" y="0" width="1600" height="1320" fill="#11161d" stroke="#465363" stroke-width="1" />
+  <text x="32" y="30" fill="#93a1b0" class="s12 b" letter-spacing="1.4">
+    ASSAY / ESSENTIAL WORKBENCH 02
+  </text>
+  <rect
+    x="1161.72"
+    y="18"
+    width="406.28"
+    height="22"
+    rx="11"
+    fill="#141b23"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <text x="1364.86" y="33.32" fill="#b5c0cc" class="s12 b" text-anchor="middle">
+    STATIC CONCEPT • synthetic data • not a runtime screenshot
+  </text>
+  <text x="32" y="78" fill="#eef2f7" class="s28 b">02 / One workbench, explicit data scopes</text>
+  <text x="32" y="110" fill="#b5c0cc" class="s15">
+    Six surfaces, two honest scopes: the file as opened, and the effective edited view. Nothing here
+    is a new data source.
+  </text>
+  <rect
+    x="32"
+    y="126"
+    width="139.88"
+    height="22"
+    rx="11"
+    fill="#1d3b3a"
+    stroke="#35655f"
+    stroke-width="1"
+  />
+  <text x="101.94" y="141.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">
+    EXISTING SEMANTICS
+  </text>
+  <rect
+    x="181.88"
+    y="126"
+    width="139.88"
+    height="22"
+    rx="11"
+    fill="#26384c"
+    stroke="#3d5a78"
+    stroke-width="1"
+  />
+  <text x="251.82" y="141.32" fill="#a8c9ee" class="s12 b" text-anchor="middle">
+    PLACEMENT PROPOSED
+  </text>
+  <rect
+    x="331.76"
+    y="126"
+    width="93.26"
+    height="22"
+    rx="11"
+    fill="#3a2f1c"
+    stroke="#6b5430"
+    stroke-width="1"
+  />
+  <text x="378.39" y="141.32" fill="#f0c27a" class="s12 b" text-anchor="middle">EW-02D ONLY</text>
+  <text x="441.02" y="144" fill="#dbe3ec" class="s14">
+    no accepted scope contract · new strings below return for approval
+  </text>
+  <rect
+    x="32"
+    y="168"
+    width="1536"
+    height="650"
+    rx="10"
+    fill="#1a222c"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <text x="64" y="211" fill="#eef2f7" class="s16 b">Assay</text>
+  <line x1="140" y1="190" x2="140" y2="218" stroke="#2b3743" stroke-width="1" />
+  <text x="156" y="211" fill="#b5c0cc" class="s14">Workbench</text>
+  <rect
+    x="268"
+    y="190"
+    width="305.19"
+    height="26"
+    rx="13"
+    fill="#26384c"
+    stroke="#3d5a78"
+    stroke-width="1"
+  />
+  <text x="420.6" y="208.04" fill="#a8c9ee" class="s14" text-anchor="middle">
+    Session · filtered view + 1 staged edit
+  </text>
+  <rect
+    x="1497.16"
+    y="188"
+    width="54.84"
+    height="32"
+    rx="7"
+    fill="#1a222c"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <text x="1524.58" y="209" fill="#dbe3ec" class="s14" text-anchor="middle">Help</text>
+  <rect
+    x="1405.48"
+    y="188"
+    width="83.68"
+    height="32"
+    rx="7"
+    fill="#1a222c"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <text x="1447.32" y="209" fill="#dbe3ec" class="s14" text-anchor="middle">Settings</text>
+  <rect
+    x="1321.01"
+    y="188"
+    width="76.47"
+    height="32"
+    rx="7"
+    fill="#1a222c"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <text x="1359.25" y="209" fill="#dbe3ec" class="s14" text-anchor="middle">Export…</text>
+  <rect
+    x="1250.96"
+    y="188"
+    width="62.05"
+    height="32"
+    rx="7"
+    fill="#1a222c"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <text x="1281.99" y="209" fill="#dbe3ec" class="s14" text-anchor="middle">Open…</text>
+  <line x1="48" y1="232" x2="1552" y2="232" stroke="#2b3743" stroke-width="1" />
+  <g id="existing-task-navigation">
+    <text x="64" y="256" fill="#eef2f7" class="s14 b">Explore</text>
+    <text x="164" y="256" fill="#b5c0cc" class="s14">Check</text>
+    <text x="250" y="256" fill="#b5c0cc" class="s14">Change</text>
+    <text x="350" y="256" fill="#b5c0cc" class="s14">Prepare</text>
+    <rect x="64" y="264" width="65" height="2" rx="1" fill="#7ab3f0" />
+  </g>
+  <line x1="48" y1="268" x2="1552" y2="268" stroke="#2b3743" stroke-width="1" />
+  <rect
+    x="48"
+    y="276"
+    width="320"
+    height="526"
+    rx="6"
+    fill="#141b23"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <rect
+    x="384"
+    y="276"
+    width="1168"
+    height="398"
+    rx="6"
+    fill="#1a222c"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <rect
+    x="384"
+    y="682"
+    width="1168"
+    height="120"
+    rx="6"
+    fill="#141b23"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <text x="64" y="302" fill="#eef2f7" class="s16 b">Tools</text>
+  <rect
+    x="56"
+    y="315"
+    width="296"
+    height="44"
+    rx="5"
+    fill="#26384c"
+    stroke="#3d5a78"
+    stroke-width="1"
+  />
+  <text x="64" y="330" fill="#a8c9ee" class="s14 b">Profile</text>
+  <text fill="#b5c0cc" class="s14">
+    <tspan x="64" y="350">File as opened — never live</tspan>
+    <tspan x="64" y="370.3">edited-view stats</tspan>
+  </text>
+  <text x="64" y="408" fill="#eef2f7" class="s14 b">Schema</text>
+  <text fill="#b5c0cc" class="s14">
+    <tspan x="64" y="428">Parsed types for the effective view</tspan>
+  </text>
+  <text x="64" y="466" fill="#eef2f7" class="s14 b">Filters</text>
+  <text fill="#b5c0cc" class="s14"><tspan x="64" y="486">Row filter for the grid only</tspan></text>
+  <g id="scope-profile-panel">
+    <text x="68" y="528" fill="#eef2f7" class="s14 b">Profile · amount</text>
+    <text fill="#b5c0cc" class="s14">
+      <tspan x="68" y="550">Statistics describe the file as</tspan>
+      <tspan x="68" y="569">opened — staged changes are not</tspan>
+      <tspan x="68" y="588">included.</tspan>
+    </text>
+    <rect
+      x="68"
+      y="602"
+      width="280"
+      height="46"
+      rx="5"
+      fill="#1a222c"
+      stroke="#465363"
+      stroke-width="1"
+      stroke-dasharray="4 3"
+    />
+    <text x="78" y="622" fill="#93a1b0" class="s12">quantile strip · shape omitted</text>
+    <text x="78" y="640" fill="#6fd3c0" class="s12">p50</text>
+    <text x="158" y="640" fill="#6fd3c0" class="s12">p90</text>
+    <text x="238" y="640" fill="#6fd3c0" class="s12">p95</text>
+    <text x="318" y="640" fill="#6fd3c0" class="s12">p99</text>
+    <text fill="#dbe3ec" class="s14">
+      <tspan x="68" y="668">Click a value or NULL to filter; a</tspan>
+      <tspan x="68" y="687">typed refusal keeps the filter.</tspan>
+    </text>
+  </g>
+  <rect
+    x="56"
+    y="690"
+    width="304"
+    height="84"
+    rx="6"
+    fill="#1f2b38"
+    stroke="#4c6480"
+    stroke-width="1"
+    stroke-dasharray="5 3"
+  />
+  <text x="66" y="707" fill="#7ab3f0" class="s12 b" letter-spacing="0.6">
+    SCOPE NOTE · PROPOSED, NOT APPROVED
+  </text>
+  <text fill="#cfe0f0" class="s12">
+    <tspan x="66" y="725">Profile = the original file. Grid, Record</tspan>
+    <tspan x="66" y="741">and validation = effective edited view; the</tspan>
+    <tspan x="66" y="757">grid filter never changes the profile.</tspan>
+  </text>
+  <g id="scope-grid">
+    <rect x="384" y="276" width="1168" height="32" fill="#223040" />
+    <text x="396" y="297" fill="#b5c0cc" class="s14 b">Filter</text>
+    <rect
+      x="458"
+      y="281"
+      width="119.73"
+      height="22"
+      rx="11"
+      fill="#26384c"
+      stroke="#3d5a78"
+      stroke-width="1"
+    />
+    <text x="469" y="297" fill="#a8c9ee" class="s14">status is set</text>
+    <text x="563.73" y="297" fill="#7ab3f0" class="s14">×</text>
+    <rect
+      x="585.73"
+      y="281"
+      width="119.73"
+      height="22"
+      rx="11"
+      fill="#26384c"
+      stroke="#3d5a78"
+      stroke-width="1"
+    />
+    <text x="596.73" y="297" fill="#a8c9ee" class="s14">region = west</text>
+    <text x="691.46" y="297" fill="#7ab3f0" class="s14">×</text>
+    <rect
+      x="713.46"
+      y="281"
+      width="98.1"
+      height="22"
+      rx="11"
+      fill="#26384c"
+      stroke="#3d5a78"
+      stroke-width="1"
+    />
+    <text x="724.46" y="297" fill="#a8c9ee" class="s14">amount &gt; 5</text>
+    <text x="797.56" y="297" fill="#7ab3f0" class="s14">×</text>
+    <line x1="384" y1="308" x2="1552" y2="308" stroke="#2b3743" stroke-width="1" />
+    <rect x="384" y="308" width="1168" height="34" fill="#223040" />
+    <text x="396" y="330" fill="#b5c0cc" class="s14 b">#</text>
+    <text x="452" y="330" fill="#b5c0cc" class="s14 b">id</text>
+    <text x="530" y="330" fill="#b5c0cc" class="s14 b">name</text>
+    <text x="762" y="330" fill="#b5c0cc" class="s14 b">status</text>
+    <text x="938" y="330" fill="#eef2f7" class="s14 b">amount</text>
+    <text x="1066" y="330" fill="#b5c0cc" class="s14 b">region</text>
+    <text x="1216" y="330" fill="#b5c0cc" class="s14 b">batch</text>
+    <text x="1344" y="330" fill="#b5c0cc" class="s14 b">checked</text>
+    <line x1="384" y1="342" x2="1552" y2="342" stroke="#2b3743" stroke-width="1" />
+    <line x1="384" y1="378" x2="1552" y2="378" stroke="#2b3743" stroke-width="1" />
+    <text x="396" y="366" fill="#93a1b0" class="s14">1</text>
+    <text x="452" y="366" fill="#eef2f7" class="s14">0003</text>
+    <text x="530" y="366" fill="#eef2f7" class="s14">Cedar Hollow</text>
+    <text x="762" y="366" fill="#eef2f7" class="s14">needs review</text>
+    <text x="938" y="366" fill="#eef2f7" class="s14">7.25</text>
+    <text x="1066" y="366" fill="#eef2f7" class="s14">west</text>
+    <text x="1216" y="366" fill="#eef2f7" class="s14">b-02</text>
+    <text x="1344" y="366" fill="#eef2f7" class="s14">not checked</text>
+    <line x1="384" y1="414" x2="1552" y2="414" stroke="#2b3743" stroke-width="1" />
+    <text x="396" y="402" fill="#93a1b0" class="s14">2</text>
+    <text x="452" y="402" fill="#eef2f7" class="s14">0004</text>
+    <text x="530" y="402" fill="#eef2f7" class="s14">Dunlin Marsh</text>
+    <text x="762" y="402" fill="#eef2f7" class="s14">hold</text>
+    <text x="938" y="402" fill="#eef2f7" class="s14">91.10</text>
+    <text x="1066" y="402" fill="#eef2f7" class="s14">west</text>
+    <text x="1216" y="402" fill="#eef2f7" class="s14">b-02</text>
+    <text x="1344" y="402" fill="#eef2f7" class="s14">not checked</text>
+    <rect x="384" y="414" width="1168" height="36" fill="#26384c" />
+    <line x1="384" y1="450" x2="1552" y2="450" stroke="#2b3743" stroke-width="1" />
+    <text x="396" y="438" fill="#93a1b0" class="s14">3</text>
+    <text x="452" y="438" fill="#eef2f7" class="s14">0006</text>
+    <text x="530" y="438" fill="#eef2f7" class="s14">Gale Point</text>
+    <text x="762" y="438" fill="#7ab3f0" class="s14 b">review</text>
+    <rect x="762" y="442" width="43.26" height="2" rx="1" fill="#7ab3f0" />
+    <text x="938" y="438" fill="#eef2f7" class="s14">33.40</text>
+    <text x="1066" y="438" fill="#eef2f7" class="s14">west</text>
+    <text x="1216" y="438" fill="#eef2f7" class="s14">b-03</text>
+    <text x="1344" y="438" fill="#eef2f7" class="s14">not checked</text>
+    <line x1="384" y1="486" x2="1552" y2="486" stroke="#2b3743" stroke-width="1" />
+    <text x="396" y="474" fill="#93a1b0" class="s14">4</text>
+    <text x="452" y="474" fill="#eef2f7" class="s14">0009</text>
+    <text x="530" y="474" fill="#eef2f7" class="s14">Juniper Slack</text>
+    <text x="762" y="474" fill="#eef2f7" class="s14">needs review</text>
+    <text x="938" y="474" fill="#eef2f7" class="s14">12.80</text>
+    <text x="1066" y="474" fill="#eef2f7" class="s14">west</text>
+    <text x="1216" y="474" fill="#eef2f7" class="s14">b-02</text>
+    <text x="1344" y="474" fill="#eef2f7" class="s14">not checked</text>
+    <line x1="384" y1="522" x2="1552" y2="522" stroke="#2b3743" stroke-width="1" />
+    <text x="396" y="510" fill="#93a1b0" class="s14">5</text>
+    <text x="452" y="510" fill="#eef2f7" class="s14">0011</text>
+    <text x="530" y="510" fill="#eef2f7" class="s14">Larch Bend</text>
+    <text x="762" y="510" fill="#eef2f7" class="s14">ok</text>
+    <text x="938" y="510" fill="#eef2f7" class="s14">6.40</text>
+    <text x="1066" y="510" fill="#eef2f7" class="s14">west</text>
+    <text x="1216" y="510" fill="#eef2f7" class="s14">b-03</text>
+    <text x="1344" y="510" fill="#eef2f7" class="s14">not checked</text>
+    <line x1="384" y1="558" x2="1552" y2="558" stroke="#2b3743" stroke-width="1" />
+    <text x="396" y="546" fill="#93a1b0" class="s14">6</text>
+    <text x="452" y="546" fill="#eef2f7" class="s14">0012</text>
+    <text x="530" y="546" fill="#eef2f7" class="s14">Marram Dune</text>
+    <text x="762" y="546" fill="#eef2f7" class="s14">hold</text>
+    <text x="938" y="546" fill="#eef2f7" class="s14">22.15</text>
+    <text x="1066" y="546" fill="#eef2f7" class="s14">west</text>
+    <text x="1216" y="546" fill="#eef2f7" class="s14">b-02</text>
+    <text x="1344" y="546" fill="#eef2f7" class="s14">not checked</text>
+    <line x1="384" y1="559" x2="1552" y2="559" stroke="#2b3743" stroke-width="1" />
+    <text x="396" y="582" fill="#93a1b0" class="s12">
+      Synthetic sample — one staged edit (row 3 status) is shown from the session overlay; the
+      filter is a grid view only.
+    </text>
+    <text x="396" y="600" fill="#93a1b0" class="s12">
+      Grid view = effective data + accepted filters. Profile includes neither staged edits nor these
+      filters.
+    </text>
+    <text x="1540" y="582" fill="#93a1b0" class="s12" text-anchor="end">
+      accepted filters · toy order
+    </text>
+  </g>
+  <g id="scope-record">
+    <text x="400" y="708" fill="#eef2f7" class="s16 b">Record</text>
+    <text x="400" y="740" fill="#eef2f7" class="s14">
+      row 3 · id 0006 · name Gale Point · status review · amount 33.40 · region west
+    </text>
+    <text x="400" y="778" fill="#93a1b0" class="s12">
+      Record reads the effective logical row (ADR 0011): the staged value is shown, the filter is
+      not a rewrite of data.
+    </text>
+  </g>
+  <g id="scope-profile">
+    <rect
+      x="32"
+      y="838"
+      width="500"
+      height="136"
+      rx="8"
+      fill="#1a222c"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="52" y="864" fill="#93a1b0" class="s12 b" letter-spacing="0.7">PROFILE</text>
+    <text x="52" y="888" fill="#eef2f7" class="s15 b">File as opened</text>
+    <rect
+      x="52"
+      y="898"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="85.64" y="911.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">EXISTING</text>
+    <text fill="#dbe3ec" class="s14">
+      <tspan x="126" y="910">Statistics describe the file as opened — staged</tspan>
+      <tspan x="126" y="928">changes are not included.</tspan>
+    </text>
+    <rect
+      x="52"
+      y="934"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="85.64" y="947.32" fill="#7ab3f0" class="s12 b" text-anchor="middle">PROPOSED</text>
+    <text fill="#b5c0cc" class="s14">
+      <tspan x="126" y="946">Name the grid filter as well; no origin badge or</tspan>
+      <tspan x="126" y="964">revision stamp is added.</tspan>
+    </text>
+  </g>
+  <g id="scope-sql">
+    <rect
+      x="550"
+      y="838"
+      width="500"
+      height="136"
+      rx="8"
+      fill="#1a222c"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="570" y="864" fill="#93a1b0" class="s12 b" letter-spacing="0.7">SQL</text>
+    <text x="570" y="888" fill="#eef2f7" class="s15 b">Supplied table, one page</text>
+    <rect
+      x="570"
+      y="898"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="603.64" y="911.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">EXISTING</text>
+    <text fill="#dbe3ec" class="s14">
+      <tspan x="644" y="910">Queries run against the supplied table; a result</tspan>
+      <tspan x="644" y="928">is one bounded page, not the whole result.</tspan>
+    </text>
+    <rect
+      x="570"
+      y="934"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="603.64" y="947.32" fill="#7ab3f0" class="s12 b" text-anchor="middle">PROPOSED</text>
+    <text fill="#b5c0cc" class="s14">
+      <tspan x="644" y="946">Name that table in the results header; the session</tspan>
+      <tspan x="644" y="964">overlay is not applied.</tspan>
+    </text>
+  </g>
+  <g id="scope-pipeline">
+    <rect
+      x="1068"
+      y="838"
+      width="500"
+      height="136"
+      rx="8"
+      fill="#1a222c"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="1088" y="864" fill="#93a1b0" class="s12 b" letter-spacing="0.7">PIPELINE</text>
+    <text x="1088" y="888" fill="#eef2f7" class="s15 b">“Use the open dataset”</text>
+    <rect
+      x="1088"
+      y="898"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="1121.64" y="911.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">EXISTING</text>
+    <text fill="#dbe3ec" class="s14">
+      <tspan x="1162" y="910">The “Use the open dataset” binding points at the</tspan>
+      <tspan x="1162" y="928">opened File, not the edited view.</tspan>
+    </text>
+    <rect
+      x="1088"
+      y="934"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="1121.64" y="947.32" fill="#7ab3f0" class="s12 b" text-anchor="middle">PROPOSED</text>
+    <text fill="#b5c0cc" class="s14">
+      <tspan x="1162" y="946">Say that staged edits and the grid filter are not</tspan>
+      <tspan x="1162" y="964">part of the pipeline source.</tspan>
+    </text>
+  </g>
+  <g id="scope-validation">
+    <rect
+      x="32"
+      y="986"
+      width="500"
+      height="136"
+      rx="8"
+      fill="#1a222c"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="52" y="1012" fill="#93a1b0" class="s12 b" letter-spacing="0.7">VALIDATION</text>
+    <text x="52" y="1036" fill="#eef2f7" class="s15 b">Whole effective data</text>
+    <rect
+      x="52"
+      y="1046"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="85.64" y="1059.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">EXISTING</text>
+    <text fill="#dbe3ec" class="s14">
+      <tspan x="126" y="1058">A run checks the whole effective dataset and</tspan>
+      <tspan x="126" y="1076">reports the checked row count.</tspan>
+    </text>
+    <rect
+      x="52"
+      y="1082"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="85.64" y="1095.32" fill="#7ab3f0" class="s12 b" text-anchor="middle">PROPOSED</text>
+    <text fill="#b5c0cc" class="s14">
+      <tspan x="126" y="1094">The grid filter is not applied; edits make the</tspan>
+      <tspan x="126" y="1112">verdict stale. Say both in the panel.</tspan>
+    </text>
+  </g>
+  <g id="scope-diff">
+    <rect
+      x="550"
+      y="986"
+      width="500"
+      height="136"
+      rx="8"
+      fill="#1a222c"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="570" y="1012" fill="#93a1b0" class="s12 b" letter-spacing="0.7">COMPARE</text>
+    <text x="570" y="1036" fill="#eef2f7" class="s15 b">Schema/profile first, rows second</text>
+    <rect
+      x="570"
+      y="1046"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="603.64" y="1059.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">EXISTING</text>
+    <text fill="#dbe3ec" class="s14">
+      <tspan x="644" y="1058">Preliminary schema and profile evidence compares</tspan>
+      <tspan x="644" y="1076">the original A and B.</tspan>
+    </text>
+    <rect
+      x="570"
+      y="1082"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="603.64" y="1095.32" fill="#7ab3f0" class="s12 b" text-anchor="middle">PROPOSED</text>
+    <text fill="#b5c0cc" class="s14">
+      <tspan x="644" y="1094">Row diff: effective A versus staged B;</tspan>
+      <tspan x="644" y="1112">label each stage scope.</tspan>
+    </text>
+  </g>
+  <g id="scope-export">
+    <rect
+      x="1068"
+      y="986"
+      width="500"
+      height="136"
+      rx="8"
+      fill="#1a222c"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="1088" y="1012" fill="#93a1b0" class="s12 b" letter-spacing="0.7">EXPORT</text>
+    <text x="1088" y="1036" fill="#eef2f7" class="s15 b">Whole effective data, natural order</text>
+    <rect
+      x="1088"
+      y="1046"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="1121.64" y="1059.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">EXISTING</text>
+    <text fill="#dbe3ec" class="s14">
+      <tspan x="1162" y="1058">Exports the complete edited dataset — all ⟨count⟩</tspan>
+      <tspan x="1162" y="1076">in natural order.</tspan>
+    </text>
+    <rect
+      x="1088"
+      y="1082"
+      width="67.28"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="1121.64" y="1095.32" fill="#7ab3f0" class="s12 b" text-anchor="middle">PROPOSED</text>
+    <text fill="#b5c0cc" class="s14">
+      <tspan x="1162" y="1094">Grid filters and sorting are not applied; ⟨count⟩</tspan>
+      <tspan x="1162" y="1112">is a runtime value elided here.</tspan>
+    </text>
+  </g>
+  <g id="scope-states">
+    <rect
+      x="32"
+      y="1134"
+      width="1536"
+      height="82"
+      rx="8"
+      fill="#1a222c"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="48" y="1156" fill="#b5c0cc" class="s12 b" letter-spacing="0.6">
+      STATES · ILLUSTRATIVE COPY PENDING EW-02D — NO METRIC, TIMING OR ROW COUNT IS SHOWN
+    </text>
+    <rect
+      x="48"
+      y="1166"
+      width="47.3"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="71.65" y="1179.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">EMPTY</text>
+    <text fill="#dbe3ec" class="s12">
+      <tspan x="105.3" y="1180">Empty view: no rows match the current filter;</tspan>
+      <tspan x="105.3" y="1195">the scope note stays visible.</tspan>
+    </text>
+    <rect
+      x="426"
+      y="1166"
+      width="60.62"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="456.31" y="1179.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">LOADING</text>
+    <text fill="#dbe3ec" class="s12">
+      <tspan x="496.62" y="1180">Loading: a reading placeholder only — no</tspan>
+      <tspan x="496.62" y="1195">earlier statistic is shown as current.</tspan>
+    </text>
+    <rect
+      x="804"
+      y="1166"
+      width="47.3"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="827.65" y="1179.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">STALE</text>
+    <text fill="#dbe3ec" class="s12">
+      <tspan x="861.3" y="1180">Stale: an edit makes a verdict stale and a</tspan>
+      <tspan x="861.3" y="1195">re-run stays explicit; wording pending.</tspan>
+    </text>
+    <rect
+      x="1182"
+      y="1166"
+      width="47.3"
+      height="18"
+      rx="9"
+      fill="#141b23"
+      stroke="#465363"
+      stroke-width="1"
+    />
+    <text x="1205.65" y="1179.32" fill="#6fd3c0" class="s12 b" text-anchor="middle">ERROR</text>
+    <text fill="#dbe3ec" class="s12">
+      <tspan x="1239.3" y="1180">Error: a classified message, with the scope</tspan>
+      <tspan x="1239.3" y="1195">note still where it was.</tspan>
+    </text>
+  </g>
+  <rect
+    x="32"
+    y="1226"
+    width="1536"
+    height="32"
+    rx="6"
+    fill="#141b23"
+    stroke="#465363"
+    stroke-width="1"
+  />
+  <text x="48" y="1247" fill="#b5c0cc" class="s12 b" letter-spacing="0.7">APPROVAL PATH</text>
+  <text x="176" y="1247" fill="#dbe3ec" class="s12">
+    1 Retain honest copy → 2 Return the exact per-surface table → 3 Independent review → 4 EW-02I
+    runtime brief only after acceptance
+  </text>
+  <text x="32" y="1284" fill="#93a1b0" class="s12">
+    Tasks / specification: docs/product/16-essential-workbench-first-wave-spec.md §4 (EW-02D) ·
+    existing copy anchored in apps/web/src/profile, sql, pipeline, validation, diff and export
+    panels · ADR 0044 (shell).
+  </text>
+  <text x="32" y="1304" fill="#93a1b0" class="s12">
+    Synthetic data only · dark theme is the same shell for colour neutrality · existing semantics
+    are quoted, proposed wording is unapproved · no runtime, metric or accessibility evidence
+    claimed.
+  </text>
+</svg>

@@ -24,6 +24,13 @@ index, not the execution-history archive.
 
 **Essential-workflow comparison (2026-11-12; historical research/proposal status, first-wave selection above):** the maintainer requested comparison with spreadsheet and adjacent workbench functionality, emphasizing essential coverage rather than parity. Three read-only subagents and official web documentation informed the [comparison report](../reviews/2026-11-12-essential-workbench-comparison.md) (24 sources; source/test-qualified Assay inventory) and [bounded enhancement proposal](../product/15-essential-workbench-enhancements.md) (EW-01…EW-08, priorities and acceptance journeys). Recommended focus: the already-designed WF-06 session-preservation work (runtime not implemented or authorized), explicit scope, CSV interpretation, and a small atomic bulk-repair slice; existing features are not proposed as new. All candidates remain proposed; WF/WFD/engine-track decisions and RD-T07 remain unchanged. No runtime or competitor hands-on tests ran, and no implementation or push is authorized by this research.
 
+**Visual task companion (2026-11-13; design only):** the maintainer commissioned a
+[four-board essential-workbench SVG pack](../../assests/svg/essential-workbench/README.md) for the next
+agents: replacement, scope clarity, CSV interpretation and bulk repair. Each board separates specified
+behavior from proposed controls/copy and maps to the first-wave contracts/tests. Static artwork is not
+runtime verification, a new technical contract or authority to implement blocked successors; it does not
+hold up WF-06. Use the textual handoff/specification before the pictures.
+
 ## 0. How to use this document
 
 Read this file, [AGENTS.md](../../AGENTS.md), the

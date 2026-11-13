@@ -5,6 +5,11 @@
 This specification bounds the maintainer's “proceed with your recommendations” instruction; it is not
 permission to implement every candidate in [the proposal](15-essential-workbench-enhancements.md).
 
+**Visual companion:** [essential-workbench SVG pickup](../../assests/svg/essential-workbench/README.md)
+(2026-11-13) illustrates replacement, scope, CSV and bulk-repair states in the existing shell. It is static
+design guidance, not a pixel contract, delivered technical design or additional runtime selection. Textual
+requirements and approval/return gates below prevail.
+
 ## 1. Outcome and selected denominator
 
 First preserve work; then make current data scope intelligible; design import fidelity and atomic bulk

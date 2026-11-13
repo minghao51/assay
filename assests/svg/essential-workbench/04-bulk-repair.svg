@@ -1,0 +1,595 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1320"
+  viewBox="0 0 1600 1320"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">04 / Preview a small repair. Apply once. Undo once.</title>
+  <desc id="desc">
+    Essential workbench concept 04. A proposed bulk text repair in the existing tools pane: an exact
+    mapping under an accepted filter, a bounded before/after preview of four toy rows, a disabled
+    Apply with the reason, and the stale, failure and history states. EW-04D design only. Static
+    drawing, synthetic data, not a runtime screenshot.
+  </desc>
+  <style>
+    text {
+      font-family:
+        system-ui,
+        -apple-system,
+        'Segoe UI',
+        sans-serif;
+    }
+    text.b {
+      font-weight: 650;
+    }
+    text.m {
+      font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    }
+    text.i {
+      font-style: italic;
+    }
+    text.s12 {
+      font-size: 12px;
+    }
+    text.s14 {
+      font-size: 14px;
+    }
+    text.s15 {
+      font-size: 15px;
+    }
+    text.s16 {
+      font-size: 16px;
+    }
+    text.s17 {
+      font-size: 17px;
+    }
+    text.s18 {
+      font-size: 18px;
+    }
+    text.s20 {
+      font-size: 20px;
+    }
+    text.s24 {
+      font-size: 24px;
+    }
+    text.s28 {
+      font-size: 28px;
+    }
+  </style>
+  <rect x="0" y="0" width="1600" height="1320" fill="#f3f5f7" stroke="#ccd3db" stroke-width="1" />
+  <text x="32" y="30" fill="#69737d" class="s12 b" letter-spacing="1.4">
+    ASSAY / ESSENTIAL WORKBENCH 04
+  </text>
+  <rect
+    x="1161.72"
+    y="18"
+    width="406.28"
+    height="22"
+    rx="11"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1364.86" y="33.32" fill="#555c64" class="s12 b" text-anchor="middle">
+    STATIC CONCEPT • synthetic data • not a runtime screenshot
+  </text>
+  <text x="32" y="78" fill="#1a1a1a" class="s28 b">
+    04 / Preview a small repair. Apply once. Undo once.
+  </text>
+  <text x="32" y="110" fill="#555c64" class="s15">
+    One exact text mapping on one column under an accepted filter — planned, previewed, applied
+    atomically and undone in one step.
+  </text>
+  <rect
+    x="32"
+    y="126"
+    width="93.26"
+    height="22"
+    rx="11"
+    fill="#fdf4e3"
+    stroke="#e7d3a8"
+    stroke-width="1"
+  />
+  <text x="78.63" y="141.32" fill="#8a5a00" class="s12 b" text-anchor="middle">DESIGN ONLY</text>
+  <rect
+    x="135.26"
+    y="126"
+    width="59.96"
+    height="22"
+    rx="11"
+    fill="#e9f1f9"
+    stroke="#b6cde4"
+    stroke-width="1"
+  />
+  <text x="165.24" y="141.32" fill="#14496f" class="s12 b" text-anchor="middle">EW-04D</text>
+  <rect
+    x="205.22"
+    y="126"
+    width="226.46"
+    height="22"
+    rx="11"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="318.45" y="141.32" fill="#555c64" class="s12 b" text-anchor="middle">
+    ATOMIC REPRESENTATION UNDECIDED
+  </text>
+  <text x="447.68" y="144" fill="#2c343d" class="s14">
+    no bulk repair, no new edit operation and no engine change is implemented or approved
+  </text>
+  <rect
+    x="32"
+    y="168"
+    width="1536"
+    height="650"
+    rx="10"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="64" y="211" fill="#1a1a1a" class="s16 b">Assay</text>
+  <line x1="140" y1="190" x2="140" y2="218" stroke="#dde3e9" stroke-width="1" />
+  <text x="156" y="211" fill="#555c64" class="s14">Workbench</text>
+  <rect
+    x="268"
+    y="190"
+    width="261.93"
+    height="26"
+    rx="13"
+    fill="#e4f2ef"
+    stroke="#b4dcd4"
+    stroke-width="1"
+  />
+  <text x="398.97" y="208.04" fill="#0f6f63" class="s14" text-anchor="middle">
+    Session · live dataset, unchanged
+  </text>
+  <rect
+    x="1497.16"
+    y="188"
+    width="54.84"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1524.58" y="209" fill="#2c343d" class="s14" text-anchor="middle">Help</text>
+  <rect
+    x="1405.48"
+    y="188"
+    width="83.68"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1447.32" y="209" fill="#2c343d" class="s14" text-anchor="middle">Settings</text>
+  <rect
+    x="1321.01"
+    y="188"
+    width="76.47"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1359.25" y="209" fill="#2c343d" class="s14" text-anchor="middle">Export…</text>
+  <rect
+    x="1250.96"
+    y="188"
+    width="62.05"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1281.99" y="209" fill="#2c343d" class="s14" text-anchor="middle">Open…</text>
+  <line x1="48" y1="232" x2="1552" y2="232" stroke="#dde3e9" stroke-width="1" />
+  <g id="existing-task-navigation">
+    <text x="64" y="256" fill="#555c64" class="s14">Explore</text>
+    <text x="164" y="256" fill="#555c64" class="s14">Check</text>
+    <text x="250" y="256" fill="#1a1a1a" class="s14 b">Change</text>
+    <text x="350" y="256" fill="#555c64" class="s14">Prepare</text>
+    <rect x="250" y="264" width="63" height="2" rx="1" fill="#1d5f9e" />
+  </g>
+  <line x1="48" y1="268" x2="1552" y2="268" stroke="#dde3e9" stroke-width="1" />
+  <rect
+    x="48"
+    y="276"
+    width="320"
+    height="526"
+    rx="6"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <rect
+    x="384"
+    y="276"
+    width="1168"
+    height="398"
+    rx="6"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <rect
+    x="384"
+    y="682"
+    width="1168"
+    height="120"
+    rx="6"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="64" y="302" fill="#1a1a1a" class="s16 b">Tools</text>
+  <g id="repair-controls">
+    <text x="68" y="326" fill="#14496f" class="s12 b" letter-spacing="0.7">
+      BULK REPAIR · PROPOSED
+    </text>
+    <text x="68" y="348" fill="#1a1a1a" class="s14 b">Map exact text on one column</text>
+    <text x="68" y="366" fill="#555c64" class="s14">column · status (text)</text>
+    <rect
+      x="68"
+      y="378"
+      width="280"
+      height="42"
+      rx="6"
+      fill="#ffffff"
+      stroke="#b6cde4"
+      stroke-width="1"
+    />
+    <text x="78" y="396" fill="#1a1a1a" class="s14 b m">“Needs review”</text>
+    <text x="78" y="414" fill="#14496f" class="s14 b m">“review”</text>
+    <text x="208" y="396" fill="#69737d" class="s12">find (exact)</text>
+    <text x="208" y="414" fill="#69737d" class="s12">replace</text>
+    <text x="68" y="442" fill="#14496f" class="s12 b" letter-spacing="0.7">
+      SCOPE · ACCEPTED FILTER
+    </text>
+    <text x="68" y="462" fill="#1a1a1a" class="s14 b m">status = 'Needs review'</text>
+    <text x="68" y="480" fill="#69737d" class="s12">
+      as drawn — a volatile filter is unresolved
+    </text>
+    <text x="68" y="506" fill="#8a5a00" class="s12 b" letter-spacing="0.7">
+      TRIMMED WHITESPACE · UNDECIDED
+    </text>
+    <text x="68" y="526" fill="#69737d" class="s12">
+      Trim is an alternative, not a default: code
+    </text>
+    <text x="68" y="542" fill="#69737d" class="s12">
+      points and edge-only behaviour are unchosen.
+    </text>
+    <rect
+      x="68"
+      y="558"
+      width="280"
+      height="104"
+      rx="6"
+      fill="#ffffff"
+      stroke="#b4dcd4"
+      stroke-width="1"
+    />
+    <text x="78" y="576" fill="#0f6f63" class="s12 b" letter-spacing="0.7">PREVIEW</text>
+    <text x="78" y="594" fill="#0f6f63" class="s12">Synthetic complete-check example</text>
+    <text x="78" y="616" fill="#1a1a1a" class="s14">4 toy rows · 2 matched and changed</text>
+    <text x="78" y="634" fill="#1a1a1a" class="s14">2 untouched · 0 errors</text>
+    <text x="78" y="652" fill="#69737d" class="s12">examples, not a measured result</text>
+    <rect
+      x="68"
+      y="674"
+      width="280"
+      height="40"
+      rx="7"
+      fill="#f7f9fb"
+      stroke="#dde3e9"
+      stroke-width="1"
+      stroke-dasharray="4 3"
+    />
+    <text x="208" y="690" fill="#69737d" class="s14" text-anchor="middle">Apply repair</text>
+    <text x="208" y="706" fill="#69737d" class="s12" text-anchor="middle">unavailable</text>
+    <text fill="#9c2b2b" class="s12">
+      <tspan x="68" y="734">Apply unavailable until atomic design</tspan>
+      <tspan x="68" y="750">and semantics are accepted.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="68" y="776">No expression UI, regex, dedupe, fuzzy or</tspan>
+      <tspan x="68" y="792">multi-column repair.</tspan>
+    </text>
+  </g>
+  <g id="repair-grid">
+    <rect x="384" y="276" width="1168" height="34" fill="#eef2f6" />
+    <text x="396" y="298" fill="#555c64" class="s14 b">#</text>
+    <text x="454" y="298" fill="#555c64" class="s14 b">id</text>
+    <text x="544" y="298" fill="#555c64" class="s14 b">name</text>
+    <text x="804" y="298" fill="#555c64" class="s14 b">status</text>
+    <text x="1014" y="298" fill="#555c64" class="s14 b">region</text>
+    <text x="1174" y="298" fill="#555c64" class="s14 b">amount</text>
+    <text x="1324" y="298" fill="#555c64" class="s14 b">plan for this row</text>
+    <line x1="384" y1="310" x2="1552" y2="310" stroke="#dde3e9" stroke-width="1" />
+    <rect x="384" y="310" width="1168" height="36" fill="#e9f1f9" />
+    <line x1="384" y1="346" x2="1552" y2="346" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="334" fill="#69737d" class="s14">1</text>
+    <text x="454" y="334" fill="#1a1a1a" class="s14">0001</text>
+    <text x="544" y="334" fill="#1a1a1a" class="s14">Aster Field Survey</text>
+    <text x="804" y="334" fill="#14496f" class="s14 b">Needs review</text>
+    <rect x="804" y="338" width="86.52" height="2" rx="1" fill="#1d5f9e" />
+    <text x="1014" y="334" fill="#1a1a1a" class="s14">north</text>
+    <text x="1174" y="334" fill="#1a1a1a" class="s14">12.50</text>
+    <text x="1324" y="334" fill="#0f6f63" class="s14">matched · changes</text>
+    <line x1="384" y1="382" x2="1552" y2="382" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="370" fill="#69737d" class="s14">2</text>
+    <text x="454" y="370" fill="#1a1a1a" class="s14">0002</text>
+    <text x="544" y="370" fill="#1a1a1a" class="s14">Bright Meadow</text>
+    <text x="804" y="370" fill="#14496f" class="s14 b">Needs review</text>
+    <rect x="804" y="374" width="86.52" height="2" rx="1" fill="#1d5f9e" />
+    <text x="1014" y="370" fill="#1a1a1a" class="s14">south</text>
+    <text x="1174" y="370" fill="#1a1a1a" class="s14">48.00</text>
+    <text x="1324" y="370" fill="#0f6f63" class="s14">matched · changes</text>
+    <line x1="384" y1="418" x2="1552" y2="418" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="406" fill="#69737d" class="s14">3</text>
+    <text x="454" y="406" fill="#1a1a1a" class="s14">0003</text>
+    <text x="544" y="406" fill="#1a1a1a" class="s14">Cedar Hollow</text>
+    <text x="804" y="406" fill="#1a1a1a" class="s14">needs review</text>
+    <text x="1014" y="406" fill="#1a1a1a" class="s14">west</text>
+    <text x="1174" y="406" fill="#1a1a1a" class="s14">7.25</text>
+    <text x="1324" y="406" fill="#69737d" class="s14">untouched · text differs</text>
+    <line x1="384" y1="454" x2="1552" y2="454" stroke="#dde3e9" stroke-width="1" />
+    <text x="396" y="442" fill="#69737d" class="s14">4</text>
+    <text x="454" y="442" fill="#1a1a1a" class="s14">0004</text>
+    <text x="544" y="442" fill="#1a1a1a" class="s14">Dunlin Marsh</text>
+    <text x="804" y="442" fill="#1a1a1a" class="s14">ok</text>
+    <text x="1014" y="442" fill="#1a1a1a" class="s14">east</text>
+    <text x="1174" y="442" fill="#1a1a1a" class="s14">91.10</text>
+    <text x="1324" y="442" fill="#69737d" class="s14">untouched · no match</text>
+    <rect
+      x="396"
+      y="470"
+      width="566"
+      height="76"
+      rx="6"
+      fill="#f4f7fb"
+      stroke="#bfd2e3"
+      stroke-width="1"
+      stroke-dasharray="5 3"
+    />
+    <text x="406" y="487" fill="#14496f" class="s12 b" letter-spacing="0.6">
+      TOY EXAMPLE, NOT EVIDENCE
+    </text>
+    <text fill="#23364d" class="s12">
+      <tspan x="406" y="505">
+        Full toy context includes nonmatching rows to show preservation. Only two match
+      </tspan>
+      <tspan x="406" y="521">
+        the illustrated predicate; this is not a filtered viewport or a measured run.
+      </tspan>
+    </text>
+    <rect
+      x="978"
+      y="470"
+      width="566"
+      height="76"
+      rx="6"
+      fill="#f4f7fb"
+      stroke="#bfd2e3"
+      stroke-width="1"
+      stroke-dasharray="5 3"
+    />
+    <text x="988" y="487" fill="#14496f" class="s12 b" letter-spacing="0.6">
+      IDENTITY AND SCOPE
+    </text>
+    <text fill="#23364d" class="s12">
+      <tspan x="988" y="505">
+        Rows are logical identities (ADR 0011), never DOM rows; the plan targets the
+      </tspan>
+      <tspan x="988" y="521">
+        effective view plus the accepted filter, whose membership may be volatile.
+      </tspan>
+    </text>
+  </g>
+  <g id="repair-preview">
+    <text x="396" y="562" fill="#14496f" class="s12 b" letter-spacing="0.6">
+      BOUNDED BEFORE/AFTER EXAMPLES · PROPOSED PREVIEW
+    </text>
+    <text x="452" y="584" fill="#69737d" class="s12 b" letter-spacing="0.6">before</text>
+    <text x="600" y="584" fill="#69737d" class="s12 b" letter-spacing="0.6">after</text>
+    <text x="396" y="606" fill="#69737d" class="s12">row 1</text>
+    <text x="452" y="606" fill="#1a1a1a" class="s14 m">Needs review</text>
+    <text x="572" y="606" fill="#555c64" class="s14">→</text>
+    <text x="592" y="606" fill="#0f6f63" class="s14 m">review</text>
+    <text x="396" y="626" fill="#69737d" class="s12">row 2</text>
+    <text x="452" y="626" fill="#1a1a1a" class="s14 m">Needs review</text>
+    <text x="572" y="626" fill="#555c64" class="s14">→</text>
+    <text x="592" y="626" fill="#0f6f63" class="s14 m">review</text>
+    <text x="396" y="646" fill="#69737d" class="s12">row 3</text>
+    <text x="452" y="646" fill="#1a1a1a" class="s14 m">needs review</text>
+    <text x="572" y="646" fill="#555c64" class="s14">→</text>
+    <text x="592" y="646" fill="#555c64" class="s14 m">unchanged</text>
+    <text x="396" y="666" fill="#69737d" class="s12">row 4</text>
+    <text x="452" y="666" fill="#1a1a1a" class="s14 m">ok</text>
+    <text x="572" y="666" fill="#555c64" class="s14">→</text>
+    <text x="592" y="666" fill="#555c64" class="s14 m">unchanged</text>
+  </g>
+  <g id="repair-record">
+    <text x="400" y="708" fill="#1a1a1a" class="s16 b">Record</text>
+    <text x="400" y="740" fill="#1a1a1a" class="s14">
+      row 1 · id 0001 · name Aster Field Survey · status Needs review · amount 12.50
+    </text>
+    <text x="400" y="778" fill="#69737d" class="s12">
+      The live session shows no repair yet: the grid is the current effective view, and Record keeps
+      logical row 1 selected until an applied outcome exists.
+    </text>
+  </g>
+  <g id="repair-stale">
+    <rect
+      x="32"
+      y="838"
+      width="501"
+      height="242"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="52" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">STATE · STALE PLAN</text>
+    <text x="52" y="888" fill="#1a1a1a" class="s15 b">Refuse, do not guess</text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="52" y="912">A new applied edit, a filter change, a rename or cast, or an</tspan>
+      <tspan x="52" y="932">adoption invalidates the plan. Apply then refuses and asks</tspan>
+      <tspan x="52" y="952">for a fresh preview instead of repairing a different set.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="52" y="978">
+        Scrolling and selection alone do not invalidate the plan; volatile
+      </tspan>
+      <tspan x="52" y="994">filter membership is still unresolved.</tspan>
+    </text>
+  </g>
+  <g id="repair-failure">
+    <rect
+      x="549"
+      y="838"
+      width="501"
+      height="242"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="569" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · EXECUTION FAILURE
+    </text>
+    <text x="569" y="888" fill="#1a1a1a" class="s15 b">Previous view retained</text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="569" y="912">If the bounded engine operation fails, the previous history,</tspan>
+      <tspan x="569" y="932">overlay and grid view stay exactly as they were: no partial</tspan>
+      <tspan x="569" y="952">repair, no half-published history entry.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="569" y="978">
+        Transport failure, restore failure and repeat Apply still need a joint
+      </tspan>
+      <tspan x="569" y="994">rollback design; no engine Cancel or interrupt is claimed.</tspan>
+    </text>
+  </g>
+  <g id="repair-history">
+    <rect
+      x="1067"
+      y="838"
+      width="501"
+      height="242"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="1087" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · SUCCESS, DESIRED BEHAVIOR
+    </text>
+    <text x="1087" y="888" fill="#1a1a1a" class="s15 b">One action, one Undo</text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="1087" y="912">A successful repair publishes one History action: Undo</tspan>
+      <tspan x="1087" y="932">restores the prior overlay in a single step and Redo</tspan>
+      <tspan x="1087" y="952">re-applies it. Nothing is folded per cell.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="1087" y="978">Exact replay and refolding of active operations, and one</tspan>
+      <tspan x="1087" y="994">
+        worker-plus-History publication boundary, must be specified before
+      </tspan>
+      <tspan x="1087" y="1010">this is real.</tspan>
+    </text>
+  </g>
+  <g id="repair-decisions">
+    <rect
+      x="32"
+      y="1092"
+      width="1536"
+      height="112"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <rect
+      x="48"
+      y="1106"
+      width="82.6"
+      height="18"
+      rx="9"
+      fill="#fdf4e3"
+      stroke="#e7d3a8"
+      stroke-width="1"
+    />
+    <text x="89.3" y="1119.32" fill="#8a5a00" class="s12 b" text-anchor="middle">UNRESOLVED</text>
+    <text fill="#2c343d" class="s12">
+      <tspan x="156" y="1120">
+        Owner: maintainer. Exact trim code points and edge-only scope · case, equality and collation
+        · mapping collisions · simultaneous versus cascading replacement · NULL and empty policy ·
+        no-op and dirty treatment ·
+      </tspan>
+      <tspan x="156" y="1137">
+        inserted, deleted or previously edited rows · determinism of accepted filters · resource
+        bounds.
+      </tspan>
+    </text>
+    <rect
+      x="48"
+      y="1146"
+      width="69.28"
+      height="18"
+      rx="9"
+      fill="#e9f1f9"
+      stroke="#b6cde4"
+      stroke-width="1"
+    />
+    <text x="82.64" y="1159.32" fill="#14496f" class="s12 b" text-anchor="middle">REQUIRED</text>
+    <text fill="#2c343d" class="s12">
+      <tspan x="156" y="1160">
+        A bounded atomic representation (compact relational operation or an engine-owned delta) ·
+        one logical publication boundary across worker and History · logical row identity, not DOM
+        rows · no unbounded JavaScript
+      </tspan>
+      <tspan x="156" y="1177">
+        cell loop · exact replay and refolding · no false engine Cancel.
+      </tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="156" y="1198">
+        Out of scope: regex, deduplication, fuzzy matching, multi-column repair, range paste and a
+        general expression UI.
+      </tspan>
+    </text>
+  </g>
+  <rect
+    x="32"
+    y="1216"
+    width="1536"
+    height="32"
+    rx="6"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="48" y="1237" fill="#555c64" class="s12 b" letter-spacing="0.7">ACCEPTANCE PATH</text>
+  <text x="176" y="1237" fill="#2c343d" class="s12">
+    1 Choose a bounded atomic representation → 2 Decide trim, case, NULL and collision semantics → 3
+    Specify joint worker + History publication → 4 Then an EW-04I brief
+  </text>
+  <text x="32" y="1284" fill="#69737d" class="s12">
+    Tasks / specification: docs/product/16-essential-workbench-first-wave-spec.md §6 (EW-04D) · ADRs
+    0003 (engine owns data), 0011/0012 (logical identity, immutable source + overlay), 0029/0030
+    (SQL/Pipeline IR), 0044 (shell).
+  </text>
+  <text x="32" y="1304" fill="#69737d" class="s12">
+    Synthetic data only · mapping, scope, counts and buttons are schematic and unapproved ·
+    “Synthetic complete-check example” is a four-row illustration, not a measured result · no
+    runtime, timing or accessibility evidence claimed.
+  </text>
+</svg>

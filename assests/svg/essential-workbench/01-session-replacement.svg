@@ -1,0 +1,801 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1600"
+  height="1320"
+  viewBox="0 0 1600 1320"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">01 / Preserve the session until adoption</title>
+  <desc id="desc">
+    Essential workbench concept 01. A dirty session keeps its staged work through the native
+    replacement guard, chooser cancel, candidate progress, candidate failure and pending-work
+    refusal. Reviewed target selected as WF-06; not implemented. Static drawing, synthetic data, not
+    a runtime screenshot.
+  </desc>
+  <style>
+    text {
+      font-family:
+        system-ui,
+        -apple-system,
+        'Segoe UI',
+        sans-serif;
+    }
+    text.b {
+      font-weight: 650;
+    }
+    text.m {
+      font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    }
+    text.i {
+      font-style: italic;
+    }
+    text.s12 {
+      font-size: 12px;
+    }
+    text.s14 {
+      font-size: 14px;
+    }
+    text.s15 {
+      font-size: 15px;
+    }
+    text.s16 {
+      font-size: 16px;
+    }
+    text.s17 {
+      font-size: 17px;
+    }
+    text.s18 {
+      font-size: 18px;
+    }
+    text.s20 {
+      font-size: 20px;
+    }
+    text.s24 {
+      font-size: 24px;
+    }
+    text.s28 {
+      font-size: 28px;
+    }
+  </style>
+  <rect x="0" y="0" width="1600" height="1320" fill="#f3f5f7" stroke="#ccd3db" stroke-width="1" />
+  <text x="32" y="30" fill="#69737d" class="s12 b" letter-spacing="1.4">
+    ASSAY / ESSENTIAL WORKBENCH 01
+  </text>
+  <rect
+    x="1161.72"
+    y="18"
+    width="406.28"
+    height="22"
+    rx="11"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1364.86" y="33.32" fill="#555c64" class="s12 b" text-anchor="middle">
+    STATIC CONCEPT • synthetic data • not a runtime screenshot
+  </text>
+  <text x="32" y="78" fill="#1a1a1a" class="s28 b">01 / Preserve the session until adoption</text>
+  <text x="32" y="110" fill="#555c64" class="s15">
+    A dirty session keeps its staged work through the guard, cancellation, progress and failure —
+    the shell is never replaced first.
+  </text>
+  <rect
+    x="32"
+    y="126"
+    width="119.9"
+    height="22"
+    rx="11"
+    fill="#e9f1f9"
+    stroke="#b6cde4"
+    stroke-width="1"
+  />
+  <text x="91.95" y="141.32" fill="#14496f" class="s12 b" text-anchor="middle">
+    REVIEWED TARGET
+  </text>
+  <rect
+    x="161.9"
+    y="126"
+    width="119.9"
+    height="22"
+    rx="11"
+    fill="#fdf4e3"
+    stroke="#e7d3a8"
+    stroke-width="1"
+  />
+  <text x="221.85" y="141.32" fill="#8a5a00" class="s12 b" text-anchor="middle">
+    NOT IMPLEMENTED
+  </text>
+  <text x="297.8" y="144" fill="#2c343d" class="s14">
+    WF-06 runtime-selected 2026-11-13 — no code shipped, gate set still pending
+  </text>
+  <rect
+    x="32"
+    y="168"
+    width="1536"
+    height="650"
+    rx="10"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="64" y="211" fill="#1a1a1a" class="s16 b">Assay</text>
+  <line x1="140" y1="190" x2="140" y2="218" stroke="#dde3e9" stroke-width="1" />
+  <text x="156" y="211" fill="#555c64" class="s14">Workbench</text>
+  <rect
+    x="268"
+    y="190"
+    width="276.35"
+    height="26"
+    rx="13"
+    fill="#fdf4e3"
+    stroke="#e7d3a8"
+    stroke-width="1"
+  />
+  <text x="406.18" y="208.04" fill="#8a5a00" class="s14" text-anchor="middle">
+    Session · staged changes, not saved
+  </text>
+  <rect
+    x="1497.16"
+    y="188"
+    width="54.84"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1524.58" y="209" fill="#69737d" class="s14" text-anchor="middle">Help</text>
+  <rect
+    x="1405.48"
+    y="188"
+    width="83.68"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1447.32" y="209" fill="#69737d" class="s14" text-anchor="middle">Settings</text>
+  <rect
+    x="1321.01"
+    y="188"
+    width="76.47"
+    height="32"
+    rx="7"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="1359.25" y="209" fill="#69737d" class="s14" text-anchor="middle">Export…</text>
+  <rect
+    x="1250.96"
+    y="188"
+    width="62.05"
+    height="32"
+    rx="7"
+    fill="#f7f9fb"
+    stroke="#dde3e9"
+    stroke-width="1"
+    stroke-dasharray="4 3"
+  />
+  <text x="1281.99" y="209" fill="#69737d" class="s14" text-anchor="middle">Open…</text>
+  <line x1="48" y1="232" x2="1552" y2="232" stroke="#dde3e9" stroke-width="1" />
+  <g id="existing-task-navigation">
+    <text x="64" y="256" fill="#555c64" class="s14">Explore</text>
+    <text x="164" y="256" fill="#555c64" class="s14">Check</text>
+    <text x="250" y="256" fill="#1a1a1a" class="s14 b">Change</text>
+    <text x="350" y="256" fill="#555c64" class="s14">Prepare</text>
+    <rect x="250" y="264" width="63" height="2" rx="1" fill="#1d5f9e" />
+  </g>
+  <line x1="48" y1="268" x2="1552" y2="268" stroke="#dde3e9" stroke-width="1" />
+  <rect
+    x="48"
+    y="276"
+    width="320"
+    height="526"
+    rx="6"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <rect
+    x="384"
+    y="276"
+    width="1168"
+    height="398"
+    rx="6"
+    fill="#ffffff"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <rect
+    x="384"
+    y="682"
+    width="1168"
+    height="120"
+    rx="6"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="64" y="302" fill="#1a1a1a" class="s16 b">Tools</text>
+  <text x="64" y="330" fill="#1a1a1a" class="s14 b">Editing</text>
+  <text fill="#555c64" class="s14">
+    <tspan x="64" y="350">Typed changes remain staged</tspan>
+  </text>
+  <text x="64" y="384" fill="#1a1a1a" class="s14 b">History</text>
+  <text fill="#555c64" class="s14"><tspan x="64" y="404">Review and undo staged edits</tspan></text>
+  <rect
+    x="56"
+    y="423"
+    width="296"
+    height="44"
+    rx="5"
+    fill="#e9f1f9"
+    stroke="#b6cde4"
+    stroke-width="1"
+  />
+  <text x="64" y="438" fill="#14496f" class="s14 b">Export</text>
+  <text fill="#555c64" class="s14">
+    <tspan x="64" y="458">Write a reviewed copy</tspan>
+  </text>
+  <rect x="384" y="276" width="1168" height="34" fill="#eef2f6" />
+  <text x="396" y="298" fill="#555c64" class="s14 b">#</text>
+  <text x="454" y="298" fill="#555c64" class="s14 b">id</text>
+  <text x="538" y="298" fill="#555c64" class="s14 b">name</text>
+  <text x="774" y="298" fill="#555c64" class="s14 b">status</text>
+  <text x="942" y="298" fill="#555c64" class="s14 b">amount</text>
+  <text x="1068" y="298" fill="#555c64" class="s14 b">region</text>
+  <text x="1214" y="298" fill="#555c64" class="s14 b">batch</text>
+  <text x="1338" y="298" fill="#555c64" class="s14 b">updated</text>
+  <line x1="384" y1="310" x2="1552" y2="310" stroke="#dde3e9" stroke-width="1" />
+  <line x1="384" y1="346" x2="1552" y2="346" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="334" fill="#69737d" class="s14">1</text>
+  <text x="454" y="334" fill="#1a1a1a" class="s14">0001</text>
+  <text x="538" y="334" fill="#1a1a1a" class="s14">Aster Field Survey</text>
+  <rect x="774" y="324.76" width="78" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="324.76" width="36.05" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1068" y="324.76" width="36.05" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1214" y="324.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <text x="1338" y="334" fill="#1a1a1a" class="s14">2026-11-03 09:12</text>
+  <line x1="384" y1="382" x2="1552" y2="382" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="370" fill="#69737d" class="s14">2</text>
+  <text x="454" y="370" fill="#1a1a1a" class="s14">0002</text>
+  <text x="538" y="370" fill="#1a1a1a" class="s14">Bright Meadow</text>
+  <rect x="774" y="360.76" width="14.42" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="360.76" width="36.05" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1068" y="360.76" width="36.05" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1214" y="360.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <text x="1338" y="370" fill="#1a1a1a" class="s14">2026-11-03 10:40</text>
+  <line x1="384" y1="418" x2="1552" y2="418" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="406" fill="#69737d" class="s14">3</text>
+  <text x="454" y="406" fill="#1a1a1a" class="s14">0003</text>
+  <text x="538" y="406" fill="#1a1a1a" class="s14">Cedar Hollow</text>
+  <rect x="774" y="396.76" width="78" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="396.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1068" y="396.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1214" y="396.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <text x="1338" y="406" fill="#1a1a1a" class="s14">2026-11-04 08:05</text>
+  <line x1="384" y1="454" x2="1552" y2="454" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="442" fill="#69737d" class="s14">4</text>
+  <text x="454" y="442" fill="#1a1a1a" class="s14">0004</text>
+  <text x="538" y="442" fill="#1a1a1a" class="s14">Dunlin Marsh</text>
+  <rect x="774" y="432.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="432.76" width="36.05" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1068" y="432.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1214" y="432.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <text x="1338" y="442" fill="#1a1a1a" class="s14">2026-11-04 11:31</text>
+  <line x1="384" y1="490" x2="1552" y2="490" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="478" fill="#69737d" class="s14">5</text>
+  <text x="454" y="478" fill="#1a1a1a" class="s14">0005</text>
+  <text x="538" y="478" fill="#1a1a1a" class="s14">Fern Ridge</text>
+  <rect x="774" y="468.76" width="14.42" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="468.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1068" y="468.76" width="36.05" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1214" y="468.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <text x="1338" y="478" fill="#1a1a1a" class="s14">2026-11-05 07:58</text>
+  <line x1="384" y1="526" x2="1552" y2="526" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="514" fill="#69737d" class="s14">6</text>
+  <text x="454" y="514" fill="#1a1a1a" class="s14">0006</text>
+  <text x="538" y="514" fill="#1a1a1a" class="s14">Gale Point</text>
+  <rect x="774" y="504.76" width="78" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="504.76" width="36.05" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1068" y="504.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1214" y="504.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <text x="1338" y="514" fill="#1a1a1a" class="s14">2026-11-05 13:16</text>
+  <rect x="384" y="526" width="1168" height="36" fill="#e9f1f9" />
+  <line x1="384" y1="562" x2="1552" y2="562" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="550" fill="#69737d" class="s14">7</text>
+  <text x="454" y="550" fill="#1a1a1a" class="s14">0007</text>
+  <text x="538" y="550" fill="#1a1a1a" class="s14">Harrow Fen</text>
+  <rect x="774" y="540.76" width="43.26" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="540.76" width="38.85" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="554" width="36.05" height="2" rx="1" fill="#1d5f9e" />
+  <rect x="1068" y="540.76" width="36.05" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1214" y="540.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <text x="1338" y="550" fill="#1a1a1a" class="s14">2026-11-06 09:44</text>
+  <line x1="384" y1="598" x2="1552" y2="598" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="586" fill="#69737d" class="s14">8</text>
+  <text x="454" y="586" fill="#1a1a1a" class="s14">0008</text>
+  <text x="538" y="586" fill="#1a1a1a" class="s14">Ivy Bank</text>
+  <rect x="774" y="576.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="942" y="576.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1068" y="576.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <rect x="1214" y="576.76" width="28.84" height="7" rx="3" fill="#e3e8ee" />
+  <text x="1338" y="586" fill="#1a1a1a" class="s14">2026-11-06 15:02</text>
+  <line x1="384" y1="599" x2="1552" y2="599" stroke="#dde3e9" stroke-width="1" />
+  <text x="396" y="622" fill="#69737d" class="s12">
+    Synthetic sample — names, values and timestamps are illustrations, not a fixture and not a
+    measured run.
+  </text>
+  <text x="396" y="640" fill="#69737d" class="s12">
+    Effective view: one staged edit on logical row 7 · no filter · no sort
+  </text>
+  <text x="1540" y="622" fill="#69737d" class="s12" text-anchor="end">8 toy rows</text>
+  <text x="400" y="708" fill="#1a1a1a" class="s16 b">Record</text>
+  <text x="400" y="742" fill="#69737d" class="s14">row</text>
+  <text x="429.63" y="742" fill="#14496f" class="s14 b">7</text>
+  <text x="463.4" y="742" fill="#69737d" class="s14">id</text>
+  <text x="485.82" y="742" fill="#1a1a1a" class="s14 b">0007</text>
+  <text x="542.9" y="742" fill="#69737d" class="s14">name</text>
+  <text x="579.74" y="742" fill="#1a1a1a" class="s14 b">Harrow Fen</text>
+  <text x="683.44" y="742" fill="#69737d" class="s14">status</text>
+  <text x="734.7" y="742" fill="#14496f" class="s14 b">review</text>
+  <text x="807.32" y="742" fill="#69737d" class="s14">amount</text>
+  <text x="858.58" y="742" fill="#1a1a1a" class="s14 b">18.75</text>
+  <text x="923.43" y="742" fill="#69737d" class="s14">region</text>
+  <text x="974.69" y="742" fill="#1a1a1a" class="s14 b">south</text>
+  <rect
+    x="400"
+    y="744"
+    width="213.14"
+    height="22"
+    rx="11"
+    fill="#e9f1f9"
+    stroke="#b6cde4"
+    stroke-width="1"
+  />
+  <text x="506.57" y="759.32" fill="#14496f" class="s12 b" text-anchor="middle">
+    staged in the session overlay
+  </text>
+  <text x="400" y="786" fill="#69737d" class="s12">
+    Record reads the effective logical row (ADR 0011): the guard changes no selection, and focus
+    stays inside the dialog while it is open.
+  </text>
+  <rect x="48" y="276" width="1504" height="526" rx="6" fill="#f3f5f7" opacity="0.34" />
+  <defs>
+    <filter id="dlg-shadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#1a1a1a" flood-opacity="0.22" />
+    </filter>
+  </defs>
+  <g id="replacement-guard">
+    <rect
+      x="724"
+      y="310"
+      width="568"
+      height="276"
+      rx="12"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1.5"
+    />
+    <text x="746" y="346" fill="#1a1a1a" class="s20 b" id="copy-c1">Replace this session?</text>
+    <text fill="#2c343d" class="s14" id="copy-c2">
+      <tspan x="746" y="376">
+        This session has staged changes that are not saved. Opening another
+      </tspan>
+      <tspan x="746" y="397">
+        dataset replaces the session, its staged edits, its undo history,
+      </tspan>
+      <tspan x="746" y="418">and any validation or comparison results.</tspan>
+    </text>
+    <text fill="#2c343d" class="s14" id="copy-c3">
+      <tspan x="746" y="442">
+        Session changes are not saved automatically. Export a copy to keep
+      </tspan>
+      <tspan x="746" y="463">them.</tspan>
+    </text>
+    <text fill="#2c343d" class="s14" id="copy-c4">
+      <tspan x="746" y="487">
+        If you cancel the file chooser, or the file cannot be opened, this
+      </tspan>
+      <tspan x="746" y="508">session stays as it is.</tspan>
+    </text>
+    <rect
+      x="833.6"
+      y="526"
+      width="80"
+      height="42"
+      rx="9"
+      fill="none"
+      stroke="#1d5f9e"
+      stroke-width="2"
+    />
+    <rect
+      x="837.6"
+      y="530"
+      width="72"
+      height="34"
+      rx="7"
+      fill="#1d5f9e"
+      stroke="#1d5f9e"
+      stroke-width="1"
+    />
+    <text x="873.6" y="552" fill="#ffffff" class="s14 b" text-anchor="middle" id="copy-c5">
+      Stay
+    </text>
+    <rect
+      x="919.6"
+      y="530"
+      width="126.94"
+      height="34"
+      rx="7"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="983.07" y="552" fill="#2c343d" class="s14" text-anchor="middle" id="copy-c6">
+      Export a copy…
+    </text>
+    <rect
+      x="1056.54"
+      y="530"
+      width="213.46"
+      height="34"
+      rx="7"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="1163.27" y="552" fill="#2c343d" class="s14" text-anchor="middle" id="copy-c7">
+      Choose a replacement file…
+    </text>
+  </g>
+  <g id="replacement-constraints">
+    <rect
+      x="56"
+      y="486"
+      width="304"
+      height="72"
+      rx="6"
+      fill="#f4f7fb"
+      stroke="#bfd2e3"
+      stroke-width="1"
+      stroke-dasharray="5 3"
+    />
+    <text x="66" y="503" fill="#14496f" class="s12 b" letter-spacing="0.6">CONSTRAINT 1</text>
+    <text fill="#23364d" class="s12">
+      <tspan x="66" y="521">Native dialog above the shell; staged work</tspan>
+      <tspan x="66" y="537">and panel state stay in the live session.</tspan>
+    </text>
+    <rect
+      x="56"
+      y="562"
+      width="304"
+      height="72"
+      rx="6"
+      fill="#f4f7fb"
+      stroke="#bfd2e3"
+      stroke-width="1"
+      stroke-dasharray="5 3"
+    />
+    <text x="66" y="579" fill="#14496f" class="s12 b" letter-spacing="0.6">CONSTRAINT 2</text>
+    <text fill="#23364d" class="s12">
+      <tspan x="66" y="597">Initial focus is Stay (focus ring). Escape</tspan>
+      <tspan x="66" y="613">cancels the native dialog, so Escape means</tspan>
+      <tspan x="66" y="629">Stay.</tspan>
+    </text>
+    <rect
+      x="56"
+      y="638"
+      width="304"
+      height="72"
+      rx="6"
+      fill="#f4f7fb"
+      stroke="#bfd2e3"
+      stroke-width="1"
+      stroke-dasharray="5 3"
+    />
+    <text x="66" y="655" fill="#14496f" class="s12 b" letter-spacing="0.6">CONSTRAINT 3</text>
+    <text fill="#23364d" class="s12">
+      <tspan x="66" y="673">Export a copy… closes the guard and ends</tspan>
+      <tspan x="66" y="689">the intent. It never auto-replaces, resets</tspan>
+      <tspan x="66" y="705">edits or marks the session clean.</tspan>
+    </text>
+    <rect
+      x="56"
+      y="714"
+      width="304"
+      height="72"
+      rx="6"
+      fill="#f4f7fb"
+      stroke="#bfd2e3"
+      stroke-width="1"
+      stroke-dasharray="5 3"
+    />
+    <text x="66" y="731" fill="#14496f" class="s12 b" letter-spacing="0.6">CONSTRAINT 4</text>
+    <text fill="#23364d" class="s12">
+      <tspan x="66" y="749">No filename, path or change count appears</tspan>
+      <tspan x="66" y="765">in the guard. Dimmed rows under the card</tspan>
+      <tspan x="66" y="781">are abstracted only for legibility.</tspan>
+    </text>
+  </g>
+  <g id="replacement-cancel">
+    <rect
+      x="32"
+      y="838"
+      width="356"
+      height="314"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="52" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · CLEAN SESSION · C8
+    </text>
+    <text x="52" y="888" fill="#1a1a1a" class="s15 b">No dirty guard, same preservation</text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="52" y="914">Clean means no applied outcome in the</tspan>
+      <tspan x="52" y="934">active prefix: undo-to-zero,</tspan>
+      <tspan x="52" y="954">redo-tail-only and no-op-only histories</tspan>
+      <tspan x="52" y="974">are clean.</tspan>
+    </text>
+    <rect
+      x="52"
+      y="996"
+      width="316"
+      height="46"
+      rx="6"
+      fill="#e4f2ef"
+      stroke="#b4dcd4"
+      stroke-width="1"
+    />
+    <text fill="#0f6f63" class="s14" id="copy-c8">
+      <tspan x="64" y="1012">Nothing was opened. This session is</tspan>
+      <tspan x="64" y="1032">unchanged.</tspan>
+    </text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="52" y="1062">Chooser cancel or refusal keeps the live</tspan>
+      <tspan x="52" y="1082">session, history, provider, drafts,</tspan>
+      <tspan x="52" y="1102">findings, comparison, SQL, pipeline and</tspan>
+      <tspan x="52" y="1122">Record state.</tspan>
+    </text>
+  </g>
+  <g id="replacement-progress">
+    <rect
+      x="404"
+      y="838"
+      width="356"
+      height="314"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="424" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · CANDIDATE PROGRESS · C9 / C12
+    </text>
+    <text x="424" y="888" fill="#1a1a1a" class="s15 b">Old session live, no Cancel</text>
+    <rect
+      x="424"
+      y="914"
+      width="316"
+      height="46"
+      rx="6"
+      fill="#e9f1f9"
+      stroke="#b6cde4"
+      stroke-width="1"
+    />
+    <text fill="#14496f" class="s14" id="copy-c9">
+      <tspan x="436" y="930">Opening the new file… The current</tspan>
+      <tspan x="436" y="950">session stays open until it is ready.</tspan>
+    </text>
+    <rect
+      x="424"
+      y="972"
+      width="316"
+      height="6"
+      rx="3"
+      fill="#eef2f6"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <rect x="424" y="972" width="132.72" height="6" rx="3" fill="#1d5f9e" />
+    <text x="424" y="996" fill="#69737d" class="s12">
+      Opening progress · illustrative, no measured timing
+    </text>
+    <text fill="#2c343d" class="s14">
+      <tspan x="424" y="1022">One candidate only: no Cancel or</tspan>
+      <tspan x="424" y="1042">abandonment control once candidate</tspan>
+      <tspan x="424" y="1062">opening begins, and the old session is</tspan>
+      <tspan x="424" y="1082">inert rather than busy.</tspan>
+    </text>
+    <rect
+      x="424"
+      y="1092"
+      width="316"
+      height="50"
+      rx="6"
+      fill="#f7f9fb"
+      stroke="#dde3e9"
+      stroke-width="1"
+    />
+    <text x="436" y="1112" fill="#69737d" class="s12">Repeated intent while opening</text>
+    <text x="436" y="1134" fill="#2c343d" class="s14" id="copy-c12">
+      Finish the current opening first.
+    </text>
+  </g>
+  <g id="replacement-failure">
+    <rect
+      x="776"
+      y="838"
+      width="356"
+      height="314"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="796" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · CANDIDATE FAILURE · C10 / C11 / C14
+    </text>
+    <text x="796" y="888" fill="#1a1a1a" class="s15 b">Classified cause, session unchanged</text>
+    <rect
+      x="796"
+      y="914"
+      width="316"
+      height="66"
+      rx="6"
+      fill="#fbeaea"
+      stroke="#e6c3c3"
+      stroke-width="1"
+    />
+    <text fill="#9c2b2b" class="s14" id="copy-c10">
+      <tspan x="808" y="930">The file could not be opened. You can</tspan>
+      <tspan x="808" y="950">try another file. Nothing in this</tspan>
+      <tspan x="808" y="970">session changed.</tspan>
+    </text>
+    <rect
+      x="796"
+      y="998"
+      width="203.04"
+      height="32"
+      rx="7"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="897.52" y="1019" fill="#2c343d" class="s14" text-anchor="middle" id="copy-c11">
+      Choose a different file…
+    </text>
+    <text x="796" y="1050" fill="#555c64" class="s14">▸</text>
+    <text x="814" y="1050" fill="#2c343d" class="s14" id="copy-c14">Technical detail</text>
+    <text x="939.36" y="1050" fill="#69737d" class="s12">closed by default</text>
+    <text fill="#69737d" class="s12">
+      <tspan x="796" y="1074">Raw diagnostics stay inside the closed block,</tspan>
+      <tspan x="796" y="1090">never in the notice or telemetry. ADR 0047:</tspan>
+      <tspan x="796" y="1106">failures can retain tables until teardown, with</tspan>
+      <tspan x="796" y="1122">no per-table release.</tspan>
+    </text>
+  </g>
+  <g id="replacement-pending">
+    <rect
+      x="1148"
+      y="838"
+      width="420"
+      height="314"
+      rx="8"
+      fill="#ffffff"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text x="1168" y="864" fill="#69737d" class="s12 b" letter-spacing="0.7">
+      STATE · PENDING WORK · G3 / G4
+    </text>
+    <text x="1168" y="888" fill="#1a1a1a" class="s15 b">Open refuses before any chooser</text>
+    <rect
+      x="1168"
+      y="910"
+      width="380"
+      height="46"
+      rx="6"
+      fill="#f7f9fb"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text fill="#555c64" class="s14" id="copy-c13">
+      <tspan x="1180" y="926">Finish or cancel the cell you are editing</tspan>
+      <tspan x="1180" y="946">first.</tspan>
+    </text>
+    <rect
+      x="1168"
+      y="962"
+      width="380"
+      height="66"
+      rx="6"
+      fill="#f7f9fb"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text fill="#555c64" class="s14" id="copy-c15">
+      <tspan x="1180" y="978">This session is still finishing a change.</tspan>
+      <tspan x="1180" y="998">Replacement stays unavailable until it</tspan>
+      <tspan x="1180" y="1018">finishes.</tspan>
+    </text>
+    <rect
+      x="1168"
+      y="1034"
+      width="380"
+      height="66"
+      rx="6"
+      fill="#f7f9fb"
+      stroke="#c8d1da"
+      stroke-width="1"
+    />
+    <text fill="#555c64" class="s14" id="copy-c16">
+      <tspan x="1180" y="1050">A column type check is still running.</tspan>
+      <tspan x="1180" y="1070">Replacement stays unavailable until it</tspan>
+      <tspan x="1180" y="1090">finishes.</tspan>
+    </text>
+    <text fill="#69737d" class="s12">
+      <tspan x="1168" y="1118">Role=status, value-free notices: no file, column, cell or</tspan>
+      <tspan x="1168" y="1134">count; refusal leaves no intent and no disabled retry.</tspan>
+    </text>
+  </g>
+  <rect
+    x="32"
+    y="1160"
+    width="1536"
+    height="92"
+    rx="8"
+    fill="#f7f9fb"
+    stroke="#c8d1da"
+    stroke-width="1"
+  />
+  <text x="48" y="1182" fill="#555c64" class="s12 b" letter-spacing="0.7">
+    ACCEPTANCE FLOW · STATES AND ORDER FROM THE v5 TRANSITION TABLE (T0–T11) — DRAWING ONLY
+  </text>
+  <circle cx="58" cy="1200" r="10" fill="#e9f1f9" stroke="#b6cde4" stroke-width="1" />
+  <text x="58" y="1205" fill="#14496f" class="s12 b" text-anchor="middle">1</text>
+  <text fill="#2c343d" class="s12">
+    <tspan x="76" y="1205">Dirty session: staged changes, not saved</tspan>
+  </text>
+  <circle cx="361.6" cy="1200" r="10" fill="#e9f1f9" stroke="#b6cde4" stroke-width="1" />
+  <text x="361.6" y="1205" fill="#14496f" class="s12 b" text-anchor="middle">2</text>
+  <text fill="#2c343d" class="s12">
+    <tspan x="379.6" y="1205">Open gate reads editors, pending commits</tspan>
+    <tspan x="379.6" y="1220">and every cast check synchronously</tspan>
+  </text>
+  <circle cx="665.2" cy="1200" r="10" fill="#e9f1f9" stroke="#b6cde4" stroke-width="1" />
+  <text x="665.2" y="1205" fill="#14496f" class="s12 b" text-anchor="middle">3</text>
+  <text fill="#2c343d" class="s12">
+    <tspan x="683.2" y="1205">Guard: initial focus Stay · Escape =</tspan>
+    <tspan x="683.2" y="1220">Stay</tspan>
+  </text>
+  <circle cx="968.8" cy="1200" r="10" fill="#e9f1f9" stroke="#b6cde4" stroke-width="1" />
+  <text x="968.8" y="1205" fill="#14496f" class="s12 b" text-anchor="middle">4</text>
+  <text fill="#2c343d" class="s12">
+    <tspan x="986.8" y="1205">Export a copy… ends the intent, never</tspan>
+    <tspan x="986.8" y="1220">auto-replaces; export initiation is not</tspan>
+    <tspan x="986.8" y="1235">“saved”</tspan>
+  </text>
+  <circle cx="1272.4" cy="1200" r="10" fill="#e9f1f9" stroke="#b6cde4" stroke-width="1" />
+  <text x="1272.4" y="1205" fill="#14496f" class="s12 b" text-anchor="middle">5</text>
+  <text fill="#2c343d" class="s12">
+    <tspan x="1290.4" y="1205">Candidate ready → adopt once · failure →</tspan>
+    <tspan x="1290.4" y="1220">session unchanged · candidate overlay</tspan>
+    <tspan x="1290.4" y="1235">isolated</tspan>
+  </text>
+  <text x="32" y="1284" fill="#69737d" class="s12">
+    Tasks / specification: docs/product/16-essential-workbench-first-wave-spec.md §3 (3.1–3.4) ·
+    copy: docs/process/handoff/20261110-wf05-replacement-contract.md §8, C1–C16 · ADR 0044 (shell) ·
+    ADR 0047 (table retention).
+  </text>
+  <text x="32" y="1304" fill="#69737d" class="s12">
+    Synthetic data only · canvas/dialog geometry is presentation-only, not runtime sizes · approved
+    behavior is the cited v5 contract; the dialog drawing, dimming and focus ring are schematic · no
+    runtime or timing evidence claimed.
+  </text>
+</svg>

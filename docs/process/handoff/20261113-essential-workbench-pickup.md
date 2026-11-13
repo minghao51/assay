@@ -6,6 +6,12 @@
 completion. The prior [proposal](../../product/15-essential-workbench-enhancements.md) and
 [comparison](../../reviews/2026-11-12-essential-workbench-comparison.md) explain why these rows matter.
 
+**Visual companion (2026-11-13; design only):** the
+[four-board SVG pickup](../../../assests/svg/essential-workbench/README.md) maps illustrated states to
+these tasks and the specification. Read the text contract first. Reviewed targets are not shipped UI;
+proposed CSV/bulk controls do not resolve technical gates. The drawings are not a prerequisite for WF-06
+or permission to widen a reservation.
+
 ## 1. Dated scope approval
 
 The maintainer reviewed the proposal and instructed: **“lets proceed with your recommendations … is there

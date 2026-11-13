@@ -6,14 +6,24 @@ Files intentionally live in repository-root **`assests/svg/`**, preserving the r
 
 ## Implementation handoff
 
+**Task-focused visual pickup (2026-11-13):** use the new
+[essential-workbench SVG pack](essential-workbench/README.md) alongside the
+[current first-wave handoff](../../docs/process/handoff/20261113-essential-workbench-pickup.md) and
+[implementation specification](../../docs/product/16-essential-workbench-first-wave-spec.md).
+Its four boards cover session replacement, data scopes, CSV interpretation and bounded bulk repair.
+They preserve the existing shell and explicitly separate reviewed behavior targets from proposed copy,
+placement and undecided technical contracts. This smaller pack guides the selected tasks; it does not
+reopen the entire atlas, add runtime authority or make artwork a prerequisite for WF-06.
+
 **Current pickup (2026-11-10):** [audited follow-up plan](../../docs/reviews/2026-11-10-web-svg-followup-audit.md) → [implementation map/decision gates](../../docs/process/handoff/20261110-web-followup-map.md) → [implementation specification](../../docs/product/14-web-interface-followup-spec.md) → [next-agent briefs](../../docs/process/handoff/20261110-web-followup-pickups.md). **Partially executed 2026-11-10:** the selected subset landed — pipeline label honesty (WF-02, `b65e304`), exact-precision
 temporal display (WF-01, `b6b773d`), the read-only temporal matrix (WF-01P) and a verified replacement contract (WF-05 v5,
 with [ADR 0047](../../docs/adr/0047-web-session-replacement-retains-retired-tables.md) settling table lifetime) — and
-WF-10 closed that subset. Everything else in the atlas is still unselected: WF-03/04/07 need their WFD decisions, WF-06
-needs an explicit runtime go, and WF-08/09/WF-O1/O2 are unauthorised.
+WF-10 closed that subset. **Dated continuation 2026-11-13:** WF-06 runtime is now selected in the first-wave
+handoff, still awaiting fresh preflight and implementation; EW-02D/03D/04D are design-first. WF-03/04/07
+still need their WFD decisions, and WF-08/09/WF-O1/O2 remain unselected.
 
 **Historical route:** the [stack/UX review](../../docs/product/12-workbench-redesign-review.md), [rd/sv map](../../docs/process/handoff/20261104-svg-implementation-map.md) and [original pickup prompts](../../docs/process/handoff/20261104-svg-pickup-prompts.md) led to the task-led rd programme, now **CLOSED** (rd-7 merged `2ddd67a`, test pin `de342da`). Conservative sv-0…sv-7/[Phase A](../../docs/product/11-svg-implementation-spec.md) was not selected and must not be dispatched as a second queue. Optional/deferred/gated capabilities remain separate; no human usability evidence was established. Artwork remains schematic: board 01 replacement protection is **designed and contract-verified but not implemented**
-(WF-06 awaits authorization; D-07 remains a runtime deferral), board 11 Help is shipped, and filename/“Edited view”
+(WF-06 was selected on 2026-11-13 but is not claimed implemented), board 11 Help is shipped, and filename/“Edited view”
 examples are not runtime-copy authority.
 
 **Source-backed wording correction:** artwork labels such as “Edited view” are schematic. Implementation should prefer **Current dataset view / Checked dataset snapshot / Whole current dataset**, with staged-operation counts separately: active operations can be no-ops, validation revision alone does not establish run origin, and a filter draft indicator means changed inputs—not general SQL semantic inequality. See the review's state contracts.
