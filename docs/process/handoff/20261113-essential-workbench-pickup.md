@@ -298,7 +298,9 @@ publication or remote-CI success claim.
 Pick up docs/process/handoff/20261113-essential-workbench-pickup.md.
 Read AGENTS.md, docs/process/handoff.md and the operating model, then this
 handoff, product/16-essential-workbench-first-wave-spec.md and the full
-WF-05 v5 contract before claiming WF-06. The maintainer selected first-wave
+WF-05 v5 contract before claiming WF-06. Keep
+assests/svg/essential-workbench/README.md open as the visual task map;
+the text contract wins over any drawing. The maintainer selected first-wave
 recommendations on 2026-11-13. Runtime selection = WF-06 only for now;
 EW-02D/03D/04D are design-first, not implementations of all EW candidates.
 
