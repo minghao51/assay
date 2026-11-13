@@ -85,13 +85,16 @@ Entry condition: M2 and M5 stable. P5 additionally requires validated user deman
 
 ## 4. Now / Next / Later
 
-**Local essential-workbench continuation (2026-11-13):** the maintainer selected the bounded first investment
-from the [essential-workflow proposal](15-essential-workbench-enhancements.md). The
-[first-wave handoff](../process/handoff/20261113-essential-workbench-pickup.md) is the live dispatch index:
-EW-00 fresh preflight, WF-06 session-preservation runtime, and design-only EW-02D/03D/04D. The
-[specification](16-essential-workbench-first-wave-spec.md) carries reservations, safety contracts and stop
-rules. No deeper EW runtime, new gate passage, persistence, hosted/AI or release scope follows. This is a
-local T1/T2 follow-up, not a reopened MVP or completed implementation.
+**Local essential-workbench first wave — executed and closed 2026-11-13.** From the
+[essential-workflow proposal](15-essential-workbench-enhancements.md), the maintainer selected one runtime row
+and three designs. **WF-06 (session preservation) is merged** at `ba36091` after three independent review
+rounds and merged gates; **EW-02D (scope/copy), EW-03D (CSV interpretation) and EW-04D (bulk repair) are
+delivered** as reviewed design-only contracts. The [EW-10 record](../process/handoff/20261113-ew10-first-wave-integration.md)
+traces the denominator; the [specification](16-essential-workbench-first-wave-spec.md) still bounds any
+successor. No successor runtime row is authorized: EW-02I needs copy acceptance and a new brief, EW-03D/04D
+carry 15/17 maintainer-owned decisions (EW-04D's verdict is conditional on seven named items), and EW-05…08
+stay unselected. No deeper EW runtime, gate passage, persistence, hosted/AI or release scope follows. This is
+a local T1/T2 follow-up, not a reopened MVP or completed implementation.
 
 ### Now (this quarter)
 

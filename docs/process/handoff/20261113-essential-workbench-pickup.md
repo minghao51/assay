@@ -41,17 +41,17 @@ Selected is not gated-ready, and delivered design is not implemented code. State
 `SELECTED → CLAIMED → IN REVIEW → INTEGRATING → CLOSED/DELIVERED`; `BLOCKED` names the dependency.
 Only one web-runtime row may be CLAIMED. This table owns the current status; older WF manifests link here.
 
-| Task                             | Scope / done-when                                                                                                       | Status / dependency                                                                        |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| **EW-00 baseline/preflight**     | Record current clean SHA, delta from `5466470`, tools/ports, full runtime baseline gates and decision/reservation check | **SELECTED — first executable action; not run by this documentation handoff**              |
-| **WF-06 (= EW-01)**              | Implement spec §3 and WF-05 v5, C1–C16/G/T/N/K coverage plus IC-01…05; worker + independent reviewer + merged gates     | **SELECTED — runtime authorized; BLOCKED on green EW-00 and a filled dispatch envelope**   |
-| **EW-02D**                       | Deliver exact source-backed per-surface copy/state/placement/test table, retaining already-honest labels                | **SELECTED — design only; current clean source baseline required**                         |
-| **EW-03D**                       | Deliver CSV interpretation/browser-exposure/ownership contract and decision/probe/fixture ledger                        | **SELECTED — design/probes only; current clean source baseline required**                  |
-| **EW-04D**                       | Deliver scalar-text trim/mapping representation/atomicity/undo contract and decision/probe/fixture ledger               | **SELECTED — design/probes only; current clean source baseline required**                  |
-| **EW-02I**                       | Implement only accepted EW-02D copy/scope; preserve underlying semantics                                                | **BLOCKED — exact returned contract/copy acceptance + new runtime brief + fresh baseline** |
-| **EW-03I / EW-04I**              | Possible future import/bulk runtime slices, not reserved                                                                | **BLOCKED — returned design, unresolved choices/ADRs and explicit runtime selection**      |
-| **EW-10 first-wave integration** | Trace selected runtime and design deliverables, all failures/reviews/merged evidence and residuals                      | **SELECTED — pending WF-06 merged-green + EW-02D/03D/04D delivery**                        |
-| **EW-05…08**                     | Quality-feedback extensions, recipes, new export scopes, checkpoints                                                    | **UNSELECTED — proposal only**                                                             |
+| Task                             | Scope / done-when                                                                                                       | Status / dependency                                                                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **EW-00 baseline/preflight**     | Record current clean SHA, delta from `5466470`, tools/ports, full runtime baseline gates and decision/reservation check | **CLOSED 2026-11-13** — fresh gates green at `c841fe4`; evidence in the [EW-10 record](20261113-ew10-first-wave-integration.md)                        |
+| **WF-06 (= EW-01)**              | Implement spec §3 and WF-05 v5, C1–C16/G/T/N/K coverage plus IC-01…05; worker + independent reviewer + merged gates     | **CLOSED — MERGED `ba36091`** (worker `3b84bf7` + three review-fix commits; independent Luna xhigh approve round 3; merged gates green)                |
+| **EW-02D**                       | Deliver exact source-backed per-surface copy/state/placement/test table, retaining already-honest labels                | **DELIVERED + APPROVED** (2 review rounds) — [scope/copy contract](20261113-ew02-scope-contract.md), integrated `b220e3e`                              |
+| **EW-03D**                       | Deliver CSV interpretation/browser-exposure/ownership contract and decision/probe/fixture ledger                        | **DELIVERED + APPROVED** (4 review rounds) — [CSV contract](20261113-ew03-csv-contract.md), integrated `56c3695`                                       |
+| **EW-04D**                       | Deliver scalar-text trim/mapping representation/atomicity/undo contract and decision/probe/fixture ledger               | **DELIVERED + APPROVED** (7 review rounds; verdict conditional on seven items) — [bulk contract](20261113-ew04-bulk-contract.md), integrated `696430e` |
+| **EW-02I**                       | Implement only accepted EW-02D copy/scope; preserve underlying semantics                                                | **BLOCKED — unchanged**: maintainer copy acceptance + new runtime brief + fresh baseline still required                                                |
+| **EW-03I / EW-04I**              | Possible future import/bulk runtime slices, not reserved                                                                | **BLOCKED — unchanged**: returned designs carry 15/17 unresolved decisions, ADR work and no runtime selection                                          |
+| **EW-10 first-wave integration** | Trace selected runtime and design deliverables, all failures/reviews/merged evidence and residuals                      | **CLOSED 2026-11-13** — [EW-10 integration record](20261113-ew10-first-wave-integration.md)                                                            |
+| **EW-05…08**                     | Quality-feedback extensions, recipes, new export scopes, checkpoints                                                    | **UNSELECTED — proposal only**                                                                                                                         |
 
 Recommended execution: verify/claim EW-00 → dispatch WF-06 as the only runtime writer → independent review
 → merge/re-run gates → EW-10 record. Read-only EW-02D/03D/04D can proceed against pinned committed sources
@@ -330,6 +330,14 @@ and runtime branches named above are future outputs, not files claimed to exist 
 the full new specification/handoff, inherited contract and relevant production seams. No critical finding;
 one non-blocking stale WF-06 authorization sentence in the older handoff queue was corrected to point here.
 This approves the pickup boundary, **not** a runtime implementation or fresh baseline.
+
+**Execution update (2026-11-13, this table's successor):** the pack above has since been executed. EW-00 ran
+fresh gates at `c841fe4`; WF-06 was implemented, reviewed three times and **merged** at `ba36091`; EW-02D,
+EW-03D and EW-04D were delivered, reviewed (2/4/7 rounds) and integrated at `b220e3e`, `56c3695` and
+`696430e`. The authoritative evidence, amendments and residuals are in the
+[EW-10 integration record](20261113-ew10-first-wave-integration.md). The dated selection, authority order,
+reservations and stop rules in §1–§6 of this document remain binding for any successor; only the §2 status
+column has been updated. Nothing was pushed.
 
 **Documentation verification:** root format check, relative-link check (**150 files / 0 broken links**),
 ADR-index check (**47 records**) and diff whitespace check pass. Active LSP inspection found five ambiguous-
