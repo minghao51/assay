@@ -113,6 +113,10 @@ describe('App telemetry wiring', () => {
   it('emits dataset_opened with role/format/size/row/column buckets on success', async () => {
     const runtime = fakeRuntime()
     render(<App telemetry={runtime} />)
+    // Dismiss the first-run disclosure first: it is an owned modal, so Open is
+    // correctly disabled behind it (K17) and the open flow below needs the idle
+    // frame (the same setup the Settings test above uses).
+    fireEvent.click(screen.getByTestId('telemetry-keep-on'))
     await act(async () => {
       fireEvent.click(screen.getByTestId('open-button'))
     })
@@ -136,6 +140,9 @@ describe('App telemetry wiring', () => {
     h.failOpen = true
     const runtime = fakeRuntime()
     render(<App telemetry={runtime} />)
+    // Dismiss the first-run disclosure first (see the test above): K17 disables
+    // Open while that modal owns the frame in the idle phase too.
+    fireEvent.click(screen.getByTestId('telemetry-keep-on'))
     await act(async () => {
       fireEvent.click(screen.getByTestId('open-button'))
     })

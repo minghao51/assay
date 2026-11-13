@@ -177,10 +177,19 @@ async function activeTestId(page: Page): Promise<string | null> {
   })
 }
 
-/** Apply one settled edit so the live session is dirty (history 1 pending). */
+/**
+ * Apply one SETTLED edit so the live session is dirty (history 1 pending).
+ *
+ * The history summary is published at `activateHistory`, i.e. BEFORE the
+ * commit's refresh settles, so a gesture fired at that instant would be refused
+ * by gate row G4 (C15) — correct behaviour, but it would make this helper race
+ * under load. The polite edit region announces the settled commit, so waiting
+ * for it is the honest synchronisation point.
+ */
 async function makeDirty(page: Page): Promise<void> {
   await editCell(page, 0, 2, '99000')
   await expect(page.getByTestId('section-summary-history')).toHaveText('History · 1 pending')
+  await expect(page.getByTestId('edit-live-region')).toContainText('Edit committed.')
 }
 
 /** Click Open on a clean session and hand the chooser the given file. */

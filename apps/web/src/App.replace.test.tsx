@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GridViewportModel } from '@assay/grid'
-import { App } from './App'
+import { App, openControlBlocked } from './App'
 import type { ArrowTableLike } from './grid/provider'
 
 /**
@@ -268,7 +268,7 @@ vi.mock('./lib/engine', () => {
 vi.mock('./profile/ProfilePanel', () => ({ ProfilePanel: () => null }))
 
 /** Inert telemetry whose emitted event names are recorded for assertions. */
-function fakeRuntime(): Record<string, unknown> {
+function fakeRuntime(options: { readonly disclosure?: boolean } = {}): Record<string, unknown> {
   return {
     surface: 'web',
     hardOff: false,
@@ -280,7 +280,7 @@ function fakeRuntime(): Record<string, unknown> {
     getPreference: () => 'off',
     setPreference: () => undefined,
     isEnabledNow: () => false,
-    shouldShowDisclosure: () => false,
+    shouldShowDisclosure: () => options.disclosure === true,
     markDisclosureShown: () => undefined,
     dispose: () => undefined,
   }
@@ -1010,5 +1010,75 @@ describe('WF-06 — T5 closes the guard before the picker, and N9 provider rejec
     expect(liveColumns()).toEqual(COLUMNS_A)
     expect(h.openCalls).toEqual(['t1', 't2'])
     expect(h.beginCalls).toBe(1)
+  })
+})
+
+/**
+ * K17 (v5 §3.2/§7, IC-03): the Open control is unusable while ANY owned surface
+ * is open — in **every** phase, so the idle-phase legacy open cannot run behind
+ * Help, the first-run telemetry disclosure, Export or Settings.
+ */
+describe('WF-06 — K17: no open path behind an owned modal (all phases)', () => {
+  it('pins the predicate across every phase and owned surface', () => {
+    const modals = ['help', 'disclosure', 'replace', 'export', 'settings'] as const
+    const phases = ['idle', 'opening', 'ready', 'error'] as const
+    for (const phase of phases) {
+      // No modal, no intent, not opening → usable.
+      expect(openControlBlocked({ phase, intentActive: false, openModal: null })).toBe(
+        phase === 'opening',
+      )
+      for (const openModal of modals) {
+        expect(openControlBlocked({ phase, intentActive: false, openModal })).toBe(true)
+        expect(openControlBlocked({ phase, intentActive: true, openModal: null })).toBe(true)
+      }
+    }
+  })
+
+  it('disables Open in idle behind the disclosure, Help and Settings — and starts nothing', async () => {
+    // The genuine first-run state: the disclosure is a native modal on mount.
+    render(<App telemetry={fakeRuntime({ disclosure: true }) as never} />)
+    const open = (): HTMLElement => screen.getByTestId('open-button')
+    expect(screen.getByTestId('telemetry-disclosure')).not.toBeNull()
+    expect(open().hasAttribute('disabled')).toBe(true)
+    await act(async () => {
+      fireEvent.click(open())
+    })
+    expect(h.pickRequests).toBe(0)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('idle')
+
+    // Dismissing the disclosure restores the control.
+    fireEvent.click(screen.getByTestId('telemetry-keep-on'))
+    expect(screen.queryByTestId('telemetry-disclosure')).toBeNull()
+    expect(open().hasAttribute('disabled')).toBe(false)
+
+    // Help (a native modal) in the idle phase.
+    fireEvent.click(screen.getByTestId('help-open'))
+    expect(screen.getByTestId('workbench-help')).not.toBeNull()
+    expect(open().hasAttribute('disabled')).toBe(true)
+    await act(async () => {
+      fireEvent.click(open())
+    })
+    expect(h.pickRequests).toBe(0)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('idle')
+    fireEvent.click(screen.getByTestId('help-close'))
+    expect(open().hasAttribute('disabled')).toBe(false)
+
+    // Settings (a non-modal owned surface) in the idle phase.
+    fireEvent.click(screen.getByTestId('settings-toggle'))
+    expect(screen.getByTestId('settings-dialog')).not.toBeNull()
+    expect(open().hasAttribute('disabled')).toBe(true)
+    await act(async () => {
+      fireEvent.click(open())
+    })
+    expect(h.pickRequests).toBe(0)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('idle')
+    fireEvent.click(screen.getByTestId('settings-toggle'))
+    expect(open().hasAttribute('disabled')).toBe(false)
+
+    // Export owns a slot in the modal priority but lives inside the READY
+    // subtree, so `openModal === 'export'` is unreachable in `idle`: the
+    // predicate table above covers that cell, and the ready-phase case is
+    // pinned by the IC-03 test.
+    expect(screen.queryByTestId('export-open')).toBeNull()
   })
 })

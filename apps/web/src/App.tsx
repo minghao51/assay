@@ -486,6 +486,24 @@ function PanelBoundary({
   )
 }
 
+/**
+ * K17 (v5 §3.2/§7, spec IC-03): may the Open control start an open right now?
+ *
+ * `false` while the legacy chain is already opening, while a replacement intent
+ * owns the shell, or while ANY owned surface is open — in **every** phase, so
+ * an idle-phase Open can never fall through to the legacy destroy-first
+ * `openDataFile()` behind Help, the first-run telemetry disclosure, the Export
+ * dialog or Settings. The click handler applies the same predicate, so a
+ * programmatic activation is refused too.
+ */
+export function openControlBlocked(input: {
+  readonly phase: Phase['kind']
+  readonly intentActive: boolean
+  readonly openModal: OwnedModal | null
+}): boolean {
+  return input.phase === 'opening' || input.intentActive || input.openModal !== null
+}
+
 export interface AppProps {
   /**
    * Telemetry injection seam for tests. When omitted, `App` builds the
@@ -2366,19 +2384,34 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
             className="open-button"
             data-testid="open-button"
             onClick={() => {
+              // K17: the same predicate, so a programmatic activation cannot
+              // start either open path behind an owned modal.
+              if (
+                openControlBlocked({
+                  phase: phase.kind,
+                  intentActive: intent.kind !== 'none',
+                  openModal,
+                })
+              ) {
+                return
+              }
               // WF-06: a ready-state Open enters the synchronous gate; every
               // other phase keeps the unchanged legacy destroy-first chain.
               if (phase.kind === 'ready') startReplacementGate(openModal, true)
               else void openDataFile()
             }}
-            /* IC-03 (§4.6): disabled when an intent is active OR an owned modal
-               is open — not only when both are true. A G3/G4 refusal leaves the
-               intent at `none`, so the control stays enabled and a retry is
-               possible (and refused identically while the work is pending). */
-            disabled={
-              phase.kind === 'opening' ||
-              (phase.kind === 'ready' && (intent.kind !== 'none' || openModal !== null))
-            }
+            /* IC-03/K17 (§4.6): disabled when an intent is active OR ANY owned
+               modal is open — not only when both are true, and not only in
+               `ready`: in `idle`/`error` the legacy open path must not run
+               behind Help, the telemetry disclosure, Export or Settings. A
+               G3/G4 refusal leaves the intent at `none`, so the control stays
+               enabled and a retry is possible (and refused identically while
+               the work is pending). */
+            disabled={openControlBlocked({
+              phase: phase.kind,
+              intentActive: intent.kind !== 'none',
+              openModal,
+            })}
           >
             Open a data file…
           </button>{' '}
