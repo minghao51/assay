@@ -680,8 +680,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const [busyNotice, setBusyNotice] = useState(false)
   /** C13 — G3 refusal; clears when the editor closes (the mirror callback). */
   const [draftNotice, setDraftNotice] = useState(false)
-  /** C15/C16 — G4 refusal; C15 wins while a mutation is in flight. */
-  const [pendingNotice, setPendingNotice] = useState<'settling' | 'cast' | null>(null)
 
   /**
    * IC-01: the render-only editor-state mirror. The ref write alone cannot
@@ -1726,19 +1724,20 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * ------------------------------------------------------------------- */
 
   /**
-   * §3.7 notice clearing: C15 clears when the mutation counter returns to 0,
-   * C16 when the LAST pending cast check clears; when both move at once C15
-   * wins. No dismissal, countdown, timeout or auto-resume exists: clearing
-   * never opens a guard or a picker by itself.
+   * C15/C16 are **lifecycle-derived**, not gesture-owned (K40/v5 §3.7):
+   * C15 renders exactly while a history commit is materializing and C16
+   * exactly while at least one column cast pre-check is pending (with C15
+   * winning when both are). They therefore cannot be cleared by a refusal for
+   * a different, higher-priority reason (a G3 draft refusal or a G1 modal
+   * refusal), and they clear only when their own observable clears. They are
+   * non-dismissible; nothing auto-resumes, so a notice clearing never opens a
+   * guard or a picker by itself.
    */
-  useEffect(() => {
-    setPendingNotice((current) => {
-      if (current === null) return null
-      if (mutationPending) return 'settling'
-      if (castPendingCount > 0) return 'cast'
-      return null
-    })
-  }, [mutationPending, castPendingCount])
+  const pendingNotice: 'settling' | 'cast' | null = mutationPending
+    ? 'settling'
+    : castPendingCount > 0
+      ? 'cast'
+      : null
 
   /**
    * N12 / §4.6: entering `opening-candidate` makes the ready region inert, so
@@ -1750,13 +1749,16 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     replaceProgressRef.current?.focus()
   }, [intent.kind])
 
-  /** Clear the notices a newer gesture (or a finished intent) supersedes. */
+  /**
+   * Clear the GESTURE-scoped notices a newer gesture (or a finished intent)
+   * supersedes. C15/C16 are deliberately absent: they follow their own live
+   * observables and no gesture may clear them early.
+   */
   const clearReplacementNotices = (): void => {
     setPickerWasCancelled(false)
     setReplacementFailure(null)
     setBusyNotice(false)
     setDraftNotice(false)
-    setPendingNotice(null)
   }
 
   /** End the current intent without touching the live session. */
@@ -1815,10 +1817,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         focusDraftRefusal()
         return
       case 'settling':
-        setPendingNotice('settling')
-        return
       case 'cast':
-        setPendingNotice('cast')
+        // C15/C16 are already rendered because their observable is live; a
+        // refusal adds nothing and (critically) never owns their lifetime.
         return
       case 'busy':
         // G5 reuses the grid's existing filter/sort busy status; no new copy.

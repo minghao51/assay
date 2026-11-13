@@ -53,6 +53,9 @@ const NEUTRAL_CAUSE = 'The file could not be opened. You can try another file.'
 const SCHEMA_A = [
   { name: 'id', type: 'BIGINT' },
   { name: 'label', type: 'VARCHAR' },
+  // A BOOLEAN column: its editor has no blur handler, which is what makes the
+  // G3-vs-C16 precedence proof meaningful (v5 §3.2.1).
+  { name: 'flag', type: 'BOOLEAN' },
 ]
 const SCHEMA_B = [
   { name: 'order_id', type: 'BIGINT' },
@@ -103,8 +106,15 @@ const h = vi.hoisted(() => ({
   nextTableId: 1,
   /** Rejects the NEXT `engine.open` with this message (T9). */
   openFailure: null as string | null,
-  /** Rejects the NEXT `engine.schema` (T9b, after registration). */
+  /** Rejects the NEXT `engine.schema` (the candidate BASE read, pre-provider). */
   schemaFailure: null as string | null,
+  /**
+   * N9: fail the N-th `engine.schema` call made FOR THE CANDIDATE handle. Call 1
+   * is the explicit base read in App; call 2 is `provider.schema()` inside
+   * `GridViewportModel.load()` — i.e. a genuine provider/model-load rejection.
+   */
+  schemaFailureAtCandidateCall: null as number | null,
+  candidateSchemaCalls: 0,
   /** Rejects the NEXT `engine.rowCount` (T9b). */
   rowCountFailure: null as string | null,
   /** Holds the next model `refresh()` until released (N4/N15). */
@@ -114,8 +124,14 @@ const h = vi.hoisted(() => ({
   events: [] as string[],
 }))
 
-function fakeBatch(columns: readonly { name: string }[]): ArrowTableLike {
-  const cells = columns.map((_, index) => ({ get: () => (index === 0 ? 1 : 'x') }))
+function fakeBatch(columns: readonly { name: string; type?: string }[]): ArrowTableLike {
+  const value = (index: number): unknown => {
+    if (index === 0) return 1
+    // BOOLEAN column: a real boolean cell, so its boolean editor opens cleanly.
+    if (columns[index]?.type === 'BOOLEAN') return true
+    return 'x'
+  }
+  const cells = columns.map((_, index) => ({ get: () => value(index) }))
   return {
     numRows: 1,
     numCols: cells.length,
@@ -226,6 +242,12 @@ vi.mock('./lib/engine', () => {
         h.schemaFailure = null
         throw new Error(message)
       }
+      if (handle.id !== 't1') {
+        h.candidateSchemaCalls += 1
+        if (h.candidateSchemaCalls === h.schemaFailureAtCandidateCall) {
+          throw new Error('provider read failed during model.load')
+        }
+      }
       return handle.id === 't1' || h.sameSchema ? SCHEMA_A : SCHEMA_B
     },
     rowCount: async (): Promise<number> => {
@@ -308,6 +330,8 @@ beforeEach(() => {
   h.nextTableId = 1
   h.openFailure = null
   h.schemaFailure = null
+  h.schemaFailureAtCandidateCall = null
+  h.candidateSchemaCalls = 0
   h.rowCountFailure = null
   h.refreshGate = null
   h.refreshCalls = 0
@@ -351,7 +375,7 @@ function liveColumns(): string[] {
     .map((cell) => cell.getAttribute('data-col-name') ?? '')
 }
 
-const COLUMNS_A = ['id', 'label']
+const COLUMNS_A = ['id', 'label', 'flag']
 const COLUMNS_B = ['order_id', 'region']
 
 describe('WF-06 — clean session: choose, prepare, adopt once', () => {
@@ -429,6 +453,9 @@ describe('WF-06 — dirty session: the native guard', () => {
       fireEvent.click(screen.getByTestId('replace-stay'))
     })
     expect(screen.queryByTestId('replace-guard')).toBeNull()
+    // The guard's close path returns focus to the connected opener (the Open
+    // control), never to `<body>`.
+    expect(document.activeElement?.getAttribute('data-testid')).toBe('open-button')
     // T3: untouched live session (history text + table id + phase).
     expect(liveColumns()).toEqual(COLUMNS_A)
     expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
@@ -696,7 +723,7 @@ describe('WF-06 — candidate failure keeps the live session (C10/C14)', () => {
     expect(liveColumns()).toEqual(COLUMNS_A)
   })
 
-  it('keeps the live session when the candidate fails after registration (T9b)', async () => {
+  it('keeps the live session when the candidate BASE schema read fails before the provider exists (T9b)', async () => {
     await openFirstDataset()
     h.picks = [{ file: new File(['order_id,region\n1,SG\n'], 'orders.csv') }]
     h.schemaFailure = 'view materialization failed'
@@ -739,6 +766,11 @@ function seedDrafts(): void {
   fireEvent.change(screen.getByTestId('sql-input'), {
     target: { value: 'SELECT 8675309 AS prior_session_marker' },
   })
+  // A cast-selector draft on a different column (the panel allows one rename
+  // draft and one cast draft at a time, one per column).
+  const controls = within(screen.getByTestId('schema-panel'))
+  fireEvent.click(controls.getByRole('button', { name: 'Cast column id' }))
+  fireEvent.change(controls.getByTestId('column-cast-select'), { target: { value: 'VARCHAR' } })
   // The FilterBar's compose row is inside its own disclosure; open it first,
   // then write an unapplied draft (no Apply click — a draft is not a change).
   if (screen.getByTestId('filter-toggle').getAttribute('aria-expanded') !== 'true') {
@@ -754,16 +786,25 @@ function seedDrafts(): void {
   })
 }
 
-function readDrafts(): { sql: string; filter: string; rename: string | null } {
+function readDrafts(): {
+  sql: string
+  filter: string
+  rename: string | null
+  cast: string | null
+} {
   const sql = screen.getByTestId('sql-input') as HTMLTextAreaElement
   // An absent compose field means the bar's disclosure closed (the remount); a
   // draft cannot survive it, so absence reads as the empty draft.
   const filter = screen.queryByTestId('filter-compose-value') as HTMLInputElement | null
   const rename = within(screen.getByTestId('schema-panel')).queryByTestId('column-rename-input')
+  const cast = within(screen.getByTestId('schema-panel')).queryByTestId('column-cast-select')
   return {
     sql: sql.value,
     filter: filter?.value ?? '',
     rename: rename === null ? null : (rename as HTMLInputElement).value,
+    // The selector's presence + value is the draft: it is only committed by
+    // the explicit Cast control.
+    cast: cast === null ? null : (cast as HTMLSelectElement).value,
   }
 }
 
@@ -771,6 +812,7 @@ const SEEDED_DRAFTS = {
   sql: 'SELECT 8675309 AS prior_session_marker',
   filter: 'draft-value',
   rename: 'label_draft',
+  cast: 'VARCHAR',
 }
 
 describe('WF-06 — adoption-disposable drafts (T8/§3.4)', () => {
@@ -843,7 +885,7 @@ describe('WF-06 — adoption-disposable drafts (T8/§3.4)', () => {
       expect(h.openCalls).toEqual(['t1', 't2'])
     })
     await waitFor(() => {
-      expect(readDrafts()).toEqual({ sql: '', filter: '', rename: null })
+      expect(readDrafts()).toEqual({ sql: '', filter: '', rename: null, cast: null })
     })
     // The remount is the adoption's (one reset), not a preparation one.
     expect(h.beginCalls).toBe(2)
@@ -994,18 +1036,39 @@ describe('WF-06 — T5 closes the guard before the picker, and N9 provider rejec
     expect(h.beginCalls).toBe(2)
   })
 
-  it('keeps the live session when the candidate provider / model.load rejects (N9)', async () => {
+  it('keeps the live session when the candidate BASE row count fails before the provider exists (T9b)', async () => {
     await openFirstDataset()
     expect(h.beginCalls).toBe(1)
     h.picks = [{ file: new File(['order_id,region\n1,SG\n'], 'orders.csv') }]
-    // T9b-class, but the REQUIRED injection: the failure comes from the grid
-    // provider inside `GridViewportModel.load()` (`rowCount()`), after
-    // `engine.open` succeeded — one retained candidate table (ADR 0047).
+    // A post-registration failure at the BASE-metadata stage: `engine.open`
+    // succeeded and `engine.schema` succeeded, then the explicit pre-provider
+    // `engineClient.rowCount` read fails. One retained candidate table (ADR 0047).
     h.rowCountFailure = 'view materialization failed'
     await clickReadyOpen()
     await waitFor(() => {
       expect(screen.queryByTestId('replace-error')).not.toBeNull()
     })
+    expect(failureText()).toBe(NEUTRAL_CAUSE + FAILURE_SUFFIX)
+    expect(liveColumns()).toEqual(COLUMNS_A)
+    expect(h.openCalls).toEqual(['t1', 't2'])
+    expect(h.beginCalls).toBe(1)
+  })
+
+  it('keeps the live session when a PROVIDER read inside model.load() rejects (N9)', async () => {
+    await openFirstDataset()
+    expect(h.beginCalls).toBe(1)
+    h.picks = [{ file: new File(['order_id,region\n1,SG\n'], 'orders.csv') }]
+    // The REQUIRED N9 injection: fail the SECOND `engine.schema` call made for
+    // the candidate handle. Call 1 is App's explicit base read; call 2 is
+    // `DuckDbGridProvider.schema()` awaited by `GridViewportModel.load()` — so
+    // the failure really comes from the provider/model load, after
+    // `engineClient.open` succeeded and after the provider was constructed.
+    h.schemaFailureAtCandidateCall = 2
+    await clickReadyOpen()
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-error')).not.toBeNull()
+    })
+    expect(h.candidateSchemaCalls).toBe(2)
     expect(failureText()).toBe(NEUTRAL_CAUSE + FAILURE_SUFFIX)
     expect(liveColumns()).toEqual(COLUMNS_A)
     expect(h.openCalls).toEqual(['t1', 't2'])
@@ -1080,5 +1143,152 @@ describe('WF-06 — K17: no open path behind an owned modal (all phases)', () =>
     // predicate table above covers that cell, and the ready-phase case is
     // pinned by the IC-03 test.
     expect(screen.queryByTestId('export-open')).toBeNull()
+  })
+})
+
+/**
+ * Round-2 review CRITICAL 1 — C15/C16 are lifecycle-derived (K40/v5 §3.7).
+ *
+ * A refusal for a HIGHER-priority reason (G3 editor, G1 modal) must not clear a
+ * pending-work notice: C16 may only disappear when `castPendingCount` reaches
+ * zero, and C15 only when the mutation counter does. C13 stays gesture-scoped.
+ */
+describe('WF-06 — C15/C16 lifecycle independence from refusals', () => {
+  /** Open the BOOLEAN cell editor (the kind with no blur handler). */
+  async function openBooleanEditor(): Promise<void> {
+    const cells = screen.getAllByTestId('grid-cell')
+    await act(async () => {
+      fireEvent.doubleClick(cells[2] as HTMLElement)
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('grid-editor-boolean')).not.toBeNull()
+    })
+  }
+
+  it('keeps C16 across a G3 refusal and its C13 clear, until the cast resolves (N17-repair)', async () => {
+    await openFirstDataset()
+    h.castHold = true
+    await startCast('id')
+    expect(h.castHeld.map((held) => held.column)).toEqual(['id'])
+    // Lifecycle-derived: C16 is live as soon as its own observable is live,
+    // before any gesture.
+    expect(screen.getByTestId('replace-cast-notice').textContent).toBe(APPROVED.cast)
+
+    await openBooleanEditor()
+    await clickReadyOpen()
+    // G3 wins the gate order: C13 shows and NO picker/guard appears.
+    expect(screen.getByTestId('replace-draft-notice').textContent).toBe(APPROVED.draft)
+    expect(screen.queryByTestId('replace-guard')).toBeNull()
+    expect(h.pickRequests).toBe(1)
+    // …and the higher-priority refusal did NOT clear C16.
+    expect(screen.getByTestId('replace-cast-notice')).not.toBeNull()
+    expect(document.activeElement?.getAttribute('data-testid')).toBe('grid-editor-boolean')
+
+    // Closing the editor clears C13 — and C16 is STILL there (its own
+    // observable is still live).
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('grid-editor-boolean'), { key: 'Escape' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-draft-notice')).toBeNull()
+    })
+    expect(screen.getByTestId('replace-cast-notice')).not.toBeNull()
+
+    // The cast settles: C16 clears with it, and only then does Open proceed.
+    await act(async () => {
+      h.castHeld.find((held) => held.column === 'id')?.resolve({ hasNonConvertibleValues: true })
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-cast-notice')).toBeNull()
+    })
+    h.picks = [{ cancel: true }]
+    await clickReadyOpen()
+    expect(h.pickRequests).toBe(2)
+    await waitFor(() => {
+      expect(screen.getByTestId('replace-notice').textContent).toBe(APPROVED.pickerNotice)
+    })
+  })
+
+  it('an unrelated modal (G1) cannot clear C16 either', async () => {
+    await openFirstDataset()
+    h.castHold = true
+    await startCast('label')
+    expect(screen.getByTestId('replace-cast-notice')).not.toBeNull()
+
+    // Export owns the modal position; the cast check is still pending.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('export-open'))
+    })
+    expect(screen.getByTestId('export-dialog')).not.toBeNull()
+    expect(screen.getByTestId('replace-cast-notice')).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('export-close'))
+    })
+    expect(screen.getByTestId('replace-cast-notice')).not.toBeNull()
+
+    await act(async () => {
+      h.castHeld.find((held) => held.column === 'label')?.resolve({ hasNonConvertibleValues: true })
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-cast-notice')).toBeNull()
+    })
+  })
+
+  it('derives C15 from the mutation counter and lets it win over C16', async () => {
+    await openFirstDataset()
+
+    // 1. Park a commit (rename a column): C15 is live from its own counter.
+    let release: () => void = () => undefined
+    h.refreshGate = new Promise<void>((resolve) => {
+      release = () => {
+        resolve()
+      }
+    })
+    const original = GridViewportModel.prototype.refresh
+    vi.spyOn(GridViewportModel.prototype, 'refresh').mockImplementation(async function (
+      this: GridViewportModel,
+    ) {
+      const gate = h.refreshGate
+      h.refreshGate = null
+      if (gate !== null) await gate
+      return original.call(this)
+    })
+    const panel = within(screen.getByTestId('schema-panel'))
+    await act(async () => {
+      fireEvent.click(panel.getByRole('button', { name: 'Rename column id' }))
+    })
+    const input = panel.getByTestId('column-rename-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'identifier' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('replace-settling-notice')).not.toBeNull()
+    })
+
+    // 2. A cast check started while the commit is in flight: C15 wins, so C16
+    //    must NOT render even though `castPendingCount > 0`.
+    h.castHold = true
+    await startCast('label')
+    expect(h.castHeld.map((held) => held.column)).toEqual(['label'])
+    expect(screen.getByTestId('replace-settling-notice')).not.toBeNull()
+    expect(screen.queryByTestId('replace-cast-notice')).toBeNull()
+
+    // 3. The commit settles: C15 clears and the still-pending cast surfaces C16.
+    await act(async () => {
+      release()
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-settling-notice')).toBeNull()
+    })
+    expect(screen.getByTestId('replace-cast-notice')).not.toBeNull()
+
+    // 4. The cast settles (non-committing): C16 clears with its own observable.
+    await act(async () => {
+      h.castHeld.find((held) => held.column === 'label')?.resolve({ hasNonConvertibleValues: true })
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('replace-cast-notice')).toBeNull()
+    })
   })
 })
