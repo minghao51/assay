@@ -22,6 +22,7 @@ import {
   engineErrorLine,
   engineErrorMessage,
   engineRejectionMessage,
+  hasAppliedChanges,
   openFailureMessage,
   overlaySnapshot,
   resolveProfileColumn,
@@ -664,5 +665,97 @@ describe('resolveProfileColumn — base-derived names on the edited view (ug-16)
     expect(
       resolveProfileColumn('label', [rename('label', 'caption')], schema('id', 'label-x')),
     ).toEqual({ kind: 'unresolved', base: 'label' })
+  })
+})
+
+/**
+ * WF-06 §2 — the adopted "dirty" predicate. Evaluated only on a SETTLED
+ * history (`historyRef.current`), which is the gate's G6.
+ *
+ * The wrong alternatives are pinned as behaviour here: `entries.length` would
+ * call an undone-to-zero history dirty, `cursor > 0` would call a no-op-only
+ * prefix dirty, and `activeOps().length` would over-report logged no-ops.
+ */
+describe('hasAppliedChanges — the adopted dirty predicate (WF-06 §2)', () => {
+  it('is clean for an empty history', () => {
+    expect(hasAppliedChanges(emptyHistory())).toBe(false)
+  })
+
+  it('is dirty after one applied op and clean again after undo-to-zero', () => {
+    const applied = appendOp(BASE, emptyHistory(), {
+      kind: 'column-rename',
+      from: 'label',
+      to: 'tag',
+    })
+    expect(applied.entry?.outcome.status).toBe('applied')
+    expect(hasAppliedChanges(applied.history)).toBe(true)
+    // Undo back to the start: the entry survives in the buffer, but the active
+    // prefix has no applied outcome — clean, not "entries.length > 0".
+    const undone = undo(applied.history)
+    expect(undone.history.entries.length).toBe(1)
+    expect(undone.history.cursor).toBe(0)
+    expect(hasAppliedChanges(undone.history)).toBe(false)
+  })
+
+  it('is clean for a logged no-op-only history', () => {
+    const noOp = appendOp(BASE, emptyHistory(), {
+      kind: 'column-rename',
+      from: 'label',
+      to: 'label',
+    })
+    expect(noOp.entry).not.toBeNull()
+    expect(noOp.entry?.outcome.status).not.toBe('applied')
+    expect(noOp.history.entries.length).toBe(1)
+    expect(hasAppliedChanges(noOp.history)).toBe(false)
+    expect(activeOps(noOp.history)).toHaveLength(1)
+  })
+
+  it('is clean for a redo tail that is not active', () => {
+    const first = appendOp(BASE, emptyHistory(), {
+      kind: 'column-rename',
+      from: 'label',
+      to: 'tag',
+    })
+    const undone = undo(first.history).history
+    const redone = redo(undone)
+    // Undo again: the applied op is the redo tail only — clean by policy.
+    const tailOnly = undo(redone.history).history
+    expect(tailOnly.entries.length).toBe(1)
+    expect(tailOnly.cursor).toBe(0)
+    expect(hasAppliedChanges(tailOnly)).toBe(false)
+  })
+
+  it('stays dirty for A→B→A (the accepted over-report)', () => {
+    const first = appendOp(BASE, emptyHistory(), {
+      kind: 'column-rename',
+      from: 'label',
+      to: 'tag',
+    })
+    const second = appendOp(BASE, first.history, {
+      kind: 'column-rename',
+      from: 'tag',
+      to: 'label',
+    })
+    expect(second.entry?.outcome.status).toBe('applied')
+    // The net effect is the base again, but two applied outcomes ran: dirty.
+    expect(hasAppliedChanges(second.history)).toBe(true)
+  })
+
+  it('reads only the active prefix, never the whole entry list', () => {
+    const first = appendOp(BASE, emptyHistory(), {
+      kind: 'column-rename',
+      from: 'label',
+      to: 'tag',
+    })
+    const second = appendOp(BASE, first.history, {
+      kind: 'column-rename',
+      from: 'tag',
+      to: 'caption',
+    })
+    // Move the cursor back one: the first op is applied, the second is tail.
+    const cursor: TransformationHistory = { ...second.history, cursor: 1 }
+    expect(hasAppliedChanges(cursor)).toBe(true)
+    const zero: TransformationHistory = { ...second.history, cursor: 0 }
+    expect(hasAppliedChanges(zero)).toBe(false)
   })
 })

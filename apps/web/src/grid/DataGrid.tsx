@@ -105,6 +105,31 @@ interface DataGridProps {
    * unchanged. Optional for non-editing/preview mounts (default `0`).
    */
   overlayRevision?: number
+  /**
+   * WF-06 (S-A2-1 / IC-01): the App-owned editor-state authority. Written
+   * SYNCHRONOUSLY at every editor transition — inside the existing handlers,
+   * never in an effect — so the host's ready-state gesture gate can ask "is an
+   * editor open?" without waiting for a render and without depending on blur
+   * semantics (the boolean editor has no blur handler at all). Reporting only:
+   * the grid never reads it back, and editing/commit/cancel behaviour is
+   * unchanged. Optional: the pipeline preview mounts the renderer without a
+   * host.
+   */
+  editorStateRef?: { current: EditorReportState }
+  /**
+   * WF-06 (IC-01): render-only mirror notification, fired at the same writes
+   * as `editorStateRef` but ONLY when the reported state actually changes
+   * (closed → open/valid → open/invalid → closed), so typing in a cell never
+   * re-renders the host. It exists so the host can clear its C13 draft notice
+   * when the editor closes — a ref write alone cannot do that. Never authority.
+   */
+  onEditorStateChange?: (state: EditorReportState) => void
+}
+
+/** WF-06 (IC-01): what the grid reports about the single open cell editor. */
+export interface EditorReportState {
+  readonly open: boolean
+  readonly invalid: boolean
 }
 
 /** The in-flight query epoch a host reports to the grid (ug-19). */
@@ -251,6 +276,8 @@ export function DataGrid({
   queryBusy = null,
   onSortBusyChange,
   overlayRevision = 0,
+  editorStateRef,
+  onEditorStateChange,
 }: DataGridProps) {
   const modelVersion = useSyncExternalStore(model.subscribe, model.getVersion)
 
@@ -315,6 +342,42 @@ export function DataGrid({
    * contradicting the prop's "immediate gesture" contract.
    */
   const consumedScrollSeq = useRef<number | null>(null)
+
+  /**
+   * WF-06 (S-A2-1 / IC-01): report the editor state at each transition.
+   *
+   * The ref write is the authority and happens on EVERY transition (cheap); the
+   * host callback fires only when `open`/`invalid` actually changes, so a
+   * keystroke's `onChange` (which only re-confirms `open:true`) never re-renders
+   * the host. The latest props live in refs so the unmount cleanup below always
+   * reports through the current host callback without re-running.
+   */
+  const lastEditorReportRef = useRef<EditorReportState>({ open: false, invalid: false })
+  const editorStateTargetRef = useRef(editorStateRef)
+  editorStateTargetRef.current = editorStateRef
+  const onEditorStateChangeRef = useRef(onEditorStateChange)
+  onEditorStateChangeRef.current = onEditorStateChange
+  const reportEditorState = (next: EditorReportState): void => {
+    const target = editorStateTargetRef.current
+    if (target !== undefined) target.current = next
+    const last = lastEditorReportRef.current
+    if (last.open === next.open && last.invalid === next.invalid) return
+    lastEditorReportRef.current = next
+    onEditorStateChangeRef.current?.(next)
+  }
+  const reportEditorStateRef = useRef(reportEditorState)
+  reportEditorStateRef.current = reportEditorState
+  /**
+   * A grid that unmounts with an editor open (a dataset replacement adopts a
+   * new model, a boundary retry) must not leave the host's authority stuck at
+   * `open:true` forever. Unmount is not a transition the handlers can reach, so
+   * it reports closed here — still a synchronous write, never a deferred one.
+   */
+  useEffect(() => {
+    return () => {
+      reportEditorStateRef.current({ open: false, invalid: false })
+    }
+  }, [])
 
   const editingEnabled = overlayState !== null && onCommitCell !== undefined
   const rowActionsEnabled = overlayState !== null && onDeleteRow !== undefined
@@ -430,6 +493,9 @@ export function DataGrid({
         initialDraft,
         initialNull: cell === null || cell === undefined,
       })
+      // S-A2-1: an editor is open, whatever its kind (text/number/temporal and
+      // boolean alike) — the gate's G3 reads exactly this.
+      reportEditorState({ open: true, invalid: false })
     },
     [parsedColumnTypes],
   )
@@ -558,12 +624,14 @@ export function DataGrid({
   ])
 
   const cancelEdit = (): void => {
+    reportEditorState({ open: false, invalid: false })
     setEditing(null)
     setEditError(null)
   }
 
   const commitEditValue = (value: CellValue): void => {
     if (editing === null) return
+    reportEditorState({ open: false, invalid: false })
     const column = schema[editing.columnIndex]
     if (column !== undefined && onCommitCell !== undefined) {
       // The logical row id captured when the editor opened (AR-W1): a sort/
@@ -601,6 +669,9 @@ export function DataGrid({
       // open so the user can correct the value. The reason is a value-free
       // class (justify: typed-input.test.ts), so it is also safe to announce
       // through the app's polite live region (q-3, ADR 0025).
+      // S-A2-1: the refusal keeps the editor open, flagged invalid, so the gate
+      // refuses replacement (G3) rather than discarding the draft.
+      reportEditorState({ open: true, invalid: true })
       setEditError(parsed.reason)
       onEditAnnounce?.(parsed.reason)
       return
@@ -1213,6 +1284,11 @@ export function DataGrid({
                                     } else if (next === 'false') {
                                       commitEditValue({ kind: 'boolean', value: false })
                                     } else {
+                                      // S-A2-1: the boolean select has NO blur
+                                      // handler; this is its live "still open"
+                                      // write (the true/false options commit
+                                      // through `commitEditValue` above).
+                                      reportEditorState({ open: true, invalid: false })
                                       setEditing({ ...editing, draft: next })
                                     }
                                   }}
@@ -1259,6 +1335,10 @@ export function DataGrid({
                                   autoComplete="off"
                                   value={editing.draft}
                                   onChange={(event) => {
+                                    // S-A2-1: re-confirm the open editor on every
+                                    // draft change (the ref write is cheap; the
+                                    // host notification is deduped).
+                                    reportEditorState({ open: true, invalid: false })
                                     setEditing({ ...editing, draft: event.target.value })
                                   }}
                                   onKeyDown={(event) => {

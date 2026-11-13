@@ -160,7 +160,13 @@ export type OverlaySource = () => EngineOverlay
 export class DuckDbGridProvider implements GridDataProvider {
   private readonly client: GridEngineClient
   private readonly handle: EngineTableHandle
-  private readonly overlaySource: OverlaySource
+  /**
+   * The live overlay source for each request. Rebindable **only** at session
+   * adoption (WF-06 A1-3): a candidate provider starts on its own empty
+   * overlay box and is rebound to the adopted session's closure after the
+   * reset + republish. Never readable outside this class.
+   */
+  private overlaySource: OverlaySource
   /** Active sort keys; empty = natural order (the `sort(null)` clear). */
   private sortKeys: EngineSortSpec[] = []
   /** Active predicates in push order; empty = unfiltered (`filter(null)`). */
@@ -170,6 +176,18 @@ export class DuckDbGridProvider implements GridDataProvider {
     this.client = client
     this.handle = handle
     this.overlaySource = overlaySource
+  }
+
+  /**
+   * WF-06 A1-3: adopt the live session's overlay source. Called once, by
+   * `adopt()`, **after** the new dataset session has started and after the
+   * adopted overlay was republished to the live ref — so these reads follow the new
+   * session and never the retired one. Nothing else may call it: the candidate
+   * must stay isolated (its own empty box) until then, or a candidate read
+   * could resolve the live overlay over the candidate's base.
+   */
+  rebindOverlaySource(next: OverlaySource): void {
+    this.overlaySource = next
   }
 
   /**

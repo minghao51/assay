@@ -392,3 +392,67 @@ describe('DuckDbGridProvider query state (m2-3) — sort/filter carried into eve
     })
   })
 })
+
+/**
+ * WF-06 A1-3 — `rebindOverlaySource`. A replacement candidate is constructed
+ * against its OWN empty overlay box (so a candidate read can never resolve the
+ * live session's overlay over the candidate's base), and only `adopt()` may
+ * rebind the provider to the live session's closure, after the reset and the
+ * adopted overlay republish.
+ */
+describe('DuckDbGridProvider.rebindOverlaySource (WF-06 A1-3)', () => {
+  const CANDIDATE_BASE: OverlayBase = {
+    baseAnchor: 'fv-9-2000',
+    overlayAnchor: 'ov-candidate',
+    columns: [
+      { name: 'id', type: 'BIGINT' },
+      { name: 'label', type: 'VARCHAR' },
+    ],
+    baseRowCount: 2,
+  }
+
+  it('starts on the candidate-local empty box and never reads a live overlay', async () => {
+    const fake = fakeClient()
+    const candidateBox: { current: EngineOverlay } = {
+      current: { base: CANDIDATE_BASE, ops: [] },
+    }
+    const provider = new DuckDbGridProvider(fake.client, handle, () => candidateBox.current)
+
+    await expect(provider.schema()).resolves.toEqual([
+      { name: 'id', type: 'BIGINT' },
+      { name: 'label', type: 'VARCHAR' },
+    ])
+    await provider.rowCount()
+    // The empty-overlay fast path: the BASE methods, no overlay composition.
+    expect(fake.overlaySchemas).toHaveLength(0)
+    expect(fake.windows).toHaveLength(0)
+    expect(fake.baseWindows).toHaveLength(0)
+  })
+
+  it('follows the rebound source (the adopted session) after adoption', async () => {
+    const fake = fakeClient()
+    const candidateBox: { current: EngineOverlay } = {
+      current: { base: CANDIDATE_BASE, ops: [] },
+    }
+    const provider = new DuckDbGridProvider(fake.client, handle, () => candidateBox.current)
+
+    // adopt() step 4: rebind to the live session's closure, after the reset and
+    // the adopted overlay republish. The adopted session starts empty too.
+    const adopted: { current: EngineOverlay } = { current: { base: BASE, ops: [] } }
+    provider.rebindOverlaySource(() => adopted.current)
+
+    // The first post-adoption edit publishes an op through the same closure;
+    // the very next read takes the composed overlay path with THAT overlay.
+    adopted.current = withEditSource()
+    await provider.schema()
+    expect(fake.overlaySchemas).toHaveLength(1)
+    expect(fake.overlaySchemas[0]).toEqual(withEditSource())
+
+    await provider.rowCount()
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(fake.windows).toHaveLength(1)
+    // Row identity comes from the ADOPTED base anchor, not the candidate's.
+    const page = await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(page.rowKeys?.[0]).toBe(baseRowId(BASE.baseAnchor, 0))
+  })
+})

@@ -72,3 +72,63 @@ describe('SchemaPanel expansion-key unambiguity (S4)', () => {
     expect(childY.getAttribute('aria-expanded')).toBe('false')
   })
 })
+
+/**
+ * WF-06 (S-A2-4) — the per-column cast-pending prop became the aggregate set.
+ * The UI contract is unchanged: a running check disables (and marks) only ITS
+ * OWN column's Rename/Cast controls, so an unrelated column stays usable while
+ * two checks may overlap.
+ */
+describe('SchemaPanel aggregate cast-pending prop (WF-06 S-A2-4)', () => {
+  const COLUMNS = [
+    { name: 'a', type: 'BIGINT' },
+    { name: 'b', type: 'VARCHAR' },
+  ]
+
+  function renderWith(castPendingColumns?: ReadonlySet<string>): void {
+    render(
+      <SchemaPanel
+        columns={COLUMNS}
+        onAction={() => {}}
+        onRenameColumn={() => {}}
+        onCastColumn={() => {}}
+        castPendingColumns={castPendingColumns}
+      />,
+    )
+  }
+
+  function controls(column: string): HTMLElement {
+    return document.querySelector<HTMLElement>(
+      `[data-testid="column-rename-open"][data-col-name="${column}"]`,
+    ) as HTMLElement
+  }
+
+  it('disables and marks ONLY the pending column', () => {
+    renderWith(new Set(['a']))
+    const renameA = controls('a')
+    const renameB = controls('b')
+    expect(renameA.hasAttribute('disabled')).toBe(true)
+    expect(renameB.hasAttribute('disabled')).toBe(false)
+    expect(
+      document.querySelector('[data-testid="column-cast-pending"][data-col-name="a"]'),
+    ).not.toBeNull()
+    expect(
+      document.querySelector('[data-testid="column-cast-pending"][data-col-name="b"]'),
+    ).toBeNull()
+    // Two pending columns are both disabled (the aggregate case).
+    cleanup()
+    renderWith(new Set(['a', 'b']))
+    expect(controls('a').hasAttribute('disabled')).toBe(true)
+    expect(controls('b').hasAttribute('disabled')).toBe(true)
+    expect(document.querySelectorAll('[data-testid="column-cast-pending"]')).toHaveLength(2)
+  })
+
+  it('treats an omitted or empty set as "no check running"', () => {
+    renderWith()
+    expect(controls('a').hasAttribute('disabled')).toBe(false)
+    expect(document.querySelector('[data-testid="column-cast-pending"]')).toBeNull()
+    cleanup()
+    renderWith(new Set())
+    expect(controls('a').hasAttribute('disabled')).toBe(false)
+  })
+})

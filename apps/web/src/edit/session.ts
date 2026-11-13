@@ -35,6 +35,27 @@ export function activeOps(history: TransformationHistory): EditOp[] {
 }
 
 /**
+ * WF-06 "dirty": is there an **applied** outcome in the active history
+ * prefix? (v5 §2, adopted predicate.)
+ *
+ * Evaluated only on a settled history (`historyRef.current`) — the gate rows
+ * G3/G4 precede it, so a commit in flight is refused before this runs. The
+ * predicate must not use `entries.length` (undo-to-zero leaves entries),
+ * `cursor > 0` or `activeOps().length` (logged no-ops count there), the
+ * overlay revision (undo/redo/cursor moves bump it) or the history race tag.
+ *
+ * Case verdicts: undo back to zero ⇒ clean; a redo tail only ⇒ clean; a
+ * logged no-op only ⇒ clean; a rolled-back or refused edit ⇒ clean; A→B→A ⇒
+ * dirty (the adopted over-report: an applied op really did run).
+ */
+export function hasAppliedChanges(history: TransformationHistory): boolean {
+  for (let index = 0; index < history.cursor; index += 1) {
+    if (history.entries[index]?.outcome.status === 'applied') return true
+  }
+  return false
+}
+
+/**
  * Where a *base-derived* name lands on the current effective view (ug-16).
  *
  * `resolved` carries the name to use (the base name itself, or — for a rename

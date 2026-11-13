@@ -3244,3 +3244,137 @@ h1 {
   line-height: 1.25;
   cursor: pointer;
 }
+
+/* ---- WF-06: replacement guard, progress and value-free notices ----------
+ *
+ * The guard reuses the guide's native modal sizing/typography (one dialog
+ * idiom in the shell), sits above the open-flow status area, and keeps every
+ * action at the app's control height so the keyboard/scheme tokens apply
+ * unchanged. The notices are inline status text, never a banner: they live
+ * beside the Open control and never push the workspace down by more than one
+ * line (the ready-frame budgets are measured on the default state, which
+ * renders none of them).
+ */
+.replace-guard[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: auto;
+  width: min(36rem, calc(100vw - var(--space-8)));
+  max-width: calc(100vw - var(--space-8));
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-panel-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+
+.replace-guard-title {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.replace-guard-title:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.replace-guard-body {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.replace-guard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.replace-guard-primary,
+.replace-guard-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui);
+  font-weight: 500;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.replace-guard-primary {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.replace-guard-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.replace-guard-primary:hover,
+.replace-guard-secondary:hover {
+  background: var(--color-hover);
+}
+
+.replace-guard-primary:focus-visible,
+.replace-guard-secondary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* The replacement notices: one inline line beside the Open control. */
+.workbench-open-flow [data-testid^='replace-'] {
+  display: inline-block;
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-metadata);
+}
+
+.replace-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.replace-progress:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.replace-failure {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-metadata);
+}
+
+.replace-failure p {
+  margin: 0 0 var(--space-1);
+}
+
+.replace-failure details pre {
+  margin: var(--space-1) 0 0;
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* The user may select and copy this text: the app never writes the
+   * clipboard itself, and suppressing the user's own copy would be new
+   * behaviour (v5 §8.1 W-C). */
+  user-select: text;
+}
+
+/* WF-06 §4.6: the ready region is inert while a candidate is prepared. No
+ * visual change is added beyond the existing layout — `inert` is a behaviour,
+ * and the region keeps its paint so the live session stays legible behind
+ * the progress line. */
+.workbench-layout[inert] {
+  opacity: 0.75;
+}

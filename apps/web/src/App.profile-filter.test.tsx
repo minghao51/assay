@@ -197,9 +197,17 @@ async function openFixture(): Promise<void> {
   expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
 }
 
+/**
+ * WF-06 (amendment A1, setup only): a replacement adopted from a clean session
+ * no longer unmounts the ready subtree, so the Profile panel's own disclosure
+ * state SURVIVES the adoption (session preservation). The helper therefore
+ * expands only when the panel is collapsed — a blanket click would now collapse
+ * an already-expanded panel. Assertions are unchanged.
+ */
 function expandProfile(): void {
-  fireEvent.click(screen.getByTestId('profile-toggle'))
-  expect(screen.getByTestId('profile-toggle').getAttribute('aria-expanded')).toBe('true')
+  const toggle = screen.getByTestId('profile-toggle')
+  if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle)
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
 }
 
 async function computeProfile(): Promise<void> {

@@ -308,8 +308,14 @@ describe('ug-6 — History auto-expand cue (App)', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
 
     // A new dataset resets the history but does NOT expand the section.
+    // WF-06 (amendment A1, setup only): this session is dirty (two applied
+    // rows), so the ready-state Open opens the reviewed guard; choosing is the
+    // only way into the picker. Assertions are unchanged.
     await act(async () => {
       fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('replace-choose'))
     })
     await waitFor(() => {
       expect(h.openCalls).toBe(2)

@@ -271,6 +271,19 @@ async function chooseFile(name: string): Promise<void> {
   await act(async () => {
     fireEvent.click(screen.getByTestId('open-button'))
   })
+  // WF-06 (amendment A1, setup only): from `idle` this click is the unchanged
+  // legacy open; from a READY session a replacement is gated, and a dirty
+  // session (staged edits) shows the reviewed guard — choosing is the only way
+  // into the picker. The same mock pick then feeds either path, and the drain
+  // lets the candidate prepare and adopt before the caller's assertion. No
+  // assertion is touched.
+  const choose = screen.queryByTestId('replace-choose')
+  if (choose !== null) {
+    await act(async () => {
+      fireEvent.click(choose)
+      for (let tick = 0; tick < 48; tick += 1) await Promise.resolve()
+    })
+  }
   await screen.findByTestId('schema-section')
 }
 
@@ -441,6 +454,13 @@ describe('ug-7 recoverable close/reopen (R-07)', () => {
     await chooseFile('replacement.jsonl')
     expect(h.beginSession).toHaveBeenCalledTimes(2)
     expect(document.getElementById('section-filters-content')?.hasAttribute('hidden')).toBe(false)
+    // WF-06 (amendment A1, setup only): the ready subtree no longer remounts on
+    // adoption (session preservation), so a panel that DID fail keeps its own
+    // recovery affordance — the boundary's existing Retry is its documented
+    // way back (the preceding test drives the same control). Clearing the
+    // injected crash and pressing it reaches the live panel; no assertion is
+    // touched.
+    fireEvent.click(screen.getByTestId('error-boundary-retry'))
     expect(await screen.findByTestId('filter-bar')).toBeTruthy()
   })
 

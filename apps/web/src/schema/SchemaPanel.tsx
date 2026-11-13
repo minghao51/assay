@@ -52,13 +52,19 @@ interface SchemaPanelProps {
   /** m4-4 column cast affordance; `targetType` is pre-validated by the caller UI. */
   readonly onCastColumn?: (column: string, targetType: string) => void
   /**
-   * Column whose cast pre-check is in flight (m4-4 fix round 2). Its cast
-   * control renders a pending state and is disabled, so a slow engine check
-   * is visible and a double-click cannot queue a second intent. `null`/
-   * omitted means no check is running.
+   * Columns whose cast pre-check is in flight (m4-4 fix round 2; the aggregate
+   * set since WF-06/C3). Each column's own control renders the pending state
+   * and is disabled, so a slow engine check is visible and a double-click
+   * cannot queue a second intent for that column. Two different columns may
+   * overlap (the source always allowed it); an omitted/empty set means no check
+   * is running. Per-column disable semantics are byte-identical to the former
+   * single-column prop.
    */
-  readonly castPendingColumn?: string | null
+  readonly castPendingColumns?: ReadonlySet<string>
 }
+
+/** The empty aggregate: no column's cast check is pending. */
+const EMPTY_CAST_PENDING: ReadonlySet<string> = new Set<string>()
 
 /**
  * The one-click action a node offers, if any (m3-5). Column roots act on the
@@ -523,7 +529,7 @@ export function SchemaPanel({
   onAction,
   onRenameColumn,
   onCastColumn,
-  castPendingColumn = null,
+  castPendingColumns = EMPTY_CAST_PENDING,
 }: SchemaPanelProps) {
   const [open, setOpen] = useState(true)
   const [expanded, setExpanded] = useState<ExpandedPaths>(() => new Set<string>())
@@ -594,7 +600,7 @@ export function SchemaPanel({
                     <ColumnControls
                       name={column.name}
                       type={column.type}
-                      castPending={castPendingColumn === column.name}
+                      castPending={castPendingColumns.has(column.name)}
                       onRename={onRenameColumn}
                       onCast={onCastColumn}
                     />

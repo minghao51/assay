@@ -37,6 +37,9 @@ import type { Phase } from './types'
  */
 const MAX_CAST_CHECK_ATTEMPTS = 3
 
+/** The empty aggregate cast-pending set (shared; never mutated in place). */
+const EMPTY_CAST_PENDING: ReadonlySet<string> = new Set<string>()
+
 /** q-3: one polite announcement; `seq` keeps repeated identical text firing. */
 interface EditAnnouncement {
   readonly text: string
@@ -54,7 +57,30 @@ export interface EditingSession {
   readonly editError: string | null
   readonly editAnnouncement: EditAnnouncement | null
   readonly viewError: boolean
-  readonly castPendingColumn: string | null
+  /**
+   * WF-06 (S-A2-4 / IC-02): the columns whose cast pre-check is in flight,
+   * keyed by column so two different columns' checks may overlap exactly as
+   * today (per-column disable is unchanged). The **authority** the gesture gate
+   * reads is `castPendingColumnsRef`; this state is the render mirror
+   * `SchemaPanel` and the C16 notice consume.
+   */
+  readonly castPendingColumns: ReadonlySet<string>
+  /** Synchronous authority mirror of `castPendingColumns` (read by the gate). */
+  readonly castPendingColumnsRef: { current: ReadonlySet<string> }
+  /** Render mirror: how many cast pre-checks are pending (0 ⇒ none). */
+  readonly castPendingCount: number
+  /**
+   * WF-06 (S-A2-2): commits currently materializing, counted — not a boolean,
+   * because two commits can overlap (`applyOp` appends on the live history).
+   * Incremented immediately before the commit's `await` and decremented in a
+   * `finally`; the gesture gate reads THIS ref.
+   */
+  readonly mutationStateRef: { current: number }
+  /**
+   * Render mirror of `mutationStateRef > 0`, written in the same two places.
+   * Used only to render/clear the C15 notice — never as gate authority.
+   */
+  readonly mutationPending: boolean
   /**
    * Synchronous mirror of `history`; the cast path `await`s the engine's
    * pre-commit check, so reading the ref at append time prevents a stale
@@ -170,11 +196,43 @@ export function useEditingSession(
    */
   const historyRevision = useRef(0)
   /**
-   * Column whose cast pre-check is currently in flight (or `null`). Renders
-   * a pending state on that column's cast control so a slow check is honest
-   * and a double-click cannot queue a second intent.
+   * WF-06 (S-A2-4 / IC-02): the set of columns whose cast pre-check is
+   * currently in flight. Replaces the single `castPendingColumn` string so an
+   * aggregate gate input exists: with one value, the later check's `finally`
+   * could clear the marker while an earlier check on another column was still
+   * running, and the gate would permit replacement mid-check.
+   *
+   * The ref is the synchronous authority (updated before the first `await` and
+   * in the existing `finally`); the state is the render mirror. Keying by
+   * column keeps today's per-column disable exactly: a running check disables
+   * only its own column's Rename/Cast buttons, and a double-click cannot queue
+   * a second intent for the same column.
    */
-  const [castPendingColumn, setCastPendingColumn] = useState<string | null>(null)
+  const castPendingColumnsRef = useRef<ReadonlySet<string>>(EMPTY_CAST_PENDING)
+  const [castPendingColumns, setCastPendingColumns] =
+    useState<ReadonlySet<string>>(EMPTY_CAST_PENDING)
+  /**
+   * WF-06 (S-A2-2): counted commits in flight + its render mirror. The counter
+   * only lets the gesture gate refuse while work is pending; it does not
+   * serialize, order, coalesce, abort or repair commits (v5 §3.6), and nothing
+   * in code or copy may claim it does.
+   */
+  const mutationStateRef = useRef(0)
+  const [mutationPending, setMutationPending] = useState(false)
+  /**
+   * One cast check's add/remove point: the ref first (gate authority), then the
+   * render mirror — the same two writes, so they cannot disagree on the render
+   * that follows. Removing an absent column, or re-adding a present one, is a
+   * no-op (no pointless render).
+   */
+  const markCastPending = useCallback((column: string, pending: boolean): void => {
+    if (castPendingColumnsRef.current.has(column) === pending) return
+    const next = new Set(castPendingColumnsRef.current)
+    if (pending) next.add(column)
+    else next.delete(column)
+    castPendingColumnsRef.current = next
+    setCastPendingColumns(next)
+  }, [])
 
   /**
    * The effective overlay state at the history cursor. Pure fold — after
@@ -228,18 +286,29 @@ export function useEditingSession(
       outcomeMessage: string | null = null,
     ): Promise<void> => {
       if (phase.kind !== 'ready') return
-      const result = await commitWithRollback(previous, next, {
-        setActive: activateHistory,
-        refresh: () => phase.model.refresh(),
-      })
-      // An honest non-applied outcome (a no-op entry) must survive a
-      // successful commit; an engine rejection message wins if present.
-      showEditError(result.message ?? outcomeMessage)
-      setViewError(result.restoreFailed)
-      // q-3: announce a clean commit. `showEditError` already announced any
-      // rejection/no-op message; only a fully applied edit reaches here silent.
-      if (result.message === null && outcomeMessage === null) {
-        announceEdit('Edit committed.')
+      // S-A2-2: count the commit before its first await so the ready-state
+      // gesture gate can refuse while it materializes (no time bound claimed).
+      mutationStateRef.current += 1
+      setMutationPending(true)
+      try {
+        const result = await commitWithRollback(previous, next, {
+          setActive: activateHistory,
+          refresh: () => phase.model.refresh(),
+        })
+        // An honest non-applied outcome (a no-op entry) must survive a
+        // successful commit; an engine rejection message wins if present.
+        showEditError(result.message ?? outcomeMessage)
+        setViewError(result.restoreFailed)
+        // q-3: announce a clean commit. `showEditError` already announced any
+        // rejection/no-op message; only a fully applied edit reaches here silent.
+        if (result.message === null && outcomeMessage === null) {
+          announceEdit('Edit committed.')
+        }
+      } finally {
+        mutationStateRef.current -= 1
+        // Written in the same two places as the ref so the mirror can never
+        // disagree on the render that follows settlement.
+        setMutationPending(mutationStateRef.current > 0)
       }
     },
     [phase, activateHistory, showEditError, announceEdit],
@@ -342,7 +411,9 @@ export function useEditingSession(
     (column: string, targetType: string) => {
       if (phase.kind !== 'ready') return
       const sessionId = session.tokenRef.current
-      setCastPendingColumn(column)
+      // S-A2-4: add THIS column before the first await; the aggregate set (not
+      // a single value) is what the gesture gate reads.
+      markCastPending(column, true)
       void (async () => {
         try {
           for (let attempt = 0; attempt < MAX_CAST_CHECK_ATTEMPTS; attempt++) {
@@ -383,11 +454,14 @@ export function useEditingSession(
             showEditError(castRacedMessage(column, targetType))
           }
         } finally {
-          setCastPendingColumn((pending) => (pending === column ? null : pending))
+          // Remove only this column: another column's check may still be in
+          // flight, and the aggregate must stay non-empty until the LAST one
+          // clears (N17).
+          markCastPending(column, false)
         }
       })()
     },
-    [phase, applyOp, showEditError, session],
+    [phase, applyOp, showEditError, session, markCastPending],
   )
 
   /**
@@ -466,7 +540,10 @@ export function useEditingSession(
   const reset = useCallback(() => {
     setEditError(null)
     setViewError(false)
-    setCastPendingColumn(null)
+    castPendingColumnsRef.current = EMPTY_CAST_PENDING
+    setCastPendingColumns(EMPTY_CAST_PENDING)
+    mutationStateRef.current = 0
+    setMutationPending(false)
     historyRevision.current += 1
     overlayRef.current = null
     const resetHistory = emptyHistory()
@@ -483,7 +560,11 @@ export function useEditingSession(
     editError,
     editAnnouncement,
     viewError,
-    castPendingColumn,
+    castPendingColumns,
+    castPendingColumnsRef,
+    castPendingCount: castPendingColumns.size,
+    mutationStateRef,
+    mutationPending,
     historyRef,
     overlayRef,
     announceEdit,

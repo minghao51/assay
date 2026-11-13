@@ -2,7 +2,6 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EngineTableHandle } from '@assay/engine-duckdb'
 import { App } from './App'
 import type { ArrowTableLike } from './grid/provider'
 
@@ -35,15 +34,13 @@ import type { ArrowTableLike } from './grid/provider'
  * reachable.
  */
 
-const FAKE_HANDLE: EngineTableHandle = { kind: 'table', id: 't1' }
-
 const FAKE_SCHEMA: readonly { name: string; type: string }[] = [
   { name: 'id', type: 'BIGINT' },
   { name: 'country', type: 'VARCHAR' },
 ]
 
-function fakeBatch(): ArrowTableLike {
-  const columns = [{ get: () => 1 }, { get: () => 'SG' }]
+function fakeBatch(idCell = 1): ArrowTableLike {
+  const columns = [{ get: () => idCell }, { get: () => 'SG' }]
   return {
     numRows: 1,
     numCols: columns.length,
@@ -62,6 +59,8 @@ const h = vi.hoisted(() => ({
   rows: [] as VirtualItem[],
   /** Pick count — a re-open must resolve a genuinely different dataset. */
   picks: 0,
+  /** Engine opens — the observable completion signal of an adoption. */
+  opens: 0,
 }))
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -82,10 +81,32 @@ vi.mock('@assay/data-sources/browser', () => ({
 
 vi.mock('./lib/engine', () => ({
   engineClient: {
-    open: async () => FAKE_HANDLE,
-    schema: async () => FAKE_SCHEMA,
+    // WF-06 (amendment A1, setup only): a replacement's candidate open is
+    // counted and gets its own engine id, so the helper below has a real
+    // adoption signal now that a ready frame no longer dips through `opening`.
+    open: async () => {
+      h.opens += 1
+      return { kind: 'table' as const, id: `t${String(h.opens)}` }
+    },
+    // WF-06 (amendment A1, setup only): the replacement is a genuinely
+    // different dataset shape, which is what "an epoch shift to a new dataset"
+    // means for the dock's structural-shift rule. The first session's schema
+    // is unchanged.
+    schema: async (handle: { id: string }) =>
+      handle.id === 't1'
+        ? FAKE_SCHEMA
+        : [
+            { name: 'order_id', type: 'BIGINT' },
+            { name: 'region', type: 'VARCHAR' },
+          ],
     rowCount: async () => 1,
-    fetchRange: async () => ({ batch: fakeBatch(), hasMore: false }),
+    // WF-06 (amendment A1, setup only): the second session's window carries a
+    // distinguishable first cell, so the helper below can wait for the ADOPTED
+    // grid instead of the outgoing one. The first session's data is unchanged.
+    fetchRange: async (handle: { id: string }) => ({
+      batch: fakeBatch(handle.id === 't1' ? 1 : 2),
+      hasMore: false,
+    }),
   },
 }))
 
@@ -139,6 +160,7 @@ const RECORD_CLOSED_HINT = 'Select a row to inspect it here — press Enter or d
 beforeEach(() => {
   h.rows = [{ index: 0, key: 'row-0', start: 0, size: 28 }]
   h.picks = 0
+  h.opens = 0
 })
 
 afterEach(() => {
@@ -200,6 +222,30 @@ async function openDifferentDataset(): Promise<void> {
     },
     { timeout: 5_000 },
   )
+  // WF-06 (amendment A1, setup only): a replacement keeps the phase at
+  // `ready` while the candidate is prepared, so the checks above can pass on
+  // the OUTGOING session. Wait for the candidate's engine open, then drain the
+  // remaining resolved-promise hops so adoption has completed before the
+  // caller asserts.
+  await waitFor(
+    () => {
+      expect(h.opens).toBeGreaterThanOrEqual(2)
+    },
+    { timeout: 5_000 },
+  )
+  // The OUTGOING grid was `ready` a moment ago, so wait for the ADOPTED
+  // session's own first window (the second session's marker cell) before the
+  // caller asserts; the adoption's remaining promise hops and the dock's
+  // context-shift effect then commit.
+  await waitFor(
+    () => {
+      expect(screen.getAllByTestId('grid-cell')[0]?.textContent).toBe('2')
+    },
+    { timeout: 5_000 },
+  )
+  await act(async () => {
+    for (let tick = 0; tick < 16; tick += 1) await Promise.resolve()
+  })
 }
 
 describe('ug-13 — section purpose subtitles (R-14)', () => {

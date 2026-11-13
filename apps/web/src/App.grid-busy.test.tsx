@@ -29,6 +29,10 @@ const h = vi.hoisted(() => ({
   filteredRows: 1,
   /** A controllable in-flight filtered count (the apply epoch gate). */
   deferredFilteredCount: null as Promise<void> | null,
+  /** Chooser calls — proves a refused gesture really opened no picker. */
+  picks: 0,
+  /** Engine opens — the adoption completion signal for the reachable leg. */
+  openCalls: 0,
 }))
 
 function fakeBaseBatch(): ArrowTableLike {
@@ -53,9 +57,10 @@ function fakeOverlayBatch(columnCount: number, numRows: number): ArrowTableLike 
 }
 
 vi.mock('@assay/data-sources/browser', () => ({
-  pickDataFile: async (): Promise<{ source: { getFile: () => Promise<File> } }> => ({
-    source: { getFile: async () => new File(['id\n1\n'], 'ug19.jsonl') },
-  }),
+  pickDataFile: async (): Promise<{ source: { getFile: () => Promise<File> } }> => {
+    h.picks += 1
+    return { source: { getFile: async () => new File(['id\n1\n'], 'ug19.jsonl') } }
+  },
 }))
 
 vi.mock('./lib/engine', () => {
@@ -64,7 +69,12 @@ vi.mock('./lib/engine', () => {
   }
   return {
     engineClient: {
-      open: async () => ({ kind: 'table' as const, id: 't1' }),
+      // WF-06 (amendment A1, setup only): each open gets its own id and is
+      // counted, so the reachable replacement leg has an adoption signal.
+      open: async () => {
+        h.openCalls += 1
+        return { kind: 'table' as const, id: `t${String(h.openCalls)}` }
+      },
       schema: async () => FAKE_SCHEMA,
       rowCount: async () => 1,
       fetchRange: async () => ({ batch: fakeBaseBatch(), hasMore: false }),
@@ -100,6 +110,8 @@ afterEach(cleanup)
 beforeEach(() => {
   h.filteredRows = 1
   h.deferredFilteredCount = null
+  h.picks = 0
+  h.openCalls = 0
 })
 
 async function openFixture(): Promise<void> {
@@ -221,7 +233,21 @@ describe('ug-19 — filter apply exposes the grid busy epoch through App', () =>
     expect(screen.queryByTestId('grid-busy-status')).toBeNull()
   })
 
-  it('clears the busy epoch when a new dataset replaces the model', async () => {
+  /**
+   * WF-06 amendment A1 — one assertion replacement, because the reviewed
+   * contract makes "open a replacement while a filter apply is in flight"
+   * unreachable: gate row G5 refuses the ready-state gesture while
+   * `gridBusy !== null` (v5 §3.2). The old expectation (a second open retires
+   * the parked epoch) therefore describes behaviour that no longer exists.
+   *
+   * The intent is preserved on both sides: (1) the refusal keeps the epoch it
+   * does not own exactly as it was and opens no picker/guard; releasing it
+   * clears only its own state; (2) epoch retirement is still covered on the
+   * reachable path — a replacement adopted while NO apply is in flight
+   * publishes a clean epoch (no carried busy state, no carried filter chips
+   * from the retired session).
+   */
+  it('refuses a replacement while the filter epoch is in flight, then adopts into a clean epoch', async () => {
     await openFixture()
     openFilterBar()
 
@@ -233,28 +259,51 @@ describe('ug-19 — filter apply exposes the grid busy epoch through App', () =>
       expect(viewport().getAttribute('aria-busy')).toBe('true')
     })
     expect(screen.getByTestId('grid-busy-status').textContent).toBe('Filtering…')
+    const rowsBefore = screen.getByTestId('grid-total-rows').textContent
+    const picksBefore = h.picks
 
-    // A second open starts while the first session's apply is still parked.
-    // App's dataset-clear effect must retire the old epoch as soon as the new
-    // model lands — the stale apply's `finally` has not run yet.
+    // G5: the in-flight filter epoch refuses the replacement. No chooser, no
+    // guard, no progress, no session write — the epoch stays exactly as it was.
     await act(async () => {
       fireEvent.click(screen.getByTestId('open-button'))
     })
-    await waitFor(() => {
-      expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
-    })
-    await waitFor(() => {
-      expect(viewport().getAttribute('aria-busy')).toBeNull()
-    })
-    expect(screen.queryByTestId('grid-busy-status')).toBeNull()
+    expect(screen.queryByTestId('replace-guard')).toBeNull()
+    expect(screen.queryByTestId('replace-progress')).toBeNull()
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    expect(h.picks).toBe(picksBefore)
+    expect(viewport().getAttribute('aria-busy')).toBe('true')
+    expect(screen.getByTestId('grid-busy-status').textContent).toBe('Filtering…')
+    expect(screen.getByTestId('grid-total-rows').textContent).toBe(rowsBefore)
 
-    // Releasing the superseded apply cannot resurrect the busy state.
+    // Releasing the refused gesture's own apply clears the epoch it owns and
+    // nothing else; the refusal never auto-resumes (no guard, no picker).
     await act(async () => {
       gate.release()
     })
     await flushAsync()
+    await waitFor(() => {
+      expect(viewport().getAttribute('aria-busy')).toBeNull()
+    })
+    expect(screen.queryByTestId('grid-busy-status')).toBeNull()
+    expect(screen.queryByTestId('replace-guard')).toBeNull()
+    expect(h.picks).toBe(picksBefore)
+
+    // The reachable retirement path: adopt a new dataset with no epoch in
+    // flight; the published epoch is clean and carries no retired filter.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await waitFor(() => {
+      expect(h.picks).toBe(picksBefore + 1)
+    })
+    await waitFor(() => {
+      expect(h.openCalls).toBe(2)
+    })
+    await flushAsync()
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
     expect(viewport().getAttribute('aria-busy')).toBeNull()
     expect(screen.queryByTestId('grid-busy-status')).toBeNull()
+    expect(screen.queryAllByTestId('filter-chip')).toHaveLength(0)
   })
 
   it('keeps Filtering… while a sort is also in flight and clears only after both settle', async () => {
