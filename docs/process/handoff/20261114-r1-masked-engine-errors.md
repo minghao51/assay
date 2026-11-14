@@ -1,8 +1,7 @@
 # R1 — masked engine errors: decision, investigation and fix rows
 
-**Date:** 2026-11-14. **Status:** maintainer selected **R1** as a defect row and approved the
-recommended fix; the web/engine fix row (**R1-A**) is dispatched, the desktop row (**R1-B**) is
-queued after it. Nothing pushed.
+**Date:** 2026-11-14. **Status:** **R1-C CLOSED** (merged `837b638`) and **R1-A CLOSED** (merged
+`b0b78bc`); the desktop row (**R1-B**) is next. Nothing pushed.
 
 **Authority:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) →
 [ADR 0048 (Proposed)](../../adr/0048-engine-bundle-selection-and-honest-error-text.md) → this record.
@@ -48,11 +47,11 @@ cause, so those assertions move with the fix.
 
 ## 3. Fix rows
 
-| Row                                   | Scope                                                                                                                                                                                                                         | Status / dependency                                                                                                                                                     |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **R1-A** (web + engine core)          | `packages/engine-duckdb` bundle selection + asset wiring + unit tests; e2e real-message and corrupt-open assertions; platform-paired extension fixture (commit the `wasm_eh` Parquet/JSON binaries with checksums); changeset | **BLOCKED 2026-11-14** — implementation complete and green except two browser specs outside its reservation (§3.2); no commit, work preserved in `/tmp/assay-r1-a-wip/` |
-| **R1-C** (edit-value check, proposed) | Make a staged cell-edit value's convertibility a pre-append engine check (reuse `overlayCastCheck`; skip its provably-redundant base arm when no cast is pending) and refuse with the existing value-free framing             | **AWAITING DECISION** — caused by R1-A exposing the gap (§3.2)                                                                                                          |
-| **R1-B** (desktop)                    | `apps/vscode` vendored set → eh pair + `wasm_eh` autoload paths + build checksums/docs + spike harness update; changeset                                                                                                      | **PENDING** — queued after R1-A (shares the eh pinned binaries and the e2e fixture)                                                                                     |
+| Row                          | Scope                                                                                                                                                                                                                         | Status / dependency                                                                                                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **R1-A** (web + engine core) | `packages/engine-duckdb` bundle selection + asset wiring + unit tests; e2e real-message and corrupt-open assertions; platform-paired extension fixture (commit the `wasm_eh` Parquet/JSON binaries with checksums); changeset | **CLOSED — MERGED `b0b78bc`** after two review rounds (the second fixed the circular `wasm_eh` file pin); merged gates green with two documented page-load flakes re-ran 19/19 (§3.9) |
+| **R1-C** (edit-value check)  | Make a staged cell-edit value's convertibility a pre-append engine check (reuse `overlayCastCheck`; skip its provably-redundant base arm when no cast is pending) and refuse with the existing value-free framing             | **CLOSED — MERGED `837b638`** after 3 independent review rounds + a comment-only verification; merged gates green (§3.7)                                                              |
+| **R1-B** (desktop)           | `apps/vscode` vendored set → eh pair + `wasm_eh` autoload paths + build checksums/docs + spike harness update; changeset                                                                                                      | **NEXT** — desktop `eh`-only vendored set; brief staged, worktree created (no dispatch until this record is current)                                                                  |
 
 R1-B is deliberately serialized: both rows touch the pinned-asset directory and the e2e extension
 route, and only one runtime writer may be claimed.
@@ -210,6 +209,32 @@ serve-the-mvp-binary control still passed (`3 passed`) because DuckDB accepts th
 extension bytes. Fix round (same branch): absolute basenames + literal byte counts
 (3,045,039 / 820,646) for both `wasm_eh` legs, the suffix-swap mutation must then fail, plus an
 optional fail-closed assertion for a platform-less autoload URL. A fresh re-review follows.
+
+### 3.9 R1-A closure (2026-11-14)
+
+Merged as **`b0b78bc`** (cherry-picked with `-x` from `41722ac`, branch
+`fix/r1-a-honest-engine-errors`, base `837b638`; 11 files, +584/−65). Two independent review rounds:
+round 1 verified the probe identity (re-extracted from the package), selector, binaries, scope, all
+gates and the forced-`mvp` mutation, and required an absolute `wasm_eh` file pin because the fixture's
+own mapping made the proof circular (the mvp binary is API-compatible enough to load, so the control
+passed); round 2 reproduced that the absolute basename/byte pins (3,045,039 / 820,646) now fail under
+the suffix swap and nothing else does, verified the optional platform-less abort pin, and approved.
+
+Merged gates at `b0b78bc` (`/tmp/assay-r1-a-merged-logs/`): format/lint 0 · forced typecheck **20/20,
+0 cached** · unit **246 files / 3661 tests** · coverage **89.34 / 84.05 / 91.66 / 91.00** · forced
+build **12/12, 0 cached** · docs **156/0** · ADR **48** · configured telemetry **7 passed** (POSTs
+aborted, zero delivered) · restored stock **76 passed**. The merged browser run was **263 passed +
+1 skipped with 2 page-load flakes** (`column-ops:61`, `diff-panel:128`: `open-status` absent after
+`goto('/')`, the documented host-load class); both passed on an isolated re-run (**19/19**), and the
+branch's own full run was 265+1 green. Both results are recorded, not one claimed away.
+
+Design as shipped: `bundle-select.ts` reproduces the package's own `getPlatformFeatures()` EH probe
+(frozen, injectable `validate`, a throwing validator degrades to `mvp`; not exported from
+`index.ts`); `worker.ts` imports all four `?url` pairs and passes exactly one to the unchanged core;
+the e2e fixture serves the extension by platform tag (`wasm_eh` → `*.eh.pinned`, fail-closed) with
+absolute file pins in `wasm-cache`; user-initiated surfaces now show the engine's real first line.
+Web dist carries both pairs (+35,015,345 B raw; one fetched per session) so non-EH browsers keep the
+opaque fallback. Worktree/branch removed after merge. **R1-B (desktop `eh`-only) is last.**
 
 ## 4. No-push, no-claim statement
 
