@@ -165,6 +165,17 @@ microtask after the gesture rather than synchronously; the mutation chain has no
 never-settling engine promise would wedge it — pre-existing class); undo/redo/cursor rely on
 staging-time verdicts (documented).
 
+### 3.6 R1-C final re-review (2026-11-14)
+
+A fresh reviewer re-verified `d0e14e7` end to end: the rejection-path guard is correct on both
+outcomes (reject after replacement → no message/activation/refresh; reject without replacement →
+framed; resolve after replacement → abort), the new reject-path pin is non-vacuous (removing only the
+guard fails only that pin), and all gates were first-run green on its host (245/3651, coverage
+89.33/84.04/91.65/90.99, browser 264+1 twice, configured 7/zero delivered, restored 76). All four
+mutations reproduced with byte-identical restoration. The only remaining item was **prose**: the
+`session-errors` suite docstring claimed "six behaviours" against ten `it` pins, two of them
+unenumerated. A comment-only amendment follows; no behavioural change.
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The
