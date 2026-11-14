@@ -67,12 +67,14 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
-**Verified state (2026-11-14, R1):** **R1-C merged** `837b638` (pre-commit edit-value refusal;
+**Verified state (2026-11-14, R1):** **R1-A merged** `b0b78bc` (capability-guarded `eh`/`mvp`
+bundle selection; real engine failure text; platform-tagged extension fixture; two review rounds) and
+**R1-C merged** `837b638` (pre-commit edit-value refusal;
 serialized mutation chain; three review rounds + comment-only verification). Merged gates: forced
 typecheck **20** (0 cached), unit **245 files / 3651 tests**, coverage **89.33 / 84.04 / 91.65 /
 90.99**, forced build **12** (0 cached), docs links **156/0**, ADR **48**, browser **264 + 1 skip**,
-configured telemetry **7 passed** with zero deliveries, restored stock **76 passed**. R1-A
-(capability-guarded bundle selection) is re-dispatched; R1-B (desktop `eh`) queued. Record:
+configured telemetry **7 passed** with zero deliveries, restored stock **76 passed**; the merged
+browser run's two page-load flakes re-ran 19/19. R1-B (desktop `eh`) is the remaining row. Record:
 [R1 masked engine errors](handoff/20261114-r1-masked-engine-errors.md). Nothing pushed.
 
 **Verified state (2026-11-13, essential-workbench first wave):** **WF-06 merged** `ba36091` (worker `3b84bf7` + `2eebfc9`/`dcda9bf`/`d4526ba`; independent `openai-codex/gpt-6-luna` xhigh **approve** round 3). Merged gates: forced typecheck **20** (0 cached), unit **245 files / 3629 tests**, coverage **89.31 / 84.02 / 91.65 / 90.97**, forced build **12** (0 cached), docs links **153/0**, ADR **47**, browser **264 + 1 skip**, configured telemetry **7 passed** with zero deliveries, restored stock **76 passed**. Two test-only amendments were granted and reviewer-verified (A1: five pre-existing App unit tests whose scenarios the lifecycle replaces, four setup-only and one contract-mandated assertion replacement; A2: two disclosure-dismissal setup lines). **EW-02D/03D/04D delivered** as design-only contracts ([scope/copy](handoff/20261113-ew02-scope-contract.md), [CSV](handoff/20261113-ew03-csv-contract.md), [bulk](handoff/20261113-ew04-bulk-contract.md)) after 2/4/7 review rounds; their 3 proposals, 15 and 17 decisions remain maintainer-owned and no successor runtime row is authorized. Record: [EW-10](handoff/20261113-ew10-first-wave-integration.md). Nothing pushed.
@@ -306,6 +308,14 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-14 (**hj**) — **R1-A CLOSED — merged `b0b78bc`**: the worker selects `eh` when the
+  browser validates the package's own wasm-EH probe (`mvp` otherwise), so engine failures carry the
+  real first message line; the e2e extension fixture serves the platform-tagged pinned binary with
+  absolute `wasm_eh` file pins. Two review rounds (the second closed a circular file-identity proof).
+  Merged gates: unit 246/3661, coverage 89.34/84.05/91.66/91.00, forced typecheck/build 20/20 and
+  12/12 at 0 cached, browser 263+1 with two page-load flakes re-run 19/19, configured 7/zero
+  delivered, restored 76. R1-B (desktop `eh`) remains; nothing pushed.
 
 - 2026-11-14 (**hi**) — **R1-C CLOSED — merged `837b638`**: a staged cell-edit value is now checked
   before activation (composer base-arm elision keeps it O(edits); one serialized mutation chain
