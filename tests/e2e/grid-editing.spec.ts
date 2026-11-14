@@ -22,12 +22,13 @@ import { cell, openEditor, row, waitForReadyRow } from './support/grid'
 //      marked dirty, and after undo shows the base value and is clean again);
 //   2. typed-constraint rejections are readable and leave state unchanged;
 //      a rejection the engine (not the client) makes — a bad DATE, an
-//      out-of-range BIGINT — surfaces readably, rolls the overlay back, and
-//      leaves the grid recoverable (fix round). rd-3c: the durable alert
-//      lives in the Change-task Editing section, so the shell reveals it
-//      automatically from any task — asserted here from the Explore default,
-//      with a negative control that an applied edit and the Enter-unchanged
-//      cancel never switch tasks;
+//      out-of-range BIGINT — is refused *before activation* (the engine's
+//      pre-commit value check), so nothing rolls back and the grid never
+//      leaves the previous view (fix rounds m4-3/R1-C). rd-3c: the durable
+//      alert lives in the Change-task Editing section, so the shell reveals
+//      it automatically from any task — asserted here from the Explore
+//      default, with a negative control that an applied edit and the
+//      Enter-unchanged cancel never switch tasks;
 //   3. NULL is a distinct affordance and a distinct rendering (never an empty
 //      string, an unset editor, or an error);
 //   4. insert/delete row journeys;
@@ -169,7 +170,7 @@ test('typed constraints: a non-numeric input is rejected readably and leaves sta
   await expect(page.getByTestId('grid-edit-error')).toHaveCount(0)
 })
 
-test('engine rejection: an invalid typed value alerts, rolls back, and leaves the grid recoverable', async ({
+test('engine rejection: an unconvertible typed value is refused before activation, so nothing rolls back', async ({
   page,
 }) => {
   await openCustomersFixture(page)
@@ -196,9 +197,10 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
 
   // Double-click the DATE column (signup_date, column 3). The client cannot
   // know the draft is invalid (temporal values defer to the engine), so the
-  // engine's own rejection must surface readably and the commit must be
-  // recoverable. The probe is a quote-laden, SQL-shaped value — the plain text
-  // field accepts it, and it is the most dangerous thing the alert could echo.
+  // engine's own refusal must surface readably — and, since R1-C, before
+  // anything is activated. The probe is a quote-laden, SQL-shaped value — the
+  // plain text field accepts it, and it is the most dangerous thing the alert
+  // could echo.
   const hostileDraft = "not-a-date'; DROP TABLE x --"
   await openEditor(page, 0, 3)
   const editor = page.getByTestId('grid-editor-input')
@@ -208,16 +210,17 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   await expect(editor).toBeFocused()
   await editor.press('Enter')
 
-  // Readable, value-free alert. The mvp bundle masks the underlying cast
-  // failure as an opaque `_setThrew` glue error; the worker now maps that
-  // (and every other DuckDB error on the overlay-materialization path) to
-  // the value-free class before posting (q-8), so the alert carries the
-  // class and never the raw engine text or the typed value.
+  // R1-C: the refusal is deterministic and happens **before anything is
+  // activated**. The app asks the engine's existing `overlayCastCheck` whether
+  // the edited column's own effective type rejects the staged value, so the bad
+  // overlay never reaches the view: there is no failed window, no retryable `!`
+  // cell and no rollback. The alert carries the existing rejection framing and
+  // the value-free class, never the raw engine text or the typed value.
   //
   // rd-3c: the durable alert lives in the Editing section (a Change-task
   // surface), so the shell reveals it automatically — the pane switches to
-  // Change and the Editing section is expanded WITHOUT any task activation
-  // in this test, and without moving focus out of the grid.
+  // Change and the Editing section is expanded WITHOUT any task activation in
+  // this test, and without moving focus out of the grid.
   await expect(page.getByTestId('task-change')).toHaveAttribute('aria-checked', 'true')
   await expect(page.getByTestId('task-explore')).toHaveAttribute('aria-checked', 'false')
   await expect(page.locator('.workbench-tools')).toHaveAttribute('data-task', 'change')
@@ -241,8 +244,13 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   const alert = page.getByTestId('edit-error')
   await expect(alert).toBeVisible()
   await expect(alert).toBeInViewport()
-  await expect(alert).toContainText('rejected')
-  await expect(alert).toContainText('the edited view could not be materialized')
+  // The observed exact text: the pre-commit value refusal reuses the existing
+  // rejection framing, so nothing new is said about the failure (and nothing
+  // about the value).
+  await expect(alert).toHaveText(
+    "The engine rejected this edit: the column's type rejected the value. " +
+      'The previous view is unchanged.',
+  )
   await expect(alert).not.toContainText('_setThrew')
   await expect(alert).not.toContainText('not-a-date')
   await expect(alert).not.toContainText("'; DROP TABLE x --")
@@ -255,7 +263,10 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
   // live region, and the announcement is the same value-free class (the raw
   // engine text and the hostile typed draft never leak, ADR 0025).
   const live = page.getByTestId('edit-live-region')
-  await expect(live).toContainText('the edited view could not be materialized')
+  await expect(live).toHaveText(
+    "The engine rejected this edit: the column's type rejected the value. " +
+      'The previous view is unchanged.',
+  )
   await expect(live).not.toContainText('not-a-date')
   await expect(live).not.toContainText("'; DROP TABLE x --")
 
@@ -279,23 +290,32 @@ test('engine rejection: an invalid typed value alerts, rolls back, and leaves th
     `the reveal must not move focus into the pane (focused: ${String(focusAfterReveal.tagName)}/${String(focusAfterReveal.testId)})`,
   ).toBe(false)
 
-  // Recoverable: the previous effective view is restored — every row ready,
-  // nothing left perpetually loading, and the edit is not in the history.
+  // Refused before activation, so the view was never replaced: every row is
+  // still ready, there is no failed window to retry (no `!` cells), the staged
+  // operation count did not grow, and the edit is not in the history.
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
   await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(5)
   await expect(page.locator('[data-testid="grid-row"][data-status="loading"]')).toHaveCount(0)
+  await expect(page.locator('[data-testid="grid-row"][data-status="error"]')).toHaveCount(0)
+  await expect(page.getByTestId('grid-retry')).toHaveCount(0)
   await expect(cell(page, 0, 3)).toHaveAttribute('data-dirty', 'false')
+  await expect(cell(page, 0, 3)).toHaveText('2025-01-04')
+  await expect(page.getByTestId('pending-changes')).toHaveText('No pending changes.')
+  await expect(page.getByTestId('history-list')).toHaveCount(0)
   await expect(page.getByTestId('history-undo')).toBeDisabled()
+  await expect(page.getByTestId('view-error')).toHaveCount(0)
   // The hostile draft is never echoed into the rendered page (ADR 0025).
   await expect(page.locator('body')).not.toContainText(hostileDraft)
 
-  // A subsequent valid edit still works and clears the alert.
+  // A subsequent valid edit still works and clears the alert (recovery).
   await openEditor(page, 0, 2)
   await page.getByTestId('grid-editor-input').fill('12345')
   await page.getByTestId('grid-editor-input').press('Enter')
   await expect(cell(page, 0, 2)).toHaveText('12345')
   await expect(page.getByTestId('edit-error')).toHaveCount(0)
+  await expect(page.getByTestId('pending-changes')).toHaveText('1 pending change: 1 cell edit.')
   await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  await expect(page.getByTestId('grid-retry')).toHaveCount(0)
 })
 
 test('a successful edit and an Enter-unchanged no-op never switch tasks', async ({ page }) => {

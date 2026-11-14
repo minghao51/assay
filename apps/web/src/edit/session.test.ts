@@ -16,11 +16,13 @@ import {
   activeOps,
   castRefusalMessage,
   classifyOpenFailure,
+  COLUMN_TYPE_REJECTED_SUMMARY,
   commitWithRollback,
   editOutcomeMessage,
   engineErrorDetail,
   engineErrorLine,
   engineErrorMessage,
+  engineErrorSummary,
   engineRejectionMessage,
   hasAppliedChanges,
   openFailureMessage,
@@ -542,6 +544,80 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(result.restoreFailed).toBe(true)
     expect(result.message).toContain('Restoring the previous view also failed')
     expect(result.message).toContain('engine unavailable')
+  })
+
+  it('runs an optional validate BEFORE publishing anything (R1-C)', async () => {
+    const order: string[] = []
+    const published: TransformationHistory[] = []
+    const result = await commitWithRollback(previous, next, {
+      validate: async () => {
+        order.push('validate')
+      },
+      setActive: (history) => {
+        order.push('setActive')
+        published.push(history)
+      },
+      refresh: async () => {
+        order.push('refresh')
+      },
+    })
+    expect(order).toEqual(['validate', 'setActive', 'refresh'])
+    expect(published).toEqual([next])
+    expect(result).toEqual({ message: null, restoreFailed: false })
+  })
+
+  it('refuses a rejected validate: nothing activated, no refresh, framed message (R1-C)', async () => {
+    const published: TransformationHistory[] = []
+    let refreshes = 0
+    const result = await commitWithRollback(previous, next, {
+      validate: async () => {
+        throw new Error(COLUMN_TYPE_REJECTED_SUMMARY)
+      },
+      setActive: (history) => published.push(history),
+      refresh: async () => {
+        refreshes += 1
+      },
+    })
+    // "Refused, nothing applied": the candidate history was never published and
+    // the previous view never had to be re-materialized.
+    expect(published).toEqual([])
+    expect(refreshes).toBe(0)
+    expect(result).toEqual({
+      message:
+        "The engine rejected this edit: the column's type rejected the value. " +
+        'The previous view is unchanged.',
+      restoreFailed: false,
+    })
+  })
+
+  it('keeps the refresh-failure rollback when a validate resolves', async () => {
+    const published: TransformationHistory[] = []
+    let refreshes = 0
+    const result = await commitWithRollback(previous, next, {
+      validate: async () => {},
+      setActive: (history) => published.push(history),
+      refresh: async () => {
+        refreshes += 1
+        if (refreshes === 1) throw new Error('Conversion Error: invalid date field format')
+      },
+    })
+    // The pre-activation check passing changes nothing about the existing
+    // rejection path: the failed overlay is rolled back and re-materialized.
+    expect(published).toEqual([next, previous])
+    expect(refreshes).toBe(2)
+    expect(result.message).toContain('Conversion Error')
+    expect(result.restoreFailed).toBe(false)
+  })
+})
+
+describe('COLUMN_TYPE_REJECTED_SUMMARY — one value-free summary for one failure class (R1-C)', () => {
+  it('is the engineErrorSummary fallback (no drift between the two call sites)', () => {
+    expect(COLUMN_TYPE_REJECTED_SUMMARY).toBe("the column's type rejected the value")
+    // An empty message and the opaque mvp glue error both degrade to it.
+    expect(engineErrorSummary(new Error(''))).toBe(COLUMN_TYPE_REJECTED_SUMMARY)
+    expect(engineErrorSummary(new Error('_setThrew is not defined'))).toBe(
+      COLUMN_TYPE_REJECTED_SUMMARY,
+    )
   })
 })
 

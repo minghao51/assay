@@ -24,10 +24,14 @@
  */
 import { foldOverlay } from '@assay/domain'
 import type { EditOp, OverlayBase, RowId } from '@assay/domain'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 
 /** Test-side branded-id constructor for canonical literal ids. */
 const rid = (text: string): RowId => text as RowId
-import { describe, expect, it } from 'vitest'
 import {
   cellLiteralRawSql,
   cellLiteralSql,
@@ -48,6 +52,10 @@ import {
 } from './overlay-query'
 import { EngineTypeError } from './type-expr'
 import { quotedIdentifier, sqlStringLiteral } from './format-view'
+
+/** The pinned DuckDB CLI for the behavioural probes (skipped when absent). */
+const DUCKDB_CLI = process.env['DUCKDB'] ?? '/tmp/duckdb'
+const hasDuckDbCli = existsSync(DUCKDB_CLI)
 
 const BASE: OverlayBase = {
   baseAnchor: 'b1',
@@ -1074,6 +1082,99 @@ describe('composeOverlayCastCheckSql — the m4-4b validate-before-commit check'
   })
 })
 
+/**
+ * R1-C: the un-edited base arm is elided only when it is provably empty, so a
+ * pre-commit `cell-set` value check composes **no per-row base predicate** (one
+ * predicate per edit, plus the ordinal subquery and `LIMIT 1`) instead of a
+ * column scan.
+ *
+ * The proof: the arm is `<base> IS NOT NULL AND TRY_CAST(<base> AS target) IS
+ * NULL`, so it can fire only when a non-NULL base value does not convert to
+ * `target`. When the folded effective column still has the base column's type
+ * *and* the check targets that same type, every non-NULL base value already
+ * has it — the arm is empty by construction. Only a pending cast (a
+ * composition whose effective/target type differs from the base type) can make
+ * base values fail, and those shapes keep the full scan.
+ */
+describe('composeOverlayCastCheckSql — the un-edited base arm is provably elided (R1-C)', () => {
+  const DATED: OverlayBase = {
+    baseAnchor: 'b1',
+    overlayAnchor: 'o1',
+    columns: [{ name: 'd', type: 'DATE' }],
+    baseRowCount: 2,
+  }
+  const datedComposition = (ops: EditOp[]) => ({
+    viewName: 'assay_t1',
+    base: DATED,
+    state: foldOverlay(DATED, ops).state,
+  })
+  const EDIT: EditOp = {
+    kind: 'cell-set',
+    rowId: rid('base:b1#0'),
+    column: 'd',
+    value: { kind: 'text', text: 'not-a-date' },
+  }
+
+  it('omits the base arm for an edited column whose effective type is the base type', () => {
+    const sql = composeOverlayCastCheckSql(datedComposition([EDIT]), 'd', 'DATE')
+    expect(sql).toBe(
+      'SELECT 1 FROM (SELECT "d", assay_overlay_ord FROM ' +
+        '(SELECT "d", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1")) ' +
+        "WHERE (assay_overlay_ord = 0 AND 'not-a-date' IS NOT NULL AND " +
+        "TRY_CAST('not-a-date' AS DATE) IS NULL) LIMIT 1",
+    )
+    // Exactly one predicate, over the edit literal: no per-row base predicate
+    // (`TRY_CAST("d" …)` / `NOT IN (…)`) is composed. The ordinal subquery and
+    // `LIMIT 1` remain, so this bounds the predicate work, not the whole
+    // statement's cost.
+    expect(sql.match(/TRY_CAST\(/g)).toHaveLength(1)
+    expect(sql).not.toContain('TRY_CAST("d"')
+    expect(sql).not.toContain('assay_overlay_ord NOT IN (')
+  })
+
+  it('keeps the base arm when a prior cast makes the effective type differ from the base type', () => {
+    const sql = composeOverlayCastCheckSql(
+      datedComposition([
+        {
+          kind: 'cell-set',
+          rowId: rid('base:b1#0'),
+          column: 'd',
+          value: { kind: 'text', text: '2020-01-01' },
+        },
+        { kind: 'column-cast', column: 'd', targetType: 'VARCHAR' },
+      ]),
+      'd',
+      'DATE',
+    )
+    expect(sql).toBe(
+      'SELECT 1 FROM (SELECT "d", assay_overlay_ord FROM ' +
+        '(SELECT "d", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1")) ' +
+        "WHERE (assay_overlay_ord = 0 AND '2020-01-01' IS NOT NULL AND " +
+        "TRY_CAST('2020-01-01' AS DATE) IS NULL) OR " +
+        '(assay_overlay_ord NOT IN (0) AND "d" IS NOT NULL AND ' +
+        'TRY_CAST("d" AS DATE) IS NULL) LIMIT 1',
+    )
+  })
+
+  it('keeps the base arm when the column has no edits (the original base-column question)', () => {
+    const sql = composeOverlayCastCheckSql(datedComposition([]), 'd', 'DATE')
+    expect(sql).toBe(
+      'SELECT 1 FROM (SELECT "d", assay_overlay_ord FROM ' +
+        '(SELECT "d", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1")) ' +
+        'WHERE ("d" IS NOT NULL AND TRY_CAST("d" AS DATE) IS NULL) LIMIT 1',
+    )
+  })
+
+  it('keeps the base arm for the cast pre-check (effective type is the base type, target differs)', () => {
+    // The m4-4b cast pre-check composes over the *pre-cast* state, so the
+    // effective type still equals the base type; only the target type is the
+    // cast's. The arm must survive that shape — it is the check's whole point.
+    const sql = composeOverlayCastCheckSql(datedComposition([EDIT]), 'd', 'VARCHAR')
+    expect(sql).toContain('assay_overlay_ord NOT IN (0) AND "d" IS NOT NULL')
+    expect(sql).toContain('TRY_CAST("d" AS VARCHAR) IS NULL')
+  })
+})
+
 describe('overlay composition — hostile type expressions produce no SQL (m4-2 fix)', () => {
   const PAYLOAD = 'VARCHAR) AS "c" FROM (...) ); CREATE TABLE assay_injected AS SELECT 31337; --'
 
@@ -1344,3 +1445,115 @@ describe('overlay composition — dead edits of tombstoned base rows (m4-4b roun
     )
   })
 })
+
+describe.skipIf(!hasDuckDbCli)(
+  'composeOverlayCastCheckSql — behaviour against the pinned DuckDB CLI (R1-C)',
+  () => {
+    // The elision above is a *proof*, not an approximation: it may only drop an
+    // arm that can never fire. These probes run the real composed statements
+    // against the pinned CLI (v1.5.5, the agreement pattern of
+    // `export-boundary.test.ts`/`row-diff-agreement.test.ts`) and show both
+    // directions on one fixture: the elided shape still finds a bad edited
+    // literal, and the retained shape still finds a bad base value.
+    const CLI_BASE: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [
+        { name: 'label', type: 'VARCHAR' },
+        { name: 'd', type: 'DATE' },
+        { name: 'price', type: 'DOUBLE' },
+      ],
+      baseRowCount: 2,
+    }
+    const SETUP = [
+      'CREATE TABLE assay_t1 (label VARCHAR, d DATE, price DOUBLE);',
+      "INSERT INTO assay_t1 VALUES ('base', DATE '2020-01-01', 1.5), ('base2', DATE '2021-02-02', 2.5);",
+    ]
+    const compositionWith = (ops: EditOp[]) => ({
+      viewName: 'assay_t1',
+      base: CLI_BASE,
+      state: foldOverlay(CLI_BASE, ops).state,
+    })
+
+    /** The check's answer as the engine sees it: `'1'` = a value cannot convert. */
+    function probe(sql: string): string {
+      const dir = mkdtempSync(join(tmpdir(), 'assay-r1c-cast-check-'))
+      try {
+        const script = join(dir, 'probe.sql')
+        writeFileSync(script, `${[...SETUP, sql].join('\n')}\n`, 'utf8')
+        const stdout = execFileSync(
+          DUCKDB_CLI,
+          ['-list', '-noheader', join(dir, 'probe.duckdb'), '-f', script],
+          { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] },
+        )
+        return String(stdout).trim()
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }
+
+    it('finds a bad edited literal with the base arm elided (the cell-edit shape)', () => {
+      const sql = composeOverlayCastCheckSql(
+        compositionWith([
+          {
+            kind: 'cell-set',
+            rowId: rid('base:b1#0'),
+            column: 'd',
+            value: { kind: 'text', text: 'not-a-date' },
+          },
+        ]),
+        'd',
+        'DATE',
+      )
+      // The elided statement carries no base-column predicate at all ...
+      expect(sql).not.toContain('TRY_CAST("d"')
+      // ... and the edit literal it does carry is still caught by the engine.
+      expect(probe(sql)).toBe('1')
+    })
+
+    it('answers false for a convertible edit in the same elided shape (non-vacuous)', () => {
+      const sql = composeOverlayCastCheckSql(
+        compositionWith([
+          {
+            kind: 'cell-set',
+            rowId: rid('base:b1#0'),
+            column: 'd',
+            value: { kind: 'text', text: '2024-05-06' },
+          },
+        ]),
+        'd',
+        'DATE',
+      )
+      expect(sql).not.toContain('TRY_CAST("d"')
+      expect(probe(sql)).toBe('')
+    })
+
+    it('finds a bad base value when a cast is pending (base arm retained)', () => {
+      // The cast pre-check shape: no edits, target type ≠ base type, so the
+      // un-edited scan is kept and 'base'/'base2' fail the DATE conversion.
+      const sql = composeOverlayCastCheckSql(compositionWith([]), 'label', 'DATE')
+      expect(sql).toContain('TRY_CAST("label" AS DATE) IS NULL')
+      expect(probe(sql)).toBe('1')
+    })
+
+    it('finds a bad edited literal with the base arm retained (prior-cast shape)', () => {
+      const sql = composeOverlayCastCheckSql(
+        compositionWith([
+          { kind: 'column-cast', column: 'price', targetType: 'VARCHAR' },
+          {
+            kind: 'cell-set',
+            rowId: rid('base:b1#0'),
+            column: 'price',
+            value: { kind: 'string', value: 'hello' },
+          },
+        ]),
+        'price',
+        'INTEGER',
+      )
+      // Effective (VARCHAR) ≠ base (DOUBLE): the un-edited arm is retained ...
+      expect(sql).toContain('TRY_CAST("price" AS INTEGER) IS NULL')
+      // ... and the failing value is the edited literal.
+      expect(probe(sql)).toBe('1')
+    })
+  },
+)

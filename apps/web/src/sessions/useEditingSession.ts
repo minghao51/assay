@@ -5,6 +5,7 @@ import type { CellValue, EditOp, RowId, TransformationHistory } from '@assay/dom
 import {
   appendOp,
   emptyHistory,
+  foldOverlay,
   insertRowId,
   redo as redoHistory,
   stateAtCursor,
@@ -12,8 +13,10 @@ import {
 } from '@assay/domain'
 import type { EngineExportFormat, EngineExportResult, EngineOverlay } from '@assay/engine-duckdb'
 import {
+  activeOps,
   castRacedMessage,
   castRefusalMessage,
+  COLUMN_TYPE_REJECTED_SUMMARY,
   commitWithRollback,
   editOutcomeMessage,
   engineRejectionMessage,
@@ -34,6 +37,13 @@ import type { Phase } from './types'
  * same-table history change invalidates a result. Each attempt awaits the
  * engine, so this is a contention bound, not a hot loop; if the state keeps
  * changing the intent is refused honestly rather than appended unchecked.
+ *
+ * The cast path is the only flow that keeps this retry: it asks its question
+ * *outside* the mutation chain on purpose, because its contract is to re-run
+ * when a same-table change lands during the check (the m4-4 race, pinned by
+ * `App.column-ops`). A `cell-set` has no retry at all — its check and its
+ * activation happen inside one chain task, so nothing can invalidate its
+ * verdict (see `appendAndCommit`).
  */
 const MAX_CAST_CHECK_ATTEMPTS = 3
 
@@ -44,6 +54,23 @@ const EMPTY_CAST_PENDING: ReadonlySet<string> = new Set<string>()
 interface EditAnnouncement {
   readonly text: string
   readonly seq: number
+}
+
+/**
+ * One pre-commit value check, handed to `commitHistory`: the closure
+ * `commitWithRollback` runs before it activates anything, plus the abort
+ * record the caller reads afterwards (the closure cannot throw a verdict of its
+ * own — `commitWithRollback` turns a rejection into the framed refusal text).
+ */
+interface CellValueCheck {
+  readonly validate: () => Promise<void>
+  /**
+   * True when the check stopped without a verdict because the dataset was
+   * replaced while it ran. The mutation chain serializes every same-table
+   * activation, so this is the *only* abort there is: nothing was activated and
+   * a stale edit error must not be reported against a table that is gone.
+   */
+  readonly aborted: () => boolean
 }
 
 export interface EditingSession {
@@ -70,8 +97,11 @@ export interface EditingSession {
   /** Render mirror: how many cast pre-checks are pending (0 ⇒ none). */
   readonly castPendingCount: number
   /**
-   * WF-06 (S-A2-2): commits currently materializing, counted — not a boolean,
-   * because two commits can overlap (`applyOp` appends on the live history).
+   * WF-06 (S-A2-2): commits currently materializing, counted — not a boolean.
+   * Since R1-C every history-changing gesture is a task on one serialized
+   * mutation chain, so the count is 1 while a commit materializes and back to 0
+   * when the last queued task settles; it stays a counter rather than a boolean
+   * because a *queued* gesture may start the moment the current one settles.
    * Incremented immediately before the commit's `await` and decremented in a
    * `finally`; the gesture gate reads THIS ref.
    */
@@ -178,10 +208,10 @@ export function useEditingSession(
   const [viewError, setViewError] = useState(false)
   const overlayRef = useRef<EngineOverlay | null>(null)
   /**
-   * Synchronous mirror of `history`. Cell/rename ops run synchronously against
-   * the latest value; the cast path `await`s the engine's pre-commit check, so
-   * reading this ref at append time prevents a stale closure from dropping an
-   * edit made while the check was in flight.
+   * Synchronous mirror of `history`. Every history-changing gesture is a task on
+   * the mutation chain (see `enqueue`) and reads this ref **when its task runs**,
+   * so a burst of edits composes in order and a stale closure can never drop an
+   * edit that was queued behind an engine check.
    */
   const historyRef = useRef<TransformationHistory>(history)
   /**
@@ -264,6 +294,52 @@ export function useEditingSession(
   )
 
   /**
+   * The mutation chain (R1-C fix round): one promise tail that every
+   * history-changing gesture appends its task to.
+   *
+   * Why it exists: a `cell-set` must get its engine verdict and then activate
+   * *atomically*. Without serialization another gesture could activate between
+   * the verdict and `setActive`, which either invalidates the verdict (the bug
+   * this row fixes) or, worse, made the previous design "commit unchecked" after
+   * a bounded number of invalidations — a reachable path that activated a staged
+   * value with no verdict at all. Serializing removes the interleaving instead of
+   * bounding it: there is no retry and no fallback left to get wrong.
+   *
+   * The chain owns every gesture that can change the history or its activation
+   * order — cell-set / insert / delete / rename (via `applyOp`), undo, redo, the
+   * selective cursor move, and the cast flow's append (via `appendAndCommit`).
+   * `retryView` deliberately does not enqueue: it re-materializes the *already
+   * active* overlay after an engine outage, changing neither the history nor its
+   * order, and it must not wait behind a burst of edits the user just made.
+   *
+   * A task reads `historyRef.current` when it runs (not when the gesture fired),
+   * so a burst applies in order with no lost update. Each task is skipped when
+   * the dataset was replaced after the gesture; a rejection is caught so a
+   * failed task can never wedge the chain.
+   */
+  const mutationChain = useRef<Promise<void>>(Promise.resolve())
+  const enqueue = useCallback(
+    (task: (token: number) => Promise<void>): void => {
+      const token = session.tokenRef.current
+      const run = mutationChain.current
+        .then(async () => {
+          // A replaced dataset invalidates gestures that were still queued; the
+          // session reset has already cleared the surface they would report on
+          // (including this hook's cast-pending markers).
+          if (session.tokenRef.current !== token) return
+          await task(token)
+        })
+        .catch((error: unknown) => {
+          // Every task reports its own outcome; this guard keeps the chain live
+          // and makes an unexpected throw visible instead of swallowing it.
+          showEditError(engineRejectionMessage(error))
+        })
+      mutationChain.current = run
+    },
+    [session, showEditError],
+  )
+
+  /**
    * Commit `history` as the active overlay and re-materialize it through a
    * fresh data epoch. An engine that rejects the new overlay (a bad typed
    * value) has the commit rolled back to `previous` and the previous effective
@@ -276,14 +352,22 @@ export function useEditingSession(
    * they are appended via the engine's `overlayCastCheck` (see
    * `handleCastColumn`), which is the only honest point at which a
    * value-level conversion failure is knowable without risking a committed
-   * broken grid. Other value failures (cell edits, schema materialization)
-   * still reject on the refresh below and roll back here.
+   * broken grid.
+   *
+   * R1-C: a `cell-set` arrives with a `check` whose `validate` closure runs
+   * inside `commitWithRollback` **before** anything is activated, so a value
+   * the column's type cannot convert is refused while the previous view is
+   * still on screen (nothing to roll back, nothing to refresh). The caller is
+   * always a mutation-chain task, so no other activation can land between the
+   * verdict and `setActive` — that is what makes "committed without a verdict"
+   * unreachable.
    */
   const commitHistory = useCallback(
     async (
       next: TransformationHistory,
       previous: TransformationHistory,
       outcomeMessage: string | null = null,
+      check?: CellValueCheck,
     ): Promise<void> => {
       if (phase.kind !== 'ready') return
       // S-A2-2: count the commit before its first await so the ready-state
@@ -294,7 +378,14 @@ export function useEditingSession(
         const result = await commitWithRollback(previous, next, {
           setActive: activateHistory,
           refresh: () => phase.model.refresh(),
+          ...(check === undefined ? {} : { validate: check.validate }),
         })
+        if (check?.aborted() === true) {
+          // The dataset was replaced while the check ran: nothing was activated,
+          // no refresh ran, no rollback happened, and the reset already cleared
+          // the alert surface — reporting a stale edit error would be a lie.
+          return
+        }
         // An honest non-applied outcome (a no-op entry) must survive a
         // successful commit; an engine rejection message wins if present.
         showEditError(result.message ?? outcomeMessage)
@@ -314,42 +405,167 @@ export function useEditingSession(
     [phase, activateHistory, showEditError, announceEdit],
   )
 
-  const applyOp = useCallback(
-    (op: EditOp) => {
+  /**
+   * The pre-activation value check for one `cell-set` (R1-C).
+   *
+   * The engine's commit-time `refresh()` only reads metadata (`schema()` and
+   * `rowCount()`), which never evaluates an edited value — under a bundle that
+   * reports real engine messages such an edit therefore *commits*, and the
+   * conversion failure only surfaces later as retryable `!` cells with no
+   * message (the R1-A finding). This restores deterministic refusal at the
+   * only point where it is knowable without risking a committed broken grid:
+   * the engine's existing `overlayCastCheck` over the **prospective** overlay,
+   * asked whether the edited column's own effective type rejects any value.
+   *
+   * `initialCatalog`-free and value-free: the question is a boolean about one
+   * column and the refusal text is the shared `COLUMN_TYPE_REJECTED_SUMMARY`,
+   * so a hostile cell value can neither reach the alert nor the log (ADR 0025).
+   * A rejected check (unknown column, engine failure) is *not* swallowed — it
+   * propagates and `commitWithRollback` frames it with the existing wording. The
+   * one exception is a rejection that arrives after the dataset was replaced: it
+   * describes a table that no longer exists, so the abort marker suppresses it
+   * (mirroring the cast path's token guard; pinned by the reject-path sibling of
+   * the stale-token test).
+   *
+   * `markCastPending` is deliberately not used: that gesture gate is
+   * cast-specific (it disables a column's Rename/Cast controls while a cast
+   * pre-check runs) and a cell commit is already counted by
+   * `mutationStateRef`, so a cell edit must not disable the cast affordances.
+   */
+  const buildCellCheck = useCallback(
+    (
+      op: Extract<EditOp, { kind: 'cell-set' }>,
+      prospective: TransformationHistory,
+    ): CellValueCheck => {
+      const token = session.tokenRef.current
+      // Narrow once, outside the closure: `appendAndCommit` only builds a check
+      // for a ready phase, and this keeps the async body total.
+      const ready = phase.kind === 'ready' ? phase : null
+      let aborted = false
+      const validate = async (): Promise<void> => {
+        if (ready === null) return
+        aborted = false
+        // The edited column's **effective** type, read from the domain's fold of
+        // the prospective history (`stateAtCursor` is `foldOverlay` over the
+        // active prefix — the same fold the grid renders). Never a host-side
+        // type guess, and never the base metadata alone: a pending cast on the
+        // column changes the type the committed view applies.
+        const columns = foldOverlay(ready.base, activeOps(prospective)).state.columns
+        const effectiveType = columns.find((column) => column.name === op.column)?.type
+        if (effectiveType === undefined) {
+          // `appendOp` resolved this column, so this is an invariant breach;
+          // the client's own unknown-column rejection is the honest text for
+          // it and no SQL is composed either way.
+          throw new Error(`unknown overlay column: ${op.column}`)
+        }
+        // Mirror the cast path's staleness rule on BOTH outcomes: a rejection
+        // after the dataset was replaced describes a table that no longer
+        // exists, so the abort marker suppresses the message (nothing was
+        // activated either way). Without the token change the rejection is kept
+        // verbatim and framed by `commitWithRollback` — a genuine engine failure
+        // is never swallowed.
+        let check: { readonly hasNonConvertibleValues: boolean }
+        try {
+          check = await engineClient.overlayCastCheck(
+            ready.handle,
+            overlaySnapshot(ready.base, prospective),
+            { column: op.column, targetType: effectiveType },
+          )
+        } catch (error) {
+          if (session.tokenRef.current !== token) aborted = true
+          throw error
+        }
+        // Staleness discipline: the check spanned an await, so a dataset
+        // replacement during it drops the intent entirely. The chain already
+        // serializes every same-table activation, so a *same-table* change can
+        // never race this verdict — that is why there is no revision guard, no
+        // retry and no unchecked fallback here.
+        if (session.tokenRef.current !== token) {
+          aborted = true
+          throw new Error('the table changed while the edit was being checked')
+        }
+        if (check.hasNonConvertibleValues) {
+          // Value-free by construction: the shared summary, never the value.
+          throw new Error(COLUMN_TYPE_REJECTED_SUMMARY)
+        }
+      }
+      return { validate, aborted: () => aborted }
+    },
+    [phase, session],
+  )
+
+  /**
+   * Append the op to the **live** history and commit it. This is the only path
+   * that appends and activates, and it is only ever called from inside a
+   * mutation-chain task (never from a gesture handler): the cast flow calls it
+   * directly after its own check, which is exactly why the chain can never
+   * deadlock on a nested enqueue.
+   *
+   * Reading `historyRef.current` here (when the task runs, not when the gesture
+   * fired) is what makes a burst of edits compose in order instead of each one
+   * being derived from the same stale prefix.
+   *
+   * R1-C: an applied `cell-set` carries a pre-activation value check, so a value
+   * the column's type cannot convert is refused before anything is activated.
+   * Conflicts/no-ops need none (no new value reaches the view), and `row-insert`
+   * stays uncovered because a v1 insert carries empty values — every later
+   * cell-set on it is checked here like any other edit. Undo/redo and the
+   * selective cursor move do not re-check: they re-activate a state whose cell
+   * values already passed this check when they were staged, and a later cast
+   * that could invalidate one is itself checked before it appends.
+   */
+  const appendAndCommit = useCallback(
+    async (op: EditOp): Promise<void> => {
       if (phase.kind !== 'ready') return
-      // Read the live history (not a possibly stale closure): the cast path
-      // awaits an engine check before calling this.
       const current = historyRef.current
       const result = appendOp(phase.base, current, op)
       // Surface the typed outcome honestly (null for `applied`); a conflicted
       // op changes no state and is not logged (m4-1 `appendOp`). No-op entries
       // *are* logged and keep their message through the commit.
       const outcomeMessage = editOutcomeMessage(result.outcome)
-      if (result.entry !== null) {
-        void commitHistory(result.history, current, outcomeMessage)
-      } else {
+      if (result.entry === null) {
         showEditError(outcomeMessage)
+        return
       }
+      const check =
+        op.kind === 'cell-set' && result.outcome.status === 'applied'
+          ? buildCellCheck(op, result.history)
+          : undefined
+      await commitHistory(result.history, current, outcomeMessage, check)
     },
-    [phase, commitHistory, showEditError],
+    [phase, commitHistory, showEditError, buildCellCheck],
+  )
+
+  /** Queue one op for the mutation chain (every gesture goes through here). */
+  const applyOp = useCallback(
+    (op: EditOp) => {
+      enqueue(async () => {
+        await appendAndCommit(op)
+      })
+    },
+    [enqueue, appendAndCommit],
   )
 
   const handleUndo = useCallback(() => {
-    const current = historyRef.current
-    const step = undoHistory(current)
-    if (step.entry === null) return
-    setEditError(null)
-    void commitHistory(step.history, current)
-  }, [commitHistory])
+    enqueue(async () => {
+      const current = historyRef.current
+      const step = undoHistory(current)
+      if (step.entry === null) return
+      setEditError(null)
+      await commitHistory(step.history, current)
+    })
+  }, [enqueue, commitHistory])
 
   const handleRedo = useCallback(() => {
-    // Same ref pattern as undo (see handleUndo).
-    const current = historyRef.current
-    const step = redoHistory(current)
-    if (step.entry === null) return
-    setEditError(null)
-    void commitHistory(step.history, current)
-  }, [commitHistory])
+    // Same queued/live-history pattern as undo (see handleUndo).
+    enqueue(async () => {
+      const current = historyRef.current
+      const step = redoHistory(current)
+      if (step.entry === null) return
+      setEditError(null)
+      await commitHistory(step.history, current)
+    })
+  }, [enqueue, commitHistory])
 
   /**
    * Insert a row. v1 placement ruling: append at the end (`{'end'}`) — the
@@ -358,11 +574,20 @@ export function useEditingSession(
    * placement is a possible m4-4+ affordance; the domain already handles it.
    */
   const handleInsertRow = useCallback(() => {
-    if (phase.kind !== 'ready') return
-    const current = stateAtCursor(phase.base, history)
-    const rowId = insertRowId(phase.base.overlayAnchor, current.nextInsertSeq)
-    applyOp({ kind: 'row-insert', rowId, position: { kind: 'end' }, values: new Map() })
-  }, [phase, history, applyOp])
+    enqueue(async () => {
+      if (phase.kind !== 'ready') return
+      // Read the folded state of the LIVE history: the row id's insert sequence
+      // must be taken after every earlier queued gesture has landed.
+      const current = stateAtCursor(phase.base, historyRef.current)
+      const rowId = insertRowId(phase.base.overlayAnchor, current.nextInsertSeq)
+      await appendAndCommit({
+        kind: 'row-insert',
+        rowId,
+        position: { kind: 'end' },
+        values: new Map(),
+      })
+    })
+  }, [phase, enqueue, appendAndCommit])
 
   const handleCommitCell = useCallback(
     (rowId: RowId, column: string, value: CellValue) => {
@@ -445,7 +670,21 @@ export function useEditingSession(
               showEditError(castRefusalMessage(column, targetType))
               return
             }
-            applyOp({ kind: 'column-cast', column, targetType })
+            // The verdict is only usable if the append commits over the state it
+            // was taken against, so both halves go to the chain: the task
+            // re-verifies `historyRevision` when it runs (a commit already in
+            // flight can land while this append waits) and refuses with the
+            // existing raced-cast copy instead of appending a verdict that no
+            // longer describes the view. The append runs inside the chain task
+            // via `appendAndCommit`, never via `applyOp`, so it cannot enqueue a
+            // second time and deadlock.
+            enqueue(async () => {
+              if (historyRevision.current !== revision) {
+                showEditError(castRacedMessage(column, targetType))
+                return
+              }
+              await appendAndCommit({ kind: 'column-cast', column, targetType })
+            })
             return
           }
           // Every attempt was invalidated by a concurrent change; refuse
@@ -461,23 +700,29 @@ export function useEditingSession(
         }
       })()
     },
-    [phase, applyOp, showEditError, session, markCastPending],
+    [phase, enqueue, appendAndCommit, showEditError, session, markCastPending],
   )
 
   /**
    * m4-4 selective undo: move the public cursor (clamped) and refold through
    * the normal commit path. `stateAtCursor` re-folds the prefix, so the
    * resulting grid is consistent by construction — no partial application.
+   *
+   * R1-C: the gesture is queued like every other history change and reads the
+   * live history when it runs, so a cursor move issued while a cell check is in
+   * flight waits for that verdict instead of racing it.
    */
   const handleSelectCursor = useCallback(
     (nextCursor: number) => {
-      if (phase.kind !== 'ready') return
-      const clamped = Math.max(0, Math.min(history.entries.length, nextCursor))
-      if (clamped === history.cursor) return
-      setEditError(null)
-      void commitHistory({ ...history, cursor: clamped }, history)
+      enqueue(async () => {
+        const current = historyRef.current
+        const clamped = Math.max(0, Math.min(current.entries.length, nextCursor))
+        if (clamped === current.cursor) return
+        setEditError(null)
+        await commitHistory({ ...current, cursor: clamped }, current)
+      })
     },
-    [phase, history, commitHistory],
+    [enqueue, commitHistory],
   )
 
   /**

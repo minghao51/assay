@@ -12,14 +12,19 @@ import type { Phase } from './types'
 /**
  * WF-06 seams in the editing session (S-A2-2 / S-A2-4, IC-02).
  *
- * Two synchronous authorities now feed the ready-state gesture gate:
+ * Two synchronous authorities feed the ready-state gesture gate:
  *
- * - `mutationStateRef` — a COUNT of commits materializing (not a boolean: two
- *   commits can overlap), incremented before the commit's `await` and
- *   decremented in its `finally`;
+ * - `mutationStateRef` — a COUNT of commits materializing, incremented before
+ *   the commit's `await` and decremented in its `finally`. Commits no longer
+ *   overlap: since R1-C every history-changing gesture is a task on one
+ *   serialized mutation chain (see `enqueue` in the hook), so the counter is 1
+ *   while a commit materializes and returns to 0 when the last queued task
+ *   settles;
  * - `castPendingColumnsRef` — the aggregate set of columns whose cast
  *   pre-check is in flight, keyed by column, so the gate refuses until the LAST
- *   check clears (N17) instead of leaking on the first `finally`.
+ *   check clears (N17) instead of leaking on the first `finally`. Cast checks
+ *   stay outside the chain (their contract is to re-run on a same-table change),
+ *   so two columns' checks can still overlap.
  *
  * The render mirrors (`mutationPending`, `castPendingColumns`/`castPendingCount`)
  * are asserted only as mirrors; the refs are the authority.
@@ -123,6 +128,11 @@ describe('WF-06 useEditingSession — the mutation counter (S-A2-2)', () => {
       } as never)
     })
     await tick()
+    // R1-C: a cell commit now runs the engine value check before it activates
+    // anything, and this suite's mock holds every check. Settle it so the
+    // commit reaches its held refresh.
+    h.castChecks[0]?.()
+    await tick()
     // The refresh is held: the commit is genuinely in flight.
     expect(h.refreshes).toHaveLength(1)
     expect(result.current.mutationStateRef.current).toBe(1)
@@ -137,7 +147,7 @@ describe('WF-06 useEditingSession — the mutation counter (S-A2-2)', () => {
     expect(result.current.mutationPending).toBe(false)
   })
 
-  it('counts overlapping commits and only clears when the LAST one settles', async () => {
+  it('queues a burst of commits and clears only when the LAST one settles', async () => {
     const { result } = mount()
     act(() => {
       result.current.handleCommitCell(baseRowId(BASE.baseAnchor, 0), 'a', {
@@ -150,13 +160,22 @@ describe('WF-06 useEditingSession — the mutation counter (S-A2-2)', () => {
       } as never)
     })
     await tick()
-    expect(h.refreshes).toHaveLength(2)
-    expect(result.current.mutationStateRef.current).toBe(2)
+    // R1-C: the mutation chain serializes the two commits, so the second edit's
+    // value check is only asked once the first commit has settled. Settle A's
+    // check, release A's held refresh, then settle B's check — the counter is
+    // accurate at every step and only clears when the LAST commit settles.
+    h.castChecks[0]?.()
+    await tick()
+    expect(result.current.mutationStateRef.current).toBe(1)
+    expect(result.current.mutationPending).toBe(true)
 
     await act(async () => {
       h.refreshes[0]?.()
     })
     await tick()
+    h.castChecks[1]?.()
+    await tick()
+    expect(h.refreshes).toHaveLength(2)
     expect(result.current.mutationStateRef.current).toBe(1)
     expect(result.current.mutationPending).toBe(true)
 

@@ -350,9 +350,21 @@ export function openFailureMessage(error: unknown, errorName?: string): string {
   return OPERATION_FRAMING.open(cause)
 }
 
+/**
+ * The value-free summary for "a value this column's type cannot accept".
+ *
+ * Two call sites must agree byte-for-byte: `engineErrorSummary`'s fallback
+ * (an engine rejection that arrived without a usable message) and the
+ * pre-commit cell-value check in `useEditingSession`, which refuses a value the
+ * engine's `overlayCastCheck` proved non-convertible by throwing an error whose
+ * summary IS this text. Sharing the constant is what keeps the two from
+ * drifting into two different sentences for one failure class.
+ */
+export const COLUMN_TYPE_REJECTED_SUMMARY = "the column's type rejected the value"
+
 /** The engine-error summary with the single-failure value-cast fallback. */
 export function engineErrorSummary(error: unknown): string {
-  return engineErrorLine(error, "the column's type rejected the value")
+  return engineErrorLine(error, COLUMN_TYPE_REJECTED_SUMMARY)
 }
 
 /**
@@ -397,6 +409,17 @@ export interface CommitEffects {
   setActive(history: TransformationHistory): void
   /** Re-materialize the active overlay through a fresh data epoch. */
   refresh(): Promise<void>
+  /**
+   * Optional pre-activation check: prove the candidate overlay is acceptable
+   * **before anything is published**. A rejection means "refused, nothing
+   * applied" — the commit returns the rejection's framed message without ever
+   * calling `setActive`, so the previous view stays on screen and no rollback
+   * refresh is needed. Resolving means "commit as usual" (the refresh path and
+   * its rollback are unchanged). The cell-edit value check
+   * (`overlayCastCheck`) is the caller that needs this seam; the hook decides
+   * which ops carry one.
+   */
+  validate?: () => Promise<void>
 }
 
 /**
@@ -436,12 +459,29 @@ export interface CommitResult {
  * `overlayCastCheck` (see `handleCastColumn`), and every other value failure
  * rejects on the `refresh()` window read itself. A partial-window probe was a
  * false assurance: a bad value past row 0 could commit and brick the grid.
+ *
+ * R1-C: an optional `effects.validate` runs **before** `setActive` for the
+ * commits that carry one (the cell-edit value check). Its rejection is refused
+ * state, not a failed commit: nothing was activated, so there is nothing to
+ * roll back and the existing rejection framing is already true. That is what
+ * keeps a value the engine cannot convert from reaching the view at all — the
+ * `refresh()` above only reads metadata (`schema()`/`rowCount()`), which never
+ * evaluates the edited value.
  */
 export async function commitWithRollback(
   previous: TransformationHistory,
   next: TransformationHistory,
   effects: CommitEffects,
 ): Promise<CommitResult> {
+  if (effects.validate !== undefined) {
+    try {
+      await effects.validate()
+    } catch (error) {
+      // Refused before activation: the previous view was never replaced and no
+      // refresh was needed, so the honest report is the rejection itself.
+      return { message: engineRejectionMessage(error), restoreFailed: false }
+    }
+  }
   effects.setActive(next)
   try {
     await effects.refresh()

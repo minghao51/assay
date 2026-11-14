@@ -880,7 +880,18 @@ export function composeOverlaySchemaSql(composition: OverlayComposition): string
  * arm per edited ordinal (`<ordinal> = o AND <raw literal> IS NOT NULL AND
  * TRY_CAST(<raw literal> AS target) IS NULL`) plus one arm over the un-edited
  * base column (`<ordinal> NOT IN (<edited>) AND <base> IS NOT NULL AND
- * TRY_CAST(<base> AS target) IS NULL`), tombstoned ordinals excluded. Each
+ * TRY_CAST(<base> AS target) IS NULL`), tombstoned ordinals excluded. The
+ * un-edited arm is **elided when it is provably empty** (see the note at the
+ * omission site): every base value already has the base column's type, so an
+ * arm that `TRY_CAST`s the base column to that same type can never fire. A
+ * `cell-set` value check (target type = the effective type = the base type)
+ * therefore composes **no per-row base predicate at all** — no
+ * `TRY_CAST(<base> …)` and no `<ordinal> NOT IN (…)` arm — while a cast
+ * pre-check (target type ≠ base type) keeps the full scan. What remains is one
+ * predicate per edit plus the ordinal subquery (`row_number() OVER ()`) and the
+ * `LIMIT 1` early exit, so the composed statement's *predicate* work is bounded
+ * by the edits, not the row count (the ordinal subquery still enumerates the
+ * base relation; eliding that is out of scope). Each
  * live insert contributes a FROM-less arm over its raw merged value. A
  * tombstoned ordinal's edit is skipped by `groupBaseColumnEdits`, exactly as in
  * the committed projection: the outer tombstone `WHERE` excludes the row, and
@@ -939,11 +950,31 @@ export function composeOverlayCastCheckSql(
     (edit) =>
       `(${ordinal} = ${String(edit.ordinal)} AND ${conversionFails(cellLiteralRawSql(edit.value))})`,
   )
-  const nonEdited =
-    editedOrdinals.length > 0
-      ? `(${ordinal} NOT IN (${editedOrdinals.map(String).join(', ')}) AND ${conversionFails(baseRef)})`
-      : `(${conversionFails(baseRef)})`
-  arms.push(nonEdited)
+  // Provable elision of the un-edited base arm (R1-C): that arm can only find
+  // a failure if some non-NULL base value does not convert to `targetType`.
+  // When the folded effective column still carries its base type AND the check
+  // targets that same type, every non-NULL base value already has it (NULLs
+  // are excluded by the `IS NOT NULL` guard), so the arm is empty by
+  // construction — only a pending cast (an effective/target type that differs
+  // from the base type) can make base values fail. This is what keeps a
+  // `cell-set` value check from composing a per-row base predicate: what
+  // remains is one predicate per edit plus the ordinal subquery and `LIMIT 1`.
+  // The subquery still enumerates the relation, so this bounds the *predicate*
+  // work by the edits, not the whole statement's cost — eliding the ordinal
+  // derivation is out of scope for this check. The elision requires at least one
+  // edit arm so the remaining predicate is never empty: with no edits on the
+  // column this function still answers the original "does the base column
+  // convert?" question.
+  const effectiveType = state.columns[effectiveIndex]?.type
+  const baseArmProvablyEmpty =
+    editedOrdinals.length > 0 && effectiveType === baseColumn.type && targetType === baseColumn.type
+  if (!baseArmProvablyEmpty) {
+    arms.push(
+      editedOrdinals.length > 0
+        ? `(${ordinal} NOT IN (${editedOrdinals.map(String).join(', ')}) AND ${conversionFails(baseRef)})`
+        : `(${conversionFails(baseRef)})`,
+    )
+  }
 
   const baseColumns = base.columns.map((entry) => quotedIdentifier(entry.name)).join(', ')
   const inner =
