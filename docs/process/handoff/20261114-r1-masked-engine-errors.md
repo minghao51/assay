@@ -176,6 +176,25 @@ mutations reproduced with byte-identical restoration. The only remaining item wa
 `session-errors` suite docstring claimed "six behaviours" against ten `it` pins, two of them
 unenumerated. A comment-only amendment follows; no behavioural change.
 
+### 3.7 R1-C closure (2026-11-14)
+
+Merged as **`837b638`** (cherry-picked with `-x` from `9b2623a`, branch
+`fix/r1-c-edit-value-check`, base `f343133`; nine files, +1254/−82). Three independent review rounds
+(request-changes twice: the reachable unchecked-commit fallback; then the rejection-path staleness
+guard + prose) and a comment-only verification (`approve`). Merged gates at `837b638`
+(`/tmp/assay-r1-c-merged-logs/`): format/lint 0 · forced typecheck 20/20, 0 cached · unit
+245 files / 3651 · coverage 89.33 / 84.04 / 91.65 / 90.99 · forced build 12/12, 0 cached · docs
+156/0 · ADR 48 · browser 264 passed + 1 skipped · configured telemetry 7 passed with collector POSTs
+aborted (zero delivered) · restored stock 76 passed. Probe/worker logs: `/tmp/assay-r1-c-logs*`.
+
+Design as shipped: `composeOverlayCastCheckSql` omits the non-edited base arm only when the edit set
+is non-empty, the effective type equals the base type and the target equals the base type (the
+cast pre-check keeps the scan); `commitWithRollback` runs an optional `validate` before `setActive`;
+`useEditingSession` serializes every history-changing gesture on one mutation chain, so a `cell-set`
+verdict and its activation cannot interleave — the retry bound and unchecked fallback are deleted;
+the session-token abort governs both the resolve and reject outcomes. `row-insert` remains uncovered
+(v1 inserts carry empty values). Worktree/branch removed after merge.
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The

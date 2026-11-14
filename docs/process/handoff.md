@@ -67,6 +67,14 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-14, R1):** **R1-C merged** `837b638` (pre-commit edit-value refusal;
+serialized mutation chain; three review rounds + comment-only verification). Merged gates: forced
+typecheck **20** (0 cached), unit **245 files / 3651 tests**, coverage **89.33 / 84.04 / 91.65 /
+90.99**, forced build **12** (0 cached), docs links **156/0**, ADR **48**, browser **264 + 1 skip**,
+configured telemetry **7 passed** with zero deliveries, restored stock **76 passed**. R1-A
+(capability-guarded bundle selection) is re-dispatched; R1-B (desktop `eh`) queued. Record:
+[R1 masked engine errors](handoff/20261114-r1-masked-engine-errors.md). Nothing pushed.
+
 **Verified state (2026-11-13, essential-workbench first wave):** **WF-06 merged** `ba36091` (worker `3b84bf7` + `2eebfc9`/`dcda9bf`/`d4526ba`; independent `openai-codex/gpt-6-luna` xhigh **approve** round 3). Merged gates: forced typecheck **20** (0 cached), unit **245 files / 3629 tests**, coverage **89.31 / 84.02 / 91.65 / 90.97**, forced build **12** (0 cached), docs links **153/0**, ADR **47**, browser **264 + 1 skip**, configured telemetry **7 passed** with zero deliveries, restored stock **76 passed**. Two test-only amendments were granted and reviewer-verified (A1: five pre-existing App unit tests whose scenarios the lifecycle replaces, four setup-only and one contract-mandated assertion replacement; A2: two disclosure-dismissal setup lines). **EW-02D/03D/04D delivered** as design-only contracts ([scope/copy](handoff/20261113-ew02-scope-contract.md), [CSV](handoff/20261113-ew03-csv-contract.md), [bulk](handoff/20261113-ew04-bulk-contract.md)) after 2/4/7 review rounds; their 3 proposals, 15 and 17 decisions remain maintainer-owned and no successor runtime row is authorized. Record: [EW-10](handoff/20261113-ew10-first-wave-integration.md). Nothing pushed.
 
 **Verified state (2026-11-10, web follow-up subset):** WF-00 preflight green at `76c1945`; **WF-02** pipeline
@@ -178,10 +186,12 @@ an ADR, never a silent rewrite of an accepted decision.
 SQL errors, `ReferenceError: _setThrew is not defined`) and approved [ADR 0048](../../docs/adr/0048-engine-bundle-selection-and-honest-error-text.md)
 (Proposed): the web worker selects `eh`/`mvp` by wasm-exception-handling capability, the VS Code
 webview ships the `eh` pair only, and engine text is honest on user-initiated surfaces (validation/
-diff/overlay keep their fixed classes). Investigation, decisions and the filled **R1-A** envelope are
-in [the R1 record](handoff/20261114-r1-masked-engine-errors.md); **R1-B** (desktop vendored set) is
-queued after R1-A. Root cause: the published `mvp` glue calls five exception-library identifiers the
-wasm exports but the glue never binds. Nothing pushed.
+diff/overlay keep their fixed classes). **R1-C is CLOSED — merged `837b638`** (pre-commit edit-value
+check: serialized mutation chain, no unchecked activation path; merged gates in
+[the R1 record](handoff/20261114-r1-masked-engine-errors.md) §3.7). **R1-A** (capability-guarded
+bundle selection + honest error text) is re-dispatched on the post-R1-C base with `replace-guard`
+authorized; **R1-B** (desktop vendored `eh` set) follows. Root cause: the published `mvp` glue calls
+five exception-library identifiers the wasm exports but the glue never binds. Nothing pushed.
 
 **Essential workbench — first wave CLOSED 2026-11-13.** [EW-00/EW-10](handoff/20261113-ew10-first-wave-integration.md) owns the baseline and integration evidence; [product/16](../product/16-essential-workbench-first-wave-spec.md) owns requirements/reservations and still bounds any successor. **WF-06 merged** at `ba36091` after independent review round 3 and merged gates (245 files/3629 tests, 264+1 browser, both telemetry legs). **EW-02D/03D/04D delivered** ([scope/copy](handoff/20261113-ew02-scope-contract.md), [CSV](handoff/20261113-ew03-csv-contract.md), [bulk](handoff/20261113-ew04-bulk-contract.md)) as design-only contracts; their runtime successors stay blocked on maintainer acceptance/decisions and a new brief, and EW-05…08 remain unselected. The older WF queue below remains evidence for completed work and other pending decisions, not a second dispatch authority.
 
@@ -296,6 +306,16 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-14 (**hi**) — **R1-C CLOSED — merged `837b638`**: a staged cell-edit value is now checked
+  before activation (composer base-arm elision keeps it O(edits); one serialized mutation chain
+  deletes the unchecked fallback; the session-token abort covers resolve and reject). Three
+  independent review rounds (two request-changes: the reachable unchecked path, then the
+  rejection-path staleness guard) plus a comment-only verification. Merged gates: unit 245/3651,
+  coverage 89.33/84.04/91.65/90.99, forced typecheck/build 20/20 and 12/12 at 0 cached, browser
+  264+1, configured telemetry 7 passed/zero delivered, restored stock 76. R1-A re-dispatched on this
+  base; R1-B queued. Nothing pushed. Record:
+  [R1 masked engine errors](handoff/20261114-r1-masked-engine-errors.md).
 
 - 2026-11-14 (**hh**) — R1 selected after the read-only investigation: the shipped `mvp` bundle masks
   every engine failure because its glue never binds five exception-library identifiers the wasm
