@@ -254,6 +254,24 @@ real-VS-Code e2e pass, `run:spike` exit 0; both mutations restored byte-identica
 set: 38,881,030 B (eh pair + eh extensions) versus the base's 43,796,605 B (mvp pair + mvp
 extensions) — **−4,915,575 B** in the extension package. Independent review is running.
 
+### 3.11 R1-B review round (2026-11-14)
+
+The independent reviewer verified the pinned hashes against the lockfile package, the allowed-path
+scope, the untouched `mvp`/`.eh.pinned` fixture bytes, all root/web/telemetry gates, the package
+build (11 artifacts, no mvp), `test:runtime` 9/9, the real-VS-Code e2e and the normal spike (eh boot,
+vendored extension loaded, 1M rows), plus three mutations — and returned **request-changes** on a real
+regression: the committed `missing-extension` drill now **exits 1** on the shipped tree
+(`function signature mismatch`) while `README.md`/`VENDORED_ASSETS.md` in the same commit still claim
+it passes. Base `b0b78bc` exits 0 with the `assay-netblock-refusal` marker, so the eh client's error
+path lost the evidence channel. Fix round (same branch): restore an observed marker (local HTTP-style
+refusal) or re-derive the check and both doc claims together as a differential proof; the drill must
+exit 0, `eh-boot-failure` non-zero, the normal spike unchanged.
+
+Integration paperwork carried by this round (orchestrator, after merge): `tests/e2e/support/fixture.ts`
+comments still say the VS Code build verifies the `wasm_mvp` pair (now `eh`); the historical
+`docs/engineering/08-vscode-webview-feasibility.md` sizes describe the pre-R1-B set and should get a
+dated pointer, not rewritten history.
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The
