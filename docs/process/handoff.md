@@ -174,6 +174,15 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ### Active
 
+**R1 selected — honest engine failure text (2026-11-14).** The maintainer selected R1 (masked browser
+SQL errors, `ReferenceError: _setThrew is not defined`) and approved [ADR 0048](../../docs/adr/0048-engine-bundle-selection-and-honest-error-text.md)
+(Proposed): the web worker selects `eh`/`mvp` by wasm-exception-handling capability, the VS Code
+webview ships the `eh` pair only, and engine text is honest on user-initiated surfaces (validation/
+diff/overlay keep their fixed classes). Investigation, decisions and the filled **R1-A** envelope are
+in [the R1 record](handoff/20261114-r1-masked-engine-errors.md); **R1-B** (desktop vendored set) is
+queued after R1-A. Root cause: the published `mvp` glue calls five exception-library identifiers the
+wasm exports but the glue never binds. Nothing pushed.
+
 **Essential workbench — first wave CLOSED 2026-11-13.** [EW-00/EW-10](handoff/20261113-ew10-first-wave-integration.md) owns the baseline and integration evidence; [product/16](../product/16-essential-workbench-first-wave-spec.md) owns requirements/reservations and still bounds any successor. **WF-06 merged** at `ba36091` after independent review round 3 and merged gates (245 files/3629 tests, 264+1 browser, both telemetry legs). **EW-02D/03D/04D delivered** ([scope/copy](handoff/20261113-ew02-scope-contract.md), [CSV](handoff/20261113-ew03-csv-contract.md), [bulk](handoff/20261113-ew04-bulk-contract.md)) as design-only contracts; their runtime successors stay blocked on maintainer acceptance/decisions and a new brief, and EW-05…08 remain unselected. The older WF queue below remains evidence for completed work and other pending decisions, not a second dispatch authority.
 
 **Web-interface follow-up — subset executed, remainder decision-gated (2026-11-10).** The
@@ -287,6 +296,14 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-14 (**hh**) — R1 selected after the read-only investigation: the shipped `mvp` bundle masks
+  every engine failure because its glue never binds five exception-library identifiers the wasm
+  exports (`_setThrew` ×371 call sites). Maintainer approved [ADR 0048](../../docs/adr/0048-engine-bundle-selection-and-honest-error-text.md)
+  (capability-guarded `eh`/`mvp` selection on web, `eh` only on desktop, honest text on user-
+  initiated surfaces). Fresh own baseline at `f1be26a` (245/3629 unit, 264+1 browser, both telemetry
+  legs). **R1-A** dispatched, **R1-B** queued; no push. Record:
+  [R1 masked engine errors](handoff/20261114-r1-masked-engine-errors.md).
 
 - 2026-11-13 (**hg**) — Essential-workbench first wave executed and closed. EW-00 fresh gates at `c841fe4` (238/3554 unit, coverage 89.15/83.92/91.49/90.75, 253+1 browser, both telemetry legs); WF-06 merged `ba36091` after three independent review rounds, two test-only amendments and merged gates (245/3629 unit, coverage 89.31/84.02/91.65/90.97, 264+1 browser, configured 7 passed/zero delivered, restored 76 passed); EW-02D/03D/04D delivered as reviewed design-only contracts (`b220e3e`/`56c3695`/`696430e`). No successor runtime row authorized; nothing pushed. Record: [EW-10](handoff/20261113-ew10-first-wave-integration.md).
 
