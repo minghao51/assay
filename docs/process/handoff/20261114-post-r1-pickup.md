@@ -39,6 +39,10 @@ stock 76 passed, package build 11 artifacts, runtime 9/9, real-VS-Code e2e PASS,
 | D7  | R8 fixture (real-engine N9/T9b)                                                                                                                                                                | maintainer                          | only if the case must be asserted                                                                                                                         |
 | —   | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles                                                                                                | unselected                          | **R13 stays unselected**; no implicit selection                                                                                                           |
 
+**Decision sheet (2026-11-14):** [20261114-post-r1-decision-sheet.md](20261114-post-r1-decision-sheet.md)
+presents D2–D7 with options, costs, evidence and a non-binding recommendation per item, plus the
+read-only probe scopes and the post-decision dispatch order. It selects nothing and authorizes no row.
+
 **Read-only work that can start now (no new product decision needed once the maintainer asks):**
 D16/D17 composition probe, R2 root-cause probe, D12 ADR draft (Proposed). Everything else needs the
 decision first.

@@ -320,6 +320,14 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-11-14 (**hm**) — **post-R1 decision sheet delivered** (docs-only, no selection):
+  [20261114-post-r1-decision-sheet.md](handoff/20261114-post-r1-decision-sheet.md) presents D2–D7
+  (EW-02D copy, EW-03D ledger + D12 ADR + D15, EW-04D conditions (ii)–(vii) + the U4 D11 qualifier and
+  export budget, U5 funding, R2/R3, R8) with options, costs, evidence and a non-binding recommendation
+  per item. It also records the three read-only probes that may start now and the post-decision dispatch
+  order. R1, ADR 0048 and U4 are not reopened; R13 stays unselected. Own baseline `cf44f3b`, clean;
+  docs links **158/0**, ADR **48**, prettier and `git diff --check` clean; no runtime claim, nothing pushed.
+
 - 2026-11-14 (**hl**) — **EW-04D U4 measured** on the shipped `eh` bundle (read-only probe): 500 CASE
   arms ≈ 15 ms plan / 17 ms exec for a 1k-row window, linear through 30,000 arms, no arm-class
   refusal; export at m=500 over 2 M rows ≈ 4.0 s; multi-repair prefixes cheap only as stacked
