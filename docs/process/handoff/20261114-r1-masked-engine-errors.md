@@ -195,6 +195,22 @@ verdict and its activation cannot interleave — the retry bound and unchecked f
 the session-token abort governs both the resolve and reject outcomes. `row-insert` remains uncovered
 (v1 inserts carry empty values). Worktree/branch removed after merge.
 
+### 3.8 R1-A review round (2026-11-14)
+
+`7f48e85` (11 files) passed the worker's full gate set and the forced-`mvp` mutation. The independent
+reviewer re-derived every gate (unit 246/3661, coverage 89.34/84.05/91.66/91.00, browser 264+1,
+configured 7/zero delivered, restored 76), re-extracted the upstream EH probe bytes and confirmed the
+shipped constant is the `wasmExceptions` probe (not the threads/SIMD/bulk-memory neighbours), verified
+the two `.eh.pinned` hashes and that only the fixture reads them, confirmed `grid-editing` is
+untouched (0-line diff) and green, and reproduced the forced-`mvp` failure across all three assertions.
+
+It returned **request-changes** on one item: the `wasm-cache` `wasm_eh` file-identity proof is
+circular (the expected pinned path is derived with the fixture's own mapping), and the
+serve-the-mvp-binary control still passed (`3 passed`) because DuckDB accepts the wrong-platform
+extension bytes. Fix round (same branch): absolute basenames + literal byte counts
+(3,045,039 / 820,646) for both `wasm_eh` legs, the suffix-swap mutation must then fail, plus an
+optional fail-closed assertion for a platform-less autoload URL. A fresh re-review follows.
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The
