@@ -119,6 +119,26 @@ and `grid-editing.spec.ts` (new refusal path) added to its reservation, and re-d
   WF-06 mutation-counter tests must await the check before asserting; only the waiting changes, the
   asserted counts/contract stay as written. Worker-verified in isolation, reviewer must re-verify.
 
+### 3.4 R1-C review round (2026-11-14)
+
+Commit `d3bf5b4` (9 files, +860/−32) passed the worker's full gate set and both mutations, then the
+independent `opencode-go/mimo-v2.6-flash` reviewer re-derived every gate (all matched) and independently
+confirmed the composer elision sound — but returned **request-changes** on three items:
+
+1. **The `MAX_CELL_CHECK_ATTEMPTS` fallback is reachable and unsafe.** A three-overlapping-edit probe
+   (the row's own two-edit tests plus one) invalidated both checks of the third edit, which then
+   activated a hostile value with no verdict (`editError=null`) — the exact broken-grid prelude R1-A
+   exposed. "Commit unchecked" must be unreachable.
+2. **The bound was unpinned** (no test forced two invalidations).
+3. Minor: the `grid-editing` test title still said "rolls back" for a pre-activation refusal.
+
+Fix round (same branch, same worker): **serialize every history-changing gesture through one mutation
+chain**, then delete the retry loop, the attempt parameter and the unchecked fallback; keep the
+pre-activation `validate` (the reviewer's mutation proved ordering is load-bearing), the composer
+elision and the session-token abort; add the three-overlap hostile pin, a two-overlap valid-edit pin and
+a non-cell-mutation-during-check pin; reword the O(edits) claim to the guaranteed shape; rename the
+test. A fresh reviewer re-verification follows.
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The
