@@ -10,19 +10,22 @@
  * evidence and `dist/vendored-assets.json` with the version-pin evidence
  * (the runner merges both into the report).
  *
- * ptv1-2 (vendored engine assets, local-first): the production `mvp` bundle
- * (`duckdb-mvp.wasm` + `duckdb-browser-mvp.worker.js`) and the Parquet/JSON
- * extensions are COMMITTED under `assets/duckdb/` (with a `.pinned` suffix —
- * formatters skip unknown extensions, so `pnpm format` can never rewrite the
- * pinned bytes) and copied from there, NOT from node_modules — with two hard
- * verifications before every build:
+ * ptv1-2 (vendored engine assets, local-first), R1-B (desktop ships `eh`
+ * only, ADR 0048 decision 3): the production `eh` bundle (`duckdb-eh.wasm` +
+ * `duckdb-browser-eh.worker.js`) and the `wasm_eh` Parquet/JSON extensions are
+ * COMMITTED under `assets/duckdb/` (with a `.pinned` suffix — formatters skip
+ * unknown extensions, so `pnpm format` can never rewrite the pinned bytes) and
+ * copied from there, NOT from node_modules — with two hard verifications
+ * before every build:
  *   1. the committed bytes match the recorded SHA-256 checksums (pin drift
  *      fails the build), and
  *   2. the committed wasm/worker are byte-identical to the copy in the
  *      lockfile-pinned `@duckdb/duckdb-wasm` package (the version pin is the
  *      lockfile's; a bump without re-vendoring fails the build).
- * The `eh` pair is harness-only (boot probe, never opens a dataset) and
- * continues to come from the same pinned package. See
+ * The `mvp` pair is no longer served by the desktop package: its Electron
+ * Chromium is fixed and validates wasm exception handling, so the `eh` pair is
+ * the only bundle shipped here and the extensions follow its `wasm_eh`
+ * platform (an `eh` engine requests `/v1.4.3/wasm_eh/…` autoload paths). See
  * `assets/duckdb/VENDORED_ASSETS.md` for the full pin, the one-time vendor
  * fetch URL, and the DuckDB-WASM MIT license note (AGPL-compatible per
  * AGENTS.md).
@@ -60,37 +63,40 @@ const VENDORED_ASSETS = {
   duckdbWasmVersion: '1.32.0',
   /** The DuckDB runtime embedded in that bundle (asserted at runtime by run:spike). */
   duckdbVersion: 'v1.4.3',
-  extensionPlatform: 'wasm_mvp',
+  extensionPlatform: 'wasm_eh',
   files: [
     {
-      name: 'duckdb-mvp.wasm',
-      committedName: 'duckdb-mvp.wasm.pinned',
-      sha256: '45d72a81fba8e57693d890da837c7041310e385e75619a8559839b15388dfe97',
+      name: 'duckdb-eh.wasm',
+      committedName: 'duckdb-eh.wasm.pinned',
+      sha256: '4c221bfa59c11f24dbd750e70c90b9252eca6eec5633936e6a2ec766e55fd879',
       // Present in the lockfile-pinned npm package: pin-equality is verified.
       fromNpmPackage: true,
     },
     {
-      name: 'duckdb-browser-mvp.worker.js',
-      committedName: 'duckdb-browser-mvp.worker.js.pinned',
-      sha256: 'b0387027f174e2b60c2d5cfa31cecca9b89d8a9762346b6449a784cd1c4dde3c',
+      name: 'duckdb-browser-eh.worker.js',
+      committedName: 'duckdb-browser-eh.worker.js.pinned',
+      sha256: 'f8ab72b6b90b3ad83077d47426d4a99d5d9a4c7e07cba1a2be37d655adc7c1ab',
       fromNpmPackage: true,
     },
     {
       name: 'parquet.duckdb_extension.wasm',
-      committedName: 'parquet.duckdb_extension.wasm.pinned',
-      sha256: '0785c6c95d003eff4faa7b3b4b660f02c9c92f6d68d135ddf330d42e3a650600',
-      // Fetched ONCE at vendor time (2026-10-12, ptv1-2) from:
-      //   https://extensions.duckdb.org/v1.4.3/wasm_mvp/parquet.duckdb_extension.wasm
-      // Runtime NEVER fetches: the harness blocks extensions.duckdb.org
-      // (CSP + in-worker interceptor; see VENDORED_ASSETS.md).
+      committedName: 'parquet.duckdb_extension.wasm.eh.pinned',
+      sha256: '22765c8f7dc741cda2b571a66ac7bb355295d7d69a6c37e5315b265672984f55',
+      // `wasm_eh` build, fetched ONCE at vendor time (R1-A, 2026-11-14) from:
+      //   https://extensions.duckdb.org/v1.4.3/wasm_eh/parquet.duckdb_extension.wasm
+      // The engine pairs extensions with the selected bundle's platform tag:
+      // an `eh` engine autoloads `/v1.4.3/wasm_eh/…`, so the mvp-platform
+      // binary would be the wrong build for it. Runtime NEVER fetches: the
+      // harness blocks extensions.duckdb.org (CSP + in-worker interceptor; see
+      // VENDORED_ASSETS.md).
       fromNpmPackage: false,
     },
     {
       name: 'json.duckdb_extension.wasm',
-      committedName: 'json.duckdb_extension.wasm.pinned',
-      sha256: '5771b6d57335eca8e2ba4fdaacb491a53b49577bd7f1b0c39e2cd7a39b4e9313',
-      // Fetched ONCE at vendor time from:
-      //   https://extensions.duckdb.org/v1.4.3/wasm_mvp/json.duckdb_extension.wasm
+      committedName: 'json.duckdb_extension.wasm.eh.pinned',
+      sha256: 'b997276c8e15cc3ebdeda340d73d15dc1c4f4755ad281280451cb0a2f79302e9',
+      // `wasm_eh` build, fetched ONCE at vendor time (R1-A) from:
+      //   https://extensions.duckdb.org/v1.4.3/wasm_eh/json.duckdb_extension.wasm
       // Runtime NEVER fetches: the harness blocks extensions.duckdb.org.
       fromNpmPackage: false,
     },
@@ -98,9 +104,6 @@ const VENDORED_ASSETS = {
   license:
     'DuckDB-WASM is MIT-licensed — AGPL-compatible per AGENTS.md (repo is AGPL-3.0-or-later, ADR 0036)',
 }
-
-/** The eh pair stays a harness-only copy from the pinned package. */
-const WASM_ASSETS = ['duckdb-browser-eh.worker.js', 'duckdb-eh.wasm']
 
 /** Shared browser build options for the webview main thread and its worker. */
 const browserBuild = {
@@ -184,12 +187,10 @@ async function main() {
     logLevel: 'warning',
   })
 
-  for (const asset of WASM_ASSETS) {
-    await cp(path.join(duckdbDist, asset), path.join(webviewDist, asset))
-  }
-
   // ptv1-2: verify the vendored pin, then copy the committed assets. Any
   // drift (edited binary, partial vendoring, package bump) fails the build.
+  // R1-B: the pin IS the production pair, so every artifact is copied exactly
+  // once here (the old harness-only `eh` copy loop is gone).
   const vendoredDir = path.join(appRoot, 'assets', 'duckdb')
   const vendoredEvidence = []
   for (const entry of VENDORED_ASSETS.files) {

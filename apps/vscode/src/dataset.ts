@@ -128,8 +128,14 @@ export interface DatasetWebviewConfig {
   /** The dataset webview module script (dist/webview/dataset.js). */
   readonly mainScriptUrl: string
   readonly workerEntryUrl: string
-  readonly mvpGlueUrl: string
-  readonly mvpWasmUrl: string
+  /**
+   * The vendored DuckDB-WASM `eh` glue worker + wasm the webview boots. The
+   * desktop ships the `eh` pair only — Electron's Chromium is fixed and
+   * supports wasm exception handling (ADR 0048 decision 3), and `eh` is what
+   * makes the engine's failure text honest.
+   */
+  readonly glueUrl: string
+  readonly wasmUrl: string
   readonly vendoredExtensions: readonly {
     readonly url: string
     readonly autoloadPath: string
@@ -153,8 +159,8 @@ export function buildDatasetConfig(
     vscodeVersion: vscode.version,
     mainScriptUrl: asset('dataset.js'),
     workerEntryUrl: asset('worker.js'),
-    mvpGlueUrl: asset('duckdb-browser-mvp.worker.js'),
-    mvpWasmUrl: asset('duckdb-mvp.wasm'),
+    glueUrl: asset('duckdb-browser-eh.worker.js'),
+    wasmUrl: asset('duckdb-eh.wasm'),
     vendoredExtensions: VENDORED_RUNTIME.extensions.map((extension) => ({
       url: asset(extension.fileName),
       autoloadPath: extension.autoloadPath,

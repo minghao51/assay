@@ -10,9 +10,11 @@
  * cross-origin `new Worker(...)` throws in the desktop webview — R4 Q1a), the
  * DuckDB glue + WASM + vendored extensions likewise, and the blob URLs
  * are posted to the worker as one `engine/assets` control message BEFORE the
- * client's first `engine/init` (the ptv1-1 injected mode). The mvp glue worker
- * is the UNMODIFIED vendored binary with the ptv1-2 vendored-asset shim
- * appended as text (checksummed, local-first — zero network fetches).
+ * client's first `engine/init` (the ptv1-1 injected mode). The `eh` glue
+ * worker is the UNMODIFIED vendored binary with the ptv1-2 vendored-asset shim
+ * appended as text (checksummed, local-first — zero network fetches). Since
+ * R1-B (ADR 0048 decision 3) the desktop ships the `eh` pair only, and the
+ * vendored extensions follow its `wasm_eh` platform tag.
  */
 import { DuckDbEngineClient } from '@assay/engine-duckdb'
 import type { EngineAssetsMessage } from '@assay/engine-duckdb/worker-core'
@@ -40,7 +42,7 @@ export async function toBlobUrl(url: string, mimeType?: string): Promise<string>
 
 /**
  * The vendored-asset glue shim (ptv1-2). Emitted as SOURCE and APPENDED to
- * the unmodified vendored glue text — the pinned `duckdb-browser-mvp.worker.js`
+ * the unmodified vendored glue text — the pinned `duckdb-browser-eh.worker.js`
  * bytes are never altered. Self-contained ES5-style code: it must survive as
  * verbatim text inside a classic worker.
  *
@@ -49,9 +51,13 @@ export async function toBlobUrl(url: string, mimeType?: string): Promise<string>
  * LOCALLY with the vendored bytes — `fetch` gets a synthesized `Response`,
  * the emscripten XHR helper gets a minimal synchronous fake — so the engine
  * consumes the official vendored binary with ZERO network traffic. Any other
- * request to the blocked host is refused outright (`assay-netblock-refusal`).
- * Drill mode has no vendored bytes: the CDN path runs into the refusal and
- * the fixture open reproduces the Q5b failure mode under the block.
+ * request to the blocked host is answered with a local 403 response whose
+ * body carries `assay-netblock-refusal` (a response, never a thrown JS error:
+ * on the `eh`/JS-EH build an exception raised across the wasm→JS boundary
+ * becomes `RuntimeError: function signature mismatch` and the refusal text —
+ * the drill's evidence — is lost). Drill mode has no vendored bytes: the CDN
+ * path runs into that refusal and the fixture open reproduces the Q5b failure
+ * mode under the block.
  *
  * (Design note: registering the vendored binary into DuckDB's virtual
  * filesystem and running `INSTALL`/`LOAD` locally was tried first and works
@@ -100,8 +106,49 @@ export function buildGlueShimSource(constants: {
       return null
     }
   }
-  function refuse(url) {
-    throw new Error('assay-netblock-refusal: network fetch refused by vendored-asset harness: ' + String(url))
+  function refusedResponse(url) {
+    // A blocked CDN request fails the way a local block proxy would: a 403 whose
+    // body carries the stable marker. Returning a RESPONSE instead of throwing
+    // is load-bearing on the eh bundle: a JS exception raised across the wasm
+    // boundary there is turned into a "function signature mismatch"
+    // RuntimeError by the JS-EH trampolines, which destroys the evidence
+    // channel the missing-extension drill observes (ptv1-5 / R1-B).
+    return new Response(refusalBody(url), {
+      status: 403,
+      statusText: 'Forbidden',
+      headers: { 'Content-Type': 'text/plain' },
+    })
+  }
+  function refusalBody(url) {
+    return 'assay-netblock-refusal: network fetch refused by vendored-asset harness: ' + String(url)
+  }
+  /** Make the XHR look like it completed with the blocked-host refusal response. */
+  function refuseXhr(xhr, url) {
+    var text = refusalBody(url)
+    Object.defineProperty(xhr, 'status', { value: 403, configurable: true })
+    Object.defineProperty(xhr, 'statusText', { value: 'Forbidden', configurable: true })
+    Object.defineProperty(xhr, 'readyState', { value: 4, configurable: true })
+    Object.defineProperty(xhr, 'response', {
+      configurable: true,
+      get: function () {
+        return text
+      },
+    })
+    Object.defineProperty(xhr, 'responseText', {
+      configurable: true,
+      get: function () {
+        return text
+      },
+    })
+    xhr.setRequestHeader = function () {}
+    xhr.getResponseHeader = function () {
+      return null
+    }
+    xhr.getAllResponseHeaders = function () {
+      return ''
+    }
+    xhr.send = function () {}
+    xhr.abort = function () {}
   }
   function serveLocally(extension) {
     var bytes = extensionBytes[extension.extensionPath]
@@ -115,7 +162,7 @@ export function buildGlueShimSource(constants: {
     var url = typeof input === 'string' ? input : (input && input.url) || String(input)
     var extension = extensionForUrl(url)
     if (extension !== null && extensionBytes[extension.extensionPath]) return Promise.resolve(serveLocally(extension))
-    if (isBlocked(url)) refuse(url)
+    if (isBlocked(url)) return Promise.resolve(refusedResponse(url))
     return nativeFetch.call(self, input, init)
   }
   if (typeof XMLHttpRequest !== 'undefined') {
@@ -126,7 +173,7 @@ export function buildGlueShimSource(constants: {
     VendoredXHR.prototype.open = function (method, url) {
       this._extension = extensionForUrl(url)
       this._blocked = this._extension !== null && !!extensionBytes[this._extension.extensionPath]
-      if (!this._blocked && isBlocked(url)) refuse(url)
+      if (!this._blocked && isBlocked(url)) refuseXhr(this, url)
     }
     VendoredXHR.prototype.setRequestHeader = function () {}
     VendoredXHR.prototype.send = function () {
@@ -163,7 +210,10 @@ export function buildGlueShimSource(constants: {
         void nativeSend
         return
       }
-      if (isBlocked(url)) refuse(url)
+      if (isBlocked(url)) {
+        refuseXhr(this, url)
+        return
+      }
       try {
         return nativeOpen.apply(this, arguments)
       } catch (openError) {
@@ -251,7 +301,7 @@ export function buildGlueShimSource(constants: {
 }
 
 /**
- * Build the mvp glue worker as a same-origin blob: the UNMODIFIED vendored
+ * Build the vendored `eh` glue worker as a same-origin blob: the UNMODIFIED
  * glue text with the ptv1-2 shim appended (see buildGlueShimSource). The
  * pinned asset bytes themselves are not altered — the shim is concatenation
  * only, and scripts/build.mjs verifies the committed bytes' checksums.
@@ -329,10 +379,10 @@ export async function bootAdapter(client: DuckDbEngineClient): Promise<unknown> 
 export interface EngineBootSpec {
   /** Webview URI of the injected engine-worker bundle (dist/webview/worker.js). */
   readonly workerEntryUrl: string
-  /** Webview URI of the vendored DuckDB-WASM mvp glue worker. */
-  readonly mvpGlueUrl: string
-  /** Webview URI of the vendored duckdb-mvp.wasm. */
-  readonly mvpWasmUrl: string
+  /** Webview URI of the vendored DuckDB-WASM `eh` glue worker. */
+  readonly glueUrl: string
+  /** Webview URI of the vendored duckdb-eh.wasm. */
+  readonly wasmUrl: string
   /** Webview URIs and CDN paths for the vendored DuckDB extensions. */
   readonly vendoredExtensions: readonly {
     readonly url: string
@@ -365,7 +415,7 @@ export async function bootVendoredEngine(
   const extensionBlobUrls = await Promise.all(
     spec.vendoredExtensions.map((extension) => toBlobUrl(extension.url, 'application/wasm')),
   )
-  const glueBlobUrl = await buildShimmedGlueBlobUrl(spec.mvpGlueUrl, {
+  const glueBlobUrl = await buildShimmedGlueBlobUrl(spec.glueUrl, {
     blockedHost: spec.blockedHost,
     extensions: spec.vendoredExtensions.map((extension, index) => ({
       extensionPath: extension.autoloadPath,
@@ -373,7 +423,7 @@ export async function bootVendoredEngine(
     })),
     drill: false,
   })
-  const wasmBlobUrl = await toBlobUrl(spec.mvpWasmUrl, 'application/wasm')
+  const wasmBlobUrl = await toBlobUrl(spec.wasmUrl, 'application/wasm')
   const client = createAdapterClient(
     workerBlobUrl,
     {
@@ -381,7 +431,7 @@ export async function bootVendoredEngine(
       duckdbWorkerUrl: glueBlobUrl,
       duckdbWasmUrl: wasmBlobUrl,
     },
-    'mvp',
+    'eh',
     diagnostics,
   )
   const blobUrls = [workerBlobUrl, ...extensionBlobUrls, glueBlobUrl, wasmBlobUrl]

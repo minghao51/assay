@@ -69,8 +69,12 @@ interface DatasetWebviewConfig {
   /** Host-injected module script URL (consumed by the HTML, not this script). */
   readonly mainScriptUrl: string
   readonly workerEntryUrl: string
-  readonly mvpGlueUrl: string
-  readonly mvpWasmUrl: string
+  /**
+   * The vendored DuckDB-WASM `eh` pair (ADR 0048 decision 3 — the desktop
+   * package ships `eh` only; Electron's Chromium is fixed and EH-capable).
+   */
+  readonly glueUrl: string
+  readonly wasmUrl: string
   readonly vendoredExtensions: readonly {
     readonly url: string
     readonly autoloadPath: string
@@ -331,8 +335,8 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
   const boot = await engineSession.acquire(
     {
       workerEntryUrl: config.workerEntryUrl,
-      mvpGlueUrl: config.mvpGlueUrl,
-      mvpWasmUrl: config.mvpWasmUrl,
+      glueUrl: config.glueUrl,
+      wasmUrl: config.wasmUrl,
       vendoredExtensions: config.vendoredExtensions,
       blockedHost: config.blockedExtensionHost,
     },

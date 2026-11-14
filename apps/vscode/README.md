@@ -231,7 +231,7 @@ DUCKDB=/tmp/duckdb corepack pnpm --filter @assay/vscode run:spike
 ```
 
 `run:spike` generates the fixture, esbuild-bundles the extension host, webview main
-thread and DuckDB worker (plus the `mvp`/`eh` WASM assets), launches the real VS Code
+thread and DuckDB worker (plus the `eh` DuckDB-WASM asset pair), launches the real VS Code
 desktop extension host via `@vscode/test-electron` (adding `xvfb-run` when headless),
 and writes `dist/spike-results.json`. Its VS Code executable resolution is shared with
 e2e through `scripts/vscode-runtime.mjs`: canonical pinned cache first, exact-version
@@ -248,24 +248,31 @@ Notable measured findings (full detail in the report):
   the harness blob-wraps the worker scripts and WASM.
 - The webview CSP must include `'wasm-unsafe-eval'` and `blob:` in
   `script-src`/`worker-src`/`connect-src`.
-- DuckDB-WASM `mvp` (and `eh`) boot without cross-origin isolation; OPFS works.
+- DuckDB-WASM's `eh` bundle (the only one this package ships, ADR 0048 decision 3) boots
+  without cross-origin isolation; OPFS works.
 - `read_parquet` autoloads the Parquet extension from `extensions.duckdb.org` unless it
-  is vendored — a PT-V slice-1 requirement.
+  is vendored — a PT-V slice-1 requirement. Since **R1-B** (ADR 0048 decision 3) the
+  webview ships the `eh` pair only and its vendored extensions carry the matching
+  `wasm_eh` platform tag, so the engine's own failure text reaches user-initiated
+  surfaces instead of the `mvp` glue's masked `ReferenceError`.
 
 ### Drills
 
 ```bash
 # ptv1-2 offline drill — NO vendored Parquet bytes, so the stock CDN autoload
-# path runs into the armed network block; the harness then asserts the Q5b
-# failure mode is REPRODUCED (the open fails with the assay-netblock-refusal
+# path runs into the armed network block (answered with a local 403 carrying
+# the assay-netblock-refusal marker); the harness then asserts the Q5b
+# failure mode is REPRODUCED — the recorded open error names the refused
+# `…/v1.4.3/wasm_eh/parquet.duckdb_extension.wasm` URL (or carries the
 # marker). Expected: drill headline PASS, exit 0.
 ASSAY_SPIKE_DRILL=missing-extension DUCKDB=/path/to/duckdb \
   corepack pnpm --filter @assay/vscode run:spike
 
-# R1 exit-code drill (ptv1-5) — sabotages ONLY the built `eh` glue bundle, so
-# the mvp path (boot, vendored serve, 1M open, grid surface) stays green while
-# the eh boot fails. Expected: headline FAIL naming `bundles.eh.ok`, NON-ZERO
-# exit (the ptv-1 review carry-over: an eh-only boot failure must not pass).
+# R1 exit-code drill (ptv1-5; widened by R1-B) — sabotages the built shipped
+# `eh` glue bundle, so the engine boot fails and the run cannot reach any
+# probe. Expected: headline FAIL naming `bundles.eh.ok`, NON-ZERO exit (the
+# ptv-1 review carry-over: a boot failure must not pass; since R1-B the `eh`
+# pair is the only bundle the desktop ships).
 ASSAY_SPIKE_DRILL=eh-boot-failure DUCKDB=/path/to/duckdb \
   corepack pnpm --filter @assay/vscode run:spike
 ```
@@ -301,7 +308,7 @@ ASSAY_SPIKE_DRILL=eh-boot-failure DUCKDB=/path/to/duckdb \
 ```
 
 Every run writes value-free evidence to `dist/spike-results.json` and prints
-the summary (including the R2 timing envelopes: mvp/eh boot ms, the open
+the summary (including the R2 timing envelopes: shipped `eh` boot ms, the open
 envelope, TTFR picker→first-row, the live-heap delta) plus a final
 `headline evidence: PASS (…)` line listing every asserted check.
 
@@ -309,8 +316,8 @@ envelope, TTFR picker→first-row, the live-heap delta) plus a final
 
 | Claim (row)                                                             | Headline check(s)                                                                                                          |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Real `@assay/engine-duckdb` adapter, not spike-local (ptv1-1)           | `bundles.mvp.adapter` (+ `bundles.mvp.ok`)                                                                                 |
-| Engine boots in the webview, BOTH bundles (ptv-1; R1 carry-over)        | `bundles.mvp.ok`, `bundles.eh.ok`                                                                                          |
+| Real `@assay/engine-duckdb` adapter, not spike-local (ptv1-1)           | `bundles.eh.adapter` (+ `bundles.eh.ok`)                                                                                   |
+| Engine boots in the webview — the shipped `eh` bundle (ptv-1; R1-B)     | `bundles.eh.ok`                                                                                                            |
 | Zero network fetches; vendored Parquet served locally (ptv1-2)          | `vendored.parquet.servedLocally`, `vendored.engineVersionPin`, `offline.blockedHostPinned` + the `missing-extension` drill |
 | 1M-row synthetic opens; rows > 0; OPFS round-trip (ptv-1/ptv1-3/ptv1-4) | `fixture.rows`, `opfs.roundTrip`                                                                                           |
 | TTFR open→first-row < 1 s (ptv1-4)                                      | `grid.firstRowVisible`                                                                                                     |

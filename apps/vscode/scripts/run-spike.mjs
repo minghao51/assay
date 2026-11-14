@@ -11,23 +11,31 @@
  *   3. builds the extension + webview + worker bundles,
  *   4. launches the real VS Code desktop extension host via @vscode/test-electron,
  *   5. merges the packaging artifact sizes and writes `dist/spike-results.json`,
- *   6. prints a value-free summary — including the R2 timing envelopes (mvp/eh
- *      boot ms, the open envelope, TTFR picker→first-row, live-heap delta) —
+ *   6. prints a value-free summary — including the R2 timing envelopes (shipped
+ *      `eh` boot ms, the open envelope, TTFR picker→first-row, live-heap delta) —
  *      the reviewer can compare against the report,
  *   7. asserts the headline evidence — the ptv1-1…ptv1-4 claims (real adapter
- *      identity, vendored zero-network serve, boot pins mvp+eh, TTFR/heap
+ *      identity, vendored zero-network serve, the shipped `eh` boot, TTFR/heap
  *      envelopes, grid a11y/keyboard/virtualization/sort-filter) — is present
  *      and true, and exits non-zero otherwise (a run that merely finishes is
- *      not a successful run; an eh-ONLY boot failure exits non-zero — the
- *      ptv-1 review carry-over R1).
+ *      not a successful run; a failed `eh` boot exits non-zero — the ptv-1
+ *      review carry-over R1, which since R1-B covers the ONLY shipped bundle).
+ *
+ * R1-B (ADR 0048 decision 3): the desktop package ships the `eh` pair only, so
+ * the harness boots one bundle. The former `mvp` boot probe and its summary/
+ * invariant lines are gone; `bundles.eh.*` now names the shipped engine, and
+ * every substantive probe (vendored serve, fixture open, grid, OPFS) runs on it.
  *
  * Drills (ASSAY_SPIKE_DRILL=…), each a pass/fail harness mode:
  *   - `missing-extension` (ptv1-2): no vendored Parquet bytes → the CDN
- *     autoload path runs into the network block; the drill headline asserts
- *     the Q5b failure mode is REPRODUCED (the offline negative proof).
- *   - `eh-boot-failure` (ptv1-5, R1): sabotages ONLY the built `eh` glue
- *     bundle so the mvp path stays green while the eh boot fails — the run
- *     must then exit NON-ZERO via the `bundles.eh.ok` headline check.
+ *     autoload path runs into the network block (in-worker 403 carrying
+ *     `assay-netblock-refusal`); the drill headline asserts the Q5b failure
+ *     mode is REPRODUCED — the open error names the refused
+ *     `…/v1.4.3/wasm_eh/parquet.duckdb_extension.wasm` URL (the offline
+ *     negative proof, with the refused URL as the observed evidence).
+ *   - `eh-boot-failure` (ptv1-5, R1): sabotages the built shipped (`eh`) glue
+ *     bundle, so the boot — and with it every probe — fails; the run must then
+ *     exit NON-ZERO via the `bundles.eh.ok` headline check.
  *
  * The reviewer's clean-worktree runbook — the exact committed commands,
  * verified end-to-end from a fresh worktree — lives in
@@ -113,13 +121,13 @@ const drillArg = process.env['ASSAY_SPIKE_DRILL'] ?? ''
 const drillMode = drillArg === 'missing-extension'
 const ehDrillMode = drillArg === 'eh-boot-failure'
 
-// R1 drill: corrupt ONLY the built `eh` glue bundle (the mvp bundle and the
-// vendored assets stay checksummed build output — build.mjs just verified
-// them). The webview then records a CONTAINED eh boot failure
-// (bundles.eh.ok=false) with the mvp path fully green, so the headline
-// assertion below — not a crashed process — decides the exit code. This is
-// the pin that an eh-ONLY boot failure exits non-zero (the ptv-1 review
-// carry-over: before the ptv1-5 hardening that scenario exited 0).
+// R1 drill: corrupt the built shipped (`eh`) glue bundle (the vendored assets
+// stay checksummed build output — build.mjs just verified them). The webview
+// then records a CONTAINED boot failure (bundles.eh.ok=false), so the headline
+// assertion below — not a crashed process — decides the exit code. Since R1-B
+// the `eh` pair is the ONLY shipped bundle, and this is the pin that a boot
+// failure exits non-zero (the ptv-1 review carry-over: before the ptv1-5
+// hardening that scenario exited 0).
 if (ehDrillMode) {
   writeFileSync(
     path.join(dist, 'webview', 'duckdb-browser-eh.worker.js'),
@@ -229,7 +237,6 @@ writeFileSync(resultsPath, JSON.stringify(report, null, 2) + '\n')
 // Step 6: value-free summary.
 const environment = report.environment ?? {}
 const fixture = report.fixture ?? {}
-const mvp = report.bundles?.mvp ?? {}
 const eh = report.bundles?.eh ?? {}
 console.log('\n=== ptv-1 spike summary ===')
 console.log(
@@ -239,12 +246,9 @@ console.log(`origin:                 ${String(environment.origin)}`)
 console.log(`crossOriginIsolated:    ${String(environment.crossOriginIsolated)}`)
 console.log(`SharedArrayBuffer:      ${String(environment.sharedArrayBuffer)}`)
 console.log(
-  `mvp boot:               ok=${String(mvp.ok === true)} bootMs=${String(mvp.bootMs)} version=${String(mvp.version ?? '')}`,
+  `engine boot (eh):       ok=${String(eh.ok === true)} bootMs=${String(eh.bootMs)} version=${String(eh.version ?? '')}`,
 )
-console.log(
-  `eh boot:                ok=${String(eh.ok === true)} bootMs=${typeof eh.bootMs === 'number' ? String(eh.bootMs) : 'n/a'} ${String(eh.error ?? '')}`,
-)
-console.log(`engine adapter:         ${String(mvp.adapter ?? 'spike-local (ptv1-1 seam missing)')}`)
+console.log(`engine adapter:         ${String(eh.adapter ?? 'spike-local (ptv1-1 seam missing)')}`)
 // ptv1-2: vendored assets, network block, package size.
 const vendored = report.vendoredAssets ?? {}
 const vendoredPin = report.vendoredAssetsPin
@@ -253,14 +257,14 @@ if (vendoredPin !== undefined) {
   const total = vendoredPin.files.reduce((sum, f) => sum + Number(f.bytes), 0)
   const detail = vendoredPin.files.map((f) => `${f.name} ${mb(f.bytes)} MB`).join(', ')
   console.log(
-    `vendored assets:        ${mb(total)} MB in ${vendoredPin.files.length} files (${detail}) — one mvp bundle + Parquet extension, zero network fetches`,
+    `vendored assets:        ${mb(total)} MB in ${vendoredPin.files.length} files (${detail}) — one eh bundle + the wasm_eh Parquet/JSON extensions, zero network fetches`,
   )
   console.log(
     `version pin:            @duckdb/duckdb-wasm ${String(vendoredPin.duckdbWasmVersion)} / DuckDB ${String(vendoredPin.duckdbVersion)} / ${String(vendoredPin.extensionPlatform)} (license: ${String(vendoredPin.license)})`,
   )
 }
 console.log(
-  `network block:          armed on extensions.duckdb.org (CSP connect-src excludes it + in-worker fetch/XHR refusal)${drillMode ? ' — DRILL MODE: missing-extension' : ''}${ehDrillMode ? ' — DRILL MODE: eh-boot-failure (R1 pin: run must exit non-zero)' : ''}`,
+  `network block:          armed on extensions.duckdb.org (CSP connect-src excludes it + in-worker fetch/XHR interceptor answers non-vendored requests with a local 403 carrying assay-netblock-refusal)${drillMode ? ' — DRILL MODE: missing-extension' : ''}${ehDrillMode ? ' — DRILL MODE: eh-boot-failure (R1 pin: run must exit non-zero)' : ''}`,
 )
 console.log(
   `parquet extension:      vendored local serve state=${String(vendored.shimState ?? 'n/a')} post-open loaded=${String(report.fixture?.parquetExtension?.loaded)} installed=${String(report.fixture?.parquetExtension?.installed)}${drillMode ? ' (drill: no vendored bytes)' : ''}`,
@@ -316,32 +320,42 @@ let headlineChecks
 if (drillMode) {
   // Drill (ptv1-2): the Q5b failure mode must be REPRODUCED under the block —
   // the boot succeeds (no extension needed), the fixture open FAILS, and the
-  // refusal marker in the open error is REQUIRED (ptv1-5 carry b): it is the
-  // direct proof that the CDN fetch was ATTEMPTED and refused by the armed
-  // block, not an unrelated boot/open error. The drill also pins the shared
-  // boot invariants (mvp+eh) and the real-adapter identity.
+  // open error must carry the identifiable evidence that the blocked CDN
+  // autoload was ATTEMPTED (ptv1-5 carry b), not an unrelated boot/open error.
+  //
+  // What that evidence looks like on the shipped `eh` build (R1-B): the
+  // in-worker interceptor answers the blocked request with a local 403 whose
+  // body carries `assay-netblock-refusal`, and DuckDB's own autoload error
+  // surfaces as
+  //   Extension Autoloading Error: … required extension 'parquet':
+  //   Extension https://extensions.duckdb.org/v1.4.3/wasm_eh/parquet.duckdb_extension.wasm
+  //   is not available
+  // so the check accepts the marker body OR that refused URL (host + pinned
+  // DuckDB version + the `wasm_eh` platform segment + the vendored extension
+  // file). Both are literals here, not derived from the report, so a run that
+  // merely fails for another reason cannot pass. (Before R1-B the shim THREW
+  // from the intercepted call; on the `eh` JS-EH build that throw became
+  // `function signature mismatch`, which is why the interceptor now answers
+  // with the refusal instead of throwing it.)
   const openError = String(
     report.errors?.['open.million'] ?? report.fixture?.blockedBy ?? report.fixture?.error ?? '',
   )
+  const REFUSED_AUTOLOAD_URL =
+    'https://extensions.duckdb.org/v1.4.3/wasm_eh/parquet.duckdb_extension.wasm'
   headlineChecks = [
     {
-      name: 'bundles.mvp.ok',
-      ok: report.bundles?.mvp?.ok === true,
-      value: report.bundles?.mvp?.ok,
+      // R1-B: this is the shipped engine's boot (the drill boots no second
+      // bundle); a boot failure must fail the drill outright.
+      name: 'bundles.eh.ok',
+      ok: report.bundles?.eh?.ok === true,
+      value: report.bundles?.eh?.ok,
     },
     {
       // Same real-adapter identity invariant as normal mode (ptv1-1 carry b):
       // the drill boots the real adapter too.
-      name: 'bundles.mvp.adapter',
-      ok: report.bundles?.mvp?.adapter === '@assay/engine-duckdb',
-      value: report.bundles?.mvp?.adapter,
-    },
-    {
-      // Boot pin (R1): the Q5b reproduction must not mask an eh boot failure —
-      // the drill's only permitted failure is the refused CDN fetch.
-      name: 'bundles.eh.ok',
-      ok: report.bundles?.eh?.ok === true,
-      value: report.bundles?.eh?.ok,
+      name: 'bundles.eh.adapter',
+      ok: report.bundles?.eh?.adapter === '@assay/engine-duckdb',
+      value: report.bundles?.eh?.adapter,
     },
     {
       name: 'drill.open.failed',
@@ -349,22 +363,27 @@ if (drillMode) {
       value: openError,
     },
     {
-      // ptv1-2 carry (b): the refusal marker is REQUIRED. (The pre-ptv1-5
-      // fallback disjunct — `fixture.parquetExtension.loaded === false &&
-      // vendoredAssets.drill !== undefined` — was unreachable: the open fails
-      // before any fixture evidence is recorded, so `report.fixture` is unset
-      // in drill mode and a check passable without the marker was vacuous.)
+      // ptv1-2 carry (b): the refusal evidence is REQUIRED — the open must have
+      // failed because the blocked autoload was refused, not for any other
+      // reason. (The pre-ptv1-5 fallback disjunct — `fixture.parquetExtension.loaded
+      // === false && vendoredAssets.drill !== undefined` — was unreachable: the
+      // open fails before any fixture evidence is recorded, so `report.fixture`
+      // is unset in drill mode and a check passable without the marker was vacuous.)
       name: 'drill.refusal.evidence',
-      ok: openError.includes('assay-netblock-refusal'),
+      ok: openError.includes('assay-netblock-refusal') || openError.includes(REFUSED_AUTOLOAD_URL),
       value: openError,
     },
   ]
 } else {
   headlineChecks = [
     {
-      name: 'bundles.mvp.ok',
-      ok: report.bundles?.mvp?.ok === true,
-      value: report.bundles?.mvp?.ok,
+      // R1-B: the shipped bundle's boot. There is no second bundle to compare
+      // against, so this check carries the ptv-1 review carry-over R1 on its
+      // own: any boot failure exits non-zero. Demonstrate with
+      // ASSAY_SPIKE_DRILL=eh-boot-failure (see the README runbook).
+      name: 'bundles.eh.ok',
+      ok: report.bundles?.eh?.ok === true,
+      value: report.bundles?.eh?.ok,
     },
     {
       // ptv1-1 carry (b): the adapter IDENTITY is ASSERTED here, not merely
@@ -372,19 +391,9 @@ if (drillMode) {
       // only when the boot ran through the real client's seam, so a
       // faked/spike-local engine that manages to boot must still fail this
       // headline check.
-      name: 'bundles.mvp.adapter',
-      ok: report.bundles?.mvp?.adapter === '@assay/engine-duckdb',
-      value: report.bundles?.mvp?.adapter,
-    },
-    {
-      // Boot pin, both engines — and the ptv-1 review carry-over R1: an
-      // eh-ONLY boot failure (mvp green, everything else green) must exit
-      // non-zero. Demonstrate with ASSAY_SPIKE_DRILL=eh-boot-failure (see the
-      // README runbook): the sabotage keeps the mvp path green, so this check
-      // is what fails the run.
-      name: 'bundles.eh.ok',
-      ok: report.bundles?.eh?.ok === true,
-      value: report.bundles?.eh?.ok,
+      name: 'bundles.eh.adapter',
+      ok: report.bundles?.eh?.adapter === '@assay/engine-duckdb',
+      value: report.bundles?.eh?.adapter,
     },
     {
       name: 'fixture.rows',
@@ -412,11 +421,11 @@ if (drillMode) {
       // vendored extension binary was built for.
       name: 'vendored.engineVersionPin',
       ok:
-        typeof report.bundles?.mvp?.version === 'string' &&
-        report.bundles.mvp.version.startsWith(
+        typeof report.bundles?.eh?.version === 'string' &&
+        report.bundles.eh.version.startsWith(
           String(report.vendoredAssetsPin?.duckdbVersion ?? 'v1.4.3'),
         ),
-      value: report.bundles?.mvp?.version,
+      value: report.bundles?.eh?.version,
     },
     {
       // ptv1-2 offline pin: the webview records the CDN host the block is

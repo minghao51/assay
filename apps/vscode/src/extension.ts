@@ -45,10 +45,11 @@ interface SpikeWebviewConfig {
   readonly mainScriptUrl: string
   readonly workerScriptUrl: string
   readonly probeUrl: string
-  readonly bundles: {
-    readonly mvp: { readonly workerUrl: string; readonly wasmUrl: string }
-    readonly eh: { readonly workerUrl: string; readonly wasmUrl: string }
-  }
+  /**
+   * The vendored DuckDB-WASM bundle the spike boots (R1-B: the `eh` pair only
+   * — Electron's Chromium is fixed and wasm-EH-capable, ADR 0048 decision 3).
+   */
+  readonly bundle: { readonly workerUrl: string; readonly wasmUrl: string }
   /** ptv1-2: the vendored Parquet extension (local-first; runtime never fetches). */
   readonly vendoredExtension: {
     readonly fileName: string
@@ -97,15 +98,9 @@ async function runSpike(context: vscode.ExtensionContext, fixturePath: string): 
     mainScriptUrl: asset('main.js'),
     workerScriptUrl: asset('worker.js'),
     probeUrl: asset('probe.json'),
-    bundles: {
-      mvp: {
-        workerUrl: asset('duckdb-browser-mvp.worker.js'),
-        wasmUrl: asset('duckdb-mvp.wasm'),
-      },
-      eh: {
-        workerUrl: asset('duckdb-browser-eh.worker.js'),
-        wasmUrl: asset('duckdb-eh.wasm'),
-      },
+    bundle: {
+      workerUrl: asset('duckdb-browser-eh.worker.js'),
+      wasmUrl: asset('duckdb-eh.wasm'),
     },
     vendoredExtension: {
       fileName: VENDORED_RUNTIME.extensionFileName,

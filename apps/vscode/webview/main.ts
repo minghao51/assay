@@ -9,7 +9,7 @@
  * the extension host, which writes them to the run's evidence JSON.
  *
  * ptv1-1 (the bundler-agnostic worker seam): the R4 spike's own engine boot
- * code is gone. The mvp/eh boots, the fixture open, the row count, the first
+ * code is gone. The engine boot, the fixture open, the row count, the first
  * window, and the Parquet-extension probe all run through the real
  * `DuckDbEngineClient` and the real shared worker core
  * (`@assay/engine-duckdb/worker-core`, started injected by
@@ -19,22 +19,26 @@
  * to the worker as one `engine/assets` control message BEFORE the client's
  * first `engine/init` (the factory below owns that ordering).
  *
- * ptv1-2 (vendored engine assets, local-first): the `mvp` glue worker is now
- * bootstrapped from the COMMITTED vendored binary (assets/duckdb/, checksum
- * pinned by scripts/build.mjs) with a shim APPENDED to the unmodified glue
- * text — the pinned bytes are not altered. The shim (a) after DuckDB
- * instantiation takes the vendored Parquet extension bytes in hand (fetched
- * from the extension package over the local webview resource path) and (b)
- * answers the Q5b CDN autoload URL (`extensions.duckdb.org/…/wasm_mvp/
- * parquet.duckdb_extension.wasm`) LOCALLY from those bytes, refusing every
- * other request to that host — so datasets open with ZERO network fetches.
- * (Registering the binary into the engine FS + INSTALL/LOAD was tried first;
+ * ptv1-2 (vendored engine assets, local-first), R1-B (`eh` only): the vendored
+ * `eh` glue worker is now bootstrapped from the COMMITTED vendored binary
+ * (assets/duckdb/, checksum pinned by scripts/build.mjs) with a shim APPENDED
+ * to the unmodified glue text — the pinned bytes are not altered. The shim
+ * (a) after DuckDB instantiation takes the vendored extension bytes in hand
+ * (fetched from the extension package over the local webview resource path)
+ * and (b) answers the Q5b CDN autoload URL
+ * (`extensions.duckdb.org/…/wasm_eh/parquet.duckdb_extension.wasm`) LOCALLY
+ * from those bytes, refusing every other request to that host (a local 403
+ * carrying `assay-netblock-refusal`) — so datasets open with ZERO network
+ * fetches. (Registering the binary into the engine FS
+ * + INSTALL/LOAD was tried first;
  * the extension loader's existence check does not see registered buffers in
  * 1.32.0 — see assets/duckdb/VENDORED_ASSETS.md.) Drill mode
  * (`ASSAY_SPIKE_DRILL=missing-extension`) ships no vendored bytes: the open
- * must then FAIL on the refused CDN fetch, reproducing the Q5b failure mode
- * under the block and proving the negative (a non-vendored asset WOULD
- * fetch — and be caught).
+ * must then FAIL on the refused CDN autoload, reproducing the Q5b failure
+ * mode under the block and proving the negative (a non-vendored asset WOULD
+ * fetch — and be caught). DuckDB reports that failure itself
+ * (`Extension https://extensions.duckdb.org/…/wasm_eh/parquet.duckdb_extension.wasm
+ * is not available`), which is the drill's recorded evidence.
  *
  * Worker-loading finding baked in here: `new Worker(webview.asWebviewUri(...))`
  * throws a cross-origin error in a desktop webview (the resource is served from
@@ -73,10 +77,8 @@ interface SpikeConfig {
   readonly mainScriptUrl: string
   readonly workerScriptUrl: string
   readonly probeUrl: string
-  readonly bundles: {
-    readonly mvp: BundleUrls
-    readonly eh: BundleUrls
-  }
+  /** R1-B: the shipped `eh` pair (the desktop surface boots nothing else). */
+  readonly bundle: BundleUrls
   /** ptv1-2: the vendored Parquet extension served from the extension package. */
   readonly vendoredExtension: {
     readonly fileName: string
@@ -178,8 +180,9 @@ async function probeResourceHeaders(url: string): Promise<unknown> {
  * The shim answers the CDN autoload URL locally with the vendored bytes, so
  * there is nothing to INSTALL: the extension state after the open is the
  * Q5b signature (loaded=true, installed=false) — but earned with ZERO
- * network, which the drill run proves (no vendored bytes → the open fails
- * on the refused CDN fetch).
+ * network, which the drill run proves (no vendored bytes → the blocked
+ * autoload is answered with a local 403 and the open fails on DuckDB's own
+ * "Extension … is not available" error naming the refused `wasm_eh` URL).
  */
 async function verifyVendoredServe(
   client: DuckDbEngineClient,
@@ -216,7 +219,8 @@ async function verifyVendoredServe(
     blockedHost: config.blockedExtensionHost,
     // Two independent network-block layers; the vendored run must pass under both.
     networkBlock:
-      'CSP connect-src excludes the host + in-worker fetch/XHR interceptor serves the vendored bytes locally',
+      'CSP connect-src excludes the host + in-worker fetch/XHR interceptor serves the vendored bytes locally' +
+      ' (any other request to the host is answered with a local 403 whose body carries assay-netblock-refusal)',
     shimState,
     installed: Boolean(probe.batch.getChildAt(2)?.get(0)),
     loaded: Boolean(probe.batch.getChildAt(1)?.get(0)),
@@ -658,13 +662,16 @@ async function run(): Promise<void> {
 
   const bundles = (results['bundles'] = {}) as Record<string, unknown>
 
-  // Q1c: the real adapter boots the `mvp` DuckDB bundle inside the webview —
+  // Q1c: the real adapter boots the shipped DuckDB bundle inside the webview —
   // the blob-URL asset injection the ptv1-1 seam exists for. The blob URLs are
   // revoked once instantiate() has consumed them (the spike's Q5 methodology:
   // the heap sample must reflect the dataset, not the workaround).
-  // ptv1-2: the mvp glue worker is the vendored binary with the vendored-asset
-  // shim appended (CDN block + local extension registration). The DuckDB WASM
-  // itself stays a plain blob of the vendored bytes.
+  // ptv1-2/R1-B: the glue worker is the vendored `eh` binary with the
+  // vendored-asset shim appended (CDN block + local extension registration).
+  // The DuckDB WASM itself stays a plain blob of the vendored bytes. R1-B
+  // (ADR 0048 decision 3) removed the second `mvp` boot: the desktop package
+  // ships the `eh` pair only, so every substantive probe below (boot, vendored
+  // serve, fixture open, grid, OPFS, heap/TTFR) runs on this one engine.
   // The vendored extension is fetched HERE (main thread — the proven
   // toBlobUrl path) and re-exposed as a same-origin blob for the shim:
   // direct worker-side fetches of vscode-webview-resource URLs 404 (they
@@ -680,51 +687,53 @@ async function run(): Promise<void> {
     finish()
     return
   }
-  const mvpGlueBlobUrl = await step('glue.shimmedBlobUrl', () =>
-    buildShimmedGlueBlobUrl(config.bundles.mvp.workerUrl, {
+  const glueBlobUrl = await step('glue.shimmedBlobUrl', () =>
+    buildShimmedGlueBlobUrl(config.bundle.workerUrl, {
       blockedHost: config.blockedExtensionHost,
       extensionUrl: extensionBlobUrl ?? '',
       extensionPath: config.vendoredExtension.autoloadPath,
       drill: config.drill,
     }),
   )
-  if (typeof mvpGlueBlobUrl !== 'string') {
+  if (typeof glueBlobUrl !== 'string') {
     results['fixture'] = { blockedBy: 'glue.shimmedBlobUrl' }
     results['opfs'] = { blockedBy: 'glue.shimmedBlobUrl' }
     finish()
     return
   }
-  const mvpAssets: EngineAssetsMessage = {
+  const engineAssets: EngineAssetsMessage = {
     type: 'engine/assets',
-    duckdbWorkerUrl: mvpGlueBlobUrl,
-    duckdbWasmUrl: await toBlobUrl(config.bundles.mvp.wasmUrl, 'application/wasm'),
+    duckdbWorkerUrl: glueBlobUrl,
+    duckdbWasmUrl: await toBlobUrl(config.bundle.wasmUrl, 'application/wasm'),
   }
-  const mvpClient = createAdapterClient(workerUrl, mvpAssets, 'mvp', diagnostics)
-  const mvpBoot = await step('boot.mvp', () => bootAdapter(mvpClient))
-  bundles['mvp'] = mvpBoot ?? { ok: false, note: 'see errors["boot.mvp"]' }
-  URL.revokeObjectURL(mvpAssets.duckdbWorkerUrl)
-  URL.revokeObjectURL(mvpAssets.duckdbWasmUrl)
+  const engineClient = createAdapterClient(workerUrl, engineAssets, 'eh', diagnostics)
+  const engineBoot = await step('boot.eh', () => bootAdapter(engineClient))
+  bundles['eh'] = engineBoot ?? { ok: false, note: 'see errors["boot.eh"]' }
+  URL.revokeObjectURL(engineAssets.duckdbWorkerUrl)
+  URL.revokeObjectURL(engineAssets.duckdbWasmUrl)
   if (typeof extensionBlobUrl === 'string') {
     URL.revokeObjectURL(extensionBlobUrl)
   }
   heap['postBoot'] = heapSample()
 
-  if (mvpBoot !== undefined) {
-    // ptv1-2: local-first extension install (skipped in drill mode), BEFORE
+  if (engineBoot !== undefined) {
+    // ptv1-2: local-first extension serve (skipped in drill mode), BEFORE
     // the fixture open so read_parquet never needs the CDN.
-    const vendored = await step('vendored.serve', () => verifyVendoredServe(mvpClient, config))
+    const vendored = await step('vendored.serve', () => verifyVendoredServe(engineClient, config))
     if (vendored !== undefined) {
       results['vendoredAssets'] = vendored
     }
     const fixture = await fixturePromise
-    const opened = await step('open.million', () => openFixtureThroughAdapter(mvpClient, fixture))
+    const opened = await step('open.million', () =>
+      openFixtureThroughAdapter(engineClient, fixture),
+    )
     if (opened !== undefined) {
       results['fixture'] = opened.metrics
       // ptv1-4: the headless-grid dataset surface over the SAME handle — the
       // row's perf envelope (TTFR picker→first-row) + a11y/virtualization/
       // sort-filter evidence. Heap sampled after the phase (steady state).
       const gridPhase = await step('grid.surface', () =>
-        runGridPhase(mvpClient, opened.handle, opened.openedAt),
+        runGridPhase(engineClient, opened.handle, opened.openedAt),
       )
       if (gridPhase !== undefined) {
         results['grid'] = gridPhase
@@ -734,30 +743,14 @@ async function run(): Promise<void> {
     }
     heap['postFirstRow'] = heapSample()
   } else {
-    results['fixture'] = { blockedBy: 'boot.mvp' }
+    results['fixture'] = { blockedBy: 'boot.eh' }
   }
   results['opfs'] = await step('opfs', () => opfsProbe())
   // ptv1-4: the live-heap sample for the grid budget — forced GC (the R4 Q5
   // methodology), taken with the grid mounted and swept (bounded cache +
   // window DOM = the surface's steady state).
   heap['postGrid'] = heapSample()
-  await step('dispose.mvp', () => mvpClient.dispose())
-
-  // Q1d: probe the `eh` (exception-handling) bundle in a fresh adapter worker.
-  // Measured result: it boots without cross-origin isolation, like `mvp`; only
-  // the separate `coi` (threads) bundle would require it (not probed). The mvp
-  // client is disposed first so the two ~40 MB WASM heaps do not coexist.
-  const ehAssets: EngineAssetsMessage = {
-    type: 'engine/assets',
-    duckdbWorkerUrl: await toBlobUrl(config.bundles.eh.workerUrl, 'text/javascript'),
-    duckdbWasmUrl: await toBlobUrl(config.bundles.eh.wasmUrl, 'application/wasm'),
-  }
-  const ehClient = createAdapterClient(workerUrl, ehAssets, 'eh', diagnostics)
-  const ehBoot = await step('boot.eh', () => bootAdapter(ehClient))
-  bundles['eh'] = ehBoot ?? { ok: false, note: 'see errors["boot.eh"]' }
-  await step('dispose.eh', () => ehClient.dispose())
-  URL.revokeObjectURL(ehAssets.duckdbWorkerUrl)
-  URL.revokeObjectURL(ehAssets.duckdbWasmUrl)
+  await step('dispose.eh', () => engineClient.dispose())
   URL.revokeObjectURL(workerUrl)
 
   finish()
