@@ -299,9 +299,11 @@ after merge.
 **R1 is closed.** Shipped: web capability-guarded `eh`/`mvp` selection with honest engine text;
 pre-commit cell-edit value refusal; desktop `eh`-only vendored set (−4,915,575 B in the extension
 package; the web dist carries both pairs, +35,015,345 B raw, one fetched per session). Consequences
-carried forward: **EW-04D U4** must re-derive its arm-class evidence against `eh` (the old
-≥1000-branch citation is shape-dependent — a flat `UNION ALL` gives a real parser-depth error on `eh`
-and a JS `RangeError` on `mvp`); non-EH browsers keep the opaque fallback; no boot-failure retry;
+carried forward: **EW-04D U4** was re-derived against `eh` on 2026-11-14
+([U4 record](20261114-u4-arm-class-probe.md)): the old ≥1000-branch citation is shape-dependent (a
+flat `UNION ALL` gives a real parser-depth error on `eh`, a JS `RangeError` on `mvp`), while CASE arms
+have no cliff near the 500 cap; the export path and the multi-repair composition shape are the real
+costs; non-EH browsers keep the opaque fallback; no boot-failure retry;
 `row-insert` uncovered; one extra engine round-trip per applied cell edit.
 
 ## 4. No-push, no-claim statement

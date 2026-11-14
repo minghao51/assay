@@ -198,6 +198,15 @@ bundle selection + honest error text) is re-dispatched on the post-R1-C base wit
 authorized; **R1-B** (desktop vendored `eh` set) follows. Root cause: the published `mvp` glue calls
 five exception-library identifiers the wasm exports but the glue never binds. Nothing pushed.
 
+**EW-04D condition (i) measured — U4 (2026-11-14, read-only).** The CASE-arm probe on the shipped
+`eh` bundle answers U4: 500 arms cost ~15 ms planning + ~17 ms execution for a 1,000-row window and
+the planner stays linear through 30,000 arms (no arm-class cliff; the cited UNION-branch abort is a
+different node class, as EW-04D warned). The export path is the real cost (~4.0 s at m=500 over 2 M
+rows), and multi-repair prefixes are only cheap as **stacked projection layers** — the
+one-expression nesting reading duplicates the inner wrap and OOMs at three repairs. Record:
+[U4 arm-class probe](handoff/20261114-u4-arm-class-probe.md). Conditions (ii)–(vii) remain open; no
+decision taken.
+
 **Essential workbench — first wave CLOSED 2026-11-13.** [EW-00/EW-10](handoff/20261113-ew10-first-wave-integration.md) owns the baseline and integration evidence; [product/16](../product/16-essential-workbench-first-wave-spec.md) owns requirements/reservations and still bounds any successor. **WF-06 merged** at `ba36091` after independent review round 3 and merged gates (245 files/3629 tests, 264+1 browser, both telemetry legs). **EW-02D/03D/04D delivered** ([scope/copy](handoff/20261113-ew02-scope-contract.md), [CSV](handoff/20261113-ew03-csv-contract.md), [bulk](handoff/20261113-ew04-bulk-contract.md)) as design-only contracts; their runtime successors stay blocked on maintainer acceptance/decisions and a new brief, and EW-05…08 remain unselected. The older WF queue below remains evidence for completed work and other pending decisions, not a second dispatch authority.
 
 **Web-interface follow-up — subset executed, remainder decision-gated (2026-11-10).** The
@@ -311,6 +320,13 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-14 (**hl**) — **EW-04D U4 measured** on the shipped `eh` bundle (read-only probe): 500 CASE
+  arms ≈ 15 ms plan / 17 ms exec for a 1k-row window, linear through 30,000 arms, no arm-class
+  refusal; export at m=500 over 2 M rows ≈ 4.0 s; multi-repair prefixes cheap only as stacked
+  projections (one-expression nesting: 2.4 MB SQL at 2 repairs, OOM at 3). Condition (i) is no
+  longer a blocker for the flat wrap; (ii)–(vii) remain open. No source change; nothing pushed.
+  Record: [U4 arm-class probe](handoff/20261114-u4-arm-class-probe.md).
 
 - 2026-11-14 (**hk**) — **R1-B CLOSED — merged `5426979`; R1 IS CLOSED; ADR 0048 Accepted.** The
   VS Code webview now ships the `eh` pair only with `wasm_eh` autoload paths (vendored set
