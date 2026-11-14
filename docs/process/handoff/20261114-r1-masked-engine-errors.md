@@ -139,6 +139,32 @@ elision and the session-token abort; add the three-overlap hostile pin, a two-ov
 a non-cell-mutation-during-check pin; reword the O(edits) claim to the guaranteed shape; rename the
 test. A fresh reviewer re-verification follows.
 
+### 3.5 R1-C re-review (2026-11-14)
+
+A fresh reviewer re-verified `b8d85dc`: the unchecked-commit path is **gone** (`MAX_CELL_CHECK_ATTEMPTS`
+absent), the three-burst pin is non-vacuous, two-overlap ordering and the undo-waits pins hold, the
+cast append re-verifies before `setActive` and refuses a stale verdict with the existing raced-cast
+copy, the composer elision is sound, and all gates/mutations were independently reproduced (unit
+245/3650, coverage 89.33/84.04/91.65/90.99, browser 264+1 on the third run after two unrelated page-load
+flakes, configured 7/zero delivered, restored 76). WF-06's mutation-counter contract is still pinned
+per step (increment before first await, clear only in `finally`); true simultaneity is no longer
+exercised because serialization removes it, and the still-reachable overlap contract (two concurrent
+cast pre-checks) remains pinned by the N17 test.
+
+It still returned **request-changes** on three small items, one of them real: (1) a value check that
+_rejects_ after a table replacement bypassed the token guard and surfaced a stale, false edit error
+(`editError` non-null, 0 activations) — the resolve path was guarded, the rejection path was not;
+(2) the `session-errors` suite docstring still claimed the deleted re-derive pin and carried a
+duplicate comment; (3) two comments still described the pre-chain model ("cell/rename ops run
+synchronously", "two commits can overlap"). Fix round 2 (same branch, same worker) guards the
+rejection path, adds the reject-path stale-token pin, and corrects the prose; a fresh re-review
+follows.
+
+Recorded residual risks (unchanged, not defects of this row): `mutationStateRef` now increments one
+microtask after the gesture rather than synchronously; the mutation chain has no timeout (a
+never-settling engine promise would wedge it — pre-existing class); undo/redo/cursor rely on
+staging-time verdicts (documented).
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The
