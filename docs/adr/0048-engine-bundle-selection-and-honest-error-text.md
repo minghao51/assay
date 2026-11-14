@@ -2,11 +2,11 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
-2026-11-14
+Proposed 2026-11-14 → Accepted 2026-11-14
 
 ## Deciders
 

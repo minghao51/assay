@@ -67,14 +67,17 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
-**Verified state (2026-11-14, R1):** **R1-A merged** `b0b78bc` (capability-guarded `eh`/`mvp`
-bundle selection; real engine failure text; platform-tagged extension fixture; two review rounds) and
-**R1-C merged** `837b638` (pre-commit edit-value refusal;
+**Verified state (2026-11-14, R1 CLOSED):** **R1-B merged** `5426979` (desktop `eh`-only vendored
+set; real-VS-Code e2e and all three spike modes green at merge), **R1-A merged** `b0b78bc`
+(capability-guarded `eh`/`mvp` bundle selection; real engine failure text; platform-tagged extension
+fixture; two review rounds) and **R1-C merged** `837b638` (pre-commit edit-value refusal;
 serialized mutation chain; three review rounds + comment-only verification). Merged gates: forced
 typecheck **20** (0 cached), unit **245 files / 3651 tests**, coverage **89.33 / 84.04 / 91.65 /
 90.99**, forced build **12** (0 cached), docs links **156/0**, ADR **48**, browser **264 + 1 skip**,
 configured telemetry **7 passed** with zero deliveries, restored stock **76 passed**; the merged
-browser run's two page-load flakes re-ran 19/19. R1-B (desktop `eh`) is the remaining row. Record:
+browser run's two page-load flakes re-ran 19/19 and the merged coverage flake re-ran green. Desktop:
+package build, runtime 9/9, real-VS-Code e2e PASS, normal spike + `missing-extension` exit 0,
+`eh-boot-failure` exit 1. Record:
 [R1 masked engine errors](handoff/20261114-r1-masked-engine-errors.md). Nothing pushed.
 
 **Verified state (2026-11-13, essential-workbench first wave):** **WF-06 merged** `ba36091` (worker `3b84bf7` + `2eebfc9`/`dcda9bf`/`d4526ba`; independent `openai-codex/gpt-6-luna` xhigh **approve** round 3). Merged gates: forced typecheck **20** (0 cached), unit **245 files / 3629 tests**, coverage **89.31 / 84.02 / 91.65 / 90.97**, forced build **12** (0 cached), docs links **153/0**, ADR **47**, browser **264 + 1 skip**, configured telemetry **7 passed** with zero deliveries, restored stock **76 passed**. Two test-only amendments were granted and reviewer-verified (A1: five pre-existing App unit tests whose scenarios the lifecycle replaces, four setup-only and one contract-mandated assertion replacement; A2: two disclosure-dismissal setup lines). **EW-02D/03D/04D delivered** as design-only contracts ([scope/copy](handoff/20261113-ew02-scope-contract.md), [CSV](handoff/20261113-ew03-csv-contract.md), [bulk](handoff/20261113-ew04-bulk-contract.md)) after 2/4/7 review rounds; their 3 proposals, 15 and 17 decisions remain maintainer-owned and no successor runtime row is authorized. Record: [EW-10](handoff/20261113-ew10-first-wave-integration.md). Nothing pushed.
@@ -308,6 +311,14 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-14 (**hk**) — **R1-B CLOSED — merged `5426979`; R1 IS CLOSED; ADR 0048 Accepted.** The
+  VS Code webview now ships the `eh` pair only with `wasm_eh` autoload paths (vendored set
+  38,881,030 B, −4,915,575 B); a review-caught drill regression was fixed by answering a blocked CDN
+  request with a local 403 so the `missing-extension` drill exits 0 with observed evidence again.
+  Merged gates: unit 246/3661, web browser 265+1, configured 7/zero delivered, restored 76, package
+  build 11 artifacts, runtime 9/9, real-VS-Code e2e PASS, normal/missing-extension spikes 0,
+  eh-boot-failure 1; the pre-existing FilterBar coverage flake re-ran green. Nothing pushed.
 
 - 2026-11-14 (**hj**) — **R1-A CLOSED — merged `b0b78bc`**: the worker selects `eh` when the
   browser validates the package's own wasm-EH probe (`mvp` otherwise), so engine failures carry the

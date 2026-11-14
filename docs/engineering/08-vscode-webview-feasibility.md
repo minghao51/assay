@@ -309,6 +309,10 @@ minification):
 - esbuild bundles the webview ESM worker and the extension CJS entry with no custom loaders; the
   DuckDB assets are copied and their `vscode-webview-resource:` URIs are injected from the
   extension host. The reviewer reproduces the sizes with `run:spike` (build step).
+- **Later (2026-11-14, R1-B / ADR 0048):** the shipped desktop webview now vendors the **`eh`**
+  pair only (plus the `wasm_eh` Parquet/JSON extensions) — 38,881,030 B, ~4.9 MB smaller than the
+  `mvp` set this table measured. The two-bundle rows above are the R4 spike's historical
+  measurement and are deliberately not rewritten; `run:spike` now boots `eh` only.
 - **vscode-web loadability: NOT RUN.** A vscode-web extension needs a `browser` entry point (ESM)
   in `package.json` and browser-safe imports; the spike's `main` is Node/CJS and uses
   `vscode.workspace.fs` (available in web extensions) but was not repackaged for the browser. The

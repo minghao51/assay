@@ -22,9 +22,9 @@ import type { BrowserContext, Route } from '@playwright/test'
  * fulfils it from the **already committed, checksum-pinned** binaries in
  * `apps/vscode/assets/duckdb/` with `contentType: 'application/wasm'`. The
  * binaries are never copied, regenerated or re-downloaded: the VS Code build
- * (`apps/vscode/scripts/build.mjs`) verifies the `wasm_mvp` pair's SHA-256
- * against the lockfile-pinned package, which is what makes them a trustworthy
- * stand-in for the CDN bytes.
+ * (`apps/vscode/scripts/build.mjs`) verifies the shipped `eh` pair's SHA-256
+ * against the lockfile-pinned package (R1-B; it verified the `mvp` pair before
+ * that), which is what makes them a trustworthy stand-in for the CDN bytes.
  *
  * **The extension platform is part of the request (ADR 0048, row R1-A).** The
  * engine now selects its DuckDB-WASM bundle by capability (`eh` on browsers
@@ -40,8 +40,8 @@ import type { BrowserContext, Route } from '@playwright/test'
  *
  * The `.eh.pinned` pair is committed verbatim (both are DuckDB `v1.4.3`
  * `wasm_eh` builds, the same version/ABI as the `wasm_mvp` pair above; a
- * `.eh` suffix keeps them distinct from the `.pinned` names the VS Code build
- * checks):
+ * `.eh` suffix keeps them distinct from the `.pinned` `wasm_mvp` names this
+ * route still maps for the legacy fallback):
  *
  * | File                                    | Bytes     | SHA-256                                                    |
  * | --------------------------------------- | --------- | ---------------------------------------------------------- |

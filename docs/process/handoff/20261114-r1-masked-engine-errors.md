@@ -1,10 +1,10 @@
 # R1 — masked engine errors: decision, investigation and fix rows
 
-**Date:** 2026-11-14. **Status:** **R1-C CLOSED** (merged `837b638`) and **R1-A CLOSED** (merged
-`b0b78bc`); the desktop row (**R1-B**) is next. Nothing pushed.
+**Date:** 2026-11-14. **Status:** **R1 IS CLOSED** — R1-C merged `837b638`, R1-A merged `b0b78bc`,
+R1-B merged `5426979`; ADR 0048 Accepted. Nothing pushed.
 
 **Authority:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) →
-[ADR 0048 (Proposed)](../../adr/0048-engine-bundle-selection-and-honest-error-text.md) → this record.
+[ADR 0048 (Accepted)](../../adr/0048-engine-bundle-selection-and-honest-error-text.md) → this record.
 Maintainer instruction: _"lets proceed with your recommendation"_ (2026-11-14), which selects
 D1 = R1 and the recommendation in this record's §2.
 
@@ -51,7 +51,7 @@ cause, so those assertions move with the fix.
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **R1-A** (web + engine core) | `packages/engine-duckdb` bundle selection + asset wiring + unit tests; e2e real-message and corrupt-open assertions; platform-paired extension fixture (commit the `wasm_eh` Parquet/JSON binaries with checksums); changeset | **CLOSED — MERGED `b0b78bc`** after two review rounds (the second fixed the circular `wasm_eh` file pin); merged gates green with two documented page-load flakes re-ran 19/19 (§3.9) |
 | **R1-C** (edit-value check)  | Make a staged cell-edit value's convertibility a pre-append engine check (reuse `overlayCastCheck`; skip its provably-redundant base arm when no cast is pending) and refuse with the existing value-free framing             | **CLOSED — MERGED `837b638`** after 3 independent review rounds + a comment-only verification; merged gates green (§3.7)                                                              |
-| **R1-B** (desktop)           | `apps/vscode` vendored set → eh pair + `wasm_eh` autoload paths + build checksums/docs + spike harness update; changeset                                                                                                      | **NEXT** — desktop `eh`-only vendored set; brief staged, worktree created (no dispatch until this record is current)                                                                  |
+| **R1-B** (desktop)           | `apps/vscode` vendored set → eh pair + `wasm_eh` autoload paths + build checksums/docs + spike harness update; changeset                                                                                                      | **CLOSED — MERGED `5426979`** after one review round + a drill-evidence fix; merged gates green including the desktop e2e and all three spikes (§3.12)                                |
 
 R1-B is deliberately serialized: both rows touch the pinned-asset directory and the e2e extension
 route, and only one runtime writer may be claimed.
@@ -271,6 +271,38 @@ Integration paperwork carried by this round (orchestrator, after merge): `tests/
 comments still say the VS Code build verifies the `wasm_mvp` pair (now `eh`); the historical
 `docs/engineering/08-vscode-webview-feasibility.md` sizes describe the pre-R1-B set and should get a
 dated pointer, not rewritten history.
+
+### 3.12 R1-B closure (2026-11-14)
+
+Merged as **`5426979`** (cherry-picked with `-x` from `b291710`, branch `fix/r1-b-desktop-eh`, base
+`b0b78bc`; 13 files, +404/−254). One review round plus a fix: the reviewer caught that the committed
+`missing-extension` drill exited 1 for the wrong reason (the shim _threw_, and the `eh` build turned
+that JS exception into `function signature mismatch`) while the same commit's README/asset docs still
+claimed the drill passed. The fix answers a blocked CDN request with a synthesized local **403**
+(fetch + XHR fakes) whose handling lets DuckDB report its own autoload failure naming the refused
+`…/wasm_eh/…` URL; `drill.refusal.evidence` accepts the body marker or that literal URL (a literal in
+the harness, fail-closed if neither appears), and the docs were re-derived to quote the recorded
+error. The reviewer confirmed the drill exits 0 with observed evidence, the interceptor is sound, the
+normal spike (eh boot, vendored extension loaded, 1M rows) and the non-zero `eh-boot-failure` drill
+are unchanged, and the checksum-drift/autoload/glue mutations still bite.
+
+Merged gates at `5426979` (`/tmp/assay-r1-b-merged-logs/`): format/lint 0 · forced typecheck
+**20/20, 0 cached** · unit **246 files / 3661 tests** · forced build **12/12, 0 cached** · docs
+**156/0** · ADR **48** · web browser **265 passed + 1 skipped** · configured telemetry **7 passed**
+(POSTs aborted, zero delivered) · restored stock **76 passed** · package build 11 artifacts, no mvp ·
+`test:runtime` 9/9 · real-VS-Code e2e **PASS** · normal spike exit 0 (`bundles=['eh']`, vendored
+extension loaded, 1,000,000 rows) · `missing-extension` drill exit 0 with the refused-URL evidence ·
+`eh-boot-failure` exit 1. The merged coverage run flaked once on the pre-existing `FilterBar` timer
+test; the full re-run was green (246/3661, 89.34 / 84.05 / 91.66 / 91.00). Worktree/branch removed
+after merge.
+
+**R1 is closed.** Shipped: web capability-guarded `eh`/`mvp` selection with honest engine text;
+pre-commit cell-edit value refusal; desktop `eh`-only vendored set (−4,915,575 B in the extension
+package; the web dist carries both pairs, +35,015,345 B raw, one fetched per session). Consequences
+carried forward: **EW-04D U4** must re-derive its arm-class evidence against `eh` (the old
+≥1000-branch citation is shape-dependent — a flat `UNION ALL` gives a real parser-depth error on `eh`
+and a JS `RangeError` on `mvp`); non-EH browsers keep the opaque fallback; no boot-failure retry;
+`row-insert` uncovered; one extra engine round-trip per applied cell edit.
 
 ## 4. No-push, no-claim statement
 
