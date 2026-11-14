@@ -31,12 +31,19 @@ const GUARD_STAGED =
   'This session has staged changes that are not saved. Opening another dataset replaces the session, its staged edits, its undo history, and any validation or comparison results.'
 const FAILURE_SUFFIX = ' Nothing in this session changed.'
 /**
- * UG-5's cause-neutral sentence. The real corrupt fixture makes this WASM
- * build's reader throw its opaque emscripten glue error, which is not file
- * evidence, so the classified cause is `unknown` — the same copy the shipped
- * `open-recovery.spec` pins. C10 reuses that classification verbatim.
+ * UG-5's truthful cause for the real corrupt fixture (ADR 0048 / R1-A). With a
+ * wasm exception-handling-capable browser the engine selects its `eh`
+ * DuckDB-WASM pair, so the reader's real refusal reaches the client
+ * (`Invalid Input Error: No magic bytes found at end of file …`). That is
+ * file-read evidence, and the app classifies it as `unreadable` — the same
+ * copy the shipped `open-recovery.spec` pins. C10 reuses that classification
+ * verbatim. Before ADR 0048 the `mvp` glue masked the failure as
+ * `_setThrew is not defined`, which is not file evidence and fell through to
+ * the cause-neutral `unknown` sentence.
  */
-const NEUTRAL_CAUSE = 'The file could not be opened. You can try another file.'
+const UNREADABLE_CAUSE =
+  'The file could not be opened. The file could not be read. ' +
+  'It may be corrupt, truncated, or not the format its name suggests.'
 const DRAFT_NOTICE = 'Finish or cancel the cell you are editing first.'
 const CAST_NOTICE =
   'A column type check is still running. Replacement stays unavailable until it finishes.'
@@ -339,7 +346,7 @@ test('a corrupt candidate reports C10, keeps the raw text in a closed detail, an
 
   const failure = page.getByTestId('replace-error')
   await expect(failure).toBeVisible()
-  await expect(page.getByTestId('replace-error-text')).toHaveText(NEUTRAL_CAUSE + FAILURE_SUFFIX)
+  await expect(page.getByTestId('replace-error-text')).toHaveText(UNREADABLE_CAUSE + FAILURE_SUFFIX)
   await expect(page.getByTestId('replace-error-text')).not.toContainText('magic bytes')
 
   // IC-04: the technical detail is a CLOSED disclosure outside the alert text.
@@ -347,6 +354,15 @@ test('a corrupt candidate reports C10, keeps the raw text in a closed detail, an
   await expect(details).not.toHaveAttribute('open', '')
   await expect(details.locator('summary')).toHaveText('Technical detail')
   await expect(details.locator('pre')).toHaveCount(1)
+  // …and it is the engine's REAL first line (ADR 0048), not the shipped `mvp`
+  // glue's opaque `ReferenceError`. The message names the engine-generated
+  // table id, never the picked file (ADR 0025).
+  await expect(page.getByTestId('replace-error-detail')).toContainText(
+    'Invalid Input Error: No magic bytes found at end of file',
+  )
+  expect((await page.getByTestId('replace-error-detail').textContent()) ?? '').not.toMatch(
+    /_setThrew/,
+  )
   // The user's own copy of the visible text is not suppressed (W-C).
   const selectable = await details.locator('pre').evaluate((element) => {
     const style = window.getComputedStyle(element)

@@ -147,15 +147,25 @@ test('a failed query rejects with the engine error and the engine stays reusable
 
   await page.getByRole('button', { name: 'Run invalid SQL, then SELECT 7 AS seven' }).click()
 
-  // The invalid SQL rejected through the typed protocol with the engine's
-  // own error text (not the harness's "unexpected" marker, not empty). The
-  // message quality is what the duckdb-wasm *mvp* bundle's emscripten layer
-  // yields for pending-query failures ("_setThrew is not defined") — a known
-  // WASM-bundle quirk recorded for a later bundle choice; the proven contract
-  // here is reject-with-engine-error + full reusability.
-  await expect(page.getByTestId('query-error')).not.toHaveText('not run')
-  await expect(page.getByTestId('query-error')).not.toHaveText('no error reported (unexpected)')
-  await expect(page.getByTestId('query-error')).not.toHaveText('')
+  // The invalid SQL rejected through the typed protocol with the engine's REAL
+  // message (ADR 0048): the catalog/binder error for the missing table, on the
+  // `eh` bundle this browser selects. Before R1-A the shipped `mvp` glue masked
+  // every failure as `ReferenceError: _setThrew is not defined`, so this
+  // assertion — not just "something rejected" — is the honest-text proof.
+  const queryError = page.getByTestId('query-error')
+  await expect(queryError).toContainText('Catalog Error')
+  await expect(queryError).toContainText('Table with name __assay_no_such_table__ does not exist')
+  await expect(queryError).not.toContainText('_setThrew')
+  await expect(queryError).not.toHaveText('not run')
+  await expect(queryError).not.toHaveText('no error reported (unexpected)')
+  await expect(queryError).not.toHaveText('')
+  // The engine's diagnostic is multi-line (summary + hint + the offending SQL),
+  // and the raw text is what crossed the protocol — the engine's own summary is
+  // its first line.
+  const reported = (await queryError.textContent()) ?? ''
+  expect(reported.split('\n')[0]).toBe(
+    'Catalog Error: Table with name __assay_no_such_table__ does not exist!',
+  )
 
   // …and the follow-up query still answers: worker + connection survived.
   await expect(page.getByTestId('post-error-value')).toHaveText('7')

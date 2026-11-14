@@ -20,16 +20,39 @@ import type { BrowserContext, Route } from '@playwright/test'
  * page exists, so a spec that navigates straight to `/` or to an engine harness
  * URL is covered exactly like one that opens through `openFixture` — and
  * fulfils it from the **already committed, checksum-pinned** binaries in
- * `apps/vscode/assets/duckdb/<basename>.pinned` with
- * `contentType: 'application/wasm'`. The binaries are never copied,
- * regenerated or re-downloaded: `apps/vscode/scripts/build.mjs` verifies their
- * SHA-256 against the lockfile-pinned package, which is what makes them a
- * trustworthy stand-in for the CDN bytes.
+ * `apps/vscode/assets/duckdb/` with `contentType: 'application/wasm'`. The
+ * binaries are never copied, regenerated or re-downloaded: the VS Code build
+ * (`apps/vscode/scripts/build.mjs`) verifies the `wasm_mvp` pair's SHA-256
+ * against the lockfile-pinned package, which is what makes them a trustworthy
+ * stand-in for the CDN bytes.
  *
- * No pinned binary for a requested autoload path ⇒ the request is **aborted**
- * (loudly, on stderr) instead of being allowed through. A future extension
- * dependency therefore fails the test that needs it instead of silently
- * reaching for the network — the failure is the point.
+ * **The extension platform is part of the request (ADR 0048, row R1-A).** The
+ * engine now selects its DuckDB-WASM bundle by capability (`eh` on browsers
+ * that validate wasm exception handling, `mvp` otherwise — see
+ * `packages/engine-duckdb/src/bundle-select.ts`), and DuckDB autoloads the
+ * extension build matching that bundle: `/v1.4.3/wasm_eh/…` or
+ * `/v1.4.3/wasm_mvp/…`. The route therefore serves by PLATFORM TAG:
+ *
+ * | URL platform segment | Committed binary               |
+ * | -------------------- | ------------------------------ |
+ * | `/wasm_eh/`          | `<basename>.eh.pinned`         |
+ * | `/wasm_mvp/`         | `<basename>.pinned`            |
+ *
+ * The `.eh.pinned` pair is committed verbatim (both are DuckDB `v1.4.3`
+ * `wasm_eh` builds, the same version/ABI as the `wasm_mvp` pair above; a
+ * `.eh` suffix keeps them distinct from the `.pinned` names the VS Code build
+ * checks):
+ *
+ * | File                                    | Bytes     | SHA-256                                                    |
+ * | --------------------------------------- | --------- | ---------------------------------------------------------- |
+ * | `parquet.duckdb_extension.wasm.eh.pinned` | 3,045,039 | `22765c8f7dc741cda2b571a66ac7bb355295d7d69a6c37e5315b265672984f55` |
+ * | `json.duckdb_extension.wasm.eh.pinned`    | 820,646   | `b997276c8e15cc3ebdeda340d73d15dc1c4f4755ad281280451cb0a2f79302e9` |
+ *
+ * No pinned binary for a requested autoload path — or a platform tag the
+ * harness does not know — ⇒ the request is **aborted** (loudly, on stderr)
+ * instead of being allowed through. A future extension dependency therefore
+ * fails the test that needs it instead of silently reaching for the network —
+ * the failure is the point.
  *
  * Specs import `test`/`expect` from here rather than `@playwright/test`. Routes
  * are per-context, so a route registered only inside `openFixture` would miss
@@ -52,7 +75,33 @@ const EXTENSION_ROUTE = `${EXTENSION_ORIGIN}/**`
 
 /** Committed, checksum-pinned binaries (the `.pinned` suffix keeps formatters off them). */
 const PINNED_DIR = path.join(process.cwd(), 'apps', 'vscode', 'assets', 'duckdb')
-const PINNED_SUFFIX = '.pinned'
+
+/** The DuckDB extension platform tags the engine's selected bundle asks for. */
+export type ExtensionPlatform = 'wasm_mvp' | 'wasm_eh'
+
+/**
+ * The pinned file that answers each platform's autoload path. The `eh` pair
+ * carries the platform in its name (`.eh.pinned`) so it can live beside the
+ * `wasm_mvp` binaries the desktop build already verifies by their `.pinned`
+ * names.
+ */
+const PLATFORM_PINNED_SUFFIX: Readonly<Record<ExtensionPlatform, string>> = {
+  wasm_mvp: '.pinned',
+  wasm_eh: '.eh.pinned',
+}
+
+/** The platform tag a DuckDB autoload URL carries, or `null` if it carries none. */
+export function extensionPlatformOf(url: string): ExtensionPlatform | null {
+  for (const segment of new URL(url).pathname.split('/')) {
+    if (segment === 'wasm_mvp' || segment === 'wasm_eh') return segment
+  }
+  return null
+}
+
+/** The committed pinned binary that answers `basename` on `platform`. */
+export function pinnedPathFor(platform: ExtensionPlatform, basename: string): string {
+  return path.join(PINNED_DIR, `${basename}${PLATFORM_PINNED_SUFFIX[platform]}`)
+}
 
 /** One extension request the route fulfilled from a pinned binary. */
 export interface ExtensionServe {
@@ -60,6 +109,8 @@ export interface ExtensionServe {
   readonly url: string
   /** Its file name, e.g. `parquet.duckdb_extension.wasm`. */
   readonly basename: string
+  /** The extension platform the request asked for (`wasm_eh` / `wasm_mvp`). */
+  readonly platform: ExtensionPlatform
   /** The committed binary that answered it. */
   readonly pinnedPath: string
   /** Bytes served (equal to the pinned file's size; the proof spec pins this). */
@@ -96,7 +147,19 @@ function readPinned(pinnedPath: string): Promise<Buffer> {
 async function serveFromPinned(route: Route, log: ExtensionServeLog): Promise<void> {
   const url = route.request().url()
   const basename = path.basename(new URL(url).pathname)
-  const pinnedPath = path.join(PINNED_DIR, `${basename}${PINNED_SUFFIX}`)
+  const platform = extensionPlatformOf(url)
+  if (platform === null) {
+    log.aborted.push(url)
+    // A platform-less autoload path cannot be paired with a committed binary,
+    // and guessing one would hide a real change in DuckDB's autoload URLs.
+    console.error(
+      `[e2e] DuckDB-WASM requested ${url} without a wasm_eh/wasm_mvp platform segment; ` +
+        'aborting — the harness serves extensions only for a known platform tag.',
+    )
+    await route.abort('failed')
+    return
+  }
+  const pinnedPath = pinnedPathFor(platform, basename)
   let body: Buffer
   try {
     body = await readPinned(pinnedPath)
@@ -112,7 +175,7 @@ async function serveFromPinned(route: Route, log: ExtensionServeLog): Promise<vo
     await route.abort('failed')
     return
   }
-  log.served.push({ url, basename, pinnedPath, bytes: body.byteLength })
+  log.served.push({ url, basename, platform, pinnedPath, bytes: body.byteLength })
   await route.fulfill({ status: 200, contentType: 'application/wasm', body })
 }
 
