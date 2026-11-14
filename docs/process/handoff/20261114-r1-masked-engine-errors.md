@@ -236,6 +236,24 @@ absolute file pins in `wasm-cache`; user-initiated surfaces now show the engine'
 Web dist carries both pairs (+35,015,345 B raw; one fetched per session) so non-EH browsers keep the
 opaque fallback. Worktree/branch removed after merge. **R1-B (desktop `eh`-only) is last.**
 
+### 3.10 R1-B implementation (2026-11-14)
+
+Committed `b9b01cc` (13 files, +274/−215): the `eh` glue/wasm pair vendored as new pinned files
+(byte-identical to the locked package, full hashes recorded), `VENDORED_ASSETS` re-pointed to the eh
+pair + the committed `.eh.pinned` extensions with `extensionPlatform: 'wasm_eh'`, autoload paths moved
+to `/v1.4.3/wasm_eh/…`, the dataset/webview/`EngineBootSpec` names neutralised, the spike converted to
+an eh-only boot (substantive probes now on the eh client; `eh-boot-failure` non-zero-exit drill kept),
+and the vendored docs/README corrected. No `apps/web`, `packages/**` or e2e change; the four `mvp`
+pinned files and both `.eh.pinned` extension binaries are byte-identical to `b0b78bc` (the web
+`wasm-cache` absolute pins and the `wasm_mvp` fixture mapping depend on them).
+
+Worker gates: root format/lint, forced typecheck 20/20 (0 cached), unit 246/3661, coverage
+89.34/84.05/91.66/91.00, forced build 12/12 (0 cached), docs 156/0, ADR 48, web browser 265+1,
+configured telemetry 7 passed/zero delivered, restored stock 76, package build, `test:runtime` 9/9,
+real-VS-Code e2e pass, `run:spike` exit 0; both mutations restored byte-identically. Shipped vendored
+set: 38,881,030 B (eh pair + eh extensions) versus the base's 43,796,605 B (mvp pair + mvp
+extensions) — **−4,915,575 B** in the extension package. Independent review is running.
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The
