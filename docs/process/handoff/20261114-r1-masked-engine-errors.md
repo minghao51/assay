@@ -112,6 +112,13 @@ pending cast (provably redundant, so the check stays O(edits), not O(rows)). No 
 dependency change. On approval R1-A is rebased onto R1-C with `replace-guard.spec.ts` (mechanical)
 and `grid-editing.spec.ts` (new refusal path) added to its reservation, and re-dispatched.
 
+### 3.3 Granted test-only amendments
+
+- **R1-C A1 (2026-11-14)** — `apps/web/src/sessions/useEditingSession.replace.test.tsx` joins the
+  R1-C reservation. The new pre-activation `validate` adds one await before `refresh()`, so the
+  WF-06 mutation-counter tests must await the check before asserting; only the waiting changes, the
+  asserted counts/contract stay as written. Worker-verified in isolation, reviewer must re-verify.
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The
