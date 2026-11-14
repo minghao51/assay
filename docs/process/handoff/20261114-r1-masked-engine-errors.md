@@ -48,10 +48,11 @@ cause, so those assertions move with the fix.
 
 ## 3. Fix rows
 
-| Row                          | Scope                                                                                                                                                                                                                         | Status / dependency                                                                 |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| **R1-A** (web + engine core) | `packages/engine-duckdb` bundle selection + asset wiring + unit tests; e2e real-message and corrupt-open assertions; platform-paired extension fixture (commit the `wasm_eh` Parquet/JSON binaries with checksums); changeset | **CLAIMED** — dispatched 2026-11-14 against `f1be26a` + docs-only `a151cf2`         |
-| **R1-B** (desktop)           | `apps/vscode` vendored set → eh pair + `wasm_eh` autoload paths + build checksums/docs + spike harness update; changeset                                                                                                      | **PENDING** — queued after R1-A (shares the eh pinned binaries and the e2e fixture) |
+| Row                                   | Scope                                                                                                                                                                                                                         | Status / dependency                                                                                                                                                     |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **R1-A** (web + engine core)          | `packages/engine-duckdb` bundle selection + asset wiring + unit tests; e2e real-message and corrupt-open assertions; platform-paired extension fixture (commit the `wasm_eh` Parquet/JSON binaries with checksums); changeset | **BLOCKED 2026-11-14** — implementation complete and green except two browser specs outside its reservation (§3.2); no commit, work preserved in `/tmp/assay-r1-a-wip/` |
+| **R1-C** (edit-value check, proposed) | Make a staged cell-edit value's convertibility a pre-append engine check (reuse `overlayCastCheck`; skip its provably-redundant base arm when no cast is pending) and refuse with the existing value-free framing             | **AWAITING DECISION** — caused by R1-A exposing the gap (§3.2)                                                                                                          |
+| **R1-B** (desktop)                    | `apps/vscode` vendored set → eh pair + `wasm_eh` autoload paths + build checksums/docs + spike harness update; changeset                                                                                                      | **PENDING** — queued after R1-A (shares the eh pinned binaries and the e2e fixture)                                                                                     |
 
 R1-B is deliberately serialized: both rows touch the pinned-asset directory and the e2e extension
 route, and only one runtime writer may be claimed.
@@ -81,6 +82,35 @@ Gates: format, lint, forced typecheck, unit, coverage, forced build, docs links,
 Stop: any need to touch a forbidden path, change the protocol or a dependency, or make a support-
   floor/text-policy call not covered by §1. Never push; one conventional commit + one changeset.
 ```
+
+### 3.2 R1-A blocker (2026-11-14, worker report `/tmp/assay-r1-a-report.md`)
+
+Everything inside the reservation is green (format/lint; forced typecheck 20/20 0 cached; unit
+246 files / 3639; coverage 89.32/84.02/91.65/90.98; forced build 12/12; docs 156/0; ADR 48; the
+mutation control force-`mvp` failed the new real-message and corrupt-open assertions and restored
+byte-identically). The **full browser gate fails on two specs outside the allowed paths**:
+
+1. `tests/e2e/replace-guard.spec.ts:342` — stale `NEUTRAL_CAUSE` pin for the corrupt fixture; the
+   same mechanical update the brief authorized for `open-recovery.spec.ts`.
+2. `tests/e2e/grid-editing.spec.ts:221` — **a behaviour gap, not a stale assertion.** With `eh`, the
+   hostile DATE edit (`not-a-date'; DROP TABLE x --`) is accepted at commit ("Edit committed."),
+   and the conversion failure only appears later in the grid's window fetch, leaving every cell as
+   a retryable `!` with no message. Under `mvp` the commit-time rejection + rollback happened.
+
+Root cause of (2): the commit path's `refresh()` is `Promise.all([schema(), rowCount()])`
+(`packages/grid/src/viewport-model.ts:303-321`). Both are metadata queries that do **not** evaluate
+the edited value (verified: they succeed under `eh` with the bad value present), while `mvp`'s glue
+turned an internally-caught DuckDB exception into a hard failure. So the old rejection was
+incidental to the broken glue, not a value check; honest errors expose a pre-existing gap. The
+composer already has the right machinery: `composeOverlayCastCheckSql` checks edited/insert literals
+cheaply and only scans the base for the non-edited arm.
+
+**Proposed R1-C (needs the maintainer's go/no-go):** before appending a `cell-set`/insert, run the
+existing `overlayCastCheck` with the column's own effective type, refusing with the existing
+value-free framing; optimize the composer to omit the base arm when the effective column has no
+pending cast (provably redundant, so the check stays O(edits), not O(rows)). No protocol or
+dependency change. On approval R1-A is rebased onto R1-C with `replace-guard.spec.ts` (mechanical)
+and `grid-editing.spec.ts` (new refusal path) added to its reservation, and re-dispatched.
 
 ## 4. No-push, no-claim statement
 
