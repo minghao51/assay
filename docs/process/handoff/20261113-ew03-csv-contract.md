@@ -477,6 +477,13 @@ Consequences for this contract:
 - **I could not establish** whether the shipped web app shows the same masked text: that requires
   building/running the repo harness, which is outside this design-only boundary (§7.4).
 
+**Update 2026-11-14 (post-R1):** the masking cause is fixed by asset selection, not pre-validation:
+the engine now selects the `eh` bundle when the browser validates wasm EH (ADR 0048), so failures
+carry the engine's real first line on both `query()` and `send()` (the web surface shows it; non-EH
+browsers keep the opaque fallback). **D10's classification blocker is therefore resolved** for
+EH-capable browsers — the CSV ledger's D10, D12 and the remaining decisions are still
+maintainer-owned. Record: [R1 masked engine errors](20261114-r1-masked-engine-errors.md).
+
 ### 6.2 Late response, cancel, abandon
 
 - Late responses are discarded by the session-token guard (§1.2); `cancelOpen` never claims an abort.

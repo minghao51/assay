@@ -306,6 +306,16 @@ have no cliff near the 500 cap; the export path and the multi-repair composition
 costs; non-EH browsers keep the opaque fallback; no boot-failure retry;
 `row-insert` uncovered; one extra engine round-trip per applied cell edit.
 
+### 3.13 What is next
+
+R1 is closed; the remaining work is the decision-gated queue in
+[EW-10 §8.1](20261113-ew10-first-wave-integration.md#81-maintainer-decisions-that-unblock-work-smallest-first),
+minus D1: EW-02D copy/decisions (D2), EW-03D D1–D15 incl. the D12 ADR (D3, D10 now unblocked),
+EW-04D conditions (ii)–(vii) incl. D16/D17 and U5 (D4/D5), R2/R3 (D6), R8 (D7), R13 unselected. The
+post-R1 pickup with paste-ready prompts is
+[20261114-post-r1-pickup.md](20261114-post-r1-pickup.md). U4 is measured
+([record](20261114-u4-arm-class-probe.md)); nothing else is authorized.
+
 ## 4. No-push, no-claim statement
 
 No source, dependency, lockfile, protocol or visibility change was made by the investigation. The

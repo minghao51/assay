@@ -390,6 +390,15 @@ rows/query) + Node v24.13.0 (dependency-free replay model, seeded). Scripts + ou
 | U4  | Wasm planner cost at ~m+1 CASE arms; arm-class refusal boundary  | Unverified (browser bundle)  | Branch-count citations are a different node class; native-only evidence (P5d). **Verdict condition (i)** |
 | U5  | Real composer/domain behaviour of the §6.2 rule (vs probe model) | Unverified (implementation)  | P8 proves the semantic formulation; the §11 domain/composer tests must pin the code                      |
 
+**Update 2026-11-14 (U4 measured, read-only):** the shipped `eh` bundle (ADR 0048) was probed at the
+§4.2 wrap shape. Flat CASE arms have **no refusal cliff near the cap** — m=500 ≈ 15 ms planning /
+17 ms execution for a 1,000-row window, linear through 30,000 arms (the cited UNION-branch abort is a
+different node class). The export path is the cost centre (~4.0 s at m=500 over 2 M rows), and
+multi-repair prefixes are only cheap as **stacked projection layers** (one-expression nesting
+duplicates the inner wrap: 2.4 MB SQL / 2.35 s at two repairs, OOM at three). Condition (i) is
+therefore satisfied for the flat wrap, with an export-cost caveat and a composition-shape qualifier;
+(ii)–(vii) remain open. Record: [U4 arm-class probe](20261114-u4-arm-class-probe.md).
+
 **Other limits:** first volatile attempt failed on a UUID↔VARCHAR cast (recorded, corrected to
 `random()`); probe1-A8 construct error superseded by P4; U+000B/000C unprobed (covered by omission
 in D1); collation beyond `COLLATE NOCASE` existence unprobed; probe5 rev-1 construction errors

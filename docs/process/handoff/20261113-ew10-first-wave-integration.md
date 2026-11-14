@@ -148,6 +148,14 @@ Rows marked **accepted** need no action to keep the selected wave closed; they m
 | R12 | **EW-04D decisions D1–D17 + seven conditions**                                                         | Verdict is conditional on (i) wasm arm cost U4, (ii) D16 DESCRIBE/cast-check composition, (iii) D17 literal-rewrite conformance, (iv) D15 exception cap, (v) D14 undo-by-refold ADR, (vi) U1–U3 host paths, (vii) U5 real composer | maintainer (+ ADR for D14)                            | Resolve the seven items before any bulk-runtime brief; do not issue a brief from the SQL shape alone |
 | R13 | **EW-05…08** and WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles | Proposal/decision-gated, not selected by the 2026-11-13 instruction                                                                                                                                                                | maintainer                                            | Unchanged; no implicit selection follows from this wave                                              |
 
+**Update 2026-11-14 (post-wave):** residual **R1 is closed** — the maintainer selected it, ADR 0048
+was accepted, and three reviewed runtime rows merged (`837b638` R1-C, `b0b78bc` R1-A, `5426979`
+R1-B); EW-04D condition (i) U4 was then measured read-only. R2/R3/R8 and the EW-02D/03D/04D
+decision ledgers are unchanged and still maintainer-owned; EW-05…08 remain unselected. Record:
+[R1 masked engine errors](20261114-r1-masked-engine-errors.md) and
+[U4 arm-class probe](20261114-u4-arm-class-probe.md). This paragraph is a status pointer, not a
+re-opening of the wave.
+
 ## 7. Status, cleanup, no-push statement
 
 - **Status:** EW-10 CLOSED for the selected denominator. WF-06 is merged-green at `ba36091`;

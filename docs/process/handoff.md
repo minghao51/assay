@@ -187,16 +187,15 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ### Active
 
-**R1 selected — honest engine failure text (2026-11-14).** The maintainer selected R1 (masked browser
-SQL errors, `ReferenceError: _setThrew is not defined`) and approved [ADR 0048](../../docs/adr/0048-engine-bundle-selection-and-honest-error-text.md)
-(Proposed): the web worker selects `eh`/`mvp` by wasm-exception-handling capability, the VS Code
-webview ships the `eh` pair only, and engine text is honest on user-initiated surfaces (validation/
-diff/overlay keep their fixed classes). **R1-C is CLOSED — merged `837b638`** (pre-commit edit-value
-check: serialized mutation chain, no unchecked activation path; merged gates in
-[the R1 record](handoff/20261114-r1-masked-engine-errors.md) §3.7). **R1-A** (capability-guarded
-bundle selection + honest error text) is re-dispatched on the post-R1-C base with `replace-guard`
-authorized; **R1-B** (desktop vendored `eh` set) follows. Root cause: the published `mvp` glue calls
-five exception-library identifiers the wasm exports but the glue never binds. Nothing pushed.
+**R1 CLOSED — honest engine failure text (2026-11-14).** The maintainer selected R1 (masked browser
+SQL errors, `ReferenceError: _setThrew is not defined`) and approved
+[ADR 0048](../../docs/adr/0048-engine-bundle-selection-and-honest-error-text.md) (**Accepted**). All
+three rows are merged: **R1-C `837b638`** (pre-commit edit-value check: serialized mutation chain, no
+unchecked activation path), **R1-A `b0b78bc`** (capability-guarded `eh`/`mvp` selection, real engine
+text, absolute `wasm_eh` pins), **R1-B `5426979`** (desktop `eh`-only vendored set, `wasm_eh`
+autoload paths, drill evidence restored). Root cause fixed by asset selection (the published `mvp`
+glue calls five exception-library identifiers the wasm exports but never binds). Evidence and the
+review rounds: [R1 record](handoff/20261114-r1-masked-engine-errors.md). Nothing pushed.
 
 **EW-04D condition (i) measured — U4 (2026-11-14, read-only).** The CASE-arm probe on the shipped
 `eh` bundle answers U4: 500 arms cost ~15 ms planning + ~17 ms execution for a 1,000-row window and
