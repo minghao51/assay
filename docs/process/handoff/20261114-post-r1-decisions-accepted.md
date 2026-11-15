@@ -31,6 +31,14 @@ R2 row after EW-02I (one web-runtime writer at a time).
 closed; any EW-05…08 or R13 row; any protocol, dependency, lockfile or telemetry-semantic change; any
 push, release, publication or visibility change.
 
+**Implementation note (2026-11-14, factual correction):** U5 cannot be a _pure test-only_ row. The
+`column-repair` op and the composer wrap do not exist yet (EW-04D §4.2: "neither representation exists
+today"), so "real composer/domain behaviour" can only be pinned once that code exists. Funding U5 is
+therefore realized as the **UI-free domain + engine slice** of EW-04I (op + fold + wire parser + composer
+wrap + the §11 tests), merged and reviewed **before** any web UI or plan-capture code. That still closes
+condition (vii) before the UI row and preserves the intent of D5; it is not a test-only change. The
+slice remains gated on the D14 ADR and on D16/D17 being pinned.
+
 **R3/R8 disposition:** both remain recorded limitations. No study is commissioned (R3) and no fixture is
 reserved (R8) under this acceptance; either can be re-decided later with its own request.
 

@@ -322,8 +322,9 @@ implementation task; parent independently reviews, verifies and integrates.
 
 - 2026-11-14 (**hn**) — **post-R1 D2–D7 recommendations accepted** (maintainer instruction "accept all
   the recommendation and proceed"): [acceptance record](handoff/20261114-post-r1-decisions-accepted.md)
-  authorizes the three read-only probes (D16/D17, R2, D12 ADR), **EW-02I**, the **U5** test-only row, the
-  **D12/D14** Proposed ADRs, and the **R2** web/grid row after EW-02I. D16 = wrapped DESCRIBE +
+  authorizes the three read-only probes (D16/D17, R2, D12 ADR), **EW-02I**, the **U5** funding (realized
+  as the UI-free domain+engine slice of EW-04I, since the op does not exist yet), the **D12/D14**
+  Proposed ADRs, and the **R2** web/grid row after EW-02I. D16 = wrapped DESCRIBE +
   restructured cast check; D17 = literal rewrite iff conformance tests; D15 cap x ≤ 500; export budget =
   published envelope + pre-apply refusal; R3 keeps RD-T07, R8 adds no fixture. EW-03I still waits on the
   D12 ADR; EW-04I still waits on (ii)–(vii). Decisions are recorded, not implemented; docs gates green
