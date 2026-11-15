@@ -74,9 +74,12 @@ two mutation drills (delete/reword one sentence → its literal test fails; byte
 Merged gates on `main`: format/lint clean, forced typecheck **20** (0 cached), unit **246 files / 3664
 tests**, coverage **89.34 / 84.05 / 91.66 / 91.00**, forced build **12** (0 cached), docs links
 **163/0**, ADR **49**, browser **265 + 1 skip**, configured telemetry **7 passed** with zero deliveries,
-restored stock **3 passed** endpoint-free. Delivered read-only/in-flight: the R2 infinity probe, the
-D16/D17 composition probe (record pending review at this entry), and **ADR 0049 (Proposed)** for CSV
-options/preview/retention. Nothing pushed.
+restored stock **3 passed** endpoint-free. Delivered read-only and independently reviewed: the
+[R2 infinity probe](handoff/20261114-r2-infinity-probe.md) (review fixes applied: all three throwing
+timestamp units, not just microseconds), the [D16/D17 composition probe](handoff/20261114-d16-d17-composition-probe.md)
+(review-approved; split-form cast check scoped to repair-composed columns is load-bearing), and
+**ADR 0049** (CSV options/preview/retention) plus **ADR 0050** (undo-by-refold), both **Proposed** with
+open questions. The R2 web/grid row is in flight on `r2-infinity`. Nothing pushed.
 
 **Verified state (2026-11-14, R1 CLOSED):** **R1-B merged** `5426979` (desktop `eh`-only vendored
 set; real-VS-Code e2e and all three spike modes green at merge), **R1-A merged** `b0b78bc`
@@ -330,6 +333,18 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-15 (**hp**) — **the accepted decisions' first documents are in**: **EW-02I merged `fd5a92a`**
+  (§2 and `ho`); the [R2 probe](handoff/20261114-r2-infinity-probe.md) (corrected after review: the
+  sentinel throws for SECOND/MILLISECOND/MICROSECOND, not just µs) and the
+  [D16/D17 composition probe](handoff/20261114-d16-d17-composition-probe.md) (review-approved; D16 holds
+  with the cast check **scoped to repair-composed columns** in split form — predicate-over-wrapped-value
+  measured at 100–200× — and D17 holds with exactly-once/text-only/explicit-trim-set pins) are committed;
+  **ADR 0049** (CSV options/preview/retention; `sample_size` preview-only, adoption release caveated) and
+  **ADR 0050** (undo-by-refold; empty inverse + `undo-by-refold` note, P1 as the proof obligation) are
+  **Proposed** with maintainer open questions. The R2 web/grid row is running on `r2-infinity`; U5 waits
+  on ADR 0050 acceptance, EW-03I on ADR 0049 acceptance, EW-04I on (ii)–(vii) incl. D14/U5. Docs links
+  **164/0**, ADR **50**; no source change from the docs rows; nothing pushed.
 
 - 2026-11-15 (**ho**) — **EW-02I CLOSED — merged `fd5a92a`**: the three accepted EW-02D sentences are
   live (SQL hint, validation intro, pipeline open-dataset span) with literal tests and one `@assay/web`

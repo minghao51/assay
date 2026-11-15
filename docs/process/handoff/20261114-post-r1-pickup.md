@@ -47,12 +47,12 @@ read-only probe scopes and the post-decision dispatch order. It selects nothing 
 and the resulting authorizations (EW-02I, U5, the read-only probes, the D12/D14 ADR drafts, R2).
 
 **Update 2026-11-15:** **D2 is closed** — **EW-02I merged `fd5a92a`** (three accepted sentences live;
-independent gpt-6-luna xhigh approve with two mutation drills). The three read-only probes are delivered:
-[R2 probe](20261114-r2-infinity-probe.md), [D16/D17 probe](20261114-d16-d17-composition-probe.md)
-(review pending at this note), and [ADR 0049 (Proposed)](../../adr/0049-csv-options-preview-and-retention.md)
-for D12. D5's UI-free U5 slice and the R2 web/grid row are next; **EW-03I still waits on ADR 0049
-acceptance**, EW-04I on conditions (ii)–(vii) (D16/D17 now pinned by the probe, D14 ADR and U5 still open).
-Nothing pushed.
+independent gpt-6-luna xhigh approve with two mutation drills). The three read-only probes are delivered
+and independently reviewed: [R2 probe](20261114-r2-infinity-probe.md) (fixes applied — all three
+throwing timestamp units), [D16/D17 probe](20261114-d16-d17-composition-probe.md) (review-approved),
+and **ADR 0049 (Proposed)** for D12 plus **ADR 0050 (Proposed)** for D14. The R2 web/grid row is in
+flight; D5's UI-free U5 slice waits on ADR 0050 acceptance; **EW-03I waits on ADR 0049 acceptance**;
+EW-04I on conditions (ii)–(vii) (D16/D17 pinned, D14 ADR and U5 still open). Nothing pushed.
 
 ## 3. Dispatch order once decisions land
 
