@@ -78,6 +78,27 @@ COPY (
       (NULL, NULL, NULL, NULL)
   ) AS t(d, ts, ts_ns, t)
 ) TO 'temporal.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
+-- 6. DuckDB ±infinity TIMESTAMP sentinels (R2 projection-boundary guard, D6).
+--    The sentinels are the two int64 extremes; Arrow's `get()` throws on them
+--    for Timestamp<SECOND>/<MILLISECOND>/<MICROSECOND> before any formatter
+--    runs, so the grid needs the projection guard under test here. Rows
+--    (deliberately ordered: finite controls around the sentinels):
+--      0 finite µs timestamp (year 2400) + finite ns value near the ns int64
+--        maximum — the negative controls that must never read as infinity
+--      1 TIMESTAMP 'infinity' (µs sentinel) + TIMESTAMP_NS 'infinity' — the
+--        ns sentinel must NOT throw and must stay raw (WF-01 ns rule)
+--      2 TIMESTAMP '-infinity' (negative sentinel) + finite pre-1970 ns
+--      3 finite µs with fraction + finite ns with fraction
+COPY (
+  SELECT * FROM (
+    VALUES
+      (TIMESTAMP '2400-01-01 00:00:00', TIMESTAMP_NS '2262-04-10 00:00:00.123456789', 'finite-late'),
+      (TIMESTAMP 'infinity', TIMESTAMP_NS 'infinity', 'infinity'),
+      (TIMESTAMP '-infinity', TIMESTAMP_NS '1969-12-31 23:59:59.999999999', '-infinity'),
+      (TIMESTAMP '2024-02-29 13:45:12.123456', TIMESTAMP_NS '2024-02-29 13:45:12.123456789', 'finite-early')
+  ) AS t(ts, ts_ns, label)
+) TO 'temporal-infinity.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 SQL
 
 DUCKDB_VERSION="$("$DUCKDB" --version)"
@@ -94,6 +115,8 @@ const descriptions = {
   'wide.parquet': 'Multi-row-group (10 x 100), nulls, low-cardinality bucket column',
   'temporal.parquet':
     'Temporal families: DATE, TIMESTAMP (microseconds), TIMESTAMP_NS (lossy delivery), TIME; NULL/pre-1970/leap-day rows (4 rows)',
+  'temporal-infinity.parquet':
+    'DuckDB ±infinity TIMESTAMP sentinels (the int64 extremes) with finite µs negative controls and a TIMESTAMP_NS raw-class column incl. ns infinity (4 rows)',
 }
 const files = Object.entries(descriptions)
   .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

@@ -60,9 +60,174 @@ import type {
   EngineTableHandle,
 } from '@assay/engine-duckdb'
 
-/** The slice of an Arrow vector the projection needs. */
+/**
+ * The slice of an Arrow vector the projection needs.
+ *
+ * `type` / `data` are the structural slices the R2 projection-boundary guard
+ * reads on real engine vectors (an Arrow `Vector` exposes both); they are
+ * optional so hand-rolled test doubles without a declared type keep working
+ * (their cells then always take the plain `get()` path, exactly as before).
+ * Neither carries the `apache-arrow` import into this app — see below.
+ */
 export interface ArrowVectorLike {
   get(index: number): unknown
+  /** Structural slice of the Arrow logical type (`DataType.typeId`/`.unit`). */
+  readonly type?: ArrowTypeLike
+  /** The chunked backing storage (`Vector.data`): per-chunk raw values. */
+  readonly data?: readonly ArrowChunkLike[]
+}
+
+/**
+ * Structural slice of an Arrow `DataType`. `typeId` is the library's
+ * logical-type enum value; `unit` is the `TimeUnit` carried by timestamp
+ * (and time/duration) types.
+ */
+export interface ArrowTypeLike {
+  readonly typeId?: unknown
+  readonly unit?: unknown
+}
+
+/**
+ * Structural slice of one Arrow `Data` chunk: `length` logical values whose
+ * physical payload starts at index 0 of `values` (the raw typed array —
+ * `BigInt64Array` for timestamp vectors). Chunk `offset` is deliberately NOT
+ * applied here: Arrow's own `Vector.get()` visitors index `values` by the
+ * chunk-local index only, and the guard must classify exactly the cells that
+ * accessor reads (engine batches are never sliced, so offset is always 0).
+ *
+ * `values` is deliberately `unknown`, not `ArrayLike<unknown>`: the
+ * structural assignability check against the real engine `Table` makes
+ * TypeScript infer this vector's type parameter from `ArrowVectorLike.type`,
+ * and then `Data<T>['values']` (an indexed access on that inference) is
+ * `unknown` — which only ever matches a target that also accepts `unknown`.
+ * `rawInt64At` narrows it back after the type has identified the column.
+ */
+export interface ArrowChunkLike {
+  readonly length: number
+  readonly values: unknown
+}
+
+/**
+ * apache-arrow's logical-type enum value for every timestamp family
+ * (`Type.Timestamp`; the unit then carries the precision). Duplicated as a
+ * constant because `apache-arrow` stays out of this app's dependency tree
+ * (the structural shapes above are the contract).
+ */
+const ARROW_TYPE_TIMESTAMP = 10
+/**
+ * apache-arrow's `TimeUnit.NANOSECOND`. Of the four timestamp units, exactly
+ * SECOND/MILLISECOND/MICROSECOND make `get()` throw on the sentinels (the
+ * probe's unit control: S/MS pass the raw int64 to `bigIntToNumber`, µs
+ * divides by 1000 first); NANOSECOND returns a lossy number and never throws.
+ */
+const TIME_UNIT_NANOSECOND = 3
+
+/**
+ * DuckDB's ±infinity TIMESTAMP sentinels, as the real engine delivers them
+ * (Parquet → DuckDB-WASM → Arrow; pinned by the committed fixture round-trip
+ * through DuckDB v1.5.5 and by the browser e2e):
+ *
+ * - `TIMESTAMP 'infinity'` delivers the int64 maximum, `9223372036854775807`;
+ * - `TIMESTAMP '-infinity'` delivers its negation, `-9223372036854775807` —
+ *   NOT the bare int64 minimum, because DuckDB reserves that as an internal
+ *   marker (the committed fixture stores exactly 0 int64-minimum bits and 5
+ *   `-9223372036854775807` bits for its `'-infinity'` row).
+ */
+const TIMESTAMP_INFINITY_BITS = 9223372036854775807n
+const TIMESTAMP_MINUS_INFINITY_BITS = -9223372036854775807n
+/**
+ * The reserved int64 minimum (`-9223372036854775808`) can never carry a
+ * legitimate finite instant — `get()` throws on it for the same three units —
+ * so it is diverted to the same sentinel text defensively rather than
+ * failing the whole window (some encodings use it for the negative sentinel).
+ */
+const TIMESTAMP_RESERVED_MIN_BITS = -9223372036854775808n
+/**
+ * DuckDB's own sentinel text, pinned for the two int64 extremes (D6
+ * refinement): the raw bigint is not the value's meaning, while this text
+ * invents no locale, timezone or precision. Negative control: any other
+ * raw value — however close to the extremes — still follows `get()`.
+ */
+const INFINITY_TEXT = 'infinity'
+const MINUS_INFINITY_TEXT = '-infinity'
+
+/**
+ * True when the vector is a timestamp whose unit makes Arrow's `get()` throw
+ * on the DuckDB infinity sentinels (SECOND, MILLISECOND, MICROSECOND).
+ * Guarded by the logical-type id, so time/duration/interval vectors that also
+ * carry a numeric `unit` can never be mistaken for timestamps.
+ */
+function isThrowingTimestampUnit(column: ArrowVectorLike): boolean {
+  const type = column.type
+  return (
+    type !== undefined && type.typeId === ARROW_TYPE_TIMESTAMP && type.unit !== TIME_UNIT_NANOSECOND
+  )
+}
+
+/**
+ * The exact raw int64 behind cell `index` of a timestamp vector, walking the
+ * chunk lengths the same way `Vector.get()` does. Allocation-free per cell;
+ * `undefined` whenever the raw shape is not a bigint array (defensive — then
+ * the cell simply falls through to `get()`).
+ */
+function rawInt64At(column: ArrowVectorLike, index: number): bigint | undefined {
+  const chunks = column.data
+  if (chunks === undefined) {
+    return undefined
+  }
+  let remaining = index
+  for (const chunk of chunks) {
+    if (remaining < chunk.length) {
+      // `type` has already identified a real timestamp column here, so the
+      // payload is its BigInt64Array; the slice stays `unknown` for structural
+      // assignability (see ArrowChunkLike), narrowed exactly at this read.
+      const values = chunk.values as ArrayLike<unknown>
+      const raw: unknown = values[remaining]
+      return typeof raw === 'bigint' ? raw : undefined
+    }
+    remaining -= chunk.length
+  }
+  return undefined
+}
+
+/**
+ * R2 (D6, projection-boundary guard): DuckDB's ±infinity TIMESTAMP sentinels
+ * are the int64 extremes, and Arrow's `get()` throws on them for the
+ * SECOND/MILLISECOND/MICROSECOND units (its `bigIntToNumber` safety check)
+ * *before* any formatter runs — one infinite timestamp would otherwise throw
+ * away the whole delivered window/page (probe 2026-11-14). For those three
+ * units only, the raw backing `BigInt64Array` (which is exact) is read per
+ * cell: the two extremes become DuckDB's own sentinel text, every other cell
+ * — finite values and NULLs alike — keeps the untouched `get()` path, so
+ * finite DATE/TIMESTAMP/TIME rendering stays byte-identical (WF-01
+ * WFD-06 = B). `Timestamp<NANOSECOND>` does not throw and stays on `get()`
+ * entirely: its raw rendering is the formatter's ns rule, untouched here.
+ */
+/**
+ * R2 (D6, projection-boundary guard): DuckDB's ±infinity TIMESTAMP sentinels
+ * make Arrow's `get()` throw for the SECOND/MILLISECOND/MICROSECOND units
+ * (its `bigIntToNumber` safety check) *before* any formatter runs — one
+ * infinite timestamp would otherwise throw away the whole delivered
+ * window/page (probe 2026-11-14). For those three units only, the exact raw
+ * backing `BigInt64Array` is read per cell: the sentinel values become
+ * DuckDB's own sentinel text (the pinned D6 refinement), and every other
+ * cell — finite values and NULLs alike — keeps the untouched `get()` path,
+ * so finite DATE/TIMESTAMP/TIME rendering stays byte-identical (WF-01
+ * WFD-06 = B). `Timestamp<NANOSECOND>` does not throw and stays on `get()`
+ * entirely: its raw rendering is the formatter's ns rule, untouched here.
+ */
+function projectCell(column: ArrowVectorLike, rowIndex: number): unknown {
+  if (isThrowingTimestampUnit(column)) {
+    const raw = rawInt64At(column, rowIndex)
+    if (
+      raw === TIMESTAMP_INFINITY_BITS ||
+      raw === TIMESTAMP_MINUS_INFINITY_BITS ||
+      raw === TIMESTAMP_RESERVED_MIN_BITS
+    ) {
+      return raw === TIMESTAMP_INFINITY_BITS ? INFINITY_TEXT : MINUS_INFINITY_TEXT
+    }
+  }
+  return column.get(rowIndex)
 }
 
 /** The slice of an Arrow `Table` the projection needs (columnar access). */
@@ -107,7 +272,7 @@ export function projectBatchToRows(batch: ArrowTableLike): unknown[][] {
   const columns = arrowColumns(batch)
   const rows: unknown[][] = []
   for (let rowIndex = 0; rowIndex < batch.numRows; rowIndex++) {
-    rows.push(columns.map((column) => column.get(rowIndex)))
+    rows.push(columns.map((column) => projectCell(column, rowIndex)))
   }
   return rows
 }
@@ -136,7 +301,7 @@ export function projectOverlayPage(batch: ArrowTableLike): {
       throw new Error(`overlay batch row ${String(rowIndex)} has a non-string row id`)
     }
     rowKeys.push(key)
-    rows.push(dataColumns.map((column) => column.get(rowIndex)))
+    rows.push(dataColumns.map((column) => projectCell(column, rowIndex)))
   }
   return { rows, rowKeys }
 }

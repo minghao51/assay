@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { CellRange, ColumnSchema, FilterSpec, GridDataProvider } from '@assay/grid'
 import type { OverlayBase } from '@assay/domain'
@@ -13,7 +16,13 @@ import type {
   EngineTableHandle,
 } from '@assay/engine-duckdb'
 import { DuckDbGridProvider, projectBatchToRows, projectOverlayPage } from './provider'
-import type { ArrowTableLike, GridEngineClient, OverlaySource } from './provider'
+import type {
+  ArrowChunkLike,
+  ArrowVectorLike,
+  ArrowTableLike,
+  GridEngineClient,
+  OverlaySource,
+} from './provider'
 
 const handle: EngineTableHandle = { kind: 'table', id: 't1' }
 
@@ -212,6 +221,194 @@ describe('projectOverlayPage (assay_row_id stripping, m4-3)', () => {
 
   it('throws when the id column is absent', () => {
     expect(() => projectOverlayPage(fakeBatch([]))).toThrow('missing the row-id column')
+  })
+})
+
+/**
+ * R2 loads the REAL `apache-arrow` build the engine ships (17.0.0, resolved
+ * through `@assay/engine-duckdb` — the exact vector semantics the web grid
+ * consumes) so the probe's reproducer is pinned as a unit test: Arrow's own
+ * accessor throws on the DuckDB infinity sentinels, and the projection guard
+ * must not. `apache-arrow` is deliberately NOT a dependency of this app
+ * (provider.ts); `createRequire` borrows the engine's copy without adding
+ * one. Scoped to the R2 block so an unexpected layout change cannot break
+ * the other describes' imports.
+ */
+interface ArrowTimestampTypeCtor {
+  new (): unknown
+}
+
+/** Structural slice of the `apache-arrow` module surface the R2 tests use. */
+interface ArrowModuleLike {
+  TimestampSecond: ArrowTimestampTypeCtor
+  TimestampMillisecond: ArrowTimestampTypeCtor
+  TimestampMicrosecond: ArrowTimestampTypeCtor
+  TimestampNanosecond: ArrowTimestampTypeCtor
+  Data: new (
+    type: unknown,
+    offset: number,
+    length: number,
+    nullCount: number,
+    buffers: unknown[],
+  ) => ArrowChunkLike
+  makeVector: (data: ArrowChunkLike) => ArrowVectorLike
+}
+
+let arrowModule: ArrowModuleLike | undefined
+function loadArrow(): ArrowModuleLike {
+  if (arrowModule === undefined) {
+    const enginePackageJson = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../packages/engine-duckdb/package.json',
+    )
+    arrowModule = createRequire(enginePackageJson)('apache-arrow') as ArrowModuleLike
+  }
+  return arrowModule
+}
+
+/** DuckDB's TIMESTAMP sentinels as the real engine delivers them: ±(int64 max). */
+const INF_BITS = 9223372036854775807n
+const NEG_BITS = -9223372036854775807n
+/** The reserved int64 minimum is diverted to the same text defensively. */
+const RESERVED_MIN_BITS = -9223372036854775808n
+
+/** A real Arrow timestamp vector over a raw BigInt64Array (no nulls). */
+function timestampVector(unit: ArrowTimestampTypeCtor, values: bigint[]): ArrowVectorLike {
+  const arrow = loadArrow()
+  return arrow.makeVector(
+    new arrow.Data(new unit(), 0, values.length, 0, [null, BigInt64Array.from(values), null]),
+  )
+}
+
+/**
+ * A real Arrow timestamp vector with a NULL at `nullIndex` (validity bitmap
+ * `…101`, backing bits 0 in the hole).
+ */
+function timestampVectorWithNull(
+  unit: ArrowTimestampTypeCtor,
+  values: bigint[],
+  nullIndex: number,
+): ArrowVectorLike {
+  const arrow = loadArrow()
+  const bitmap = new Uint8Array(Math.ceil(values.length / 8))
+  for (let index = 0; index < values.length; index++) {
+    if (index !== nullIndex) {
+      bitmap[Math.floor(index / 8)]! |= 1 << (index % 8)
+    }
+  }
+  return arrow.makeVector(
+    new arrow.Data(new unit(), 0, values.length, 1, [
+      undefined,
+      BigInt64Array.from(values),
+      bitmap,
+    ]),
+  )
+}
+
+describe('R2 projection-boundary guard (D6): DuckDB ±infinity timestamps', () => {
+  it('maps the sentinels to their text instead of throwing, for all three throwing units (real Arrow vectors)', () => {
+    const arrow = loadArrow()
+    // The probe's reproducer: `get()` throws on the sentinel for
+    // SECOND/MILLISECOND (raw int64 to bigIntToNumber) and MICROSECOND
+    // (÷1000 first) — while the backing BigInt64Array stays exact. The
+    // delivered sentinel pair is ±(int64 max): DuckDB reserves the bare
+    // int64 minimum as an internal marker, so `TIMESTAMP '-infinity'`
+    // arrives as -9223372036854775807 (pinned by the fixture e2e); the
+    // reserved minimum is diverted to the same text defensively.
+    for (const unit of [
+      arrow.TimestampSecond,
+      arrow.TimestampMillisecond,
+      arrow.TimestampMicrosecond,
+    ]) {
+      const vector = timestampVector(unit, [INF_BITS, 0n, NEG_BITS, RESERVED_MIN_BITS])
+      expect(() => vector.get(0)).toThrow()
+      expect(() => vector.get(2)).toThrow()
+      expect(() => vector.get(3)).toThrow()
+
+      const rows = projectBatchToRows({ numRows: 4, numCols: 1, getChildAt: () => vector })
+      expect(rows).toEqual([['infinity'], [0], ['-infinity'], ['-infinity']])
+    }
+  })
+
+  it('applies the same sentinel guard on the overlay path (projectOverlayPage)', () => {
+    const arrow = loadArrow()
+    const vector = timestampVector(arrow.TimestampMicrosecond, [NEG_BITS, INF_BITS])
+    const page = projectOverlayPage({
+      numRows: 2,
+      numCols: 2,
+      getChildAt: (index: number) =>
+        index === 0 ? { get: (row: number) => `ins:ov-1#${String(row)}` } : vector,
+    })
+    expect(page.rows).toEqual([['-infinity'], ['infinity']])
+    expect(page.rowKeys).toEqual(['ins:ov-1#0', 'ins:ov-1#1'])
+  })
+
+  it('never mislabels finite values near the int64 extremes (negative control)', () => {
+    const arrow = loadArrow()
+    // TIMESTAMP '280000-01-01 00:00:00' — a real finite instant whose µs raw
+    // value (8773779340800000000) sits close to the int64 maximum but is not
+    // a sentinel; and a far-from-extreme finite instant for the same point.
+    const vector = timestampVector(arrow.TimestampMicrosecond, [
+      8773779340800000000n,
+      13569465600000000n,
+    ])
+    const rows = projectBatchToRows({ numRows: 2, numCols: 1, getChildAt: () => vector })
+    expect(rows).toEqual([[8773779340800000], [13569465600000]])
+    expect(rows[0]).not.toContain('infinity')
+    // The finite cells stay exactly what the plain accessor delivers — the
+    // guard only diverts the two extremes, never the neighbours.
+    expect(rows[0]?.[0]).toBe(vector.get(0))
+    expect(rows[1]?.[0]).toBe(vector.get(1))
+  })
+
+  it('keeps NULL cells NULL through the guard (the hole is never read as a sentinel)', () => {
+    const arrow = loadArrow()
+    const vector = timestampVectorWithNull(arrow.TimestampMicrosecond, [INF_BITS, 0n, NEG_BITS], 1)
+    const rows = projectBatchToRows({ numRows: 3, numCols: 1, getChildAt: () => vector })
+    expect(rows).toEqual([['infinity'], [null], ['-infinity']])
+  })
+
+  it('leaves Timestamp<NANOSECOND> entirely on the raw path — sentinel bits stay lossy numbers (WF-01)', () => {
+    const arrow = loadArrow()
+    // ns get() does NOT throw for the sentinel bits (÷1e6 lands inside the
+    // safe range), so the guard must not divert them: today's path returns
+    // the lossy number, which the ns raw-rendering rule consumes as-is.
+    const vector = timestampVector(arrow.TimestampNanosecond, [INF_BITS, NEG_BITS])
+    expect(vector.get(0)).toBe(9223372036854.775)
+    expect(vector.get(1)).toBe(-9223372036854.775)
+    const rows = projectBatchToRows({ numRows: 2, numCols: 1, getChildAt: () => vector })
+    expect(rows).toEqual([[9223372036854.775], [-9223372036854.775]])
+    expect(rows.flat()).not.toContain('infinity')
+    expect(rows.flat()).not.toContain('-infinity')
+  })
+
+  it('keeps finite SECOND/MILLISECOND cells byte-identical to the plain path', () => {
+    const arrow = loadArrow()
+    // Within the safe range both units return plain numbers through get().
+    const seconds = timestampVector(arrow.TimestampSecond, [8773779340800n])
+    const millis = timestampVector(arrow.TimestampMillisecond, [8773779340800000n])
+    expect(projectBatchToRows({ numRows: 1, numCols: 1, getChildAt: () => seconds })).toEqual([
+      [8773779340800000],
+    ])
+    expect(projectBatchToRows({ numRows: 1, numCols: 1, getChildAt: () => millis })).toEqual([
+      [8773779340800000],
+    ])
+    expect(seconds.get(0)).toBe(8773779340800000)
+    expect(millis.get(0)).toBe(8773779340800000)
+  })
+
+  it('projects mixed batches (fake + real Arrow columns) through the same row shape', () => {
+    const arrow = loadArrow()
+    const vector = timestampVector(arrow.TimestampMicrosecond, [INF_BITS, 1709214312123456n])
+    const rows = projectBatchToRows({
+      numRows: 2,
+      numCols: 2,
+      getChildAt: (index: number) => (index === 0 ? { get: (row: number) => row + 1 } : vector),
+    })
+    expect(rows).toEqual([
+      [1, 'infinity'],
+      [2, 1709214312123.456],
+    ])
   })
 })
 
