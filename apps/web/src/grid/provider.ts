@@ -71,6 +71,15 @@ import type {
  */
 export interface ArrowVectorLike {
   get(index: number): unknown
+  /**
+   * Arrow's own validity read (`Vector.isValid`): the same null check `get()`
+   * performs (`wrapGet` → `data.getValid`), chunk mapping included. The
+   * sentinel mapping below consults it FIRST, so a NULL cell whose backing
+   * slot happens to hold sentinel bits stays exactly the null `get()`
+   * returns. Optional so hand-rolled doubles without a validity concept keep
+   * working (treated as all-valid); real engine vectors always carry it.
+   */
+  isValid?(index: number): boolean
   /** Structural slice of the Arrow logical type (`DataType.typeId`/`.unit`). */
   readonly type?: ArrowTypeLike
   /** The chunked backing storage (`Vector.data`): per-chunk raw values. */
@@ -192,23 +201,13 @@ function rawInt64At(column: ArrowVectorLike, index: number): bigint | undefined 
 
 /**
  * R2 (D6, projection-boundary guard): DuckDB's ±infinity TIMESTAMP sentinels
- * are the int64 extremes, and Arrow's `get()` throws on them for the
- * SECOND/MILLISECOND/MICROSECOND units (its `bigIntToNumber` safety check)
- * *before* any formatter runs — one infinite timestamp would otherwise throw
- * away the whole delivered window/page (probe 2026-11-14). For those three
- * units only, the raw backing `BigInt64Array` (which is exact) is read per
- * cell: the two extremes become DuckDB's own sentinel text, every other cell
- * — finite values and NULLs alike — keeps the untouched `get()` path, so
- * finite DATE/TIMESTAMP/TIME rendering stays byte-identical (WF-01
- * WFD-06 = B). `Timestamp<NANOSECOND>` does not throw and stays on `get()`
- * entirely: its raw rendering is the formatter's ns rule, untouched here.
- */
-/**
- * R2 (D6, projection-boundary guard): DuckDB's ±infinity TIMESTAMP sentinels
  * make Arrow's `get()` throw for the SECOND/MILLISECOND/MICROSECOND units
  * (its `bigIntToNumber` safety check) *before* any formatter runs — one
  * infinite timestamp would otherwise throw away the whole delivered
- * window/page (probe 2026-11-14). For those three units only, the exact raw
+ * window/page (probe 2026-11-14). For those three units only, and only for
+ * VALID cells — Arrow's own `isValid` is consulted first, the same null
+ * check `get()` performs, so a NULL whose backing slot happens to hold
+ * sentinel bits stays exactly the null `get()` returns — the exact raw
  * backing `BigInt64Array` is read per cell: the sentinel values become
  * DuckDB's own sentinel text (the pinned D6 refinement), and every other
  * cell — finite values and NULLs alike — keeps the untouched `get()` path,
@@ -217,7 +216,7 @@ function rawInt64At(column: ArrowVectorLike, index: number): bigint | undefined 
  * entirely: its raw rendering is the formatter's ns rule, untouched here.
  */
 function projectCell(column: ArrowVectorLike, rowIndex: number): unknown {
-  if (isThrowingTimestampUnit(column)) {
+  if (isThrowingTimestampUnit(column) && column.isValid?.(rowIndex) !== false) {
     const raw = rawInt64At(column, rowIndex)
     if (
       raw === TIMESTAMP_INFINITY_BITS ||

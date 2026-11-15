@@ -287,17 +287,17 @@ function timestampVector(unit: ArrowTimestampTypeCtor, values: bigint[]): ArrowV
 function timestampVectorWithNull(
   unit: ArrowTimestampTypeCtor,
   values: bigint[],
-  nullIndex: number,
+  nullIndices: number[],
 ): ArrowVectorLike {
   const arrow = loadArrow()
   const bitmap = new Uint8Array(Math.ceil(values.length / 8))
   for (let index = 0; index < values.length; index++) {
-    if (index !== nullIndex) {
+    if (!nullIndices.includes(index)) {
       bitmap[Math.floor(index / 8)]! |= 1 << (index % 8)
     }
   }
   return arrow.makeVector(
-    new arrow.Data(new unit(), 0, values.length, 1, [
+    new arrow.Data(new unit(), 0, values.length, nullIndices.length, [
       undefined,
       BigInt64Array.from(values),
       bitmap,
@@ -363,9 +363,44 @@ describe('R2 projection-boundary guard (D6): DuckDB ±infinity timestamps', () =
 
   it('keeps NULL cells NULL through the guard (the hole is never read as a sentinel)', () => {
     const arrow = loadArrow()
-    const vector = timestampVectorWithNull(arrow.TimestampMicrosecond, [INF_BITS, 0n, NEG_BITS], 1)
+    const vector = timestampVectorWithNull(
+      arrow.TimestampMicrosecond,
+      [INF_BITS, 0n, NEG_BITS],
+      [1],
+    )
     const rows = projectBatchToRows({ numRows: 3, numCols: 1, getChildAt: () => vector })
     expect(rows).toEqual([['infinity'], [null], ['-infinity']])
+  })
+
+  it('renders NULL cells whose backing slots hold sentinel bits as null — validity is honored first (review repro)', () => {
+    const arrow = loadArrow()
+    // The reviewer's falsification: the validity bitmap marks the cells NULL
+    // while their raw backing slots carry the ±infinity sentinels (and the
+    // reserved minimum). The guard must consult Arrow's validity FIRST — the
+    // same null check `get()` performs — and let those cells stay exactly
+    // the null `get()` returns; only valid cells map to sentinel text.
+    const vector = timestampVectorWithNull(
+      arrow.TimestampMicrosecond,
+      [INF_BITS, NEG_BITS, RESERVED_MIN_BITS],
+      [1, 2],
+    )
+    expect(vector.isValid?.(1)).toBe(false)
+    expect(vector.isValid?.(2)).toBe(false)
+    expect(vector.isValid?.(0)).toBe(true)
+
+    const rows = projectBatchToRows({ numRows: 3, numCols: 1, getChildAt: () => vector })
+    expect(rows).toEqual([['infinity'], [null], [null]])
+
+    // The same falsification through the overlay projection (row-id column
+    // stripped first, data cells guarded identically).
+    const page = projectOverlayPage({
+      numRows: 3,
+      numCols: 2,
+      getChildAt: (index: number) =>
+        index === 0 ? { get: (row: number) => `ins:ov-1#${String(row)}` } : vector,
+    })
+    expect(page.rows).toEqual([['infinity'], [null], [null]])
+    expect(page.rowKeys).toEqual(['ins:ov-1#0', 'ins:ov-1#1', 'ins:ov-1#2'])
   })
 
   it('leaves Timestamp<NANOSECOND> entirely on the raw path — sentinel bits stay lossy numbers (WF-01)', () => {
