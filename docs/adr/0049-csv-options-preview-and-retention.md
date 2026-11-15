@@ -64,12 +64,15 @@ or approved.
    optional options field on `engine/open` (adoption of an already-reviewed set). Nothing else carries
    CSV options: `engine/query` stays free SQL text and is never the CSV path, and no option string,
    `SET` statement or interpolated SQL fragment crosses the boundary. Both request shapes are protocol
-   changes; this ADR authorizes their design, not their implementation.
+   changes; this ADR records the carrier design; implementation requires an **accepted** ADR and a
+   runtime row, neither of which this document grants. (The preview-only `sample_size` never rides
+   `engine/open`.)
 2. **Allowlist.** The vocabulary is closed and compiled into the engine package (a `csv-options` module
    beside `format-view.ts`) as the single source of truth, imported by the web surface rather than
    duplicated there:
    - **Accepted:** `header`, `delim` (alias `sep`), `quote`, `escape`, `columns`/`types`, `all_varchar`,
-     `nullstr`, `dateformat`, `comment`, `skip`; `sample_size` accepted for **inference only**.
+     `nullstr`, `dateformat`, `comment`, `skip`; `sample_size` is **preview-only** and accepted for
+     inference only, disclosed — it never rides `engine/open`.
    - **Deferred (refused until a separate decision):** `strict_mode`, `null_padding`, `parallel`,
      `encoding`, `compression`, `max_line_size`, `buffer_size`, `decimal_separator`, `thousands`. The
      last two may only ever be explicit user settings — never inferred from a locale.
@@ -89,11 +92,14 @@ or approved.
    served by a worker-side **single-slot `PreviewRegistry`** modelled on
    `ComparisonRegistry` — its own id sequence (`p1…`), view name (`assay_preview_p1`) and file name
    (`preview_p1`), and it **never inserts into `TableRegistry`**. It registers the candidate's bytes and
-   may create its own preview view, and it **drops its own previous view and file before re-staging and
-   on abandonment**, the same ordering `runDiffStage` already uses for a staged comparison
-   (`engine-executor.ts`). A preview never creates a session table, never sets a ready phase, never
-   adopts, and never touches a `TableRegistry` name. **No host-reachable release op is added**: this is
-   a preview-owned registration lifecycle, not a per-table release for session tables.
+   may create its own preview view, and it **drops its own previous view and file before re-staging, on
+   abandonment, and when adoption releases the slot**, the same ordering `runDiffStage` already uses for
+   a staged comparison (`engine-executor.ts`). A preview never creates a session table, never sets a
+   ready phase, never adopts, and never touches a `TableRegistry` name. **No host-reachable release op is
+   added**: this is a preview-owned registration lifecycle, not a per-table release for session tables.
+   (Route letters here follow the decision sheet's D12 alternatives — (a) registration-free, (b)
+   registering; EW-03D §4's _case_ letters are the reverse. The content, not the letter, is the
+   decision.)
 5. **Retention accounting.** Under this route, retained preview state is bounded by the single slot and
    is released by the slot itself; `engine/dispose` remains the only whole-engine reclamation
    (ADR 0047 stands unchanged).
@@ -106,7 +112,7 @@ or approved.
    | abandon / cancel while the slot is live          | −1 attempted; 0 net if the drop succeeds, +1 if it fails | 0                |
    | supersede with a second candidate                | 0 net (+1 new, −1 old)                                   | 0                |
    | failure after the slot registered                | +1 until the next slot event or `engine/dispose`         | 0                |
-   | adoption (fresh `engine/open` with reviewed set) | −1 (slot released)                                       | +1               |
+   | adoption (fresh `engine/open` with reviewed set) | −1 attempted; 0 net if the drop succeeds, +1 if it fails | +1               |
    | `engine/dispose`                                 | releases everything                                      | —                |
 
    **Honest fallback if the slot's own release is not granted** (open question 2): retain-all per
@@ -184,8 +190,8 @@ or approved.
 - No engine version, dependency, extension-platform, bundle or lockfile change; no `.ndjson` alias; no
   format-detection change.
 - Output formats (validation, diff, pipeline, report, DCR, export) are untouched; preview rows use the
-  existing Arrow batch transport and the existing 1000-row window clamp (ADR
-  [0020](0020-arrow-as-interchange-format.md), ADR 0040's lane model unchanged).
+  existing Arrow batch transport and the existing `MAX_RANGE_ROWS = 1000` window clamp
+  (`range-window.ts`; contract §6.3), with ADR 0040's lane model unchanged.
 - ADR 0047 still holds: no per-table release for `TableRegistry` tables, and `engine/dispose` is still
   the only whole-engine reclamation.
 

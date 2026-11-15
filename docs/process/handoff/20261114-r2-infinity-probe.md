@@ -3,8 +3,8 @@
 **Date:** 2026-11-14. **Row:** [EW-10](20261113-ew10-first-wave-integration.md) §6 **R2** — no owning
 row; ownership decided 2026-11-14 (projection-boundary guard, accepted in the
 [acceptance record](20261114-post-r1-decisions-accepted.md), D6). **Status:** probe complete; **no source,
-test, fixture, dependency or protocol change**; reproducer and artifacts under `/tmp/assay-r2/`; nothing
-pushed.
+test, fixture, dependency or protocol change**; reproducer and unit-control script under
+`/tmp/assay-r2/`; nothing pushed.
 
 **Authority:** [EW-10 §6](20261113-ew10-first-wave-integration.md) R2 →
 [WF-01P temporal matrix](../../reviews/2026-11-10-wf01p-temporal-matrix.md) §10 →
@@ -20,7 +20,8 @@ record reports a reproducer and options; it does not re-open WF-01 or decide pol
   int64 sentinels DuckDB uses for `infinity`/`-infinity`
   (`9223372036854775807`, `-9223372036854775808`) plus a zero control; a `TimestampNanosecond` control
   vector.
-- Reproducer: `/tmp/assay-r2/repro.mjs` (17 lines of assertions, no engine, no network, no installs).
+- Reproducer: `/tmp/assay-r2/repro.mjs` (21 lines, no engine, no network, no installs) and the unit
+  control `/tmp/assay-r2/units.mjs`.
 
 ## 2. Reproducer output (verbatim)
 
@@ -37,6 +38,26 @@ ns get(1) => 9223372036854.775
 The microsecond vector's **raw backing array is intact** and exact; only the convenience accessor throws.
 The nanosecond control does **not** throw — it silently returns a lossy `number`, which is exactly why
 WF-01 keeps `TIMESTAMP_NS` raw at the display layer.
+
+**Unit control (`units.mjs`, review correction 2026-11-15).** An earlier draft of this record scoped the
+raw path to microseconds. The same sentinels through the other units show the failure is not
+microsecond-specific:
+
+```text
+SECOND 0 THROWS TypeError: 9223372036854775807 is not safe to convert to a number.
+SECOND 1 THROWS TypeError: -9223372036854775808 is not safe to convert to a number.
+MILLISECOND 0 THROWS TypeError: 9223372036854775807 is not safe to convert to a number.
+MILLISECOND 1 THROWS TypeError: -9223372036854775808 is not safe to convert to a number.
+MICROSECOND 0 THROWS TypeError: 9223372036854775 is not safe to convert to a number.
+MICROSECOND 1 THROWS TypeError: -9223372036854775 is not safe to convert to a number.
+NANOSECOND 0 => number 9223372036854.775
+NANOSECOND 1 => number -9223372036854.775
+```
+
+`Timestamp<SECOND>`/`Timestamp<MILLISECOND>` pass the raw int64 straight to `bigIntToNumber`
+(`visitor/get.mjs:82-84`), so a microsecond-only guard would leave the identical whole-page failure for
+those units. The guard must cover **all three throwing units**; `Timestamp<NANOSECOND>` does not throw and
+must stay as today (its raw-display rule is the formatter's integrality guard, not this throw).
 
 ## 3. Root cause
 
@@ -70,12 +91,12 @@ nested/Record/SQL parity is **WF-O2**, not R2. Any fix must therefore:
 
 ## 5. Options
 
-| Option                                                                                                                                                                                                                                                        | Cost / risk                                                                                                                                                                                                            | Verdict                |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **(a) Projection-boundary guard** — in the two projection helpers, read the raw int64 for microsecond timestamps (the backing `BigInt64Array` via `toArray()`/`data.values`), and emit a sentinel for the two int64 extremes; leave ns/normal paths unchanged | One small web/grid row + a minimal golden Parquet fixture (`TIMESTAMP 'infinity'`, `'-infinity'`, finite controls) + unit/component regression tests. Risk: the sentinel's visible text is a display decision (below). | **Accepted direction** |
-| (b) Per-cell `try/catch` around `get()` returning a generic "unreadable" marker                                                                                                                                                                               | Masks any other accessor bug as the same marker, is slower on the hot projection path, and does not use the exact raw value that is available.                                                                         | Not recommended        |
-| (c) Formatter guard only                                                                                                                                                                                                                                      | Impossible: the throw precedes the formatter (this probe + WF-01P). At most defense-in-depth after (a).                                                                                                                | Not viable             |
-| (d) Record as a limitation                                                                                                                                                                                                                                    | One infinite value makes the whole grid page unusable; not honest for a local data workbench unless the case is impossible.                                                                                            | Not recommended        |
+| Option                                                                                                                                                                                                                                                                                                                        | Cost / risk                                                                                                                                                                                                                                                               | Verdict                |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **(a) Projection-boundary guard** — in the two projection helpers, read the raw int64 for the throwing timestamp units (`Timestamp<SECOND>`, `<MILLISECOND>`, `<MICROSECOND>`; the backing `BigInt64Array` via `toArray()`/`data.values`) and emit a sentinel for the two int64 extremes; leave the ns/normal paths unchanged | One small web/grid row + a minimal golden Parquet fixture (`TIMESTAMP 'infinity'`, `'-infinity'`, finite controls) + unit/component regression tests; the vector type surface must expose the raw array. Risk: the sentinel's visible text is a display decision (below). | **Accepted direction** |
+| (b) Per-cell `try/catch` around `get()` returning a generic "unreadable" marker                                                                                                                                                                                                                                               | Masks any other accessor bug as the same marker, is slower on the hot projection path, and does not use the exact raw value that is available.                                                                                                                            | Not recommended        |
+| (c) Formatter guard only                                                                                                                                                                                                                                                                                                      | Impossible: the throw precedes the formatter (this probe + WF-01P). At most defense-in-depth after (a).                                                                                                                                                                   | Not viable             |
+| (d) Record as a limitation                                                                                                                                                                                                                                                                                                    | One infinite value makes the whole grid page unusable; not honest for a local data workbench unless the case is impossible.                                                                                                                                               | Not recommended        |
 
 ### 5.1 The sentinel-rendering sub-question (open, needs the brief to pin it)
 
@@ -96,8 +117,8 @@ must test the negative (a finite max-range-like value is not mislabelled).
 ## 6. What this changes for the R2 row
 
 - The row is **web/grid**, not engine/protocol: `apps/web/src/grid/provider.ts` plus a fixture and tests.
-- The guard must be unit-aware (only `Timestamp<MICROSECOND>` needs the raw path; `MILLISECOND` stays as
-  today; `NANOSECOND` must not regress WF-01's raw rule).
+- The guard must be unit-aware and cover **all three throwing units** (`SECOND`, `MILLISECOND`,
+  `MICROSECOND`); `NANOSECOND` does not throw and must not regress WF-01's raw rule.
 - The fixture rule applies (dataset-shape bug → minimal golden fixture + regression test); it must be
   generated through the documented fixture script and manifest, never committed as ad-hoc bytes.
 - Scope excludes WF-O2 (nested/Record/SQL) and any engine change.
