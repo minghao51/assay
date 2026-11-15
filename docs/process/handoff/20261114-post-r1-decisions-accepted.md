@@ -24,8 +24,9 @@ fresh gates.
 ## What this authorizes, and what it does not
 
 **Authorized now:** the three read-only probes (D16/D17 composition, R2 root cause, D12 ADR draft);
-**EW-02I** (small web runtime row); the **U5** test-only row; the **D12** and **D14** Proposed ADRs; the
-R2 row after EW-02I (one web-runtime writer at a time).
+**EW-02I** (small web runtime row); **U5** as the UI-free domain+engine slice (see the implementation
+note below); the **D12** and **D14** Proposed ADRs; the R2 row after EW-02I (one web-runtime writer at a
+time).
 
 **Not authorized by this record:** EW-03I before the D12 ADR is accepted; EW-04I before (ii)–(vii) are
 closed; any EW-05…08 or R13 row; any protocol, dependency, lockfile or telemetry-semantic change; any
