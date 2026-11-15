@@ -45,11 +45,14 @@ read-only probe scopes and the post-decision dispatch order. It selects nothing 
 **All recommendations were accepted on 2026-11-14** — see
 [20261114-post-r1-decisions-accepted.md](20261114-post-r1-decisions-accepted.md) for the acceptance record
 and the resulting authorizations (EW-02I, U5, the read-only probes, the D12/D14 ADR drafts, R2).
-EW-03I still waits on the D12 ADR; EW-04I still waits on conditions (ii)–(vii).
 
-**Read-only work that can start now (no new product decision needed once the maintainer asks):**
-D16/D17 composition probe, R2 root-cause probe, D12 ADR draft (Proposed). Everything else needs the
-decision first.
+**Update 2026-11-15:** **D2 is closed** — **EW-02I merged `fd5a92a`** (three accepted sentences live;
+independent gpt-6-luna xhigh approve with two mutation drills). The three read-only probes are delivered:
+[R2 probe](20261114-r2-infinity-probe.md), [D16/D17 probe](20261114-d16-d17-composition-probe.md)
+(review pending at this note), and [ADR 0049 (Proposed)](../../adr/0049-csv-options-preview-and-retention.md)
+for D12. D5's UI-free U5 slice and the R2 web/grid row are next; **EW-03I still waits on ADR 0049
+acceptance**, EW-04I on conditions (ii)–(vii) (D16/D17 now pinned by the probe, D14 ADR and U5 still open).
+Nothing pushed.
 
 ## 3. Dispatch order once decisions land
 

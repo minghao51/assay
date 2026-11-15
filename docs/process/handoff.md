@@ -67,6 +67,17 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-15, post-R1 wave 1):** **EW-02I merged** `fd5a92a` (worker `3112862`): the
+three accepted EW-02D sentences are appended (SQL hint, validation intro, pipeline open-dataset span),
+with literal tests and one changeset; independent `openai-codex/gpt-6-luna` xhigh review approved after
+two mutation drills (delete/reword one sentence → its literal test fails; byte-identical restoration).
+Merged gates on `main`: format/lint clean, forced typecheck **20** (0 cached), unit **246 files / 3664
+tests**, coverage **89.34 / 84.05 / 91.66 / 91.00**, forced build **12** (0 cached), docs links
+**163/0**, ADR **49**, browser **265 + 1 skip**, configured telemetry **7 passed** with zero deliveries,
+restored stock **3 passed** endpoint-free. Delivered read-only/in-flight: the R2 infinity probe, the
+D16/D17 composition probe (record pending review at this entry), and **ADR 0049 (Proposed)** for CSV
+options/preview/retention. Nothing pushed.
+
 **Verified state (2026-11-14, R1 CLOSED):** **R1-B merged** `5426979` (desktop `eh`-only vendored
 set; real-VS-Code e2e and all three spike modes green at merge), **R1-A merged** `b0b78bc`
 (capability-guarded `eh`/`mvp` bundle selection; real engine failure text; platform-tagged extension
@@ -319,6 +330,16 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-15 (**ho**) — **EW-02I CLOSED — merged `fd5a92a`**: the three accepted EW-02D sentences are
+  live (SQL hint, validation intro, pipeline open-dataset span) with literal tests and one `@assay/web`
+  changeset; independent `openai-codex/gpt-6-luna` xhigh **approve** after two mutation drills with
+  byte-identical restoration. Merged gates on `main`: forced typecheck 20/20 (0 cached), unit 246/3664,
+  coverage 89.34/84.05/91.66/91.00, forced build 12/12 (0 cached), docs 163/0, ADR 49, browser 265+1,
+  configured 7/zero delivered, restored stock 3 endpoint-free. Also in flight: R2 probe (record),
+  D16/D17 composition probe (record), **ADR 0049 Proposed** (CSV options/preview/retention; open
+  questions, EW-03I still gated). Worktree/branch removed; nothing pushed. Record:
+  [post-R1 acceptance](handoff/20261114-post-r1-decisions-accepted.md).
 
 - 2026-11-14 (**hn**) — **post-R1 D2–D7 recommendations accepted** (maintainer instruction "accept all
   the recommendation and proceed"): [acceptance record](handoff/20261114-post-r1-decisions-accepted.md)
