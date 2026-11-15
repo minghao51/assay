@@ -255,7 +255,8 @@ export function ValidationPanel({
       <p className="validation-intro" data-testid="validation-intro">
         Load a data contract (YAML) and run it against the open dataset. A <code>.yaml</code> file
         chosen here is read as a <strong>contract</strong>, not as a dataset. Nothing is uploaded —
-        validation runs locally, on this machine.
+        validation runs locally, on this machine. Validation runs on the whole edited dataset — grid
+        filters and sorting are not applied.
       </p>
 
       <div className="validation-contract-row">

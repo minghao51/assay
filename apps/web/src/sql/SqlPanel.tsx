@@ -302,7 +302,8 @@ export function SqlPanel({ tableId, runRequest, claimRequest }: SqlPanelProps) {
         <code data-testid="sql-table-id">{tableId}</code>) — e.g.{' '}
         <code data-testid="sql-hint-example">{`SELECT * FROM "${sqlTable}"`}</code>. Results are
         shown {String(SQL_PAGE_SIZE)} rows per page; press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> (or{' '}
-        <kbd>⌘</kbd>+<kbd>Enter</kbd>) to run.
+        <kbd>⌘</kbd>+<kbd>Enter</kbd>) to run. Queries read the file as opened — staged grid edits
+        and grid filters are not part of this view.
       </p>
       <textarea
         id="sql-editor"

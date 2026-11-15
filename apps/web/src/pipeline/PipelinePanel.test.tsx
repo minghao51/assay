@@ -388,3 +388,42 @@ describe('pipeline panel — R-15 (c) DCR expansion', () => {
     expect(text.indexOf('DCR')).toBe(expansionIndex + 'Dataset Change Request ('.length)
   })
 })
+
+describe('pipeline panel — EW-02D open-dataset scope sentence', () => {
+  it('renders the exact scope sentence only while a dataset is open, with the bound/label set unchanged', () => {
+    const { rerender } = render(<PipelinePanel {...panelProps({ openDatasetAvailable: false })} />)
+
+    // No open dataset ⇒ no primary AND no scope sentence (the picker path
+    // carries no new copy — EW-02D round-1 re-scope).
+    expect(screen.queryByTestId('pipeline-open-dataset-scope')).toBeNull()
+    expect(screen.queryByTestId('pipeline-bind-open-dataset')).toBeNull()
+
+    // A dataset is open ⇒ the sentence renders VERBATIM (literal, no imported
+    // constant), inside the existing primary's fragment.
+    rerender(<PipelinePanel {...panelProps({ openDatasetAvailable: true })} />)
+    const scope = screen.getByTestId('pipeline-open-dataset-scope')
+    expect(scope.textContent).toBe(
+      'Use the open dataset binds the opened file itself — staged grid edits and grid filters are not part of pipeline runs.',
+    )
+
+    // The RETAIN strings are byte-for-byte unchanged beside the new sentence.
+    expect(screen.getByTestId('pipeline-bind-open-dataset').textContent).toBe(
+      'Use the open dataset',
+    )
+    expect(screen.getByTestId('pipeline-bind').textContent).toBe('Choose a different file…')
+
+    // A bound source still shows the honest bound marker (RETAIN) — the scope
+    // sentence accompanies it without replacing it.
+    const boundProps = panelProps({
+      openDatasetAvailable: true,
+      bindings: {
+        customers: { kind: 'bound', fileName: 'noop', getFile: async () => new File([], 'noop') },
+      },
+    })
+    rerender(<PipelinePanel {...boundProps} />)
+    expect(screen.getByTestId('pipeline-source-bound').textContent).toBe('Dataset bound.')
+    expect(screen.getByTestId('pipeline-open-dataset-scope').textContent).toBe(
+      'Use the open dataset binds the opened file itself — staged grid edits and grid filters are not part of pipeline runs.',
+    )
+  })
+})

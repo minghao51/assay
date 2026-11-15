@@ -564,6 +564,10 @@ export function PipelinePanel({
                           >
                             Use the open dataset
                           </button>{' '}
+                          <span data-testid="pipeline-open-dataset-scope">
+                            Use the open dataset binds the opened file itself — staged grid edits
+                            and grid filters are not part of pipeline runs.
+                          </span>{' '}
                         </>
                       ) : null}
                       <button

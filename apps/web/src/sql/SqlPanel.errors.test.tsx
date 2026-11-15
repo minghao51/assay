@@ -91,3 +91,19 @@ describe('UG-30 — SQL errors are framed and single-line', () => {
     })
   })
 })
+
+describe('EW-02D — the SQL hint names the file-as-opened scope', () => {
+  it('ends the hint paragraph with the appended scope sentence and still pins the page-size literal', () => {
+    renderPanel()
+    const hint = screen.getByTestId('sql-hint')
+    // The FULL textContent ends with the accepted EW-02D sentence (literal —
+    // no constant is imported from the component).
+    expect(
+      hint.textContent?.endsWith(
+        'Queries read the file as opened — staged grid edits and grid filters are not part of this view.',
+      ),
+    ).toBe(true)
+    // The pre-existing pager fact stays a literal in the same paragraph.
+    expect(hint.textContent).toContain('50 rows per page')
+  })
+})

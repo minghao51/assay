@@ -318,3 +318,17 @@ describe('filter-replacement disclosure', () => {
     }
   })
 })
+
+describe('EW-02D — the validation intro names the whole-edited-dataset scope', () => {
+  it('ends the intro paragraph with the appended scope sentence, as a literal', () => {
+    renderPanel()
+    const intro = screen.getByTestId('validation-intro')
+    // The FULL textContent ends with the accepted EW-02D sentence (literal —
+    // no constant is imported from the component).
+    expect(
+      intro.textContent?.endsWith(
+        'Validation runs on the whole edited dataset — grid filters and sorting are not applied.',
+      ),
+    ).toBe(true)
+  })
+})
