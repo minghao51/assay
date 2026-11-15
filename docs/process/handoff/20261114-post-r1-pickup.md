@@ -42,6 +42,10 @@ stock 76 passed, package build 11 artifacts, runtime 9/9, real-VS-Code e2e PASS,
 **Decision sheet (2026-11-14):** [20261114-post-r1-decision-sheet.md](20261114-post-r1-decision-sheet.md)
 presents D2–D7 with options, costs, evidence and a non-binding recommendation per item, plus the
 read-only probe scopes and the post-decision dispatch order. It selects nothing and authorizes no row.
+**All recommendations were accepted on 2026-11-14** — see
+[20261114-post-r1-decisions-accepted.md](20261114-post-r1-decisions-accepted.md) for the acceptance record
+and the resulting authorizations (EW-02I, U5, the read-only probes, the D12/D14 ADR drafts, R2).
+EW-03I still waits on the D12 ADR; EW-04I still waits on conditions (ii)–(vii).
 
 **Read-only work that can start now (no new product decision needed once the maintainer asks):**
 D16/D17 composition probe, R2 root-cause probe, D12 ADR draft (Proposed). Everything else needs the

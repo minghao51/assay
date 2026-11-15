@@ -4,6 +4,10 @@
 protocol/dependency change and no push. Every recommendation below is the author's, not an approved
 default; the maintainer (and, for ADR-gated rows, the engine/protocol owner) decides.
 
+**Accepted 2026-11-14:** the maintainer accepted all recommendations below — see
+[20261114-post-r1-decisions-accepted.md](20261114-post-r1-decisions-accepted.md) for the acceptance
+record and what each decision authorizes. This sheet remains the options/evidence record.
+
 **Authority order:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) dated selection →
 [post-R1 pickup](20261114-post-r1-pickup.md) → the contracts ([EW-02D](20261113-ew02-scope-contract.md),
 [EW-03D](20261113-ew03-csv-contract.md), [EW-04D](20261113-ew04-bulk-contract.md)) → this sheet.
