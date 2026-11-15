@@ -67,6 +67,18 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-16, R2 CLOSED):** **R2 merged** `0f77e38` + `a17f3a3` (worker `7437c4d`/`2daf5ca`):
+both projection helpers now guard DuckDB's timestamp infinity sentinels for `Timestamp<SECOND>`,
+`<MILLISECOND>` and `<MICROSECOND>` at the projection boundary, honouring Arrow validity first so NULL
+stays NULL; the delivered negative sentinel is `-9223372036854775807` (int64-min reserved and diverted
+defensively), and `Timestamp<NANOSECOND>` stays raw. One independent `openai-codex/gpt-6-luna` xhigh
+review round requested changes on the NULL-validity order and was closed by mutation. Merged gates on
+`main`: forced typecheck **20** (0 cached), unit **246 files / 3672 tests**, coverage **89.33 / 84.05 /
+91.67 / 90.99**, forced build **12** (0 cached), docs links **164/0**, ADR **50**, browser **268 + 1
+skip**, configured telemetry **7 passed** with zero deliveries, restored stock **3 passed** endpoint-free.
+Generated fixture `temporal-infinity.parquet` + 7 unit tests + 3 real-engine specs. Worktree removed;
+nothing pushed.
+
 **Verified state (2026-11-15, post-R1 wave 1):** **EW-02I merged** `fd5a92a` (worker `3112862`): the
 three accepted EW-02D sentences are appended (SQL hint, validation intro, pipeline open-dataset span),
 with literal tests and one changeset; independent `openai-codex/gpt-6-luna` xhigh review approved after
@@ -333,6 +345,17 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-16 (**hq**) — **R2 CLOSED — merged `0f77e38` + `a17f3a3`**: the grid projection honours
+  timestamp infinity sentinels for SECOND/MILLISECOND/MICROSECOND without throwing; Arrow validity is
+  checked first (a NULL whose backing slot holds sentinel bits stays NULL), the delivered negative sentinel
+  is `-9223372036854775807` (int64-min reserved and diverted defensively), and `TIMESTAMP_NS` stays raw.
+  One independent gpt-6-luna xhigh request-changes round (NULL-validity order) closed by mutation; the
+  `no-unknown-returns` diagnostics were accepted as the deliberate `unknown[][]` cell contract. Merged
+  gates: typecheck 20/20 (0 cached), unit 246/3672, coverage 89.33/84.05/91.67/90.99, build 12/12
+  (0 cached), docs 164/0, ADR 50, browser 268+1, configured 7/zero delivered, restored stock 3
+  endpoint-free. Fixture `temporal-infinity.parquet` + 7 unit + 3 real-engine tests; worktree/branch
+  removed; nothing pushed.
 
 - 2026-11-15 (**hp**) — **the accepted decisions' first documents are in**: **EW-02I merged `fd5a92a`**
   (§2 and `ho`); the [R2 probe](handoff/20261114-r2-infinity-probe.md) (corrected after review: the

@@ -54,6 +54,11 @@ and **ADR 0049 (Proposed)** for D12 plus **ADR 0050 (Proposed)** for D14. The R2
 flight; D5's UI-free U5 slice waits on ADR 0050 acceptance; **EW-03I waits on ADR 0049 acceptance**;
 EW-04I on conditions (ii)–(vii) (D16/D17 pinned, D14 ADR and U5 still open). Nothing pushed.
 
+**Update 2026-11-16:** **R2 is CLOSED** — merged `0f77e38` + `a17f3a3` after one independent
+gpt-6-luna xhigh request-changes round (NULL-validity order, closed by mutation); D6's R2 is no longer
+open, R3 keeps RD-T07 and R8 keeps the unasserted fixture. The R2 probe record is corrected to the
+delivered `-9223372036854775807` negative sentinel.
+
 ## 3. Dispatch order once decisions land
 
 1. Read-only probes: **D16/D17** (informs D4) and **R2** (informs D6); **D12** ADR draft (informs D3).
