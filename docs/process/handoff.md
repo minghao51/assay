@@ -320,6 +320,15 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-11-14 (**hn**) — **post-R1 D2–D7 recommendations accepted** (maintainer instruction "accept all
+  the recommendation and proceed"): [acceptance record](handoff/20261114-post-r1-decisions-accepted.md)
+  authorizes the three read-only probes (D16/D17, R2, D12 ADR), **EW-02I**, the **U5** test-only row, the
+  **D12/D14** Proposed ADRs, and the **R2** web/grid row after EW-02I. D16 = wrapped DESCRIBE +
+  restructured cast check; D17 = literal rewrite iff conformance tests; D15 cap x ≤ 500; export budget =
+  published envelope + pre-apply refusal; R3 keeps RD-T07, R8 adds no fixture. EW-03I still waits on the
+  D12 ADR; EW-04I still waits on (ii)–(vii). Decisions are recorded, not implemented; docs gates green
+  (format, 160 docs files/0 links, ADR 48). Nothing pushed.
+
 - 2026-11-14 (**hm**) — **post-R1 decision sheet delivered** (docs-only, no selection):
   [20261114-post-r1-decision-sheet.md](handoff/20261114-post-r1-decision-sheet.md) presents D2–D7
   (EW-02D copy, EW-03D ledger + D12 ADR + D15, EW-04D conditions (ii)–(vii) + the U4 D11 qualifier and
