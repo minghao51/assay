@@ -96,11 +96,47 @@ describe('overlay composition — empty overlay', () => {
     )
   })
 
-  it('composes the DESCRIBE over the base projection', () => {
+  it('composes the wrapped DESCRIBE over the composed effective relation (D16a)', () => {
+    // D16(a) accepted shape: the schema op describes an OUTER projection over
+    // `composeSourceSql`'s union (withRowIds/withKey/sanitizeCsv off — the
+    // ordinal is created inside the base branch and never projected), so it
+    // can only describe a relation the materializing ops produce. Empty
+    // overlay byte pin (the probe's §1.1 shape; the old unwrapped pin was
+    // rewritten, not deleted):
     expect(composeOverlaySchemaSql(compositionFor([]))).toBe(
       'DESCRIBE SELECT "id" AS "id", "label" AS "label" FROM ' +
-        '(SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1")',
+        '(SELECT "id" AS "id", "label" AS "label" FROM ' +
+        '(SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1"))',
     )
+  })
+
+  it('keeps the schema op machinery-free: no row-id/key columns, CSV guard, or sanitization', () => {
+    const withInsert = compositionFor([
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'start' },
+        values: new Map([
+          ['id', { kind: 'number', value: 9 }],
+          ['label', { kind: 'string', value: 'ins' }],
+        ]),
+      },
+      {
+        kind: 'cell-set',
+        rowId: rid('base:b1#0'),
+        column: 'label',
+        value: { kind: 'string', value: 'edited' },
+      },
+    ])
+    const sql = composeOverlaySchemaSql(withInsert)
+    expect(sql).toContain('UNION ALL')
+    expect(sql).toContain('CAST(9 AS BIGINT) AS "id"')
+    expect(sql).toContain('CAST(\'ins\' AS VARCHAR) AS "label"')
+    for (const machinery of ['assay_row_id', 'assay_key', 'hex(', 'chr(39)']) {
+      expect(sql, machinery).not.toContain(machinery)
+    }
+    // No live inserts ⇒ no union.
+    expect(composeOverlaySchemaSql(compositionFor([]))).not.toContain('UNION ALL')
   })
 })
 

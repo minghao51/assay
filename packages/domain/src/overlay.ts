@@ -45,7 +45,14 @@
  * §3, lint-enforced); no I/O; never throws.
  */
 import type { CellValue, CellValueRecord, ColumnSpec, EditOp, InsertPosition } from './edit-ops.js'
-import { NULL_VALUE, cellValueEqual } from './edit-ops.js'
+import {
+  MAX_REPAIR_MAPPING_PAIRS,
+  MAX_REPAIR_TRIM_CODE_POINTS,
+  NULL_VALUE,
+  cellValueEqual,
+  isTextualRepairType,
+  trimWithCodePoints,
+} from './edit-ops.js'
 import { baseRowId, parseRowId } from './row-identity.js'
 import type { RowId } from './row-identity.js'
 
@@ -103,6 +110,53 @@ export interface OverlayAnchors {
 }
 
 /**
+ * One applied `column-repair` in the active prefix, with the value-independent
+ * metadata the engine composer needs to realize the repair as the EW-04D §6.2
+ * conditional wrap: the exceptions (rows the repair must NOT touch) are pure
+ * prefix metadata — liveness at the repair's position and rows that received a
+ * *later applied* `cell-set`/`cell-revert` on the same column — so the composer
+ * evaluates them without reading any values. Recorded by the fold (the single
+ * source of truth for what the prefix means); consumed read-only by the
+ * composer (`overlay-query.ts`).
+ */
+export interface RepairStepRecord {
+  /**
+   * Index of the repaired column in `OverlayState.columns` **at the repair's
+   * position**. Renames and casts never reorder columns, so this index is the
+   * stable column identity across the rest of the prefix (the name at apply
+   * time can be stale after a later rename).
+   */
+  readonly columnIndex: number
+  /**
+   * The column's declared engine type at the repair's position (a textual
+   * spelling — the fold refuses anything else). The wrap's input type: casts
+   * before the repair collapse into it; casts after apply outside the wrap.
+   */
+  readonly typeAtApply: string
+  /** The repair's explicit edge-trim set; absent ⇒ mapping matches raw values. */
+  readonly trim?: string
+  /** Exact whole-value mapping applied to the (trimmed) value. */
+  readonly mapping: ReadonlyMap<string, string>
+  /**
+   * Base ordinals **not live** at the repair's position (tombstoned then, or
+   * inserted later). A live-at-cursor row among these is an exception arm: it
+   * shows its underlying cursor value untransformed (P3: a restored row shows
+   * its pre-repair effective value).
+   */
+  readonly deadOrdinalsAtApply: ReadonlySet<number>
+  /** Insert row ids live at the repair's position (the D17 rewrite consults them). */
+  readonly liveInsertIdsAtApply: ReadonlySet<RowId>
+  /**
+   * Rows (base or insert ids) that received an **applied** `cell-set`/
+   * `cell-revert` on this column at a position **after** the repair — the
+   * per-row suffix value-ops that mask the repair (the later absolute write
+   * wins). Logged no-ops never land here (their outcome is not `applied`).
+   * Updated by the fold as later value-ops apply.
+   */
+  readonly maskedRows: ReadonlySet<RowId>
+}
+
+/**
  * The folded overlay state: effective schema + the delta over the base.
  * Everything is keyed by logical row id (`row-identity.ts`); base rows exist
  * virtually (anchor + ordinal < baseRowCount) and only *touched* base rows
@@ -146,10 +200,26 @@ export interface OverlayState {
    * freed floor stays spent.
    */
   readonly nextInsertSeq: number
+  /**
+   * The active prefix's applied `column-repair` records, in prefix (forward)
+   * order — the value-independent half of §6.2 composition (see
+   * {@link RepairStepRecord}). Repairs compose forward over the cursor
+   * underlying value: earliest repair innermost, each masked per row by its
+   * exceptions. Every other op kind leaves this list untouched.
+   */
+  readonly repairs: readonly RepairStepRecord[]
 }
 
 /** Degradations an applied op survived with (honest, typed, never silent). */
-export type AppliedNote = 'position-anchor-not-live'
+export type AppliedNote =
+  /** A `row-insert` position anchor was not live; the row degraded to the end. */
+  | 'position-anchor-not-live'
+  /**
+   * A `column-repair` entry's undo is not expressible as an inverse op list;
+   * undo/redo are the usual cursor moves and the engine statelessly re-folds
+   * the active prefix (ADR 0050). This entry carries `inverse: []`.
+   */
+  | 'undo-by-refold'
 
 /**
  * The typed result of folding one op. `applied` = the state changed;
@@ -176,6 +246,8 @@ export type NoOpReason =
   | 'rename-identity'
   /** `column-cast` to the column's current type. */
   | 'cast-identity'
+  /** `column-repair` with no mapping pairs and no trim — the identity function. */
+  | 'repair-identity'
 
 export type ConflictReason =
   /** The row id is not a derivable `RowId` (wrong shape, non-canonical ordinal). */
@@ -198,6 +270,16 @@ export type ConflictReason =
   | 'insert-id-collision'
   /** The state was folded against a different base version or overlay session (its {@link OverlayState.anchors} do not match the `base` it is being stepped against). */
   | 'state-anchor-mismatch'
+  /** A `column-repair` targeted a column whose declared type is not a textual repair spelling (`VARCHAR`/`TEXT`/`STRING`; `isTextualRepairType`). */
+  | 'repair-column-not-text'
+  /** A `column-repair` carried more mapping pairs than the plan cap ({@link MAX_REPAIR_MAPPING_PAIRS}). */
+  | 'repair-mapping-cap'
+  /** A `column-repair` trim set is malformed or over the {@link MAX_REPAIR_TRIM_CODE_POINTS} code-point cap. */
+  | 'repair-trim-invalid'
+  /** A `column-repair` mapping key can never match because its own edges carry trim-set members (the CASE operand is always the trimmed value — dead entry). */
+  | 'repair-dead-mapping-key'
+  /** A second `column-repair` on a column whose repair chain already carries a different trim specification (the composed per-column function is one `trim∘map` with one set). */
+  | 'repair-trim-mismatch'
 
 /** One op's interpretation: the op, its typed outcome, and its derived inverse. */
 export interface OpApplication {
@@ -229,6 +311,7 @@ export function initialState(base: OverlayBase): OverlayState {
     inserts: new Map(),
     deletedBase: new Set(),
     nextInsertSeq: 0,
+    repairs: [],
   }
 }
 
@@ -267,6 +350,8 @@ export function stepOverlay(base: OverlayBase, state: OverlayState, op: EditOp):
       return stepColumnRename(base, state, op)
     case 'column-cast':
       return stepColumnCast(base, state, op)
+    case 'column-repair':
+      return stepColumnRepair(base, state, op)
     default: {
       // Exhaustiveness guard: adding an EditOp variant without a step rule
       // must fail compilation, not fall through at runtime.
@@ -313,8 +398,9 @@ function stepCellSet(
   const inner = new Map(edits.get(op.rowId) ?? new Map<string, CellValue>())
   inner.set(op.column, op.value)
   edits.set(op.rowId, inner)
+  const columnIndex = state.columns.findIndex((candidate) => candidate.name === op.column)
   return {
-    state: { ...state, edits },
+    state: maskRepairsFor({ ...state, edits }, columnIndex, op.rowId),
     application: {
       op,
       outcome: { status: 'applied', notes: located.notes },
@@ -346,8 +432,9 @@ function stepCellRevert(
   inner.delete(op.column)
   if (inner.size === 0) edits.delete(op.rowId)
   else edits.set(op.rowId, inner)
+  const columnIndex = state.columns.findIndex((candidate) => candidate.name === op.column)
   return {
-    state: { ...state, edits },
+    state: maskRepairsFor({ ...state, edits }, columnIndex, op.rowId),
     application: {
       op,
       outcome: { status: 'applied', notes: located.notes },
@@ -540,6 +627,110 @@ function stepRowRestore(
       inverse: [{ kind: 'row-delete', rowId: op.rowId }],
     },
   }
+}
+
+function stepColumnRepair(
+  _base: OverlayBase,
+  state: OverlayState,
+  op: Extract<EditOp, { kind: 'column-repair' }>,
+): OverlayStep {
+  // Check order: schema → declared type → plan shape (caps, trim, dead keys)
+  // → identity. Every refusal is a typed value-free conflict, so an invalid
+  // plan never enters the log and never reaches the engine (appendOp refuses
+  // conflicted ops).
+  const columnIndex = state.columns.findIndex((candidate) => candidate.name === op.column)
+  if (columnIndex < 0) return unchanged(op, state, conflict('unknown-column'))
+  const declaredType = state.columns[columnIndex]?.type as string
+  if (!isTextualRepairType(declaredType)) {
+    return unchanged(op, state, conflict('repair-column-not-text'))
+  }
+  if (op.mapping.size > MAX_REPAIR_MAPPING_PAIRS) {
+    return unchanged(op, state, conflict('repair-mapping-cap'))
+  }
+  let trim: string | undefined
+  if (op.trim !== undefined) {
+    const codePointCount = [...op.trim].length
+    if (typeof op.trim !== 'string' || op.trim.length === 0 || codePointCount === 0) {
+      return unchanged(op, state, conflict('repair-trim-invalid'))
+    }
+    if (codePointCount > MAX_REPAIR_TRIM_CODE_POINTS) {
+      return unchanged(op, state, conflict('repair-trim-invalid'))
+    }
+    trim = op.trim
+  }
+  // Dead entries (D16/D17 probe §7.1 constraint 3): with a trim in the plan
+  // the CASE operand is always the *trimmed* value, so a key carrying
+  // trim-set edges can never match — trimWithCodePoints(key) ≠ key. (The
+  // one-line summary inverts this twice; the probe, D17 test item 19 and the
+  // emitted SQL all pin the same direction: keys that differ from their
+  // trim-normalised form are the dead ones.) Without a trim nothing is dead:
+  // every key matches itself exactly.
+  if (trim !== undefined) {
+    for (const key of op.mapping.keys()) {
+      if (trimWithCodePoints(key, trim) !== key) {
+        return unchanged(op, state, conflict('repair-dead-mapping-key'))
+      }
+    }
+  }
+  // One composed per-column function is one trim∘map with ONE trim set (§1:
+  // the wrap's operand and ELSE share "<same set>"); a second repair on a
+  // column whose chain already carries a different trim specification would
+  // make the composed function unreproducible by any single-operand form —
+  // refused here, at plan construction, while the prefix is still flat.
+  for (const prior of state.repairs) {
+    if (prior.columnIndex !== columnIndex) continue
+    if (prior.trim !== trim) {
+      return unchanged(op, state, conflict('repair-trim-mismatch'))
+    }
+  }
+  if (op.mapping.size === 0 && trim === undefined) {
+    return unchanged(op, state, noOp('repair-identity'))
+  }
+  // The repair's own value effect lives in the composer (the §6.2 wrap); the
+  // fold records the value-independent metadata the wrap needs. Undo is the
+  // exact refold at the cursor: inverse: [] + the ADR 0050 note.
+  const deadOrdinalsAtApply = new Set(state.deletedBase)
+  const liveInsertIdsAtApply = new Set<RowId>()
+  for (const record of state.inserts.values()) {
+    if (record.live) liveInsertIdsAtApply.add(record.id)
+  }
+  const record: RepairStepRecord = {
+    columnIndex,
+    typeAtApply: declaredType,
+    ...(trim !== undefined ? { trim } : {}),
+    mapping: op.mapping,
+    deadOrdinalsAtApply,
+    liveInsertIdsAtApply,
+    maskedRows: new Set<RowId>(),
+  }
+  return {
+    state: { ...state, repairs: [...state.repairs, record] },
+    application: {
+      op,
+      outcome: { status: 'applied', notes: ['undo-by-refold'] },
+      inverse: [],
+    },
+  }
+}
+
+/**
+ * Record a suffix value-op's masking: an **applied** `cell-set`/`cell-revert`
+ * on a column with repairs masks, for that one row, every earlier repair on
+ * the same column (the later absolute write wins; EW-04D §6.2). Logged no-ops
+ * never reach this path (they leave the state unchanged). Column identity is
+ * the index — renames re-key names, never positions. O(repairs) per applied
+ * value-op, session-bounded.
+ */
+function maskRepairsFor(state: OverlayState, columnIndex: number, rowId: RowId): OverlayState {
+  let changed = false
+  const repairs = state.repairs.map((record) => {
+    if (record.columnIndex !== columnIndex || record.maskedRows.has(rowId)) return record
+    changed = true
+    const maskedRows = new Set(record.maskedRows)
+    maskedRows.add(rowId)
+    return { ...record, maskedRows }
+  })
+  return changed ? { ...state, repairs } : state
 }
 
 function stepColumnRename(

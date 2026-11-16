@@ -123,7 +123,7 @@ export function assertValidOverlayTypes(payload: {
 }
 
 /**
- * Parse one op of the closed 8-kind union; `null` when malformed.
+ * Parse one op of the closed 9-kind union; `null` when malformed.
  * (Documented above: `row-uninsert`/`row-delete`/`row-restore` share the
  * `{ kind, rowId }` shape, so the switch falls through by design.)
  */
@@ -164,6 +164,30 @@ function parseEditOp(value: unknown): EditOp | null {
       if (!isStringRecord(record, ['column', 'targetType'])) return null
       if (!isEngineTypeExpression(record['targetType'])) return null
       return { kind: 'column-cast', column: record['column'], targetType: record['targetType'] }
+    case 'column-repair': {
+      // Bounded structural shape only (EW-04D §8): the column is a string,
+      // the trim (when present) a string, and the mapping a real
+      // `Map<string, string>` (structured clone preserves Maps, the same
+      // policy as insert values — a plain object is a caller bug and is
+      // rejected rather than coerced). Semantic bounds — the pair cap, the
+      // 16-code-point trim cap, dead keys, textual-column gating — are the
+      // fold's typed refusals (edit-ops.ts/overlay.ts), never re-decided
+      // here; the parser rejects malformed structure and foreign kinds with
+      // `null` like every other op arm.
+      if (typeof record['column'] !== 'string') return null
+      const rawTrim = record['trim']
+      if (rawTrim !== undefined && rawTrim !== null && typeof rawTrim !== 'string') return null
+      const rawMapping = record['mapping']
+      if (!(rawMapping instanceof Map)) return null
+      const mapping = new Map<string, string>()
+      for (const [key, value] of rawMapping) {
+        if (typeof key !== 'string' || typeof value !== 'string') return null
+        mapping.set(key, value)
+      }
+      return typeof rawTrim === 'string'
+        ? { kind: 'column-repair', column: record['column'], trim: rawTrim, mapping }
+        : { kind: 'column-repair', column: record['column'], mapping }
+    }
     default:
       return null
   }

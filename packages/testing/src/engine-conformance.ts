@@ -252,8 +252,10 @@ export type ConformanceInsertPosition =
   | { readonly kind: 'after'; readonly rowId: string }
 
 /**
- * The closed 8-kind edit-op vocabulary (mirror of the domain's `EditOp`).
+ * The closed edit-op vocabulary (mirror of the domain's `EditOp`).
  * Insert values are keyed by column; absent columns materialize as NULL.
+ * The mirror grows only when the domain union grows — `column-repair`
+ * (EW-04D; ADR 0050) is the first value-transform member.
  */
 export type ConformanceEditOp =
   | {
@@ -274,6 +276,18 @@ export type ConformanceEditOp =
   | { readonly kind: 'row-restore'; readonly rowId: string }
   | { readonly kind: 'column-rename'; readonly from: string; readonly to: string }
   | { readonly kind: 'column-cast'; readonly column: string; readonly targetType: string }
+  /**
+   * Mirror of the domain's `column-repair` (EW-04D §4.2; ADR 0050): one
+   * authored `trim∘map` value function over a whole textual column. No
+   * conformance scenario composes one yet — the type must stay complete
+   * against the domain union so `EditOp[]` remains assignable.
+   */
+  | {
+      readonly kind: 'column-repair'
+      readonly column: string
+      readonly trim?: string
+      readonly mapping: ReadonlyMap<string, string>
+    }
 
 /** The immutable base an overlay composes over (mirror of `OverlayBase`). */
 export interface ConformanceOverlayBase {

@@ -37,6 +37,16 @@
  *   `entry: null`, and the conflict outcome for the caller to surface. No-op
  *   ops are appended (they are honest "nothing changed" entries) with
  *   an empty `inverse`, so undo/redo skip materializing them.
+ * - **One recorded exception to `applied ⇒ non-empty inverse` (ADR 0050).**
+ *   A `column-repair` entry's undo is not expressible as an inverse op list:
+ *   it carries `inverse: []` with the `AppliedNote` `'undo-by-refold'` on its
+ *   applied outcome, and undo/redo are the usual pure cursor moves — the
+ *   state at any cursor is the refold of the active prefix, so the repair's
+ *   value effect disappears exactly when the entry leaves the prefix.
+ *   {@link OP_UNDO_MODE} (edit-ops.ts) is the explicit per-kind table; the
+ *   walk invariant pinned in `history.test.ts` is narrowed accordingly
+ *   (`inverse.length > 0 ⇒ applied`; `inverse.length === 0 && applied ⇒`
+ *   the notes include `'undo-by-refold'`).
  *
  * Purity: no React, no browser APIs, no engine imports, no I/O; never
  * throws. O(cursor) refolding per append keeps this implementation simple;
@@ -51,7 +61,10 @@ import { foldOverlay, stepOverlay } from './overlay.js'
  * One logged operation: the op, the typed outcome it had when it was
  * appended, and its derived inverse ops (`inverse.length === 0` exactly
  * when `outcome.status !== 'applied'` — usually a single op, a list where
- * the exact undo is several, e.g. expunging an edited insert).
+ * the exact undo is several, e.g. expunging an edited insert — with the one
+ * recorded ADR 0050 exception: an applied `column-repair` entry carries
+ * `inverse: []` and the `'undo-by-refold'` outcome note; its undo is the
+ * exact refold at the moved cursor, never a materialized op list).
  */
 export interface HistoryEntry {
   readonly op: EditOp

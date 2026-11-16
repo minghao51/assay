@@ -52,6 +52,9 @@ describe('pendingChangesSummary — deterministic, kind-only (no dataset content
       'row-restore': 0,
       'column-rename': 1,
       'column-cast': 1,
+      // The EW-04D kind is carried by the exhaustive count map; no web
+      // surface authors it yet, so the staged summary stays at 0 here.
+      'column-repair': 0,
     })
     // Fixed order: cell ops → row ops → column ops (never object order).
     expect(pendingChangesSummary(ops)).toBe(

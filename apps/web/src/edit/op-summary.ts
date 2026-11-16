@@ -31,6 +31,11 @@ import type { EditOp } from '@assay/domain'
  * row of the opened dataset), and the toolbar's own affordance is `Insert row`,
  * so the plain gloss is `undo row insert` (`2 undo row inserts`). Value-free:
  * kinds and counts only, never dataset content (ADR 0025).
+ *
+ * `column-repair` (EW-04D/ADR 0050) is the same dormant-label class: the
+ * domain union grew, the exhaustive table must carry the kind, and no web
+ * surface authors repairs yet — the entry exists so the summary stays honest
+ * if an op list ever carries one (e.g. replayed from a future producer).
  */
 const KIND_LABEL: Readonly<Record<EditOp['kind'], string>> = {
   'cell-set': 'cell edit',
@@ -41,6 +46,7 @@ const KIND_LABEL: Readonly<Record<EditOp['kind'], string>> = {
   'row-restore': 'row restore',
   'column-rename': 'column rename',
   'column-cast': 'column cast',
+  'column-repair': 'column repair',
 }
 
 /** A deterministic kind → count map over a list of ops (every kind present). */
@@ -54,6 +60,7 @@ export function countOpsByKind(ops: readonly EditOp[]): Readonly<Record<EditOp['
     'row-restore': 0,
     'column-rename': 0,
     'column-cast': 0,
+    'column-repair': 0,
   }
   for (const op of ops) counts[op.kind] += 1
   return counts

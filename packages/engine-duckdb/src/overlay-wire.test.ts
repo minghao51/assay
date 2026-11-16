@@ -7,7 +7,7 @@
  *
  * - the five cell-value kinds parse round-trip-shape (including `text`, the
  *   engine-parseable literal cast, and `{ kind: 'null' }` as data);
- * - every op kind of the closed 8-kind union parses; unknown kinds, missing
+ * - every op kind of the closed 9-kind union parses; unknown kinds, missing
  *   fields, wrong payload types, and non-Map insert values are rejected
  *   (the request is then refused — never silently coerced);
  * - base metadata checks: unique column names (host contract), safe
@@ -185,6 +185,50 @@ describe('parseOverlayPayload — cell values and ops', () => {
     for (const ops of bad) {
       expect(parseOverlayPayload({ base: BASE, ops })).toBeNull()
     }
+  })
+
+  it('parses column-repair: bounded shape, Map mapping, optional trim; rejects malformed', () => {
+    const repair: EditOp = {
+      kind: 'column-repair',
+      column: 'label',
+      trim: ' \t\n\r',
+      mapping: new Map([
+        ['alpha', 'ALPHA'],
+        ['beta', 'BETA'],
+      ]),
+    }
+    const parsed = parseOverlayPayload(payload([repair]))
+    expect(parsed).not.toBeNull()
+    expect(parsed?.ops[0]).toEqual(repair)
+    // Trim-less form round-trips without the key.
+    const trimLess: EditOp = { kind: 'column-repair', column: 'label', mapping: new Map() }
+    expect(parseOverlayPayload(payload([trimLess]))?.ops[0]).toEqual(trimLess)
+
+    const bad: unknown[] = [
+      { kind: 'column-repair', mapping: new Map([['a', 'b']]) }, // no column
+      { kind: 'column-repair', column: 3, mapping: new Map([['a', 'b']]) }, // non-string column
+      { kind: 'column-repair', column: 'label', mapping: { a: 'b' } }, // plain object mapping
+      { kind: 'column-repair', column: 'label', mapping: new Map([['a', 1]]) }, // non-string value
+      { kind: 'column-repair', column: 'label', mapping: new Map([[1, 'b']]) }, // non-string key
+      { kind: 'column-repair', column: 'label', trim: 5, mapping: new Map() }, // non-string trim
+    ]
+    for (const op of bad) {
+      expect(parseOverlayPayload({ base: BASE, ops: [op] })).toBeNull()
+    }
+    // Unknown/foreign kinds stay rejected.
+    expect(
+      parseOverlayPayload({ base: BASE, ops: [{ kind: 'column-repair-revert', column: 'x' }] }),
+    ).toBeNull()
+    // Semantic bounds are the FOLD's refusals: an over-cap mapping and a
+    // dead key still parse (structure is valid); the fold refuses them with
+    // typed conflicts and appendOp never logs them.
+    const oversized = new Map<string, string>()
+    for (let i = 0; i < 501; i++) oversized.set(`k${String(i)}`, 'v')
+    expect(
+      parseOverlayPayload(
+        payload([{ kind: 'column-repair', column: 'label', mapping: oversized }]),
+      ),
+    ).not.toBeNull()
   })
 
   it('leaves semantic problems to the fold (typed outcomes, not rejection)', () => {

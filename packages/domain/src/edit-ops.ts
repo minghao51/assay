@@ -19,6 +19,17 @@
  * grid cell edit produces; nested values (lists/structs) are out of scope
  * until M4 editing surfaces a need — engines keep rendering them read-only.
  *
+ * **`column-repair` (EW-04D; ADR 0050).** One authored value function
+ * `trim∘map` over a whole column (exact whole-value mapping, optionally
+ * preceded by an edge trim over an explicit code-point set). Its effect is a
+ * property of the *prefix* (EW-04D §6.2 forward position-order composition
+ * over the cursor underlying value), so it has no inverse op list: an
+ * applied repair logs `inverse: []` with the `AppliedNote`
+ * `'undo-by-refold'`, and undo is the exact refold at the moved cursor
+ * (ADR 0050). {@link OP_UNDO_MODE} is the explicit per-kind table that
+ * declares, for every op kind, whether undo is an inverse list or a refold,
+ * so a new kind cannot skip the declaration.
+ *
  * Purity: this module is types + total pure helpers only — no React, no
  * browser APIs, no engine imports (docs/engineering/03 §3, lint-enforced).
  */
@@ -145,6 +156,127 @@ export type EditOp =
   | { readonly kind: 'column-rename'; readonly from: string; readonly to: string }
   /** Cast a column to a target type in the engine's type space (opaque string). */
   | { readonly kind: 'column-cast'; readonly column: string; readonly targetType: string }
+  /**
+   * Repair one whole text column with the composed value function
+   * `trim∘map` (EW-04D §4.2, D11): an exact, simultaneous, whole-value
+   * `mapping`, optionally preceded by an edge-only `trim` over an explicit
+   * code-point set ({@link MAX_REPAIR_TRIM_CODE_POINTS} code points max;
+   * never a default-`trim()` — NBSP and friends are *not* members unless the
+   * plan says so). `NULL` never matches and is never produced; `''` is data
+   * and matchable only as an explicit key; a non-matching value's passthrough
+   * is its trimmed value. The column must be a textual spelling
+   * ({@link isTextualRepairType}) — `trim()` on a non-text type is a Binder
+   * Error and the string-*like* family is wider than the repairable set
+   * (`ENUM` re-declares as `VARCHAR` under the wrap; D16/D17 probe §4.2).
+   *
+   * One history entry, one undo step (ADR 0050): `inverse: []` + the
+   * `'undo-by-refold'` note on the applied outcome; undo/redo are the usual
+   * cursor moves and the state is the refold of the active prefix.
+   */
+  | {
+      readonly kind: 'column-repair'
+      readonly column: string
+      /**
+       * Explicit edge-trim code-point set (applied *before* the mapping),
+       * `1..{@link MAX_REPAIR_TRIM_CODE_POINTS}` code points. Absent ⇒ no
+       * trim (the mapping matches raw values exactly). D1's recommended
+       * default is {@link DEFAULT_REPAIR_TRIM_CODE_POINTS}.
+       */
+      readonly trim?: string
+      /** Exact whole-value mapping applied to the (trimmed) value. */
+      readonly mapping: ReadonlyMap<string, string>
+    }
+
+/**
+ * The closed explicit code-point universe of a `column-repair` trim set is
+ * whatever the plan declares — the D1 *recommended default* is the four
+ * ASCII edge characters below (probes P4/D1: `String.prototype.trim()`'s
+ * implicit set is wrong for repair — it strips NBSP and friends and keeps
+ * tab/LF/CR — so the engine must always trim with the explicit set).
+ */
+export const DEFAULT_REPAIR_TRIM_CODE_POINTS = '\u0020\u0009\u000A\u000D'
+
+/** Plan cap: at most this many mapping pairs in one `column-repair` (EW-04D §4.4). */
+export const MAX_REPAIR_MAPPING_PAIRS = 500
+
+/** Plan cap: at most this many code points in a `column-repair` trim set (EW-04D §4.4). */
+export const MAX_REPAIR_TRIM_CODE_POINTS = 16
+
+/**
+ * The engine-declared column types a `column-repair` may target: exactly the
+ * textual spellings whose values are text and whose `trim()` is total
+ * (D16/D17 probe §4.2 constraint 1). Deliberately **narrower** than the
+ * CSV guard's string-*like* family: `ENUM` renders as text but a repair's
+ * `trim()` re-declares the column as `VARCHAR`, and `CHAR`/`BPCHAR` would
+ * silently widen the declared type the same way — neither re-declaration is
+ * accepted, so both are refused here. The type is the engine's declared
+ * spelling (case-insensitive); the fold refuses anything else with the
+ * typed `repair-column-not-text` conflict.
+ */
+const REPAIRABLE_TEXT_TYPE_SPELLINGS: ReadonlySet<string> = new Set(['VARCHAR', 'TEXT', 'STRING'])
+
+/** Whether an engine-declared type is a textual repair target (see above). */
+export function isTextualRepairType(type: string): boolean {
+  return REPAIRABLE_TEXT_TYPE_SPELLINGS.has(type.toUpperCase())
+}
+
+/**
+ * Strip the maximal prefix and suffix runs of characters from the explicit
+ * `set` (edge-only, repeated, interior untouched) — the domain's trim∘map
+ * trim half. Iterates by code point so astral set members work; never uses
+ * `String.prototype.trim()` (its implicit set is not the plan's set). This
+ * is the single implementation the engine's D17 literal rewrite shares with
+ * the fold, so the TypeScript and SQL sides cannot drift.
+ */
+export function trimWithCodePoints(value: string, set: string): string {
+  // `members` are single code points (`[...set]` iterates by code point), so
+  // each member is one code unit or a surrogate pair — `startsWith` at the
+  // scanning offset matches astral members exactly, including on the suffix
+  // walk (a backward `codePointAt` would see the lone low surrogate half).
+  const members = [...set]
+  let start = 0
+  let end = value.length
+  while (start < end) {
+    const member = members.find((candidate) => value.startsWith(candidate, start))
+    if (member === undefined) break
+    start += member.length
+  }
+  while (end > start) {
+    const member = members.find(
+      (candidate) =>
+        end - candidate.length >= start && value.startsWith(candidate, end - candidate.length),
+    )
+    if (member === undefined) break
+    end -= member.length
+  }
+  return value.slice(start, end)
+}
+
+/** How undo of one op kind is performed (ADR 0050 resolution 2). */
+export type OpUndoMode =
+  /** The entry carries a derived inverse op list (every kind before EW-04D). */
+  | 'inverse'
+  /** The entry carries `inverse: []`; undo is the exact refold at the cursor. */
+  | 'refold'
+
+/**
+ * The explicit per-kind undo-mode table (ADR 0050 acceptance resolution 2):
+ * every `EditOp` kind must declare refoldable-or-inverse, so a future kind
+ * cannot skip the declaration and silently inherit either behaviour. Only
+ * prefix-function ops may be `'refold'` (resolution 3); `column-repair` is
+ * the one member licensed by ADR 0050.
+ */
+export const OP_UNDO_MODE: Readonly<Record<EditOp['kind'], OpUndoMode>> = {
+  'cell-set': 'inverse',
+  'cell-revert': 'inverse',
+  'row-insert': 'inverse',
+  'row-uninsert': 'inverse',
+  'row-delete': 'inverse',
+  'row-restore': 'inverse',
+  'column-rename': 'inverse',
+  'column-cast': 'inverse',
+  'column-repair': 'refold',
+}
 
 /**
  * Human-readable, deterministic description of one op — the m4-4 history
@@ -177,6 +309,14 @@ export function describeOp(op: EditOp): string {
       return `rename column ${formatName(op.from)} to ${formatName(op.to)}`
     case 'column-cast':
       return `cast column ${formatName(op.column)} to ${op.targetType}`
+    case 'column-repair': {
+      // Value-free for the plan payload (the mapping keys/targets are dataset
+      // content — ADR 0025): the description carries the column name and the
+      // plan's *shape* only, never a mapping entry or the trim characters.
+      const parts: string[] = [`${op.mapping.size} mapping pairs`]
+      if (op.trim !== undefined) parts.push('edge trim')
+      return `repair column ${formatName(op.column)} (${parts.join(', ')})`
+    }
   }
 }
 

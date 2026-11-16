@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { CellValue, EditOp } from './edit-ops'
+import { DEFAULT_REPAIR_TRIM_CODE_POINTS, OP_UNDO_MODE } from './edit-ops'
 import type { OverlayBase } from './overlay'
 import { foldOverlay } from './overlay'
 import { appendOp, emptyHistory, redo, stateAtCursor, undo } from './history'
@@ -38,6 +39,43 @@ const CELL_SET = (rowId: RowId, column: string, value: CellValue): EditOp => ({
   column,
   value,
 })
+
+/**
+ * A P1 repair arm (ADR 0050 decision 3): a valid `column-repair` on a live
+ * textual column of the current state, with the non-commuting P8 mapping
+ * pool, so the walk below exercises repair entries through append/undo/redo.
+ * Deliberately test-local: the shared `genOp` corpus belongs to
+ * `property-testing.ts` (outside this row's path scope), and widening it
+ * would also require narrowing `overlay.test.ts`'s `fold ∘ unfold` walk
+ * (`state.repairs` survives inverse walks — that is the refold point).
+ */
+function genRepairArm(
+  state: import('./overlay').OverlayState,
+  rng: ReturnType<typeof makeTestRng>,
+): EditOp {
+  const textual = state.columns.filter((column) =>
+    ['VARCHAR', 'TEXT', 'STRING'].includes(column.type.toUpperCase()),
+  )
+  const column = textual.length > 0 ? rng.pick(textual).name : 'label'
+  const pool: ReadonlyArray<readonly [string, string]> = [
+    ['old', 'middle'],
+    ['middle', 'final'],
+    ['old', 'new'],
+    ['a', 'b'],
+  ]
+  const mapping = new Map<string, string>()
+  const pairs = rng.int(1, 3)
+  for (let i = 0; i < pairs; i++) {
+    const [from, to] = pool[rng.int(0, pool.length - 1)] as readonly [string, string]
+    mapping.set(from, to)
+  }
+  return {
+    kind: 'column-repair',
+    column,
+    ...(rng.bool(0.7) ? { trim: DEFAULT_REPAIR_TRIM_CODE_POINTS } : {}),
+    mapping,
+  }
+}
 const INSERT = (rowId: RowId): EditOp => ({
   kind: 'row-insert',
   rowId,
@@ -254,7 +292,12 @@ describe('property: history walks', () => {
         for (let stepCount = 0; stepCount < 25; stepCount++) {
           const roll = rng.float()
           if (roll < 0.6) {
-            const op = genOp(rng, base, stateAtCursor(base, history), rng.bool(0.1))
+            const currentState = stateAtCursor(base, history)
+            // P1 repair arm: ~1 in 6 appends is a column-repair, so every
+            // invariant below is exercised with repair entries in the log.
+            const op = rng.bool(1 / 6)
+              ? genRepairArm(currentState, rng)
+              : genOp(rng, base, currentState, rng.bool(0.1))
             const snapshot = structuredClone(history)
             const result = appendOp(base, history, op)
             expect(history).toEqual(snapshot) // input never mutated
@@ -266,9 +309,28 @@ describe('property: history walks', () => {
             const step = undo(history)
             if (history.cursor > 0) {
               expect(step.entry).not.toBeNull()
-              expect(step.entry?.inverse.length === 0).toBe(
-                step.entry?.outcome.status !== 'applied',
-              )
+              // The ADR 0050 narrowed walk invariant, via the explicit
+              // per-kind undo-mode table (acceptance resolution 2):
+              // inverse-mode entries keep `empty inverse ⇔ not applied`;
+              // refold-mode entries are applied with an empty inverse and
+              // the 'undo-by-refold' note — and nothing else may have an
+              // empty inverse while applied.
+              const entry = step.entry as NonNullable<typeof step.entry>
+              const mode = OP_UNDO_MODE[entry.op.kind]
+              if (mode === 'inverse') {
+                expect(entry.inverse.length === 0).toBe(entry.outcome.status !== 'applied')
+              } else {
+                if (entry.outcome.status === 'applied') {
+                  expect(entry.inverse).toEqual([])
+                  expect(entry.outcome.notes).toContain('undo-by-refold')
+                } else {
+                  expect(entry.inverse).toEqual([])
+                }
+              }
+              // Global direction, every kind: a non-empty inverse implies
+              // the op was applied (there is never something to undo for a
+              // no-op or a conflict).
+              if (entry.inverse.length > 0) expect(entry.outcome.status).toBe('applied')
             } else {
               expect(step.entry).toBeNull()
               expect(step.history).toBe(history)

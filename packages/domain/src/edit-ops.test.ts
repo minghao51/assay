@@ -72,6 +72,26 @@ describe('op descriptions — deterministic, honest, panel-ready (m4-4)', () => 
       'rename column "a b" to "c\\"d"',
     )
   })
+
+  it('describes column-repair by plan shape only — no mapping entry or trim character (EW-04D/ADR 0025)', () => {
+    const repair: EditOp = {
+      kind: 'column-repair',
+      column: 'label',
+      trim: ' \t\n\r',
+      mapping: new Map([
+        ['alpha', 'ALPHA'],
+        ['beta', 'BETA'],
+      ]),
+    }
+    expect(describeOp(repair)).toBe('repair column "label" (2 mapping pairs, edge trim)')
+    expect(
+      describeOp({ kind: 'column-repair', column: 'tag', mapping: new Map([['k', 'v']]) }),
+    ).toBe('repair column "tag" (1 mapping pairs)')
+    // Dataset content never enters the description.
+    const described = describeOp(repair)
+    expect(described).not.toContain('alpha')
+    expect(described).not.toContain('ALPHA')
+  })
 })
 
 describe('op union — closed, transportable shapes', () => {

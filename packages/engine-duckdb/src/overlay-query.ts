@@ -67,6 +67,28 @@
  *   (the tiebreak is appended only for inserts; audit AR-E8). This is
  *   the pinned v1 combination surface: overlay windows support the same
  *   filter/sort grammar over the *effective* view.
+ * - **Column-repair composition** (EW-04D §6.2; D16/D17 probe record; ADR
+ *   0050): when the folded prefix carries `column-repair` records
+ *   (`state.repairs` — the fold records the value-independent metadata), the
+ *   window/export/schema relations gain **one stacked projection layer per
+ *   repair**, earliest innermost, each `mₖ + xₖ + 1` arms emitted once (the
+ *   exception arms read the base-ordinal machinery column, which the repair
+ *   composition alone projects upward; inserts pass through via a NULL arm
+ *   because their D17 literal rewrite already applied — the literal path
+ *   *replaces* the wrap, never accompanies it). Multi-repair is never
+ *   one-expression nesting: nesting duplicates the inner wrap into every
+ *   outer arm (2.4 MB SQL at two repairs, OOM at three — U4), while stacked
+ *   layers are additive `O(Σₖ (mₖ + xₖ + 1))`. Post-repair casts apply
+ *   outside the wrap (per-segment collapse); pre-repair casts collapse into
+ *   the wrap's input type. The schema op wraps too (D16a — wrapped
+ *   `DESCRIBE` over `composeSourceSql`, bind-only), and the pending-cast
+ *   check composes the **split form** for repair columns only (D16b —
+ *   per-row trim + `TRY_CAST` + `IN`-membership, mapping constants hoisted
+ *   out of row scope; a wrap-as-predicate is 100–200× more expensive, and
+ *   repair-free columns keep the raw-arm shape that sees the domain's
+ *   collapsed cast chain). Exports pay a published pre-apply budget
+ *   (rows × pairs — U4 measured ~4 s at 2 M × 500 with no interrupt).
+ *   Caps and refusals are typed and value-free throughout (D15 x ≤ 500).
  *
  * ## Session-bounded costs (PT-Q q-6, audit AR-E10)
  *
@@ -127,8 +149,14 @@
  * (`type-expr.ts`) — an unvalidated string can never be interpolated.
  */
 import type { OverlayBase } from '@assay/domain'
-import { baseRowId, parseRowId } from '@assay/domain'
-import type { CellValue, InsertedRowRecord, OverlayState, RowId } from '@assay/domain'
+import { baseRowId, isTextualRepairType, parseRowId, trimWithCodePoints } from '@assay/domain'
+import type {
+  CellValue,
+  InsertedRowRecord,
+  OverlayState,
+  RepairStepRecord,
+  RowId,
+} from '@assay/domain'
 import { quotedIdentifier, sqlStringLiteral } from './format-view.js'
 import type { EngineExportFormat, EngineFilterSpec, EngineSortSpec } from './protocol.js'
 import {
@@ -168,6 +196,72 @@ const ORDINAL_COLUMN = 'assay_overlay_ord'
  * far above any realistic manual-insert session.
  */
 export const MAX_OVERLAY_LIVE_INSERT_BRANCHES = 500
+
+/**
+ * Per-repair base-branch exception-arm cap (EW-04D D15, accepted): a repair
+ * whose exception set exceeds this refuses with a typed value-free error, the
+ * same remedy shape as the live-insert cap. Exceptions are per repair layer
+ * (`state.repairs[k]`), never per column.
+ */
+export const MAX_REPAIR_EXCEPTION_ARMS = 500
+
+/**
+ * The published export/full-scan envelope (EW-04D post-R1 acceptance, option
+ * (a)): projected work = rows × mapping pairs. U4 measured ~4.0 s at the
+ * envelope's corner (2 M rows × 500 pairs = 1e9 cell rewrites) on the shipped
+ * `eh` bundle, and the cost is linear in rows × arms with no engine interrupt,
+ * so an export whose projected work exceeds this refuses *before* it runs.
+ * This is a pre-materialization budget, not an interrupt: nothing cancels a
+ * query once composed.
+ */
+export const MAX_REPAIR_EXPORT_CELL_WORK = 1_000_000_000
+
+/**
+ * The composed export/full-scan exceeds the published envelope
+ * ({@link MAX_REPAIR_EXPORT_CELL_WORK}): projected rows × mapping pairs over
+ * the measured U4 cost line. **Value-free** (ADR 0025) and honest about what
+ * it is: a pre-apply budget refusal, never an interrupt claim. The remedy is
+ * the session-bounded one — undo repair(s) or materialize the edits into a
+ * new base (export/rewrite) and re-open it.
+ */
+export class OverlayRepairExportBudgetError extends Error {
+  constructor() {
+    super(
+      `the repair plan's projected export cost (rows × mapping pairs) exceeds the published budget of ${MAX_REPAIR_EXPORT_CELL_WORK.toLocaleString('en-US')} cell rewrites; undo repairs or export the edits to a new file and re-open it before repairing further`,
+    )
+    this.name = 'OverlayRepairExportBudgetError'
+  }
+}
+
+/**
+ * One repair layer's exception set exceeds the accepted per-layer cap
+ * ({@link MAX_REPAIR_EXCEPTION_ARMS}). **Value-free** (ADR 0025): it names the
+ * engine's own arm cap, never row counts or identifiers.
+ */
+export class OverlayRepairExceptionLimitError extends Error {
+  constructor() {
+    super(
+      `a column repair composes more per-row exception arms than the engine composes in one wrap (limit ${MAX_REPAIR_EXCEPTION_ARMS} exception arms per repair); undo earlier row edits/deletes on the repaired column or export the edits to a new file and re-open it`,
+    )
+    this.name = 'OverlayRepairExceptionLimitError'
+  }
+}
+
+/**
+ * A live insert's merged value on a repaired column is `number`/`boolean`, so
+ * the compose-time literal rewrite (D17) cannot apply to it: the TypeScript
+ * rendering of such values diverges from the engine's own cast (`1e-7` vs
+ * `1e-07`; D16/D17 probe §2.4), and re-applying the SQL wrap would cascade
+ * (exactly-once violation). **Value-free** (ADR 0025).
+ */
+export class OverlayRepairInsertValueError extends Error {
+  constructor() {
+    super(
+      'an inserted row holds a non-text value on a repaired column; the repair cannot be composed for it — enter the value as text or undo the column repair first',
+    )
+    this.name = 'OverlayRepairInsertValueError'
+  }
+}
 
 /**
  * The folded overlay carries more live inserted rows than the composer's
@@ -669,6 +763,7 @@ function baseColumnExpr(
   effectiveIndex: number,
   ordinalRef: string,
   editIndex: ReadonlyMap<string, readonly BaseColumnEdit[]>,
+  declaredTypeOverride?: string,
 ): string {
   const effective = state.columns[effectiveIndex]
   const baseColumn = base.columns[effectiveIndex]
@@ -678,13 +773,18 @@ function baseColumnExpr(
     )
   }
   const source = quotedIdentifier(baseColumn.name)
-  const withCast =
-    effective.type === baseColumn.type ? source : `CAST(${source} AS ${effective.type})`
+  // A repair column whose pending casts were made *after* the repair projects
+  // under the wrap's input type here (the type at the last repair); the
+  // post-repair cast chain applies outside the wrap (per-segment collapse,
+  // D16/D17 probe §7.1 constraint 2). Every other column projects under its
+  // effective type exactly as before.
+  const declaredType = declaredTypeOverride ?? effective.type
+  const withCast = declaredType === baseColumn.type ? source : `CAST(${source} AS ${declaredType})`
   const edits = editIndex.get(effective.name) ?? []
   if (edits.length === 0) return withCast
   const arms = edits.map(
     (edit) =>
-      `WHEN ${ordinalRef} = ${String(edit.ordinal)} THEN ${cellLiteralSql(edit.value, effective.type)}`,
+      `WHEN ${ordinalRef} = ${String(edit.ordinal)} THEN ${cellLiteralSql(edit.value, declaredType)}`,
   )
   return `CASE ${arms.join(' ')} ELSE ${withCast} END`
 }
@@ -697,6 +797,23 @@ interface RelationOptions {
   readonly withRowIds: boolean
   /** Apply the CSV guard to scalar string-family columns (CSV export only). */
   readonly sanitizeCsv: boolean
+  /**
+   * Also project the base-ordinal machinery column (`assay_overlay_ord`; NULL
+   * on insert branches) so repair wrap layers above the union can key their
+   * exception arms. Repair compositions only — default off, so every
+   * repair-free composition stays byte-identical and the machinery column
+   * never leaks into a described relation.
+   */
+  readonly withOrdinal?: boolean
+  /** Per-column declared-type override for repair wrap-input types (see `baseColumnExpr`). */
+  readonly columnTypeOverrides?: ReadonlyMap<string, string>
+  /**
+   * Apply the D17 compose-time literal rewrite to insert branches of repaired
+   * columns (window/export/schema). The count path composes without it: a
+   * value transform never affects counts, and an invalid insert value must not
+   * refuse a count that would otherwise answer.
+   */
+  readonly rewriteRepairs?: boolean
 }
 
 /**
@@ -718,7 +835,14 @@ function baseBranchSql(
     `SELECT ${baseColumns}, (row_number() OVER () - 1) AS ${ORDINAL_COLUMN} ` +
     `FROM ${quotedIdentifier(viewName)}`
   const exprs = state.columns.map((column, index) => {
-    const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN, editIndex)
+    const raw = baseColumnExpr(
+      base,
+      state,
+      index,
+      ORDINAL_COLUMN,
+      editIndex,
+      options.columnTypeOverrides?.get(column.name),
+    )
     const guarded = options.sanitizeCsv ? csvSafeExpression(raw, column.type) : raw
     return `${guarded} AS ${quotedIdentifier(column.name)}`
   })
@@ -732,6 +856,9 @@ function baseBranchSql(
   }
   if (options.withKey) {
     exprs.push(`[0, ${ORDINAL_COLUMN}, 1] AS ${quotedIdentifier(OVERLAY_SORT_KEY_COLUMN)}`)
+  }
+  if (options.withOrdinal === true) {
+    exprs.push(ORDINAL_COLUMN)
   }
   const tombstones = [...state.deletedBase].sort((a, b) => a - b)
   const tombstoneFilter =
@@ -761,14 +888,25 @@ function insertBranchSql(
   options: RelationOptions,
 ): string {
   const exprs = state.columns.map((column) => {
-    const literal = cellLiteralSql(insertColumnValue(state, record, column.name), column.type)
+    const declaredType = options.columnTypeOverrides?.get(column.name) ?? column.type
+    const merged = insertColumnValue(state, record, column.name)
+    const literal = rewriteRepairsForInsertBranch(
+      state,
+      record,
+      column.name,
+      merged,
+      declaredType,
+      options,
+    )
     // The CSV guard applies to insert branches too — a bait value in an
     // inserted row must be sanitized exactly like an edited base cell
     // (probed by the conformance suite's export round-trip). Classification
     // is the canonical string/BLOB family, not an exact `VARCHAR` spelling:
     // the m4-2 review found a `CAST(… AS TEXT)` column skipped the guard, and
-    // a BLOB insert would otherwise write raw bytes.
-    const guarded = options.sanitizeCsv ? csvSafeExpression(literal, column.type) : literal
+    // a BLOB insert would otherwise write raw bytes. Repair compositions
+    // sanitize above the wrap layers instead (the guard must see the
+    // post-repair value), so this flag is never set together with repairs.
+    const guarded = options.sanitizeCsv ? csvSafeExpression(literal, declaredType) : literal
     return `${guarded} AS ${quotedIdentifier(column.name)}`
   })
   if (options.withRowIds) {
@@ -776,6 +914,9 @@ function insertBranchSql(
   }
   if (options.withKey) {
     exprs.push(`[${key.map(String).join(', ')}] AS ${quotedIdentifier(OVERLAY_SORT_KEY_COLUMN)}`)
+  }
+  if (options.withOrdinal === true) {
+    exprs.push(`CAST(NULL AS BIGINT) AS ${ORDINAL_COLUMN}`)
   }
   return `SELECT ${exprs.join(', ')}`
 }
@@ -793,6 +934,10 @@ export function composeSourceSql(
     readonly withRowIds: boolean
     readonly sanitizeCsv: boolean
     readonly withKey: boolean
+    /** Repair machinery: see `RelationOptions` — repair compositions only. */
+    readonly withOrdinal?: boolean
+    readonly columnTypeOverrides?: ReadonlyMap<string, string>
+    readonly rewriteRepairs?: boolean
   },
 ): string {
   const { base, state, viewName } = composition
@@ -830,6 +975,278 @@ function assertLiveInsertBranchBudget(liveInsertCount: number): void {
 }
 
 // ---------------------------------------------------------------------------
+// Column-repair composition (EW-04D §6.2; D16/D17 probe record)
+// ---------------------------------------------------------------------------
+
+/**
+ * One repaired column's composition plan, derived from the fold's
+ * `state.repairs` (the value-independent half of the §6.2 rule) — the
+ * composer evaluates exceptions without reading any values.
+ */
+interface RepairColumnPlan {
+  /** Final effective (post-rename) column name — what the wrap re-projects. */
+  readonly columnName: string
+  /** The repair records in forward (prefix) order — earliest first. */
+  readonly records: readonly RepairStepRecord[]
+  /** The column's declared type at the LAST repair — the wrap's input type. */
+  readonly inputType: string
+  /** The column's final effective type — post-repair casts apply outside. */
+  readonly finalType: string
+}
+
+/** Derive per-column repair plans from the folded state (O(repairs)). */
+function repairPlansFor(state: OverlayState): ReadonlyMap<string, RepairColumnPlan> {
+  const plans = new Map<string, RepairColumnPlan & { readonly records: RepairStepRecord[] }>()
+  for (const record of state.repairs) {
+    const column = state.columns[record.columnIndex]
+    if (column === undefined) {
+      throw new Error(
+        `overlay base metadata is inconsistent: repair record column index ${String(record.columnIndex)} has no effective column`,
+      )
+    }
+    const existing = plans.get(column.name)
+    const records = existing === undefined ? [record] : [...existing.records, record]
+    plans.set(column.name, {
+      columnName: column.name,
+      records,
+      inputType: record.typeAtApply,
+      finalType: column.type,
+    })
+  }
+  return plans
+}
+
+/**
+ * The exception ordinals of one repair record: base rows **not live** at the
+ * repair's position, plus base rows that received an *applied* suffix value-op
+ * on the repaired column (the per-row maskers). Insert ids are handled by the
+ * D17 rewrite, never by exception arms. Sorted ascending; session-bounded.
+ */
+function repairExceptionOrdinals(base: OverlayBase, record: RepairStepRecord): readonly number[] {
+  const ordinals = new Set<number>(record.deadOrdinalsAtApply)
+  for (const rowId of record.maskedRows) {
+    const parsed = parseRowId(rowId as RowId)
+    if (parsed === null || parsed.origin !== 'base' || parsed.anchor !== base.baseAnchor) continue
+    ordinals.add(parsed.ordinal)
+  }
+  return [...ordinals].sort((a, b) => a - b)
+}
+
+/** The trim set as a SQL string literal, after the lossless-text guard. */
+function trimSetSql(trim: string): string {
+  assertWellFormedCellText(trim)
+  return sqlStringLiteral(trim)
+}
+
+/**
+ * One repair's mapping CASE over `ref`: exact whole-value hits cast to the
+ * repair's declared type, ELSE passthrough. With a trim, the operand and the
+ * ELSE are the same explicit-set `trim(ref, …)` (the §1 shape — two `trim`
+ * occurrences, never more); the operand is always the *trimmed* value, which
+ * is why the fold refuses dead keys. Mapping text runs the surrogate guard:
+ * a target is new user text and must be materializable losslessly.
+ */
+function repairMappingCaseSql(record: RepairStepRecord, ref: string): string {
+  const arms = [...record.mapping].map(([from, to]) => {
+    assertWellFormedCellText(from)
+    assertWellFormedCellText(to)
+    return `WHEN ${sqlStringLiteral(from)} THEN CAST(${sqlStringLiteral(to)} AS ${record.typeAtApply})`
+  })
+  if (arms.length === 0) {
+    // Trim-only repair: the wrap is the trim itself (no CASE with zero arms).
+    return record.trim !== undefined ? `trim(${ref}, ${trimSetSql(record.trim)})` : ref
+  }
+  const when = arms.join(' ')
+  if (record.trim === undefined) return `CASE ${ref} ${when} ELSE ${ref} END`
+  const setSql = trimSetSql(record.trim)
+  const operand = `trim(${ref}, ${setSql})`
+  return `CASE ${operand} ${when} ELSE ${operand} END`
+}
+
+/**
+ * One repair's wrap expression over the layer input `ref`: the insert
+ * pass-through arm (inserted rows carry their D17-rewritten literal — the
+ * literal path *replaces* the wrap, never accompanies it, or application
+ * cascades), one exception arm per masked/not-live ordinal (the underlying
+ * cursor value, untransformed), and the mapping CASE as the ELSE. `m + x + 1`
+ * arms (plus the machinery pass-through), emitted once per layer.
+ */
+function repairWrapExpressionSql(
+  base: OverlayBase,
+  record: RepairStepRecord,
+  ref: string,
+  hasLiveInserts: boolean,
+): string {
+  const exceptions = repairExceptionOrdinals(base, record)
+  if (exceptions.length > MAX_REPAIR_EXCEPTION_ARMS) {
+    throw new OverlayRepairExceptionLimitError()
+  }
+  const arms: string[] = []
+  if (hasLiveInserts) {
+    arms.push(`WHEN ${ORDINAL_COLUMN} IS NULL THEN ${ref}`)
+  }
+  for (const ordinal of exceptions) {
+    arms.push(`WHEN ${ORDINAL_COLUMN} = ${String(ordinal)} THEN ${ref}`)
+  }
+  const mappingCase = repairMappingCaseSql(record, ref)
+  // No exception arms and no inserts: the wrap is the mapping CASE alone —
+  // a `CASE ELSE x END` with zero WHENs is never emitted.
+  if (arms.length === 0) return mappingCase
+  arms.push(`ELSE ${mappingCase}`)
+  return `CASE ${arms.join(' ')} END`
+}
+
+/** The wrap's declared output type: `trim` types as `VARCHAR`, else the repair's declared type. */
+function repairWrapDeclaredType(record: RepairStepRecord): string {
+  return record.trim !== undefined ? 'VARCHAR' : record.typeAtApply
+}
+
+/**
+ * The D17 compose-time literal rewrite for one live insert's merged value on
+ * a repaired column: the surviving repairs (live at their position, no
+ * applied suffix value-op) applied **forward and exactly once** to the
+ * literal in TypeScript — one literal out, zero added arms. `NULL` stays
+ * `NULL` (it never matches, and trim never produces it); `string`/`text`
+ * kinds only — `number`/`boolean` render through the engine's own cast, whose
+ * text diverges from `String()` (probe §2.4), so those refuse. `options`
+ * without `rewriteRepairs` (the count path) leaves every branch untouched.
+ */
+function rewriteRepairsForInsertBranch(
+  state: OverlayState,
+  record: InsertedRowRecord,
+  columnName: string,
+  merged: CellValue,
+  declaredType: string,
+  options: RelationOptions,
+): string {
+  const plan = options.rewriteRepairs === true ? repairPlansFor(state).get(columnName) : undefined
+  if (plan === undefined) return cellLiteralSql(merged, declaredType)
+  const surviving = plan.records.filter(
+    (entry) => entry.liveInsertIdsAtApply.has(record.id) && !entry.maskedRows.has(record.id),
+  )
+  if (surviving.length === 0) return cellLiteralSql(merged, declaredType)
+  if (merged.kind === 'null') return cellLiteralSql(merged, declaredType)
+  if (merged.kind !== 'string' && merged.kind !== 'text') {
+    throw new OverlayRepairInsertValueError()
+  }
+  let text = merged.kind === 'string' ? merged.value : merged.text
+  for (const entry of surviving) {
+    const trimmed = entry.trim !== undefined ? trimWithCodePoints(text, entry.trim) : text
+    text = entry.mapping.get(trimmed) ?? trimmed
+  }
+  // The rewritten value is new user text: the same surrogate guard as any
+  // literal runs on the OUTPUT, not only the input (cellLiteralSql guards
+  // string kinds again below — defence in depth at the literal boundary).
+  assertWellFormedCellText(text)
+  return cellLiteralSql({ kind: 'string', value: text }, declaredType)
+}
+
+/**
+ * The composed effective relation **with repair wraps applied**: the plain
+ * `composeSourceSql` union when no repair is in the prefix (byte-identical to
+ * composing it directly); otherwise the union with repaired columns projected
+ * under their wrap-input types, then **one stacked projection layer per
+ * repair** in forward prefix order (earliest innermost — each layer reads the
+ * previous layer's output column; never one-expression nesting, which
+ * duplicates the inner wrap into every outer arm and is falsified at two
+ * repairs, U4/probe §4.2). Post-repair casts apply outside the wrap: the
+ * column's last layer expression is wrapped in `CAST(… AS <final type>)` when
+ * the wrap's declared type differs. The CSV guard sanitizes the post-repair
+ * value, so it composes as one further outer projection when requested.
+ *
+ * Emitted size is additive: `O(Σₖ (mₖ + xₖ + 1))` arms and bytes, linear in
+ * the repair prefix — never `O(∏ mₖ)`.
+ */
+function composeEffectiveSourceSql(
+  composition: OverlayComposition,
+  options: {
+    readonly withRowIds: boolean
+    readonly sanitizeCsv: boolean
+    readonly withKey: boolean
+  },
+): string {
+  const { base, state } = composition
+  const plans = repairPlansFor(state)
+  if (plans.size === 0) {
+    return composeSourceSql(composition, options)
+  }
+  const liveInsertCount = liveInsertRecords(state).length
+  const overrides = new Map<string, string>()
+  for (const plan of plans.values()) {
+    if (plan.inputType.toUpperCase() !== plan.finalType.toUpperCase()) {
+      overrides.set(plan.columnName, plan.inputType)
+    }
+  }
+  let sql = composeSourceSql(composition, {
+    ...options,
+    sanitizeCsv: false,
+    withOrdinal: true,
+    ...(overrides.size > 0 ? { columnTypeOverrides: overrides } : {}),
+    rewriteRepairs: true,
+  })
+  const lastRecordPerColumn = new Map<string, RepairStepRecord>()
+  for (const plan of plans.values()) {
+    const last = plan.records[plan.records.length - 1]
+    if (last !== undefined) lastRecordPerColumn.set(plan.columnName, last)
+  }
+  const carried: string[] = state.columns.map((column) => column.name)
+  if (options.withRowIds) carried.push(OVERLAY_ROW_ID_COLUMN)
+  if (options.withKey && liveInsertCount > 0) carried.push(OVERLAY_SORT_KEY_COLUMN)
+  carried.push(ORDINAL_COLUMN)
+  for (const record of state.repairs) {
+    const column = state.columns[record.columnIndex]
+    if (column === undefined) {
+      throw new Error('overlay base metadata is inconsistent: repair record without column')
+    }
+    const ref = quotedIdentifier(column.name)
+    let expression = repairWrapExpressionSql(base, record, ref, liveInsertCount > 0)
+    if (lastRecordPerColumn.get(column.name) === record) {
+      const plan = plans.get(column.name)
+      const declared = repairWrapDeclaredType(record)
+      if (plan !== undefined && plan.finalType.toUpperCase() !== declared.toUpperCase()) {
+        expression = `CAST(${expression} AS ${plan.finalType})`
+      }
+    }
+    const projections = carried.map((name) =>
+      name === column.name ? `${expression} AS ${quotedIdentifier(name)}` : quotedIdentifier(name),
+    )
+    sql = `SELECT ${projections.join(', ')} FROM (${sql})`
+  }
+  if (options.sanitizeCsv) {
+    // The formula-injection guard must see the post-repair value, so it
+    // composes above the layers (never inside the wrap input).
+    const projections = [
+      ...state.columns.map(
+        (column) =>
+          `${csvSafeExpression(quotedIdentifier(column.name), column.type)} AS ${quotedIdentifier(column.name)}`,
+      ),
+    ]
+    if (options.withRowIds) projections.push(quotedIdentifier(OVERLAY_ROW_ID_COLUMN))
+    if (options.withKey && liveInsertCount > 0) {
+      projections.push(quotedIdentifier(OVERLAY_SORT_KEY_COLUMN))
+    }
+    sql = `SELECT ${projections.join(', ')} FROM (${sql})`
+  }
+  return sql
+}
+
+/**
+ * The published export budget (post-R1 acceptance option (a)): refuse before
+ * composing when projected rows × mapping pairs exceeds
+ * {@link MAX_REPAIR_EXPORT_CELL_WORK} — the U4-measured cost line (~4 s at
+ * 2 M rows × 500 pairs on the shipped `eh` bundle, linear in rows × arms, no
+ * engine interrupt). Value-free; never claimed as an interrupt.
+ */
+function assertRepairExportBudget(composition: OverlayComposition): void {
+  const totalPairs = composition.state.repairs.reduce((sum, record) => sum + record.mapping.size, 0)
+  if (totalPairs === 0) return
+  const rows = composition.base.baseRowCount + liveInsertRecords(composition.state).length
+  if (rows * totalPairs > MAX_REPAIR_EXPORT_CELL_WORK) {
+    throw new OverlayRepairExportBudgetError()
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public composition surface
 // ---------------------------------------------------------------------------
 
@@ -842,19 +1259,36 @@ function assertLiveInsertBranchBudget(liveInsertCount: number): void {
  * *value*-level cast failure surfaces on the first materializing op
  * (window/count/export) — both typed engine errors, never silent drift.
  */
+/**
+ * `DESCRIBE SELECT …` over the composed effective relation — the effective
+ * schema (post-rename names, post-cast DuckDB types), **wrapped** (D16(a),
+ * accepted): the outer projection lists the effective columns over
+ * `composeSourceSql`'s union (with `withRowIds: false`, `withKey: false`,
+ * `sanitizeCsv: false` — the ordinal is created inside the base branch and
+ * never projected), so the schema can only describe a relation the
+ * materializing ops actually produce, and the engine enforces the
+ * type-preservation argument per request instead of leaving it a proof
+ * obligation. `DESCRIBE` is bind-only (probe: ~1 ms over a 2 M-row view), so
+ * the wrap adds planning work only. With repairs in the prefix the described
+ * relation includes the stacked repair layers, so the schema reports the
+ * wrap's declared types (a repair never misdescribes a repair-free column).
+ * A cast to a type string the engine rejects fails right here as a readable
+ * binder error (declared-cast validation); a *value*-level cast failure
+ * surfaces on the first materializing op — both typed engine errors, never
+ * silent drift.
+ */
 export function composeOverlaySchemaSql(composition: OverlayComposition): string {
   assertNoReservedNames(composition.base, composition.state)
   assertValidEffectiveTypes(composition.state)
-  const { base, state, viewName } = composition
-  const editIndex = groupBaseColumnEdits(base, state)
-  const exprs = state.columns.map((column, index) => {
-    const raw = baseColumnExpr(base, state, index, ORDINAL_COLUMN, editIndex)
-    return `${raw} AS ${quotedIdentifier(column.name)}`
+  const source = composeEffectiveSourceSql(composition, {
+    withRowIds: false,
+    sanitizeCsv: false,
+    withKey: false,
   })
-  const inner =
-    `SELECT ${base.columns.map((column) => quotedIdentifier(column.name)).join(', ')}, ` +
-    `(row_number() OVER () - 1) AS ${ORDINAL_COLUMN} FROM ${quotedIdentifier(viewName)}`
-  return `DESCRIBE SELECT ${exprs.join(', ')} FROM (${inner})`
+  const projection = composition.state.columns
+    .map((column) => `${quotedIdentifier(column.name)} AS ${quotedIdentifier(column.name)}`)
+    .join(', ')
+  return `DESCRIBE SELECT ${projection} FROM (${source})`
 }
 
 /**
@@ -936,7 +1370,47 @@ export function composeOverlayCastCheckSql(
     )
   }
   assertLiveInsertBranchBudget(liveInsertRecords(state).length)
+  const repairRecords = state.repairs.filter((record) => record.columnIndex === effectiveIndex)
+  if (repairRecords.length > 0) {
+    return composeRepairCastCheckSql(
+      base,
+      state,
+      viewName,
+      column,
+      effectiveIndex,
+      baseColumn,
+      targetType,
+      repairRecords,
+    )
+  }
+  return composeRepairFreeCastCheckSql(
+    base,
+    state,
+    viewName,
+    column,
+    effectiveIndex,
+    baseColumn,
+    targetType,
+  )
+}
 
+/**
+ * The repair-free cast check — **byte-identical to the pre-repair composer**
+ * (m4-4b). A repair-free column keeps the raw-arm shape because the domain
+ * collapses its cast chain to one direct `CAST(<raw value> AS final_type)`,
+ * and this raw-arm shape is the only one that sees the collapsed chain
+ * (D16(b) scope qualifier; probe §3.1). Do not "simplify" it onto the split
+ * form: that re-introduces the m4-4b round-3 defect class.
+ */
+function composeRepairFreeCastCheckSql(
+  base: OverlayBase,
+  state: OverlayState,
+  viewName: string,
+  column: string,
+  effectiveIndex: number,
+  baseColumn: { readonly name: string; readonly type: string },
+  targetType: string,
+): string {
   /** `<raw> IS NOT NULL AND TRY_CAST(<raw> AS target) IS NULL` — the raw
    *  value is non-NULL and the committed `CAST(<raw> AS target)` would throw. */
   const conversionFails = (raw: string): string =>
@@ -997,6 +1471,174 @@ export function composeOverlayCastCheckSql(
 }
 
 /**
+ * The repair-column cast check — the **split form** (D16(b), accepted; probe
+ * §3.3). Once a value transform sits in the prefix, the committed conversion
+ * of a pending cast is of the *repair output*, not of the raw value, so a
+ * raw-arm check would answer the wrong question — and the literal reading
+ * ("predicate over the wrapped value") is 100–200× more expensive as an
+ * existence probe (CASE arms evaluate linearly in a filter, `IN (…)`
+ * set-wise; `MATERIALIZED` does not rescue it). The split form is the same
+ * question algebraically: per-row work is one trim + one `TRY_CAST` + one
+ * hashed set-membership; every m-shaped constant is hoisted out of row
+ * scope. It keeps every m4-4b discipline — each value is `TRY_CAST`ed
+ * before any hard cast, exception rows keep today's raw arms, no literal is
+ * hard-cast to a type it is not committed under — and predicate sites use
+ * set membership (`IN`), never CASE chains.
+ *
+ * The chain collapses at compose time into one finite map applied to the
+ * trimmed operand (probe §3.5/probe18): keys are chain-evaluated, so
+ * non-commuting multi-repair prefixes collapse exactly; the fold guarantees
+ * all repairs on a column share one trim specification (the one-`trim∘map`
+ * rule) and refuse dead keys, which is what makes the single-operand form
+ * exact. Exception rows (masked or not live at a repair's position) keep
+ * today's raw arms: for them the repair never applied, so the pending cast
+ * applies to the raw value directly. Edited non-exception rows keep a
+ * per-row arm over their raw literal (bounded by edits, session-sized, never
+ * by the mapping). Empty-check elision (R1-C generalized, probe §3.4): a
+ * textual target cannot fail on a wrap whose declared type is text — the
+ * whole statement is provably empty, so the composer emits the empty check
+ * instead of a scan.
+ */
+function composeRepairCastCheckSql(
+  base: OverlayBase,
+  state: OverlayState,
+  viewName: string,
+  column: string,
+  _effectiveIndex: number,
+  baseColumn: { readonly name: string; readonly type: string },
+  targetType: string,
+  repairRecords: readonly RepairStepRecord[],
+): string {
+  // A textual target cannot fail on a repair column: the wrap's declared type
+  // is text (trim types as VARCHAR; a trim-less chain declares the textual
+  // repair type), every mapping constant is a string, and exception rows'
+  // raw literals are valid text too — TRY_CAST(text AS text) is total. The
+  // provably-empty check is honest and free (probe §3.4).
+  if (isTextualRepairType(targetType)) {
+    return 'SELECT 1 WHERE FALSE LIMIT 1'
+  }
+
+  const conversionFails = (raw: string): string =>
+    `${raw} IS NOT NULL AND TRY_CAST(${raw} AS ${targetType}) IS NULL`
+  const ordinal = ORDINAL_COLUMN
+  const baseRef = quotedIdentifier(baseColumn.name)
+  const edits = groupBaseColumnEdits(base, state).get(column) ?? []
+  const editsByOrdinal = new Map(edits.map((edit) => [edit.ordinal, edit]))
+
+  // Collapse the chain: every key any repair could match, chain-evaluated
+  // through the full forward composition (each step trims, then maps).
+  // Keys are trim-normalized (the fold refuses dead keys), so the first
+  // trim is a no-op on them and the collapsed map applied to the trimmed
+  // operand reproduces the stacked composition exactly (probe18).
+  const evalRepairChain = (start: string): string => {
+    let value = start
+    for (const record of repairRecords) {
+      if (record.trim !== undefined) value = trimWithCodePoints(value, record.trim)
+      const mapped = record.mapping.get(value)
+      if (mapped !== undefined) value = mapped
+    }
+    return value
+  }
+  const collapsed = new Map<string, string>()
+  const keyUnion = new Set<string>()
+  for (const record of repairRecords) {
+    for (const key of record.mapping.keys()) keyUnion.add(key)
+  }
+  for (const key of keyUnion) {
+    const final = evalRepairChain(key)
+    if (final !== key) collapsed.set(key, final)
+  }
+  const trim = repairRecords[0]?.trim
+  const operandOf = (raw: string): string =>
+    trim !== undefined ? `trim(${raw}, ${trimSetSql(trim)})` : raw
+  const keysSql = [...collapsed.keys()].map((key) => {
+    assertWellFormedCellText(key)
+    return sqlStringLiteral(key)
+  })
+  /** The split-form predicate over any raw value source: TRY_CAST the
+   *  trimmed operand, and count it as passing when it maps to a constant
+   *  (constants are hoisted to their own branch below). */
+  const splitFails = (raw: string): string => {
+    const operand = operandOf(raw)
+    const keyTest = keysSql.length > 0 ? ` AND ${operand} NOT IN (${keysSql.join(', ')})` : ''
+    return `${operand} IS NOT NULL AND TRY_CAST(${operand} AS ${targetType}) IS NULL${keyTest}`
+  }
+
+  // Exception ordinals across the whole chain: masked or not-live-at-p for
+  // any repair. Such rows keep the raw arms (the repair never applied).
+  const exceptionOrdinals = new Set<number>()
+  for (const record of repairRecords) {
+    for (const exception of repairExceptionOrdinals(base, record)) exceptionOrdinals.add(exception)
+  }
+
+  const arms: string[] = []
+  const editedOrdinals: number[] = []
+  for (const edit of edits) {
+    editedOrdinals.push(edit.ordinal)
+    const raw = cellLiteralRawSql(edit.value)
+    if (exceptionOrdinals.has(edit.ordinal)) {
+      // Masked/not-live edited row: today's raw arm, unchanged.
+      arms.push(`(${ordinal} = ${String(edit.ordinal)} AND ${conversionFails(raw)})`)
+    } else {
+      // The repair applies to the literal: the split predicate over the raw
+      // literal (session-bounded per-edit arm — never a CASE chain).
+      arms.push(`(${ordinal} = ${String(edit.ordinal)} AND ${splitFails(raw)})`)
+    }
+  }
+  const uneditedExceptions = [...exceptionOrdinals]
+    .filter((exceptionOrdinal) => !editsByOrdinal.has(exceptionOrdinal))
+    .sort((a, b) => a - b)
+  for (const exceptionOrdinal of uneditedExceptions) {
+    // Restored/deleted-then-restored rows show their underlying cursor value:
+    // the pending cast applies to the raw base value (probe §3.3 (x)).
+    arms.push(`(${ordinal} = ${String(exceptionOrdinal)} AND ${conversionFails(baseRef)})`)
+  }
+  // (1) Non-exception, un-edited base rows: the collapsed chain applies.
+  const skipOrdinals = [...new Set([...exceptionOrdinals, ...editedOrdinals])].sort((a, b) => a - b)
+  const rowConjunct =
+    (skipOrdinals.length > 0
+      ? `${ordinal} NOT IN (${skipOrdinals.map(String).join(', ')}) AND `
+      : '') + splitFails(baseRef)
+  arms.push(`(${rowConjunct})`)
+
+  const baseColumns = base.columns.map((entry) => quotedIdentifier(entry.name)).join(', ')
+  const inner =
+    `SELECT ${baseColumns}, (row_number() OVER () - 1) AS ${ordinal} ` +
+    `FROM ${quotedIdentifier(viewName)}`
+  const tombstones = [...state.deletedBase].sort((a, b) => a - b)
+  const tombstoneFilter =
+    tombstones.length > 0 ? ` WHERE ${ordinal} NOT IN (${tombstones.map(String).join(', ')})` : ''
+  const branches = [
+    `SELECT 1 FROM (SELECT ${baseRef}, ${ordinal} FROM (${inner})${tombstoneFilter}) ` +
+      `WHERE ${arms.join(' OR ')}`,
+  ]
+  // (m) Mapping targets: compose-time constants, one predicate per distinct
+  // collapsed target, no row scope — this is where the m arms live (probe §7).
+  if (collapsed.size > 0) {
+    const distinctTargets = [...new Set(collapsed.values())]
+    const constantArms = distinctTargets.map((target) => {
+      assertWellFormedCellText(target)
+      return `TRY_CAST(${sqlStringLiteral(target)} AS ${targetType}) IS NULL`
+    })
+    branches.push(`SELECT 1 WHERE ${constantArms.join(' OR ')}`)
+  }
+  for (const record of liveInsertRecords(state)) {
+    const merged = insertColumnValue(state, record, column)
+    const surviving = repairRecords.some(
+      (entry) => entry.liveInsertIdsAtApply.has(record.id) && !entry.maskedRows.has(record.id),
+    )
+    if (surviving && merged.kind !== 'null' && merged.kind !== 'string' && merged.kind !== 'text') {
+      // Same refusal the materializing ops compose: the window would refuse,
+      // so the check must not answer a value it cannot commit.
+      throw new OverlayRepairInsertValueError()
+    }
+    const raw = cellLiteralRawSql(merged)
+    branches.push(`SELECT 1 WHERE ${surviving ? splitFails(raw) : conversionFails(raw)}`)
+  }
+  return `${branches.join(' UNION ALL ')} LIMIT 1`
+}
+
+/**
  * `SELECT count(*)::BIGINT …` over the composed effective relation,
  * optionally narrowed by filters on effective columns (m2-2 grammar).
  */
@@ -1025,7 +1667,7 @@ export function composeOverlayCountSql(
  */
 export function composeOverlayWindowSql(query: OverlayWindowQuery): string {
   const { columns, filters, sort, includeRowIds } = query
-  const source = composeSourceSql(query, {
+  const source = composeEffectiveSourceSql(query, {
     withRowIds: includeRowIds === true,
     sanitizeCsv: false,
     withKey: true,
@@ -1122,7 +1764,11 @@ export function composeOverlayExportSelectSql(
   composition: OverlayComposition,
   format: EngineExportFormat,
 ): string {
-  const source = composeSourceSql(composition, {
+  // The export budget is a pre-apply refusal: projected rows × mapping pairs
+  // over the published envelope refuses before any SQL is composed or run
+  // (never claimed as an interrupt).
+  assertRepairExportBudget(composition)
+  const source = composeEffectiveSourceSql(composition, {
     withRowIds: false,
     sanitizeCsv: format === 'csv',
     withKey: true,
