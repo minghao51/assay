@@ -59,6 +59,12 @@ gpt-6-luna xhigh request-changes round (NULL-validity order, closed by mutation)
 open, R3 keeps RD-T07 and R8 keeps the unasserted fixture. The R2 probe record is corrected to the
 delivered `-9223372036854775807` negative sentinel.
 
+**ADR 0049 and ADR 0050 were accepted on 2026-11-16** (all open questions resolved in the ADRs and
+recorded in the acceptance record). **EW-03I's scope is unblocked**; its prerequisite acquisition /
+catalog-delta probe is running read-only. The **U5-first UI-free domain+engine slice** is running.
+EW-04I still needs (vi) U1–U3 plus the U5 result before its brief; the CSV protocol row still needs its
+own brief and the probe verdict.
+
 ## 3. Dispatch order once decisions land
 
 1. Read-only probes: **D16/D17** (informs D4) and **R2** (informs D6); **D12** ADR draft (informs D3).
