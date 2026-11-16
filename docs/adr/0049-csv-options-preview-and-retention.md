@@ -2,15 +2,16 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
-Proposed 2026-11-15
+Proposed 2026-11-15 → Accepted 2026-11-16
 
 ## Deciders
 
-- Maintainer (product policy owner for the CSV decision ledger, EW-03D §8)
+- Maintainer (acceptance instruction "accept both ADRs", 2026-11-16; recorded in the
+  [post-R1 acceptance record](../process/handoff/20261114-post-r1-decisions-accepted.md))
 - Maintainer + engine/protocol owner (protocol-carrier and lifecycle rows)
 
 ## Context
@@ -195,39 +196,34 @@ or approved.
 - ADR 0047 still holds: no per-table release for `TableRegistry` tables, and `engine/dispose` is still
   the only whole-engine reclamation.
 
-## Open questions for the maintainer
+## Acceptance resolutions (2026-11-16)
 
-1. **Route confirmation.** Accept this route — a registering preview whose slot owns its own release —
-   as the target, or hold route (a) (registration-free preview) as a mandatory precondition, or fall
-   back to retain-all per EW-03D §4.1? The contract could not prove (a); this ADR does not claim it.
-2. **Preview-owned release under ADR 0047.** Is a preview-owned `DROP VIEW` + `dropFile` on its _own_
-   slot acceptable, or must previews stay retain-all until dispose? If it is accepted, the ADR should
-   say so in the superseding/amending terms the maintainer prefers.
-3. **Acquisition mechanism and its probe.** Which registration path must be proven first —
-   `registerFileHandle` on the picked `File`, or `registerFileBuffer`/`registerFileText` — and is a
-   named probe row required before the protocol row?
-4. **Evidence standard for the M5/M7 gap.** Must the implementation row capture a fresh-candidate
-   acquire → abandon → supersede probe with catalog deltas (`duckdb_tables()`/`duckdb_views()`
-   before/after) _before_ any web wiring, given M5's already-registered-name scope and M7's
-   materializing import?
-5. **Adoption accounting.** Is the chosen adoption — a fresh `engine/open` carrying the reviewed options
-   (+1 session table, preview slot released) — acceptable, or is the contract's exactly-once promotion
-   (+0, re-purposing the candidate registration) required? Promotion would hand a preview registration
-   into `TableRegistry`, a session-table ownership change that ADR 0047's accounting would have to
-   price.
-6. **Deferred options.** Keep the deferred list (`strict_mode`, `null_padding`, `parallel`, `encoding`,
-   `compression`, `max_line_size`, `buffer_size`, `decimal_separator`, `thousands`) refused, with the
-   last two allowed only as explicit user settings and never inferred?
-7. **Carrier granularity.** Does disclosure need its own op (a `sniff`-shaped request with no sample
-   scan), or is one preview op with an optional bounded sample enough?
-8. **Budget and lane ownership.** Who sets the preview/sample scan budget and the over-budget refusal
-   (D8/D11 — this ADR sets no numbers), and does preview work sit on the query lane like `runDiffStage`
-   or need a third lane (ADR 0040 explicitly leaves that undecided)?
+The maintainer accepted this ADR and the recommended resolution of every question below; these are now
+ADR decisions rather than open asks (the original questions remain in git history).
+
+1. **Route.** The registering preview whose slot owns its own release is the target. Route (a)
+   (registration-free preview) remains unproven and is **not** a precondition; retain-all stays the
+   documented fallback if a release is later refused.
+2. **Preview-owned release.** A preview-owned `DROP VIEW` + `dropFile` on the preview registry's **own**
+   names (`p1` / `assay_preview_p1` / `preview_p1`) is accepted. It is best-effort, never host-reachable,
+   and does not amend or supersede ADR 0047 (no per-table release for `TableRegistry` tables).
+3. **Acquisition.** `registerFileHandle` on a freshly picked `File` is the first path to prove, in a
+   named probe row, before any protocol row.
+4. **Evidence standard.** A fresh-candidate acquire → abandon → supersede probe with
+   `duckdb_tables()`/`duckdb_views()` deltas is required before any web wiring.
+5. **Adoption.** Adoption is a fresh `engine/open` carrying the reviewed options (+1 session table, slot
+   released). Exactly-once promotion into `TableRegistry` is not adopted.
+6. **Deferred options.** The deferred list stays refused; `decimal_separator`/`thousands` may only ever
+   be explicit user settings, never inferred.
+7. **Carrier granularity.** One `engine/csv-preview` op with an optional bounded sample; no separate
+   sniff-shaped op.
+8. **Budget and lane.** Preview work sits on the query lane like `runDiffStage`. The budget and
+   over-budget refusal (D8/D11) are set in the runtime row; this ADR sets no numbers.
 
 ## What this ADR does not decide
 
-- **No runtime row, no implementation.** It does not authorize EW-03I: the post-R1 record allows EW-03I
-  only after D12's ADR is _accepted_, and this one is Proposed.
+- **No implementation by this ADR.** It authorizes the EW-03I design/scope; the runtime row still needs
+  its own brief, and no code, protocol or UI change is granted here.
 - **No option UI, panel, copy, keyboard/AT design.** D3/D5/D6 wording stays maintainer-owned, and
   EW-02D owns open-path wording.
 - **No telemetry** — no event, field, counter, timing or retained-bytes metric (ADR 0025/0037/0045).

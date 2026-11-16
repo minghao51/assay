@@ -2,15 +2,16 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
-Proposed 2026-11-15
+Proposed 2026-11-15 → Accepted 2026-11-16
 
 ## Deciders
 
-- Maintainer (product/domain owner)
+- Maintainer (product/domain owner; acceptance instruction "accept both ADRs", 2026-11-16, recorded in
+  the [post-R1 acceptance record](../process/handoff/20261114-post-r1-decisions-accepted.md))
 
 ## Context
 
@@ -169,38 +170,30 @@ composer code) and this ADR inherits it rather than extending it.
 - The commit boundary is untouched: undo of a repair still goes through the existing
   `commitWithRollback` path (§5, D12/D13), so a failed refold keeps today's rollback and `Retry`.
 
-## Open questions for the maintainer
+## Acceptance resolutions (2026-11-16)
 
-1. **Note placement.** Is `AppliedNote: 'undo-by-refold'` on the `applied` outcome the right home, or
-   should the marker live on `HistoryEntry` itself (e.g. an `undoMode: 'inverse' | 'refold'` field)?
-   The outcome is where the model already records caveats, but the entry is where `inverse` lives, so
-   the two readings differ for a reader who only ever sees a `HistoryEntry`.
-2. **Assertion shape for P1.** Accept the narrowing as stated — `inverse.length > 0 ⇒ applied`, and
-   `inverse.length === 0 && applied ⇒ 'undo-by-refold'` present — or replace the invariant with an
-   exhaustive per-kind table (each op kind declared refoldable-or-inverse) that a new op kind cannot
-   skip? The table is stricter and more work.
-3. **Does any other op join the note?** If a later op (D16/D17-driven, or a multi-column repair) also
-   cannot hold a materialized inverse, is it admitted under this decision's terms, or does each one
-   need its own ADR? This ADR's text says each needs its own decision; the maintainer should confirm
-   that is the intended cost.
-4. **Undo of a repair across a dataset replacement.** Session reset drops the whole history today; is
-   that sufficient, or does a repair entry need the anchor-staleness wording any explicit op gets
-   (D9 / `row-identity.ts`)?
+The maintainer accepted this ADR and the recommended resolution of every question below; these are now
+ADR decisions rather than open asks (the original questions remain in git history).
+
+1. **Note placement.** `AppliedNote: 'undo-by-refold'` lives on the `applied` outcome, where the model
+   already records caveats; `HistoryEntry` keeps `inverse: []` and gains no `undoMode` field.
+2. **Assertion shape.** Narrow the walk invariant with an **explicit per-kind table** — every `EditOp`
+   kind declares refoldable-or-inverse, so a new kind cannot skip the declaration. P1 adds the
+   `column-repair` arm and the narrowed assertion.
+3. **Other ops.** Only prefix-function ops may join the note; any other op needs its own ADR/decision.
+4. **Dataset replacement.** Session reset drops the history as today; no repair-specific anchor-staleness
+   wording is added. P1 covers cursor moves within a session.
 
 ## What this ADR does not decide
 
-- **No implementation and no runtime row.** `column-repair`, its step rule, `describeOp`, wire parser,
-  composer wrap and the P1 tests are all still to be written, and this ADR is **Proposed**: it
-  authorizes nothing to merge.
-- **No closure of the EW-04D verdict conditions.** Of (i)–(vii), this ADR addresses only (v) D14; U4
-  (i) is measured, while D16 (ii), D17 (iii), D15 (iv), U1–U3 (vi) and U5 (vii) remain open.
-- **No approval claim.** Whether the amendment is _accepted_ is the maintainer's call; nothing in the
-  repository may cite this ADR as an approved decision until its Status says `Accepted`.
-- **No change to §6.2, D1/D3/D5, D8/D9, D15/D16/D17 or the D11 stacked-composition qualifier** — all are
-  cited as context, not re-decided.
-- **No evidence for the composer or the op.** P8's model, P1's future property test and U5's
-  implementation equivalence are three different claims; this ADR asserts only the middle one as its
-  proof obligation and claims no measurement of its own.
+- **No implementation by this ADR.** It authorizes the **U5-first UI-free domain+engine slice** under
+  its terms (op/fold/wire parser/P1 tests), not EW-04I, not any web UI, and not a protocol change.
+- **No closure of the EW-04D verdict conditions.** Of (i)–(vii): (i) U4 is measured; (ii) D16 and (iii)
+  D17 are probed and pinned; (iv) D15's x ≤ 500 cap is accepted; (v) D14 is this ADR; (vi) U1–U3 close
+  inside EW-04I; (vii) U5 is the slice this ADR unblocks.
+- **No evidence for the composer or the op.** P8's model, P1's property test and U5's implementation
+  equivalence are three different claims; this ADR asserts only the middle one as its proof obligation
+  and claims no measurement of its own.
 
 ## Alternatives considered
 

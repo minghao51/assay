@@ -346,6 +346,16 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-11-16 (**hr**) — **ADR 0049 and ADR 0050 ACCEPTED** (maintainer "accept both ADRs"), with every
+  open question resolved in the ADRs' new "Acceptance resolutions" sections and recorded in the
+  [acceptance record](handoff/20261114-post-r1-decisions-accepted.md). 0049 accepts the registering
+  preview with a slot-owned best-effort release on its own names (ADR 0047 stands), the acquisition /
+  catalog-delta probe gates, fresh-`engine/open` adoption, deferred-option refusals, one preview op and
+  the query lane. 0050 accepts the applied-outcome note, the explicit per-kind P1 table, prefix-function
+  ops only, and dataset-replacement reset. **EW-03I's scope is unblocked** (its own brief/protocol tests
+  still required); the **U5-first UI-free domain+engine slice** is unblocked and is being dispatched.
+  ADR index now **50 records (42 accepted, 8 proposed)**; nothing pushed.
+
 - 2026-11-16 (**hq**) — **R2 CLOSED — merged `0f77e38` + `a17f3a3`**: the grid projection honours
   timestamp infinity sentinels for SECOND/MILLISECOND/MICROSECOND without throwing; Arrow validity is
   checked first (a NULL whose backing slot holds sentinel bits stays NULL), the delivered negative sentinel

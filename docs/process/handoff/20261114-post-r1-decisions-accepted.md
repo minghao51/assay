@@ -43,6 +43,27 @@ slice remains gated on the D14 ADR and on D16/D17 being pinned.
 **R3/R8 disposition:** both remain recorded limitations. No study is commissioned (R3) and no fixture is
 reserved (R8) under this acceptance; either can be re-decided later with its own request.
 
+## ADR acceptance (2026-11-16)
+
+The maintainer accepted both Proposed ADRs ("accept both ADRs") and the recommended resolution of every
+open question recorded in them (each ADR now carries an "Acceptance resolutions" section):
+
+- **ADR 0049** (CSV options / preview / retention) — **Accepted 2026-11-16**. Resolutions: registering
+  preview with a slot-owned, best-effort release on its own names (registration-free is not a
+  precondition; ADR 0047 stands); `registerFileHandle` probe first; acquire → abandon → supersede
+  catalog-delta evidence before web wiring; adoption via a fresh `engine/open` with the reviewed options;
+  deferred options refused; one preview op with an optional bounded sample; query lane, budget set in
+  the runtime row. This **unblocks the EW-03I scope**, not its implementation (its own brief and
+  protocol tests are still required).
+- **ADR 0050** (undo-by-refold) — **Accepted 2026-11-16**. Resolutions: the note lives on the applied
+  outcome; P1 narrows the walk invariant with an explicit per-kind undo-mode table; only prefix-function
+  ops may join the note; dataset replacement resets history as today. This **unblocks the U5-first
+  UI-free domain+engine slice**, not EW-04I.
+
+This supersedes the earlier "EW-03I still waits on ADR 0049" and "U5 remains gated on the D14 ADR"
+statements in this record and the pickup. Nothing is pushed; the runtime rows still need their own
+briefs, envelopes and independent reviews.
+
 ## Integration rules carried from the decision sheet
 
 Every runtime row: filled envelope, branch/worktree, shifted ports, one web-runtime writer, full stock +

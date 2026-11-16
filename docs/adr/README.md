@@ -55,20 +55,20 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0046 | Define a Canonical Local DCR Artifact Format (v1)                                        |
 | 0047 | Web session replacement retains retired engine tables                                    |
 | 0048 | The engine selects its DuckDB-WASM bundle by capability, and engine error text is honest |
+| 0049 | CSV options ride a typed allowlist on a preview op that owns its own registration        |
+| 0050 | Undo of a column repair is an exact refold at the history cursor                         |
 
 ## Proposed
 
-| ADR  | Decision                                                                          |
-| ---- | --------------------------------------------------------------------------------- |
-| 0010 | Open-Core Local Product, Paid Collaboration and Governance                        |
-| 0015 | Use Capability-Based Connectors and Plugins                                       |
-| 0016 | Build a Dataset-Native Grid Layer Incrementally                                   |
-| 0018 | Enterprise Policies Use a Declarative, Engine-Neutral Model                       |
-| 0023 | Rust and DataFusion for the Future Governed Data Gateway                          |
-| 0027 | TypeScript and PostgreSQL for the Initial Hosted Control Plane                    |
-| 0028 | Tauri Is the Preferred Future Desktop Shell                                       |
-| 0043 | Changesets Are the Change-Intake Ledger Until First Publish                       |
-| 0049 | CSV options ride a typed allowlist on a preview op that owns its own registration |
-| 0050 | Undo of a column repair is an exact refold at the history cursor                  |
+| ADR  | Decision                                                       |
+| ---- | -------------------------------------------------------------- |
+| 0010 | Open-Core Local Product, Paid Collaboration and Governance     |
+| 0015 | Use Capability-Based Connectors and Plugins                    |
+| 0016 | Build a Dataset-Native Grid Layer Incrementally                |
+| 0018 | Enterprise Policies Use a Declarative, Engine-Neutral Model    |
+| 0023 | Rust and DataFusion for the Future Governed Data Gateway       |
+| 0027 | TypeScript and PostgreSQL for the Initial Hosted Control Plane |
+| 0028 | Tauri Is the Preferred Future Desktop Shell                    |
+| 0043 | Changesets Are the Change-Intake Ledger Until First Publish    |
 
 <!-- adr-index:end -->
