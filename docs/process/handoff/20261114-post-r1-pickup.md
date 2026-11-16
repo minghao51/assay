@@ -61,9 +61,9 @@ delivered `-9223372036854775807` negative sentinel.
 
 **ADR 0049 and ADR 0050 were accepted on 2026-11-16** (all open questions resolved in the ADRs and
 recorded in the acceptance record). **EW-03I's scope is unblocked**; its prerequisite acquisition /
-catalog-delta probe is running read-only. The **U5-first UI-free domain+engine slice** is running.
-EW-04I still needs (vi) U1–U3 plus the U5 result before its brief; the CSV protocol row still needs its
-own brief and the probe verdict.
+catalog-delta probe is **approved and committed** (`e03188c`), and the protocol brief is ready and
+queued behind U5 (one `engine-duckdb` writer). The **U5-first UI-free domain+engine slice** is running.
+EW-04I still needs (vi) U1–U3 plus the U5 result before its brief.
 
 ## 3. Dispatch order once decisions land
 

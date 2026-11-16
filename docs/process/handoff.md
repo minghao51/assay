@@ -346,6 +346,15 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-11-16 (**hs**) — **EW-03I acquisition probe approved and committed** (`e03188c`): on the shipped
+  `eh` pair, `registerFileHandle` on a freshly picked `File` is catalog-invisible (0 user tables/views,
+  no `TableRegistry`, no SQL, no view needed for a preview scan); slot release returns to 0/0; supersede
+  is net 0; drops during in-flight scans are safe; abandon is token-only (scan completes, result
+  discarded); `dropFile`'s silent failure and the 1-byte stub reproduce EW-03D I6. Independent mimo
+  review re-ran the 32-step sequence twice and approved after an accuracy-only fix round. The **EW-03I
+  protocol brief is ready and queued behind the U5 slice** (one `engine-duckdb` writer). Docs links
+  **165/0**, ADR 50; no source change; nothing pushed.
+
 - 2026-11-16 (**hr**) — **ADR 0049 and ADR 0050 ACCEPTED** (maintainer "accept both ADRs"), with every
   open question resolved in the ADRs' new "Acceptance resolutions" sections and recorded in the
   [acceptance record](handoff/20261114-post-r1-decisions-accepted.md). 0049 accepts the registering
