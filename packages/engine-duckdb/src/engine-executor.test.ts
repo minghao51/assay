@@ -16,6 +16,7 @@ import type { RecordBatch } from 'apache-arrow'
 import { baseRowId, insertRowId } from '@assay/domain'
 import type { EditOp } from '@assay/domain'
 import { describe, expect, it } from 'vitest'
+import { MAX_CSV_INFERENCE_SAMPLE_ROWS } from './csv-options'
 import { EngineOpExecutor, PreviewRegistry, viewNameForPreviewId } from './engine-executor'
 import type {
   EngineConnectionLike,
@@ -235,6 +236,13 @@ class FakeDeps implements EngineExecutorDeps {
   /** Query-lane connection: engine/query + engine/profile (m2-7). */
   readonly queryConn = new FakeConnection()
   registerFileError: unknown = null
+  /**
+   * When set, the FIRST subsequent `registerFileHandle` parks until the gate
+   * resolves (one-shot — cleared on capture). This is the deferred-
+   * registration seam for the open/preview race test: the preview's
+   * registration can be held in-flight while an open completes.
+   */
+  registrationGate: Deferred<void> | null = null
   sessionGate: Deferred<void> | null = null
   /** `ensureSession` calls by the executor (one per op). */
   bootCalls = 0
@@ -257,6 +265,14 @@ class FakeDeps implements EngineExecutorDeps {
   }
 
   registerFileHandle(registeredFileName: string, file: File): Promise<void> {
+    const gate = this.registrationGate
+    this.registrationGate = null
+    if (gate !== null) {
+      return gate.promise.then(() => {
+        this.registeredFiles.push({ name: registeredFileName, file })
+        if (this.registerFileError !== null) return Promise.reject(this.registerFileError)
+      })
+    }
     this.registeredFiles.push({ name: registeredFileName, file })
     if (this.registerFileError !== null) {
       return Promise.reject(this.registerFileError)
@@ -4185,11 +4201,45 @@ describe('EngineOpExecutor CSV preview (EW-03I; query lane per ADR 0049 resoluti
     executor.accept(previewRequest(3, { delimiter: ',' }))
     posted = await awaitPosted(deps, 3)
     expect(posted).toMatchObject({ type: 'engine/error', message: 'refused CSV option: delimiter' })
+    executor.accept(previewRequest(4, { sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS + 1 }))
+    posted = await awaitPosted(deps, 4)
+    // The inference budget (ADR 0049 resolution 8) is enforced by the same
+    // parse: over-budget requests are refused BEFORE registration or any SQL.
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toContain('preview inference budget')
+      expect(posted.message).toContain(String(MAX_CSV_INFERENCE_SAMPLE_ROWS))
+    }
+    executor.accept(previewRequest(5, { sample_size: -1 }))
+    posted = await awaitPosted(deps, 5)
+    expect(posted).toMatchObject({ type: 'engine/error' })
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toContain('reads every row for inference')
+    }
     // No registration, no SQL, no drops — refusal happened before dispatch.
     expect(deps.registeredFiles).toEqual([])
     expect(deps.droppedFiles).toEqual([])
     expect(deps.queryConn.sentSqls).toEqual([])
     expect(deps.conn.sentSqls).toEqual([])
+    expectNoCollisions(deps)
+  })
+
+  it('accepts the budget boundary and clamps sampleRows: sample_size at the limit previews fine', async () => {
+    const { executor, deps } = makeExecutor()
+    // sample_size exactly AT the budget is accepted (boundary, not off-by-one).
+    const posted = await runPreview(
+      executor,
+      deps,
+      previewRequest(1, { sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS }),
+    )
+    expect(posted).toMatchObject({
+      type: 'engine/csv-preview-result',
+      previewId: 'p1',
+      effectiveOptions: { sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS },
+    })
+    expect(deps.queryConn.sentSqls[0]).toBe(
+      `SELECT * FROM sniff_csv('preview_p1', sample_size = ${MAX_CSV_INFERENCE_SAMPLE_ROWS})`,
+    )
     expectNoCollisions(deps)
   })
 
@@ -4213,6 +4263,117 @@ describe('EngineOpExecutor CSV preview (EW-03I; query lane per ADR 0049 resoluti
     deps.queryConn.resolveSend(1, intTable([]))
     const posted = await awaitPosted(deps, 2)
     expect(posted).toMatchObject({ type: 'engine/csv-preview-result', previewId: 'p1' })
+    expectNoCollisions(deps)
+  })
+
+  it('open/preview race (deferred registration): an open completing mid-registration invalidates the preview — no slot installs, the late result is discarded', async () => {
+    const { executor, deps } = makeExecutor()
+    // Defer the preview's registration so it is genuinely in-flight when the
+    // open lands on the other lane. The gate is one-shot (cleared on capture
+    // by the fake), so the test holds its own reference to resolve it.
+    const gate = deferred<void>()
+    deps.registrationGate = gate
+    executor.accept(previewRequest(1))
+    await flush()
+    // The intent was taken synchronously; nothing is registered yet and no
+    // SQL has run (the op is parked inside registerFileHandle).
+    expect(deps.registeredFiles).toEqual([])
+    expect(deps.queryConn.sentSqls).toEqual([])
+
+    // The open completes on the registry lane while the preview is parked.
+    executor.accept({
+      type: 'engine/open',
+      requestId: 2,
+      name: 'candidate.csv',
+      file: CANDIDATE_CSV,
+    })
+    await awaitSends(deps.conn, 1)
+    expect(deps.conn.sentSqls[0]).toBe('CREATE VIEW "assay_t1" AS SELECT * FROM read_csv(\'t1\')')
+    // The open's supersede found nothing staged yet (the preview never
+    // installed) — so nothing to release — but the generation moved.
+    expect(deps.droppedFiles).toEqual([])
+    deps.conn.resolveSend(0, intTable([]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/open-result', tableId: 't1' })
+
+    // Resume the deferred registration: it completes AFTER the open (the
+    // open's t1 registration landed first, while the preview was parked).
+    gate.resolve(undefined)
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.registeredFiles).toEqual([
+      { name: 't1', file: CANDIDATE_CSV },
+      { name: 'preview_p1', file: CANDIDATE_CSV },
+    ])
+    // The stale preview NEVER installs: its checkpoint after registration
+    // self-releases (view-then-file shape, both swallowed), never reaches
+    // sniff/sample, and the late result payload is discarded in favour of
+    // exactly one typed reply. Resolve the self-release DROP so it posts.
+    expect(deps.queryConn.sentSqls).toEqual(['DROP VIEW IF EXISTS "assay_preview_p1"'])
+    deps.queryConn.resolveSend(0, intTable([]))
+    const posted = await awaitPosted(deps, 1)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      message: 'the CSV preview was superseded by an open',
+    })
+    expect(deps.droppedFiles).toEqual(['preview_p1'])
+
+    // The open's lifecycle leaves no preview slot: dispose sweeps nothing of
+    // the preview's (the t1 session entry is swept as usual) and preview_p1
+    // is released exactly once — no residue, no double bookkeeping.
+    executor.accept(disposeRequest(3))
+    await awaitSends(deps.conn, 2)
+    expect(deps.conn.sentSqls[1]).toBe('DROP VIEW IF EXISTS "assay_t1"')
+    deps.conn.resolveSend(1, intTable([]))
+    await awaitPosted(deps, 3)
+    expect(deps.droppedFiles).toEqual(['preview_p1', 't1'])
+    expect(deps.queryConn.sentSqls.filter((sql) => sql.includes('assay_preview'))).toHaveLength(1)
+    expectNoCollisions(deps)
+  })
+
+  it('open/preview race (mid-scan): an open superseding a live slot makes the in-flight preview self-release and discard its result', async () => {
+    const { executor, deps } = makeExecutor()
+    // Park the preview at its sniff (registration complete, slot confirmed).
+    executor.accept(previewRequest(1))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, sniffTable())
+
+    // The open lands on the registry lane while the sniff is in flight: it
+    // releases the live slot (view-then-file) and completes. The DROP query
+    // must settle before the open's CREATE VIEW can send (the fake serializes
+    // them on the connection).
+    executor.accept({
+      type: 'engine/open',
+      requestId: 2,
+      name: 'candidate.csv',
+      file: CANDIDATE_CSV,
+    })
+    await awaitSends(deps.conn, 1)
+    expect(deps.conn.sentSqls[0]).toBe('DROP VIEW IF EXISTS "assay_preview_p1"')
+    deps.conn.resolveSend(0, intTable([]))
+    await awaitSends(deps.conn, 2)
+    expect(deps.droppedFiles).toEqual(['preview_p1'])
+    expect(deps.conn.sentSqls[1]).toBe('CREATE VIEW "assay_t1" AS SELECT * FROM read_csv(\'t1\')')
+    deps.conn.resolveSend(1, intTable([]))
+    expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/open-result', tableId: 't1' })
+
+    // The preview drains its scan, then its pre-post checkpoint sees the
+    // supersession: the self-release DROP VIEW runs on the query lane —
+    // resolve it so the typed reply posts.
+    await awaitSends(deps.queryConn, 2)
+    expect(deps.queryConn.sentSqls[1]).toBe("SELECT * FROM read_csv('preview_p1') LIMIT 1000")
+    deps.queryConn.resolveSend(1, intTable([1, 2]))
+    await awaitSends(deps.queryConn, 3)
+    expect(deps.queryConn.sentSqls[2]).toBe('DROP VIEW IF EXISTS "assay_preview_p1"')
+    deps.queryConn.resolveSend(2, intTable([]))
+    const posted = await awaitPosted(deps, 1)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      message: 'the CSV preview was superseded by an open',
+    })
+    expect(deps.droppedFiles).toEqual(['preview_p1', 'preview_p1'])
+    // Exactly one result payload was discarded — no csv-preview-result posted.
+    expect(
+      deps.postedResponses.filter((response) => response.type === 'engine/csv-preview-result'),
+    ).toHaveLength(0)
     expectNoCollisions(deps)
   })
 })
@@ -4343,17 +4504,44 @@ describe('PreviewRegistry — the slot bookkeeping (EW-03I; ADR 0049 decision 4)
     expect(first.registeredFileName).not.toMatch(/^diff_/)
   })
 
-  it('single-slot lifecycle: reserve → confirm → clear returns exactly what was held', () => {
+  it('single-slot lifecycle: beginIntent is synchronous and visible; confirm promotes; supersede clears both and bumps', () => {
     const registry = new PreviewRegistry()
     expect(registry.current()).toBeNull()
-    expect(registry.clear()).toBeNull()
+    expect(registry.supersede()).toBeNull()
     const first = registry.reserve()
+    // beginIntent is the race fix: the intent exists SYNCHRONOUSLY, before
+    // any await, so a same-tick open always observes it.
+    const generation = registry.beginIntent(first)
+    expect(registry.isCurrent(generation)).toBe(true)
     registry.confirm(first)
     expect(registry.current()).toBe(first)
-    const second = registry.reserve()
-    registry.confirm(second)
-    expect(registry.current()).toBe(second)
-    expect(registry.clear()).toBe(second)
+    // An open supersedes: the live slot is returned for release, the intent
+    // is dropped, and the generation moves past the op's captured value.
+    expect(registry.supersede()).toBe(first)
     expect(registry.current()).toBeNull()
+    expect(registry.isCurrent(generation)).toBe(false)
+    // A stale intent can never install: its op re-checks isCurrent at its
+    // checkpoints, abandons, and self-releases.
+    const second = registry.reserve()
+    const staleGeneration = registry.beginIntent(second)
+    registry.supersede()
+    expect(registry.isCurrent(staleGeneration)).toBe(false)
+    registry.abandonIntent(second)
+    expect(registry.current()).toBeNull()
+    // confirm() of a superseded op must never be reachable through the
+    // executor's checkpoints — the registry only guarantees what its API
+    // allows: confirm after supersede would install, which is why the op
+    // checks isCurrent synchronously with every confirm/post.
+  })
+
+  it('clearStaged drops only the live slot and keeps the generation (sequential re-stage, no supersession)', () => {
+    const registry = new PreviewRegistry()
+    const first = registry.reserve()
+    const generation = registry.beginIntent(first)
+    registry.confirm(first)
+    expect(registry.clearStaged()).toBe(first)
+    expect(registry.current()).toBeNull()
+    // Previews serialize on the query lane: the re-stage is not a supersede.
+    expect(registry.isCurrent(generation)).toBe(true)
   })
 })

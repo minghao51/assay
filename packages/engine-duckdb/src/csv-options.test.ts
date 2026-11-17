@@ -12,10 +12,12 @@ import {
   csvScanRelationSql,
   csvSniffSql,
   effectiveCsvOptions,
+  MAX_CSV_INFERENCE_SAMPLE_ROWS,
   MAX_CSV_OPTION_VALUE_CODE_POINTS,
   MAX_CSV_TYPE_COLUMNS,
   parseCsvOptions,
 } from './csv-options'
+import { fileScanSql } from './format-view'
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const REPO_ROOT = join(PKG_ROOT, '..', '..')
@@ -65,14 +67,29 @@ describe('parseCsvOptions — accepted vocabulary', () => {
     expect(parsed).toEqual({ ok: true, options: { columns: { v: 'VARCHAR', n: 'DECIMAL(18,2)' } } })
   })
 
-  it('accepts sample_size only in the preview context (ADR 0049 item 1)', () => {
+  it('accepts sample_size only in the preview context, inside the inference budget (ADR 0049 resolution 8)', () => {
     expect(parseCsvOptions({ sample_size: 100 }, 'preview')).toEqual({
       ok: true,
       options: { sample_size: 100 },
     })
-    expect(parseCsvOptions({ sample_size: -1 }, 'preview')).toEqual({
+    expect(parseCsvOptions({ sample_size: 0 }, 'preview')).toEqual({
       ok: true,
-      options: { sample_size: -1 },
+      options: { sample_size: 0 },
+    })
+    // The budget boundary: the limit is accepted exactly, beyond it refused.
+    expect(parseCsvOptions({ sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS }, 'preview')).toEqual({
+      ok: true,
+      options: { sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS },
+    })
+    expect(parseCsvOptions({ sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS + 1 }, 'preview')).toEqual({
+      ok: false,
+      reason: `CSV option sample_size exceeds the preview inference budget (limit ${MAX_CSV_INFERENCE_SAMPLE_ROWS} rows)`,
+    })
+    // -1 (read every row) is REFUSED, never silently capped: an explicit user
+    // value is not reinterpreted.
+    expect(parseCsvOptions({ sample_size: -1 }, 'preview')).toEqual({
+      ok: false,
+      reason: `CSV option sample_size = -1 reads every row for inference and is refused: the preview inference budget is ${MAX_CSV_INFERENCE_SAMPLE_ROWS} rows`,
     })
     // The preview-only option never rides engine/open.
     expect(parseCsvOptions({ sample_size: 100 }, 'open')).toEqual({
@@ -204,9 +221,10 @@ describe('parseCsvOptions — refusals before dispatch (EW-03D §2.3, ADR 0049 i
 // ---- composition: SQL only from engine names + quoted literals + the closed vocabulary ----
 
 describe('csvScanRelationSql — composition (EW-03D §2.2 rules 1–5)', () => {
-  it('composes the bare scan byte-identically when no option is set', () => {
-    expect(csvScanRelationSql('t1', {})).toBe("read_csv('t1')")
-    expect(csvScanRelationSql('t1', {})).toBe("read_csv('t1')") // the quick-open scan
+  it('composes the bare scan byte-identically to the actual quick-open composer (no drift possible)', () => {
+    // Against the REAL quick-open composer, not a duplicated literal: if
+    // format-view.ts's CSV scan ever changes, this pin fails.
+    expect(csvScanRelationSql('t1', {})).toBe(fileScanSql('t1', 'csv'))
   })
 
   it('composes scalar options in canonical order with literals quoted', () => {

@@ -46,6 +46,18 @@
  * `thousands` are deferred and may only ever become explicit user settings),
  * and a sample is never a check (nothing in the preview payload may claim
  * validation — the executor states the row cap, never a verdict).
+ *
+ * Preview workload budget (ADR 0049 acceptance resolution 8 — the runtime row
+ * sets the number): registration is lazy (the acquisition probe read no
+ * bytes; a 5 MB candidate registered in 0.2–0.3 ms), the returned sample is
+ * bounded by the executor's row cap, so the one unbounded workload knob is
+ * the sniffer's inference read. The contract §6.3 measured a 200k-row/4.2 MB
+ * full typed evaluation at ≈111 ms; this row sets the inference budget to
+ * half of that ({@link MAX_CSV_INFERENCE_SAMPLE_ROWS}, ≈5× DuckDB's own
+ * 20480 default) — well under the measured corner. `sample_size = -1` (read
+ * every row) is REFUSED, never silently capped: an explicit user value is
+ * not reinterpreted. Over-budget requests are refused before registration or
+ * any SQL.
  */
 
 import { quotedIdentifier, sqlStringLiteral } from './format-view.js'
@@ -207,6 +219,15 @@ export const MAX_CSV_OPTION_VALUE_CODE_POINTS = 64
 export const MAX_CSV_TYPE_COLUMNS = 4096
 
 /**
+ * The preview inference budget (rows the sniffer may read for one preview;
+ * ADR 0049 acceptance resolution 8 — this runtime row sets the number).
+ * Rationale in the module header: half the contract §6.3 measured corner
+ * (200k rows ≈ 111 ms full typed evaluation), ≈5× DuckDB's own 20480 default.
+ * `sample_size = -1` (all rows) is refused, never silently capped.
+ */
+export const MAX_CSV_INFERENCE_SAMPLE_ROWS = 100_000
+
+/**
  * Total boundary validator for one CSV option set (the vocabulary, value
  * shapes, alias conflicts and the context rule all in one place, so the
  * client pass and the worker pass cannot drift). Returns the canonical
@@ -294,14 +315,19 @@ export function parseCsvOptions(input: unknown, context: CsvOptionsContext): Csv
         break
       }
       case 'sample_size': {
-        if (
-          typeof value !== 'number' ||
-          !Number.isSafeInteger(value) ||
-          (value < 0 && value !== -1)
-        ) {
+        if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
           return {
             ok: false,
-            reason: 'CSV option sample_size must be -1 (all rows) or a non-negative safe integer',
+            reason:
+              value === -1
+                ? `CSV option sample_size = -1 reads every row for inference and is refused: the preview inference budget is ${MAX_CSV_INFERENCE_SAMPLE_ROWS} rows`
+                : 'CSV option sample_size must be a non-negative safe integer',
+          }
+        }
+        if (value > MAX_CSV_INFERENCE_SAMPLE_ROWS) {
+          return {
+            ok: false,
+            reason: `CSV option sample_size exceeds the preview inference budget (limit ${MAX_CSV_INFERENCE_SAMPLE_ROWS} rows)`,
           }
         }
         options.sample_size = value

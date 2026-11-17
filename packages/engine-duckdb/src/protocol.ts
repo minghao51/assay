@@ -59,7 +59,9 @@
 
 import type { EngineOverlayPayload } from './overlay-wire.js'
 import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire.js'
+import { MAX_CSV_INFERENCE_SAMPLE_ROWS } from './csv-options.js'
 import type { EngineCsvEffectiveOptions } from './csv-options.js'
+import { MAX_RANGE_ROWS } from './range-window.js'
 export type { EngineCsvEffectiveOptions }
 import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire.js'
 import { parseValidationPlan } from './validate-plan-wire.js'
@@ -1614,11 +1616,16 @@ function isCsvPreviewResult(data: Record<string, unknown>): data is {
   if (!isEffectiveOptions(data['effectiveOptions'])) return false
   const sample = data['sample']
   if (sample === null) return true
+  // A non-null sample's cap is the composed LIMIT: always ≥ 1 (sampleRows = 0
+  // yields a null sample) and never beyond the row-window clamp (the worker
+  // clamps to MAX_RANGE_ROWS) — anything else is an impossible payload.
   return (
     isRecord(sample) &&
     isUint8Array(sample['batchIpc']) &&
     typeof sample['hasMore'] === 'boolean' &&
-    isRowCount(sample['rowCap'])
+    isRowCount(sample['rowCap']) &&
+    (sample['rowCap'] as number) >= 1 &&
+    (sample['rowCap'] as number) <= MAX_RANGE_ROWS
   )
 }
 
@@ -1632,24 +1639,41 @@ function isStringOrNull(value: unknown): value is string | null {
 
 /**
  * A disclosed effective-option record: every key in the closed vocabulary,
- * every value type-matched (the worker builds this canonically; a payload
- * carrying a foreign key or wrong value shape is malformed and rejected).
+ * every value inside its parsed domain (the worker builds this canonically;
+ * a payload carrying a foreign key, an out-of-domain number, or an invalid
+ * type expression is an impossible payload and rejected). `skip` must be a
+ * non-negative safe integer; `sample_size` must sit inside the preview
+ * inference budget (and can never be negative — `-1` is refused at parse);
+ * declared types must pass the strict type-expression validator.
  */
 function isEffectiveOptions(value: unknown): boolean {
   if (!isPlainRecord(value)) return false
   const booleanKeys = ['header', 'all_varchar']
   const stringKeys = ['delim', 'quote', 'escape', 'nullstr', 'dateformat', 'comment']
-  const numberKeys = ['skip', 'sample_size']
   for (const key of Object.keys(value)) {
     const v = value[key]
     if (booleanKeys.includes(key)) {
       if (typeof v !== 'boolean') return false
     } else if (stringKeys.includes(key)) {
       if (typeof v !== 'string') return false
-    } else if (numberKeys.includes(key)) {
-      if (typeof v !== 'number' || !Number.isSafeInteger(v)) return false
+    } else if (key === 'skip') {
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) return false
+    } else if (key === 'sample_size') {
+      if (
+        typeof v !== 'number' ||
+        !Number.isSafeInteger(v) ||
+        v < 0 ||
+        v > MAX_CSV_INFERENCE_SAMPLE_ROWS
+      ) {
+        return false
+      }
     } else if (key === 'columns') {
-      if (!isPlainRecord(v) || !Object.values(v).every((entry) => typeof entry === 'string')) {
+      if (
+        !isPlainRecord(v) ||
+        !Object.values(v).every(
+          (entry) => typeof entry === 'string' && isEngineTypeExpression(entry),
+        )
+      ) {
         return false
       }
     } else {

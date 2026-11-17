@@ -2,6 +2,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileRowDiffPlan } from '@assay/diff'
+import { MAX_CSV_INFERENCE_SAMPLE_ROWS } from './csv-options'
+import { MAX_RANGE_ROWS } from './range-window'
 import {
   ENGINE_REQUEST_TYPES,
   OVERLAY_REQUEST_TYPES,
@@ -2272,6 +2274,73 @@ describe('EW-03I: engine/csv-preview + engine/open options protocol', () => {
         ),
       ).toBeNull()
       expect(parseEngineResponse(wirePreviewResult({ sample: {} }))).toBeNull()
+    })
+
+    it('rejects impossible sample caps: rowCap 0 or beyond the window clamp (EW-03I review fix)', () => {
+      // rowCap 0 is impossible: sampleRows = 0 yields a null sample, and a
+      // fetched sample's LIMIT is always ≥ 1.
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            sample: { batchIpc: new Uint8Array([1]), hasMore: false, rowCap: 0 },
+          }),
+        ),
+      ).toBeNull()
+      // The worker clamps to MAX_RANGE_ROWS — a cap beyond the clamp cannot
+      // exist.
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            sample: { batchIpc: new Uint8Array([1]), hasMore: false, rowCap: MAX_RANGE_ROWS + 1 },
+          }),
+        ),
+      ).toBeNull()
+      // The clamp itself parses (boundary, not off-by-one).
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            sample: { batchIpc: new Uint8Array([1]), hasMore: false, rowCap: MAX_RANGE_ROWS },
+          }),
+        ),
+      ).not.toBeNull()
+    })
+
+    it('rejects effective-option values outside their domains (EW-03I review fix)', () => {
+      // sample_size outside the preview inference budget (and never negative —
+      // -1 is refused at parse).
+      expect(
+        parseEngineResponse(wirePreviewResult({ effectiveOptions: { sample_size: -1 } })),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            effectiveOptions: { sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS + 1 },
+          }),
+        ),
+      ).toBeNull()
+      // skip must be a non-negative safe integer.
+      expect(parseEngineResponse(wirePreviewResult({ effectiveOptions: { skip: -3 } }))).toBeNull()
+      // Declared types must pass the strict type-expression validator.
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({ effectiveOptions: { columns: { v: 'DECIMAL(1,2,3)' } } }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            effectiveOptions: { columns: { v: 'VARCHAR) AS "c" FROM (...) ); --' } },
+          }),
+        ),
+      ).toBeNull()
+      // The domain boundaries themselves parse.
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            effectiveOptions: { skip: 0, sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS },
+          }),
+        ),
+      ).not.toBeNull()
     })
   })
 })
