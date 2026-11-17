@@ -71,6 +71,13 @@ forward fold, ADR 0050 undo-by-refold, stacked layers, D16/D17 and the export bu
 **EW-03I-a** (CSV options + preview registry, engine/protocol) is dispatched. **EW-04I** now needs
 (vi) U1–U3 plus the web plan-capture row; the seeded-history test's 45 s budget needs a small follow-up.
 
+**Update 2026-11-18:** **EW-03I-a is CLOSED** — merged `ae0f6cf` + `a6059c6` + `4d56036`; the CSV
+engine half (closed vocabulary, `engine/csv-preview`, single-slot `PreviewRegistry`, 100k inference
+budget, response-domain validation, golden fixtures) is live. **EW-03I-b** (web CSV preview panel/flow)
+is the next web-runtime row, then **EW-04I** (bulk repair web + U1–U3). Carry-risks: the 100k budget
+bounds rows, not bytes/heap/time; the U5 seeded-history test sits near its 20 s coverage budget (a
+test-budget follow-up is queued).
+
 ## 3. Dispatch order once decisions land
 
 1. Read-only probes: **D16/D17** (informs D4) and **R2** (informs D6); **D12** ADR draft (informs D3).

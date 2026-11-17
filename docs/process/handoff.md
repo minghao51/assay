@@ -67,6 +67,20 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-18, EW-03I-a CLOSED):** **EW-03I-a merged** `ae0f6cf` + `a6059c6` + `4d56036`
+(worker `645c109`/`e7f45d8`/`03034df`; independent gpt-6-luna xhigh, two request-changes rounds):
+`csv-options.ts` (closed vocabulary, double validation, quoting, 100k inference budget with `-1`
+refused), `engine/csv-preview` + options on `engine/open`, the single-slot `PreviewRegistry` (bare
+`registerFileHandle`, no view, never `TableRegistry`, view-then-file best-effort release, acceptance-time
+intent + generation covering queued previews), the sniff/sample payload, strict response-domain
+validation, and six golden `fixtures/csv/` with generator + manifest. Merged gates on `main`: forced
+typecheck **20** (0 cached), unit **249 files / 3814 tests**, coverage **89.54 / 84.36 / 91.83 / 91.17**
+(the first coverage run had one unreproduced failure; two consecutive full reruns were green — the U5
+seeded-history test is near its 20 s coverage budget), forced build **12** (0 cached), docs links
+**165/0**, ADR **50**, browser **268 + 1 skip**, configured telemetry **7 passed** with zero deliveries,
+restored stock **3 passed** endpoint-free. Carry-risk: the 100k budget bounds rows, not bytes/heap/time.
+Worktree removed; nothing pushed.
+
 **Verified state (2026-11-17, U5 CLOSED — EW-04D condition (vii)):** **U5-first slice merged**
 `94128b2` + `120af28` + `6688f71` (worker `39cd973`/`779152f`/`75d2bff`; independent
 gpt-6-luna xhigh, two request-changes rounds: split-form cast-check conditionality and per-layer
@@ -358,6 +372,19 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-18 (**hu**) — **EW-03I-a CLOSED — merged `ae0f6cf` + `a6059c6` + `4d56036`.** The CSV
+  options/preview engine half is in: closed vocabulary with double validation and quoting, 100k-row
+  inference budget (`sample_size=-1` refused), `engine/csv-preview` + options on `engine/open`, the
+  single-slot `PreviewRegistry` (bare `registerFileHandle`, no view, never `TableRegistry`, view-then-file
+  best-effort release, acceptance-time intent/generation covering queued previews), sniff/sample payload,
+  strict response-domain validation, and six golden `fixtures/csv/`. Two review rounds fixed the
+  open/preview and queued-preview races plus the response domains. Merged gates: typecheck 20/20
+  (0 cached), unit 249/3814, coverage 89.54/84.36/91.83/91.17 (one unreproduced coverage-run failure;
+  two full reruns green), build 12/12 (0 cached), docs 165/0, ADR 50, browser 268+1, configured
+  7/zero delivered, restored 3 endpoint-free. Carry-risk recorded: the row budget bounds rows, not
+  bytes/heap/time. **Next: EW-03I-b (web preview) then EW-04I (U1–U3 + web);** the seeded-history test
+  sits near its 20 s coverage budget (test-budget follow-up). Worktree/branch removed; nothing pushed.
 
 - 2026-11-17 (**ht**) — **U5 CLOSED — EW-04D condition (vii) closed; merged `94128b2` + `120af28` +
   `6688f71`.** The UI-free `column-repair` slice is in: op + forward fold/masking, ADR 0050
