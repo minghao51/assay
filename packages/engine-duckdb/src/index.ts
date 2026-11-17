@@ -47,6 +47,7 @@ export {
 export type {
   DuckDbEngineClientOptions,
   EngineComparisonHandle,
+  EngineCsvPreviewResult,
   EngineDatasetProfile,
   EngineExportResult,
   EngineFileSource,
@@ -68,6 +69,11 @@ export type {
   EngineColumnSchema,
   EngineCategoricalColumnStats,
   EngineCategoricalTopKEntry,
+  EngineCsvPreviewRequest,
+  EngineCsvPreviewResultResponse,
+  EngineCsvPreviewSample,
+  EngineCsvSniff,
+  EngineCsvSniffColumn,
   EngineDisposedResponse,
   EngineDisposeRequest,
   EngineDiffRequest,
@@ -117,6 +123,32 @@ export type {
   EngineValidateRequest,
   EngineValidateResultResponse,
 } from './protocol.js'
+// EW-03I fold: the closed CSV option vocabulary — the total boundary parser
+// and the composed scan/sniff/sample/view SQL — public so hosts (EW-03I-b's
+// web panel) validate through the SAME implementation they execute against
+// instead of re-deriving the vocabulary locally (ADR 0049 item 2).
+export {
+  csvCreateViewSql,
+  csvSampleSql,
+  csvScanRelationSql,
+  csvSniffSql,
+  effectiveCsvOptions,
+  MAX_CSV_OPTION_VALUE_CODE_POINTS,
+  MAX_CSV_TYPE_COLUMNS,
+  parseCsvOptions,
+} from './csv-options.js'
+export type {
+  CsvOptionsContext,
+  CsvOptionsParseResult,
+  EngineCsvEffectiveOptions,
+  EngineCsvOptions,
+  EngineCsvOptionsInput,
+} from './csv-options.js'
+// EW-03I fold: the single-slot preview registry bookkeeping is public so the
+// slot's name shapes (`p1` / `assay_preview_p1` / `preview_p1`) are pinable by
+// hosts and conformance without re-deriving them (ADR 0049 decision 4).
+export { PreviewRegistry, viewNameForPreviewId } from './engine-executor.js'
+export type { StagedPreview } from './engine-executor.js'
 export { MAX_RANGE_ROWS, validateRowWindow } from './range-window.js'
 export type { RowWindow, RowWindowValidation } from './range-window.js'
 // m2-7 fold (m2-4 carry-over): the engine-generated SQL-facing view name for

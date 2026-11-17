@@ -27,6 +27,9 @@ import type { EditOp, OverlayBase } from '@assay/domain'
 import { foldOverlay } from '@assay/domain'
 import { EngineTypeError, validateEngineTypeExpression } from './type-expr.js'
 import { assertValidOverlayTypes } from './overlay-wire.js'
+import { detectFileFormat } from './format-view.js'
+import { parseCsvOptions } from './csv-options.js'
+import type { EngineCsvOptions, EngineCsvOptionsInput } from './csv-options.js'
 import { parseValidationPlan } from './validate-plan-wire.js'
 import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire.js'
 import { parseRowDiffPlan } from './diff-plan-wire.js'
@@ -34,6 +37,8 @@ import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire.js
 import { parseEngineResponse } from './protocol.js'
 import type {
   EngineColumnSchema,
+  EngineCsvPreviewResultResponse,
+  EngineCsvSniff,
   EngineExportFormat,
   EngineFilterSpec,
   EngineProfileColumn,
@@ -42,6 +47,7 @@ import type {
   EngineSortSpec,
   EngineSuccessResponse,
 } from './protocol.js'
+import type { EngineCsvEffectiveOptions } from './csv-options.js'
 import { validateRowWindow } from './range-window.js'
 import { executePipeline } from './pipeline-runner/index.js'
 import type {
@@ -186,6 +192,26 @@ export interface EngineExportRequest {
 }
 
 /**
+ * Result of `csvPreview` (EW-03I; ADR 0049 decision 6): the sniff payload,
+ * the effective option set actually composed, and the bounded sample with
+ * its cap stated. NONE of it is a validation verdict — a sample is not a
+ * check; a failure beyond the sniff sample is expected and normal.
+ */
+export interface EngineCsvPreviewResult {
+  /** The preview slot that staged the candidate (`p1`, …) — not a table handle. */
+  readonly previewId: string
+  readonly sniff: EngineCsvSniff
+  readonly effectiveOptions: EngineCsvEffectiveOptions
+  /** Null when no sample was requested (`sampleRows = 0`). */
+  readonly sample: {
+    readonly batch: Table
+    readonly hasMore: boolean
+    /** The exact LIMIT the sample was fetched with (stated, never implied). */
+    readonly rowCap: number
+  } | null
+}
+
+/**
  * Request for `overlayCastCheck` (m4-4b): test whether the effective
  * `column` of the given (pre-cast) overlay state has any value that cannot
  * convert to `targetType`, before committing a `column-cast` (ADR 0012).
@@ -295,6 +321,24 @@ function engineErrorFor(requestType: EngineRequest['type'], message: string): Er
 }
 
 /**
+ * Reconstitute the preview sample's Arrow IPC first batch (same transport and
+ * same failure discipline as `fetchRange`): a malformed payload is a typed
+ * protocol rejection, never a hang. The cap the worker applied travels with
+ * it unchanged — stated, never implied (ADR 0049 decision 6).
+ */
+function reconstitutePreviewSample(
+  response: EngineCsvPreviewResultResponse,
+): EngineCsvPreviewResult['sample'] {
+  const wire = response.sample
+  if (wire === null) return null
+  try {
+    return { batch: tableFromIPC(wire.batchIpc), hasMore: wire.hasMore, rowCap: wire.rowCap }
+  } catch (cause) {
+    throw new EngineProtocolError('worker sent an invalid Arrow IPC payload', { cause })
+  }
+}
+
+/**
  * Structured-clone-safe `File` guard mirroring `protocol.ts`'s worker-side
  * `isFile` contract, so `open()`/`stageComparison()` can reject a non-File
  * source on this side of the boundary before the post. Node ≥ 20 (unit tests)
@@ -388,9 +432,30 @@ export class DuckDbEngineClient {
    * `EngineOperationError` before anything crosses the boundary (the
    * worker-side `isFile` contract mirrored client-side, au3-4).
    * Unsupported formats reject with `EngineOperationError`.
+   *
+   * EW-03I (ADR 0049 decision 1): `options` adopts an already-reviewed CSV
+   * option set. This pass validates the closed vocabulary BEFORE sending
+   * (fast, honest typed refusal — the worker re-validates at the boundary);
+   * `sample_size` is preview-only and refused here; options on a non-CSV
+   * file are refused too. Without `options` the request — and therefore the
+   * composed SQL — is byte-identical to the pre-EW-03I quick open.
    */
-  async open(source: EngineFileSource): Promise<EngineTableHandle> {
+  async open(
+    source: EngineFileSource,
+    options?: EngineCsvOptionsInput,
+  ): Promise<EngineTableHandle> {
     await this.ensureReady()
+    let csvOptions: EngineCsvOptions | undefined
+    if (options !== undefined) {
+      if (detectFileFormat(source.name) !== 'csv') {
+        throw new EngineOperationError(
+          'csv options require a .csv file: the other readers take no options',
+        )
+      }
+      const parsed = parseCsvOptions(options, 'open')
+      if (!parsed.ok) throw new EngineOperationError(parsed.reason)
+      csvOptions = parsed.options
+    }
     const file = await source.getFile()
     if (!isFile(file)) {
       throw new EngineOperationError('engine/open requires a File source')
@@ -400,11 +465,73 @@ export class DuckDbEngineClient {
       requestId: this.takeRequestId(),
       name: source.name,
       file,
+      // SAFETY: wire-shape cast only — the canonical options are spread into a
+      // fresh plain record for structured clone; the worker re-validates the
+      // record through the same total parse (no trust crosses the boundary).
+      ...(csvOptions === undefined
+        ? {}
+        : { options: { ...csvOptions } as Record<string, unknown> }),
     })
     if (response.type !== 'engine/open-result') {
       throw new EngineProtocolError(`unexpected ${response.type} response for engine/open`)
     }
     return { kind: 'table', id: response.tableId }
+  }
+
+  /**
+   * The non-adopting CSV preview (EW-03I; ADR 0049 decisions 1/4/6): stage
+   * the candidate in the worker's single preview slot, sniff it, and return
+   * the disclosure payload plus an optional bounded sample. Nothing is
+   * adopted and no session relation is created; there is no cancel/release
+   * op — the slot is released by the next preview, any open, or dispose.
+   *
+   * This pass validates the closed vocabulary BEFORE sending (fast, honest
+   * typed refusal; the worker re-validates — the boundary is untrusted) and
+   * requires a `.csv` source name. `sampleRows` (absent = the worker cap,
+   * 0 = no sample) asks for the bounded sample; the response states the cap
+   * actually applied. A sample is NEVER a validation verdict.
+   */
+  async csvPreview(
+    source: EngineFileSource,
+    options?: EngineCsvOptionsInput,
+    sampleRows?: number,
+  ): Promise<EngineCsvPreviewResult> {
+    await this.ensureReady()
+    if (detectFileFormat(source.name) !== 'csv') {
+      throw new EngineOperationError(
+        'csv preview requires a .csv file: this op reviews the CSV reader only',
+      )
+    }
+    let parsedOptions: EngineCsvOptions | undefined
+    if (options !== undefined) {
+      const parsed = parseCsvOptions(options, 'preview')
+      if (!parsed.ok) throw new EngineOperationError(parsed.reason)
+      parsedOptions = parsed.options
+    }
+    const file = await source.getFile()
+    if (!isFile(file)) {
+      throw new EngineOperationError('engine/csv-preview requires a File source')
+    }
+    const response = await this.send({
+      type: 'engine/csv-preview',
+      requestId: this.takeRequestId(),
+      name: source.name,
+      file,
+      // SAFETY: wire-shape cast only — see the engine/open note above.
+      ...(parsedOptions === undefined
+        ? {}
+        : { options: { ...parsedOptions } as Record<string, unknown> }),
+      ...(sampleRows === undefined ? {} : { sampleRows }),
+    })
+    if (response.type !== 'engine/csv-preview-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/csv-preview`)
+    }
+    return {
+      previewId: response.previewId,
+      sniff: response.sniff,
+      effectiveOptions: response.effectiveOptions,
+      sample: reconstitutePreviewSample(response),
+    }
   }
 
   /**

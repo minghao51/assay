@@ -58,6 +58,14 @@ import {
   quotedIdentifier,
 } from './format-view.js'
 import {
+  csvCreateViewSql,
+  csvSampleSql,
+  csvSniffSql,
+  effectiveCsvOptions,
+  parseCsvOptions,
+} from './csv-options.js'
+import type { EngineCsvOptions } from './csv-options.js'
+import {
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
   composeOverlayExportSql,
@@ -72,6 +80,9 @@ import { parseEngineRequestEnvelope } from './protocol.js'
 import type {
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
+  EngineCsvPreviewRequest,
+  EngineCsvPreviewSample,
+  EngineCsvSniff,
   EnginePipelineHandleRequest,
   EnginePipelineMaterializeRequest,
   EnginePipelineSourceRequest,
@@ -90,7 +101,7 @@ import type {
   EngineResponse,
   EngineValidateRequest,
 } from './protocol.js'
-import { validateRowWindow } from './range-window.js'
+import { MAX_RANGE_ROWS, validateRowWindow } from './range-window.js'
 import { OpChannel } from './op-channel.js'
 import { classifyProfileColumnType } from './profile-classify.js'
 import { composeProfileBaseSql, composeProfileTopKSql, PROFILE_BASE_SLOT } from './profile-query.js'
@@ -254,6 +265,92 @@ interface OpLane {
   readonly connection: (session: EngineSessionLike) => EngineConnectionLike
 }
 
+/** One staged preview candidate (EW-03I; ADR 0049 decision 4). */
+export interface StagedPreview {
+  readonly previewId: string
+  readonly viewName: string
+  readonly registeredFileName: string
+}
+
+/** View names are the preview id with a namespaced prefix: `assay_preview_p1`. */
+export function viewNameForPreviewId(previewId: string): string {
+  return `assay_preview_${previewId}`
+}
+
+/** The only view name shape the preview slot may ever drop (allowlist guard). */
+const PREVIEW_VIEW_NAME_SHAPE = /^assay_preview_p\d+$/
+
+/**
+ * Structural allowlist for the preview slot's release: the interpolated name
+ * must be the registry's own engine-generated shape (`assay_preview_pN`) —
+ * nothing host-reachable can reach the DROP (DuckDB's binding has no
+ * parameterized DDL; the repo rule is engine-generated identifiers only,
+ * quoted via `quotedIdentifier` before composition).
+ */
+function assertPreviewViewName(viewName: string): void {
+  if (!PREVIEW_VIEW_NAME_SHAPE.test(viewName)) {
+    throw new Error('preview slot release refused a non-preview view name')
+  }
+}
+
+/**
+ * Worker-side SINGLE-SLOT preview registry (ADR 0049 decision 4): its own id
+ * sequence (`p1`, `p2`, …), its own view name (`assay_preview_p1`) and its own
+ * DuckDB file-registration name (`preview_p1`). It NEVER inserts into the
+ * `TableRegistry` — a preview never creates a session relation, never sets a
+ * ready phase, never adopts (adoption is exactly a fresh `engine/open`).
+ *
+ * Bare registration is the default: the acquisition probe proved the shipped
+ * build scans `read_csv('preview_pN')` / `sniff_csv('preview_pN')` with NO
+ * view and no catalog object, so the preview path creates no view at all. The
+ * view name is still owned (and its release still attempted first, view-then-
+ * file, both swallowed — the `runDiffStage` ordering), which keeps the slot's
+ * release contract uniform if a future slice ever creates a view.
+ *
+ * Like `ComparisonRegistry` this class is pure bookkeeping — DuckDB calls
+ * live in the executor — so it is unit-testable under Node. Monotonic ids
+ * mean a re-stage never reuses names (the probe: reusing a LIVE file name
+ * degrades silently, and a live view name fails loudly — neither is needed).
+ */
+export class PreviewRegistry {
+  private nextSequence = 1
+  private staged: StagedPreview | null = null
+
+  /** Reserve the next preview id; pair with `confirm()` after staging. */
+  reserve(): StagedPreview {
+    const previewId = `p${this.nextSequence++}`
+    return {
+      previewId,
+      viewName: viewNameForPreviewId(previewId),
+      registeredFileName: `preview_${previewId}`,
+    }
+  }
+
+  /**
+   * Commit the reservation as the single live slot. Called even when the
+   * stage FAILED: the slot then tracks a name whose registration may not
+   * exist, which is harmless (the probe: `dropFile` on a missing name does
+   * not throw) and keeps every reserved name reachable by the NEXT slot event
+   * (re-stage, open) or `engine/dispose` — the ADR's "+1 retained until the
+   * next slot event or dispose" row is exactly this bookkeeping.
+   */
+  confirm(entry: StagedPreview): void {
+    this.staged = entry
+  }
+
+  /** The current staged preview, if any. */
+  current(): StagedPreview | null {
+    return this.staged
+  }
+
+  /** Drop the staged entry (re-stage/open/dispose); returns what was held. */
+  clear(): StagedPreview | null {
+    const entry = this.staged
+    this.staged = null
+    return entry
+  }
+}
+
 export class EngineOpExecutor {
   /**
    * The two pending-query lanes (m2-7): user SQL and profile scans serialize
@@ -271,6 +368,8 @@ export class EngineOpExecutor {
   private readonly registry = new TableRegistry()
   /** Single-slot staged comparison registry (m6-2, C3). */
   private readonly comparisons = new ComparisonRegistry()
+  /** Single-slot CSV preview registry (EW-03I; ADR 0049 decision 4). */
+  private readonly previews = new PreviewRegistry()
   /** Pipeline source registrations + materialized relation names (p-3). */
   private readonly pipeline = new PipelineSourceRegistry()
   /** Monotonic export sequence: generated, collision-free destination names. */
@@ -339,7 +438,11 @@ export class EngineOpExecutor {
       request.type === 'engine/pipeline-source' ||
       request.type === 'engine/pipeline-materialize' ||
       request.type === 'engine/pipeline-execute' ||
-      request.type === 'engine/pipeline-diff'
+      request.type === 'engine/pipeline-diff' ||
+      // EW-03I (ADR 0049 acceptance resolution 8): preview work sits on the
+      // query lane like `runDiffStage` — sniff + bounded sample are the same
+      // heavy, review-time class, never the grid's window traffic.
+      request.type === 'engine/csv-preview'
         ? this.queryLane
         : this.registryLane
     void lane.channel.run(() => this.dispatch(request, lane))
@@ -375,7 +478,11 @@ export class EngineOpExecutor {
           break
         }
         case 'engine/open': {
-          await this.runOpen(request.requestId, request.name, request.file, lane)
+          await this.runOpen(request.requestId, request.name, request.file, request.options, lane)
+          break
+        }
+        case 'engine/csv-preview': {
+          await this.runCsvPreview(request, lane)
           break
         }
         case 'engine/schema': {
@@ -472,8 +579,24 @@ export class EngineOpExecutor {
    * registered under the generated table id, so user-controlled names never
    * enter SQL (see `table-registry.ts` / `format-view.ts`). A failure rolls
    * the registration back so a failed open leaves no phantom entry behind.
+   *
+   * EW-03I (ADR 0049 decision 1): an optional CSV option set may ride the
+   * request — the adoption of an already-reviewed set. It is re-validated
+   * here (the main thread is untrusted) and refused before ANY engine touch;
+   * `sample_size` is preview-only and refused by the same parse (context
+   * 'open'). Options compose the view's scan (`csvCreateViewSql`); the
+   * no-options path keeps the pre-EW-03I SQL byte-identical. Any open —
+   * adoption or not — supersedes the review flow, so the preview slot is
+   * released best-effort first (ADR 0049 item 5: adoption is a fresh
+   * `engine/open`; the slot's release is its own, never host-reachable).
    */
-  private async runOpen(requestId: number, name: string, file: File, lane: OpLane): Promise<void> {
+  private async runOpen(
+    requestId: number,
+    name: string,
+    file: File,
+    options: Record<string, unknown> | undefined,
+    lane: OpLane,
+  ): Promise<void> {
     const format = detectFileFormat(name)
     if (format === null) {
       // No file names in messages (ADR 0025) — the extension kind is enough.
@@ -481,7 +604,17 @@ export class EngineOpExecutor {
         'unsupported dataset format: this engine reads .parquet, .csv, .jsonl and .json files',
       )
     }
+    let csvOptions: EngineCsvOptions | undefined
+    if (options !== undefined) {
+      if (format !== 'csv') {
+        throw new Error('csv options require a .csv file: the other readers take no options')
+      }
+      const parsed = parseCsvOptions(options, 'open')
+      if (!parsed.ok) throw new Error(parsed.reason)
+      csvOptions = parsed.options
+    }
     const conn = lane.connection(await this.deps.ensureSession())
+    await this.releasePreviewSlot(conn)
     const entry = this.registry.reserve(format)
     try {
       // Lazy reference registration: with the BROWSER_FILEREADER protocol the
@@ -490,13 +623,94 @@ export class EngineOpExecutor {
       // 1.32.0 worker bundle's runtime: protocol case 2). The real protocol
       // constant is injected by the worker entry (deps.registerFileHandle).
       await this.deps.registerFileHandle(entry.registeredFileName, file)
-      await conn.query(createViewSql(entry.viewName, entry.registeredFileName, format))
+      const viewSql =
+        csvOptions === undefined
+          ? createViewSql(entry.viewName, entry.registeredFileName, format)
+          : csvCreateViewSql(entry.viewName, entry.registeredFileName, csvOptions)
+      await conn.query(viewSql)
       this.post({ type: 'engine/open-result', requestId, tableId: entry.tableId, format })
     } catch (error) {
       this.registry.remove(entry.tableId)
       await this.deps.dropFile(entry.registeredFileName).catch(() => undefined)
       throw error
     }
+  }
+
+  /**
+   * The non-adopting CSV preview (EW-03I; ADR 0049 decisions 1/4/6, probe
+   * proven by the acquisition record). Refusals happen BEFORE any engine
+   * touch (the worker re-validates — the main thread is untrusted). Staging:
+   * drop the previous slot first (view-then-file, best-effort), then register
+   * the candidate under the slot's OWN name via `registerFileHandle` — bare
+   * registration, no view (the probe: scans need none). The sniff query and
+   * the optional bounded sample then read the registered name directly; a
+   * failure there is the engine's own (honest EH first line where available,
+   * ADR 0048) and never classified from its text. The slot stays live on such
+   * a failure — the ADR's "failure after the slot registered → +1 until the
+   * next slot event or dispose" — and the sample is transported with its cap
+   * STATED, never as a validation verdict (a sample is not a check).
+   */
+  private async runCsvPreview(request: EngineCsvPreviewRequest, lane: OpLane): Promise<void> {
+    const parsed = parseCsvOptions(request.options ?? {}, 'preview')
+    if (!parsed.ok) throw new Error(parsed.reason)
+    const options = parsed.options
+    if (detectFileFormat(request.name) !== 'csv') {
+      throw new Error('csv preview requires a .csv file: this op reviews the CSV reader only')
+    }
+    const rowCap = normalizePreviewSampleRows(request.sampleRows)
+    const conn = lane.connection(await this.deps.ensureSession())
+    await this.releasePreviewSlot(conn)
+    const reservation = this.previews.reserve()
+    try {
+      // The acquisition probe's proven call: the lazy File handle under the
+      // slot's own name — no byte copy, no view, no catalog object.
+      await this.deps.registerFileHandle(reservation.registeredFileName, request.file)
+    } finally {
+      // Confirm even on failure so the name stays reachable by the next slot
+      // event or dispose (dropFile on a missing name does not throw — probe).
+      this.previews.confirm(reservation)
+    }
+    const sniffRows = await conn.query(csvSniffSql(reservation.registeredFileName, options))
+    const sniff = readSniffPayload(sniffRows)
+    let sample: EngineCsvPreviewSample | null = null
+    if (rowCap > 0) {
+      const { batchIpc, hasMore } = await this.streamFirstBatch(
+        conn,
+        csvSampleSql(reservation.registeredFileName, options, rowCap),
+      )
+      sample = { batchIpc, hasMore, rowCap }
+    }
+    this.post({
+      type: 'engine/csv-preview-result',
+      requestId: request.requestId,
+      previewId: reservation.previewId,
+      sniff,
+      effectiveOptions: effectiveCsvOptions(options),
+      sample,
+    })
+  }
+
+  /**
+   * Best-effort view-then-file release of the current preview slot (both
+   * halves swallowed — the acquisition probe: `DROP VIEW IF EXISTS` never
+   * throws on a missing view, and a failed view drop must still reach the
+   * `dropFile`, which is what actually removes the bytes). Never
+   * host-reachable: the only triggers are the next preview dispatch, an open,
+   * and dispose (ADR 0049 decisions 4–5). The preview NEVER reads its
+   * candidate's bytes back (`copyFileToBuffer` poisons the release into a
+   * 1-byte stub — probe D3), so there is nothing else to reclaim here.
+   */
+  private async releasePreviewSlot(conn: EngineConnectionLike): Promise<void> {
+    const staged = this.previews.clear()
+    if (staged === null) return
+    // Allowlist guard: only the slot's own engine-generated names may ever
+    // reach a DROP statement (the registry is their only producer — pinned by
+    // the id→name shape tests).
+    assertPreviewViewName(staged.viewName)
+    await conn
+      .query(`DROP VIEW IF EXISTS ${quotedIdentifier(staged.viewName)}`)
+      .catch(() => undefined)
+    await this.deps.dropFile(staged.registeredFileName).catch(() => undefined)
   }
 
   /**
@@ -1924,6 +2138,12 @@ export class EngineOpExecutor {
         .catch(() => undefined)
       await this.deps.dropFile(staged.registeredFileName).catch(() => undefined)
     }
+    // EW-03I: the preview slot's own names go with the rest (view-then-file,
+    // best-effort — including a name whose stage failed, which the slot
+    // deliberately tracks; dropFile on a missing name does not throw). This
+    // is the terminal release of the ADR 0049 accounting: after dispose no
+    // preview name survives.
+    await this.releasePreviewSlot(conn)
     // p-3: pipeline source registrations and every materialized pipeline view
     // are dropped with the rest (views first, then the files they read).
     const pipelineState = this.pipeline.clear()
@@ -2021,6 +2241,87 @@ function transferableBuffer(bytes: Uint8Array): ArrayBuffer | null {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The preview sample window (EW-03I): absent = the worker cap — the same
+ * `MAX_RANGE_ROWS` bound every row window obeys, so a sample is a grid-sized
+ * head read and never a full scan — 0 = no sample, otherwise clamped DOWN to
+ * the cap. Semantic validation lives here in the worker (the boundary is
+ * untrusted), mirroring `validateRowWindow`'s client+worker double pass.
+ */
+function normalizePreviewSampleRows(value: unknown): number {
+  if (value === undefined) return MAX_RANGE_ROWS
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error('csv preview sampleRows must be a non-negative safe integer')
+  }
+  return Math.min(value, MAX_RANGE_ROWS)
+}
+
+/**
+ * Read the sniff disclosure from the sniff_csv result (one row). Column names
+ * are exactly the engine's (probed on the shipped browser build: EW-03D B1/B2
+ * and the acquisition record's sniff legs); anything else is a value-free
+ * engine-deviation error, never a guessed field. Empty dialect strings stay
+ * `''` (the sniffer's unset rendering on the CLI control AND the browser
+ * build); DateFormat/TimestampFormat/Prompt stay null when the engine reports
+ * null. The `Prompt` is transported verbatim as display text — nothing
+ * composes SQL from it (ADR 0049 item 3).
+ */
+function readSniffPayload(result: Table): EngineCsvSniff {
+  const unexpected = 'sniff_csv returned an unexpected shape'
+  if (result.numRows !== 1) throw new Error(unexpected)
+  const dialect = (name: string): string => {
+    const value: unknown = result.getChild(name)?.get(0)
+    return typeof value === 'string' ? value : ''
+  }
+  const nullableText = (name: string): string | null => {
+    const value: unknown = result.getChild(name)?.get(0)
+    return typeof value === 'string' ? value : null
+  }
+  const skipRowsValue: unknown = result.getChild('SkipRows')?.get(0)
+  if (
+    typeof skipRowsValue !== 'number' ||
+    !Number.isSafeInteger(skipRowsValue) ||
+    skipRowsValue < 0
+  ) {
+    throw new Error(unexpected)
+  }
+  const hasHeaderValue: unknown = result.getChild('HasHeader')?.get(0)
+  if (typeof hasHeaderValue !== 'boolean') throw new Error(unexpected)
+  const columnsVector = result.getChild('Columns')
+  if (columnsVector === null) throw new Error(unexpected)
+  const columnsValue: unknown = columnsVector.get(0)
+  if (columnsValue === null || columnsValue === undefined) throw new Error(unexpected)
+  // Arrow 17 delivers the list's one cell as an iterable of struct rows (a
+  // Vector — same shape the profile quantile reader consumes), never a plain
+  // JS array.
+  let entries: unknown[]
+  try {
+    entries = Array.from(columnsValue as Iterable<unknown>)
+  } catch {
+    throw new Error(unexpected)
+  }
+  const columns = entries.map((entry) => {
+    const record = entry as Record<string, unknown> | null
+    const name: unknown = record === null || record === undefined ? undefined : record['name']
+    const type: unknown = record === null || record === undefined ? undefined : record['type']
+    if (typeof name !== 'string' || typeof type !== 'string') throw new Error(unexpected)
+    return { name, type }
+  })
+  return {
+    delimiter: dialect('Delimiter'),
+    quote: dialect('Quote'),
+    escape: dialect('Escape'),
+    newLineDelimiter: dialect('NewLineDelimiter'),
+    comment: dialect('Comment'),
+    skipRows: skipRowsValue,
+    hasHeader: hasHeaderValue,
+    columns,
+    dateFormat: nullableText('DateFormat'),
+    timestampFormat: nullableText('TimestampFormat'),
+    prompt: nullableText('Prompt'),
+  }
 }
 
 /**

@@ -1,0 +1,36 @@
+{
+  "generator": "fixtures/csv/generate.mjs (EW-03I; ADR 0038 policy shape)",
+  "policy": "Small canonical synthetic fixtures are committed with checksums. Regeneration is deliberate: an unchanged run rewrites the manifest byte-identically; any content change updates checksums in the same commit. Verified bidirectionally by packages/engine-duckdb csv-options tests.",
+  "files": [
+    {
+      "name": "dup-header.csv",
+      "sha256": "4edceda2fe8f92e1144ba226fc36d3ed8ae9f48220a585263302c072871b0bc7",
+      "description": "Duplicate and empty header names — auto-rename disclosure pin (D3)"
+    },
+    {
+      "name": "late-bad-row.csv",
+      "sha256": "c02cd777c5e759a30c5fa5709a545157d6d57546c158792a1d53fb1211768500",
+      "description": "30 numeric rows then a bad token — sniffer-sample miss vs full-read failure (D13/D7)"
+    },
+    {
+      "name": "leading-zeros.csv",
+      "sha256": "7d71b94f21032a0caa93b1054aa37c893185fc7f4ff02fadbc164919d8f7a0d0",
+      "description": "Leading-zero id lexemes (0017) — all_varchar/sniffed-VARCHAR preservation pin"
+    },
+    {
+      "name": "quoted-empty.csv",
+      "sha256": "8b125f02d15abba0ab6e197e1a25d3ceb5ca3ffbe80512523436c5063b183274",
+      "description": "Quoted empty vs unquoted empty fields — D6 NULL policy pin"
+    },
+    {
+      "name": "semicolon.csv",
+      "sha256": "ecfb63bec2d82a0a6e7497ba56d121530f43b8eb9676b2d6f979c3224c140001",
+      "description": "Semicolon dialect — delim/sep override pin"
+    },
+    {
+      "name": "unsafe-int.csv",
+      "sha256": "82b3a699f7a1bdd6cc3219ce8c0187761c26d92ca71d607f0aebf95932a9da7f",
+      "description": "Integers beyond 2^53 — DOUBLE sniff corruption disclosure pin (D14)"
+    }
+  ]
+}

@@ -1356,6 +1356,36 @@ describe('m4-2: overlay + export protocol', () => {
         field: 'diff-stage.file',
       },
       {
+        label: 'engine/csv-preview missing name',
+        type: 'engine/csv-preview',
+        payload: { file },
+        field: 'csv-preview.name',
+      },
+      {
+        label: 'engine/csv-preview wrong-typed file',
+        type: 'engine/csv-preview',
+        payload: { name: 'cand.csv', file: 'not-a-file' },
+        field: 'csv-preview.file',
+      },
+      {
+        label: 'engine/csv-preview non-object options',
+        type: 'engine/csv-preview',
+        payload: { name: 'cand.csv', file, options: ['delim', ';'] },
+        field: 'csv-preview.options',
+      },
+      {
+        label: 'engine/csv-preview wrong-typed sampleRows',
+        type: 'engine/csv-preview',
+        payload: { name: 'cand.csv', file, sampleRows: 'all' },
+        field: 'csv-preview.sampleRows',
+      },
+      {
+        label: 'engine/open non-object options',
+        type: 'engine/open',
+        payload: { name: 'cand.csv', file, options: 'delim=;' },
+        field: 'open.options',
+      },
+      {
         label: 'engine/diff missing comparisonId',
         type: 'engine/diff',
         payload: { tableId: 't1', plan: wireRowDiffPlan() },
@@ -1458,9 +1488,9 @@ describe('m4-2: overlay + export protocol', () => {
       })
     })
 
-    it('lists exactly the 21 request types and covers every one', () => {
-      expect(ENGINE_REQUEST_TYPES).toHaveLength(21)
-      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(21)
+    it('lists exactly the 22 request types and covers every one', () => {
+      expect(ENGINE_REQUEST_TYPES).toHaveLength(22)
+      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(22)
       const covered = new Set(cases.map((entry) => entry.type))
       // init and dispose have no required fields (nothing can be malformed),
       // so every other request type must appear in the malformed matrix.
@@ -2058,5 +2088,190 @@ describe('m6-2: engine/diff-stage + engine/diff protocol', () => {
         },
       }),
     ).toBeNull()
+  })
+})
+
+// EW-03I: engine/csv-preview + options on engine/open protocol
+// ─────────────────────────────────────────────────────────────────────────────
+
+function wireSniff(): Record<string, unknown> {
+  return {
+    delimiter: ',',
+    quote: '',
+    escape: '',
+    newLineDelimiter: '\n',
+    comment: '',
+    skipRows: 0,
+    hasHeader: true,
+    columns: [
+      { name: 'id', type: 'VARCHAR' },
+      { name: 'amount', type: 'DOUBLE' },
+    ],
+    dateFormat: null,
+    timestampFormat: null,
+    prompt: "FROM read_csv('preview_p1');",
+  }
+}
+
+function wirePreviewResult(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: 'engine/csv-preview-result',
+    requestId: 9,
+    previewId: 'p1',
+    sniff: wireSniff(),
+    effectiveOptions: { delim: ';' },
+    sample: { batchIpc: new Uint8Array([1, 2, 3]), hasMore: false, rowCap: 1000 },
+    ...overrides,
+  }
+}
+
+describe('EW-03I: engine/csv-preview + engine/open options protocol', () => {
+  const requestId = 9
+  const file = new File([new Uint8Array([1, 2, 3])], 'candidate.csv')
+
+  describe('parseEngineRequest', () => {
+    it('parses a well-formed engine/csv-preview request', () => {
+      const request = { type: 'engine/csv-preview', requestId, name: 'candidate.csv', file }
+      expect(parseEngineRequest(request)).toEqual(request)
+    })
+
+    it('parses engine/csv-preview with options and sampleRows', () => {
+      const request = {
+        type: 'engine/csv-preview',
+        requestId,
+        name: 'candidate.csv',
+        file,
+        options: { delim: ';', header: true },
+        sampleRows: 25,
+      }
+      expect(parseEngineRequest(request)).toEqual(request)
+    })
+
+    it('parses engine/open with options (adoption of a reviewed set)', () => {
+      const request = {
+        type: 'engine/open',
+        requestId,
+        name: 'candidate.csv',
+        file,
+        options: { all_varchar: true },
+      }
+      expect(parseEngineRequest(request)).toEqual(request)
+    })
+
+    it('an engine/open WITHOUT options parses to the legacy shape (no options key)', () => {
+      const parsed = parseEngineRequest({ type: 'engine/open', requestId, name: 'a.csv', file })
+      expect(parsed).toEqual({ type: 'engine/open', requestId, name: 'a.csv', file })
+      expect(parsed && 'options' in parsed).toBe(false)
+    })
+  })
+
+  describe('parseEngineResponse — engine/csv-preview-result', () => {
+    it('parses a well-formed preview result (sniff + effectiveOptions + sample)', () => {
+      const response = wirePreviewResult()
+      expect(parseEngineResponse(response)).toEqual(response)
+    })
+
+    it('parses a preview result with a null sample (the host asked for none)', () => {
+      const response = wirePreviewResult({ sample: null })
+      expect(parseEngineResponse(response)).toEqual(response)
+    })
+
+    it('accepts non-null dateFormat/timestampFormat/prompt evidence', () => {
+      const sniff = { ...wireSniff(), dateFormat: '%Y-%m-%d', prompt: null }
+      const response = wirePreviewResult({ sniff })
+      expect(parseEngineResponse(response)).toMatchObject({
+        sniff: { dateFormat: '%Y-%m-%d', prompt: null },
+      })
+    })
+
+    it('accepts a fully-disclosed effective option set (scalar + columns)', () => {
+      const response = wirePreviewResult({
+        effectiveOptions: {
+          header: true,
+          delim: ';',
+          columns: { v: 'VARCHAR' },
+          all_varchar: false,
+          skip: 2,
+          sample_size: 100,
+        },
+      })
+      expect(parseEngineResponse(response)).not.toBeNull()
+    })
+
+    it('rejects an empty or missing previewId', () => {
+      expect(parseEngineResponse(wirePreviewResult({ previewId: '' }))).toBeNull()
+      const withoutId = wirePreviewResult()
+      delete (withoutId as Record<string, unknown>)['previewId']
+      expect(parseEngineResponse(withoutId)).toBeNull()
+    })
+
+    it('rejects a sniff with a bad dialect shape, bad skipRows, or bad columns', () => {
+      expect(
+        parseEngineResponse(wirePreviewResult({ sniff: { ...wireSniff(), delimiter: 3 } })),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(wirePreviewResult({ sniff: { ...wireSniff(), skipRows: -1 } })),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(wirePreviewResult({ sniff: { ...wireSniff(), skipRows: 1.5 } })),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(wirePreviewResult({ sniff: { ...wireSniff(), hasHeader: 'yes' } })),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({ sniff: { ...wireSniff(), columns: [{ name: 1, type: 2 }] } }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(wirePreviewResult({ sniff: { ...wireSniff(), columns: 'many' } })),
+      ).toBeNull()
+    })
+
+    it('rejects a sniff with missing disclosure fields', () => {
+      const partial = wireSniff()
+      delete (partial as Record<string, unknown>)['delimiter']
+      expect(parseEngineResponse(wirePreviewResult({ sniff: partial }))).toBeNull()
+      const noPrompt = wireSniff()
+      delete (noPrompt as Record<string, unknown>)['prompt']
+      expect(parseEngineResponse(wirePreviewResult({ sniff: noPrompt }))).toBeNull()
+    })
+
+    it('rejects a foreign key or wrong-typed value in the effective option set', () => {
+      expect(
+        parseEngineResponse(wirePreviewResult({ effectiveOptions: { ignore_errors: true } })),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(wirePreviewResult({ effectiveOptions: { header: 'yes' } })),
+      ).toBeNull()
+      expect(parseEngineResponse(wirePreviewResult({ effectiveOptions: { skip: 1.5 } }))).toBeNull()
+      expect(
+        parseEngineResponse(wirePreviewResult({ effectiveOptions: { columns: { v: 42 } } })),
+      ).toBeNull()
+      expect(parseEngineResponse(wirePreviewResult({ effectiveOptions: 'delim=;' }))).toBeNull()
+    })
+
+    it('rejects a malformed sample shape (bad bytes, cap, or hasMore)', () => {
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({ sample: { batchIpc: 'x', hasMore: false, rowCap: 5 } }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            sample: { batchIpc: new Uint8Array([1]), hasMore: 'no', rowCap: 5 },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            sample: { batchIpc: new Uint8Array([1]), hasMore: false, rowCap: -1 },
+          }),
+        ),
+      ).toBeNull()
+      expect(parseEngineResponse(wirePreviewResult({ sample: {} }))).toBeNull()
+    })
   })
 })

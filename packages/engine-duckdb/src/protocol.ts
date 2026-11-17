@@ -59,6 +59,8 @@
 
 import type { EngineOverlayPayload } from './overlay-wire.js'
 import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire.js'
+import type { EngineCsvEffectiveOptions } from './csv-options.js'
+export type { EngineCsvEffectiveOptions }
 import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire.js'
 import { parseValidationPlan } from './validate-plan-wire.js'
 import { validationFailCountExcess } from './validate-query.js'
@@ -98,11 +100,39 @@ export interface EngineQueryRequest {
  * source (`FileSystemFileHandle` or the input fallback — the client-side seam
  * is `EngineFileSource` in `client.ts`).
  */
+/**
+ * The raw CSV option set a request may carry (ADR 0049 item 1): validated
+ * total-wise by `parseCsvOptions` — in the client before sending and again in
+ * the worker before any engine touch (the main thread is untrusted). The
+ * envelope only checks that it is a plain object; the closed-vocabulary
+ * refusal happens before dispatch (never passed to DuckDB to fail opaquely).
+ */
 export interface EngineOpenRequest {
   type: 'engine/open'
   requestId: number
   name: string
   file: File
+  /** Optional CSV options (adoption of an already-reviewed set). CSV only. */
+  options?: Record<string, unknown>
+}
+
+/**
+ * The non-adopting CSV preview (ADR 0049 decisions 1/4/6): registers the
+ * candidate under the preview slot's OWN names, sniffs it, and optionally
+ * returns a bounded sample — it never creates a session relation, never
+ * adopts, and no op may address the slot afterwards (there is no
+ * cancel/release/sniff-only op). `options` is the same closed vocabulary as
+ * `engine/open` PLUS the preview-only `sample_size`; `sampleRows` (absent =
+ * the worker cap, 0 = no sample) asks for the bounded sample, clamped
+ * worker-side like every row window.
+ */
+export interface EngineCsvPreviewRequest {
+  type: 'engine/csv-preview'
+  requestId: number
+  name: string
+  file: File
+  options?: Record<string, unknown>
+  sampleRows?: number
 }
 
 export interface EngineSchemaRequest {
@@ -431,6 +461,7 @@ export type EngineRequest =
   | EngineInitRequest
   | EngineQueryRequest
   | EngineOpenRequest
+  | EngineCsvPreviewRequest
   | EngineSchemaRequest
   | EngineRangeRequest
   | EngineRowCountRequest
@@ -483,6 +514,64 @@ export interface EngineOpenResultResponse {
   tableId: string
   /** The reader format chosen from the file-name extension. */
   format: 'parquet' | 'csv' | 'jsonl' | 'json'
+}
+
+// ---- CSV preview payload types (EW-03I; ADR 0049 decision 6) ----
+//
+// The preview response carries three disclosures: (a) the sniff_csv payload —
+// the sniffer's own evidence about the candidate; (b) the effective option
+// set actually composed; (c) a bounded row sample with its cap STATED. None of
+// it is a validation verdict: a failure beyond the sniff sample is expected
+// and normal, and `count(*)`/sample presence is never conversion evidence.
+
+/** One sniffed column: the sniffer's own name/type evidence. */
+export interface EngineCsvSniffColumn {
+  name: string
+  type: string
+}
+
+/** The sniff_csv disclosure, read verbatim from the engine's single row. */
+export interface EngineCsvSniff {
+  delimiter: string
+  quote: string
+  escape: string
+  newLineDelimiter: string
+  comment: string
+  skipRows: number
+  hasHeader: boolean
+  columns: EngineCsvSniffColumn[]
+  dateFormat: string | null
+  timestampFormat: string | null
+  /**
+   * The sniffer's copyable `read_csv(...)` call — DISPLAY TEXT ONLY, never
+   * executed: it embeds a file name and user-influenced values, and no code
+   * path composes SQL from it (ADR 0049 item 3).
+   */
+  prompt: string | null
+}
+
+/** The bounded sample: an Arrow IPC first batch plus the exact cap applied. */
+export interface EngineCsvPreviewSample {
+  batchIpc: Uint8Array
+  hasMore: boolean
+  /** The exact LIMIT the sample was fetched with (stated, never implied). */
+  rowCap: number
+}
+
+/** Result of the non-adopting CSV preview (ADR 0049 decision 6). */
+export interface EngineCsvPreviewResultResponse {
+  type: 'engine/csv-preview-result'
+  requestId: number
+  /**
+   * The preview slot that staged the candidate (`p1`, …). NOT a table handle:
+   * no protocol op accepts it (the slot is released by the next preview, an
+   * open, or dispose — never host-reachable).
+   */
+  previewId: string
+  sniff: EngineCsvSniff
+  effectiveOptions: EngineCsvEffectiveOptions
+  /** Null when the host requested no sample (`sampleRows = 0`). */
+  sample: EngineCsvPreviewSample | null
 }
 
 /**
@@ -725,6 +814,7 @@ export type EngineResponse =
   | EngineReadyResponse
   | EngineQueryResultResponse
   | EngineOpenResultResponse
+  | EngineCsvPreviewResultResponse
   | EngineSchemaResultResponse
   | EngineRangeResultResponse
   | EngineRowCountResultResponse
@@ -750,6 +840,7 @@ export type EngineSuccessResponse =
   | EngineReadyResponse
   | EngineQueryResultResponse
   | EngineOpenResultResponse
+  | EngineCsvPreviewResultResponse
   | EngineSchemaResultResponse
   | EngineRangeResultResponse
   | EngineRowCountResultResponse
@@ -820,7 +911,45 @@ function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
   if (type === 'engine/open') {
     if (typeof data.name !== 'string') return malformedField('open.name')
     if (!isFile(data.file)) return malformedField('open.file')
-    return { ok: true, request: { type, requestId, name: data.name, file: data.file } }
+    // CSV options (EW-03I): envelope checks shape only (a plain object — an
+    // array is not); the closed vocabulary is refused before dispatch by
+    // `parseCsvOptions` in the client and again in the executor.
+    if (data.options !== undefined && !isPlainRecord(data.options)) {
+      return malformedField('open.options')
+    }
+    return {
+      ok: true,
+      request: {
+        type,
+        requestId,
+        name: data.name,
+        file: data.file,
+        ...(data.options === undefined ? {} : { options: data.options }),
+      },
+    }
+  }
+  if (type === 'engine/csv-preview') {
+    if (typeof data.name !== 'string') return malformedField('csv-preview.name')
+    if (!isFile(data.file)) return malformedField('csv-preview.file')
+    if (data.options !== undefined && !isPlainRecord(data.options)) {
+      return malformedField('csv-preview.options')
+    }
+    // Well-formedness only (a number); the worker clamps/validates semantics
+    // like every row window (absent = the worker cap, 0 = no sample).
+    if (data.sampleRows !== undefined && typeof data.sampleRows !== 'number') {
+      return malformedField('csv-preview.sampleRows')
+    }
+    return {
+      ok: true,
+      request: {
+        type,
+        requestId,
+        name: data.name,
+        file: data.file,
+        ...(data.options === undefined ? {} : { options: data.options }),
+        ...(data.sampleRows === undefined ? {} : { sampleRows: data.sampleRows }),
+      },
+    }
   }
   if (type === 'engine/schema') {
     if (typeof data.tableId !== 'string') return malformedField('schema.tableId')
@@ -1102,6 +1231,7 @@ export const ENGINE_REQUEST_TYPES = [
   'engine/init',
   'engine/query',
   'engine/open',
+  'engine/csv-preview',
   'engine/schema',
   'engine/range',
   'engine/row-count',
@@ -1309,6 +1439,16 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
   ) {
     return { type, requestId, tableId: data.tableId, format: data.format }
   }
+  if (type === 'engine/csv-preview-result' && isCsvPreviewResult(data)) {
+    return {
+      type,
+      requestId,
+      previewId: data.previewId,
+      sniff: data.sniff,
+      effectiveOptions: data.effectiveOptions,
+      sample: data.sample,
+    }
+  }
   if (type === 'engine/schema-result' && isColumnSchemaList(data.columns)) {
     return { type, requestId, columns: data.columns }
   }
@@ -1443,6 +1583,81 @@ function isFile(value: unknown): value is File {
 
 function isFileFormat(value: unknown): value is 'parquet' | 'csv' | 'jsonl' | 'json' {
   return value === 'parquet' || value === 'csv' || value === 'jsonl' || value === 'json'
+}
+
+/**
+ * A well-formed CSV preview result (shape only — the worker guarantees the
+ * rest): a non-empty slot id, a sniff payload with exactly the disclosure
+ * fields (strings for the dialect, a safe `skipRows`, name/type pairs, and
+ * string-or-null for the nullable evidence), an effective-option record whose
+ * keys are all in the closed vocabulary with type-matched values, and a
+ * sample that is null (the host asked for none) or a capped batch shape.
+ */
+function isCsvPreviewResult(data: Record<string, unknown>): data is {
+  previewId: string
+  sniff: EngineCsvSniff
+  effectiveOptions: EngineCsvEffectiveOptions
+  sample: EngineCsvPreviewSample | null
+} {
+  if (typeof data['previewId'] !== 'string' || data['previewId'] === '') return false
+  const sniff = data['sniff']
+  if (!isRecord(sniff)) return false
+  const dialectStrings = ['delimiter', 'quote', 'escape', 'newLineDelimiter', 'comment']
+  if (!dialectStrings.every((key) => typeof sniff[key] === 'string')) return false
+  if (!isRowCount(sniff['skipRows']) || typeof sniff['hasHeader'] !== 'boolean') return false
+  const columns = sniff['columns']
+  if (!Array.isArray(columns) || !columns.every(isSniffColumn)) return false
+  if (!isStringOrNull(sniff['dateFormat']) || !isStringOrNull(sniff['timestampFormat'])) {
+    return false
+  }
+  if (!isStringOrNull(sniff['prompt'])) return false
+  if (!isEffectiveOptions(data['effectiveOptions'])) return false
+  const sample = data['sample']
+  if (sample === null) return true
+  return (
+    isRecord(sample) &&
+    isUint8Array(sample['batchIpc']) &&
+    typeof sample['hasMore'] === 'boolean' &&
+    isRowCount(sample['rowCap'])
+  )
+}
+
+function isSniffColumn(value: unknown): value is EngineCsvSniffColumn {
+  return isRecord(value) && typeof value['name'] === 'string' && typeof value['type'] === 'string'
+}
+
+function isStringOrNull(value: unknown): value is string | null {
+  return value === null || typeof value === 'string'
+}
+
+/**
+ * A disclosed effective-option record: every key in the closed vocabulary,
+ * every value type-matched (the worker builds this canonically; a payload
+ * carrying a foreign key or wrong value shape is malformed and rejected).
+ */
+function isEffectiveOptions(value: unknown): boolean {
+  if (!isPlainRecord(value)) return false
+  const booleanKeys = ['header', 'all_varchar']
+  const stringKeys = ['delim', 'quote', 'escape', 'nullstr', 'dateformat', 'comment']
+  const numberKeys = ['skip', 'sample_size']
+  for (const key of Object.keys(value)) {
+    const v = value[key]
+    if (booleanKeys.includes(key)) {
+      if (typeof v !== 'boolean') return false
+    } else if (stringKeys.includes(key)) {
+      if (typeof v !== 'string') return false
+    } else if (numberKeys.includes(key)) {
+      if (typeof v !== 'number' || !Number.isSafeInteger(v)) return false
+    } else if (key === 'columns') {
+      if (!isPlainRecord(v) || !Object.values(v).every((entry) => typeof entry === 'string')) {
+        return false
+      }
+    } else {
+      // A foreign key in a disclosure payload is a foreign signal.
+      return false
+    }
+  }
+  return true
 }
 
 function isColumnSchemaList(value: unknown): value is EngineColumnSchema[] {
@@ -1620,6 +1835,16 @@ function isProfileColumnList(value: unknown): value is EngineProfileColumn[] {
       return true
     })
   )
+}
+
+/**
+ * A plain (non-array) object shape for host-supplied option payloads. The
+ * existing `isRecord` accepts arrays (arrays are objects); the CSV option
+ * payload must be a record, so the envelope narrows with this guard instead
+ * — a malformed shape is a rejected envelope, never a silently ignored field.
+ */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

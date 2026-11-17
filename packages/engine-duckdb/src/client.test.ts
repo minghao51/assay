@@ -19,6 +19,8 @@ import type { EngineRowDiffPlan } from './diff-plan-wire'
 import type { DuckDbEngineClientOptions } from './client'
 import type {
   EngineColumnSchema,
+  EngineCsvPreviewSample,
+  EngineCsvSniff,
   EngineFilterSpec,
   EngineRequest,
   EngineResponse,
@@ -2229,5 +2231,183 @@ describe('DuckDbEngineClient.runPipeline', () => {
     expect(
       bootedWorker.postedRequests.filter((request) => request.type === 'engine/pipeline-handle'),
     ).toHaveLength(4)
+  })
+})
+
+// EW-03I: client csvPreview + open options (the host-side validation pass)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('DuckDbEngineClient csvPreview + open options (EW-03I)', () => {
+  const csvFile = new File([new Uint8Array([1, 2, 3])], 'candidate.csv')
+  const csvSource = { name: 'candidate.csv', getFile: () => Promise.resolve(csvFile) }
+
+  function sniffPayload(): EngineCsvSniff {
+    return {
+      delimiter: ',',
+      quote: '',
+      escape: '',
+      newLineDelimiter: '\n',
+      comment: '',
+      skipRows: 0,
+      hasHeader: true,
+      columns: [
+        { name: 'id', type: 'VARCHAR' },
+        { name: 'amount', type: 'DOUBLE' },
+      ],
+      dateFormat: null,
+      timestampFormat: null,
+      prompt: "FROM read_csv('preview_p1');",
+    }
+  }
+
+  function previewResultResponse(
+    requestId: number,
+    sample: EngineCsvPreviewSample | null,
+  ): EngineResponse {
+    return {
+      type: 'engine/csv-preview-result',
+      requestId,
+      previewId: 'p1',
+      sniff: sniffPayload(),
+      effectiveOptions: { delim: ';' },
+      // A real Arrow IPC payload so the client's reconstitution is exercised.
+      sample,
+    }
+  }
+
+  it('csvPreview sends the typed request with canonical options and reconstitutes the sample batch', async () => {
+    const { client, workers } = makeClient()
+    const batchIpc = tableToIPC(tableFromArrays({ id: ['0017'], amount: [10.5] }))
+    const pending = client.csvPreview(csvSource, { sep: ';' }, 25)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    const request = worker.requestAt(1)
+    expect(request).toMatchObject({ type: 'engine/csv-preview', name: 'candidate.csv' })
+    if (request.type !== 'engine/csv-preview') throw new Error('unreachable')
+    // The sep alias resolved to delim BEFORE sending (the canonical wire form).
+    expect(request.options).toEqual({ delim: ';' })
+    expect(request.sampleRows).toBe(25)
+    worker.respond(
+      previewResultResponse(request.requestId, {
+        batchIpc,
+        hasMore: false,
+        rowCap: 25,
+      }),
+    )
+
+    const result = await pending
+    expect(result.previewId).toBe('p1')
+    expect(result.sniff).toEqual(sniffPayload())
+    expect(result.effectiveOptions).toEqual({ delim: ';' })
+    expect(result.sample).not.toBeNull()
+    if (result.sample !== null) {
+      expect(result.sample.rowCap).toBe(25)
+      expect(result.sample.hasMore).toBe(false)
+      expect(result.sample.batch.numRows).toBe(1)
+      expect(result.sample.batch.getChild('id')?.get(0)).toBe('0017')
+    }
+  })
+
+  it('csvPreview without sampleRows omits the field (the worker applies its cap); sampleRows 0 returns a null sample', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.csvPreview(csvSource, { all_varchar: true })
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    const request = worker.requestAt(1)
+    if (request.type !== 'engine/csv-preview') throw new Error('unreachable')
+    expect(request.sampleRows).toBeUndefined()
+    worker.respond(previewResultResponse(request.requestId, null))
+    const result = await pending
+    expect(result.sample).toBeNull()
+  })
+
+  it('csvPreview refuses a non-csv source and an out-of-vocabulary option BEFORE anything crosses the boundary', async () => {
+    const { client, workers } = makeClient()
+    const parquetSource = {
+      name: 'flat.parquet',
+      getFile: () => Promise.resolve(new File([], 'flat.parquet')),
+    }
+    // The expectation attaches synchronously (no unhandled-rejection window);
+    // the refusals sit behind the lazy boot, answered right below.
+    const expectation = expect(client.csvPreview(parquetSource)).rejects.toThrow(
+      'csv preview requires a .csv file: this op reviews the CSV reader only',
+    )
+    workers[0]!.respond(readyResponse(workers[0]!.requestAt(0).requestId))
+    await flush()
+    await expectation
+    // Ready is memoized now — later refusals are immediate.
+    await expect(client.csvPreview(csvSource, { ignore_errors: true })).rejects.toThrow(
+      'refused CSV option: ignore_errors',
+    )
+    await expect(client.csvPreview(csvSource, { delimiter: ',' })).rejects.toThrow(
+      'refused CSV option: delimiter',
+    )
+    // Nothing was ever posted for the refusals (no preview request exists).
+    expect(
+      workers[0]!.postedRequests.filter((request) => request.type === 'engine/csv-preview'),
+    ).toHaveLength(0)
+  })
+
+  it('open with options validates the vocabulary client-side and sends the canonical set', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.open(csvSource, { types: { v: 'VARCHAR' }, header: true })
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    const request = worker.requestAt(1)
+    expect(request).toMatchObject({ type: 'engine/open', name: 'candidate.csv', file: csvFile })
+    if (request.type !== 'engine/open') throw new Error('unreachable')
+    expect(request.options).toEqual({ columns: { v: 'VARCHAR' }, header: true })
+    worker.respond({
+      type: 'engine/open-result',
+      requestId: request.requestId,
+      tableId: 't1',
+      format: 'csv',
+    })
+    expect(await pending).toEqual({ kind: 'table', id: 't1' })
+  })
+
+  it('open without options sends the legacy request shape (no options key at all)', async () => {
+    const { client, workers } = makeClient()
+    const pending = client.open(csvSource)
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await flush()
+    const request = worker.requestAt(1)
+    expect(request).toMatchObject({ type: 'engine/open', name: 'candidate.csv' })
+    expect('options' in request).toBe(false)
+    worker.respond({
+      type: 'engine/open-result',
+      requestId: request.requestId,
+      tableId: 't1',
+      format: 'csv',
+    })
+    await pending
+  })
+
+  it('open refusals happen before send: preview-only sample_size, non-csv file, deferred key', async () => {
+    const { client, workers } = makeClient()
+    const parquetSource = {
+      name: 'flat.parquet',
+      getFile: () => Promise.resolve(new File([], 'flat.parquet')),
+    }
+    const expectation = expect(client.open(csvSource, { sample_size: 10 })).rejects.toThrow(
+      'sample_size is a preview-only option and cannot ride engine/open',
+    )
+    workers[0]!.respond(readyResponse(workers[0]!.requestAt(0).requestId))
+    await flush()
+    await expectation
+    await expect(client.open(parquetSource, { delim: ';' })).rejects.toThrow(
+      'csv options require a .csv file: the other readers take no options',
+    )
+    await expect(client.open(csvSource, { strict_mode: true })).rejects.toThrow('strict_mode')
+    await expect(client.open(csvSource, { delimiter: ',' })).rejects.toThrow(
+      'refused CSV option: delimiter',
+    )
+    expect(
+      workers[0]!.postedRequests.filter((request) => request.type === 'engine/open'),
+    ).toHaveLength(0)
   })
 })

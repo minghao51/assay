@@ -5,6 +5,9 @@ import {
   List,
   Table,
   Utf8,
+  makeBuilder,
+  makeVector,
+  Struct,
   tableFromArrays,
   tableFromIPC,
   vectorFromArray,
@@ -13,7 +16,7 @@ import type { RecordBatch } from 'apache-arrow'
 import { baseRowId, insertRowId } from '@assay/domain'
 import type { EditOp } from '@assay/domain'
 import { describe, expect, it } from 'vitest'
-import { EngineOpExecutor } from './engine-executor'
+import { EngineOpExecutor, PreviewRegistry, viewNameForPreviewId } from './engine-executor'
 import type {
   EngineConnectionLike,
   EngineExecutorDeps,
@@ -3843,5 +3846,514 @@ describe('EngineOpExecutor pipeline execute (p2-4)', () => {
     })
     expect(await awaitPosted(deps, 2)).toMatchObject({ type: 'engine/error' })
     expect(deps.queryConn.sentSqls).toEqual([])
+  })
+})
+
+// EW-03I: CSV preview (engine/csv-preview) + options on engine/open
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CANDIDATE_CSV = new File([new Uint8Array([1, 2, 3])], 'candidate.csv')
+const CANDIDATE_CSV_B = new File([new Uint8Array([4, 5, 6])], 'candidate-b.csv')
+
+function previewRequest(
+  id: number,
+  options?: Record<string, unknown>,
+  sampleRows?: number,
+): EngineRequest {
+  return {
+    type: 'engine/csv-preview',
+    requestId: id,
+    name: 'candidate.csv',
+    file: CANDIDATE_CSV,
+    ...(options === undefined ? {} : { options }),
+    ...(sampleRows === undefined ? {} : { sampleRows }),
+  }
+}
+
+const SNIFF_STRUCT_TYPE = new Struct([new Field('name', new Utf8()), new Field('type', new Utf8())])
+const SNIFF_COLUMNS_TYPE = new List(new Field('struct', SNIFF_STRUCT_TYPE, true))
+
+/** One string-or-null cell as a finished one-row Utf8 vector. */
+function textOrNullVector(value: string | null) {
+  return vectorFromArray([value], new Utf8())
+}
+
+/**
+ * The sniff_csv single-row disclosure shape, exactly as the browser build
+ * reports it (EW-03D probe B1/B2; the acquisition record's sniff legs):
+ * Delimiter/Quote/Escape/NewLineDelimiter/Comment as VARCHAR (empty string =
+ * unset), SkipRows uint32, HasHeader boolean, Columns a list of name/type
+ * structs, DateFormat/TimestampFormat/Prompt nullable VARCHAR.
+ */
+function sniffTable(
+  overrides: Partial<{
+    Delimiter: string
+    Quote: string
+    Escape: string
+    NewLineDelimiter: string
+    Comment: string
+    SkipRows: number
+    HasHeader: boolean
+    Columns: Array<{ name: string; type: string }>
+    DateFormat: string | null
+    TimestampFormat: string | null
+    Prompt: string | null
+  }> = {},
+): Table {
+  const shape = {
+    Delimiter: ',',
+    Quote: '',
+    Escape: '',
+    NewLineDelimiter: '\n',
+    Comment: '',
+    SkipRows: 0,
+    HasHeader: true,
+    Columns: [
+      { name: 'id', type: 'VARCHAR' },
+      { name: 'amount', type: 'DOUBLE' },
+      { name: 'label', type: 'VARCHAR' },
+    ],
+    DateFormat: null,
+    TimestampFormat: null,
+    Prompt: "FROM read_csv('preview_p1');",
+    ...overrides,
+  }
+  const columnsBuilder = makeBuilder({ type: SNIFF_COLUMNS_TYPE })
+  columnsBuilder.append(shape.Columns)
+  return new Table({
+    Delimiter: vectorFromArray([shape.Delimiter]),
+    Quote: vectorFromArray([shape.Quote]),
+    Escape: vectorFromArray([shape.Escape]),
+    NewLineDelimiter: vectorFromArray([shape.NewLineDelimiter]),
+    Comment: vectorFromArray([shape.Comment]),
+    SkipRows: makeVector(Uint32Array.from([shape.SkipRows])),
+    HasHeader: vectorFromArray([shape.HasHeader]),
+    Columns: columnsBuilder.finish().toVector(),
+    DateFormat: textOrNullVector(shape.DateFormat),
+    TimestampFormat: textOrNullVector(shape.TimestampFormat),
+    Prompt: textOrNullVector(shape.Prompt),
+  })
+}
+
+/** Drive a preview through the full flow (sniff + default sample) and return the posted result. */
+async function runPreview(
+  executor: EngineOpExecutor,
+  deps: FakeDeps,
+  request: EngineRequest,
+): Promise<EngineResponse> {
+  executor.accept(request)
+  // The sniff is the first SQL the preview issues (registration is not SQL).
+  await awaitSends(deps.queryConn, 1)
+  deps.queryConn.resolveSend(0, sniffTable())
+  await awaitSends(deps.queryConn, 2)
+  deps.queryConn.resolveSend(1, intTable([1, 2, 3]))
+  return awaitPosted(deps, request.requestId)
+}
+
+describe('EngineOpExecutor CSV preview (EW-03I; query lane per ADR 0049 resolution 8)', () => {
+  it('previews a candidate: bare registration under the slot name, no view, sniff + bounded sample', async () => {
+    const { executor, deps } = makeExecutor()
+    const posted = await runPreview(executor, deps, previewRequest(1, { delim: ';' }))
+    // Bare registration is the default: the probe proved read_csv/sniff_csv
+    // scan the registered name with NO view — no CREATE VIEW is ever issued.
+    expect(deps.registeredFiles).toEqual([{ name: 'preview_p1', file: CANDIDATE_CSV }])
+    expect(deps.queryConn.sentSqls.some((sql) => /CREATE VIEW/i.test(sql))).toBe(false)
+    expect(deps.queryConn.sentSqls[0]).toBe("SELECT * FROM sniff_csv('preview_p1', delim = ';')")
+    expect(deps.queryConn.sentSqls[1]).toBe(
+      "SELECT * FROM read_csv('preview_p1', delim = ';') LIMIT 1000",
+    )
+    // The registry lane is untouched by the whole op.
+    expect(deps.conn.sentSqls).toEqual([])
+    // The payload: slot id, the sniff disclosure, the effective option set,
+    // and the bounded sample with its cap STATED.
+    expect(posted).toMatchObject({
+      type: 'engine/csv-preview-result',
+      requestId: 1,
+      previewId: 'p1',
+      sniff: {
+        delimiter: ',',
+        quote: '',
+        escape: '',
+        skipRows: 0,
+        hasHeader: true,
+        dateFormat: null,
+        timestampFormat: null,
+        prompt: "FROM read_csv('preview_p1');",
+      },
+      effectiveOptions: { delim: ';' },
+      sample: { rowCap: 1000, hasMore: false },
+    })
+    if (posted.type === 'engine/csv-preview-result' && posted.sample !== null) {
+      const batch = tableFromIPC(posted.sample.batchIpc)
+      expect(batch.numRows).toBe(3)
+    }
+    // The preview slot NEVER reads its candidate's bytes back (probe D3:
+    // copyFileToBuffer poisons the release into a 1-byte stub).
+    expect(deps.copiedExportBytes).toEqual([])
+    expectNoCollisions(deps)
+  })
+
+  it('reads the sniff payload verbatim: nullable evidence stays null, empty dialect strings stay empty', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(previewRequest(1, {}, 0))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(
+      0,
+      sniffTable({ DateFormat: '%Y-%m-%d', Prompt: null, Comment: '#' }),
+    )
+    const posted = await awaitPosted(deps, 1)
+    expect(posted).toMatchObject({
+      type: 'engine/csv-preview-result',
+      sniff: {
+        delimiter: ',',
+        quote: '',
+        comment: '#',
+        hasHeader: true,
+        columns: [
+          { name: 'id', type: 'VARCHAR' },
+          { name: 'amount', type: 'DOUBLE' },
+          { name: 'label', type: 'VARCHAR' },
+        ],
+        dateFormat: '%Y-%m-%d',
+        timestampFormat: null,
+        prompt: null,
+      },
+      sample: null,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('catalog neutrality: no t1/assay_t1 SQL, no TableRegistry entry, and the slot is not a table handle', async () => {
+    const { executor, deps } = makeExecutor()
+    await runPreview(executor, deps, previewRequest(1))
+    // No SQL names a session relation; the slot names are the preview's own.
+    for (const sql of deps.queryConn.sentSqls) {
+      expect(sql).not.toContain('assay_t1')
+      expect(sql).not.toContain("'t1'")
+    }
+    // The slot id does not address the session registry — there is no
+    // preview-addressed op at all (ADR 0049 decision 4: never host-reachable).
+    executor.accept(schemaRequest(2)) // tableId 't1' — unknown
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/error', message: 'unknown table handle: t1' })
+    expectNoCollisions(deps)
+  })
+
+  it('drop-before-restage: a second preview releases the first view-then-file and takes a new id', async () => {
+    const { executor, deps } = makeExecutor()
+    await runPreview(executor, deps, previewRequest(1))
+
+    executor.accept({ ...previewRequest(2), file: CANDIDATE_CSV_B })
+    await awaitSends(deps.queryConn, 3)
+    // The release order is view-first (DROP VIEW IF EXISTS, swallowed), then
+    // the file (dropFile, swallowed) — the runDiffStage ordering.
+    expect(deps.queryConn.sentSqls[2]).toBe('DROP VIEW IF EXISTS "assay_preview_p1"')
+    deps.queryConn.resolveSend(2, tableFromArrays({})) // the release DROP settles
+    await awaitSends(deps.queryConn, 4)
+    // The dropFile ran after the DROP settled (it is what removes the bytes).
+    expect(deps.droppedFiles).toContain('preview_p1')
+    expect(deps.registeredFiles[1]).toEqual({ name: 'preview_p2', file: CANDIDATE_CSV_B })
+    expect(deps.queryConn.sentSqls[3]).toBe("SELECT * FROM sniff_csv('preview_p2')")
+    deps.queryConn.resolveSend(3, sniffTable())
+    await awaitSends(deps.queryConn, 5)
+    expect(deps.queryConn.sentSqls[4]).toBe("SELECT * FROM read_csv('preview_p2') LIMIT 1000")
+    deps.queryConn.resolveSend(4, intTable([]))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/csv-preview-result', previewId: 'p2' })
+    expectNoCollisions(deps)
+  })
+
+  it('the release is best-effort: a failed DROP VIEW still reaches dropFile and the preview proceeds', async () => {
+    const { executor, deps } = makeExecutor()
+    await runPreview(executor, deps, previewRequest(1))
+
+    executor.accept({ ...previewRequest(2), file: CANDIDATE_CSV_B })
+    await awaitSends(deps.queryConn, 3)
+    expect(deps.queryConn.sentSqls[2]).toBe('DROP VIEW IF EXISTS "assay_preview_p1"')
+    // The DROP fails loudly at startPendingQuery time; the release swallows it
+    // (best-effort) and the dropFile STILL runs — the probe: it is the
+    // dropFile that removes the bytes, so a failed view drop must not reach
+    // the "file was kept" outcome the naive ordering would produce.
+    deps.queryConn.rejectSend(2, new Error('Catalog Error: view does not exist'))
+    await awaitSends(deps.queryConn, 4)
+    expect(deps.droppedFiles).toContain('preview_p1')
+    expect(deps.queryConn.sentSqls[3]).toBe("SELECT * FROM sniff_csv('preview_p2')")
+    // The preview proceeds on the new slot's own names.
+    deps.queryConn.resolveSend(3, sniffTable())
+    await awaitSends(deps.queryConn, 5)
+    deps.queryConn.resolveSend(4, intTable([]))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/csv-preview-result', previewId: 'p2' })
+    expectNoCollisions(deps)
+  })
+
+  it('a failed registration still tracks the slot name; dispose attempts its release', async () => {
+    const { executor, deps } = makeExecutor()
+    deps.registerFileError = new Error('register failed')
+    executor.accept(previewRequest(1))
+    const posted = await awaitPosted(deps, 1)
+    expect(posted).toMatchObject({ type: 'engine/error', message: 'register failed' })
+    // The attempt was made under the slot's own name; the slot tracked it.
+    expect(deps.registeredFiles).toEqual([{ name: 'preview_p1', file: CANDIDATE_CSV }])
+    // Dispose sweeps the tracked name (dropFile on a missing name does not
+    // throw — the acquisition probe — so the attempt is always safe).
+    executor.accept(disposeRequest(2))
+    await awaitSends(deps.conn, 1)
+    expect(deps.conn.sentSqls[0]).toBe('DROP VIEW IF EXISTS "assay_preview_p1"')
+    deps.conn.resolveSend(0, tableFromArrays({}))
+    await awaitPosted(deps, 2)
+    expect(deps.droppedFiles).toContain('preview_p1')
+    expectNoCollisions(deps)
+  })
+
+  it('a scan failure after registration keeps the slot live; dispose releases it (the +1 accounting row)', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(previewRequest(1))
+    await awaitSends(deps.queryConn, 1)
+    // The sniff fails with the engine's own message (the honest EH first line
+    // where available) — never classified, never re-worded worker-side.
+    deps.queryConn.rejectSend(0, new Error('Conversion Error: CSV Error on Line: 31'))
+    const posted = await awaitPosted(deps, 1)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      message: 'Conversion Error: CSV Error on Line: 31',
+    })
+    // Dispose releases the live slot.
+    executor.accept(disposeRequest(2))
+    await awaitSends(deps.conn, 1)
+    deps.conn.resolveSend(0, tableFromArrays({}))
+    await awaitPosted(deps, 2)
+    expect(deps.droppedFiles).toContain('preview_p1')
+    expectNoCollisions(deps)
+  })
+
+  it('sampleRows semantics: absent = the window cap, oversized clamps down, 25 clips, 0 means no sample', async () => {
+    const { executor, deps } = makeExecutor()
+    const postedBig = await runPreview(executor, deps, previewRequest(1, {}, 100000))
+    if (postedBig.type !== 'engine/csv-preview-result' || postedBig.sample === null) {
+      throw new Error('expected a sample')
+    }
+    expect(deps.queryConn.sentSqls[1]).toContain('LIMIT 1000')
+    expect(deps.queryConn.sentSqls[1].endsWith('LIMIT 1000')).toBe(true)
+    expect(postedBig.sample.rowCap).toBe(1000)
+
+    // Second preview: release DROP (index 2), sniff (index 3), sample (index 4).
+    executor.accept(previewRequest(2, {}, 25))
+    await awaitSends(deps.queryConn, 3)
+    deps.queryConn.resolveSend(2, tableFromArrays({}))
+    await awaitSends(deps.queryConn, 4)
+    // The sniff carries no LIMIT — the cap states itself in the sample SQL.
+    expect(deps.queryConn.sentSqls[3]).toBe("SELECT * FROM sniff_csv('preview_p2')")
+    deps.queryConn.resolveSend(3, sniffTable())
+    await awaitSends(deps.queryConn, 5)
+    expect(deps.queryConn.sentSqls[4]).toBe("SELECT * FROM read_csv('preview_p2') LIMIT 25")
+    deps.queryConn.resolveSend(4, intTable([1]))
+    const postedSmall = await awaitPosted(deps, 2)
+    expect(postedSmall).toMatchObject({
+      type: 'engine/csv-preview-result',
+      previewId: 'p2',
+      sample: { rowCap: 25 },
+    })
+
+    // Third preview with sampleRows 0: no sample SQL at all, sample null.
+    executor.accept(previewRequest(3, {}, 0))
+    await awaitSends(deps.queryConn, 6)
+    deps.queryConn.resolveSend(5, tableFromArrays({})) // release preview_p2
+    await awaitSends(deps.queryConn, 7)
+    expect(deps.queryConn.sentSqls[6]).toBe("SELECT * FROM sniff_csv('preview_p3')")
+    deps.queryConn.resolveSend(6, sniffTable())
+    const postedNone = await awaitPosted(deps, 3)
+    expect(postedNone).toMatchObject({ type: 'engine/csv-preview-result', sample: null })
+    expect(deps.queryConn.sentSqls.filter((sql) => /LIMIT/.test(sql))).toHaveLength(2)
+    expectNoCollisions(deps)
+  })
+
+  it('refuses before ANY engine touch: non-csv candidate, unknown option, preview-only on open', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept({ ...previewRequest(1), name: 'candidate.parquet' })
+    let posted = await awaitPosted(deps, 1)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      message: 'csv preview requires a .csv file: this op reviews the CSV reader only',
+    })
+    executor.accept(previewRequest(2, { ignore_errors: true }))
+    posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      message: 'refused CSV option: ignore_errors',
+    })
+    executor.accept(previewRequest(3, { delimiter: ',' }))
+    posted = await awaitPosted(deps, 3)
+    expect(posted).toMatchObject({ type: 'engine/error', message: 'refused CSV option: delimiter' })
+    // No registration, no SQL, no drops — refusal happened before dispatch.
+    expect(deps.registeredFiles).toEqual([])
+    expect(deps.droppedFiles).toEqual([])
+    expect(deps.queryConn.sentSqls).toEqual([])
+    expect(deps.conn.sentSqls).toEqual([])
+    expectNoCollisions(deps)
+  })
+
+  it('runs on the query lane: registry-lane windows still flow while the sniff is parked', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    executor.accept(previewRequest(2))
+    await awaitSends(deps.queryConn, 1) // sniff parked on the QUERY lane
+    // The registry lane still answers (preview work never blocks the grid).
+    executor.accept(rowCountRequest(3))
+    await awaitSends(deps.conn, 2) // CREATE VIEW (openFlatTable) + the count
+    expect(deps.conn.sentSqls[1]).toContain('count(*)')
+    deps.conn.resolveSend(1, countTable(4n))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/row-count-result',
+      rowCount: 4,
+    })
+    // Now finish the preview.
+    deps.queryConn.resolveSend(0, sniffTable())
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, intTable([]))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/csv-preview-result', previewId: 'p1' })
+    expectNoCollisions(deps)
+  })
+})
+
+describe('EngineOpExecutor open options — adoption (EW-03I; ADR 0049 decisions 1/5)', () => {
+  it('an open releases the preview slot and composes the options into the session view', async () => {
+    const { executor, deps } = makeExecutor()
+    await runPreview(executor, deps, previewRequest(1, { delim: ';' }))
+
+    executor.accept({
+      type: 'engine/open',
+      requestId: 2,
+      name: 'candidate.csv',
+      file: CANDIDATE_CSV,
+      options: { all_varchar: true, header: true },
+    })
+    await awaitSends(deps.conn, 1)
+    // The slot is released first (view-then-file, best-effort)…
+    expect(deps.conn.sentSqls[0]).toBe('DROP VIEW IF EXISTS "assay_preview_p1"')
+    deps.conn.resolveSend(0, tableFromArrays({})) // the release DROP settles
+    await awaitSends(deps.conn, 2)
+    expect(deps.droppedFiles).toContain('preview_p1')
+    // …then adoption composes the reviewed set into the fresh session view.
+    expect(deps.conn.sentSqls[1]).toBe(
+      'CREATE VIEW "assay_t1" AS SELECT * FROM read_csv(\'t1\', header = true, all_varchar = true)',
+    )
+    deps.conn.resolveSend(1, intTable([]))
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({ type: 'engine/open-result', tableId: 't1', format: 'csv' })
+    expectNoCollisions(deps)
+  })
+
+  it('a quick open (no options) stays byte-identical: the bare CSV scan', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept({
+      type: 'engine/open',
+      requestId: 1,
+      name: 'candidate.csv',
+      file: CANDIDATE_CSV,
+    })
+    await awaitSends(deps.conn, 1)
+    expect(deps.conn.sentSqls[0]).toBe('CREATE VIEW "assay_t1" AS SELECT * FROM read_csv(\'t1\')')
+    deps.conn.resolveSend(0, intTable([]))
+    expect(await awaitPosted(deps, 1)).toMatchObject({
+      type: 'engine/open-result',
+      tableId: 't1',
+      format: 'csv',
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('refuses sample_size on engine/open (preview-only) and options on a non-csv open — before dispatch', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept({
+      type: 'engine/open',
+      requestId: 1,
+      name: 'candidate.csv',
+      file: CANDIDATE_CSV,
+      options: { sample_size: 10 },
+    })
+    let posted = await awaitPosted(deps, 1)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      message: 'sample_size is a preview-only option and cannot ride engine/open',
+    })
+    executor.accept({
+      type: 'engine/open',
+      requestId: 2,
+      name: 'flat.parquet',
+      file: FLAT_FILE,
+      options: { delim: ';' },
+    })
+    posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      message: 'csv options require a .csv file: the other readers take no options',
+    })
+    executor.accept({
+      type: 'engine/open',
+      requestId: 3,
+      name: 'candidate.csv',
+      file: CANDIDATE_CSV,
+      options: { strict_mode: true },
+    })
+    posted = await awaitPosted(deps, 3)
+    expect(posted.type).toBe('engine/error')
+    if (posted.type === 'engine/error') {
+      expect(posted.message).toContain('strict_mode')
+    }
+    expect(deps.registeredFiles).toEqual([])
+    expect(deps.conn.sentSqls).toEqual([])
+    expectNoCollisions(deps)
+  })
+
+  it('dispose sweeps the preview slot after a completed preview (nothing survives dispose)', async () => {
+    const { executor, deps } = makeExecutor()
+    await runPreview(executor, deps, previewRequest(1))
+    executor.accept(disposeRequest(2))
+    // The query-lane barrier drains first, then the registry lane sweeps.
+    await awaitSends(deps.conn, 1)
+    expect(deps.conn.sentSqls[0]).toBe('DROP VIEW IF EXISTS "assay_preview_p1"')
+    deps.conn.resolveSend(0, tableFromArrays({}))
+    await awaitPosted(deps, 2)
+    expect(deps.droppedFiles).toContain('preview_p1')
+    expectNoCollisions(deps)
+  })
+})
+
+describe('PreviewRegistry — the slot bookkeeping (EW-03I; ADR 0049 decision 4)', () => {
+  it('ids and names follow the pinned shapes and never a session name shape', () => {
+    const registry = new PreviewRegistry()
+    const first = registry.reserve()
+    expect(first.previewId).toBe('p1')
+    expect(first.viewName).toBe('assay_preview_p1')
+    expect(first.registeredFileName).toBe('preview_p1')
+    const second = registry.reserve()
+    expect(second.previewId).toBe('p2')
+    expect(second.viewName).toBe('assay_preview_p2')
+    expect(second.registeredFileName).toBe('preview_p2')
+    // Monotonic ids never reuse names (the probe: a live file name rebinds
+    // silently and a live view name fails loudly — neither is needed).
+    expect(viewNameForPreviewId(first.previewId)).toBe('assay_preview_p1')
+    expect(viewNameForPreviewId('p10')).toBe('assay_preview_p10')
+    // Session-name shapes are never produced.
+    expect(first.previewId).not.toMatch(/^t\d+/)
+    expect(first.viewName).not.toBe('assay_t1')
+    expect(first.registeredFileName).not.toBe('t1')
+    expect(first.registeredFileName).not.toMatch(/^diff_/)
+  })
+
+  it('single-slot lifecycle: reserve → confirm → clear returns exactly what was held', () => {
+    const registry = new PreviewRegistry()
+    expect(registry.current()).toBeNull()
+    expect(registry.clear()).toBeNull()
+    const first = registry.reserve()
+    registry.confirm(first)
+    expect(registry.current()).toBe(first)
+    const second = registry.reserve()
+    registry.confirm(second)
+    expect(registry.current()).toBe(second)
+    expect(registry.clear()).toBe(second)
+    expect(registry.current()).toBeNull()
   })
 })
