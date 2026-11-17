@@ -184,6 +184,17 @@ ADR decisions rather than open asks (the original questions remain in git histor
 4. **Dataset replacement.** Session reset drops the history as today; no repair-specific anchor-staleness
    wording is added. P1 covers cursor moves within a session.
 
+## Known implementation boundary (2026-11-17)
+
+The U5 slice's implementation surfaced one boundary this decision does not remove: per-row repair masking
+is a function of the **prefix**, not of a local transition, so an inverse-materializing walk over a
+same-column value-op under a repair prefix can retain a stale mask. The shared `fold ∘ unfold` property
+therefore skips exactly that class (same column, value-op kinds, repair prefix) and asserts at least one
+applied repair in its corpus; the shipped undo path never materializes inverses, and refold is the undo
+authority (decision 2). This is a property of the semantics, not a defect to fix by threading prefix
+state into every inverse; a future op that needs materialized inverses over repair prefixes would need
+its own decision.
+
 ## What this ADR does not decide
 
 - **No implementation by this ADR.** It authorizes the **U5-first UI-free domain+engine slice** under

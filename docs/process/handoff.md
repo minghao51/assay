@@ -67,6 +67,19 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-17, U5 CLOSED — EW-04D condition (vii)):** **U5-first slice merged**
+`94128b2` + `120af28` + `6688f71` (worker `39cd973`/`779152f`/`75d2bff`; independent
+gpt-6-luna xhigh, two request-changes rounds: split-form cast-check conditionality and per-layer
+exception semantics, then the wrap-input cast operand and P1 non-vacuity). It adds the `column-repair`
+op, forward fold/masking, ADR 0050's undo-by-refold + per-kind table, stacked repair layers, the D17
+literal rewrite, D16's wrapped `DESCRIBE` + split-form cast check, caps and the projected-rows export
+budget (1e9), the shared P1 arm and the barrel exports. Merged gates on `main`: forced typecheck **20**
+(0 cached), unit **248 files / 3737 tests**, coverage **89.50 / 84.20 / 91.88 / 91.12**, forced build
+**12** (0 cached), docs links **165/0**, ADR **50**, browser **268 + 1 skip**, configured telemetry **7
+passed** with zero deliveries, restored stock **3 passed** endpoint-free. Residual: the seeded-history
+test sits near its 45 s budget (46–47 s observed twice in review) — a test-budget follow-up is
+advisable. Worktree removed; nothing pushed.
+
 **Verified state (2026-11-16, R2 CLOSED):** **R2 merged** `0f77e38` + `a17f3a3` (worker `7437c4d`/`2daf5ca`):
 both projection helpers now guard DuckDB's timestamp infinity sentinels for `Timestamp<SECOND>`,
 `<MILLISECOND>` and `<MICROSECOND>` at the projection boundary, honouring Arrow validity first so NULL
@@ -345,6 +358,19 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-17 (**ht**) — **U5 CLOSED — EW-04D condition (vii) closed; merged `94128b2` + `120af28` +
+  `6688f71`.** The UI-free `column-repair` slice is in: op + forward fold/masking, ADR 0050
+  undo-by-refold with the per-kind table and shared P1 arm, stacked repair layers, D17 literal rewrite,
+  D16 wrapped `DESCRIBE` + split-form cast check scoped to repair columns, caps and the projected-rows
+  export budget, barrel exports. Two independent request-changes rounds fixed real cast-check semantics
+  (conditional mapped targets; per-layer exception sub-chains; the wrap-input cast operand) and the P1
+  non-vacuity pin. Merged gates: typecheck 20/20 (0 cached), unit 248/3737, coverage
+  89.50/84.20/91.88/91.12, build 12/12 (0 cached), docs 165/0, ADR 50, browser 268+1, configured
+  7/zero delivered, restored 3 endpoint-free. Residual: the 45 s seeded-history test is near its budget
+  (46–47 s observed) — test-budget follow-up advisable. **EW-04I now needs (vi) U1–U3 + the web row;
+  EW-03I-a (CSV options/preview engine) is dispatched.** ADR 0050 gained the `maskedRows` boundary note;
+  worktree/branch removed; nothing pushed.
 
 - 2026-11-16 (**hs**) — **EW-03I acquisition probe approved and committed** (`e03188c`): on the shipped
   `eh` pair, `registerFileHandle` on a freshly picked `File` is catalog-invisible (0 user tables/views,

@@ -65,6 +65,12 @@ catalog-delta probe is **approved and committed** (`e03188c`), and the protocol 
 queued behind U5 (one `engine-duckdb` writer). The **U5-first UI-free domain+engine slice** is running.
 EW-04I still needs (vi) U1–U3 plus the U5 result before its brief.
 
+**Update 2026-11-17:** **U5 is CLOSED** — merged `94128b2` + `120af28` + `6688f71`; **EW-04D condition
+(vii) is closed**. `column-repair` now exists in `packages/domain`/`packages/engine-duckdb` with the
+forward fold, ADR 0050 undo-by-refold, stacked layers, D16/D17 and the export budget — **no web UI yet**.
+**EW-03I-a** (CSV options + preview registry, engine/protocol) is dispatched. **EW-04I** now needs
+(vi) U1–U3 plus the web plan-capture row; the seeded-history test's 45 s budget needs a small follow-up.
+
 ## 3. Dispatch order once decisions land
 
 1. Read-only probes: **D16/D17** (informs D4) and **R2** (informs D6); **D12** ADR draft (informs D3).
