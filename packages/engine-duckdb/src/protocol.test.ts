@@ -2,7 +2,11 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileRowDiffPlan } from '@assay/diff'
-import { MAX_CSV_INFERENCE_SAMPLE_ROWS } from './csv-options'
+import {
+  MAX_CSV_INFERENCE_SAMPLE_ROWS,
+  MAX_CSV_OPTION_VALUE_CODE_POINTS,
+  MAX_CSV_TYPE_COLUMNS,
+} from './csv-options'
 import { MAX_RANGE_ROWS } from './range-window'
 import {
   ENGINE_REQUEST_TYPES,
@@ -2333,11 +2337,34 @@ describe('EW-03I: engine/csv-preview + engine/open options protocol', () => {
           }),
         ),
       ).toBeNull()
+      // Round-2 probes: a string option beyond the parse's 64-code-point cap
+      // and an EMPTY declared-columns map are impossible payloads.
+      expect(
+        parseEngineResponse(
+          wirePreviewResult({
+            effectiveOptions: { delim: 'd'.repeat(MAX_CSV_OPTION_VALUE_CODE_POINTS + 1) },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseEngineResponse(wirePreviewResult({ effectiveOptions: { columns: {} } })),
+      ).toBeNull()
+      // The declared-columns count cap mirrors the parse.
+      const tooMany: Record<string, string> = {}
+      for (let i = 0; i <= MAX_CSV_TYPE_COLUMNS; i += 1) tooMany[`c${i}`] = 'VARCHAR'
+      expect(
+        parseEngineResponse(wirePreviewResult({ effectiveOptions: { columns: tooMany } })),
+      ).toBeNull()
       // The domain boundaries themselves parse.
       expect(
         parseEngineResponse(
           wirePreviewResult({
-            effectiveOptions: { skip: 0, sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS },
+            effectiveOptions: {
+              delim: 'd'.repeat(MAX_CSV_OPTION_VALUE_CODE_POINTS),
+              skip: 0,
+              sample_size: MAX_CSV_INFERENCE_SAMPLE_ROWS,
+              columns: { v: 'VARCHAR' },
+            },
           }),
         ),
       ).not.toBeNull()

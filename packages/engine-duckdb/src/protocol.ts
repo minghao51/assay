@@ -59,7 +59,11 @@
 
 import type { EngineOverlayPayload } from './overlay-wire.js'
 import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire.js'
-import { MAX_CSV_INFERENCE_SAMPLE_ROWS } from './csv-options.js'
+import {
+  MAX_CSV_INFERENCE_SAMPLE_ROWS,
+  MAX_CSV_OPTION_VALUE_CODE_POINTS,
+  MAX_CSV_TYPE_COLUMNS,
+} from './csv-options.js'
 import type { EngineCsvEffectiveOptions } from './csv-options.js'
 import { MAX_RANGE_ROWS } from './range-window.js'
 export type { EngineCsvEffectiveOptions }
@@ -1655,7 +1659,7 @@ function isEffectiveOptions(value: unknown): boolean {
     if (booleanKeys.includes(key)) {
       if (typeof v !== 'boolean') return false
     } else if (stringKeys.includes(key)) {
-      if (typeof v !== 'string') return false
+      if (typeof v !== 'string' || v.length > MAX_CSV_OPTION_VALUE_CODE_POINTS) return false
     } else if (key === 'skip') {
       if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) return false
     } else if (key === 'sample_size') {
@@ -1668,14 +1672,19 @@ function isEffectiveOptions(value: unknown): boolean {
         return false
       }
     } else if (key === 'columns') {
-      if (
-        !isPlainRecord(v) ||
-        !Object.values(v).every(
-          (entry) => typeof entry === 'string' && isEngineTypeExpression(entry),
-        )
-      ) {
-        return false
-      }
+      // The same domain parseCsvOptions enforces: a NON-EMPTY map of at most
+      // MAX_CSV_TYPE_COLUMNS entries, keys within the string cap, values that
+      // pass the strict type-expression validator.
+      if (!isPlainRecord(v)) return false
+      const entries = Object.entries(v)
+      if (entries.length === 0 || entries.length > MAX_CSV_TYPE_COLUMNS) return false
+      const withinDomain = entries.every(
+        ([columnName, entry]) =>
+          columnName.length <= MAX_CSV_OPTION_VALUE_CODE_POINTS &&
+          typeof entry === 'string' &&
+          isEngineTypeExpression(entry),
+      )
+      if (!withinDomain) return false
     } else {
       // A foreign key in a disclosure payload is a foreign signal.
       return false

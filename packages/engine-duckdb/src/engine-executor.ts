@@ -280,6 +280,21 @@ export interface StagedPreview {
   readonly registeredFileName: string
 }
 
+/**
+ * The acceptance-time capture for one csv-preview request (EW-03I round-2
+ * race fix): taken SYNCHRONOUSLY in `accept` before the request queues
+ * behind query-lane work, and threaded through `dispatch` to the op. The op
+ * re-checks `generation` at every checkpoint — an open that completed while
+ * the preview sat queued has already moved it, and the op then answers with
+ * the typed supersession error instead of ever touching the engine.
+ */
+interface CapturedPreviewState {
+  readonly intent: StagedPreview
+  readonly generation: number
+  readonly options: EngineCsvOptions
+  readonly rowCap: number
+}
+
 /** View names are the preview id with a namespaced prefix: `assay_preview_p1`. */
 export function viewNameForPreviewId(previewId: string): string {
   return `assay_preview_${previewId}`
@@ -321,29 +336,35 @@ function assertPreviewViewName(viewName: string): void {
  * degrades silently, and a live view name fails loudly — neither is needed).
  *
  * Cross-lane race discipline: previews run on the query lane, but
- * `engine/open` and `engine/dispose` run on the registry lane, so an open can
- * land while a preview is between its first await and its registration. The
- * registry therefore tracks TWO states plus a generation:
+ * `engine/open` and `engine/dispose` run on the registry lane — and a preview
+ * accepted while query-lane work is in flight QUEUES behind it, so its op
+ * body may start long after acceptance. The registry therefore tracks a live
+ * slot plus a supersede generation, and the INTENT IS CAPTURED
+ * SYNCHRONOUSLY AT REQUEST ACCEPTANCE (EngineOpExecutor.accept calls
+ * {@linkcode PreviewRegistry.reserve reserve} +
+ * {@linkcode PreviewRegistry.beginIntent beginIntent} before enqueueing):
  *
  * - `staged` — the live slot (installed post-registration; released by the
  *   next slot event or dispose);
- * - `pending` — an IN-FLIGHT intent, installed SYNCHRONOUSLY by
- *   {@linkcode PreviewRegistry.beginIntent beginIntent} before the preview
- *   op's first await, so an open dispatched later always sees it;
- * - `generation` — bumped by every {@linkcode PreviewRegistry.supersede
- *   supersede} (open/dispose). A preview whose captured generation no longer
- *   matches is stale: it self-releases whatever landed and NEVER installs.
+ * - the reserved slot name — held by the queued op itself (reserve() is
+ *   synchronous and monotonic, so acceptance-time capture reserves the name);
+ * - `generation` — captured at acceptance and bumped by every
+ *   {@linkcode PreviewRegistry.supersede supersede} (open/dispose). An open
+ *   that completes while a preview sits queued advances the generation past
+ *   the captured one, so when the op finally runs, its checkpoints see it
+ *   stale: it never touches the engine, self-releases whatever landed, and
+ *   is answered with the typed supersession error instead of a result.
  *
- * No method awaits, so intent/generation transitions have no interleaving
- * window inside this class.
+ * No method awaits, so generation transitions have no interleaving window
+ * inside this class; multiple queued previews are each invalidated by the
+ * one bump because each holds its own captured generation.
  */
 export class PreviewRegistry {
   private nextSequence = 1
   private staged: StagedPreview | null = null
-  private pending: StagedPreview | null = null
   private generation = 1
 
-  /** Reserve the next preview id; pair with `beginIntent()` immediately (synchronously). */
+  /** Reserve the next preview id; pair with `beginIntent()` immediately (synchronously, at acceptance). */
   reserve(): StagedPreview {
     const previewId = `p${this.nextSequence++}`
     return {
@@ -354,14 +375,13 @@ export class PreviewRegistry {
   }
 
   /**
-   * Mark the reservation in-flight SYNCHRONOUSLY — before the preview op's
-   * first await — and return the supersede generation the op must re-check
-   * after every await. This is the open/preview race fix: an open dispatched
-   * after the preview always bumps the generation, so a registration
-   * completing after that open can never install as the live slot.
+   * Capture the supersede generation for an intent taken SYNCHRONOUSLY at
+   * request acceptance. The reserved slot name is held by the queued op; the
+   * returned generation is what the op re-checks at every checkpoint — an
+   * open/dispose supersede after acceptance moves it past the captured
+   * value, making the op stale before it ever runs.
    */
-  beginIntent(entry: StagedPreview): number {
-    this.pending = entry
+  beginIntent(): number {
     return this.generation
   }
 
@@ -372,21 +392,23 @@ export class PreviewRegistry {
 
   /**
    * Supersede ALL preview state (open/dispose, other lanes): clears the live
-   * slot (the CALLER releases its view/file) and invalidates any in-flight
-   * intent (its op self-releases at its next checkpoint and never installs).
-   * Returns the live slot that needs releasing, if any. Synchronous.
+   * slot (the CALLER releases its view/file) and bumps the generation,
+   * invalidating every intent captured before this call — queued or in-
+   * flight, each stale op self-releases at its checkpoints and never
+   * installs. Synchronous, and it bumps even when no live slot exists (a
+   * queued preview is invalidated by the generation alone). Returns the live
+   * slot that needs releasing, if any.
    */
   supersede(): StagedPreview | null {
     const staged = this.staged
     this.staged = null
-    this.pending = null
     this.generation += 1
     return staged
   }
 
   /**
-   * Sequential drop-before-restage (same lane — no other preview can be
-   * in-flight): clears the live slot WITHOUT bumping the generation. The
+   * Sequential drop-before-restage (same lane — no other preview op can be
+   * running): clears the live slot WITHOUT bumping the generation. The
    * caller releases what is returned.
    */
   clearStaged(): StagedPreview | null {
@@ -396,23 +418,18 @@ export class PreviewRegistry {
   }
 
   /**
-   * Commit the reservation as the single live slot. Called even when the
-   * stage FAILED (after the op's staleness checkpoints): the slot then tracks
-   * a name whose registration may not exist, which is harmless (the probe:
-   * `dropFile` on a missing name does not throw) and keeps every reserved
-   * name reachable by the NEXT slot event (re-stage, open) or
+   * Commit the reservation as the single live slot. Called only after the
+   * op's staleness checkpoints pass (an intent that queued behind an open is
+   * stale at its first checkpoint and NEVER reaches confirm — it self-
+   * releases instead). Also called on a non-superseded failure: the slot
+   * then tracks a name whose registration may not exist, which is harmless
+   * (the probe: `dropFile` on a missing name does not throw) and keeps every
+   * reserved name reachable by the NEXT slot event (re-stage, open) or
    * `engine/dispose` — the ADR's "+1 retained until the next slot event or
-   * dispose" row is exactly this bookkeeping. A superseded intent is NEVER
-   * confirmed (its op releases itself instead).
+   * dispose" row is exactly this bookkeeping.
    */
   confirm(entry: StagedPreview): void {
     this.staged = entry
-    if (this.pending === entry) this.pending = null
-  }
-
-  /** Clear an in-flight intent that will never install (the superseded path). */
-  abandonIntent(entry: StagedPreview): void {
-    if (this.pending === entry) this.pending = null
   }
 
   /** The current staged preview, if any. */
@@ -480,6 +497,22 @@ export class EngineOpExecutor {
       return
     }
     const request = envelope.request
+    // EW-03I round-2 race fix: a preview's slot intent and supersede
+    // generation are captured SYNCHRONOUSLY at acceptance — BEFORE it queues
+    // behind query-lane work. A preview accepted ahead of an open that then
+    // completes on the registry lane must be invalidated by that open even
+    // though its op body has not started (the generation moved past the
+    // captured value); capturing at dispatch start would instead hand the
+    // queued preview a fresh, post-bump generation and let it install a slot
+    // the open was supposed to supersede. The synchronous refusals
+    // (vocabulary, format, inference budget) also run here: a refused request
+    // never takes an intent and never queues — it is answered immediately,
+    // exactly like the malformed-envelope path above.
+    let previewState: CapturedPreviewState | undefined
+    if (request.type === 'engine/csv-preview') {
+      previewState = this.capturePreviewIntentOrRefuse(request)
+      if (previewState === undefined) return // refusal already posted
+    }
     // Route to the op class's lane and serialize there: no two operations
     // are pending on the lane's connection at once. The lane also supplies
     // that connection, so routing and connection choice are one decision.
@@ -515,10 +548,57 @@ export class EngineOpExecutor {
       request.type === 'engine/csv-preview'
         ? this.queryLane
         : this.registryLane
-    void lane.channel.run(() => this.dispatch(request, lane))
+    void lane.channel.run(() => this.dispatch(request, lane, previewState))
   }
 
-  private async dispatch(request: EngineRequest, lane: OpLane): Promise<void> {
+  /**
+   * The acceptance-time capture for one csv-preview request: the slot intent
+   * (synchronously reserved — the name is the queued op's), the generation it
+   * must re-check at every checkpoint, and the canonical options + sample
+   * row cap from the same synchronous refusals. Captured in `accept` BEFORE
+   * any lane await; see the race-fix note there.
+   */
+  private capturePreviewIntentOrRefuse(
+    request: EngineCsvPreviewRequest,
+  ): CapturedPreviewState | undefined {
+    const parsed = parseCsvOptions(request.options ?? {}, 'preview')
+    if (!parsed.ok) {
+      this.post({ type: 'engine/error', requestId: request.requestId, message: parsed.reason })
+      return undefined
+    }
+    if (detectFileFormat(request.name) !== 'csv') {
+      this.post({
+        type: 'engine/error',
+        requestId: request.requestId,
+        message: 'csv preview requires a .csv file: this op reviews the CSV reader only',
+      })
+      return undefined
+    }
+    let rowCap: number
+    try {
+      rowCap = normalizePreviewSampleRows(request.sampleRows)
+    } catch (error) {
+      this.post({
+        type: 'engine/error',
+        requestId: request.requestId,
+        message: errorMessage(error),
+      })
+      return undefined
+    }
+    const intent = this.previews.reserve()
+    return {
+      intent,
+      generation: this.previews.beginIntent(),
+      options: parsed.options,
+      rowCap,
+    }
+  }
+
+  private async dispatch(
+    request: EngineRequest,
+    lane: OpLane,
+    previewState?: CapturedPreviewState,
+  ): Promise<void> {
     try {
       switch (request.type) {
         case 'engine/init': {
@@ -552,7 +632,12 @@ export class EngineOpExecutor {
           break
         }
         case 'engine/csv-preview': {
-          await this.runCsvPreview(request, lane)
+          if (previewState === undefined) {
+            // Unreachable: accept captures the intent for every csv-preview
+            // request before enqueueing (the acceptance-time race fix).
+            throw new Error('csv preview dispatched without its acceptance-time intent')
+          }
+          await this.runCsvPreview(request, lane, previewState)
           break
         }
         case 'engine/schema': {
@@ -720,35 +805,30 @@ export class EngineOpExecutor {
    * next slot event or dispose" — and the sample is transported with its cap
    * STATED, never as a validation verdict (a sample is not a check).
    */
-  private async runCsvPreview(request: EngineCsvPreviewRequest, lane: OpLane): Promise<void> {
-    // Refusals run synchronously BEFORE the slot intent is taken and before
-    // any engine touch (ADR 0049 item 3): the worker re-validates because the
-    // main thread is untrusted, and the inference budget (resolution 8) is
-    // enforced by the same parse — an over-budget request never registers or
-    // runs SQL.
-    const parsed = parseCsvOptions(request.options ?? {}, 'preview')
-    if (!parsed.ok) throw new Error(parsed.reason)
-    const options = parsed.options
-    if (detectFileFormat(request.name) !== 'csv') {
-      throw new Error('csv preview requires a .csv file: this op reviews the CSV reader only')
+  private async runCsvPreview(
+    request: EngineCsvPreviewRequest,
+    lane: OpLane,
+    captured: CapturedPreviewState,
+  ): Promise<void> {
+    // The synchronous refusals (vocabulary, format, inference budget) and the
+    // slot intent + supersede generation already ran at ACCEPTANCE
+    // (EngineOpExecutor.accept → capturePreviewIntentOrRefuse) — before this
+    // op queued behind query-lane work. First checkpoint: a preview that
+    // queued behind an open never touches the engine at all — no session, no
+    // registration, no SQL — and is answered with the typed supersession
+    // error instead of a result.
+    if (!this.previews.isCurrent(captured.generation)) {
+      throw new Error(PREVIEW_SUPERSEDED_MESSAGE)
     }
-    const rowCap = normalizePreviewSampleRows(request.sampleRows)
-    // RACE FIX: the slot intent and its supersede generation are taken
-    // SYNCHRONOUSLY, before this op's first await. Previews share the query
-    // lane (so preview-vs-preview serializes), but `engine/open` and
-    // `engine/dispose` run on the registry lane: an open dispatched after
-    // this preview bumps the generation (see PreviewRegistry.supersede), and
-    // every checkpoint below then self-releases instead of installing — the
-    // open's lifecycle can never leave a live preview slot behind, and the
-    // late result payload is discarded for exactly one typed reply.
-    const intent = this.previews.reserve()
-    const generation = this.previews.beginIntent(intent)
+    const intent = captured.intent
+    const options = captured.options
     let conn: EngineConnectionLike | undefined
     try {
       conn = lane.connection(await this.deps.ensureSession())
-      // Sequential drop-before-restage: previews serialize on the query lane,
-      // so the previous slot (if any) is settled; release it view-then-file,
-      // best-effort, WITHOUT bumping our own generation.
+      // Sequential drop-before-restage: previews serialize on the query lane
+      // (their OPS do — acceptance-time intents may queue), so a live slot
+      // here belongs to a settled op; release it view-then-file, best-effort,
+      // WITHOUT bumping our own generation.
       const previous = this.previews.clearStaged()
       if (previous !== null) {
         assertPreviewViewName(previous.viewName)
@@ -760,7 +840,7 @@ export class EngineOpExecutor {
       // The acquisition probe's proven call: the lazy File handle under the
       // slot's own name — no byte copy, no view, no catalog object.
       await this.deps.registerFileHandle(intent.registeredFileName, request.file)
-      if (!this.previews.isCurrent(generation)) {
+      if (!this.previews.isCurrent(captured.generation)) {
         // An open completed while this registration was in flight: never
         // install — release what landed (below) and answer with the typed
         // supersession error instead of the late result payload.
@@ -770,14 +850,14 @@ export class EngineOpExecutor {
       const sniffRows = await conn.query(csvSniffSql(intent.registeredFileName, options))
       const sniff = readSniffPayload(sniffRows)
       let sample: EngineCsvPreviewSample | null = null
-      if (rowCap > 0) {
+      if (captured.rowCap > 0) {
         const { batchIpc, hasMore } = await this.streamFirstBatch(
           conn,
-          csvSampleSql(intent.registeredFileName, options, rowCap),
+          csvSampleSql(intent.registeredFileName, options, captured.rowCap),
         )
-        sample = { batchIpc, hasMore, rowCap }
+        sample = { batchIpc, hasMore, rowCap: captured.rowCap }
       }
-      if (!this.previews.isCurrent(generation)) {
+      if (!this.previews.isCurrent(captured.generation)) {
         // Superseded while scanning: the open already released the live slot;
         // the check-then-post pair below is synchronous, so a stale result is
         // never delivered.
@@ -792,16 +872,15 @@ export class EngineOpExecutor {
         sample,
       })
     } catch (error) {
-      if (!this.previews.isCurrent(generation)) {
-        // Superseded at some checkpoint: NEVER install — clear the intent and
-        // release whatever landed. The dropFile is the half that removes the
-        // bytes and is db-level (needs no connection); the view never existed
-        // on a superseded-in-registration path, and on a superseded-in-scan
-        // path the superseding open already dropped it — `DROP VIEW IF
-        // EXISTS` is attempted only when a connection exists and is swallowed
-        // either way. dropFile on a missing/already-dropped name does not
-        // throw (probe D1), so the double release is harmless.
-        this.previews.abandonIntent(intent)
+      if (!this.previews.isCurrent(captured.generation)) {
+        // Superseded at some checkpoint: NEVER install — release whatever
+        // landed. The dropFile is the half that removes the bytes and is
+        // db-level (needs no connection); the view never existed on a
+        // superseded-in-registration path, and on a superseded-in-scan path
+        // the superseding open already dropped it — `DROP VIEW IF EXISTS` is
+        // attempted only when a connection exists and is swallowed either
+        // way. dropFile on a missing/already-dropped name does not throw
+        // (probe D1), so the double release is harmless.
         if (conn !== undefined) {
           await conn
             .query(`DROP VIEW IF EXISTS ${quotedIdentifier(intent.viewName)}`)

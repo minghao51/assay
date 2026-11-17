@@ -4504,40 +4504,53 @@ describe('PreviewRegistry — the slot bookkeeping (EW-03I; ADR 0049 decision 4)
     expect(first.registeredFileName).not.toMatch(/^diff_/)
   })
 
-  it('single-slot lifecycle: beginIntent is synchronous and visible; confirm promotes; supersede clears both and bumps', () => {
+  it('intent capture is synchronous; one supersede bumps the generation past every captured intent', () => {
     const registry = new PreviewRegistry()
     expect(registry.current()).toBeNull()
     expect(registry.supersede()).toBeNull()
     const first = registry.reserve()
-    // beginIntent is the race fix: the intent exists SYNCHRONOUSLY, before
-    // any await, so a same-tick open always observes it.
-    const generation = registry.beginIntent(first)
-    expect(registry.isCurrent(generation)).toBe(true)
+    // beginIntent is the race fix: the generation is captured SYNCHRONOUSLY
+    // at acceptance — before the op queues behind query-lane work — so an
+    // open completing later always moves it.
+    const firstGeneration = registry.beginIntent()
+    expect(registry.isCurrent(firstGeneration)).toBe(true)
     registry.confirm(first)
     expect(registry.current()).toBe(first)
-    // An open supersedes: the live slot is returned for release, the intent
-    // is dropped, and the generation moves past the op's captured value.
+    // An open supersedes: the live slot is returned for release and the
+    // generation moves past every captured value.
     expect(registry.supersede()).toBe(first)
     expect(registry.current()).toBeNull()
-    expect(registry.isCurrent(generation)).toBe(false)
-    // A stale intent can never install: its op re-checks isCurrent at its
-    // checkpoints, abandons, and self-releases.
-    const second = registry.reserve()
-    const staleGeneration = registry.beginIntent(second)
-    registry.supersede()
-    expect(registry.isCurrent(staleGeneration)).toBe(false)
-    registry.abandonIntent(second)
-    expect(registry.current()).toBeNull()
-    // confirm() of a superseded op must never be reachable through the
-    // executor's checkpoints — the registry only guarantees what its API
-    // allows: confirm after supersede would install, which is why the op
-    // checks isCurrent synchronously with every confirm/post.
+    expect(registry.isCurrent(firstGeneration)).toBe(false)
+  })
+
+  it('one supersede invalidates multiple QUEUED intents (each holds its own captured generation)', () => {
+    const registry = new PreviewRegistry()
+    const queuedA = registry.reserve()
+    const generationA = registry.beginIntent()
+    const queuedB = registry.reserve()
+    const generationB = registry.beginIntent()
+    expect(generationA).toBe(generationB)
+    // Two queued intents reserve two distinct slot names (monotonic ids).
+    expect(queuedB.previewId).not.toBe(queuedA.previewId)
+    // The open supersedes once (even with no live slot); BOTH queued intents
+    // are stale at their checkpoints — each op holds its own generation.
+    expect(registry.supersede()).toBeNull()
+    expect(registry.isCurrent(generationA)).toBe(false)
+    expect(registry.isCurrent(generationB)).toBe(false)
+    // A preview accepted AFTER the supersede captures the fresh generation
+    // and is legitimately live (a new review started after the open).
+    const fresh = registry.reserve()
+    const freshGeneration = registry.beginIntent()
+    expect(registry.isCurrent(freshGeneration)).toBe(true)
+    expect(freshGeneration).not.toBe(generationA)
+    expect(fresh.previewId).not.toBe(queuedA.previewId)
+    expect(fresh.previewId).not.toBe(queuedB.previewId)
   })
 
   it('clearStaged drops only the live slot and keeps the generation (sequential re-stage, no supersession)', () => {
     const registry = new PreviewRegistry()
     const first = registry.reserve()
-    const generation = registry.beginIntent(first)
+    const generation = registry.beginIntent()
     registry.confirm(first)
     expect(registry.clearStaged()).toBe(first)
     expect(registry.current()).toBeNull()
