@@ -431,29 +431,49 @@ function bucketByAnchor(
  * message is **value-free** (ADR 0025): it names the defect and the remedy,
  * never the cell text.
  */
-function assertWellFormedCellText(text: string): void {
+/**
+ * Whether `text` carries no unpaired UTF-16 surrogate (see
+ * {@link assertWellFormedCellText} for the pairing rules). Total and
+ * non-throwing, so call sites can raise their own value-free error class.
+ */
+function isWellFormedCellText(text: string): boolean {
   for (let index = 0; index < text.length; index += 1) {
     const code = text.charCodeAt(index)
-    if (code >= 0xdc00 && code <= 0xdfff) {
-      // A low surrogate is only valid immediately after its high surrogate
-      // (consumed below); reaching one here means it is unpaired.
-      throw unpairedSurrogateError()
-    }
     if (code >= 0xd800 && code <= 0xdbff) {
       const paired = text.charCodeAt(index + 1)
       if (paired >= 0xdc00 && paired <= 0xdfff) {
         index += 1 // a well-formed surrogate pair: skip its low half
       } else {
-        throw unpairedSurrogateError()
+        return false
       }
+      continue
     }
+    if (code >= 0xdc00 && code <= 0xdfff) return false
   }
+  return true
+}
+
+function assertWellFormedCellText(text: string): void {
+  if (!isWellFormedCellText(text)) throw unpairedSurrogateError()
 }
 
 /** The value-free unpaired-surrogate rejection (see `assertWellFormedCellText`). */
 function unpairedSurrogateError(): Error {
   return new Error(
     'cell text contains an unpaired surrogate and cannot be materialized losslessly; replace it with a valid character',
+  )
+}
+
+/**
+ * The value-free unpaired-surrogate rejection for a **repair's output** — a
+ * mapping target (wrap arm or D17 rewrite) produced hostile text. Distinct
+ * from {@link unpairedSurrogateError} so the guard's execution is observable
+ * at the rewrite boundary (cellLiteralSql re-guards string kinds underneath;
+ * the specific message is what makes that defence-in-depth layer pinnable).
+ */
+function repairUnpairedSurrogateError(): Error {
+  return new Error(
+    'the repaired value contains an unpaired surrogate and cannot be materialized losslessly; replace it with a valid character or undo the repair',
   )
 }
 
@@ -1137,7 +1157,7 @@ function rewriteRepairsForInsertBranch(
   // The rewritten value is new user text: the same surrogate guard as any
   // literal runs on the OUTPUT, not only the input (cellLiteralSql guards
   // string kinds again below — defence in depth at the literal boundary).
-  assertWellFormedCellText(text)
+  if (!isWellFormedCellText(text)) throw repairUnpairedSurrogateError()
   return cellLiteralSql({ kind: 'string', value: text }, declaredType)
 }
 
@@ -1235,12 +1255,16 @@ function composeEffectiveSourceSql(
  * composing when projected rows × mapping pairs exceeds
  * {@link MAX_REPAIR_EXPORT_CELL_WORK} — the U4-measured cost line (~4 s at
  * 2 M rows × 500 pairs on the shipped `eh` bundle, linear in rows × arms, no
- * engine interrupt). Value-free; never claimed as an interrupt.
+ * engine interrupt). Projected rows are the rows the export actually
+ * evaluates: base rows minus tombstones plus live inserts (the composer's
+ * own branch count) — tombstoned rows are never projected, so they never pay.
+ * Value-free; never claimed as an interrupt.
  */
 function assertRepairExportBudget(composition: OverlayComposition): void {
   const totalPairs = composition.state.repairs.reduce((sum, record) => sum + record.mapping.size, 0)
   if (totalPairs === 0) return
-  const rows = composition.base.baseRowCount + liveInsertRecords(composition.state).length
+  const liveInsertCount = liveInsertRecords(composition.state).length
+  const rows = composition.base.baseRowCount - composition.state.deletedBase.size + liveInsertCount
   if (rows * totalPairs > MAX_REPAIR_EXPORT_CELL_WORK) {
     throw new OverlayRepairExportBudgetError()
   }
@@ -1471,6 +1495,21 @@ function composeRepairFreeCastCheckSql(
 }
 
 /**
+ * One memoized per-signature segment of the repair chain (see
+ * `composeRepairCastCheckSql`): the surviving layers' collapsed finite map
+ * over the trimmed operand. `pairsSql` carries every collapsed (key →
+ * target) pair; which pairs actually fail the pending conversion is decided
+ * by the engine inside the semi-join, never host-side.
+ */
+interface Segment {
+  readonly keysSql: readonly string[]
+  readonly pairsSql: readonly string[]
+  readonly operandOf: (raw: string) => string
+}
+
+/**
+ * The repair-column cast check — the **split form** (D16(b), accepted; probe
+/**
  * The repair-column cast check — the **split form** (D16(b), accepted; probe
  * §3.3). Once a value transform sits in the prefix, the committed conversion
  * of a pending cast is of the *repair output*, not of the raw value, so a
@@ -1478,25 +1517,41 @@ function composeRepairFreeCastCheckSql(
  * ("predicate over the wrapped value") is 100–200× more expensive as an
  * existence probe (CASE arms evaluate linearly in a filter, `IN (…)`
  * set-wise; `MATERIALIZED` does not rescue it). The split form is the same
- * question algebraically: per-row work is one trim + one `TRY_CAST` + one
- * hashed set-membership; every m-shaped constant is hoisted out of row
- * scope. It keeps every m4-4b discipline — each value is `TRY_CAST`ed
- * before any hard cast, exception rows keep today's raw arms, no literal is
- * hard-cast to a type it is not committed under — and predicate sites use
- * set membership (`IN`), never CASE chains.
+ * question algebraically: per-row work is one trim + one `TRY_CAST` + hashed
+ * set-membership; nothing m-shaped ever becomes a per-row CASE chain. It
+ * keeps every m4-4b discipline — each value is `TRY_CAST`ed before any hard
+ * cast, no literal is hard-cast to a type it is not committed under.
  *
- * The chain collapses at compose time into one finite map applied to the
- * trimmed operand (probe §3.5/probe18): keys are chain-evaluated, so
- * non-commuting multi-repair prefixes collapse exactly; the fold guarantees
- * all repairs on a column share one trim specification (the one-`trim∘map`
- * rule) and refuse dead keys, which is what makes the single-operand form
- * exact. Exception rows (masked or not live at a repair's position) keep
- * today's raw arms: for them the repair never applied, so the pending cast
- * applies to the raw value directly. Edited non-exception rows keep a
- * per-row arm over their raw literal (bounded by edits, session-sized, never
- * by the mapping). Empty-check elision (R1-C generalized, probe §3.4): a
- * textual target cannot fail on a wrap whose declared type is text — the
- * whole statement is provably empty, so the composer emits the empty check
+ * **Per-layer exceptions (exact, not unioned).** A row the repair chain
+ * excepts at *some* layers only does not fall back to the raw value: its
+ * committed value is its **surviving sub-chain** applied to the raw source.
+ * The composer classifies every edited/excepted base ordinal by its
+ * exception signature across layers and collapses each distinct signature's
+ * surviving sub-chain into one finite map (probe §3.5/probe18; the fold
+ * guarantees one trim specification per column, which is what makes every
+ * sub-chain exact from the fully-trimmed operand — keys are
+ * trim-normalized because dead keys are refused). A row excepted at every
+ * layer degenerates to the raw arm; a row excepted at none gets the full
+ * chain. Unions of per-layer exception sets would answer the wrong question
+ * (a row masked at layer 1 but repaired by layer 2 is `r₂(raw)`, not raw).
+ *
+ * **Mapped targets are conditional on actual matches.** A mapping constant
+ * fails the pending conversion only when a projected row's operand actually
+ * equals its key; a key no row holds must never fail the check (that was a
+ * false-failure class). The failing set cannot be precomputed host-side
+ * (conversion is the engine's — `TRY_CAST('5.5' AS BIGINT)` rounds), so the
+ * failing keys are computed **by the engine** as a constant-relation
+ * semi-join: `operand IN (SELECT k FROM (VALUES (k, t), …) WHERE
+ * TRY_CAST(t) IS NULL)`. Rows only ever meet a set built from keys that
+ * both match and fail — probe-measured mark-join membership is 0.034 s per
+ * 200 k rows, the same two-orders-under-CASE class as the plain `IN` list.
+ *
+ * Edited non-exception rows keep a per-row arm over their raw literal
+ * (bounded by edits, session-sized, never by the mapping). Empty-check
+ * elision (R1-C generalized, probe §3.4): a textual target cannot fail on a
+ * wrap whose declared type is text — every passthrough `TRY_CAST` is total,
+ * and the semi-join's `TRY_CAST(t AS text)` never yields NULL, so the whole
+ * statement is provably empty and the composer emits the empty check
  * instead of a scan.
  */
 function composeRepairCastCheckSql(
@@ -1512,7 +1567,8 @@ function composeRepairCastCheckSql(
   // A textual target cannot fail on a repair column: the wrap's declared type
   // is text (trim types as VARCHAR; a trim-less chain declares the textual
   // repair type), every mapping constant is a string, and exception rows'
-  // raw literals are valid text too — TRY_CAST(text AS text) is total. The
+  // raw literals are valid text too — TRY_CAST(text AS text) is total, and
+  // the mapped-target semi-join's TRY_CAST never yields NULL either. The
   // provably-empty check is honest and free (probe §3.4).
   if (isTextualRepairType(targetType)) {
     return 'SELECT 1 WHERE FALSE LIMIT 1'
@@ -1525,80 +1581,125 @@ function composeRepairCastCheckSql(
   const edits = groupBaseColumnEdits(base, state).get(column) ?? []
   const editsByOrdinal = new Map(edits.map((edit) => [edit.ordinal, edit]))
 
-  // Collapse the chain: every key any repair could match, chain-evaluated
-  // through the full forward composition (each step trims, then maps).
-  // Keys are trim-normalized (the fold refuses dead keys), so the first
-  // trim is a no-op on them and the collapsed map applied to the trimmed
-  // operand reproduces the stacked composition exactly (probe18).
-  const evalRepairChain = (start: string): string => {
-    let value = start
-    for (const record of repairRecords) {
-      if (record.trim !== undefined) value = trimWithCodePoints(value, record.trim)
-      const mapped = record.mapping.get(value)
-      if (mapped !== undefined) value = mapped
+  // Per-signature sub-chain segments, memoized. `excepted` = layer indices
+  // whose exceptions include the row; the segment collapses the SURVIVING
+  // layers' forward composition into one finite map over the trimmed
+  // operand. `pairsSql` carries every collapsed (key → target) pair; the
+  // failing subset is selected by the engine inside the semi-join.
+  const segmentCache = new Map<string, Segment>()
+  const segmentFor = (exceptedIndices: readonly number[]): Segment => {
+    const cacheKey = exceptedIndices.join('|')
+    const cached = segmentCache.get(cacheKey)
+    if (cached !== undefined) return cached
+    const excepted = new Set(exceptedIndices)
+    const chain = repairRecords.filter((_, index) => !excepted.has(index))
+    const evalChain = (start: string): string => {
+      let value = start
+      for (const record of chain) {
+        if (record.trim !== undefined) value = trimWithCodePoints(value, record.trim)
+        const mapped = record.mapping.get(value)
+        if (mapped !== undefined) value = mapped
+      }
+      return value
     }
-    return value
-  }
-  const collapsed = new Map<string, string>()
-  const keyUnion = new Set<string>()
-  for (const record of repairRecords) {
-    for (const key of record.mapping.keys()) keyUnion.add(key)
-  }
-  for (const key of keyUnion) {
-    const final = evalRepairChain(key)
-    if (final !== key) collapsed.set(key, final)
-  }
-  const trim = repairRecords[0]?.trim
-  const operandOf = (raw: string): string =>
-    trim !== undefined ? `trim(${raw}, ${trimSetSql(trim)})` : raw
-  const keysSql = [...collapsed.keys()].map((key) => {
-    assertWellFormedCellText(key)
-    return sqlStringLiteral(key)
-  })
-  /** The split-form predicate over any raw value source: TRY_CAST the
-   *  trimmed operand, and count it as passing when it maps to a constant
-   *  (constants are hoisted to their own branch below). */
-  const splitFails = (raw: string): string => {
-    const operand = operandOf(raw)
-    const keyTest = keysSql.length > 0 ? ` AND ${operand} NOT IN (${keysSql.join(', ')})` : ''
-    return `${operand} IS NOT NULL AND TRY_CAST(${operand} AS ${targetType}) IS NULL${keyTest}`
+    const keySet = new Set<string>()
+    for (const record of chain) {
+      for (const key of record.mapping.keys()) keySet.add(key)
+    }
+    const collapsed = new Map<string, string>()
+    for (const key of keySet) {
+      const final = evalChain(key)
+      if (final !== key) collapsed.set(key, final)
+    }
+    const keysSql: string[] = []
+    const pairsSql: string[] = []
+    for (const [key, target] of collapsed) {
+      assertWellFormedCellText(key)
+      assertWellFormedCellText(target)
+      keysSql.push(sqlStringLiteral(key))
+      pairsSql.push(`(${sqlStringLiteral(key)}, ${sqlStringLiteral(target)})`)
+    }
+    const trim = chain[0]?.trim
+    const segment: Segment = {
+      keysSql,
+      pairsSql,
+      operandOf: (raw: string): string =>
+        trim !== undefined ? `trim(${raw}, ${trimSetSql(trim)})` : raw,
+    }
+    segmentCache.set(cacheKey, segment)
+    return segment
   }
 
-  // Exception ordinals across the whole chain: masked or not-live-at-p for
-  // any repair. Such rows keep the raw arms (the repair never applied).
-  const exceptionOrdinals = new Set<number>()
-  for (const record of repairRecords) {
-    for (const exception of repairExceptionOrdinals(base, record)) exceptionOrdinals.add(exception)
+  /**
+   * The split predicate over one raw value source under one segment: the
+   * committed value fails exactly when the trimmed operand passes through
+   * (not a key) and fails `TRY_CAST`, OR it matches a key whose collapsed
+   * target fails (the engine selects that subset — never an unconditional
+   * per-target branch).
+   */
+  const splitPredicate = (raw: string, segment: Segment): string => {
+    const operand = segment.operandOf(raw)
+    const passthrough =
+      `${operand} IS NOT NULL AND TRY_CAST(${operand} AS ${targetType}) IS NULL` +
+      (segment.keysSql.length > 0 ? ` AND ${operand} NOT IN (${segment.keysSql.join(', ')})` : '')
+    const mappedFails =
+      segment.pairsSql.length > 0
+        ? `${operand} IN (SELECT k FROM (VALUES ${segment.pairsSql.join(', ')}) AS p(k, t) ` +
+          `WHERE TRY_CAST(t AS ${targetType}) IS NULL)`
+        : null
+    return mappedFails === null ? `(${passthrough})` : `(${passthrough} OR ${mappedFails})`
+  }
+
+  // Per-layer exception sets; an ordinal's signature lists the layers that
+  // except it. Only ordinals carrying an exception are enumerated per-arm —
+  // everything else shares the single full-chain conjunct.
+  const layerExceptions = repairRecords.map(
+    (record) => new Set(repairExceptionOrdinals(base, record)),
+  )
+  const signatureOf = (baseOrdinal: number): string =>
+    layerExceptions
+      .map((exceptions, index) => (exceptions.has(baseOrdinal) ? String(index) : null))
+      .filter((part) => part !== null)
+      .join('|')
+  const anyException = new Set<number>()
+  for (const exceptions of layerExceptions) {
+    for (const exceptionOrdinal of exceptions) anyException.add(exceptionOrdinal)
   }
 
   const arms: string[] = []
   const editedOrdinals: number[] = []
   for (const edit of edits) {
     editedOrdinals.push(edit.ordinal)
-    const raw = cellLiteralRawSql(edit.value)
-    if (exceptionOrdinals.has(edit.ordinal)) {
-      // Masked/not-live edited row: today's raw arm, unchanged.
-      arms.push(`(${ordinal} = ${String(edit.ordinal)} AND ${conversionFails(raw)})`)
-    } else {
-      // The repair applies to the literal: the split predicate over the raw
-      // literal (session-bounded per-edit arm — never a CASE chain).
-      arms.push(`(${ordinal} = ${String(edit.ordinal)} AND ${splitFails(raw)})`)
-    }
+    // Per-layer semantics: the edited row's own surviving sub-chain decides.
+    const segment = segmentFor(
+      signatureOf(edit.ordinal)
+        .split('|')
+        .filter((part) => part.length > 0)
+        .map(Number),
+    )
+    arms.push(
+      `(${ordinal} = ${String(edit.ordinal)} AND ` +
+        `${splitPredicate(cellLiteralRawSql(edit.value), segment)})`,
+    )
   }
-  const uneditedExceptions = [...exceptionOrdinals]
+  const exceptedUnedited = [...anyException]
     .filter((exceptionOrdinal) => !editsByOrdinal.has(exceptionOrdinal))
     .sort((a, b) => a - b)
-  for (const exceptionOrdinal of uneditedExceptions) {
-    // Restored/deleted-then-restored rows show their underlying cursor value:
-    // the pending cast applies to the raw base value (probe §3.3 (x)).
-    arms.push(`(${ordinal} = ${String(exceptionOrdinal)} AND ${conversionFails(baseRef)})`)
+  for (const exceptionOrdinal of exceptedUnedited) {
+    const segment = segmentFor(
+      signatureOf(exceptionOrdinal)
+        .split('|')
+        .filter((part) => part.length > 0)
+        .map(Number),
+    )
+    arms.push(`(${ordinal} = ${String(exceptionOrdinal)} AND ${splitPredicate(baseRef, segment)})`)
   }
-  // (1) Non-exception, un-edited base rows: the collapsed chain applies.
-  const skipOrdinals = [...new Set([...exceptionOrdinals, ...editedOrdinals])].sort((a, b) => a - b)
+  // (1) Non-exception, un-edited base rows: the full chain applies.
+  const skipOrdinals = [...new Set([...anyException, ...editedOrdinals])].sort((a, b) => a - b)
   const rowConjunct =
     (skipOrdinals.length > 0
       ? `${ordinal} NOT IN (${skipOrdinals.map(String).join(', ')}) AND `
-      : '') + splitFails(baseRef)
+      : '') + splitPredicate(baseRef, segmentFor([]))
   arms.push(`(${rowConjunct})`)
 
   const baseColumns = base.columns.map((entry) => quotedIdentifier(entry.name)).join(', ')
@@ -1612,28 +1713,38 @@ function composeRepairCastCheckSql(
     `SELECT 1 FROM (SELECT ${baseRef}, ${ordinal} FROM (${inner})${tombstoneFilter}) ` +
       `WHERE ${arms.join(' OR ')}`,
   ]
-  // (m) Mapping targets: compose-time constants, one predicate per distinct
-  // collapsed target, no row scope — this is where the m arms live (probe §7).
-  if (collapsed.size > 0) {
-    const distinctTargets = [...new Set(collapsed.values())]
-    const constantArms = distinctTargets.map((target) => {
-      assertWellFormedCellText(target)
-      return `TRY_CAST(${sqlStringLiteral(target)} AS ${targetType}) IS NULL`
-    })
-    branches.push(`SELECT 1 WHERE ${constantArms.join(' OR ')}`)
-  }
+  // (m) Mapped-target failures: conditional on actual matches, decided by
+  // the engine. There is no unconditional per-target branch — a key no
+  // projected row holds must never fail the check — and the failing subset
+  // is the semi-join inside each split predicate above.
   for (const record of liveInsertRecords(state)) {
     const merged = insertColumnValue(state, record, column)
-    const surviving = repairRecords.some(
+    const survivingChain = repairRecords.filter(
       (entry) => entry.liveInsertIdsAtApply.has(record.id) && !entry.maskedRows.has(record.id),
     )
-    if (surviving && merged.kind !== 'null' && merged.kind !== 'string' && merged.kind !== 'text') {
+    if (
+      survivingChain.length > 0 &&
+      merged.kind !== 'null' &&
+      merged.kind !== 'string' &&
+      merged.kind !== 'text'
+    ) {
       // Same refusal the materializing ops compose: the window would refuse,
       // so the check must not answer a value it cannot commit.
       throw new OverlayRepairInsertValueError()
     }
     const raw = cellLiteralRawSql(merged)
-    branches.push(`SELECT 1 WHERE ${surviving ? splitFails(raw) : conversionFails(raw)}`)
+    if (survivingChain.length === 0) {
+      // Excepted at every layer (or before the chain): the raw value.
+      branches.push(`SELECT 1 WHERE ${conversionFails(raw)}`)
+    } else {
+      // The inserted row's own surviving sub-chain decides (per-layer
+      // exception semantics, D17 rewrite in TS mirrors this walk).
+      const exceptedIndices = repairRecords
+        .map((entry, index) => (survivingChain.includes(entry) ? null : Number(index)))
+        .filter((index) => index !== null)
+      const segment = segmentFor(exceptedIndices as number[])
+      branches.push(`SELECT 1 WHERE ${splitPredicate(raw, segment)}`)
+    }
   }
   return `${branches.join(' UNION ALL ')} LIMIT 1`
 }

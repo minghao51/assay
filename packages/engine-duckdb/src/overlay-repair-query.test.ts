@@ -59,6 +59,7 @@ import {
   OverlayRepairExportBudgetError,
   OverlayRepairInsertValueError,
 } from './overlay-query'
+import * as engineBarrel from './index'
 
 /** Test-side branded-id constructor for canonical literal ids. */
 const rid = (text: string): RowId => text as RowId
@@ -448,19 +449,37 @@ describe('repair literal rewrite (D17) — insert branches get 0 added arms', ()
   })
 
   it('runs the surrogate guard on the rewritten output, not only the input', () => {
-    const hostile = compositionFor([
+    // A VALID input whose mapping TARGET is an unpaired surrogate: the input
+    // passes every entry guard, the rewrite produces the hostile text, and
+    // the rewritten-output guard must refuse it with the repair-specific
+    // value-free message. The specific message is what makes this guard's
+    // execution observable (cellLiteralSql re-guards string kinds beneath it
+    // with the generic message — defence in depth, pinned at both layers).
+    const rewrite = compositionFor([
       {
         kind: 'row-insert',
         rowId: rid('ins:o1#0'),
         position: { kind: 'end' },
-        values: new Map([['label', { kind: 'string', value: '\uD800' }]]),
+        values: new Map([['label', { kind: 'string', value: 'ok' }]]),
       },
-      REPAIR(new Map([['\uD800', 'ok']])),
+      REPAIR(new Map([['ok', '\uD800']])),
     ])
-    // The INPUT is refused by the literal guard before any mapping runs.
-    expect(() => composeOverlayWindowSql({ ...hostile, limit: 5, offset: 0 })).toThrow(
+    expect(() => composeOverlayWindowSql({ ...rewrite, limit: 5, offset: 0 })).toThrow(
+      /repaired value contains an unpaired surrogate/,
+    )
+  })
+
+  it('guards the wrap mapping target even when no row matches the key', () => {
+    // The base-row wrap renders mapping targets as CASE-arm literals
+    // regardless of data, through sqlStringLiteral — which does NOT guard
+    // surrogates and has no second layer beneath it. This is the
+    // mutation-killable guard: removing it composes silently (the corruption
+    // would only surface as U+FFFD at execution).
+    const hostileTarget = compositionFor([REPAIR(new Map([['ok', '\uDBFF']]))])
+    expect(() => composeOverlayWindowSql({ ...hostileTarget, limit: 5, offset: 0 })).toThrow(
       /unpaired surrogate/,
     )
+    expect(() => composeOverlaySchemaSql(hostileTarget)).toThrow(/unpaired surrogate/)
   })
 })
 
@@ -469,6 +488,31 @@ describe('repair literal rewrite (D17) — insert branches get 0 added arms', ()
 // ---------------------------------------------------------------------------
 
 describe('repair caps and refusals — typed, value-free, before any engine call', () => {
+  it('publishes the repair error surface on the package barrel (the web row consumes it)', () => {
+    // W8 pin: settle the public error surface before any host consumes it.
+    // The barrel must re-export exactly these classes/caps so a host can
+    // catch them by identity rather than message matching.
+    for (const name of [
+      'OverlayRepairExceptionLimitError',
+      'OverlayRepairExportBudgetError',
+      'OverlayRepairInsertValueError',
+      'MAX_REPAIR_EXCEPTION_ARMS',
+      'MAX_REPAIR_EXPORT_CELL_WORK',
+    ] as const) {
+      expect(engineBarrel, name).toHaveProperty(name)
+    }
+    expect(engineBarrel.MAX_REPAIR_EXCEPTION_ARMS).toBe(500)
+    expect(engineBarrel.MAX_REPAIR_EXPORT_CELL_WORK).toBe(1_000_000_000)
+    expect(new engineBarrel.OverlayRepairExportBudgetError().name).toBe(
+      'OverlayRepairExportBudgetError',
+    )
+    expect(new engineBarrel.OverlayRepairExceptionLimitError().name).toBe(
+      'OverlayRepairExceptionLimitError',
+    )
+    expect(new engineBarrel.OverlayRepairInsertValueError().name).toBe(
+      'OverlayRepairInsertValueError',
+    )
+  })
   it('refuses more than MAX_REPAIR_EXCEPTION_ARMS exception arms per repair (D15)', () => {
     expect(MAX_REPAIR_EXCEPTION_ARMS).toBe(500)
     const big: OverlayBase = {
@@ -534,6 +578,35 @@ describe('repair caps and refusals — typed, value-free, before any engine call
     ).not.toThrow()
   })
 
+  it('counts projected rows, never tombstoned ones: the tombstone boundary sits on the envelope', () => {
+    // 2 000 001 base rows with ONE tombstone project 2 000 000 rows:
+    // 2 000 000 × 500 = 1e9 — exactly the envelope, allowed. Without the
+    // tombstone the same session projects 2 000 001 rows and refuses.
+    const huge: OverlayBase = { ...BASE, baseRowCount: 2_000_001 }
+    const tombstoned = foldOverlay(huge, [
+      { kind: 'row-delete', rowId: rid('base:b1#0') },
+      REPAIR(pairMap(500, 'k', () => 'v')),
+    ]).state
+    expect(() =>
+      composeOverlayExportSql({ viewName: 'assay_t1', base: huge, state: tombstoned }, 'csv', 'e4'),
+    ).not.toThrow()
+    // Live inserts project too: one live insert over the tombstoned base
+    // pushes projected rows back to 2 000 001 → refuse.
+    const withInsert = foldOverlay(huge, [
+      { kind: 'row-delete', rowId: rid('base:b1#0') },
+      {
+        kind: 'row-insert',
+        rowId: rid('ins:o1#0'),
+        position: { kind: 'end' },
+        values: new Map([['id', { kind: 'number', value: 1 }]]),
+      },
+      REPAIR(pairMap(500, 'k', () => 'v')),
+    ]).state
+    expect(() =>
+      composeOverlayExportSql({ viewName: 'assay_t1', base: huge, state: withInsert }, 'csv', 'e5'),
+    ).toThrow(OverlayRepairExportBudgetError)
+  })
+
   it('makes the schema op pay the live-insert branch budget (the pinned D16 behavioural change)', () => {
     const inserts = (count: number): EditOp[] =>
       Array.from({ length: count }, (_, i) => ({
@@ -567,7 +640,7 @@ describe('repair caps and refusals — typed, value-free, before any engine call
 // ---------------------------------------------------------------------------
 
 describe('repair cast check (D16b) — split form, scoped to repair columns', () => {
-  it('composes the split form for a repair column: per-row trim+TRY_CAST+IN-membership, m as constants', () => {
+  it('composes the split form for a repair column: per-row trim+TRY_CAST+IN-membership, targets conditional', () => {
     const sql = composeOverlayCastCheckSql(
       compositionFor([
         REPAIR(
@@ -583,14 +656,19 @@ describe('repair cast check (D16b) — split form, scoped to repair columns', ()
     expect(sql).toBe(
       `SELECT 1 FROM (SELECT "label", assay_overlay_ord FROM ` +
         `(SELECT "id", "label", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1")) ` +
-        `WHERE (${wrapOperand('"label"')} IS NOT NULL AND TRY_CAST(${wrapOperand('"label"')} AS BIGINT) IS NULL ` +
-        `AND ${wrapOperand('"label"')} NOT IN ('alpha', 'gamma')) ` +
-        `UNION ALL SELECT 1 WHERE TRY_CAST('ALPHA' AS BIGINT) IS NULL OR TRY_CAST('GAMMA' AS BIGINT) IS NULL ` +
-        `LIMIT 1`,
+        `WHERE ((${wrapOperand('"label"')} IS NOT NULL AND TRY_CAST(${wrapOperand('"label"')} AS BIGINT) IS NULL ` +
+        `AND ${wrapOperand('"label"')} NOT IN ('alpha', 'gamma') ` +
+        `OR ${wrapOperand('"label"')} IN (SELECT k FROM (VALUES ('alpha', 'ALPHA'), ('gamma', 'GAMMA')) AS p(k, t) ` +
+        `WHERE TRY_CAST(t AS BIGINT) IS NULL))) LIMIT 1`,
     )
-    // Predicate sites use set membership, never CASE chains.
+    // Predicate sites use set membership, never CASE chains — and there is
+    // no unconditional per-target branch: a target is tested only inside the
+    // engine-selected semi-join that a matching key reaches.
     expect(sql).not.toContain('CASE')
-    expect(sql.match(/TRY_CAST\(/g)).toHaveLength(3) // 1 per-row + 2 constants
+    expect(sql).not.toContain('UNION ALL SELECT 1 WHERE TRY_CAST(')
+    // 1 per-row operand + 1 inside the engine-selected semi-join (the
+    // semi-join's TRY_CAST is stated once for the pair relation, not per key).
+    expect(sql.match(/TRY_CAST\(/g)).toHaveLength(2)
   })
 
   it('keeps edited non-exception rows on per-edit split arms and masked edited rows on raw arms', () => {
@@ -603,14 +681,19 @@ describe('repair cast check (D16b) — split form, scoped to repair columns', ()
       'label',
       'BIGINT',
     )
+    // The masked edit's surviving sub-chain is empty (its layer excepted):
+    // the raw literal is tested directly — the pre-repair arm shape.
     expect(sql).toContain(
-      `(assay_overlay_ord = 0 AND ${wrapOperand("'5.5'")} IS NOT NULL AND TRY_CAST(${wrapOperand("'5.5'")} AS BIGINT) IS NULL AND ${wrapOperand("'5.5'")} NOT IN ('alpha'))`,
+      `(assay_overlay_ord = 2 AND ('not-a-number' IS NOT NULL AND TRY_CAST('not-a-number' AS BIGINT) IS NULL))`,
     )
+    // The un-masked edit keeps its per-row split arm (passthrough + the
+    // mapped-target semi-join), and the full-chain conjunct skips both.
     expect(sql).toContain(
-      `(assay_overlay_ord = 2 AND 'not-a-number' IS NOT NULL AND TRY_CAST('not-a-number' AS BIGINT) IS NULL)`,
+      `(assay_overlay_ord = 0 AND (${wrapOperand("'5.5'")} IS NOT NULL AND TRY_CAST(${wrapOperand("'5.5'")} AS BIGINT) IS NULL AND ${wrapOperand("'5.5'")} NOT IN ('alpha') ` +
+        `OR ${wrapOperand("'5.5'")} IN (SELECT k FROM (VALUES ('alpha', 'ALPHA')) AS p(k, t) WHERE TRY_CAST(t AS BIGINT) IS NULL)))`,
     )
     expect(sql).toContain('assay_overlay_ord NOT IN (0, 2)')
-    expect(sql).toContain(`UNION ALL SELECT 1 WHERE TRY_CAST('ALPHA' AS BIGINT) IS NULL LIMIT 1`)
+    expect(sql).not.toContain('UNION ALL SELECT 1 WHERE TRY_CAST(')
   })
 
   it('omits the key test when m = 0 and the exception arms when x = 0', () => {
@@ -626,9 +709,12 @@ describe('repair cast check (D16b) — split form, scoped to repair columns', ()
       'label',
       'BIGINT',
     )
-    // x = 0 ⇒ no exception arms; the key-set membership test stays (m = 1).
+    // x = 0 ⇒ no exception arms; the key-set membership tests stay (m = 1).
     expect(x0).not.toContain('assay_overlay_ord =')
     expect(x0).toContain(`AND ${wrapOperand('"label"')} NOT IN ('alpha')`)
+    expect(x0).toContain(
+      `OR ${wrapOperand('"label"')} IN (SELECT k FROM (VALUES ('alpha', 'ALPHA')) AS p(k, t) WHERE TRY_CAST(t AS BIGINT) IS NULL)`,
+    )
   })
 
   it('emits the provably-empty check for a textual target (R1-C generalized, probe §3.4)', () => {
@@ -681,15 +767,82 @@ describe('repair cast check (D16b) — split form, scoped to repair columns', ()
     )
     // Collapsed keys (chain-insertion order): alpha→alpha2 (via ALPHA),
     // x→y, b→c; 'ALPHA' is r1-passthrough that r2 maps — chain-evaluated as
-    // ALPHA→alpha2. Distinct targets are hoisted once each.
+    // ALPHA→alpha2. The failing subset is the engine's semi-join decision,
+    // never an unconditional host-side branch.
     expect(sql).toContain(`NOT IN ('alpha', 'x', 'ALPHA', 'b')`)
     expect(sql).toContain(
-      `TRY_CAST('alpha2' AS BIGINT) IS NULL OR TRY_CAST('y' AS BIGINT) IS NULL OR TRY_CAST('c' AS BIGINT) IS NULL`,
+      `IN (SELECT k FROM (VALUES ('alpha', 'alpha2'), ('x', 'y'), ('ALPHA', 'alpha2'), ('b', 'c')) AS p(k, t) WHERE TRY_CAST(t AS BIGINT) IS NULL)`,
     )
-    expect(sql.match(/TRY_CAST\(/g)).toHaveLength(4) // 1 per-row + 3 distinct constants
+    expect(sql).not.toContain('UNION ALL SELECT 1 WHERE TRY_CAST(')
     // No CASE chains at predicate sites, and one per-row conjunct only.
     expect(sql).not.toContain('CASE')
-    expect(sql.match(/trim\(/g)).toHaveLength(3) // the same operand stated in each of the three row-scope conjuncts
+    // The operand is stated four times in the row conjunct (IS NOT NULL,
+    // TRY_CAST, NOT-IN-keys, IN-semi-join) — the probe's measured shape.
+    expect(sql.match(/trim\(/g)).toHaveLength(4)
+  })
+
+  it('never fails a mapped target whose key no projected row holds (reviewer C1 repro)', () => {
+    // Base '5'; the repair maps a key NOTHING matches to a value that cannot
+    // convert. The committed window returns '5' (converts); the check must
+    // answer false — the old unconditional per-target branch failed here.
+    const ops: EditOp[] = [REPAIR(new Map([['absent', 'not-a-number']]))]
+    const sql = composeOverlayCastCheckSql(compositionFor(ops), 'label', 'BIGINT')
+    // The failing target lives ONLY inside the engine-selected semi-join.
+    expect(sql).toContain(
+      `IN (SELECT k FROM (VALUES ('absent', 'not-a-number')) AS p(k, t) WHERE TRY_CAST(t AS BIGINT) IS NULL)`,
+    )
+    expect(sql).not.toContain('UNION ALL SELECT 1 WHERE TRY_CAST(')
+    if (!hasDuckDbCli) return
+    // Real-engine agreement: the window materializes '5'; the check is empty.
+    const setup = [
+      'CREATE TABLE assay_t1 (id BIGINT, label VARCHAR);',
+      "INSERT INTO assay_t1 VALUES (0, '5');",
+    ]
+    expect(runCli(setup, sql + ';')).toEqual([])
+    const windowSql = composeOverlayWindowSql({ ...compositionFor(ops), limit: 5, offset: 0 })
+    expect(runCli(setup, `SELECT label FROM (${windowSql});`)).toEqual(['5'])
+  })
+
+  it('keeps per-layer masking in the check: masked at one layer, repaired by the next (reviewer C2 repro)', () => {
+    // r₁ x→2; an APPLIED set writes 'bad' (masks r₁ for row 0); r₂ bad→5.
+    // The committed value for row 0 is r₂('bad') = '5' — convertible — so the
+    // check must pass even though the RAW value 'bad' would fail. Unioning
+    // exception layers (the old shape) tested raw 'bad' and falsely failed.
+    const ops: EditOp[] = [
+      SET(0, 'x'),
+      REPAIR(new Map([['x', '2']])),
+      SET(0, 'bad'),
+      REPAIR(new Map([['bad', '5']])),
+    ]
+    const sql = composeOverlayCastCheckSql(compositionFor(ops), 'label', 'BIGINT')
+    // Row 0's arm tests its SURVIVING sub-chain (r₂) over the raw literal:
+    // the mapped semi-join carries ('bad', '5'), and '5' converts.
+    expect(sql).toContain(
+      `(assay_overlay_ord = 0 AND (${wrapOperand("'bad'")} IS NOT NULL AND TRY_CAST(${wrapOperand("'bad'")} AS BIGINT) IS NULL AND ${wrapOperand("'bad'")} NOT IN ('bad') ` +
+        `OR ${wrapOperand("'bad'")} IN (SELECT k FROM (VALUES ('bad', '5')) AS p(k, t) WHERE TRY_CAST(t AS BIGINT) IS NULL)))`,
+    )
+    if (!hasDuckDbCli) return
+    const setup = [
+      'CREATE TABLE assay_t1 (id BIGINT, label VARCHAR);',
+      "INSERT INTO assay_t1 VALUES (0, 'x'), (1, '2');",
+    ]
+    // Convertible chain output ('5'): check agrees with the committed window.
+    expect(runCli(setup, sql + ';')).toEqual([])
+    const windowSql = composeOverlayWindowSql({ ...compositionFor(ops), limit: 5, offset: 0 })
+    expect(runCli(setup, `SELECT label FROM (${windowSql});`)).toEqual(['5', '2'])
+    // A failing mapped target through the SAME surviving sub-chain fires —
+    // the check still catches genuine committed-cast failures.
+    const firing = composeOverlayCastCheckSql(
+      compositionFor([
+        SET(0, 'x'),
+        REPAIR(new Map([['x', '2']])),
+        SET(0, 'bad'),
+        REPAIR(new Map([['bad', 'oops']])),
+      ]),
+      'label',
+      'BIGINT',
+    )
+    expect(runCli(setup, firing + ';')).toEqual(['1'])
   })
 
   it('tests a pending cast over the repair output even when a post-repair cast changed the declared type', () => {
@@ -1263,10 +1416,41 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
     )
   })
 
+  /**
+   * Compose AND execute the pending-cast check next to the committed-window
+   * failure probe in ONE CLI call, and assert the two agree: the check fires
+   * exactly when some committed window value fails `TRY_CAST(label AS
+   * BIGINT)`. The window's cell values themselves are compared against the
+   * §6.2 model by {@link executeWindow} in the same loop iteration.
+   */
+  function executeWindowAndCheck(ops: readonly EditOp[]): void {
+    const composition = {
+      viewName: 'assay_t1' as const,
+      base: DIFF_BASE,
+      state: foldOverlay(DIFF_BASE, ops).state,
+    }
+    const windowSql = composeOverlayWindowSql({
+      ...composition,
+      includeRowIds: true,
+      limit: DIFF_BASE.baseRowCount + ops.length + 5,
+      offset: 0,
+    })
+    const committedFailure =
+      `SELECT 'w' AS src, 1 AS hit FROM (${windowSql}) ` +
+      `WHERE label IS NOT NULL AND TRY_CAST(label AS BIGINT) IS NULL LIMIT 1;`
+    const checkSql = composeOverlayCastCheckSql(composition, 'label', 'BIGINT')
+    const checkFires = `SELECT 'c' AS src, 1 AS hit FROM (${checkSql}) LIMIT 1;`
+    const out = runCli(DIFF_SETUP, [committedFailure, checkFires].join('\n'))
+    const committed = out.some((line) => line === 'w|1')
+    const fired = out.some((line) => line === 'c|1')
+    expect(fired, 'check vs committed window').toBe(committed)
+  }
+
   it('seeded randomized histories over the real fold and composer: 0 mismatches', () => {
     let cellChecks = 0
     let multiRepairCases = 0
     let histories = 0
+    let checkAgreements = 0
     for (const seed of [20261115, 7, 199, 404, 271828, 88, 31337, 5150]) {
       const rng = makeRng(seed)
       for (let session = 0; session < 40; session++) {
@@ -1287,18 +1471,122 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
           )
           cellChecks += 1
         }
+        // The pending-cast check must agree with the committed window on
+        // every history (fires iff some committed value fails TRY_CAST).
+        executeWindowAndCheck(ops)
+        checkAgreements += 1
       }
     }
     // The corpus must actually exercise the rule (guard against a vacuous pass).
     expect(histories).toBe(320)
     expect(cellChecks).toBeGreaterThan(1500)
     expect(multiRepairCases).toBeGreaterThan(60)
+    expect(checkAgreements).toBe(320)
+  }, 45_000)
+
+  it('check-agreement corpus fires in both directions (non-vacuous)', () => {
+    // A numeric-corpus fixture where BOTH directions are reachable: every
+    // committed value converts (all-silent) only when the repair maps the
+    // non-numeric seeds away; any surviving non-numeric value fires both.
+    const numericBase: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'label', type: 'VARCHAR' },
+      ],
+      baseRowCount: 4,
+    }
+    const numericSetup = [
+      'CREATE TABLE assay_t1 (id BIGINT, label VARCHAR);',
+      "INSERT INTO assay_t1 VALUES (0, '5'), (1, 'x'), (2, '7'), (3, 'y');",
+    ]
+    const pool: ReadonlyArray<readonly (readonly [string, string])[]> = [
+      [['x', '9']],
+      [['x', 'oops']],
+      [
+        ['x', '9'],
+        ['y', '11'],
+      ],
+      [
+        ['x', '9'],
+        ['y', 'nope'],
+      ],
+    ]
+    let fired = 0
+    let silent = 0
+    for (const seed of [20261115, 7]) {
+      const rng = makeRng(seed)
+      for (let session = 0; session < 20; session++) {
+        const ops: EditOp[] = []
+        const live = [0, 1, 2, 3]
+        const dead: number[] = []
+        for (let step = 0, n = rng.int(2, 8); step < n; step++) {
+          const roll = rng.int(0, 4)
+          if (roll <= 1) {
+            const ordinal = rng.pick(live)
+            const value = rng.pick(['5', 'x', '7', 'y', '9', '11'])
+            ops.push({
+              kind: 'cell-set',
+              rowId: rid(`base:b1#${String(ordinal)}`),
+              column: 'label',
+              value: { kind: 'string', value },
+            })
+          } else if (roll === 2) {
+            ops.push({
+              kind: 'cell-revert',
+              rowId: rid(`base:b1#${String(rng.pick(live))}`),
+              column: 'label',
+            })
+          } else if (roll === 3 && live.length > 1) {
+            const ordinal = rng.pick(live)
+            dead.push(ordinal)
+            live.splice(live.indexOf(ordinal), 1)
+            ops.push({ kind: 'row-delete', rowId: rid(`base:b1#${String(ordinal)}`) })
+          } else if (dead.length > 0) {
+            const ordinal = rng.pick(dead)
+            dead.splice(dead.indexOf(ordinal), 1)
+            live.push(ordinal)
+            ops.push({ kind: 'row-restore', rowId: rid(`base:b1#${String(ordinal)}`) })
+          }
+        }
+        ops.push({
+          kind: 'column-repair',
+          column: 'label',
+          ...(rng.bool(0.7) ? { trim: TRIM } : {}),
+          mapping: new Map(rng.pick(pool)),
+        })
+        const composition = {
+          viewName: 'assay_t1' as const,
+          base: numericBase,
+          state: foldOverlay(numericBase, ops).state,
+        }
+        const windowSql = composeOverlayWindowSql({
+          ...composition,
+          limit: numericBase.baseRowCount + 5,
+          offset: 0,
+        })
+        const committedFailure =
+          `SELECT 'w' AS src, 1 AS hit FROM (${windowSql}) ` +
+          `WHERE label IS NOT NULL AND TRY_CAST(label AS BIGINT) IS NULL LIMIT 1;`
+        const checkSql = composeOverlayCastCheckSql(composition, 'label', 'BIGINT')
+        const checkFires = `SELECT 'c' AS src, 1 AS hit FROM (${checkSql}) LIMIT 1;`
+        const out = runCli(numericSetup, [committedFailure, checkFires].join('\n'))
+        expect(out.some((line) => line === 'c|1')).toBe(out.some((line) => line === 'w|1'))
+        if (out.some((line) => line === 'c|1')) fired += 1
+        else silent += 1
+      }
+    }
+    // Both directions must occur — an always-firing or always-silent
+    // agreement would be vacuous.
+    expect(fired).toBeGreaterThan(0)
+    expect(silent).toBeGreaterThan(0)
   }, 30_000)
-  // The 30 s budget above is per-test, never a weakened assertion: one CLI
-  // spawn per history (the repo's pinned-CLI agreement pattern) costs ~8 s
-  // wall for 320 histories on this host, against the node project's 5000 ms
-  // default — the same harness-ceiling class gd-1 documented for the CLI
-  // integration suite.
+  // The 45 s budget above is per-test, never a weakened assertion: one CLI
+  // spawn per history (the repo's pinned-CLI agreement pattern) costs ~16 s
+  // wall for 320 histories once each spawn also carries the check-agreement
+  // statement, against the node project's 5000 ms default — the same
+  // harness-ceiling class gd-1 documented for the CLI integration suite.
 })
 
 // ---------------------------------------------------------------------------

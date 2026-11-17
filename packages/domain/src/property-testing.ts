@@ -9,7 +9,7 @@
  * are fixed in the test files on purpose.
  */
 import type { CellValue, CellValueRecord, ColumnSpec, EditOp, InsertPosition } from './edit-ops.js'
-import { NULL_VALUE } from './edit-ops.js'
+import { DEFAULT_REPAIR_TRIM_CODE_POINTS, NULL_VALUE } from './edit-ops.js'
 import type { OverlayBase, OverlayState } from './overlay.js'
 import { foldOverlay } from './overlay.js'
 import { baseRowId, insertRowId, parseRowId } from './row-identity.js'
@@ -132,6 +132,39 @@ function genInsertPosition(rng: TestRng, base: OverlayBase, state: OverlayState)
  * columns, and the next insert seq), but with a dose of noise so conflicts
  * and no-ops occur naturally. `garbage` skips the state entirely.
  */
+/**
+ * One generated `column-repair` (the shared P1 arm, ADR 0050 decision 3): a
+ * plan against a textual column of the current state, from the non-commuting
+ * P8 mapping pool. Draws sometimes carry a trim-spec mismatch against the
+ * chain (a typed conflict the properties must survive) or an empty plan (the
+ * typed `repair-identity` no-op), so conflicts and no-ops occur naturally.
+ */
+export function genRepairOp(rng: TestRng, state: OverlayState): EditOp {
+  const textual = state.columns.filter((column) =>
+    ['VARCHAR', 'TEXT', 'STRING'].includes(column.type.toUpperCase()),
+  )
+  if (textual.length === 0) return genGarbageOp(rng)
+  const pool: ReadonlyArray<readonly (readonly [string, string])[]> = [
+    [['old', 'middle']],
+    [['middle', 'final']],
+    [['old', 'new']],
+    [['a', 'b']],
+  ]
+  const mapping = new Map<string, string>()
+  const pairs = rng.int(0, 2)
+  for (let i = 0; i < pairs; i++) {
+    const [from, to] = rng.pick(rng.pick(pool))
+    mapping.set(from, to)
+  }
+  const trim = rng.bool(0.1) ? ' \t' : rng.bool(0.7) ? DEFAULT_REPAIR_TRIM_CODE_POINTS : undefined
+  return {
+    kind: 'column-repair',
+    column: rng.pick(textual).name,
+    ...(trim !== undefined ? { trim } : {}),
+    mapping,
+  }
+}
+
 export function genOp(
   rng: TestRng,
   base: OverlayBase,
@@ -139,6 +172,11 @@ export function genOp(
   garbage = false,
 ): EditOp {
   if (garbage) return genGarbageOp(rng)
+  // EW-04D repair arm (ADR 0050 decision 3): the shared generator produces
+  // `column-repair` ops so every property walk exercises repairs. Drawing a
+  // repair changes what existing seeds generate — the properties assert
+  // invariants, not goldens, so that is a corpus change, not a regression.
+  if (rng.bool(1 / 14)) return genRepairOp(rng, state)
   const liveBaseOrdinals: number[] = []
   for (let ordinal = 0; ordinal < base.baseRowCount; ordinal++) {
     if (!state.deletedBase.has(ordinal)) liveBaseOrdinals.push(ordinal)

@@ -152,6 +152,13 @@ export interface RepairStepRecord {
    * per-row suffix value-ops that mask the repair (the later absolute write
    * wins). Logged no-ops never land here (their outcome is not `applied`).
    * Updated by the fold as later value-ops apply.
+   *
+   * Boundary (ADR 0050): masking is a function of the active *prefix* (the
+   * op list), not of a local (state, op) transition, so a state rebuilt by
+   * materializing inverse ops (a mechanism the shipped path never uses —
+   * undo is the refold) can over-mask rows whose maskers were undone. The
+   * engine composes from fresh refolds, where the mask is exact; the
+   * `fold ∘ unfold` properties carry the recorded narrowing.
    */
   readonly maskedRows: ReadonlySet<RowId>
 }

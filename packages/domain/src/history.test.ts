@@ -44,10 +44,10 @@ const CELL_SET = (rowId: RowId, column: string, value: CellValue): EditOp => ({
  * A P1 repair arm (ADR 0050 decision 3): a valid `column-repair` on a live
  * textual column of the current state, with the non-commuting P8 mapping
  * pool, so the walk below exercises repair entries through append/undo/redo.
- * Deliberately test-local: the shared `genOp` corpus belongs to
- * `property-testing.ts` (outside this row's path scope), and widening it
- * would also require narrowing `overlay.test.ts`'s `fold ∘ unfold` walk
- * (`state.repairs` survives inverse walks — that is the refold point).
+ * The shared `genOp` now carries its own repair arm (this row's fix commit);
+ * this local arm is kept as the walk's dedicated high-frequency repair
+ * source — the two pools differ (the shared arm adds trim-spec-mismatch
+ * conflicts and identity no-ops across all properties).
  */
 function genRepairArm(
   state: import('./overlay').OverlayState,

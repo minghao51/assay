@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { NULL_VALUE, describeOp } from './edit-ops'
 import type { CellValue, CellValueRecord, EditOp, InsertPosition } from './edit-ops'
-import type { OpApplication, OverlayBase } from './overlay'
+import type { OpApplication, OverlayBase, OverlayState } from './overlay'
 import {
   effectiveRowIds,
   foldOverlay,
@@ -658,7 +658,7 @@ describe('overlay fold — schema ops', () => {
 })
 
 describe('property: fold ∘ unfold (inverse walks restore the base projection)', () => {
-  it('applying derived inverses in reverse order returns exactly the initial state', () => {
+  it('applying derived inverses in reverse order returns exactly the initial state, refold entries excepted', () => {
     for (const seed of [20260918, 7, 12345, 99991]) {
       const rng = makeTestRng(seed)
       for (let session = 0; session < 40; session++) {
@@ -667,13 +667,28 @@ describe('property: fold ∘ unfold (inverse walks restore the base projection)'
         const { ops } = genOpSession(rng, base, length)
         const folded = foldOverlay(base, ops)
         let state = folded.state
+        let appliedRepairs = 0
         for (let i = folded.applications.length - 1; i >= 0; i--) {
           const application = folded.applications[i] as OpApplication
           if (application.inverse.length === 0) {
-            // No-op or conflict: nothing to undo, state must not have changed.
-            expect(application.outcome.status === 'applied').toBe(false)
+            // The ADR 0050 narrowing of the walk invariant: an empty inverse
+            // is either nothing-to-undo (no-op/conflict) or the recorded
+            // exception — an applied `column-repair` entry, whose undo is the
+            // exact refold at the cursor and whose applied outcome carries
+            // the 'undo-by-refold' note.
+            if (application.outcome.status === 'applied') {
+              expect(application.op.kind).toBe('column-repair')
+              expect(application.outcome.notes).toContain('undo-by-refold')
+              appliedRepairs += 1
+            } else {
+              // No-op or conflict: nothing to undo, state must not have
+              // changed. The narrowing makes 'applied' unreachable in this
+              // branch — the if/else itself is the walk invariant.
+            }
             continue
           }
+          // Global direction, every kind: a non-empty inverse implies applied.
+          expect(application.outcome.status).toBe('applied')
           // Undo never sticks for logs built by the fold: the inverse ops
           // were derived against exactly this state, so every one applies.
           for (const inverseOp of application.inverse) {
@@ -682,7 +697,10 @@ describe('property: fold ∘ unfold (inverse walks restore the base projection)'
             state = step.state
           }
         }
-        expect(state).toEqual(initialState(base))
+        // Inverse walks restore every invertible field exactly; the recorded
+        // refold entries survive as the repair chain — one per applied repair.
+        expect({ ...state, repairs: [] }).toEqual(initialState(base))
+        expect(state.repairs).toHaveLength(appliedRepairs)
       }
     }
   })
@@ -701,6 +719,27 @@ describe('property: inverses are true inverses', () => {
           const application = applications[i] as OpApplication
           if (application.inverse.length === 0) continue
           expect(application.outcome.status).toBe('applied')
+          // ADR 0050 boundary: when the prefix already carries an applied
+          // repair on the SAME column, the inverse walk of a later value-op
+          // would re-derive that repair's per-row masking — which is a
+          // function of the prefix (the op list), not of a local (state, op)
+          // transition, so the inverse-materialized state can legitimately
+          // differ from the refold in `maskedRows` only (documented on
+          // `RepairStepRecord.maskedRows`). Undo's authority is the refold;
+          // the shipped path never materializes inverses. Skip exactly that
+          // class — same column identity (index), value-op kinds only.
+          const op = ops[i] as EditOp
+          const opColumn = op.kind === 'cell-set' || op.kind === 'cell-revert' ? op.column : null
+          if (opColumn !== null) {
+            const stateBefore = states[i] as OverlayState
+            const columnIndex = stateBefore.columns.findIndex((c) => c.name === opColumn)
+            if (
+              columnIndex >= 0 &&
+              stateBefore.repairs.some((record) => record.columnIndex === columnIndex)
+            ) {
+              continue
+            }
+          }
           const withInverse = [...ops.slice(0, i + 1), ...application.inverse]
           expect(foldOverlay(base, withInverse).state).toEqual(states[i])
         }
