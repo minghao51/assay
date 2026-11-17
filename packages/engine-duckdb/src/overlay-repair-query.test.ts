@@ -512,6 +512,12 @@ describe('repair caps and refusals — typed, value-free, before any engine call
     expect(new engineBarrel.OverlayRepairInsertValueError().name).toBe(
       'OverlayRepairInsertValueError',
     )
+    // Constructor identity (review round 2, suggestion a): the barrel must
+    // re-export the SAME classes, not look-alikes — a host catching by
+    // imported identity must match what the composer throws.
+    expect(engineBarrel.OverlayRepairExceptionLimitError).toBe(OverlayRepairExceptionLimitError)
+    expect(engineBarrel.OverlayRepairExportBudgetError).toBe(OverlayRepairExportBudgetError)
+    expect(engineBarrel.OverlayRepairInsertValueError).toBe(OverlayRepairInsertValueError)
   })
   it('refuses more than MAX_REPAIR_EXCEPTION_ARMS exception arms per repair (D15)', () => {
     expect(MAX_REPAIR_EXCEPTION_ARMS).toBe(500)
@@ -841,6 +847,57 @@ describe('repair cast check (D16b) — split form, scoped to repair columns', ()
       ]),
       'label',
       'BIGINT',
+    )
+    expect(runCli(setup, firing + ';')).toEqual(['1'])
+  })
+
+  it('applies the wrap-input cast to the check operand (review round-2 critical)', () => {
+    // Base DECIMAL(3,1) = 1.0 → column-cast VARCHAR → repair '01.0' →
+    // 'not-a-number' → pending DOUBLE. The value entering the repair is
+    // CAST(raw AS VARCHAR) = '1.0'; the key never matches, so the committed
+    // window yields '1.0' and the check must answer false — predicating on
+    // the RAW column trimmed a DECIMAL and was a DuckDB Binder Error.
+    const numericBase: OverlayBase = {
+      baseAnchor: 'b1',
+      overlayAnchor: 'o1',
+      columns: [{ name: 'label', type: 'DECIMAL(3,1)' }],
+      baseRowCount: 1,
+    }
+    const ops: EditOp[] = [
+      { kind: 'column-cast', column: 'label', targetType: 'VARCHAR' },
+      REPAIR(new Map([['01.0', 'not-a-number']])),
+    ]
+    const composition = {
+      viewName: 'assay_t1' as const,
+      base: numericBase,
+      state: foldOverlay(numericBase, ops).state,
+    }
+    const sql = composeOverlayCastCheckSql(composition, 'label', 'DOUBLE')
+    // The operand is the wrap-input expression: the raw column under the
+    // pre-repair cast, inside the trim — the identical expression the wrap
+    // layer reads.
+    expect(sql).toContain(`trim(CAST("label" AS VARCHAR), '${TRIM}')`)
+    if (!hasDuckDbCli) return
+    const setup = [
+      'CREATE TABLE assay_t1 (label DECIMAL(3,1));',
+      'INSERT INTO assay_t1 VALUES (1.0);',
+    ]
+    // No failure and no Binder Error: '1.0' converts and the key never matches.
+    expect(runCli(setup, sql + ';')).toEqual([])
+    // Agreement with the committed window.
+    const windowSql = composeOverlayWindowSql({ ...composition, limit: 5, offset: 0 })
+    expect(runCli(setup, `SELECT label FROM (${windowSql});`)).toEqual(['1.0'])
+    // The firing direction: a key that DOES match maps to a failing target.
+    const firing = composeOverlayCastCheckSql(
+      {
+        ...composition,
+        state: foldOverlay(numericBase, [
+          { kind: 'column-cast', column: 'label', targetType: 'VARCHAR' },
+          REPAIR(new Map([['1.0', 'not-a-number']])),
+        ]).state,
+      },
+      'label',
+      'DOUBLE',
     )
     expect(runCli(setup, firing + ';')).toEqual(['1'])
   })

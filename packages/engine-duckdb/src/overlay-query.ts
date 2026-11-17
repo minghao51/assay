@@ -1535,6 +1535,16 @@ interface Segment {
  * chain. Unions of per-layer exception sets would answer the wrong question
  * (a row masked at layer 1 but repaired by layer 2 is `r₂(raw)`, not raw).
  *
+ * **The operand is the wrap-input value, not the raw column.** Every base
+ * row enters the wrap segment as the source projected under the repair
+ * chain's declared type — the per-segment pre-repair cast the wrap reads
+ * (`CAST(source AS τ_wrap)` in the branch projection, uniform for repaired
+ * and masked rows). Predicating on the raw column instead is a DuckDB
+ * Binder Error for a non-textual base type and tests a value no row
+ * carries; the check therefore operands on the identical wrap-input
+ * expression, with edited rows carrying their branch cast
+ * (`cellLiteralSql(value, τ_wrap)`) for non-text literal kinds.
+ *
  * **Mapped targets are conditional on actual matches.** A mapping constant
  * fails the pending conversion only when a projected row's operand actually
  * equals its key; a key no row holds must never fail the check (that was a
@@ -1580,6 +1590,31 @@ function composeRepairCastCheckSql(
   const baseRef = quotedIdentifier(baseColumn.name)
   const edits = groupBaseColumnEdits(base, state).get(column) ?? []
   const editsByOrdinal = new Map(edits.map((edit) => [edit.ordinal, edit]))
+
+  // The wrap-input cast (review round 2): every base row enters the wrap
+  // segment as the source projected under the repair chain's declared type —
+  // the per-segment pre-repair cast the wrap itself reads (the branch
+  // projection `CAST(source AS τ_wrap)`, uniform for repaired and masked
+  // rows alike, and emitted by the same `declaredType === baseColumn.type`
+  // rule the wrap uses). The check's operand is exactly that expression:
+  // trimming the RAW column would be a Binder Error for a non-textual base
+  // type and would predicate on a value no row carries.
+  const wrapInputType = repairRecords[repairRecords.length - 1]?.typeAtApply
+  const wrapInputExpr =
+    wrapInputType === undefined || wrapInputType === baseColumn.type
+      ? baseRef
+      : `CAST(${baseRef} AS ${wrapInputType})`
+  // Edited rows: the branch casts each literal to the wrap-input type
+  // (`cellLiteralSql(value, τ_wrap)`). String/text literals are textual
+  // identities of their raw form; number/boolean literals render differently
+  // under the engine's cast, so they carry the cast explicitly.
+  const editOperandOf = (edit: BaseColumnEdit): string => {
+    const raw = cellLiteralRawSql(edit.value)
+    if (wrapInputType === undefined || edit.value.kind === 'string' || edit.value.kind === 'text') {
+      return raw
+    }
+    return `CAST(${raw} AS ${wrapInputType})`
+  }
 
   // Per-signature sub-chain segments, memoized. `excepted` = layer indices
   // whose exceptions include the row; the segment collapses the SURVIVING
@@ -1679,7 +1714,7 @@ function composeRepairCastCheckSql(
     )
     arms.push(
       `(${ordinal} = ${String(edit.ordinal)} AND ` +
-        `${splitPredicate(cellLiteralRawSql(edit.value), segment)})`,
+        `${splitPredicate(editOperandOf(edit), segment)})`,
     )
   }
   const exceptedUnedited = [...anyException]
@@ -1692,14 +1727,16 @@ function composeRepairCastCheckSql(
         .filter((part) => part.length > 0)
         .map(Number),
     )
-    arms.push(`(${ordinal} = ${String(exceptionOrdinal)} AND ${splitPredicate(baseRef, segment)})`)
+    arms.push(
+      `(${ordinal} = ${String(exceptionOrdinal)} AND ${splitPredicate(wrapInputExpr, segment)})`,
+    )
   }
   // (1) Non-exception, un-edited base rows: the full chain applies.
   const skipOrdinals = [...new Set([...anyException, ...editedOrdinals])].sort((a, b) => a - b)
   const rowConjunct =
     (skipOrdinals.length > 0
       ? `${ordinal} NOT IN (${skipOrdinals.map(String).join(', ')}) AND `
-      : '') + splitPredicate(baseRef, segmentFor([]))
+      : '') + splitPredicate(wrapInputExpr, segmentFor([]))
   arms.push(`(${rowConjunct})`)
 
   const baseColumns = base.columns.map((entry) => quotedIdentifier(entry.name)).join(', ')

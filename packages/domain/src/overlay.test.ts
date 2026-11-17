@@ -659,6 +659,10 @@ describe('overlay fold — schema ops', () => {
 
 describe('property: fold ∘ unfold (inverse walks restore the base projection)', () => {
   it('applying derived inverses in reverse order returns exactly the initial state, refold entries excepted', () => {
+    // Counts applied repair entries across the whole corpus; the non-vacuity
+    // assertion at the end requires the shared genOp repair arm to land at
+    // least one applied repair (review round 2).
+    let corpusAppliedRepairs = 0
     for (const seed of [20260918, 7, 12345, 99991]) {
       const rng = makeTestRng(seed)
       for (let session = 0; session < 40; session++) {
@@ -701,8 +705,13 @@ describe('property: fold ∘ unfold (inverse walks restore the base projection)'
         // refold entries survive as the repair chain — one per applied repair.
         expect({ ...state, repairs: [] }).toEqual(initialState(base))
         expect(state.repairs).toHaveLength(appliedRepairs)
+        corpusAppliedRepairs += appliedRepairs
       }
     }
+    // Non-vacuity (review round 2): the shared genOp repair arm must
+    // actually land applied repair entries in this corpus — removing the
+    // arm zeroes this count and fails the test.
+    expect(corpusAppliedRepairs).toBeGreaterThan(0)
   })
 })
 
