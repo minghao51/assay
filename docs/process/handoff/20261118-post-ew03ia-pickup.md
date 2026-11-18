@@ -50,7 +50,9 @@ three consecutive coverage runs were green at load 30→97. Do not weaken a thre
 
 | #            | Row                                                                                                        | Gate                                                                          | Notes                                                                                                      |
 | ------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **web-runtime writer** — now the ONLY queued one; no engine/domain changes unless a real gap (stop)        |
+| **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **CLOSED** `52da4ca` + `9e62172` + `d0069be`; reviewer found + fixed a real count-predicate over-count     |
+| **D3-1**     | D3's per-file header rename _list_ (upgrade EW-03I-b's behaviour disclosure)                               | maintainer-selected 2026-11-18                                                | **now unblocked** (was parked behind EW-04I as a second web writer); needs a quoted-newline fixture        |
+| **ENG-2**    | Typed engine `repair-preview` count op (replaces the web-layer affected-count composition)                 | maintainer + engine owner                                                     | **recorded, not selected**; EW-04I's reuse was judged acceptable; this would make exactness engine-owned   |
 | **TB-1**     | Test-budget follow-up for the seeded-history test                                                          | none (test-only)                                                              | **CLOSED** `30b6564` + `4b147a1`; see TB-2 for the spawn-count pin / ceiling tightening                    |
 | **EW-03I-b** | Web CSV preview panel/flow (non-adopting preview, options, sniff disclosure, bounded sample, adopt/cancel) | **none** — ADR 0049 accepted                                                  | **CLOSED** `233dc6a` + `e954d8c`; D3 rename-_list_ affordance carried as a recorded-but-unselected row     |
 | **TB-2**     | Pin the seeded-history CLI spawn count, or tighten the 45 s ceiling after measuring at load ≥30            | maintainer go-ahead                                                           | **CLOSED** `6e97d14` — pinned as `cliSpawnCount === CORPUS_SEEDS.length` (8); ceiling left unchanged       |
@@ -59,19 +61,22 @@ three consecutive coverage runs were green at load 30→97. Do not weaken a thre
 | R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                                 |
 | R13          | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles            | unselected                                                                    | **do not start**; no implicit selection                                                                    |
 
-**One web-runtime writer at a time.** **EW-03I-b is closed**, so EW-04I is the only queued web row and no
-second writer is authorised. TB-2 is test-only and may run alongside; ADR 0051 is docs-only and may run
-alongside. ENG-1 is an engine row and would serialise against any web row that consumes it.
+**One web-runtime writer at a time.** **EW-03I-b and EW-04I are closed**, so **D3-1 is now the only
+live web row** and no second writer is authorised until it closes. ENG-2 would be an engine row and
+serialises against any web row consuming it; ENG-1 is a docs-only amendment if the maintainer takes option
+C.
 
 ## 3. Dispatch order
 
-1. **EW-04I** (web writer) — the only queued runtime row; closes (vi) U1–U3. It is now unblocked.
-2. **TB-1** (test-only) — **CLOSED** `30b6564` + `4b147a1`; it ran first because the `ee65c54` baseline
+1. **EW-04I** (web writer) — **CLOSED** `52da4ca` + `9e62172` + `d0069be` (U1–U3 closed). Do not
+   re-dispatch it.
+2. **D3-1** (web writer) — the per-file rename list, now unblocked; it owns `apps/web` until it closes.
+3. **TB-1** (test-only) — **CLOSED** `30b6564` + `4b147a1`; it ran first because the `ee65c54` baseline
    was red. Do not re-dispatch it.
-3. **EW-03I-b** (web writer) — **CLOSED** `233dc6a` + `e954d8c`. Do not re-dispatch it.
-4. **ADR 0051** — **drafted and merged as Proposed** (`cb8637b`); acceptance or rejection is the
-   maintainer's, and nothing depends on it. **ENG-1** only on explicit maintainer selection; **D3
-   rename-list** only after EW-04I closes (it is a second web-runtime writer).
+4. **EW-03I-b** (web writer) — **CLOSED** `233dc6a` + `e954d8c`. Do not re-dispatch it.
+5. **ADR 0051** — **drafted and merged as Proposed** (`cb8637b`); acceptance or rejection is the
+   maintainer's, and nothing depends on it. **ENG-1** only on explicit maintainer selection; **ENG-2**
+   likewise.
 
 Every runtime row: filled envelope, branch/worktree, shifted ports, one web writer, full stock +
 configured + restored gates, an independent reviewer (different model **and** thinking) with mutation

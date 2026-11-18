@@ -73,6 +73,36 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-18, EW-04I CLOSED — EW-04D condition (vi) U1–U3 + the web half):** **EW-04I
+merged** `52da4ca` + `9e62172` + `d0069be` (worker `4082677`/`aee54ff`/`5a9eb19`, independent
+`opencode-go/mimo-v2.6-flash` high review: one request-changes round and one comment-accuracy round, both
+closed; 26 files, +4634/−0 plus the fix round's 7 files, one `@assay/web` changeset). The editing surface
+now offers `Repair a column…`: a native `<dialog>` captures the target column, an explicit trim code-point
+set (the domain's four-code-point default or a user list — never `String.prototype.trim()`), and mapping
+pairs; the domain's own typed, value-free refusals surface **without an engine call** (non-text column,
+
+> 500 pairs, >16 code points, dead key, trim mismatch, identity). A preview shows **complete**
+> `scanned / affected / unaffected` plus ≤10 before/after examples with the cap stated both ways, revision-
+> tagged and refused stale **at the render and again at the commit boundary**; the export-budget projection
+> (`rows × (prefix + plan pairs)` vs `MAX_REPAIR_EXPORT_CELL_WORK`) refuses pre-apply. Apply publishes
+> exactly one history entry / one undo step through the existing `commitWithRollback` with an empty inverse
+> and the `undo-by-refold` note (ADR 0050). **U1, U2 and U3 are pinned at four levels** (engine, hook,
+> session, e2e). The review's central finding was real and is fixed: the affected-count predicate
+> (`trim(v) ≠ v ∨ trim(v) ∈ liveKeys`) was **not** `repaired(v) ≠ v` — it over-counted the net-cancellation
+> case (`trim=' '`, `M={a→' a '}`, value `' a '`), which also **bypassed U1 and appended a no-op entry**;
+> the shipped predicate is now the exact two-term set-membership form `v IS NOT NULL ∧ ¬(t∈keys ∧ M[t]=v) ∧
+¬(t∉keys ∧ t=v)` with no CASE chain (ADR 0051 rule 3), proven against the engine's composed wrap by a new
+> real-engine differential test (the `repair-reader` pin the module doc had claimed but which did not exist).
+> Merged gates on `main`: format/lint clean, forced typecheck **20** (0 cached), unit **263 files / 3989
+> tests**, coverage **89.44 / 84.14 / 91.75 / 91.14** (floors pass, exit 0), forced build **12** (0 cached),
+> docs links **167/0**, ADR **51**, browser **281 + 1 skip**, configured telemetry **7 passed / zero
+> delivered**, restored stock **3 passed** endpoint-free. **Carried:** a future typed engine `repair-preview`
+> count op should replace the web-layer composition (recorded as a candidate row — the reviewer judged the
+> current reuse acceptable: composers, literals, identifiers and predicate grammar all come from engine
+> exports); `apps/web/src/edit/op-summary.ts` still says repairs have "no web surface" and needs a one-line
+> comment fix in a row that owns that path; the `.repair-*` CSS block has no dedicated axe leg. Worktree
+> removed; nothing pushed.
+
 **Verified state (2026-11-18, TB-2 CLOSED):** **TB-2 merged** `6e97d14` (worker `5b54127`,
 independent `openai-codex/gpt-6-luna` high review, **approve, no observations**). The TB-1 batching is now a
 pinned contract: a module-scope `cliSpawnCount` increments at `runCli`'s single `execFileSync` site, the
@@ -453,6 +483,24 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-18 (**ia**) — **EW-04I CLOSED — merged `52da4ca` + `9e62172` + `d0069be`** (worker
+  `4082677`/`aee54ff`/`5a9eb19`; independent `opencode-go/mimo-v2.6-flash` high, one request-changes round
+  - one comment round). Web bulk repair is in: `Repair a column…` → native dialog (column, explicit trim
+    code-point set, mapping pairs), domain-native value-free refusals with **no engine call**, complete
+    counts + ≤10 bounded examples with the cap stated, revision-tagged staleness refused at render **and** at
+    the commit boundary, the export-budget refusal surfaced pre-apply, and one history entry / one undo step
+    via `commitWithRollback` with an empty inverse + `undo-by-refold` (ADR 0050). **U1/U2/U3 pinned at four
+    levels.** The reviewer earned the row: the affected-count predicate was an **approximation** that
+    over-counted the net-cancellation plan (`trim=' '`, `M={a→' a '}`, `' a '`), which also bypassed U1 and
+    appended a **no-op history entry** — proven on the real engine (`affected=3` vs `changed=2`) and in the
+    browser (`affected=1`, Apply enabled, "Step 2 of 2"). Fixed to the exact set-membership form and pinned
+    by a new real-engine differential test (the `repair-reader` pin the doc had claimed but never existed);
+    a follow-up comment round corrected a false `liveKeys` rationale rather than shipping it. Merged gates:
+    typecheck 20/20 (0 cached), unit **263/3989**, coverage **89.44/84.14/91.75/91.14**, build 12/12
+    (0 cached), docs **167/0**, ADR **51**, browser **281 + 1 skip**, configured telemetry **7 passed / zero
+    delivered**, restored stock **3 passed endpoint-free**. Carried: a candidate engine `repair-preview` count
+    op; the stale `op-summary.ts` comment; no axe leg for the new dialog. Worktree removed; nothing pushed.
 
 - 2026-11-18 (**hz**) — **ADR 0051 proposed** — `cb8637b`, `docs/adr/0051-column-repair-composition-shape.md`
   (**Proposed**, not accepted; 51 records, 42 accepted / 9 proposed). Records the composition shape the merged
