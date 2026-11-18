@@ -1,11 +1,10 @@
 # Post-EW-03I-a pickup — remaining runtime rows and paste-ready prompts
 
 **Date:** 2026-11-18. **Status:** the post-R1 runtime wave has closed **EW-02I**, **R2**, **U5**
-(EW-04D condition vii), **EW-03I-a**, **TB-1**, **EW-03I-b** and **TB-2**; **ADR 0049** and **ADR 0050**
-are Accepted. **No product-policy decision is pending.** What remains is **EW-04I** (dispatchable now) and
-optional ADR 0051, plus two rows this record carries as **recorded but unselected**: the ADR 0049
-decision-4 abandonment-release engine row (ENG-1) and D3's rename-_list_ affordance (needs a sound header
-read that is not a CSV parser). This
+(EW-04D condition vii), **EW-03I-a**, **TB-1**, **EW-03I-b**, **TB-2**, **EW-04I** and **ENG-1**, and
+**ADR 0051 is Accepted**. **No product-policy decision is pending.** What remains is **D3-1** (the per-file
+rename list — the only live web row, unblocked) plus **ENG-2** (a typed `repair-preview` count op), this
+record carrying ENG-2 as **recorded but unselected**. This
 record is the cold-pickup index for the next agent; it does not select any unrequested row.
 
 **Authority order:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) dated selection →
@@ -48,18 +47,18 @@ three consecutive coverage runs were green at load 30→97. Do not weaken a thre
 
 ## 2. Remaining queue (no policy gate unless marked)
 
-| #            | Row                                                                                                        | Gate                                                                          | Notes                                                                                                    |
-| ------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **CLOSED** `52da4ca` + `9e62172` + `d0069be`; reviewer found + fixed a real count-predicate over-count   |
-| **D3-1**     | D3's per-file header rename _list_ (upgrade EW-03I-b's behaviour disclosure)                               | maintainer-selected 2026-11-18                                                | **now unblocked** (was parked behind EW-04I as a second web writer); needs a quoted-newline fixture      |
-| **ENG-2**    | Typed engine `repair-preview` count op (replaces the web-layer affected-count composition)                 | maintainer + engine owner                                                     | **recorded, not selected**; EW-04I's reuse was judged acceptable; this would make exactness engine-owned |
-| **TB-1**     | Test-budget follow-up for the seeded-history test                                                          | none (test-only)                                                              | **CLOSED** `30b6564` + `4b147a1`; see TB-2 for the spawn-count pin / ceiling tightening                  |
-| **EW-03I-b** | Web CSV preview panel/flow (non-adopting preview, options, sniff disclosure, bounded sample, adopt/cancel) | **none** — ADR 0049 accepted                                                  | **CLOSED** `233dc6a` + `e954d8c`; D3 rename-_list_ affordance carried as a recorded-but-unselected row   |
-| **TB-2**     | Pin the seeded-history CLI spawn count, or tighten the 45 s ceiling after measuring at load ≥30            | maintainer go-ahead                                                           | **CLOSED** `6e97d14` — pinned as `cliSpawnCount === CORPUS_SEEDS.length` (8); ceiling left unchanged     |
-| **ENG-1**    | Preview-slot release on abandonment (ADR 0049 decision 4), or an ADR amendment                             | maintainer + engine owner                                                     | **recorded, not selected**; no host-reachable release exists today; EW-03I-b disclosed the residual      |
-| **ADR 0051** | Optional Proposed ADR: repair composition shape (stacked layers, linear size, set-membership)              | maintainer request                                                            | **ACCEPTED 2026-11-18** (`cb8637b` + the status commit; 51 records, 43 accepted / 8 proposed)            |
-| R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                               |
-| R13          | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles            | unselected                                                                    | **do not start**; no implicit selection                                                                  |
+| #            | Row                                                                                                        | Gate                                                                          | Notes                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **CLOSED** `52da4ca` + `9e62172` + `d0069be`; reviewer found + fixed a real count-predicate over-count            |
+| **D3-1**     | D3's per-file header rename _list_ (upgrade EW-03I-b's behaviour disclosure)                               | maintainer-selected 2026-11-18                                                | **now unblocked** (was parked behind EW-04I as a second web writer); needs a quoted-newline fixture               |
+| **ENG-2**    | Typed engine `repair-preview` count op (replaces the web-layer affected-count composition)                 | maintainer + engine owner                                                     | **recorded, not selected**; EW-04I's reuse was judged acceptable; this would make exactness engine-owned          |
+| **TB-1**     | Test-budget follow-up for the seeded-history test                                                          | none (test-only)                                                              | **CLOSED** `30b6564` + `4b147a1`; see TB-2 for the spawn-count pin / ceiling tightening                           |
+| **EW-03I-b** | Web CSV preview panel/flow (non-adopting preview, options, sniff disclosure, bounded sample, adopt/cancel) | **none** — ADR 0049 accepted                                                  | **CLOSED** `233dc6a` + `e954d8c`; D3 rename-_list_ affordance carried as a recorded-but-unselected row            |
+| **TB-2**     | Pin the seeded-history CLI spawn count, or tighten the 45 s ceiling after measuring at load ≥30            | maintainer go-ahead                                                           | **CLOSED** `6e97d14` — pinned as `cliSpawnCount === CORPUS_SEEDS.length` (8); ceiling left unchanged              |
+| **ENG-1**    | Preview-slot release on abandonment (ADR 0049 decision 4), or an ADR amendment                             | maintainer + engine owner                                                     | **CLOSED** `f2fb523` + `81bb8dc` — option C chosen: **ADR 0049 amended**, retention is intentional, no release op |
+| **ADR 0051** | Optional Proposed ADR: repair composition shape (stacked layers, linear size, set-membership)              | maintainer request                                                            | **ACCEPTED 2026-11-18** (`cb8637b` + the status commit; 51 records, 43 accepted / 8 proposed)                     |
+| R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                                        |
+| R13          | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles            | unselected                                                                    | **do not start**; no implicit selection                                                                           |
 
 **One web-runtime writer at a time.** **EW-03I-b and EW-04I are closed**, so **D3-1 is now the only
 live web row** and no second writer is authorised until it closes. ENG-2 would be an engine row and
@@ -253,14 +252,15 @@ CORPUS_SEEDS.length` (8, one process per seed); the reviewer reproduced the deci
   pass every corpus assertion, only the pin fails, at 28.6 s — under the ceiling). The 45 s ceiling was
   left unchanged by decision: a tighter timeout is a separate load-sensitive budget question, and the
   spawn pin is the precise detector. Re-open that only with a fresh measurement at load ≥30.
-- **Recorded this session, not selected — ENG-1 candidate (engine row):** ADR 0049 decision 4 says the
-  preview slot drops its view and file "on abandonment". The merged engine does not:
-  `releasePreviewSlot()` is reachable only via `supersede()` on `engine/open` and `engine/dispose`
-  (`client.ts`: "there is no cancel/release op — the slot is released by the next preview, any open, or
-  dispose"). **EW-03I-b shipped with this disclosed, not worked around**: abandonment drops local state and
-  invalidates late results, and one staged preview is retained until the next preview/open/`dispose`
-  (bounded by the single slot, consistent with ADR 0047, priced by ADR 0049's own retention table). Closing
-  the gap needs its own decision/ADR amendment, not a silent web-side workaround.
+- **ENG-1 — CLOSED 2026-11-18 (`f2fb523` + `81bb8dc`), option C.** ADR 0049 now carries a dated amendment
+  making the shipped behaviour intentional: abandonment retains the single staged preview registration until
+  the next preview, any `engine/open`, or `engine/dispose`, accounted **+1 retained**; no host-reachable
+  release is added (ADR 0047 stands untouched). The amendment also supersedes decision 5's abandonment row and
+  the "release on abandonment is best-effort" risks bullet by name, leaving all accepted text verbatim. Two
+  caveats are recorded as risks, not glossed: a failed stage can leave a tracked name with no registration
+  and `dropFile`'s "no error" proves nothing; and the retained slot is invisible in the shipped app. **Carry:**
+  `apps/web/src/csv/CsvReviewDialog.tsx:34` still calls this a "recorded deviation" — a one-line source-comment
+  fix folded into D3-1's scope, since no web writer was active for it.
 - **Recorded this session, not selected — D3 rename _list_ affordance:** EW-03I-b discloses the reader's
   rename _behaviour_ plus the engine's post-rename column names. A per-file rename _list_ (D3's literal
   wording) would need the raw header row, i.e. a main-thread header split with the sniffed delimiter/quote —

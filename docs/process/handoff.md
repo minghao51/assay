@@ -484,6 +484,25 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-11-18 (**ic**) — **ENG-1 CLOSED — ADR 0049 amended, docs-only** (`f2fb523` + `81bb8dc`; maintainer
+  approved option C on 2026-11-18). A dated `## Amendment (2026-11-18) — retention on abandonment` section
+  now states the shipped behaviour as the intentional rule: **Stop drops local review state and invalidates
+  late results but retains the single staged preview registration until the next preview, any
+  `engine/open`, or `engine/dispose`; no host-reachable release operation is added.** It accounts the event
+  as **+1 retained** (decision 5's "failure after the slot registered" row), states both required caveats
+  (a failed stage can leave a tracked slot name with **no registration**, and `dropFile`'s "no error"
+  cannot verify a release — probe D1; the retained slot is **invisible** in the shipped app, a risk to
+  disclose, never evidence of release), and names what is untouched (ADR 0047 stands — no per-table release,
+  `dispose` the only whole-engine reclamation; decisions 1/2/3/5/6/8/9 and resolutions 1–8 stand). Under
+  AGENTS.md's "never rewrite accepted ADRs" rule **no accepted text was edited**: the amendment supersedes
+  by name the abandonment-release clauses of decisions 4 and 7 **and** decision 5's "abandon / cancel while
+  the slot is live" row **and** the "Release on abandonment is best-effort" risks bullet — all four remain
+  verbatim as the historical record, with the amendment as the rule now in force. Loop-back note: the second
+  commit exists because the first said it superseded "nothing else", which was already false. Gates: ADR
+  index **51**, links **167/0**, prettier clean. Follow-up carried: `apps/web/src/csv/CsvReviewDialog.tsx:34`
+  still calls this a "recorded deviation" — a one-line comment fix folded into the D3-1 web row (no source
+  change here). Nothing pushed.
+
 - 2026-11-18 (**ib**) — **ADR 0051 ACCEPTED** (maintainer instruction "accept", 2026-11-18).
   `docs/adr/0051-column-repair-composition-shape.md` moves from Proposed to Accepted with the decision
   text unchanged — the three rules (stacked projection layers, linear emitted size, set-membership at
