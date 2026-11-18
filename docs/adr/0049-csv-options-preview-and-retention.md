@@ -241,15 +241,20 @@ generation so a late result can never land (`apps/web/src/csv/CsvReviewDialog.ts
 at `:30-36`), and the stop handler ends the intent and says "stopped reviewing" while claiming no
 release (`apps/web/src/App.tsx:2241-2256`, wired at `:2778-2780`).
 
-**Supersession.** This amendment supersedes the abandonment-release clauses of decisions 4 and 7, and
-nothing else: decision 4's "on abandonment" half of "drops its own previous view and file before
-re-staging, on abandonment, and when adoption releases the slot", and decision 7's "abandonment also
-best-effort releases the preview slot". It does not supersede the rest of either decision — decision
-4's slot-owned registration, drop-before-re-staging, adoption-time release and "no host-reachable
-release op" stand, and so do decision 7's no-`Cancel`/no-new-op rule, the token-guard invalidation of
-late results, the no-mid-scan-abort claim and exactly-once adoption. The two superseded clauses remain
-above exactly as written (accepted ADRs are never rewritten); this section, not those clauses, states
-the rule now in force.
+**Supersession.** This amendment supersedes every statement that prices a release on abandonment:
+decision 4's "on abandonment" half of "drops its own previous view and file before re-staging, on
+abandonment, and when adoption releases the slot"; decision 7's "abandonment also best-effort
+releases the preview slot"; decision 5's retention-table row "abandon / cancel while the slot is live"
+("−1 attempted; 0 net if the drop succeeds, +1 if it fails"), which prices a release attempt on
+abandonment and is replaced by the +1-retained accounting below; and the Negative/risk bullet
+"Release on abandonment is best-effort: a terminated worker, an engine error, or a failed drop retains
+the slot until `engine/dispose`", which likewise assumes a release attempt exists. It supersedes
+nothing else: decision 4's slot-owned registration, drop-before-re-staging, adoption-time release and
+"no host-reachable release op" stand; so do decision 5's other rows — its "failure after the slot
+registered" row is the accounting this amendment uses — and decision 7's no-`Cancel`/no-new-op rule,
+the token-guard invalidation of late results, the no-mid-scan-abort claim and exactly-once adoption.
+All superseded statements remain above exactly as written as the historical record — accepted ADRs are
+never rewritten — and this section, not those statements, states the rule now in force.
 
 **Retention accounting for the abandonment event: +1 retained.** The abandonment event is accounted by
 decision 5's existing table row "failure after the slot registered: +1 until the next slot event or
@@ -286,13 +291,6 @@ Two limits belong to this rule, not to a footnote:
 - **No protocol, telemetry, dependency or bundle change follows**: no `engine/*` op is added or removed
   (there is still no `engine/cancel` and no `engine/release`), no telemetry event or field (ADR
   0025/0037/0045), no dependency, bundle or engine change.
-
-One line of the accepted text now reads against this amendment and is left standing rather than
-rewritten: decision 5's table row "abandon / cancel while the slot is live" — "−1 attempted; 0 net if
-the drop succeeds, +1 if it fails" — and the Negative/risk bullet beginning "Release on abandonment is
-best-effort", both still price a release attempt on abandonment. With this amendment the abandonment
-event is accounted by the "failure after the slot registered" row (+1 retained), not by those lines;
-reconciling them further is the maintainer's call, not part of this amendment.
 
 ## What this ADR does not decide
 
