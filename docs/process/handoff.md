@@ -454,6 +454,22 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-11-18 (**hz**) — **ADR 0051 proposed** — `cb8637b`, `docs/adr/0051-column-repair-composition-shape.md`
+  (**Proposed**, not accepted; 51 records, 42 accepted / 9 proposed). Records the composition shape the merged
+  `column-repair` op already realises, so the shape is durable rather than implied: (1) **stacked projection
+  layers, not nested expressions** — one wrap per repair, earliest innermost, emitted once per statement,
+  because the one-expression reading duplicates the inner wrap (2,405,139 vs 19,345 bytes at two repairs)
+  and **OOMs at three**; (2) **linear emitted size** — `m + x + 1` arms per statement for the window and
+  export paths, independent of the live-insert branch count, with insert branches taking the D17 literal
+  rewrite (0 arms) and the bound explicitly **not** claimed for schema/cast-check; (3) **set-membership at
+  predicate sites** — predicates read the wrapped effective value and the repair cast check uses a
+  constant-relation semi-join, never a per-row CASE chain (CASE-as-predicate measured 100–200× worse).
+  Consequences record the export budget (`MAX_REPAIR_EXPORT_CELL_WORK` = 1e9, pre-apply refusal), the caps
+  (500 pairs / 16 trim code points / ≤500 exception arms), and that the browser is the only capability
+  truth. It re-decides nothing: ADR 0050 owns undo, EW-04D §6.2 owns chronology, D16/D17 own their shapes.
+  Evidence gaps are marked "not measured here" rather than estimated. Docs gates: index **51**, links
+  **167/0**, prettier clean. Nothing pushed.
+
 - 2026-11-18 (**hy**) — **TB-2 CLOSED — merged `6e97d14`** (worker `5b54127`, independent
   `openai-codex/gpt-6-luna` high: **approve, no observations**). Pins the TB-1 batching so it cannot silently
   regress: `cliSpawnCount` at `runCli`'s single spawn site, asserted `=== CORPUS_SEEDS.length` (**8**, one

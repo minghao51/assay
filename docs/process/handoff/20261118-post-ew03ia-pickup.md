@@ -48,16 +48,16 @@ three consecutive coverage runs were green at load 30→97. Do not weaken a thre
 
 ## 2. Remaining queue (no policy gate unless marked)
 
-| #            | Row                                                                                                        | Gate                                                                          | Notes                                                                                                  |
-| ------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **web-runtime writer** — now the ONLY queued one; no engine/domain changes unless a real gap (stop)    |
-| **TB-1**     | Test-budget follow-up for the seeded-history test                                                          | none (test-only)                                                              | **CLOSED** `30b6564` + `4b147a1`; see TB-2 for the spawn-count pin / ceiling tightening                |
-| **EW-03I-b** | Web CSV preview panel/flow (non-adopting preview, options, sniff disclosure, bounded sample, adopt/cancel) | **none** — ADR 0049 accepted                                                  | **CLOSED** `233dc6a` + `e954d8c`; D3 rename-_list_ affordance carried as a recorded-but-unselected row |
-| **TB-2**     | Pin the seeded-history CLI spawn count, or tighten the 45 s ceiling after measuring at load ≥30            | maintainer go-ahead                                                           | **CLOSED** `6e97d14` — pinned as `cliSpawnCount === CORPUS_SEEDS.length` (8); ceiling left unchanged   |
-| **ENG-1**    | Preview-slot release on abandonment (ADR 0049 decision 4), or an ADR amendment                             | maintainer + engine owner                                                     | **recorded, not selected**; no host-reachable release exists today; EW-03I-b disclosed the residual    |
-| **ADR 0051** | Optional Proposed ADR: repair composition shape (stacked layers, linear size, set-membership)              | maintainer request                                                            | **optional**; D11 qualifier + U4/D16/D17 already cover EW-04I; docs-only                               |
-| R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                             |
-| R13          | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles            | unselected                                                                    | **do not start**; no implicit selection                                                                |
+| #            | Row                                                                                                        | Gate                                                                          | Notes                                                                                                      |
+| ------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **web-runtime writer** — now the ONLY queued one; no engine/domain changes unless a real gap (stop)        |
+| **TB-1**     | Test-budget follow-up for the seeded-history test                                                          | none (test-only)                                                              | **CLOSED** `30b6564` + `4b147a1`; see TB-2 for the spawn-count pin / ceiling tightening                    |
+| **EW-03I-b** | Web CSV preview panel/flow (non-adopting preview, options, sniff disclosure, bounded sample, adopt/cancel) | **none** — ADR 0049 accepted                                                  | **CLOSED** `233dc6a` + `e954d8c`; D3 rename-_list_ affordance carried as a recorded-but-unselected row     |
+| **TB-2**     | Pin the seeded-history CLI spawn count, or tighten the 45 s ceiling after measuring at load ≥30            | maintainer go-ahead                                                           | **CLOSED** `6e97d14` — pinned as `cliSpawnCount === CORPUS_SEEDS.length` (8); ceiling left unchanged       |
+| **ENG-1**    | Preview-slot release on abandonment (ADR 0049 decision 4), or an ADR amendment                             | maintainer + engine owner                                                     | **recorded, not selected**; no host-reachable release exists today; EW-03I-b disclosed the residual        |
+| **ADR 0051** | Optional Proposed ADR: repair composition shape (stacked layers, linear size, set-membership)              | maintainer request                                                            | **PROPOSED, merged** `cb8637b` (51 records; 42 accepted / 9 proposed) — **acceptance is the maintainer's** |
+| R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                                 |
+| R13          | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles            | unselected                                                                    | **do not start**; no implicit selection                                                                    |
 
 **One web-runtime writer at a time.** **EW-03I-b is closed**, so EW-04I is the only queued web row and no
 second writer is authorised. TB-2 is test-only and may run alongside; ADR 0051 is docs-only and may run
@@ -69,8 +69,9 @@ alongside. ENG-1 is an engine row and would serialise against any web row that c
 2. **TB-1** (test-only) — **CLOSED** `30b6564` + `4b147a1`; it ran first because the `ee65c54` baseline
    was red. Do not re-dispatch it.
 3. **EW-03I-b** (web writer) — **CLOSED** `233dc6a` + `e954d8c`. Do not re-dispatch it.
-4. **ADR 0051** — only if requested (a Proposed draft is in flight). **ENG-1** only on explicit
-   maintainer selection; **D3 rename-list** only after EW-04I closes (it is a second web-runtime writer).
+4. **ADR 0051** — **drafted and merged as Proposed** (`cb8637b`); acceptance or rejection is the
+   maintainer's, and nothing depends on it. **ENG-1** only on explicit maintainer selection; **D3
+   rename-list** only after EW-04I closes (it is a second web-runtime writer).
 
 Every runtime row: filled envelope, branch/worktree, shifted ports, one web writer, full stock +
 configured + restored gates, an independent reviewer (different model **and** thinking) with mutation
