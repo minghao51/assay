@@ -73,6 +73,20 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-18, TB-2 CLOSED):** **TB-2 merged** `6e97d14` (worker `5b54127`,
+independent `openai-codex/gpt-6-luna` high review, **approve, no observations**). The TB-1 batching is now a
+pinned contract: a module-scope `cliSpawnCount` increments at `runCli`'s single `execFileSync` site, the
+seeded test snapshots a delta around its corpus and asserts `=== CORPUS_SEEDS.length` (**8**, one CLI
+process per seed), with the seeds hoisted verbatim (values and order unchanged). The reviewer reproduced
+the decisive drill independently: forcing one spawn per query (960 processes) leaves **every corpus
+assertion green** and fails **only** the pin at 28.60 s — still under the 45 s ceiling, which is exactly
+the silent window TB-1 left. Test-only, one file (+45/−1); `vitest.config.ts` untouched; the `45_000`
+ceiling, the four counters, per-history assertions and `QUERIES_PER_HISTORY` unchanged. Merged gates on
+`main`: format/lint clean, forced typecheck **20** (0 cached), unit **253 files / 3897 tests**, coverage
+**89.42 / 84.17 / 91.7 / 91.1** (exit 0), forced build **12** (0 cached), docs links **166/0**, ADR **50**.
+Reviewer's three coverage runs were green with host load up to **40.3**. The browser suite and telemetry
+legs were **not** run: a one-file test change cannot affect them. Worktree removed; nothing pushed.
+
 **Verified state (2026-11-18, EW-03I-b CLOSED — D3's web half):** **EW-03I-b merged** `233dc6a` +
 `e954d8c` (worker `77d9103`/`7a8029f`, independent `opencode-go/mimo-v2.6-flash` high review: one
 request-changes round, three required items, all verified by the reviewer's own re-runs; 14 files,
@@ -439,6 +453,17 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-18 (**hy**) — **TB-2 CLOSED — merged `6e97d14`** (worker `5b54127`, independent
+  `openai-codex/gpt-6-luna` high: **approve, no observations**). Pins the TB-1 batching so it cannot silently
+  regress: `cliSpawnCount` at `runCli`'s single spawn site, asserted `=== CORPUS_SEEDS.length` (**8**, one
+  process per seed) as a delta around the seeded corpus; seeds hoisted verbatim. The decisive drill was
+  reproduced independently — 960 spawns leave every corpus assertion green and fail **only** the pin at
+  28.60 s, under the unchanged 45 s ceiling, i.e. the window a ceiling alone cannot see. Test-only, one
+  file (+45/−1), no config change, no changeset, no threshold touched. Merged gates: typecheck 20/20
+  (0 cached), unit **253/3897**, coverage **89.42/84.17/91.7/91.1**, build 12/12 (0 cached), docs **166/0**,
+  ADR **50**; browser/telemetry legs not run (a test-only change cannot reach them). Worktree removed;
+  nothing pushed.
 
 - 2026-11-18 (**hx**) — **EW-03I-b CLOSED — merged `233dc6a` + `e954d8c`** (worker `77d9103` +
   `7a8029f`; independent `opencode-go/mimo-v2.6-flash` high review, one request-changes round). The web

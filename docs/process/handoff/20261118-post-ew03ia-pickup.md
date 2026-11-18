@@ -1,11 +1,11 @@
 # Post-EW-03I-a pickup — remaining runtime rows and paste-ready prompts
 
 **Date:** 2026-11-18. **Status:** the post-R1 runtime wave has closed **EW-02I**, **R2**, **U5**
-(EW-04D condition vii), **EW-03I-a**, **TB-1** and **EW-03I-b**; **ADR 0049** and **ADR 0050** are
-Accepted. **No product-policy decision is pending.** What remains is **one** web-runtime row (EW-04I) and
-one optional Proposed ADR, plus four rows this record carries as **recorded but unselected**: TB-2 (pin
-the CLI spawn count or tighten TB-1's now-loose ceiling), the ADR 0049 decision-4 abandonment-release
-engine row, and D3's rename-_list_ affordance (needs a sound header read that is not a CSV parser). This
+(EW-04D condition vii), **EW-03I-a**, **TB-1**, **EW-03I-b** and **TB-2**; **ADR 0049** and **ADR 0050**
+are Accepted. **No product-policy decision is pending.** What remains is **EW-04I** (dispatchable now) and
+optional ADR 0051, plus two rows this record carries as **recorded but unselected**: the ADR 0049
+decision-4 abandonment-release engine row (ENG-1) and D3's rename-_list_ affordance (needs a sound header
+read that is not a CSV parser). This
 record is the cold-pickup index for the next agent; it does not select any unrequested row.
 
 **Authority order:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) dated selection →
@@ -53,7 +53,7 @@ three consecutive coverage runs were green at load 30→97. Do not weaken a thre
 | **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **web-runtime writer** — now the ONLY queued one; no engine/domain changes unless a real gap (stop)    |
 | **TB-1**     | Test-budget follow-up for the seeded-history test                                                          | none (test-only)                                                              | **CLOSED** `30b6564` + `4b147a1`; see TB-2 for the spawn-count pin / ceiling tightening                |
 | **EW-03I-b** | Web CSV preview panel/flow (non-adopting preview, options, sniff disclosure, bounded sample, adopt/cancel) | **none** — ADR 0049 accepted                                                  | **CLOSED** `233dc6a` + `e954d8c`; D3 rename-_list_ affordance carried as a recorded-but-unselected row |
-| **TB-2**     | Pin the seeded-history CLI spawn count, or tighten the 45 s ceiling after measuring at load ≥30            | maintainer go-ahead                                                           | **recorded, not selected**; test-only; §5 carry-risks                                                  |
+| **TB-2**     | Pin the seeded-history CLI spawn count, or tighten the 45 s ceiling after measuring at load ≥30            | maintainer go-ahead                                                           | **CLOSED** `6e97d14` — pinned as `cliSpawnCount === CORPUS_SEEDS.length` (8); ceiling left unchanged   |
 | **ENG-1**    | Preview-slot release on abandonment (ADR 0049 decision 4), or an ADR amendment                             | maintainer + engine owner                                                     | **recorded, not selected**; no host-reachable release exists today; EW-03I-b disclosed the residual    |
 | **ADR 0051** | Optional Proposed ADR: repair composition shape (stacked layers, linear size, set-membership)              | maintainer request                                                            | **optional**; D11 qualifier + U4/D16/D17 already cover EW-04I; docs-only                               |
 | R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                             |
@@ -69,7 +69,8 @@ alongside. ENG-1 is an engine row and would serialise against any web row that c
 2. **TB-1** (test-only) — **CLOSED** `30b6564` + `4b147a1`; it ran first because the `ee65c54` baseline
    was red. Do not re-dispatch it.
 3. **EW-03I-b** (web writer) — **CLOSED** `233dc6a` + `e954d8c`. Do not re-dispatch it.
-4. **ADR 0051** — only if requested. TB-2 and ENG-1 only on explicit maintainer selection.
+4. **ADR 0051** — only if requested (a Proposed draft is in flight). **ENG-1** only on explicit
+   maintainer selection; **D3 rename-list** only after EW-04I closes (it is a second web-runtime writer).
 
 Every runtime row: filled envelope, branch/worktree, shifted ports, one web writer, full stock +
 configured + restored gates, an independent reviewer (different model **and** thinking) with mutation
@@ -240,10 +241,11 @@ nothing partial.
   mirror is compile-forced across the workspace; the repair errors are exported from the engine barrel; the
   `no-unknown-returns`/`no-sql-in-code` lens findings are deliberate-contract false positives (eslint/tsc
   are the binding gates).
-- **Recorded this session, not selected — TB-2 candidate (test-only):** TB-1 removed the flake by cutting
-  spawns, not by relaxing anything, but nothing asserts the spawn count itself. Either pin it (count
-  `runCli` invocations in the seeded test) or tighten the ceiling to roughly 20 s after measuring at load
-  ≥30. Requires a maintainer go-ahead; do **not** start it implicitly.
+- **Recorded, now closed — TB-2 (test-only):** `6e97d14` pins the batching with `cliSpawnCount ===
+CORPUS_SEEDS.length` (8, one process per seed); the reviewer reproduced the decisive drill (960 spawns
+  pass every corpus assertion, only the pin fails, at 28.6 s — under the ceiling). The 45 s ceiling was
+  left unchanged by decision: a tighter timeout is a separate load-sensitive budget question, and the
+  spawn pin is the precise detector. Re-open that only with a fresh measurement at load ≥30.
 - **Recorded this session, not selected — ENG-1 candidate (engine row):** ADR 0049 decision 4 says the
   preview slot drops its view and file "on abandonment". The merged engine does not:
   `releasePreviewSlot()` is reachable only via `supersede()` on `engine/open` and `engine/dispose`
