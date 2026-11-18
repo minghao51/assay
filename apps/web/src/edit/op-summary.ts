@@ -32,10 +32,10 @@ import type { EditOp } from '@assay/domain'
  * so the plain gloss is `undo row insert` (`2 undo row inserts`). Value-free:
  * kinds and counts only, never dataset content (ADR 0025).
  *
- * `column-repair` (EW-04D/ADR 0050) is the same dormant-label class: the
- * domain union grew, the exhaustive table must carry the kind, and no web
- * surface authors repairs yet — the entry exists so the summary stays honest
- * if an op list ever carries one (e.g. replayed from a future producer).
+ * `column-repair` (EW-04D/ADR 0050) is the same exhaustive-table class: the
+ * domain union grew, so this table must carry the kind. It is not dormant any
+ * more — EW-04I's repair surface authors these ops, so a live op list can
+ * carry one and this label is what the summary counts it by.
  */
 const KIND_LABEL: Readonly<Record<EditOp['kind'], string>> = {
   'cell-set': 'cell edit',

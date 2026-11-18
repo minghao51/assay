@@ -91,6 +91,14 @@ const APPROVED = {
     'A date or timestamp column keeps the type the reader guessed, and the guessed format is shown above. No locale or date-order inference is applied: only a date format set here overrides the guess.',
   headerRenames:
     'The reader renames duplicate and empty header names on its own: an empty name becomes column1, column2, … and a repeated name gets a numeric suffix such as id_1. The names above are the names after those renames, and they are the names the opened dataset will have.',
+  headerRenamesList:
+    'The reader renames duplicate and empty header names on its own. This is what it renamed in this file’s header:',
+  headerRenamesNone:
+    'The reader renamed nothing in this header: every name above is the name the file itself uses.',
+  headerRenamesUnavailable:
+    'No per-file rename list is shown for this file: it could not be derived safely from the head of the file.',
+  renameEmpty: '(empty name)',
+  renameArrow: '→',
   unsafeInts:
     'A whole number column can be guessed as DOUBLE, and whole numbers above 2^53 lose precision that way: 9007199254740993 reads as 9007199254740992. Reading every column as text, or declaring an exact type for the column, keeps the digits; nothing here forces a type.',
   noRowSkip:
@@ -183,15 +191,21 @@ function mount(
   responder: (call: PreviewCall, index: number) => Promise<EngineCsvPreviewResult> = () =>
     Promise.resolve(previewResult()),
   mode: 'idle' | 'replace' = 'idle',
+  /** The picked file's bytes; the default head disagrees with `sniff.columns`. */
+  fileText = 'id;name\n1;anna\n',
+  /** Holds the head read open, so the pending state is observable. */
+  headGate?: Promise<void>,
 ): Harness {
   const calls: PreviewCall[] = []
   const onAdopt = vi.fn()
   const onStop = vi.fn()
-  const file = new File(['id;name\n1;anna\n'], 'picked-source-name.csv')
+  const file = new File([fileText], 'picked-source-name.csv')
+  const getFile = (): Promise<File> =>
+    headGate === undefined ? Promise.resolve(file) : headGate.then(() => file)
   const rendered = render(
     <CsvReviewDialog
       mode={mode}
-      source={{ name: file.name, getFile: () => Promise.resolve(file) }}
+      source={{ name: file.name, getFile }}
       requestPreview={(_source, options, sampleRows) => {
         const call: PreviewCall = { options, sampleRows }
         calls.push(call)
@@ -377,6 +391,267 @@ describe('CSV review — the ledger disclosures are all present before adoption'
     await waitForSample()
     expect(textOf('csv-review-meanings')).toContain(APPROVED.meaningsHeading)
     expect(textOf(testId)).toContain(sentence)
+  })
+})
+
+describe('CSV review — D3, the per-file header rename list (verified or absent)', () => {
+  /** `fixtures/csv/dup-header.csv`, and the sniff the real engine reports for it. */
+  const DUP_HEADER = 'id,,id\n1,x,2\n3,y,4\n'
+  function dupHeaderResult(
+    overrides: Partial<EngineCsvPreviewResult> = {},
+  ): EngineCsvPreviewResult {
+    return {
+      ...previewResult(),
+      // The engine's REAL payload shape: unset dialect values arrive as the
+      // literal text `(empty)` and the terminator as the escape text `\\n`.
+      sniff: {
+        delimiter: ',',
+        quote: '(empty)',
+        escape: '(empty)',
+        newLineDelimiter: '\\n',
+        comment: '',
+        skipRows: 0,
+        hasHeader: true,
+        columns: [
+          { name: 'id', type: 'BIGINT' },
+          { name: 'column1', type: 'VARCHAR' },
+          { name: 'id_1', type: 'BIGINT' },
+        ],
+        dateFormat: null,
+        timestampFormat: null,
+        prompt: null,
+      },
+      effectiveOptions: {},
+      sample: {
+        // Column-major, like an Arrow batch: id, column1, id_1.
+        batch: sampleBatch([
+          [1, 3],
+          ['x', 'y'],
+          [2, 4],
+        ]),
+        hasMore: false,
+        rowCap: 50,
+      },
+      ...overrides,
+    }
+  }
+
+  /** `fixtures/csv/quoted-newline.csv`, and the sniff the real engine reports. */
+  const QUOTED_NEWLINE = '"a,b",id,"line\none",id,\n1,alpha,3,4,5\n2,beta,6,7,8\n'
+  function quotedNewlineResult(): EngineCsvPreviewResult {
+    return dupHeaderResult({
+      sniff: {
+        ...dupHeaderResult().sniff,
+        quote: '"',
+        columns: [
+          { name: 'a,b', type: 'BIGINT' },
+          { name: 'id', type: 'VARCHAR' },
+          { name: 'line\none', type: 'BIGINT' },
+          { name: 'id_1', type: 'BIGINT' },
+          { name: 'column4', type: 'BIGINT' },
+        ],
+      },
+      sample: {
+        // Column-major: `a,b`, `id`, `line\none`, `id_1`, `column4`.
+        batch: sampleBatch([
+          [1, 2],
+          ['alpha', 'beta'],
+          [3, 6],
+          [4, 7],
+          [5, 8],
+        ]),
+        hasMore: false,
+        rowCap: 50,
+      },
+    })
+  }
+
+  /** One listed pair, as the surface renders it. */
+  function pairs(): string[] {
+    return screen.getAllByTestId('csv-review-rename').map((item) => item.textContent ?? '')
+  }
+
+  async function waitForList(): Promise<void> {
+    await waitFor(() => {
+      expect(screen.getByTestId('csv-review-rename-list')).toBeTruthy()
+    })
+  }
+
+  async function waitForLimit(): Promise<void> {
+    await waitFor(() => {
+      expect(textOf('csv-review-meaning-renames')).toContain(APPROVED.headerRenamesUnavailable)
+    })
+  }
+
+  it('shows the file own rename list before adoption, and nothing else', async () => {
+    const harness = mount(() => Promise.resolve(dupHeaderResult()), 'idle', DUP_HEADER)
+    await waitForSample()
+    await waitForList()
+    expect(pairs()).toEqual([
+      `${APPROVED.renameEmpty} ${APPROVED.renameArrow} column1`,
+      `id ${APPROVED.renameArrow} id_1`,
+    ])
+    const disclosure = textOf('csv-review-meaning-renames')
+    expect(disclosure).toContain(APPROVED.headerRenamesList)
+    // The list REPLACES the behaviour sentence; it does not sit beside it.
+    expect(disclosure).not.toContain(APPROVED.headerRenames)
+    // Still disclosed before adoption: the list is not a state gate.
+    expect(button('csv-review-adopt').disabled).toBe(false)
+    expect(harness.onAdopt).not.toHaveBeenCalled()
+    expect(surfaceText()).not.toMatch(PROHIBITED_WORDING)
+  })
+
+  it('reads a header record that holds a quoted delimiter and a quoted newline', async () => {
+    mount(() => Promise.resolve(quotedNewlineResult()), 'idle', QUOTED_NEWLINE)
+    await waitForSample()
+    await waitForList()
+    // Only the two real renames. A naive split on the delimiter would report
+    // nothing here or the wrong names for the quoted fields.
+    expect(pairs()).toEqual([
+      `id ${APPROVED.renameArrow} id_1`,
+      `${APPROVED.renameEmpty} ${APPROVED.renameArrow} column4`,
+    ])
+    expect(textOf('csv-review-rename-list')).not.toContain('line')
+    expect(textOf('csv-review-rename-list')).not.toContain('a,b')
+  })
+
+  it('says plainly when the reader renamed nothing in this header', async () => {
+    mount(() => Promise.resolve(previewResult()), 'idle', 'id;note\n1;alpha\n')
+    await waitForSample()
+    await waitFor(() => {
+      expect(textOf('csv-review-meaning-renames')).toBe(APPROVED.headerRenamesNone)
+    })
+    expect(screen.queryByTestId('csv-review-rename-list')).toBeNull()
+  })
+
+  it('never shows a list whose reconstruction disagrees with the engine', async () => {
+    // The head really is `id,,id`, but the engine says `column2`, not
+    // `column1`. A best-effort list would print the wrong name.
+    mount(
+      () =>
+        Promise.resolve(
+          dupHeaderResult({
+            sniff: {
+              ...dupHeaderResult().sniff,
+              columns: [
+                { name: 'id', type: 'BIGINT' },
+                { name: 'column2', type: 'VARCHAR' },
+                { name: 'id_1', type: 'BIGINT' },
+              ],
+            },
+          }),
+        ),
+      'idle',
+      DUP_HEADER,
+    )
+    await waitForSample()
+    await waitForLimit()
+    expect(screen.queryByTestId('csv-review-rename-list')).toBeNull()
+    expect(textOf('csv-review-meaning-renames')).toContain(APPROVED.headerRenames)
+  })
+
+  it('never shows a list from a head that holds no complete record', async () => {
+    mount(
+      () => Promise.resolve(dupHeaderResult()),
+      'idle',
+      // No record terminator inside the file at all.
+      'id,,id',
+    )
+    await waitForSample()
+    await waitForLimit()
+    expect(screen.queryByTestId('csv-review-rename-list')).toBeNull()
+  })
+
+  it('never shows a limit sentence while the head read is still in flight', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    mount(() => Promise.resolve(dupHeaderResult()), 'idle', DUP_HEADER, gate)
+    // Before the derivation settles the behaviour sentence stands ALONE: no
+    // list and no limit sentence, so a pending read is never read as a refusal.
+    await waitForSample()
+    expect(screen.queryByTestId('csv-review-rename-list')).toBeNull()
+    expect(textOf('csv-review-meaning-renames')).toBe(APPROVED.headerRenames)
+    release()
+    await waitForList()
+  })
+
+  it('has no list when the file has no header row to rename', async () => {
+    mount(
+      () =>
+        Promise.resolve(
+          dupHeaderResult({
+            sniff: {
+              ...dupHeaderResult().sniff,
+              hasHeader: false,
+              columns: [
+                { name: 'column0', type: 'VARCHAR' },
+                { name: 'column1', type: 'VARCHAR' },
+                { name: 'column2', type: 'VARCHAR' },
+              ],
+            },
+          }),
+        ),
+      'idle',
+      DUP_HEADER,
+    )
+    await waitForSample()
+    await waitForLimit()
+    expect(screen.queryByTestId('csv-review-rename-list')).toBeNull()
+  })
+
+  it('has no list when the reader skipped rows before the header', async () => {
+    mount(
+      () =>
+        Promise.resolve(dupHeaderResult({ sniff: { ...dupHeaderResult().sniff, skipRows: 1 } })),
+      'idle',
+      DUP_HEADER,
+    )
+    await waitForSample()
+    await waitForLimit()
+    expect(screen.queryByTestId('csv-review-rename-list')).toBeNull()
+  })
+
+  it('has no list when a declared column map replaced the reader naming', async () => {
+    mount(
+      () =>
+        Promise.resolve(
+          dupHeaderResult({
+            effectiveOptions: { columns: { id: 'BIGINT', column1: 'VARCHAR', id_1: 'BIGINT' } },
+          }),
+        ),
+      'idle',
+      DUP_HEADER,
+    )
+    await waitForSample()
+    await waitForLimit()
+    expect(screen.queryByTestId('csv-review-rename-list')).toBeNull()
+  })
+
+  it('keeps header text on screen only: no console sink, no data-* attribute', async () => {
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
+      vi.spyOn(console, method),
+    )
+    mount(() => Promise.resolve(quotedNewlineResult()), 'idle', QUOTED_NEWLINE)
+    await waitForSample()
+    await waitForList()
+    // The header text really is rendered…
+    expect(surfaceText()).toContain('a,b')
+    expect(surfaceText()).toContain('line')
+    // …and it reaches no console sink…
+    for (const spy of spies) {
+      expect(spy).not.toHaveBeenCalled()
+    }
+    // …and no `data-*` attribute (testids included) carries a header name or
+    // the picked file's name (ADR 0025).
+    const needles = ['column4', 'id_1', 'a,b', 'line\none', 'picked-source-name']
+    const leaked = Array.from(dialogElement().querySelectorAll('*')).flatMap((element) =>
+      Array.from(element.attributes)
+        .filter((attribute) => attribute.name.startsWith('data-'))
+        .filter((attribute) => needles.some((needle) => attribute.value.includes(needle))),
+    )
+    expect(leaked).toEqual([])
   })
 })
 

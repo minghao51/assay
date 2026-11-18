@@ -20,10 +20,12 @@
  *   default, and no setting separates them (`NULL_DEFAULT`, `NULL_DEFAULT_2`).
  * - **D5** — the sniffed date/timestamp types and format are disclosed and
  *   nothing infers a locale or a date order (`DATES`).
- * - **D3** — duplicate/empty header names are renamed by the reader and the
- *   names shown are the post-rename names (`HEADER_RENAMES`). Behaviour
- *   disclosure, not a derived rename LIST — see the module note in
- *   `CsvReviewDialog.tsx` and the row report.
+ * - **D3** — duplicate/empty header names are renamed by the reader, the
+ *   names shown are the post-rename names, and the per-file rename LIST is
+ *   disclosed from a verified head read (`HEADER_RENAMES*`): which original
+ *   name became which name, before adoption. When that list cannot be derived
+ *   safely the behaviour sentence stands alone with one honest limit
+ *   sentence — never a partial or best-guess list (see `header-renames.ts`).
  * - **D14** — unsafe integers: a DOUBLE guess corrupts digits beyond 2^53,
  *   with the type/all-text escape offered and nothing forced (`UNSAFE_INTS`).
  * - **D13/D8** — no silent row-skip, and a sample is never an evaluation of
@@ -184,9 +186,39 @@ export const CSV_REVIEW_NULL_DEFAULT_2 =
 export const CSV_REVIEW_DATES =
   'A date or timestamp column keeps the type the reader guessed, and the guessed format is shown above. No locale or date-order inference is applied: only a date format set here overrides the guess.'
 
-/** D3 — the reader renames duplicate and empty header names. */
+/**
+ * D3 — the reader renames duplicate and empty header names. This sentence is
+ * the FALLBACK when the per-file list cannot be derived safely, and the
+ * statement of the rule the verified list is an instance of.
+ */
 export const CSV_REVIEW_HEADER_RENAMES =
   'The reader renames duplicate and empty header names on its own: an empty name becomes column1, column2, … and a repeated name gets a numeric suffix such as id_1. The names above are the names after those renames, and they are the names the opened dataset will have.'
+
+/**
+ * D3 — the verified per-file rename list. This lead-in replaces the fallback
+ * sentence when the head read agreed with the engine exactly; the pairs that
+ * follow are that file's own header names.
+ */
+export const CSV_REVIEW_HEADER_RENAMES_LIST =
+  'The reader renames duplicate and empty header names on its own. This is what it renamed in this file’s header:'
+
+/** One listed pair's separator (`<original> → <renamed>`), rendered as text. */
+export const CSV_REVIEW_HEADER_RENAME_ARROW = '→'
+
+/** How a listed pair shows an original header name that was empty. */
+export const CSV_REVIEW_HEADER_RENAME_EMPTY = '(empty name)'
+
+/** D3 — verified, and the reader renamed nothing in this file's header. */
+export const CSV_REVIEW_HEADER_RENAMES_NONE =
+  'The reader renamed nothing in this header: every name above is the name the file itself uses.'
+
+/**
+ * D3 — the honest limit. The engine never failed and is never blamed: this
+ * surface declines to show a list it could not derive from the file's head
+ * with certainty, because a wrong list would name a column wrongly.
+ */
+export const CSV_REVIEW_HEADER_RENAMES_UNAVAILABLE =
+  'No per-file rename list is shown for this file: it could not be derived safely from the head of the file.'
 
 /** D14 — unsafe integers, with the escape offered and nothing forced. */
 export const CSV_REVIEW_UNSAFE_INTS =

@@ -29,20 +29,23 @@
  *   that produced the sample".
  * - **Abandonment is honest.** Closing says "stopped reviewing"; it drops the
  *   local state and every late result (a generation guard), and it claims
- *   nothing about the engine: there is no host-reachable release op, so one
- *   staged preview is retained until the next preview, an open or `dispose`
- *   (envelope §5a — a recorded deviation from ADR 0049 decision 4's "on
- *   abandonment" clause, carried in the changeset rather than papered over
- *   here).
+ *   nothing about the engine. Retaining the one staged preview until the next
+ *   preview, an open or `dispose` — with no host-reachable release op — is the
+ *   INTENTIONAL rule (ADR 0049's 2026-11-18 amendment, ENG-1), not a
+ *   deviation: the engine has no release op this surface could call.
  *
- * D3 note (behaviour disclosure, not a derived rename list). EW-03D's D3
- * wording prefers the rename LIST. Deriving it would mean splitting the header
- * line on the main thread using the sniffed delimiter/quote — which is a CSV
- * parser (quoted delimiters and quoted newlines are exactly the cases where a
- * naive head split disagrees with the engine, and the fixture set has no
- * `quoted-newline` shape at all). This row therefore discloses the rename
- * BEHAVIOUR plus the engine's post-rename names, and reports the deviation
- * rather than shipping a quietly weaker or unsound splitter.
+ * D3 note (the per-file rename LIST, not only the behaviour). EW-03D's D3
+ * recommendation is the rename list before adoption, and this row derives it.
+ * There is no engine op that reports the raw header row, so the list comes from
+ * a bounded read of the file's own head (`header-renames.ts`): one record,
+ * scanned with the SNIFFED delimiter/quote/escape, reconstructed under the
+ * reader's rename rule, and then required to equal `sniff.columns` exactly. It
+ * is shown only when that comparison passes; every other outcome — no header,
+ * skipped rows, a declared column map, an unreadable or incomplete head, an
+ * unterminated quote, an escape at the window edge, an ambiguous shape, a
+ * count or name disagreement — falls back to the behaviour sentence plus one
+ * honest limit sentence. A wrong list would name a column wrongly, which is
+ * worse than no list.
  *
  * Privacy (ADR 0025): the picked file's name/path is never rendered, logged or
  * attached to an error. Sample values are rendered as text and nothing else —
@@ -75,6 +78,11 @@ import {
   CSV_REVIEW_ESCAPE_LABEL,
   CSV_REVIEW_HEADER_LABEL,
   CSV_REVIEW_HEADER_RENAMES,
+  CSV_REVIEW_HEADER_RENAMES_LIST,
+  CSV_REVIEW_HEADER_RENAMES_NONE,
+  CSV_REVIEW_HEADER_RENAMES_UNAVAILABLE,
+  CSV_REVIEW_HEADER_RENAME_ARROW,
+  CSV_REVIEW_HEADER_RENAME_EMPTY,
   CSV_REVIEW_MEANING_HEADING,
   CSV_REVIEW_NO,
   CSV_REVIEW_NO_ROW_SKIP,
@@ -133,6 +141,8 @@ import {
 import type { CsvEffectiveEntry, CsvReviewForm, CsvTriState } from './options'
 import { displayBoolean, displayDialect, displayNullableText, toPreviewView } from './preview'
 import type { CsvPreviewView } from './preview'
+import { readHeaderRenames } from './header-renames'
+import type { CsvHeaderRenames } from './header-renames'
 
 /**
  * The sample cap this row applies (ADR 0049 acceptance resolution 8 leaves the
@@ -156,6 +166,12 @@ export interface CsvReviewState {
   readonly loading: boolean
   /** The last read failed; its framed, value-free sentence. */
   readonly failure: string | null
+  /**
+   * D3's per-file rename derivation for `view`: a verified list or a named
+   * reason there is none. Null while the bounded head read is still in flight
+   * (and before any view exists), which renders the behaviour sentence alone.
+   */
+  readonly renames: CsvHeaderRenames | null
 }
 
 const INITIAL_STATE: CsvReviewState = {
@@ -163,6 +179,7 @@ const INITIAL_STATE: CsvReviewState = {
   viewFingerprint: null,
   loading: false,
   failure: null,
+  renames: null,
 }
 
 /**
@@ -383,6 +400,53 @@ function SniffDisclosure({ sniff }: { readonly sniff: EngineCsvSniff }): React.J
   )
 }
 
+/**
+ * D3's rename disclosure — the per-file LIST when it was verified against the
+ * engine, the behaviour sentence when it was not.
+ *
+ * The pairs are rendered as TEXT (original → renamed). An original header name
+ * is file content: it reaches no attribute, no `data-*`, no log, no error and
+ * no telemetry — it is on screen, which is the whole point (ADR 0025).
+ */
+function HeaderRenames({
+  renames,
+}: {
+  readonly renames: CsvHeaderRenames | null
+}): React.JSX.Element {
+  if (renames === null) {
+    return <li data-testid="csv-review-meaning-renames">{CSV_REVIEW_HEADER_RENAMES}</li>
+  }
+  if (renames.kind === 'unavailable') {
+    // The rule is still stated in full; only the per-file list is missing, and
+    // the limit is ours (a head read we will not guess past), never the engine's.
+    return (
+      <li data-testid="csv-review-meaning-renames">
+        {CSV_REVIEW_HEADER_RENAMES} {CSV_REVIEW_HEADER_RENAMES_UNAVAILABLE}
+      </li>
+    )
+  }
+  if (renames.renames.length === 0) {
+    return <li data-testid="csv-review-meaning-renames">{CSV_REVIEW_HEADER_RENAMES_NONE}</li>
+  }
+  return (
+    <li data-testid="csv-review-meaning-renames">
+      {CSV_REVIEW_HEADER_RENAMES_LIST}
+      <ul className="csv-review-renames" data-testid="csv-review-rename-list">
+        {renames.renames.map((rename, index) => (
+          // Positional key: the list is the header's own order and never reorders.
+          <li key={String(index)} data-testid="csv-review-rename">
+            <span data-testid="csv-review-rename-original">
+              {rename.original === '' ? CSV_REVIEW_HEADER_RENAME_EMPTY : rename.original}
+            </span>{' '}
+            {CSV_REVIEW_HEADER_RENAME_ARROW}{' '}
+            <span data-testid="csv-review-rename-renamed">{rename.renamed}</span>
+          </li>
+        ))}
+      </ul>
+    </li>
+  )
+}
+
 /** The effective option set the sample's read actually composed. */
 function EffectiveOptions({
   options,
@@ -469,12 +533,25 @@ export function CsvReviewDialog({
         try {
           const result = await requestPreview(source, requestOptions, CSV_PREVIEW_SAMPLE_ROWS)
           if (generationRef.current !== generation) return
+          const view = toPreviewView(result)
+          // D3: the list is derived AFTER the disclosure is on screen, so the
+          // sample never waits on a second file read. It starts empty (the
+          // behaviour sentence alone) and is filled only by a derivation that
+          // agrees with the engine exactly — see `header-renames.ts`.
+          const declared = Object.keys(result.effectiveOptions.columns ?? {}).length > 0
           setState({
-            view: toPreviewView(result),
+            view,
             viewFingerprint: optionsFingerprint(options),
             loading: false,
             failure: null,
+            renames: null,
           })
+          void (async () => {
+            const renames = await readHeaderRenames(source, view.sniff, declared)
+            // A newer read (or abandonment) has already superseded this one.
+            if (generationRef.current !== generation) return
+            setState((previous) => ({ ...previous, renames }))
+          })()
         } catch (error) {
           if (generationRef.current !== generation) return
           // The operation's own framing: the engine's honest first line where
@@ -830,7 +907,7 @@ export function CsvReviewDialog({
               {CSV_REVIEW_NULL_DEFAULT} {CSV_REVIEW_NULL_DEFAULT_2}
             </li>
             <li data-testid="csv-review-meaning-dates">{CSV_REVIEW_DATES}</li>
-            <li data-testid="csv-review-meaning-renames">{CSV_REVIEW_HEADER_RENAMES}</li>
+            <HeaderRenames renames={state.renames} />
             <li data-testid="csv-review-meaning-unsafe-ints">{CSV_REVIEW_UNSAFE_INTS}</li>
             <li data-testid="csv-review-meaning-no-skip">{CSV_REVIEW_NO_ROW_SKIP}</li>
             <li data-testid="csv-review-meaning-sample-size">{CSV_REVIEW_SAMPLE_SIZE_SCOPE}</li>

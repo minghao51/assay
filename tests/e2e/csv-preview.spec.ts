@@ -25,6 +25,8 @@ import type { Page } from './support/fixture'
 
 const SEMICOLON_FIXTURE = path.join(process.cwd(), 'fixtures', 'csv', 'semicolon.csv')
 const CUSTOMERS_FIXTURE = path.join(process.cwd(), 'fixtures', 'csv', 'customers.csv')
+const DUP_HEADER_FIXTURE = path.join(process.cwd(), 'fixtures', 'csv', 'dup-header.csv')
+const QUOTED_NEWLINE_FIXTURE = path.join(process.cwd(), 'fixtures', 'csv', 'quoted-newline.csv')
 
 const REVIEW_ACTION = 'Review CSV options…'
 const ADOPT = 'Open this file'
@@ -32,6 +34,13 @@ const STOP = 'Stop reviewing'
 const STOPPED_IDLE = 'You stopped reviewing. Nothing was opened.'
 const SAMPLE_CAP = 'Sample cap: the first 50 rows of the file.'
 const PROHIBITED_WORDING = /validated|checked|verified|confirmed/i
+/** D3-1: the verified per-file rename list's three possible lead-ins. */
+const RENAME_LIST_INTRO =
+  'The reader renames duplicate and empty header names on its own. This is what it renamed in this file’s header:'
+const RENAME_NOTHING =
+  'The reader renamed nothing in this header: every name above is the name the file itself uses.'
+const RENAME_UNAVAILABLE =
+  'No per-file rename list is shown for this file: it could not be derived safely from the head of the file.'
 
 /** One observed engine request (only the fields this spec asserts). */
 interface ObservedRequest {
@@ -171,6 +180,83 @@ test('stopping a review opens nothing and says so', async ({ page }) => {
   await waitForPhase(page, 'idle')
   const requests = await observed(page)
   expect(requests.filter((request) => request.type === 'engine/open')).toHaveLength(0)
+})
+
+/* ---- D3-1: the per-file rename LIST, on the real engine -------------------
+ *
+ * `dup-header.csv` is `id,,id`: the engine renames the empty name and the
+ * repeated one, and the review must say which original name became which
+ * BEFORE adoption. The list is derived from a bounded main-thread head read
+ * and shown only when it agrees with `sniff.columns` exactly, so these legs
+ * also prove the derivation agrees with THIS build of the engine in-browser
+ * (not only with the CLI the rule was derived on).
+ */
+
+test('the review discloses which original header names it renamed, before adoption', async ({
+  page,
+}) => {
+  await openIdleReview(page, DUP_HEADER_FIXTURE)
+
+  // The engine's own post-rename names are on screen (three columns).
+  await expect(page.getByTestId('csv-review-sniff-column-name')).toHaveText([
+    'id',
+    'column1',
+    'id_1',
+  ])
+
+  // …and the per-file list says which original name became which.
+  await expect(page.getByTestId('csv-review-rename-list')).toBeVisible({ timeout: 20_000 })
+  const pairs = page.getByTestId('csv-review-rename')
+  await expect(pairs).toHaveCount(2)
+  await expect(pairs.nth(0)).toHaveText('(empty name) → column1')
+  await expect(pairs.nth(1)).toHaveText('id → id_1')
+  await expect(page.getByTestId('csv-review-meaning-renames')).toContainText(RENAME_LIST_INTRO)
+  // The list REPLACED the behaviour sentence and the limit is not claimed.
+  await expect(page.getByTestId('csv-review-meaning-renames')).not.toContainText(RENAME_UNAVAILABLE)
+  await expect(page.getByTestId('csv-review-meaning-renames')).not.toContainText(RENAME_NOTHING)
+  expect(await page.getByTestId('csv-review').innerText()).not.toMatch(PROHIBITED_WORDING)
+
+  // Disclosed BEFORE adoption: still nothing opened, adoption still offered.
+  expect((await observed(page)).filter((request) => request.type === 'engine/open')).toHaveLength(0)
+  await expect(page.getByTestId('csv-review-adopt')).toBeEnabled()
+
+  // Adopt, and the names the list promised are the names the dataset has.
+  await page.getByTestId('csv-review-adopt').click()
+  await waitForPhase(page, 'ready')
+  await expect(page.getByTestId('grid-column-count')).toHaveText('3')
+  await expect(page.getByTestId('grid-header-name')).toHaveText(['id', 'column1', 'id_1'])
+})
+
+test('a header holding a quoted delimiter and a quoted newline gets no false list', async ({
+  page,
+}) => {
+  await openIdleReview(page, QUOTED_NEWLINE_FIXTURE)
+
+  // One record was scanned, not split: five columns, the two quoted fields
+  // intact (`a,b` and a two-line name).
+  await expect(page.getByTestId('csv-review-sniff-column-name')).toHaveText([
+    'a,b',
+    'id',
+    // The name really holds a newline; the assertion reads it as whitespace.
+    /^line\s+one$/,
+    'id_1',
+    'column4',
+  ])
+
+  // The list names only the two real renames; the quoted fields are NOT
+  // reported as renamed, which is what a naive `split(delim)` would do.
+  await expect(page.getByTestId('csv-review-rename-list')).toBeVisible({ timeout: 20_000 })
+  const pairs = page.getByTestId('csv-review-rename')
+  await expect(pairs).toHaveCount(2)
+  await expect(pairs.nth(0)).toHaveText('id → id_1')
+  await expect(pairs.nth(1)).toHaveText('(empty name) → column4')
+  await expect(page.getByTestId('csv-review-rename-list')).not.toContainText('a,b')
+  await expect(page.getByTestId('csv-review-meaning-renames')).toContainText(RENAME_LIST_INTRO)
+  await expect(page.getByTestId('csv-review-meaning-renames')).not.toContainText(RENAME_UNAVAILABLE)
+
+  // The file names itself nowhere (ADR 0025), and nothing is opened here.
+  expect(await page.getByTestId('csv-review').innerText()).not.toContain('quoted-newline')
+  expect((await observed(page)).filter((request) => request.type === 'engine/open')).toHaveLength(0)
 })
 
 test('quick open stays the default and sends no options field', async ({ page }) => {
