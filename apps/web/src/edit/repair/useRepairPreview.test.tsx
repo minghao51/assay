@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { OverlayBase } from '@assay/domain'
 import { initialState } from '@assay/domain'
+import { repairAffectedCountSql } from './preview-sql'
 import type { RepairCaptureTag } from './capture'
 import { validateRepairPlan } from './refusal'
 import type { RepairPlan } from './plan'
@@ -34,6 +37,49 @@ const BASE: OverlayBase = {
   baseRowCount: 5,
 }
 const STATE = initialState(BASE)
+
+/**
+ * EW-04I fix round 1 — the cancellation class, measured by the REAL predicate.
+ *
+ * `trim = ' '` with `M = {a → ' a '}` maps a trimmed value straight back, so
+ * `' a '` is unchanged and the plan must preview as **zero affected** (U1).
+ * The count below is produced by the production composition
+ * (`repairAffectedCountSql`) executed by the pinned DuckDB CLI, so this leg
+ * fails if the predicate regresses to over-counting — the exact defect this
+ * round fixes. The CLI is the repository's convention for CLI-backed pins;
+ * without it the case skips rather than passing vacuously.
+ */
+const DUCKDB_CLI = process.env['DUCKDB'] ?? '/tmp/duckdb'
+const hasDuckDbCli = existsSync(DUCKDB_CLI)
+
+const CANCELLATION_PLAN: RepairPlan = {
+  column: 'country',
+  trim: ' ',
+  mapping: new Map([['a', ' a ']]),
+}
+
+const CANCELLATION_ROWS: readonly string[] = [' a ', 'SG', 'US', 'DE', 'US']
+
+/** The rows the real predicate counts as affected for `plan` over `rows`. */
+function affectedByRealEngine(plan: RepairPlan, rows: readonly string[]): number {
+  const base: OverlayBase = { ...BASE, baseRowCount: rows.length }
+  const values = rows
+    .map((row, index) => `(${String(index)}, '${row.replaceAll("'", "''")}')`)
+    .join(', ')
+  const script =
+    'CREATE TABLE assay_t1 (id INTEGER, country VARCHAR);' +
+    `INSERT INTO assay_t1 VALUES ${values};` +
+    `SELECT 'affected', affected FROM (${repairAffectedCountSql(
+      { viewName: 'assay_t1', base, state: initialState(base) },
+      plan,
+    )});`
+  const stdout = execFileSync(DUCKDB_CLI, ['-noheader', '-list', '-c', script], {
+    encoding: 'utf8',
+    stdio: 'pipe',
+  })
+  const line = stdout.trim().split(/\r?\n/).pop() ?? ''
+  return Number(line.slice(line.indexOf('|') + 1))
+}
 
 const TAG: RepairCaptureTag = {
   baseAnchor: 'fv-5-1000',
@@ -336,5 +382,54 @@ describe('useRepairPreview — the Apply gate', () => {
       hook.result.current.applyPreview()
     })
     expect(hook.applied).toHaveLength(0)
+  })
+})
+
+describe.skipIf(!hasDuckDbCli)('useRepairPreview — U1 on the real predicate', () => {
+  it('a trim/mapping cancellation previews as zero affected and refuses Apply', async () => {
+    const hook = harness()
+    act(() => {
+      hook.result.current.openDialog()
+    })
+    act(() => {
+      hook.result.current.update({
+        column: 'country',
+        trimMode: 'custom',
+        customTrim: ' ',
+        mappingText: 'a =>  a ',
+      })
+    })
+    // The draft is the reviewer's cancellation plan…
+    expect(hook.result.current.pairCount).toBe(1)
+    expect(hook.result.current.refusal).toBeNull()
+
+    // …and the count the SURFACE receives comes from the production predicate
+    // run by the real engine. With the fix-round-1 defect this is 1 (the ` a `
+    // row over-counted) and the assertions below fail exactly as the reviewer
+    // saw them in the browser: Apply offered for a plan that changes nothing.
+    const affected = affectedByRealEngine(CANCELLATION_PLAN, CANCELLATION_ROWS)
+
+    act(() => {
+      hook.result.current.runPreview()
+    })
+    await hook.settle(0, {
+      scanned: CANCELLATION_ROWS.length,
+      affected,
+      exampleCap: 10,
+      exampleRows: [],
+    })
+
+    expect(hook.result.current.canApply).toBe(false)
+    expect(hook.result.current.applyBlockedReason).toBe(
+      'No row changes under this plan, so nothing was applied and the history is unchanged.',
+    )
+    act(() => {
+      hook.result.current.applyPreview()
+    })
+    expect(hook.applied).toHaveLength(0)
+    // Root cause last, so a regression fails FIRST on the symptom the reviewer
+    // saw in the browser (`applyEnabled=true`, an applyable no-op plan) and then
+    // on the count itself.
+    expect(affected).toBe(0)
   })
 })

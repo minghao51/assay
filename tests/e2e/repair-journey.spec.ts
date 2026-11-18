@@ -208,6 +208,42 @@ test('U1 leg: a plan that changes no row is refused and appends no entry', async
   await expect(cell(page, 0, 1)).toHaveText('SG')
 })
 
+test('U1 leg (fix round 1): a trim/mapping cancellation changes no row and appends nothing', async ({
+  page,
+}) => {
+  // A padded value the plan will trim and then map straight back: `trim ' '`
+  // turns `' a '` into `a`, and `M = {a -> ' a '}` turns it back into `' a '`.
+  // The repair changes nothing, so the complete count must be zero and U1 must
+  // refuse — with the first shipped predicate this row over-counted to 1, Apply
+  // was offered and a no-op repair was appended ("Step 2 of 2").
+  await editCell(page, 0, 1, ' a ')
+  await expect(cell(page, 0, 1)).toHaveText(' a ')
+
+  await openRepairSurface(page)
+  await page.getByTestId('repair-column').selectOption('country')
+  await page.getByTestId('repair-trim-mode').selectOption('custom')
+  await page.getByTestId('repair-trim-custom').fill(' ')
+  // One pair per line, ` => ` separator, spaces preserved on both sides.
+  await page.getByTestId('repair-mapping').fill('a =>  a ')
+  await preview(page)
+
+  await expect(page.getByTestId('repair-count-scanned')).toHaveText('5')
+  await expect(page.getByTestId('repair-count-affected')).toHaveText('0')
+  await expect(page.getByTestId('repair-count-unaffected')).toHaveText('5')
+  await expect(page.getByTestId('repair-examples-none')).toHaveText(
+    'No row changes under this plan, so there is nothing to show.',
+  )
+  await expect(page.getByTestId('repair-apply')).toBeDisabled()
+  await expect(page.getByTestId('repair-apply-blocked')).toHaveText(
+    'No row changes under this plan, so nothing was applied and the history is unchanged.',
+  )
+
+  // The cell edit is the only entry: no no-op repair step was appended.
+  await expect(page.getByTestId('history-item')).toHaveCount(1)
+  await expect(page.getByTestId('history-cursor')).toHaveText('Step 1 of 1 applied')
+  await expect(cell(page, 0, 1)).toHaveText(' a ')
+})
+
 test('U2 leg: a session change behind the preview makes Apply refuse and append nothing', async ({
   page,
 }) => {

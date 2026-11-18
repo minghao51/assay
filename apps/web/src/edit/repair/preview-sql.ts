@@ -32,28 +32,57 @@
  * (`composeOverlayExportSelectSql`, `cellLiteralRawSql`, `quotedIdentifier`,
  * `whereClauseSql`) — the same reuse the SQL pane's nested composers already
  * perform (m3-4). The only new expression is the **predicate** below, and it
- * is pinned against the applied effect by real-engine tests (`repair-reader`):
- * a plan applied to the same snapshot changes exactly `affected` rows.
+ * is pinned against the applied effect by a real-engine test
+ * (`preview-sql.engine.test.ts`): for every plan shape the fold accepts, the
+ * predicate's count equals the number of rows the engine's own composed wrap
+ * actually changes.
  *
  * ## The predicate: affected ⟺ the repaired value differs from the value now
  *
- * With `t` the plan's explicit trim set, `M` its mapping and `v` the effective
- * value:
+ * With `t = trim_t(v)` (the plan's explicit trim set applied to `v`; `t = v`
+ * when the plan declares no trim), `M` the plan's mapping and `v` the
+ * effective value:
  *
  * ```text
- * repaired(v) = M[trim_t(v)] ?? trim_t(v)          (NULL never matches, never produced)
- * affected(v) = v IS NOT NULL AND (trim_t(v) <> v OR trim_t(v) ∈ liveKeys)
- * liveKeys    = { k ∈ keys(M) : M[k] ≠ k }        (identity pairs change nothing)
+ * repaired(v) = M[t] ?? t                          (NULL never matches, never produced)
+ * affected(v) ⟺ v IS NOT NULL
+ *             ∧ ¬( t ∈ keys(M) ∧ M[t] = v )        (A: the plan maps the trimmed value back to v)
+ *             ∧ ¬( t ∉ keys(M) ∧ t = v )           (B: nothing happens — no mapping, no trim)
  * ```
  *
- * Two things make this a *set-membership* predicate rather than a copy of the
- * composer's CASE: the mapping is exact whole-value equality (D3 — binary, no
- * folding), so "the mapping applies" is membership, and the mapped **target
- * never enters SQL** — only keys do, because the question is "does it change",
- * not "to what". The target side is applied by the engine when the repair is
- * published, and shown in the examples through the domain's own
- * `trimWithCodePoints` (the function the composer's D17 literal rewrite
- * shares, so TypeScript and SQL cannot drift).
+ * Both negated terms are **set membership**, not a copy of the composer's CASE
+ * chain (ADR 0051 rule 3 / probe §9: never duplicate or re-nest the wrap):
+ *
+ * - **A** says "the pair `(t, v)` is not in the plan's pair set", composed as
+ *   `(t, v) NOT IN (VALUES (k, M[k]), …)`. It is required because a trim and a
+ *   mapping can **cancel**: with `trim = ' '` and `M = {a → ' a '}`, the value
+ *   `' a '` trims to `a` and maps straight back to `' a '` — the repair changes
+ *   nothing, so the row is NOT affected. Without A the preview over-counts
+ *   exactly those rows, which is how a no-op plan could pass U1 and append an
+ *   empty history entry (regression: fix round 1).
+ * - **B** says "a value that misses the mapping is not already its own trimmed
+ *   form", composed as `(t IN (keys) OR t <> v)`. It is required because
+ *   trimming alone changes the value only when `t <> v`, and a mapped value
+ *   changes it even when the trim was a no-op.
+ *
+ * Two consequences, stated because the earlier revision of this comment was
+ * wrong about them:
+ *
+ * 1. **The mapping targets now enter the SQL** — term A needs the pair set,
+ *    not only the keys. That is acceptable and not a privacy change: mapping
+ *    keys and targets are user-authored plan configuration (the composer
+ *    already emits both at publication), never dataset content copied out of
+ *    the relation, and nothing here logs or transmits them.
+ * 2. **There is no `liveKeys` shortcut.** The earlier "keys whose target
+ *    differs from the key" set is *wrong* for term B: with an identity pair
+ *    `a → a` and a trim, `' a '` still changes (it trims to `a`, which the
+ *    plan maps to `a`), so the key must count as a key. It is removed rather
+ *    than kept as an optimisation — the exact rule needs all keys.
+ *
+ * The target side is applied by the engine when the repair is published, and
+ * shown in the examples through the domain's own `trimWithCodePoints` (the
+ * function the composer's D17 literal rewrite shares, so TypeScript and SQL
+ * cannot drift).
  *
  * `affected = 0` is a *complete* answer, which is what makes the zero-affected
  * refusal (U1) honest.
@@ -78,22 +107,17 @@ export interface RepairReadSnapshot {
 }
 
 /**
- * The keys whose mapping target differs from the key — the only keys that can
- * change a value. Identity pairs are dropped here (a pair that maps a value to
- * itself changes nothing; a row whose *trim* changes is caught by the trim
- * term, and its trimmed form is exactly such a key).
+ * The plan's pairs, sorted by key so the composed SQL is deterministic (the
+ * draft's line order is not part of the plan's meaning — `repairPlanFingerprint`
+ * treats the mapping as a set for the same reason).
  */
-export function liveMappingKeys(plan: RepairPlan): string[] {
-  const live: string[] = []
-  for (const [key, target] of plan.mapping) {
-    if (key !== target) live.push(key)
-  }
-  return live.sort()
+export function planPairs(plan: RepairPlan): readonly (readonly [string, string])[] {
+  return [...plan.mapping].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
-/** One mapping key as a SQL string literal, via the engine's own escaper. */
-function keyLiteral(key: string): string {
-  return cellLiteralRawSql({ kind: 'string', value: key })
+/** One string as a SQL string literal, via the engine's own escaper. */
+function stringLiteral(value: string): string {
+  return cellLiteralRawSql({ kind: 'string', value: value })
 }
 
 /**
@@ -102,19 +126,34 @@ function keyLiteral(key: string): string {
  * (`("col" <predicate>)`). It therefore begins with `IS NOT NULL AND`, which
  * states the repair's NULL rule outright (NULL never matches and is never
  * produced) and cannot change precedence for the terms after it.
+ *
+ * The two negated set-membership terms are derived and explained in the module
+ * doc; their exactness over every plan shape the fold accepts is pinned by
+ * `preview-sql.engine.test.ts` against the engine's own composed wrap.
  */
 export function repairAffectedPredicate(plan: RepairPlan): string {
-  const column = quotedIdentifier(plan.column)
-  const operand =
-    plan.trim === undefined
-      ? column
-      : `trim(${column}, ${cellLiteralRawSql({ kind: 'string', value: plan.trim })})`
-  const liveKeys = liveMappingKeys(plan)
-  const mappingChanges =
-    liveKeys.length === 0 ? 'FALSE' : `${operand} IN (${liveKeys.map(keyLiteral).join(', ')})`
-  const trimmed = plan.trim === undefined ? null : `${operand} <> ${column}`
-  const changes = trimmed === null ? mappingChanges : `(${trimmed} OR ${mappingChanges})`
-  return `IS NOT NULL AND ${changes}`
+  const value = quotedIdentifier(plan.column)
+  // `t`: the trimmed value the mapping is matched against (the raw value when
+  // the plan declares no trim). One `trim(col, set)` occurrence, the same
+  // construct the composer emits (never `String.prototype.trim()`).
+  const trimmed = plan.trim === undefined ? value : `trim(${value}, ${stringLiteral(plan.trim)})`
+  const pairs = planPairs(plan)
+  const terms: string[] = []
+  if (pairs.length === 0) {
+    // Trim-only plan: the trim is the only thing that can change a value.
+    terms.push(`${trimmed} <> ${value}`)
+  } else {
+    const pairSet = pairs
+      .map(([key, target]) => `(${stringLiteral(key)}, ${stringLiteral(target)})`)
+      .join(', ')
+    // (A) The pair (t, v) is NOT in the plan's pair set: trim and mapping do
+    // not cancel. Row-value membership, so the pair set is compared as a set.
+    terms.push(`(${trimmed}, ${value}) NOT IN (VALUES ${pairSet})`)
+    // (B) The trimmed value is a mapping key, or the trim changed the value.
+    const keys = pairs.map(([key]) => stringLiteral(key)).join(', ')
+    terms.push(`(${trimmed} IN (${keys}) OR ${trimmed} <> ${value})`)
+  }
+  return `IS NOT NULL AND ${terms.join(' AND ')}`
 }
 
 /** The predicate as the engine's filter spec (one AND-ed clause). */

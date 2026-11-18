@@ -409,9 +409,17 @@ describe('repair — the preview: complete counts, bounded stated examples', () 
     // engine-composed effective relation — not a host-side row walk.
     const sql = h.countCalls[0]?.sql ?? ''
     expect(sql).toContain('SELECT count(*)::BIGINT AS affected FROM (')
-    expect(sql).toContain('WHERE ("country" IS NOT NULL AND "country" IN (\'SG\'))')
+    // The exact predicate: the pair-set cancellation term plus the key list.
+    expect(sql).toContain(
+      'WHERE ("country" IS NOT NULL AND ' +
+        '("country", "country") NOT IN (VALUES (\'SG\', \'Singapore\')) AND ' +
+        '("country" IN (\'SG\') OR "country" <> "country"))',
+    )
     // The example read carries the SAME predicate (one source).
-    expect(h.exampleCalls[0]?.filters?.[0]?.predicate).toBe('IS NOT NULL AND "country" IN (\'SG\')')
+    expect(h.exampleCalls[0]?.filters?.[0]?.predicate).toBe(
+      'IS NOT NULL AND ("country", "country") NOT IN (VALUES (\'SG\', \'Singapore\')) ' +
+        'AND ("country" IN (\'SG\') OR "country" <> "country")',
+    )
   })
 })
 

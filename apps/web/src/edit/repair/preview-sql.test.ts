@@ -6,7 +6,7 @@ import { initialState, stepOverlay } from '@assay/domain'
 import type { RepairPlan } from './plan'
 import {
   REPAIR_ENVELOPE,
-  liveMappingKeys,
+  planPairs,
   repairAffectedCountSql,
   repairAffectedFilter,
   repairAffectedPredicate,
@@ -21,9 +21,11 @@ import {
  * the engine's exported composer and the literals from its escaper), so its
  * exact text is worth pinning: identifier quoting, single-quote doubling, the
  * explicit `trim(<col>, <set>)` construct the composer itself emits, the
- * identity-pair filter, and the NULL rule. The equivalence of this predicate
- * with the *applied* effect is pinned against the real engine elsewhere
- * (`repair-reader` and the e2e journey); these are the composition's own
+ * pair-set cancellation term, the key list, and the NULL rule. The equivalence
+ * of this predicate with the *applied* effect is pinned against the real engine
+ * in `preview-sql.engine.test.ts` (for every plan shape the fold accepts,
+ * including the trim/mapping cancellation) and end to end by
+ * `tests/e2e/repair-journey.spec.ts`; these are the composition's own
  * invariants.
  */
 
@@ -51,60 +53,100 @@ function plan(overrides: Partial<RepairPlan> = {}): RepairPlan {
   }
 }
 
-describe('liveMappingKeys — only pairs that change a value', () => {
-  it('drops identity pairs and sorts the rest', () => {
-    const keys = liveMappingKeys(
-      plan({
-        mapping: new Map([
-          ['US', 'United States'],
-          ['SG', 'SG'],
-          ['DE', 'Germany'],
-        ]),
-      }),
-    )
-    expect(keys).toEqual(['DE', 'US'])
+describe('planPairs — the pair set, in a deterministic order', () => {
+  it('keeps identity pairs and sorts by key', () => {
+    // Identity pairs are PART of the rule (term A cancels them, term B counts
+    // the key), so nothing is filtered out here.
+    expect(
+      planPairs(
+        plan({
+          mapping: new Map([
+            ['US', 'United States'],
+            ['SG', 'SG'],
+            ['DE', 'Germany'],
+          ]),
+        }),
+      ),
+    ).toEqual([
+      ['DE', 'Germany'],
+      ['SG', 'SG'],
+      ['US', 'United States'],
+    ])
   })
 })
 
-describe('repairAffectedPredicate — the affected rule as one filter clause', () => {
-  it('without a trim: exact membership of the live keys', () => {
+describe('repairAffectedPredicate — the exact affected rule as one filter clause', () => {
+  it('without a trim: the pair set cancels an identity pair, the key list keeps the rest', () => {
     expect(repairAffectedPredicate(plan())).toBe(
-      'IS NOT NULL AND "country" IN (\'SG\')'.replace('\\', ''),
+      'IS NOT NULL AND ("country", "country") NOT IN (VALUES (\'SG\', \'Singapore\')) ' +
+        'AND ("country" IN (\'SG\') OR "country" <> "country")',
     )
   })
 
-  it('with a trim: the explicit-set trim is the operand, and the trim diff counts too', () => {
+  it('with a trim: one trim() operand, the trim diff AND the mapping both feed the pair set', () => {
     const predicate = repairAffectedPredicate(
       plan({ trim: ' \t', mapping: new Map([['SG', 'Singapore']]) }),
     )
     expect(predicate).toBe(
-      'IS NOT NULL AND (trim("country", \' \t\') <> "country" OR trim("country", \' \t\') IN (\'SG\'))',
+      'IS NOT NULL AND ' +
+        "(trim(\"country\", ' \t'), \"country\") NOT IN (VALUES ('SG', 'Singapore')) AND " +
+        '(trim("country", \' \t\') IN (\'SG\') OR trim("country", \' \t\') <> "country")',
     )
+    // Three occurrences of the SAME construct — never a duplicated or nested wrap.
+    expect(predicate.match(/trim\(/g)).toHaveLength(3)
   })
 
   it('a trim-only plan changes rows only through the trim term', () => {
     expect(repairAffectedPredicate(plan({ trim: ' ', mapping: new Map() }))).toBe(
-      'IS NOT NULL AND (trim("country", \' \') <> "country" OR FALSE)',
+      'IS NOT NULL AND trim("country", \' \') <> "country"',
     )
   })
 
-  it('an all-identity mapping can change nothing', () => {
+  it('an identity pair is a real cancellation: no trim, nothing changes', () => {
+    // `M = {SG → SG}`: term A matches `(SG, SG)`, so the row is NOT affected —
+    // the fold accepts this plan and it must preview as zero-affected (U1).
     expect(repairAffectedPredicate(plan({ mapping: new Map([['SG', 'SG']]) }))).toBe(
-      'IS NOT NULL AND FALSE',
+      'IS NOT NULL AND ("country", "country") NOT IN (VALUES (\'SG\', \'SG\')) ' +
+        'AND ("country" IN (\'SG\') OR "country" <> "country")',
     )
   })
 
-  it('escapes a quote by doubling and quotes the identifier', () => {
+  it('a trim/mapping cancellation is excluded by the pair-set term (fix round 1)', () => {
+    // Reviewer's real-engine case: trim ' ' with M = {a → ' a '} maps the
+    // trimmed value straight back, so `' a '` is unchanged. The first shipped
+    // predicate counted it (3 of 5 rows instead of 2) and let a no-op plan pass
+    // the zero-affected refusal.
+    expect(repairAffectedPredicate(plan({ trim: ' ', mapping: new Map([['a', ' a ']]) }))).toBe(
+      "IS NOT NULL AND (trim(\"country\", ' '), \"country\") NOT IN (VALUES ('a', ' a ')) " +
+        'AND (trim("country", \' \') IN (\'a\') OR trim("country", \' \') <> "country")',
+    )
+  })
+
+  it('an identity pair with a trim still counts the key (why the liveKeys shortcut was removed)', () => {
+    // `M = {a → a}` with trim ' ': the row `' a '` trims to `a` and maps to
+    // `a`, a real change on a pair whose "target differs from key" is false —
+    // the removed shortcut would have missed it. Term B lists ALL keys.
+    expect(repairAffectedPredicate(plan({ trim: ' ', mapping: new Map([['a', 'a']]) }))).toBe(
+      "IS NOT NULL AND (trim(\"country\", ' '), \"country\") NOT IN (VALUES ('a', 'a')) " +
+        'AND (trim("country", \' \') IN (\'a\') OR trim("country", \' \') <> "country")',
+    )
+  })
+
+  it('escapes a quote by doubling and quotes the identifier (keys AND targets)', () => {
     const predicate = repairAffectedPredicate(
       plan({
         column: 'odd "name"',
         mapping: new Map([
-          ["O'Brien", "O''Brien2"],
+          ["O'Brien", "O'Brien2"],
           ['a', 'b'],
         ]),
       }),
     )
-    expect(predicate).toBe('IS NOT NULL AND "odd ""name""" IN (\'O\'\'Brien\', \'a\')')
+    expect(predicate).toBe(
+      'IS NOT NULL AND ("odd ""name""", "odd ""name""") NOT IN ' +
+        "(VALUES ('O''Brien', 'O''Brien2'), ('a', 'b')) AND " +
+        '("odd ""name""" IN (\'O\'\'Brien\', \'a\') OR "odd ""name""" <> "odd ""name""")',
+    )
   })
 
   it('is the same string the filter spec carries (one source, two uses)', () => {
@@ -177,5 +219,12 @@ describe('repairedValue — the domain’s own trim∘map, never String.prototyp
     expect(repairedValue('SG', subject)).toBe('Singapore')
     expect(repairedValue(' SG', subject)).toBe(' SG')
     expect(repairedValue('', subject)).toBe('')
+  })
+
+  it('the cancellation plan repairs ` a ` back to itself (the fix-round-1 case)', () => {
+    const subject = plan({ trim: ' ', mapping: new Map([['a', ' a ']]) })
+    expect(repairedValue(' a ', subject)).toBe(' a ')
+    expect(repairedValue('a', subject)).toBe(' a ')
+    expect(repairedValue(' x ', subject)).toBe('x')
   })
 })

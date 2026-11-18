@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { baseRowId, stateAtCursor } from '@assay/domain'
+import { baseRowId, initialState, stateAtCursor } from '@assay/domain'
 import type { OverlayBase } from '@assay/domain'
 import type { GridViewportModel } from '@assay/grid'
 import { hasAppliedChanges } from '../edit/session'
 import type { RepairPlan } from '../edit/repair/plan'
 import type { RepairApplyGuard } from '../edit/repair/capture'
+import { repairAffectedCountSql } from '../edit/repair/preview-sql'
 import { useEditingSession } from './useEditingSession'
 import type { DatasetSession } from './session-reset'
 import type { Phase } from './types'
@@ -59,6 +62,51 @@ const PLAN: RepairPlan = {
   column: 'country',
   trim: ' ',
   mapping: new Map([['SG', 'Singapore']]),
+}
+
+/**
+ * EW-04I fix round 1 — U1 for the trim/mapping **cancellation** class, measured
+ * by the real predicate.
+ *
+ * `trim = ' '` with `M = {a → ' a '}` maps a trimmed value straight back, so
+ * `' a '` is unchanged and the preview's complete count is **0**. The count here
+ * is produced by the production composition (`repairAffectedCountSql`) executed
+ * by the pinned DuckDB CLI: with the fix-round-1 defect it is 1, `affected: 1`
+ * reaches `handleApplyRepair`, and a no-op repair entry is appended — which is
+ * exactly what the assertions below refuse. Without the CLI the case skips
+ * (the repository's convention for CLI-backed pins) rather than passing
+ * vacuously.
+ */
+const DUCKDB_CLI = process.env['DUCKDB'] ?? '/tmp/duckdb'
+const hasDuckDbCli = existsSync(DUCKDB_CLI)
+
+const CANCELLATION_PLAN: RepairPlan = {
+  column: 'country',
+  trim: ' ',
+  mapping: new Map([['a', ' a ']]),
+}
+
+const CANCELLATION_ROWS: readonly string[] = [' a ', 'SG', 'US', 'DE', 'US']
+
+/** The rows the real predicate counts as affected for `plan` over `ROWS`. */
+function affectedByRealEngine(plan: RepairPlan, rows: readonly string[]): number {
+  const base: OverlayBase = { ...BASE, baseRowCount: rows.length }
+  const values = rows
+    .map((row, index) => `(${String(index)}, '${row.replaceAll("'", "''")}')`)
+    .join(', ')
+  const script =
+    'CREATE TABLE assay_t1 (id INTEGER, country VARCHAR);' +
+    `INSERT INTO assay_t1 VALUES ${values};` +
+    `SELECT 'affected', affected FROM (${repairAffectedCountSql(
+      { viewName: 'assay_t1', base, state: initialState(base) },
+      plan,
+    )});`
+  const stdout = execFileSync(DUCKDB_CLI, ['-noheader', '-list', '-c', script], {
+    encoding: 'utf8',
+    stdio: 'pipe',
+  })
+  const line = stdout.trim().split(/\r?\n/).pop() ?? ''
+  return Number(line.slice(line.indexOf('|') + 1))
 }
 
 function readyPhase(): Phase {
@@ -249,5 +297,37 @@ describe('captureRepairTag — the session-side seam', () => {
     expect(second?.historyRevision).toBeGreaterThan(first?.historyRevision ?? 0)
     // An unknown column has no tag at all.
     expect(hook.result.current.captureRepairTag('nope')).toBeNull()
+  })
+})
+
+describe.skipIf(!hasDuckDbCli)('handleApplyRepair — U1 on the real predicate', () => {
+  it('a trim/mapping cancellation refuses at the commit boundary and appends nothing', async () => {
+    const hook = mount()
+    const before = hook.result.current.history
+
+    // The complete count the SURFACE would show, from the production predicate
+    // run by the real engine. With the fix-round-1 defect this is 1 and a no-op
+    // entry is appended below — the failure the reviewer saw as "Step 2 of 2".
+    const affected = affectedByRealEngine(CANCELLATION_PLAN, CANCELLATION_ROWS)
+
+    act(() => {
+      hook.result.current.handleApplyRepair(CANCELLATION_PLAN, {
+        tag: guardFor(hook, affected).tag,
+        affected,
+      })
+    })
+    await drain()
+
+    // Nothing appended, no effect anywhere: the history is the same object.
+    expect(hook.result.current.history).toBe(before)
+    expect(hook.result.current.history.entries).toHaveLength(0)
+    expect(stateAtCursor(BASE, hook.result.current.history).repairs).toHaveLength(0)
+    expect(hasAppliedChanges(hook.result.current.history)).toBe(false)
+    expect(hook.result.current.editError).toBe(
+      'No row changes under this plan, so nothing was applied and the history is unchanged.',
+    )
+    // Root cause last, so a regression fails FIRST on the symptom the reviewer
+    // saw (`Step 2 of 2`: a no-op entry appended) and then on the count.
+    expect(affected).toBe(0)
   })
 })
