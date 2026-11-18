@@ -73,6 +73,36 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-18, EW-03I-b CLOSED — D3's web half):** **EW-03I-b merged** `233dc6a` +
+`e954d8c` (worker `77d9103`/`7a8029f`, independent `opencode-go/mimo-v2.6-flash` high review: one
+request-changes round, three required items, all verified by the reviewer's own re-runs; 14 files,
++4375/−32, one `@assay/web` changeset). A second, explicit `Review CSV options…` control now sits beside
+Open in the idle and ready surfaces; it opens a native `<dialog>` that only ever calls
+`engineClient.csvPreview`, renders the engine's own sniff disclosure (delimiter/quote/escape/newline/
+comment/skip/header/per-column types/dateformat/timestampformat and the `Prompt` as display text), the
+effective option set, and a bounded sample (**50 rows**, cap taken from the response's `rowCap`, `hasMore`
+respected, NULL never blank). Options compose through the engine's closed vocabulary — `parseCsvOptions`
+is imported, never duplicated — so unknown/deferred/always-refused keys are unreachable and refused
+pre-dispatch with the engine's value-free reason. Adoption is one `engine/open` with the reviewed set
+(`sample_size` stripped), exactly once, blocked while the form/refusal/read state means the sample is
+stale. Quick open is byte-identical: the plain path still calls `engineClient.open(source)` with **one
+argument** (RTL + e2e wire pins). Copy carries every accepted ledger item (D3 rename behaviour, D5 no
+locale inference, D6 empty and quoted-empty both NULL by default, D13/D8 no silent row-skip and "a sample
+is not an evaluation of the whole file", D14 unsafe integers with the escape offered and nothing forced)
+with literal pins plus a negative assertion that the surface never renders
+"validated/checked/verified/confirmed" — the reviewer's drill made both assertions bite. **Catalog
+neutrality is now asserted on a real engine path** (ready-state review: no delta across preview+Stop;
+adoption moves the catalog by one user view, proving the probe is live). Merged gates on `main`: format/
+lint clean, forced typecheck **20** (0 cached), unit **253 files / 3897 tests**, coverage **89.42 / 84.17 /
+91.7 / 91.1** (floors 83/76/80/84; exit 0), forced build **12** (0 cached), docs links **166/0**, ADR
+**50**, browser **275 + 1 skip**, configured telemetry **7 passed** with two aborted POSTs and zero
+delivered, restored stock **3 passed** and endpoint-free. **Carried:** D3's "rename list" is disclosed as
+rename _behaviour_ plus the engine's post-rename names (deriving a list needs a main-thread CSV parser —
+forbidden; the envelope sanctioned this fallback); the ADR 0049 decision-4 abandonment-release divergence
+stands (no host-reachable release; one staged preview retained until the next slot event/dispose, stated
+in the changeset); and the review dialog's own `abandon()` generation bump (6 lines) closed the
+Stop→unmount window. Worktree removed; nothing pushed.
+
 **Verified state (2026-11-18, TB-1 CLOSED):** **TB-1 merged** `30b6564` + `4b147a1` (worker `730a4e1`,
 independent `opencode-go/mimo-v2.6-flash` high review, two comment-only request-changes rounds). The
 seeded U5 corpus now spawns the DuckDB CLI **8 times instead of ≈640** (`runCliBatched`: one process per
@@ -268,14 +298,14 @@ an ADR, never a silent rewrite of an accepted decision.
 
 **Post-R1 runtime wave — closed rows and the remaining queue (2026-11-18).** **EW-02I** (`fd5a92a`),
 **R2** (`0f77e38`/`a17f3a3`), **U5** (`94128b2`/`120af28`/`6688f71`, EW-04D condition vii), **EW-03I-a**
-(`ae0f6cf`/`a6059c6`/`4d56036`) and **TB-1** (`30b6564`/`4b147a1`) are merged; **ADR 0049/0050** are
-Accepted. TB-1 was pulled forward because its flake made the baseline red on this host. The cold-pickup
-index, remaining queue, dispatch order and P0–P6 paste-ready prompts are in the
-[post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md). Remaining: **EW-03I-b** (web CSV
-preview), **EW-04I** (bulk-repair web + U1–U3), optional ADR 0051, plus two rows recorded from this
-session — a TB-2 candidate (pin the CLI spawn count or tighten the now-loose 45 s ceiling) and the ADR
-0049 decision-4 "drop on abandonment" divergence (candidate engine row). R13 stays unselected. Nothing
-pushed.
+(`ae0f6cf`/`a6059c6`/`4d56036`), **TB-1** (`30b6564`/`4b147a1`) and **EW-03I-b** (`233dc6a`/`e954d8c`)
+are merged; **ADR 0049/0050** are Accepted. TB-1 ran first because its flake made the baseline red on this
+host; EW-03I-b closed D3's web half. The cold-pickup index, remaining queue, dispatch order and P0–P6
+paste-ready prompts are in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md). Remaining:
+**EW-04I** (bulk-repair web + U1–U3) — the only selected runtime row — plus optional ADR 0051 and three
+recorded-but-unselected rows: TB-2 (pin the CLI spawn count or tighten TB-1's loose ceiling), the ADR
+0049 decision-4 abandonment-release engine row, and D3's rename-_list_ affordance (needs a sound header
+read). R13 stays unselected. Nothing pushed.
 
 **R1 CLOSED — honest engine failure text (2026-11-14).** The maintainer selected R1 (masked browser
 SQL errors, `ReferenceError: _setThrew is not defined`) and approved
@@ -409,6 +439,27 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-18 (**hx**) — **EW-03I-b CLOSED — merged `233dc6a` + `e954d8c`** (worker `77d9103` +
+  `7a8029f`; independent `opencode-go/mimo-v2.6-flash` high review, one request-changes round). The web
+  CSV review surface is in: explicit `Review CSV options…` entry points (idle + ready), a native `<dialog>`
+  that only calls `csvPreview`, the full sniff/effective-options disclosure, a 50-row bounded sample whose
+  cap comes from the response, options composed through the engine's own `parseCsvOptions` vocabulary,
+  exactly-once adoption via one `engine/open` with the reviewed set (`sample_size` stripped), stale
+  blocking, abandonment with late-result invalidation and "stopped reviewing" copy, and D3/D5/D6/D8/D13/
+  D14 copy pinned with literal tests plus a prohibited-wording negative assertion. **Quick open is
+  byte-identical** (one-argument `engine/open`, pinned by RTL and the e2e wire). The review's three
+  required items are all closed: the **catalog-neutrality assertion** now reads the user catalog through
+  the product's own SQL surface and proves non-vacuity by observing the adoption delta; the **late-result
+  guards now bite** (removing them fails two named tests — the reviewer had found all tests passing under
+  that mutant, a real "coverage ≠ pinning" case); and **four ungrammatical copy strings** were unfrozen to
+  the repo's U+2019 convention. Reviewer drills: catalog both directions, both guards, the abandonment
+  bump. Merged gates on `main`: format/lint clean, typecheck 20/20 (0 cached), unit **253 files / 3897
+  tests**, coverage **89.42/84.17/91.7/91.1** (floors pass), build 12/12 (0 cached), docs **166/0**, ADR
+  **50**, browser **275 + 1 skip**, configured telemetry **7 passed / zero delivered**, restored stock
+  **3 passed endpoint-free**. Carried: the D3 rename-_list_ deviation (behaviour disclosure instead), the
+  ADR 0049 decision-4 abandonment-release divergence, and the new `abandon()` generation bump. Worktree/
+  branch removed; nothing pushed.
 
 - 2026-11-18 (**hw**) — **TB-1 CLOSED — merged `30b6564` + `4b147a1`** (review fix `528e674`
   cherry-picked as `4b147a1`; worker `730a4e1`, independent `opencode-go/mimo-v2.6-flash` high review,
