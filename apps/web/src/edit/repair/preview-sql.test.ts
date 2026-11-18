@@ -122,10 +122,11 @@ describe('repairAffectedPredicate — the exact affected rule as one filter clau
     )
   })
 
-  it('an identity pair with a trim still counts the key (why the liveKeys shortcut was removed)', () => {
+  it('an identity pair with a trim still counts the key (term B lists all keys)', () => {
     // `M = {a → a}` with trim ' ': the row `' a '` trims to `a` and maps to
-    // `a`, a real change on a pair whose "target differs from key" is false —
-    // the removed shortcut would have missed it. Term B lists ALL keys.
+    // `a`, a real change. It is counted by the `t <> v` disjunct, not by a
+    // key-set distinction — with term A in place a `liveKeys` subset would be
+    // equivalent here, so this case pins the disjunct and the flat key list.
     expect(repairAffectedPredicate(plan({ trim: ' ', mapping: new Map([['a', 'a']]) }))).toBe(
       "IS NOT NULL AND (trim(\"country\", ' '), \"country\") NOT IN (VALUES ('a', 'a')) " +
         'AND (trim("country", \' \') IN (\'a\') OR trim("country", \' \') <> "country")',

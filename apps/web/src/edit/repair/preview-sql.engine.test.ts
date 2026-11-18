@@ -35,13 +35,13 @@ import { repairAffectedCountSql, repairAffectedPredicate } from './preview-sql'
  *
  * Cases (each is a `column-repair` the domain fold accepts):
  *
- * | case                        | why it is here                                            |
- * | --------------------------- | --------------------------------------------------------- |
- * | trim + mapping cancellation | fix-round-1 regression: the mapping maps the value back   |
- * | trim only                   | no mapping at all; only the trim can change a value       |
- * | mapping only                | no trim; exact whole-value membership                     |
- * | identity pair               | `M = {SG → SG}` changes nothing at all                    |
- * | identity pair + trim        | what a "keys with a different target" shortcut misses     |
+ * | case                        | why it is here                                             |
+ * | --------------------------- | ---------------------------------------------------------- |
+ * | trim + mapping cancellation | fix-round-1 regression: the mapping maps the value back    |
+ * | trim only                   | no mapping at all; only the trim can change a value        |
+ * | mapping only                | no trim; exact whole-value membership                      |
+ * | identity pair               | `M = {SG → SG}` changes nothing at all                     |
+ * | identity pair + trim        | the `t <> v` disjunct, on an all-keys key list             |
  *
  * The CLI is the pinned DuckDB build (`DUCKDB`, default `/tmp/duckdb`) — the
  * same one the engine's own conformance tests spawn; when it is absent the
@@ -228,8 +228,9 @@ describe.skipIf(!hasDuckDbCli)('repairAffectedPredicate — real DuckDB agreemen
 
   it('(e) identity pair with a trim: the trim still changes the padded row', () => {
     // `M = {a → a}` looks like "no mapping", but with a trim the padded row
-    // `' a '` becomes `a` — a real change. This is the case a
-    // "keys-with-a-different-target" shortcut gets wrong.
+    // `' a '` becomes `a` — a real change, and it is the `t <> v` disjunct that
+    // counts it (with term A in place a `liveKeys` subset would agree here, so
+    // this case pins the disjunct: drop it and the count falls to 0).
     const fixture: Fixture = {
       rows: [
         [0, ' a '],

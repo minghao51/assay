@@ -65,19 +65,24 @@
  *   trimming alone changes the value only when `t <> v`, and a mapped value
  *   changes it even when the trim was a no-op.
  *
- * Two consequences, stated because the earlier revision of this comment was
- * wrong about them:
+ * Two points about this predicate's shape — the first correcting the earlier
+ * revision of this comment, the second recording why one set is used:
  *
  * 1. **The mapping targets now enter the SQL** — term A needs the pair set,
  *    not only the keys. That is acceptable and not a privacy change: mapping
  *    keys and targets are user-authored plan configuration (the composer
  *    already emits both at publication), never dataset content copied out of
  *    the relation, and nothing here logs or transmits them.
- * 2. **There is no `liveKeys` shortcut.** The earlier "keys whose target
- *    differs from the key" set is *wrong* for term B: with an identity pair
- *    `a → a` and a trim, `' a '` still changes (it trims to `a`, which the
- *    plan maps to `a`), so the key must count as a key. It is removed rather
- *    than kept as an optimisation — the exact rule needs all keys.
+ * 2. **Term B lists ALL keys, not the earlier `liveKeys` subset.** That subset
+ *    ("keys whose target differs from the key") would in fact be *equivalent*
+ *    here, not wrong: the two sets disagree only on identity pairs
+ *    (`M[t] = t`), and for those `t = v` forces `M[v] = v`, so term A is
+ *    already false whichever set term B uses. The predicate lists all keys
+ *    because that is the simpler and more obviously complete form — one key
+ *    set, no second derivation that could drift out of step with the pair set
+ *    — not because the subset would be incorrect. (For `' a '` with
+ *    `M = {a → a}` it is the `t <> v` disjunct that fires, and it fires for
+ *    either key set.)
  *
  * The target side is applied by the engine when the repair is published, and
  * shown in the examples through the domain's own `trimWithCodePoints` (the
