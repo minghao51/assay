@@ -202,7 +202,20 @@ export function engineErrorLine(error: unknown, fallback: string): string {
  * rejection previously read polished in one panel and raw in the next
  * (UG-30).
  */
-export type EngineErrorOperation = 'open' | 'sql' | 'profile' | 'filter' | 'validation' | 'diff'
+export type EngineErrorOperation =
+  | 'open'
+  | 'sql'
+  | 'profile'
+  | 'filter'
+  | 'validation'
+  | 'diff'
+  /**
+   * The non-adopting CSV review (EW-03I-b; ADR 0049 decisions 6–7). A preview
+   * failure says both what failed and that nothing was opened: a reviewer's
+   * session and the previous sample both stay exactly as they were, and no
+   * failure here can be read as a verdict about the file.
+   */
+  | 'csv-preview'
 
 /** A summary rendered as a sentence fragment: no doubled or stacked punctuation. */
 function fragment(summary: string): string {
@@ -228,6 +241,8 @@ const OPERATION_FRAMING: Record<EngineErrorOperation, (summary: string) => strin
     `The filter could not be applied: ${fragment(summary)}. The previous filters are still in effect.`,
   validation: (summary) => `${fragment(summary)}. The previous validation view is unchanged.`,
   diff: (summary) => `${fragment(summary)}. The previous comparison view is unchanged.`,
+  'csv-preview': (summary) =>
+    `The preview could not be read: ${fragment(summary)}. Nothing was opened.`,
 }
 
 /**

@@ -261,6 +261,10 @@ describe('engineErrorLine / engineErrorMessage — one single-line summary per s
     expect(engineErrorMessage('diff', summary)).toBe(
       'the engine rejected the request. The previous comparison view is unchanged.',
     )
+    // EW-03I-b: the non-adopting CSV review (ADR 0049 decisions 6–7).
+    expect(engineErrorMessage('csv-preview', summary)).toBe(
+      'The preview could not be read: the engine rejected the request. Nothing was opened.',
+    )
   })
 
   it('does not double a full stop the summary already carries', () => {

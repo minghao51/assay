@@ -29,6 +29,8 @@ import { GridViewportModel } from '@assay/grid'
 import type { ColumnSchema } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
 import type { PickedDataFile } from '@assay/data-sources/browser'
+import { detectFormatFromFileName } from '@assay/data-sources/browser'
+import type { EngineCsvOptions } from '@assay/engine-duckdb'
 import nestedFixtureText from '../../../fixtures/jsonl/nested.jsonl?raw'
 import { DataGrid } from './grid/DataGrid'
 import type { EditorReportState, GridQueryBusy } from './grid/DataGrid'
@@ -94,6 +96,15 @@ import type { SqlRunRequest } from './sql/SqlPanel'
 import { writeReportCopy } from './validation/report-export'
 import { writeDiffReportCopy } from './diff/diff-export'
 import { ReplaceGuard } from './replace/ReplaceGuard'
+import { CsvReviewDialog } from './csv/CsvReviewDialog'
+import type { CsvReviewMode } from './csv/CsvReviewDialog'
+import { wireCsvOptions } from './csv/options'
+import {
+  CSV_REVIEW_ACTION,
+  CSV_REVIEW_IDLE_HELPER,
+  CSV_REVIEW_STOPPED,
+  CSV_REVIEW_STOPPED_SESSION,
+} from './csv/copy'
 import { evaluateReadyGesture } from './replace/gate'
 import type { OwnedModal, ReadyGestureRefusal } from './replace/gate'
 import { NO_REPLACEMENT_INTENT, beginIntent, canAdopt, isIntentCurrent } from './replace/machine'
@@ -530,6 +541,41 @@ interface ReplacementCandidate {
   readonly openSource: { getFile: () => Promise<File> }
 }
 
+/**
+ * EW-03I-b: what the next ready-state replacement gesture will do once the
+ * gate passes. `open` is the shipped candidate open; `review` is the CSV
+ * review (EW-03D §3). The Open control always states its own path, so a
+ * remembered review can never turn a plain Open into a review — only the
+ * guard hand-off (T5) and the failure retry (C11) reuse the remembered path.
+ */
+type ReplacementPath = 'open' | 'review'
+
+/**
+ * EW-03I-b: the CSV review surface's App-owned inputs. The option FORM and the
+ * preview payload stay inside `CsvReviewDialog` (they are display state); App
+ * keeps only what adoption needs, so the review cannot write session state.
+ */
+interface CsvReviewHandoff {
+  readonly mode: CsvReviewMode
+  readonly file: File
+  readonly identity: SourceIdentity | null
+  /** The phase the gesture started from — WF-06's currency capture. */
+  readonly startPhase: Phase
+  /** The WF-06 intent sequence the review belongs to. */
+  readonly intentSeq: number
+}
+
+/**
+ * EW-03I-b: one-shot hand-off into the single open chain (idle adoption, or a
+ * non-.csv pick from the review control). `options === undefined` keeps the
+ * pre-EW-03I open path byte-identical (no options argument at all).
+ */
+interface CsvAdoptionHandoff {
+  readonly file: File
+  readonly identity: SourceIdentity | null
+  readonly options: EngineCsvOptions | undefined
+}
+
 export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const telemetryConfig = useMemo(() => readWebTelemetryConfig(), [])
   const telemetry = useMemo(
@@ -680,6 +726,36 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const [busyNotice, setBusyNotice] = useState(false)
   /** C13 — G3 refusal; clears when the editor closes (the mirror callback). */
   const [draftNotice, setDraftNotice] = useState(false)
+  /**
+   * EW-03I-b — the CSV review surface (ADR 0049; envelope §5.1/§5.2).
+   *
+   * `csvReview` is App-local UI state, never a `Phase` and never an intent
+   * kind: the review is a candidate step of the EXISTING replacement intent
+   * ("choosing" owns the shell while the modal is up), so nothing here is a
+   * second writer of the session lifecycle. It carries exactly what adoption
+   * needs — the picked `File`, its FSA identity and the phase the gesture
+   * started from — and nothing about the engine slot.
+   */
+  const [csvReview, setCsvReview] = useState<CsvReviewHandoff | null>(null)
+  /** "You stopped reviewing" — abandonment copy, cleared by the next gesture. */
+  const [csvReviewStopped, setCsvReviewStopped] = useState<CsvReviewMode | null>(null)
+  /**
+   * The path the user chose for the next replacement gesture (EW-03D §3):
+   * plain open, or the CSV review. Remembered across the dirty guard (T5) and
+   * the failure retry (C11) so a review gesture stays a review gesture; the
+   * Open control always states its own mode, so this can never silently turn
+   * a plain Open into a review.
+   */
+  const desiredModeRef = useRef<ReplacementPath>('open')
+  /**
+   * EW-03I-b: one-shot hand-off into the single open chain — the picked file,
+   * its identity and (for a reviewed CSV) the exact reviewed option set. Set
+   * only by the review path and cleared before the chain's first await, the
+   * same one-shot discipline as `exampleFileRef`/`pendingDropFileRef`.
+   * `options === undefined` means the ordinary open (a non-.csv pick from the
+   * review control keeps today's path byte-identically).
+   */
+  const pendingReviewHandoffRef = useRef<CsvAdoptionHandoff | null>(null)
 
   /**
    * IC-01: the render-only editor-state mirror. The ref write alone cannot
@@ -1759,6 +1835,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     setReplacementFailure(null)
     setBusyNotice(false)
     setDraftNotice(false)
+    setCsvReviewStopped(null)
   }
 
   /** End the current intent without touching the live session. */
@@ -1904,15 +1981,29 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     readonly file: File
     readonly identity: SourceIdentity | null
     readonly startPhase: Phase
+    /**
+     * EW-03I-b: the reviewed CSV option set, when this candidate came from
+     * the CSV review. It is passed straight to `engine/open` — a fresh open
+     * carrying the reviewed options (ADR 0049 acceptance resolution 5), never
+     * a promotion and never a second `TableRegistry` writer. `undefined` for
+     * every other path, which keeps that request byte-identical.
+     */
+    readonly csvOptions?: EngineCsvOptions
   }): void => {
-    const { file, identity, startPhase } = input
+    const { file, identity, startPhase, csvOptions } = input
     const seq = enterReplacementIntent('opening-candidate')
     void (async () => {
       try {
-        const handle = await engineClient.open({
-          name: file.name,
-          getFile: () => Promise.resolve(file),
-        })
+        const source = { name: file.name, getFile: () => Promise.resolve(file) }
+        // Wire shape only: a fresh plain record (structured clone), which the
+        // client and the worker each re-validate through the same total
+        // `parseCsvOptions` — no trust crosses the boundary. No reviewed
+        // options ⇒ the exact single-argument call this chain always made.
+        const reviewed = wireCsvOptions(csvOptions ?? {})
+        const handle =
+          reviewed === undefined
+            ? await engineClient.open(source)
+            : await engineClient.open(source, reviewed)
         if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
         const candidateSchema = await engineClient.schema(handle)
         if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
@@ -1955,6 +2046,145 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         failReplacement(error)
       }
     })()
+  }
+
+  /* ---------------------------------------------------------------------
+   * EW-03I-b — the CSV review path (ADR 0049 decisions 4/6/7; EW-03D §3).
+   *
+   * The review is a CANDIDATE step of the existing machinery, not a second
+   * lifecycle: in a ready session it occupies the same `choosing` intent (so
+   * the shell stays owned, Open/Help stay disabled and G2 refuses a competing
+   * gesture) and adoption goes through the same `prepareReplacementCandidate`
+   * → `adoptReplacementCandidate` pair, exactly once, carrying the reviewed
+   * options into a fresh `engine/open`. In idle there is no session to guard,
+   * so adoption hands the reviewed file + options to the one existing open
+   * chain through a one-shot ref — the same precedent as the idle example and
+   * the dropped file.
+   *
+   * The preview itself never adopts: `CsvReviewDialog` only ever calls
+   * `csvPreview`. Abandonment drops the local candidate, bumps the sequence
+   * authority so every late result is discarded, and claims nothing about the
+   * engine (envelope §5a: there is no host-reachable release op).
+   * ------------------------------------------------------------------- */
+
+  /** The engine's non-adopting preview call, stable for the dialog's effect. */
+  const previewCsvSource = useCallback(
+    (
+      source: { readonly name: string; getFile(): Promise<File> },
+      options?: Record<string, unknown>,
+      sampleRows?: number,
+    ) => engineClient.csvPreview(source, options, sampleRows),
+    [],
+  )
+
+  /**
+   * The ready-state review acquisition (T1/T5/T6/T7 shape): the picker runs
+   * synchronously from the gesture, then a CSV pick opens the review instead
+   * of preparing a candidate. A cancelled chooser is T6 (C8: nothing opened,
+   * session unchanged); a non-CSV pick falls through to the ordinary candidate
+   * preparation unchanged.
+   */
+  const acquireCsvReview = (startPhase: Phase): void => {
+    const seq = enterReplacementIntent('choosing')
+    const openCapture: { handle: FileSystemFileHandle | null } = { handle: null }
+    void (async () => {
+      let picked: PickedDataFile | null
+      try {
+        picked = await pickDataFile({
+          showOpenFilePicker: async (options) => {
+            const handles = await showOpenFilePicker(options)
+            openCapture.handle = handles[0] ?? null
+            return handles
+          },
+        })
+      } catch (error) {
+        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
+        failReplacement(error)
+        return
+      }
+      if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
+      if (picked === null) {
+        endReplacementIntent()
+        setPickerWasCancelled(true)
+        return
+      }
+      const identity: SourceIdentity | null =
+        openCapture.handle === null
+          ? null
+          : { isSameEntry: openCapture.handle.isSameEntry.bind(openCapture.handle) }
+      let file: File
+      try {
+        file = await picked.source.getFile()
+      } catch (error) {
+        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
+        failReplacement(error)
+        return
+      }
+      if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
+      if (detectFormatFromFileName(file.name) !== 'csv') {
+        prepareReplacementCandidate({ file, identity, startPhase })
+        return
+      }
+      setCsvReviewStopped(null)
+      setCsvReview({ mode: 'replace', file, identity, startPhase, intentSeq: seq })
+    })()
+  }
+
+  /**
+   * Adoption of a reviewed CSV — the only irreversible step, and the only one
+   * that ever writes a session. Idle: one-shot hand-off to `openDataFile` with
+   * the reviewed options. Ready: the existing guarded preparation, which ends
+   * in the same exactly-once `adoptReplacementCandidate`.
+   */
+  const adoptCsvReview = (handoff: CsvReviewHandoff, options: EngineCsvOptions): void => {
+    setCsvReviewStopped(null)
+    setCsvReview(null)
+    if (handoff.mode === 'idle') {
+      pendingReviewHandoffRef.current = {
+        file: handoff.file,
+        identity: handoff.identity,
+        options,
+      }
+      void openDataFile()
+      return
+    }
+    // Defensive (the modal owns the shell, so no gesture can supersede it):
+    // if the intent or the phase moved, open nothing and say so.
+    if (
+      !isIntentCurrent(
+        intentSeqRef.current,
+        handoff.intentSeq,
+        phaseRef.current,
+        handoff.startPhase,
+      )
+    ) {
+      endReplacementIntent()
+      setCsvReviewStopped('replace')
+      return
+    }
+    prepareReplacementCandidate({
+      file: handoff.file,
+      identity: handoff.identity,
+      startPhase: handoff.startPhase,
+      csvOptions: options,
+    })
+  }
+
+  /**
+   * Abandonment (ADR 0049 item 7; envelope §5a). Drops the candidate, bumps the
+   * sequence authority so a late preview result can never be adopted, ends any
+   * intent, and says "stopped reviewing" — never "aborted", and never that a
+   * preview slot was released. There is no host-reachable release op, so one
+   * staged preview stays retained until the next preview, an open, or
+   * `engine/dispose`; this row discloses that rather than faking a call.
+   */
+  const stopCsvReview = (handoff: CsvReviewHandoff): void => {
+    intentSeqRef.current += 1
+    setCsvReview(null)
+    endReplacementIntent()
+    setPickerWasCancelled(false)
+    setReplacementFailure(null)
+    setCsvReviewStopped(handoff.mode)
   }
 
   /**
@@ -2029,10 +2259,24 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * value when the guard itself is closing into choosing (T5), where the modal
    * is already gone so G1 must pass. `respectDirtyGuard` is false for T5/C11,
    * which re-enter `choosing` directly.
+   *
+   * EW-03I-b: `path` selects WHICH picker path the gesture takes once the gate
+   * passes — the shipped candidate open (default) or the CSV review. It is a
+   * path choice, not a new lifecycle state: the gate, the guard, the notices,
+   * the intent kinds and the adoption step are unchanged for both. The chosen
+   * path is remembered in `desiredPathRef` so T5 (choose from the guard) and
+   * C11 (retry) resume the same path without inventing a per-intent field; the
+   * two entry controls always state theirs explicitly.
    */
-  const startReplacementGate = (gateModal: OwnedModal | null, respectDirtyGuard: boolean): void => {
+  const startReplacementGate = (
+    gateModal: OwnedModal | null,
+    respectDirtyGuard: boolean,
+    path?: ReplacementPath,
+  ): void => {
     const livePhase = phaseRef.current
     if (livePhase.kind !== 'ready') return
+    if (path !== undefined) desiredModeRef.current = path
+    const wantedPath = desiredModeRef.current
     // v5 §3.2: the gate runs FIRST — before any dialog, picker, await or state
     // write. Notices are cleared only once the verdict is known; a refusal then
     // sets its own notice, so a stale notice can never be cleared by a gesture
@@ -2056,7 +2300,8 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       enterReplacementIntent('guard')
       return
     }
-    acquireReplacementCandidate(livePhase)
+    if (wantedPath === 'review') acquireCsvReview(livePhase)
+    else acquireReplacementCandidate(livePhase)
   }
 
   /** T3: Stay / Escape — byte-identical live session, no other effect. */
@@ -2105,12 +2350,21 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     exampleFileRef.current = null
     const droppedFile = pendingDropFileRef.current
     pendingDropFileRef.current = null
-    // A one-shot source (the bundled example or an idle drop) skips only the
-    // picker acquisition below; it rejoins the identical guarded open chain.
-    const oneShotFile = exampleFile ?? droppedFile
+    /**
+     * EW-03I-b: the CSV review's one-shot hand-off (an idle adoption carrying
+     * the reviewed options, or a non-.csv pick from the review control).
+     * Cleared before the first await, exactly like the two sources above.
+     */
+    const reviewHandoff = pendingReviewHandoffRef.current
+    pendingReviewHandoffRef.current = null
+    // A one-shot source (the bundled example, an idle drop, or the review
+    // hand-off) skips only the picker acquisition below; it rejoins the
+    // identical guarded open chain.
+    const oneShotFile = exampleFile ?? droppedFile ?? reviewHandoff?.file ?? null
     // A no-file drop's notice belongs to the idle screen only; any real open
     // attempt (including a cancelled picker returning to idle) supersedes it.
     setDropNotice(null)
+    setCsvReviewStopped(null)
     const session = datasetSession.beginSession()
     // au3-12: warm the below-fold panel chunks in parallel with the open flow
     // so they are resident by `ready` (see `lib/bottom-panels.ts`).
@@ -2178,12 +2432,26 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       // therefore never offered the direct-write picker at all; its exports
       // ride the browser download (see `save-destination.ts`).
       const pickedHandle = oneShotFile === null ? openCapture.handle : null
+      // EW-03I-b: the review path picked its file one step earlier (its own
+      // picker), so it supplies the identity it captured there; every other
+      // open derives it here exactly as before.
       sourceIdentityRef.current =
-        pickedHandle !== null ? { isSameEntry: pickedHandle.isSameEntry.bind(pickedHandle) } : null
-      const handle = await engineClient.open({
-        name: file.name,
-        getFile: () => Promise.resolve(file),
-      })
+        reviewHandoff !== null
+          ? reviewHandoff.identity
+          : pickedHandle !== null
+            ? { isSameEntry: pickedHandle.isSameEntry.bind(pickedHandle) }
+            : null
+      // EW-03I-b: a reviewed CSV adopts through a fresh `engine/open` carrying
+      // the reviewed options (ADR 0049 acceptance resolution 5). With no review
+      // hand-off, `wireCsvOptions({})` is `undefined` and this stays the exact
+      // single-argument quick-open call it has always been — the ordinary open
+      // path is byte-identical, by construction rather than by convention.
+      const openSource = { name: file.name, getFile: () => Promise.resolve(file) }
+      const reviewedOptions = wireCsvOptions(reviewHandoff?.options ?? {})
+      const handle =
+        reviewedOptions === undefined
+          ? await engineClient.open(openSource)
+          : await engineClient.open(openSource, reviewedOptions)
       if (datasetSession.tokenRef.current !== session) return
       // Base metadata for the editing session (ADR 0011/0012). The anchor is
       // the stable function of the file *version* (size + mtime) — re-opening
@@ -2254,6 +2522,72 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       })
     }
   }, [datasetSession, historyRef, overlayRef, setPhase, telemetry])
+
+  /**
+   * EW-03I-b — the idle review entry: pick a file, then review it; or, for
+   * anything that is not a `.csv`, hand it straight to the ordinary open chain
+   * with no new copy and no review (EW-03D §3: non-CSV files keep today's
+   * path). Declared after `openDataFile` because it re-enters that one chain
+   * for the non-CSV hand-off.
+   *
+   * There is no WF-06 gate here (no live session to protect), but the same
+   * generation discipline applies: every await is guarded by the dataset
+   * session token and the phase, so a pick that resolves after a newer open is
+   * dropped instead of resurrecting the review over the new dataset.
+   */
+  const startCsvReviewFromIdle = (): void => {
+    if (phaseRef.current.kind !== 'idle') return
+    const session = datasetSession.tokenRef.current
+    const openCapture: { handle: FileSystemFileHandle | null } = { handle: null }
+    void (async () => {
+      let picked: PickedDataFile | null
+      try {
+        picked = await pickDataFile({
+          showOpenFilePicker: async (options) => {
+            const handles = await showOpenFilePicker(options)
+            openCapture.handle = handles[0] ?? null
+            return handles
+          },
+        })
+      } catch {
+        // A refused or dismissed chooser opens nothing and says nothing —
+        // exactly the idle Open control's picker behaviour.
+        return
+      }
+      if (datasetSession.tokenRef.current !== session) return
+      if (picked === null) return
+      if (phaseRef.current.kind !== 'idle') return
+      const identity: SourceIdentity | null =
+        openCapture.handle === null
+          ? null
+          : { isSameEntry: openCapture.handle.isSameEntry.bind(openCapture.handle) }
+      let file: File
+      try {
+        file = await picked.source.getFile()
+      } catch (error) {
+        if (datasetSession.tokenRef.current !== session) return
+        if (phaseRef.current.kind !== 'idle') return
+        // The same terminal error frame the open chain uses for this exact
+        // failure (a picked file that cannot be read); no second
+        // classification and no new copy.
+        setPhase({
+          kind: 'error',
+          message: error instanceof Error ? error.message : String(error),
+          errorName: error instanceof Error ? error.name : undefined,
+        })
+        return
+      }
+      if (datasetSession.tokenRef.current !== session) return
+      if (phaseRef.current.kind !== 'idle') return
+      if (detectFormatFromFileName(file.name) !== 'csv') {
+        pendingReviewHandoffRef.current = { file, identity, options: undefined }
+        void openDataFile()
+        return
+      }
+      setCsvReviewStopped(null)
+      setCsvReview({ mode: 'idle', file, identity, startPhase: phaseRef.current, intentSeq: 0 })
+    })()
+  }
 
   /**
    * ug-15/UG-6: drop a data file anywhere on the shell. Both handlers are
@@ -2355,6 +2689,29 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
             onChoose={chooseFromGuard}
           />
         )}
+        {/*
+         * EW-03I-b: the CSV review — a native `<dialog>` like the guard and the
+         * guide (UA top layer + UA focus scope, Escape = Stop reviewing). It
+         * mounts only while a reviewed candidate exists, and it only ever
+         * calls `csvPreview`: nothing in this subtree can adopt, open or write
+         * a session table. The picked file's name is never rendered (ADR 0025).
+         */}
+        {csvReview !== null && (
+          <CsvReviewDialog
+            mode={csvReview.mode}
+            source={{
+              name: csvReview.file.name,
+              getFile: () => Promise.resolve(csvReview.file),
+            }}
+            requestPreview={previewCsvSource}
+            onAdopt={(options) => {
+              adoptCsvReview(csvReview, options)
+            }}
+            onStop={() => {
+              stopCsvReview(csvReview)
+            }}
+          />
+        )}
 
         {phase.kind === 'idle' && (
           <div className="idle-intro" data-testid="idle-intro">
@@ -2398,7 +2755,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
               }
               // WF-06: a ready-state Open enters the synchronous gate; every
               // other phase keeps the unchanged legacy destroy-first chain.
-              if (phase.kind === 'ready') startReplacementGate(openModal, true)
+              if (phase.kind === 'ready') startReplacementGate(openModal, true, 'open')
               else void openDataFile()
             }}
             /* IC-03/K17 (§4.6): disabled when an intent is active OR ANY owned
@@ -2416,25 +2773,78 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           >
             Open a data file…
           </button>{' '}
+          {/*
+           * EW-03I-b: the explicit CSV review path, beside the Open control
+           * (EW-03D §3). It is a second, discoverable entry — never a change
+           * to the default: the Open control above keeps its exact chain,
+           * copy and phase transitions, and nothing here renders in a phase
+           * that does not offer it. In `ready` it goes through the same WF-06
+           * gate, so a dirty session gets the same guard and a busy one the
+           * same refusal. It is inline (no new block) so the ≤140px ready-top
+           * budget is untouched.
+           */}
+          {(phase.kind === 'idle' || phase.kind === 'ready') && (
+            <button
+              type="button"
+              className="csv-review-open"
+              data-testid={phase.kind === 'idle' ? 'csv-review-button' : 'csv-review-open'}
+              disabled={openControlBlocked({
+                phase: phase.kind,
+                intentActive: intent.kind !== 'none',
+                openModal,
+              })}
+              onClick={() => {
+                if (
+                  openControlBlocked({
+                    phase: phase.kind,
+                    intentActive: intent.kind !== 'none',
+                    openModal,
+                  })
+                ) {
+                  return
+                }
+                if (phase.kind === 'ready') startReplacementGate(openModal, true, 'review')
+                else startCsvReviewFromIdle()
+              }}
+            >
+              {CSV_REVIEW_ACTION}
+            </button>
+          )}
           {phase.kind === 'idle' && (
-            <div data-testid="example-data-entry">
-              <button
-                type="button"
-                className="example-button"
-                data-testid="example-data-button"
-                onClick={() => {
-                  exampleFileRef.current = new File([nestedFixtureText], 'nested.jsonl')
-                  void openDataFile()
-                }}
-              >
-                {IDLE_EXAMPLE_ACTION}
-              </button>
-              <p data-testid="example-data-helper">{IDLE_EXAMPLE_HELPER}</p>
-            </div>
+            <>
+              <p className="csv-review-entry-helper" data-testid="csv-review-helper">
+                {CSV_REVIEW_IDLE_HELPER}
+              </p>
+              <div data-testid="example-data-entry">
+                <button
+                  type="button"
+                  className="example-button"
+                  data-testid="example-data-button"
+                  onClick={() => {
+                    exampleFileRef.current = new File([nestedFixtureText], 'nested.jsonl')
+                    void openDataFile()
+                  }}
+                >
+                  {IDLE_EXAMPLE_ACTION}
+                </button>
+                <p data-testid="example-data-helper">{IDLE_EXAMPLE_HELPER}</p>
+              </div>
+            </>
           )}
           <span data-testid="open-status" data-phase={phase.kind}>
             {openStatusCopy(phase.kind)}
           </span>
+          {/*
+           * EW-03I-b: abandonment copy (ADR 0049 item 7 / envelope §5a).
+           * "Stopped reviewing" — never "aborted", and never a claim that a
+           * preview slot was released: there is no host-reachable release op.
+           */}
+          {csvReviewStopped !== null && (
+            <span role="status" data-testid="csv-review-stopped">
+              {CSV_REVIEW_STOPPED}
+              {csvReviewStopped === 'replace' ? ` ${CSV_REVIEW_STOPPED_SESSION}` : ''}
+            </span>
+          )}
           {/*
            * WF-06: the replacement notices live beside the Open control, in
            * the open-flow status area (never inside the ready region, which is
