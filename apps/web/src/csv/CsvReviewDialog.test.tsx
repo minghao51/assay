@@ -90,7 +90,7 @@ const APPROVED = {
   dates:
     'A date or timestamp column keeps the type the reader guessed, and the guessed format is shown above. No locale or date-order inference is applied: only a date format set here overrides the guess.',
   headerRenames:
-    'The reader renames duplicate and empty header names on its own: an empty name becomes column1, column2, … and a repeated name gets a numeric suffix such as id_1. The names above are the names after those renames, and they are the names the opened dataset will have.',
+    'The reader renames duplicate and empty header names on its own: an empty name becomes column0 for the first column, column1 for the second, and so on; a repeated name gets a numeric suffix such as id_1. The names above are the names after those renames, and they are the names the opened dataset will have.',
   headerRenamesList:
     'The reader renames duplicate and empty header names on its own. This is what it renamed in this file’s header:',
   headerRenamesNone:
@@ -629,6 +629,53 @@ describe('CSV review — D3, the per-file header rename list (verified or absent
     expect(screen.queryByTestId('csv-review-rename-list')).toBeNull()
   })
 
+  /**
+   * The fixed marker shape this surface is allowed to hang off an element: its
+   * own `csv-review…` `data-testid` names. Nothing here is ever derived from the
+   * file — an option key (`csv-review-effective-sample_size`) is engine
+   * configuration, and no other value exists.
+   */
+  const SURFACE_MARKER = /^csv-review-[a-z0-9_-]+$/
+
+  /** Every `data-*` attribute currently mounted inside the dialog. */
+  function dataAttributes(): Attr[] {
+    return Array.from(dialogElement().querySelectorAll('*')).flatMap((element) =>
+      Array.from(element.attributes).filter((attribute) => attribute.name.startsWith('data-')),
+    )
+  }
+
+  /**
+   * The needle half of the privacy check: no `data-*` attribute VALUE may
+   * contain header text or the picked file's name. `needles` must carry BOTH
+   * halves of the disclosure — the rename ORIGINALS (including the `(empty
+   * name)` placeholder an empty original renders as) and the RENAMED names —
+   * because a leak of either names a column in a place that can be copied,
+   * logged or scraped. An empty needle is skipped: `''` is a substring of
+   * every value and would assert nothing.
+   */
+  function assertNoHeaderTextInDataAttributes(needles: readonly string[]): void {
+    const text = needles.filter((needle) => needle !== '')
+    const leaked = dataAttributes()
+      .filter((attribute) => text.some((needle) => attribute.value.includes(needle)))
+      .map((attribute) => `${attribute.name}=${attribute.value}`)
+    expect(leaked).toEqual([])
+  }
+
+  /**
+   * The structural half — the part a needle list cannot do. A header original
+   * is often an ordinary word (`id`) or empty, so the shape is pinned instead:
+   * every `data-*` attribute in the surface must be one of its own fixed
+   * `data-testid` markers, which no file content can ever match.
+   */
+  function assertOnlySurfaceMarkers(): void {
+    const foreign = dataAttributes()
+      .filter(
+        (attribute) => attribute.name !== 'data-testid' || !SURFACE_MARKER.test(attribute.value),
+      )
+      .map((attribute) => `${attribute.name}=${attribute.value}`)
+    expect(foreign).toEqual([])
+  }
+
   it('keeps header text on screen only: no console sink, no data-* attribute', async () => {
     const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
       vi.spyOn(console, method),
@@ -636,22 +683,57 @@ describe('CSV review — D3, the per-file header rename list (verified or absent
     mount(() => Promise.resolve(quotedNewlineResult()), 'idle', QUOTED_NEWLINE)
     await waitForSample()
     await waitForList()
-    // The header text really is rendered…
-    expect(surfaceText()).toContain('a,b')
+    // Non-vacuity: the header text really is rendered — both the ORIGINALS of
+    // the listed pairs (one of them empty ⇒ `(empty name)`) and the renamed
+    // names the list promises.
+    expect(screen.getAllByTestId('csv-review-rename-original').map((e) => e.textContent)).toEqual([
+      'id',
+      APPROVED.renameEmpty,
+    ])
     expect(surfaceText()).toContain('line')
-    // …and it reaches no console sink…
+    expect(surfaceText()).toContain('a,b')
+    // …and none of it reaches a console sink…
     for (const spy of spies) {
       expect(spy).not.toHaveBeenCalled()
     }
-    // …and no `data-*` attribute (testids included) carries a header name or
-    // the picked file's name (ADR 0025).
-    const needles = ['column4', 'id_1', 'a,b', 'line\none', 'picked-source-name']
-    const leaked = Array.from(dialogElement().querySelectorAll('*')).flatMap((element) =>
-      Array.from(element.attributes)
-        .filter((attribute) => attribute.name.startsWith('data-'))
-        .filter((attribute) => needles.some((needle) => attribute.value.includes(needle))),
-    )
-    expect(leaked).toEqual([])
+    // …and no `data-*` attribute carries it (ADR 0025). The quoted-newline
+    // fixture's OWN header texts (`a,b`, `line\none`) are needles alongside
+    // the listed pairs' originals (`id`, the empty placeholder) and the renamed
+    // names (`id_1`, `column4`) — both halves, not just the renamed half.
+    assertNoHeaderTextInDataAttributes([
+      // rename originals
+      'a,b',
+      'line\none',
+      'id',
+      APPROVED.renameEmpty,
+      // renamed names
+      'id_1',
+      'column4',
+      // the picked file's name
+      'picked-source-name',
+    ])
+    assertOnlySurfaceMarkers()
+  })
+
+  it('keeps the empty-name original off every data-* attribute too', async () => {
+    // `dup-header.csv`: the listed pairs are `(empty name) → column1` and
+    // `id → id_1`, so the ORIGINAL half is exactly the empty placeholder plus
+    // the ordinary word `id` — the case a renamed-name needle list cannot see.
+    mount(() => Promise.resolve(dupHeaderResult()), 'idle', DUP_HEADER)
+    await waitForSample()
+    await waitForList()
+    expect(screen.getAllByTestId('csv-review-rename-original').map((e) => e.textContent)).toEqual([
+      APPROVED.renameEmpty,
+      'id',
+    ])
+    assertNoHeaderTextInDataAttributes([
+      APPROVED.renameEmpty,
+      'id',
+      'column1',
+      'id_1',
+      'picked-source-name',
+    ])
+    assertOnlySurfaceMarkers()
   })
 })
 

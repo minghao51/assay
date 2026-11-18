@@ -190,9 +190,16 @@ export const CSV_REVIEW_DATES =
  * D3 — the reader renames duplicate and empty header names. This sentence is
  * the FALLBACK when the per-file list cannot be derived safely, and the
  * statement of the rule the verified list is an instance of.
+ *
+ * The illustration is POSITION-ACCURATE and zero-based, because the reader is:
+ * an empty name becomes `column{i}` for the column's ZERO-based position, so an
+ * unnamed FIRST column is `column0` (`,a,b` ⇒ `column0`, `a`, `b`; `a,b,` ⇒
+ * `a`, `b`, `column2` — verified on DuckDB v1.5.5). A `column1, column2, …`
+ * illustration would contradict the sniff disclosure rendered directly above
+ * it on exactly the file this disclosure exists for.
  */
 export const CSV_REVIEW_HEADER_RENAMES =
-  'The reader renames duplicate and empty header names on its own: an empty name becomes column1, column2, … and a repeated name gets a numeric suffix such as id_1. The names above are the names after those renames, and they are the names the opened dataset will have.'
+  'The reader renames duplicate and empty header names on its own: an empty name becomes column0 for the first column, column1 for the second, and so on; a repeated name gets a numeric suffix such as id_1. The names above are the names after those renames, and they are the names the opened dataset will have.'
 
 /**
  * D3 — the verified per-file rename list. This lead-in replaces the fallback

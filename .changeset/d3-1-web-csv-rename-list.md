@@ -19,8 +19,8 @@ exact equality** with `sniff.columns[].name` (count, text and order included).
 **The rule is encoded from evidence, not assumption.** Verified against the installed
 DuckDB v1.5.5 CLI and, in the browser, against the shipped build (the e2e legs on
 `dup-header.csv` and the new `quoted-newline.csv` are the browser proof): an empty name
-becomes `column{i}` with a **zero-based** position (`,a,b` ⇒ `column0`, not `column1` — the
-behaviour sentence's illustration was the second-column case); a repeated name takes `_{n}`
+becomes `column{i}` with a **zero-based** position (`,a,b` ⇒ `column0`, not `column1`); a
+repeated name takes `_{n}`
 from a per-base counter that is **case-insensitive** and shared across spellings
 (`id,id,ID,ID` ⇒ `id`, `id_1`, `ID_2`, `ID_3`); a suffixed candidate that is already taken is
 deduplicated again recursively (`a,a_1,a` ⇒ `a_1_1`); and each name is trimmed of ASCII
@@ -30,7 +30,11 @@ escape text (`\n`, `\r\n`), while `Delimiter` arrives as a real character.
 
 **Show or fall back — never a partial list.** The pairs (`original → renamed`) replace the
 behaviour sentence when the comparison passes, with an empty-name original rendered as
-`(empty name)` and a verified file with nothing to rename saying so. Every other outcome
+`(empty name)` and a verified file with nothing to rename saying so. The retained behaviour
+sentence's empty-name illustration was the second-column case (`column1, column2, …`) and is
+corrected here to the reader's own zero-based wording (`column0` for the first column,
+`column1` for the second), so it can no longer contradict the sniff disclosure beside it on a
+file whose first column is unnamed. Every other outcome
 falls back to the existing behaviour sentence plus one honest limit sentence ("No per-file
 rename list is shown for this file: it could not be derived safely from the head of the
 file.") — no header row (`header=false`), the reader skipping rows before the header, a
