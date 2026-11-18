@@ -484,6 +484,15 @@ implementation task; parent independently reviews, verifies and integrates.
 
 ## 9. Changelog for this document
 
+- 2026-11-18 (**ib**) — **ADR 0051 ACCEPTED** (maintainer instruction "accept", 2026-11-18).
+  `docs/adr/0051-column-repair-composition-shape.md` moves from Proposed to Accepted with the decision
+  text unchanged — the three rules (stacked projection layers, linear emitted size, set-membership at
+  predicate sites), their bounds and their stated evidence gaps are exactly as proposed; only the Status/
+  Date/Deciders block changed. Index regenerated: **51 records (43 accepted, 8 proposed)**. The record now
+  carries the durable guardrail against re-deriving the nested reading that **OOMs at three repairs**, and
+  its rule 3 is what the EW-04I review used to judge the repaired count predicate compliant (set-membership,
+  no wrap duplication). Docs gates: index **51**, links **167/0**, prettier clean. Nothing pushed.
+
 - 2026-11-18 (**ia**) — **EW-04I CLOSED — merged `52da4ca` + `9e62172` + `d0069be`** (worker
   `4082677`/`aee54ff`/`5a9eb19`; independent `opencode-go/mimo-v2.6-flash` high, one request-changes round
   - one comment round). Web bulk repair is in: `Repair a column…` → native dialog (column, explicit trim

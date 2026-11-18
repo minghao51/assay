@@ -2,16 +2,17 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
-Proposed 2026-11-18
+Proposed 2026-11-18 → Accepted 2026-11-18
 
 ## Deciders
 
-- Maintainer (product/domain owner) — acceptance or rejection is pending; this record was drafted by
-  the agent session from the maintainer-selected row (2026-11-18) and claims no acceptance.
+- Maintainer (product/domain owner; acceptance instruction "accept", 2026-11-18, recorded in the
+  [post-EW-03I-a pickup](../process/handoff/20261118-post-ew03ia-pickup.md) — the record this ADR was
+  proposed from named acceptance as the maintainer's, and nothing else in it changed at acceptance)
 
 ## Context
 
