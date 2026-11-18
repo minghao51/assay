@@ -72,7 +72,7 @@ export const CSV_REVIEW_STOPPED_SESSION = 'This session is unchanged.'
 /** Read options section. */
 export const CSV_REVIEW_OPTIONS_HEADING = 'Read options'
 export const CSV_REVIEW_OPTIONS_SCOPE =
-  'Anything left unset stays the reader guess. An option the reader does not accept is refused here, before anything is read.'
+  'Anything left unset stays the reader’s guess. An option the reader does not accept is refused here, before anything is read.'
 
 /** One select control that can stay at the reader's own choice. */
 export const CSV_REVIEW_UNSET_OPTION = 'Reader choice'
@@ -110,7 +110,7 @@ export const CSV_REVIEW_SAMPLE_MISSING = 'No sample was requested.'
 /** Sniff disclosure section (ADR 0049 item 6). */
 export const CSV_REVIEW_SNIFF_HEADING = 'What the reader inferred from the head of the file'
 export const CSV_REVIEW_SNIFF_NOTE =
-  'These are the reader own settings and types, inferred from a sample of rows. They describe how the file will be read, not what it contains.'
+  'These are the reader’s own settings and types, inferred from a sample of rows. They describe how the file will be read, not what it contains.'
 export const CSV_REVIEW_SNIFF_DELIMITER = 'Delimiter'
 export const CSV_REVIEW_SNIFF_QUOTE = 'Quote'
 export const CSV_REVIEW_SNIFF_ESCAPE = 'Escape'
@@ -123,13 +123,13 @@ export const CSV_REVIEW_SNIFF_DATEFORMAT = 'Date format'
 export const CSV_REVIEW_SNIFF_TIMESTAMPFORMAT = 'Timestamp format'
 export const CSV_REVIEW_SNIFF_PROMPT_HEADING = 'The read_csv call for these settings'
 export const CSV_REVIEW_SNIFF_PROMPT_NOTE =
-  'Display text only. It names the reader staging name, not your file, and nothing here runs it.'
+  'Display text only. It names the reader’s staging name, not your file, and nothing here runs it.'
 export const CSV_REVIEW_NONE_VALUE = 'None'
 
 /** Effective-options disclosure: exactly what the sample's read composed. */
 export const CSV_REVIEW_EFFECTIVE_HEADING = 'Options this sample used'
 export const CSV_REVIEW_EFFECTIVE_NONE =
-  'No option was set, so the read used the reader guess for every setting.'
+  'No option was set, so the read used the reader’s guess for every setting.'
 
 /** A pre-dispatch refusal (the engine vocabulary's own value-free reason). */
 export const CSV_REVIEW_REFUSAL_PREFIX = 'These options were not sent: '

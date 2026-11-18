@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EngineCsvPreviewResult } from '@assay/engine-duckdb'
 import type { ArrowTableLike } from '../grid/provider'
@@ -39,7 +39,7 @@ const APPROVED = {
   adoptHelperReplace: 'Opens the file with the options this sample used and replaces this session.',
   optionsHeading: 'Read options',
   optionsScope:
-    'Anything left unset stays the reader guess. An option the reader does not accept is refused here, before anything is read.',
+    'Anything left unset stays the reader’s guess. An option the reader does not accept is refused here, before anything is read.',
   unset: 'Reader choice',
   yes: 'Yes',
   no: 'No',
@@ -65,14 +65,14 @@ const APPROVED = {
     'These options changed after the sample was read. Choose Update sample so the sample and the disclosure match what Open this file would use.',
   loading: 'Reading the sample…',
   effectiveHeading: 'Options this sample used',
-  effectiveNone: 'No option was set, so the read used the reader guess for every setting.',
+  effectiveNone: 'No option was set, so the read used the reader’s guess for every setting.',
   sniffHeading: 'What the reader inferred from the head of the file',
   sniffNote:
-    'These are the reader own settings and types, inferred from a sample of rows. They describe how the file will be read, not what it contains.',
+    'These are the reader’s own settings and types, inferred from a sample of rows. They describe how the file will be read, not what it contains.',
   sniffColumnsHeading: 'Column names and types',
   sniffPromptHeading: 'The read_csv call for these settings',
   sniffPromptNote:
-    'Display text only. It names the reader staging name, not your file, and nothing here runs it.',
+    'Display text only. It names the reader’s staging name, not your file, and nothing here runs it.',
   sampleHeading: 'Bounded sample',
   sampleTableCaption: 'Bounded sample, read-only',
   sampleScope:
@@ -170,6 +170,8 @@ interface Harness {
   readonly calls: PreviewCall[]
   readonly onAdopt: ReturnType<typeof vi.fn>
   readonly onStop: ReturnType<typeof vi.fn>
+  /** Unmount the surface, as the parent does after `onStop` (production path). */
+  readonly unmount: () => void
 }
 
 /**
@@ -186,7 +188,7 @@ function mount(
   const onAdopt = vi.fn()
   const onStop = vi.fn()
   const file = new File(['id;name\n1;anna\n'], 'picked-source-name.csv')
-  render(
+  const rendered = render(
     <CsvReviewDialog
       mode={mode}
       source={{ name: file.name, getFile: () => Promise.resolve(file) }}
@@ -199,7 +201,7 @@ function mount(
       onStop={onStop as never}
     />,
   )
-  return { calls, onAdopt, onStop }
+  return { calls, onAdopt, onStop, unmount: rendered.unmount }
 }
 
 function dialogElement(): HTMLDialogElement {
@@ -579,22 +581,25 @@ describe('CSV review — abandonment and late results', () => {
     await waitFor(() => {
       expect(held).toHaveLength(2)
     })
-    // The NEWER read settles first, the older one after it: the older result
-    // must not overwrite the newer one (the generation guard).
-    held[1]?.(previewResult({ previewId: 'p3', effectiveOptions: { delim: '|' } }))
-    await waitFor(() => {
-      expect(textOf('csv-review-effective-delim')).toBe('|')
+    // The NEWER read settles first, the older one after it. Each settlement runs
+    // inside `act`, which flushes the continuation microtask, so the older
+    // result is actually APPLIED before the assertion — that is what makes the
+    // generation guard observable: removing it lets the older view overwrite
+    // the newer one and this assertion fails (`{ delim: ',' }` vs `'|'`).
+    await act(async () => {
+      held[1]?.(previewResult({ previewId: 'p3', effectiveOptions: { delim: '|' } }))
     })
-    held[0]?.(previewResult({ previewId: 'p2', effectiveOptions: { delim: ',' } }))
-    await waitFor(() => {
-      expect(textOf('csv-review-effective-delim')).toBe('|')
+    expect(textOf('csv-review-effective-delim')).toBe('|')
+    await act(async () => {
+      held[0]?.(previewResult({ previewId: 'p2', effectiveOptions: { delim: ',' } }))
     })
+    expect(textOf('csv-review-effective-delim')).toBe('|')
   })
 
   it('never renders a late result after abandonment', async () => {
     const held: Array<(result: EngineCsvPreviewResult) => void> = []
     const errorSpy = vi.spyOn(console, 'error')
-    mount((call) => {
+    const harness = mount((call) => {
       if (call.options === undefined) return Promise.resolve(previewResult())
       return new Promise<EngineCsvPreviewResult>((resolve) => {
         held.push(resolve)
@@ -607,8 +612,46 @@ describe('CSV review — abandonment and late results', () => {
       expect(held).toHaveLength(1)
     })
     fireEvent.click(button('csv-review-stop'))
-    held[0]?.(previewResult({ previewId: 'p9', effectiveOptions: { delim: ';' } }))
-    await Promise.resolve()
+    expect(harness.onStop).toHaveBeenCalledTimes(1)
+    // The surface the late read would overwrite is the INITIAL one (no option
+    // composed ⇒ the explicit "no option was set" line). Settling the held read
+    // inside `act` flushes its continuation, so a removed abandonment bump
+    // paints the late view here and this assertion catches it.
+    expect(screen.getByTestId('csv-review-effective-none')).toBeTruthy()
+    await act(async () => {
+      held[0]?.(previewResult({ previewId: 'p9', effectiveOptions: { delim: ';' } }))
+    })
+    expect(screen.queryByTestId('csv-review-effective-delim')).toBeNull()
+    expect(screen.getByTestId('csv-review-effective-none')).toBeTruthy()
+    // Nothing was adopted, and nothing reached a console sink.
+    expect(harness.onAdopt).not.toHaveBeenCalled()
+    expect(button('csv-review-adopt').disabled).toBe(true)
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('is silent when a read settles after the surface is gone', async () => {
+    const held: Array<(result: EngineCsvPreviewResult) => void> = []
+    const errorSpy = vi.spyOn(console, 'error')
+    const harness = mount((call) => {
+      if (call.options === undefined) return Promise.resolve(previewResult())
+      return new Promise<EngineCsvPreviewResult>((resolve) => {
+        held.push(resolve)
+      })
+    })
+    await waitForSample()
+    change('csv-review-delim', ';')
+    fireEvent.click(button('csv-review-update'))
+    await waitFor(() => {
+      expect(held).toHaveLength(1)
+    })
+    fireEvent.click(button('csv-review-stop'))
+    // The production path: the parent removes the surface on `onStop`.
+    harness.unmount()
+    await act(async () => {
+      held[0]?.(previewResult({ previewId: 'p9', effectiveOptions: { delim: ';' } }))
+    })
+    expect(screen.queryByTestId('csv-review')).toBeNull()
+    expect(harness.onAdopt).not.toHaveBeenCalled()
     expect(errorSpy).not.toHaveBeenCalled()
   })
 })

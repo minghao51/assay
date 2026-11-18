@@ -439,6 +439,21 @@ export function CsvReviewDialog({
   const onStopRef = useRef(onStop)
   onStopRef.current = onStop
 
+  /**
+   * Abandonment, in the surface's own words: "stopped reviewing" drops the
+   * candidate and every in-flight read. The generation bump happens HERE, not
+   * only on unmount, because the parent reacts to `onStop` by removing this
+   * surface in the same tick — a read that settles in that window must never
+   * paint, and must never be adoptable.
+   */
+  const abandon = (): void => {
+    generationRef.current += 1
+    onStopRef.current()
+  }
+  /** The mount effect registers once; it reads the live `abandon` through this. */
+  const abandonRef = useRef(abandon)
+  abandonRef.current = abandon
+
   const parsed = previewOptions(form)
   const currentFingerprint = parsed.ok ? optionsFingerprint(parsed.options) : null
   const adoptable = reviewIsAdoptable(state, currentFingerprint)
@@ -484,7 +499,7 @@ export function CsvReviewDialog({
     titleRef.current?.focus()
     const cancel = (event: Event): void => {
       event.preventDefault()
-      onStopRef.current()
+      abandonRef.current()
     }
     dialog.addEventListener('cancel', cancel)
     const wrapTab = (event: KeyboardEvent): void => {
@@ -830,7 +845,7 @@ export function CsvReviewDialog({
           type="button"
           className="csv-review-secondary"
           data-testid="csv-review-stop"
-          onClick={onStopRef.current}
+          onClick={abandon}
         >
           {CSV_REVIEW_STOP}
         </button>{' '}

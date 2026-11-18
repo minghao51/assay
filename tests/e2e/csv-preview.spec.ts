@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { expect, test } from './support/fixture'
+import { openFixture } from './support/fixtures'
 import type { Page } from './support/fixture'
 
 /**
@@ -273,4 +274,113 @@ test('a refused option never reaches the engine', async ({ page }) => {
   // The older sample stays on screen but is marked as no longer matching the
   // form — it is never presented as current.
   await expect(page.getByTestId('csv-review-stale')).toBeVisible()
+})
+
+/* ---- Catalog neutrality, both directions (EW-03I-b done-when 6) -------------
+ *
+ * The preview's registration is proven not to grow the USER catalog, and the
+ * same probe is proven not to be vacuous: adoption — a fresh `engine/open` —
+ * moves it. Both are read through the app's own SQL surface in a READY session
+ * (the only place that surface exists), on the real engine:
+ *
+ *   SELECT count(*) FROM duckdb_tables() WHERE NOT internal
+ *   SELECT count(*) FROM duckdb_views()  WHERE NOT internal
+ *
+ * A session relation is a VIEW (`CREATE VIEW "assay_tN"`), so the expected
+ * adoption delta is +1 view / +0 tables — and the retired session's view is
+ * RETAINED (ADR 0047), so it is a true increment rather than a drop-and-add.
+ * A proxy ("engine/open was not called") would not satisfy this leg; the
+ * counts come from the catalog itself.
+ */
+
+/** The one-cell result of a catalog query, after running it. */
+async function runCatalogQuery(
+  page: Page,
+  catalog: 'duckdb_tables' | 'duckdb_views',
+): Promise<import('@playwright/test').Locator> {
+  const sql = `SELECT count(*) FROM ${catalog}() WHERE NOT internal`
+  const input = page.getByTestId('sql-input')
+  // Type-then-run is retried as one unit: a new dataset session clears the SQL
+  // pane's draft shortly after a replacement, and a fill that lands inside that
+  // window would be discarded (pre-existing session-scoped behaviour, not this
+  // row's).
+  await expect(async () => {
+    await input.fill(sql)
+    await expect(input).toHaveValue(sql)
+    await expect(page.getByTestId('sql-run')).toBeEnabled()
+  }).toPass({ timeout: 20_000 })
+  await page.getByTestId('sql-run').click()
+  return page
+    .locator('[data-testid="sql-result-row"]')
+    .first()
+    .locator('[data-testid="sql-result-cell"]')
+    .first()
+}
+
+/** The SQL-facing count of one user-catalog function, read as a number. */
+async function readUserCatalogCount(
+  page: Page,
+  catalog: 'duckdb_tables' | 'duckdb_views',
+): Promise<number> {
+  const cell = await runCatalogQuery(page, catalog)
+  await expect(cell).toHaveText(/^\d+$/, { timeout: 20_000 })
+  return Number(await cell.innerText())
+}
+
+/** The same probe, asserting an exact value (retried until it holds). */
+async function expectUserCatalogCount(
+  page: Page,
+  catalog: 'duckdb_tables' | 'duckdb_views',
+  expected: number,
+): Promise<void> {
+  const cell = await runCatalogQuery(page, catalog)
+  await expect(cell).toHaveText(String(expected), { timeout: 20_000 })
+}
+
+test('a preview leaves the user catalog unchanged, and adoption moves it', async ({ page }) => {
+  // A live session (the SQL surface exists only in a ready session). It is the
+  // control for both directions: one session relation already exists.
+  await openFixture(page, CUSTOMERS_FIXTURE)
+  const tablesBefore = await readUserCatalogCount(page, 'duckdb_tables')
+  const viewsBefore = await readUserCatalogCount(page, 'duckdb_views')
+  expect(viewsBefore).toBeGreaterThanOrEqual(1)
+  expect((await observed(page)).filter((request) => request.type === 'engine/open')).toHaveLength(1)
+
+  // Direction 1 — the preview registers the candidate but adds no catalog
+  // object. Assert the preview really landed before stopping (a vacuous probe
+  // would leave the sample unread).
+  const previewsBefore = (await observed(page)).filter(
+    (request) => request.type === 'engine/csv-preview',
+  ).length
+  const reviewChooser = page.waitForEvent('filechooser')
+  await page.getByTestId('csv-review-open').click()
+  await (await reviewChooser).setFiles(SEMICOLON_FIXTURE)
+  await expect(page.getByTestId('csv-review-sample-table')).toBeVisible({ timeout: 20_000 })
+  await expect
+    .poll(
+      async () =>
+        (await observed(page)).filter((request) => request.type === 'engine/csv-preview').length,
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(previewsBefore)
+  await page.getByTestId('csv-review-stop').click()
+  await expect(page.getByTestId('csv-review')).toHaveCount(0)
+  await expectUserCatalogCount(page, 'duckdb_tables', tablesBefore)
+  await expectUserCatalogCount(page, 'duckdb_views', viewsBefore)
+
+  // Direction 2 — adoption DOES move it, so the probe above is not vacuous:
+  // exactly one new user view (the adopted session relation), no user table,
+  // and the previous session's view retained (ADR 0047).
+  const adoptChooser = page.waitForEvent('filechooser')
+  await page.getByTestId('csv-review-open').click()
+  await (await adoptChooser).setFiles(SEMICOLON_FIXTURE)
+  await expect(page.getByTestId('csv-review-sample-table')).toBeVisible({ timeout: 20_000 })
+  await page.getByTestId('csv-review-adopt').click()
+  await waitForPhase(page, 'ready')
+  await expect(page.getByTestId('csv-review')).toHaveCount(0)
+  // The adopted session clears the SQL pane's draft; wait for that reset so the
+  // catalog reads below are typed into the settled pane.
+  await expect(page.getByTestId('sql-input')).toHaveValue('', { timeout: 15_000 })
+  await expectUserCatalogCount(page, 'duckdb_tables', tablesBefore)
+  await expectUserCatalogCount(page, 'duckdb_views', viewsBefore + 1)
 })
