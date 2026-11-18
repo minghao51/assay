@@ -1,9 +1,11 @@
 # Project Handoff — Assay
 
 **Last updated:** 2026-11-18. **Current lane:** launch readiness; the post-R1 runtime wave has closed
-**EW-02I**, **R2**, **U5** (EW-04D condition vii) and **EW-03I-a**, with **ADR 0049/0050 Accepted**; the
-remaining queue is in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md) — **EW-03I-b**
-(web CSV preview), **EW-04I** (bulk-repair web + U1–U3) and the **TB-1** test-budget follow-up. The
+**EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
+Accepted**; the remaining queue is in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md)
+— **EW-03I-b** (web CSV preview) and **EW-04I** (bulk-repair web + U1–U3), plus the optional ADR 0051 and
+two rows recorded but unselected (TB-2 spawn-count pin / ceiling tightening; the ADR 0049 decision-4
+abandonment-release divergence). The
 original UX/UI programme and bounded audit follow-up are complete. The
 [usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) in 23 rows (ug-1…ug-23):
@@ -70,6 +72,26 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Pipeline        | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                                                                                                                                                                    | P4 adapter priority is a later user-demand decision             |
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
+
+**Verified state (2026-11-18, TB-1 CLOSED):** **TB-1 merged** `30b6564` + `4b147a1` (worker `730a4e1`,
+independent `opencode-go/mimo-v2.6-flash` high review, two comment-only request-changes rounds). The
+seeded U5 corpus now spawns the DuckDB CLI **8 times instead of ≈640** (`runCliBatched`: one process per
+seed, 120 marker-delimited queries each, blocks asserted in input order and exactly one per query);
+**960 queries still execute** and seeds, sessions, all four corpus counters, every assertion and the
+explicit 45 s ceiling are unchanged (`vitest.config.ts` untouched). This row ran **first** because the
+baseline at `ee65c54` was red on this host: the test timed out at 48.8 s and 53.2 s against its 45 s
+budget under an unrelated load average ≈33 (isolated pass 32 s) — a test-budget failure outside any
+runtime row. Reviewer evidence: three consecutive full coverage runs green at load 30→97 with
+byte-identical 89.54/84.36/91.83/91.17, six instrumented legs at 4.7–7.0 s, four mutation drills and a
+pre-fix baseline (17.65 s → 1.25–1.87 s solo). Merged gates on `main`: format/lint clean, forced
+typecheck **20** (0 cached), unit **249 files / 3814 tests** green on three consecutive runs, coverage
+**89.54 / 84.36 / 91.83 / 91.17** (exit 0), forced build **12** (0 cached), docs links **166/0**, ADR
+**50**, browser **268 + 1 skip**, 0 failed. Two honest gaps: the **first** merged unit run had one
+failure whose log I did not retain (unreproduced in three subsequent full runs — always save the log),
+and the configured/restored telemetry legs were not run because a one-file test change cannot affect
+them. Carry-over recorded for a future row: nothing pins the **spawn count**, so a revert to the old
+per-history pattern would still pass at low load (45 s ceiling now ≈24–36x the solo cost). Worktree
+removed; nothing pushed.
 
 **Verified state (2026-11-18, EW-03I-a CLOSED):** **EW-03I-a merged** `ae0f6cf` + `a6059c6` + `4d56036`
 (worker `645c109`/`e7f45d8`/`03034df`; independent gpt-6-luna xhigh, two request-changes rounds):
@@ -245,12 +267,15 @@ an ADR, never a silent rewrite of an accepted decision.
 ### Active
 
 **Post-R1 runtime wave — closed rows and the remaining queue (2026-11-18).** **EW-02I** (`fd5a92a`),
-**R2** (`0f77e38`/`a17f3a3`), **U5** (`94128b2`/`120af28`/`6688f71`, EW-04D condition vii) and
-**EW-03I-a** (`ae0f6cf`/`a6059c6`/`4d56036`) are merged; **ADR 0049/0050** are Accepted. The cold-pickup
+**R2** (`0f77e38`/`a17f3a3`), **U5** (`94128b2`/`120af28`/`6688f71`, EW-04D condition vii), **EW-03I-a**
+(`ae0f6cf`/`a6059c6`/`4d56036`) and **TB-1** (`30b6564`/`4b147a1`) are merged; **ADR 0049/0050** are
+Accepted. TB-1 was pulled forward because its flake made the baseline red on this host. The cold-pickup
 index, remaining queue, dispatch order and P0–P6 paste-ready prompts are in the
 [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md). Remaining: **EW-03I-b** (web CSV
-preview), **EW-04I** (bulk-repair web + U1–U3), **TB-1** (test budget), optional ADR 0051. R13 stays
-unselected. Nothing pushed.
+preview), **EW-04I** (bulk-repair web + U1–U3), optional ADR 0051, plus two rows recorded from this
+session — a TB-2 candidate (pin the CLI spawn count or tighten the now-loose 45 s ceiling) and the ADR
+0049 decision-4 "drop on abandonment" divergence (candidate engine row). R13 stays unselected. Nothing
+pushed.
 
 **R1 CLOSED — honest engine failure text (2026-11-14).** The maintainer selected R1 (masked browser
 SQL errors, `ReferenceError: _setThrew is not defined`) and approved
@@ -384,6 +409,24 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-18 (**hw**) — **TB-1 CLOSED — merged `30b6564` + `4b147a1`** (review fix `528e674`
+  cherry-picked as `4b147a1`; worker `730a4e1`, independent `opencode-go/mimo-v2.6-flash` high review,
+  two request-changes rounds, both comment/evidence-only). The seeded U5 corpus no longer spawns the CLI
+  ≈640 times: `runCliBatched` runs each seed's 120 queries in **one** process (8 spawns for 320
+  histories), with marker blocks asserted in order and exactly one per query, so a skipped query fails
+  loudly instead of shrinking the corpus. **960 queries still execute; seeds, sessions, all four corpus
+  counters, every assertion and the explicit 45 s ceiling are unchanged** (`vitest.config.ts` untouched).
+  Why it was first: this host's own baseline at `ee65c54` was **red** — the test timed out at 48.8 s and
+  53.2 s against its 45 s budget while an unrelated workload held load average ≈33, so no runtime row
+  could produce a green baseline. Reviewer evidence: three consecutive full coverage runs green at load
+  **30→97** (89.54/84.36/91.83/91.17, byte-identical), six instrumented legs 4.7–7.0 s, four mutation
+  drills + a pre-fix baseline (17.65 s → 1.25–1.87 s solo). Merged gates on `main` (load 1–25): format/
+  lint clean, typecheck 20/20 (0 cached), unit **249 files / 3814 tests** green ×3, coverage
+  **89.54/84.36/91.83/91.17** (exit 0), build 12/12 (0 cached), docs **166/0**, ADR **50**, browser
+  **268 + 1 skip**. One first merged unit run had an **unreproduced, uncaptured** failure (log not
+  retained — process lesson) followed by three green full runs; the telemetry legs were **not** run and
+  cannot be affected by a one-file test change. Worktree/branch removed; nothing pushed.
 
 - 2026-11-18 (**hv**) — **post-EW-03I-a pickup published**: [20261118-post-ew03ia-pickup.md](handoff/20261118-post-ew03ia-pickup.md)
   records the closed runtime wave (EW-02I, R2, U5/condition vii, EW-03I-a; ADR 0049/0050 Accepted), the

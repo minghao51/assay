@@ -1,9 +1,11 @@
 # Post-EW-03I-a pickup — remaining runtime rows and paste-ready prompts
 
 **Date:** 2026-11-18. **Status:** the post-R1 runtime wave has closed **EW-02I**, **R2**, **U5**
-(EW-04D condition vii) and **EW-03I-a**; **ADR 0049** and **ADR 0050** are Accepted. **No product-policy
-decision is pending.** What remains is two web-runtime rows, one test-budget follow-up, and one optional
-Proposed ADR. This record is the cold-pickup index for the next agent; it does not select any
+(EW-04D condition vii), **EW-03I-a** and **TB-1**; **ADR 0049** and **ADR 0050** are Accepted. **No
+product-policy decision is pending.** What remains is two web-runtime rows and one optional Proposed ADR,
+plus two rows this record now carries as **recorded but unselected**: TB-2 (pin the CLI spawn count or
+tighten TB-1's now-loose ceiling) and the ADR 0049 decision-4 abandonment-release divergence (candidate
+engine row). This record is the cold-pickup index for the next agent; it does not select any
 unrequested row.
 
 **Authority order:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) dated selection →
@@ -19,15 +21,16 @@ gates; never reuse the counts below as a current pass claim.
 `main` was clean at `076705c` when this record was written. Docs gates: **165 files / 0 broken links**,
 **ADR 50 (42 accepted, 8 proposed)**, prettier and `git diff --check` clean.
 
-| Row / decision                 | Merge / status                               | Evidence                                                                                                                                                                                                                                                 |
-| ------------------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1 (ADR 0048)                  | CLOSED earlier                               | `837b638` (R1-C), `b0b78bc` (R1-A), `5426979` (R1-B); [R1 record](20261114-r1-masked-engine-errors.md)                                                                                                                                                   |
-| **EW-02I** (D2)                | **CLOSED** `fd5a92a`                         | three accepted EW-02D sentences + literal tests; gpt-6-luna xhigh approve with two mutation drills; [acceptance record](20261114-post-r1-decisions-accepted.md)                                                                                          |
-| **R2** (D6)                    | **CLOSED** `0f77e38` + `a17f3a3`             | projection-boundary guard for ±int64 timestamp sentinels; validity-first (NULL stays NULL); delivered negative sentinel `-9223372036854775807`; [probe](20261114-r2-infinity-probe.md)                                                                   |
-| **U5 / EW-04D (vii)**          | **CLOSED** `94128b2` + `120af28` + `6688f71` | `column-repair` op + forward fold/masking, ADR 0050 undo-by-refold, stacked repair layers, D17 literal rewrite, D16 wrapped DESCRIBE + split-form cast check, caps, projected-rows export budget; [D16/D17 probe](20261114-d16-d17-composition-probe.md) |
-| **EW-03I-a** (D3, engine half) | **CLOSED** `ae0f6cf` + `a6059c6` + `4d56036` | `csv-options` closed vocabulary, `engine/csv-preview` + options on `engine/open`, single-slot `PreviewRegistry`, 100k inference budget, strict response domains, six golden CSV fixtures; [acquisition probe](20261116-csv-acquisition-probe.md)         |
-| ADR 0049                       | **Accepted 2026-11-16**                      | resolving the acquisition/retention route in its "Acceptance resolutions"                                                                                                                                                                                |
-| ADR 0050                       | **Accepted 2026-11-16**                      | undo-by-refold; resolutions + the `maskedRows` boundary note                                                                                                                                                                                             |
+| Row / decision                 | Merge / status                               | Evidence                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1 (ADR 0048)                  | CLOSED earlier                               | `837b638` (R1-C), `b0b78bc` (R1-A), `5426979` (R1-B); [R1 record](20261114-r1-masked-engine-errors.md)                                                                                                                                                                                                                            |
+| **EW-02I** (D2)                | **CLOSED** `fd5a92a`                         | three accepted EW-02D sentences + literal tests; gpt-6-luna xhigh approve with two mutation drills; [acceptance record](20261114-post-r1-decisions-accepted.md)                                                                                                                                                                   |
+| **R2** (D6)                    | **CLOSED** `0f77e38` + `a17f3a3`             | projection-boundary guard for ±int64 timestamp sentinels; validity-first (NULL stays NULL); delivered negative sentinel `-9223372036854775807`; [probe](20261114-r2-infinity-probe.md)                                                                                                                                            |
+| **U5 / EW-04D (vii)**          | **CLOSED** `94128b2` + `120af28` + `6688f71` | `column-repair` op + forward fold/masking, ADR 0050 undo-by-refold, stacked repair layers, D17 literal rewrite, D16 wrapped DESCRIBE + split-form cast check, caps, projected-rows export budget; [D16/D17 probe](20261114-d16-d17-composition-probe.md)                                                                          |
+| **EW-03I-a** (D3, engine half) | **CLOSED** `ae0f6cf` + `a6059c6` + `4d56036` | `csv-options` closed vocabulary, `engine/csv-preview` + options on `engine/open`, single-slot `PreviewRegistry`, 100k inference budget, strict response domains, six golden CSV fixtures; [acquisition probe](20261116-csv-acquisition-probe.md)                                                                                  |
+| **TB-1** (test budget)         | **CLOSED** `30b6564` + `4b147a1`             | seeded U5 corpus batched to 8 CLI spawns (≈640 before) with 960 queries and every assertion/counter unchanged; reviewer three coverage runs green at load 30→97, four drills, pre-fix baseline 17.65 s → 1.25–1.87 s solo. Pulled forward: the flake made the `ee65c54` baseline red (48.8/53.2 s vs the 45 s budget at load ≈33) |
+| ADR 0049                       | **Accepted 2026-11-16**                      | resolving the acquisition/retention route in its "Acceptance resolutions"                                                                                                                                                                                                                                                         |
+| ADR 0050                       | **Accepted 2026-11-16**                      | undo-by-refold; resolutions + the `maskedRows` boundary note                                                                                                                                                                                                                                                                      |
 
 Merged gate numbers (recorded, not reusable): EW-02I 246/3664, coverage 89.34/84.05/91.66/91.00,
 browser 265+1; R2 246/3672, 89.33/84.05/91.67/90.99, browser 268+1; U5 248/3737,
@@ -41,14 +44,14 @@ consecutive full coverage reruns were green. See TB-1 below — do not weaken a 
 
 ## 2. Remaining queue (no policy gate unless marked)
 
-| #            | Row                                                                                                        | Gate                                                                          | Notes                                                                                                |
-| ------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **EW-03I-b** | Web CSV preview panel/flow (non-adopting preview, options, sniff disclosure, bounded sample, adopt/cancel) | **none** — ADR 0049 accepted, EW-03I-a merged                                 | **web-runtime writer**; uses `csvPreview()` + `open(options)`; no engine/protocol changes            |
-| **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **web-runtime writer**; serialized after EW-03I-b; no engine/domain changes unless a real gap (stop) |
-| **TB-1**     | Test-budget follow-up for the seeded-history test                                                          | none (test-only)                                                              | may run alongside EW-03I-b in a separate worktree (disjoint files); three green coverage runs        |
-| **ADR 0051** | Optional Proposed ADR: repair composition shape (stacked layers, linear size, set-membership)              | maintainer request                                                            | **optional**; D11 qualifier + U4/D16/D17 already cover EW-04I; docs-only                             |
-| R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                           |
-| R13          | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles            | unselected                                                                    | **do not start**; no implicit selection                                                              |
+| #            | Row                                                                                                        | Gate                                                                          | Notes                                                                                                    |
+| ------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **EW-03I-b** | Web CSV preview panel/flow (non-adopting preview, options, sniff disclosure, bounded sample, adopt/cancel) | **none** — ADR 0049 accepted, EW-03I-a merged                                 | **web-runtime writer**; uses `csvPreview()` + `open(options)`; no engine/protocol changes                |
+| **EW-04I**   | Web bulk-repair plan capture/preview/publication + **U1–U3** host paths                                    | **none** — U5 merged, D16/D17 pinned, D14 accepted, export budget implemented | **web-runtime writer**; serialized after EW-03I-b; no engine/domain changes unless a real gap (stop)     |
+| **TB-1**     | Test-budget follow-up for the seeded-history test                                                          | none (test-only)                                                              | **CLOSED** `30b6564` + `4b147a1`; spawned-count regression detection carried as the TB-2 candidate below |
+| **ADR 0051** | Optional Proposed ADR: repair composition shape (stacked layers, linear size, set-membership)              | maintainer request                                                            | **optional**; D11 qualifier + U4/D16/D17 already cover EW-04I; docs-only                                 |
+| R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                               |
+| R13          | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles            | unselected                                                                    | **do not start**; no implicit selection                                                                  |
 
 **One web-runtime writer at a time.** EW-03I-b and EW-04I both touch `apps/web`; TB-1 is test-only and
 may run in parallel with a separate worktree. The optional ADR 0051 is docs-only and may run alongside.
@@ -56,7 +59,8 @@ may run in parallel with a separate worktree. The optional ADR 0051 is docs-only
 ## 3. Dispatch order
 
 1. **EW-03I-b** (web writer) — the CSV preview UI.
-2. **TB-1** (test-only) — can start alongside EW-03I-b; do not touch web source.
+2. **TB-1** (test-only) — **CLOSED** `30b6564` + `4b147a1`; it ran first because the `ee65c54` baseline
+   was red. Do not re-dispatch it.
 3. **EW-04I** (web writer) — after EW-03I-b merges/closes; closes (vi) U1–U3.
 4. **ADR 0051** — only if requested.
 
@@ -222,10 +226,24 @@ nothing partial.
   non-EH browsers keep the opaque fallback; no boot-failure retry; `row-insert` is uncovered; one extra
   engine round-trip per applied cell edit; the desktop package keeps the `mvp` fixture pins for the web
   e2e (not shipped).
-- Carry-risks: the 100k CSV inference budget bounds **rows**, not bytes/heap/elapsed time; the
-  seeded-history test is near its coverage budget (TB-1); the `packages/testing` conformance mirror is
-  compile-forced across the workspace; the repair errors are exported from the engine barrel; the
+- Carry-risks: the 100k CSV inference budget bounds **rows**, not bytes/heap/elapsed time; **TB-1's
+  inherited** `45_000` ms ceiling on the seeded-history test is now ≈24–36x its solo cost and nothing pins
+  the **spawn count**, so a revert to the per-history `runCli` pattern would still pass at low load (the
+  reviewer's observation 3) — carried as the **TB-2 candidate** below; the `packages/testing` conformance
+  mirror is compile-forced across the workspace; the repair errors are exported from the engine barrel; the
   `no-unknown-returns`/`no-sql-in-code` lens findings are deliberate-contract false positives (eslint/tsc
   are the binding gates).
+- **Recorded this session, not selected — TB-2 candidate (test-only):** TB-1 removed the flake by cutting
+  spawns, not by relaxing anything, but nothing asserts the spawn count itself. Either pin it (count
+  `runCli` invocations in the seeded test) or tighten the ceiling to roughly 20 s after measuring at load
+  ≥30. Requires a maintainer go-ahead; do **not** start it implicitly.
+- **Recorded this session, not selected — ADR 0049 decision-4 divergence (candidate engine row):** ADR 0049
+  decision 4 says the preview slot drops its view and file "on abandonment". The merged engine does not:
+  `releasePreviewSlot()` is reachable only via `supersede()` on `engine/open` and `engine/dispose`
+  (`client.ts`: "there is no cancel/release op — the slot is released by the next preview, any open, or
+  dispose"). EW-03I-b may therefore **not** claim a release on cancel; after an abandoned review one staged
+  preview is retained until the next preview/open/`dispose` (bounded by the single slot, consistent with
+  ADR 0047 and priced by ADR 0049's own retention table). Closing the gap needs its own decision/ADR
+  amendment, not a silent web-side workaround.
 - No push, release, publication, visibility, telemetry-semantic, dependency or protocol change follows
   from this record.
