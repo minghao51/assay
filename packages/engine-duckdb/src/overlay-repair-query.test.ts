@@ -924,6 +924,15 @@ describe('repair cast check (D16b) — split form, scoped to repair columns', ()
 // CLI-executed conformance — D17 table, U5 differential, D16 schema types
 // ---------------------------------------------------------------------------
 
+/**
+ * Cumulative count of DuckDB CLI process spawns made by {@link runCli} in this
+ * worker. tb-2 (2026-11-18): every spawn — the plain path and the batched
+ * path alike — funnels through {@link runCli}, so a test can read this as a
+ * **delta** around itself to pin its own process cost (see the seeded-corpus
+ * spawn pin below).
+ */
+let cliSpawnCount = 0
+
 /** Run SQL against the pinned CLI and return non-empty `-list` lines. */
 function runCli(setup: readonly string[], sql: string): string[] {
   const dir = mkdtempSync(join(tmpdir(), 'assay-u5-repair-'))
@@ -939,6 +948,7 @@ function runCli(setup: readonly string[], sql: string): string[] {
     const cliSql = sql.replaceAll('\r', "' || chr(13) || '")
     const cliSetup = setup.map((line) => line.replaceAll('\r', "' || chr(13) || '"))
     writeFileSync(script, `${[...cliSetup, cliSql].join('\n')}\n`, 'utf8')
+    cliSpawnCount += 1
     const stdout = execFileSync(
       DUCKDB_CLI,
       ['-list', '-noheader', join(dir, 'u5.duckdb'), '-f', script],
@@ -1567,12 +1577,20 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
   /** Queries enqueued per history by the batched seeded corpus below. */
   const QUERIES_PER_HISTORY = 3
 
+  /**
+   * The corpus seeds, in order. tb-2: named (values unchanged) so the spawn
+   * pin below can bind its expectation to {@link CORPUS_SEEDS.length} and
+   * stay self-maintaining if the seed list ever grows.
+   */
+  const CORPUS_SEEDS: readonly number[] = [20261115, 7, 199, 404, 271828, 88, 31337, 5150]
+
   it('seeded randomized histories over the real fold and composer: 0 mismatches', () => {
     let cellChecks = 0
     let multiRepairCases = 0
     let histories = 0
     let checkAgreements = 0
-    for (const seed of [20261115, 7, 199, 404, 271828, 88, 31337, 5150]) {
+    const spawnsBeforeCorpus = cliSpawnCount
+    for (const seed of CORPUS_SEEDS) {
       const rng = makeRng(seed)
       // tb-1: the RNG stream is consumed in exactly the same order as the
       // per-history loop did (generate, then execute), but the seed's 40
@@ -1621,6 +1639,32 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
     expect(cellChecks).toBeGreaterThan(1500)
     expect(multiRepairCases).toBeGreaterThan(60)
     expect(checkAgreements).toBe(320)
+    // tb-2 (2026-11-18): pin the batching itself, not only its wall clock.
+    // The 45 s ceiling below is now ≈24–36x the solo cost, so it no longer
+    // detects a regression: re-introducing the pre-TB-1 per-history `runCli`
+    // pattern (≈640 spawns = 2 per history) re-measures ≈17.7 s solo against
+    // that ceiling — a pass on a quiet host, and the TB-1 flake returns under
+    // load (48.8 s / 53.2 s were recorded at load average ≈33). This delta is
+    // the contract: exactly **one CLI process per seed** — each seed batches
+    // its 40 histories × 3 queries into a single marker-delimited spawn via
+    // `runCliBatched` — so 8 seeds ⇒ 8 spawns (measured 8 before and after
+    // this pin; seeded test 1.26–1.27 s solo, n=2, load average 1.2–2.0, and
+    // 1.52 s under coverage instrumentation, n=1, load average ≈19.9). The
+    // revert drill — `runCliBatched` forced to spawn per query (960 spawns;
+    // the historical per-history revert is ≈640) — passed every assertion and
+    // counter above and failed ONLY this pin, at 26.5 s (n=1, load average
+    // 2.3–3.0): still under the 45 s ceiling, i.e. exactly the silent
+    // regression this delta exists to catch. Binding to `CORPUS_SEEDS.length`
+    // keeps it exact yet self-maintaining. It relaxes nothing: no assertion,
+    // counter, ceiling or query above changes — the pin only adds a failure
+    // mode (spawn count ≠ seed count) that is silent today.
+    expect(
+      cliSpawnCount - spawnsBeforeCorpus,
+      'seeded-corpus CLI spawns: one DuckDB process per seed ' +
+        '(8 seeds ⇒ 8 spawns, each batching its 40 histories × 3 queries); ' +
+        'more spawns means the TB-1 batching was reverted and the spawn storm ' +
+        '(≈640) — and with it the timeout flake — is back',
+    ).toBe(CORPUS_SEEDS.length)
     // tb-1: the 45 s ceiling is deliberately unchanged — it was never the
     // defect (48.8 s / 53.2 s were observed against it while the host carried
     // load average ≈33 from an unrelated workload). The fix is the ≈640 → 8
