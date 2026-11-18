@@ -1626,9 +1626,11 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
     // load average ≈33 from an unrelated workload). The fix is the ≈640 → 8
     // spawns above (see `runCliBatched`): the same 320 histories, the same
     // ≥1500 cell checks and the same 320 check agreements now measure
-    // 1.25–1.69 s solo (n=6, load average 9–13.5) and 5.18–5.58 s under the
-    // coverage leg's instrumentation (n=3, load average 17.6–24.5), so the
-    // ceiling is ≈27x the solitary cost and ≈8x the instrumented one — even
+    // 1.25–1.87 s solo (n=8, load average 8.6–23.7; 3.2 s once at load average
+    // 97.5) and 4.7–7.0 s under the coverage leg's instrumentation (n=10: six
+    // worker coverage legs at 5.2–7.0 s, load average 17.6–33, plus four
+    // reviewer verbose legs at 4.7–5.7 s, load average 0.4–21), so the ceiling
+    // is ≈24–36x the solitary cost and ≈6.4–9.7x the instrumented one — even
     // the ≈2.8x spawn inflation measured at load average ≈33 leaves an order
     // of magnitude of headroom. A budget, never 0/Infinity (gd-1 register,
     // `vitest.config.ts`), and it relaxes nothing: the corpus counters above
