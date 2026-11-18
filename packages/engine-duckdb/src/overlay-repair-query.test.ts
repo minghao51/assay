@@ -952,6 +952,54 @@ function runCli(setup: readonly string[], sql: string): string[] {
   }
 }
 
+/** Delimiter opening the output block of one batched query. */
+const CLI_BATCH_MARK = '#tb-1-batch-end#'
+
+/**
+ * Run many independent queries in **one** CLI process and split their output
+ * back into per-query blocks, in input order.
+ *
+ * tb-1 (2026-11-18): the U5 seeded-history corpus used to spawn the CLI twice
+ * per history — once for the window dump, once for the committed-window /
+ * check-agreement probe — i.e. ≈640 `execFileSync` calls for 320 histories,
+ * each paying `mkdtempSync` + script write + DuckDB start-up + recursive
+ * `rmSync`. A bare spawn of this shape measured ≈25 ms on this host (n=40,
+ * load average ≈8), so process overhead — not the fold or composer work — was
+ * ≈88% of the test's ≈18.4 s solo runtime; under scheduler contention (load
+ * average ≈33 observed from an unrelated workload) that pushed the test past
+ * its explicit 45 s ceiling (48.8 s / 53.2 s recorded). Batching removes
+ * *processes only*: every query still runs, in the same order, against the
+ * same pinned CLI, and every assertion stays exactly as strict.
+ *
+ * Each query is preceded by a marker `SELECT` whose single output line opens
+ * its block; the markers must arrive in input order and exactly one per query,
+ * so a query that never ran (or a CLI that exited early) fails loudly instead
+ * of silently shrinking the corpus.
+ */
+function runCliBatched(setup: readonly string[], queries: readonly string[]): string[][] {
+  const script = queries
+    .map((query, index) => `SELECT '${CLI_BATCH_MARK}${String(index)}';\n${query}`)
+    .join('\n')
+  const blocks: string[][] = []
+  let current: string[] | null = null
+  for (const line of runCli(setup, script)) {
+    if (line.startsWith(CLI_BATCH_MARK)) {
+      expect(Number(line.slice(CLI_BATCH_MARK.length)), 'batched CLI block order').toBe(
+        blocks.length,
+      )
+      current = []
+      blocks.push(current)
+      continue
+    }
+    if (current === null) {
+      throw new Error(`batched CLI output before its first delimiter: ${line}`)
+    }
+    current.push(line)
+  }
+  expect(blocks.length, 'batched CLI blocks executed').toBe(queries.length)
+  return blocks
+}
+
 const md5 = (value: string): string => createHash('md5').update(value, 'utf8').digest('hex')
 
 describe.skipIf(!hasDuckDbCli)('D17 conformance — TS rewrite ≡ SQL CASE (probe §2.3)', () => {
@@ -1336,28 +1384,40 @@ function genDiffOps(rng: Rng, length: number): EditOp[] {
 }
 
 describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the §6.2 model', () => {
-  /** Execute the composed window (with row ids) and return rowId → md5-or-NULL rows. */
-  function executeWindow(ops: readonly EditOp[]): Map<string, string> {
-    const limit = DIFF_BASE.baseRowCount + ops.length + 5
-    const windowSql = composeOverlayWindowSql({
+  /** The composed window SQL (row ids included) for one history. */
+  function diffWindowSql(ops: readonly EditOp[]): string {
+    return composeOverlayWindowSql({
       viewName: 'assay_t1',
       base: DIFF_BASE,
       state: foldOverlay(DIFF_BASE, ops).state,
       includeRowIds: true,
-      limit,
+      limit: DIFF_BASE.baseRowCount + ops.length + 5,
       offset: 0,
     })
-    const sql =
+  }
+
+  /** The window dump query: one `rowId|null-flag|label-md5` line per projected row. */
+  function windowDumpSql(ops: readonly EditOp[]): string {
+    return (
       `SELECT assay_row_id, md5(label) IS NULL AS null_label, ` +
-      `COALESCE(md5(label), '-') AS label_md5 FROM (${windowSql});`
-    const out = runCli(DIFF_SETUP, sql)
+      `COALESCE(md5(label), '-') AS label_md5 FROM (${diffWindowSql(ops)});`
+    )
+  }
+
+  /** Parse a window dump block into rowId → md5-or-NULL rows. */
+  function parseWindowRows(lines: readonly string[]): Map<string, string> {
     const result = new Map<string, string>()
-    for (const line of out) {
+    for (const line of lines) {
       const [rowId, nullFlag, labelMd5] = line.split('|')
       if (rowId === undefined) continue
       result.set(rowId, nullFlag === 'true' ? 'NULL' : (labelMd5 as string))
     }
     return result
+  }
+
+  /** Execute the composed window (with row ids) and return rowId → md5-or-NULL rows. */
+  function executeWindow(ops: readonly EditOp[]): Map<string, string> {
+    return parseWindowRows(runCli(DIFF_SETUP, windowDumpSql(ops)))
   }
 
   function expectDifferential(ops: readonly EditOp[], label: string): void {
@@ -1474,34 +1534,38 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
   })
 
   /**
-   * Compose AND execute the pending-cast check next to the committed-window
-   * failure probe in ONE CLI call, and assert the two agree: the check fires
-   * exactly when some committed window value fails `TRY_CAST(label AS
-   * BIGINT)`. The window's cell values themselves are compared against the
-   * §6.2 model by {@link executeWindow} in the same loop iteration.
+   * The two probes behind the pending-cast agreement assertion for one
+   * history, composed so they can run **next to** the window dump in one CLI
+   * call: (1) the committed window holds a value that fails
+   * `TRY_CAST(label AS BIGINT)`, and (2) the composed cast check fires. Both
+   * read the same composed relation, so they must agree — the check fires
+   * exactly when some committed window value fails the cast. The window's cell
+   * values themselves are compared against the §6.2 model by
+   * {@link executeWindow} in the same loop iteration.
    */
-  function executeWindowAndCheck(ops: readonly EditOp[]): void {
+  function checkAgreementProbes(ops: readonly EditOp[]): [string, string] {
+    const committedFailure =
+      `SELECT 'w' AS src, 1 AS hit FROM (${diffWindowSql(ops)}) ` +
+      `WHERE label IS NOT NULL AND TRY_CAST(label AS BIGINT) IS NULL LIMIT 1;`
     const composition = {
-      viewName: 'assay_t1' as const,
+      viewName: 'assay_t1',
       base: DIFF_BASE,
       state: foldOverlay(DIFF_BASE, ops).state,
     }
-    const windowSql = composeOverlayWindowSql({
-      ...composition,
-      includeRowIds: true,
-      limit: DIFF_BASE.baseRowCount + ops.length + 5,
-      offset: 0,
-    })
-    const committedFailure =
-      `SELECT 'w' AS src, 1 AS hit FROM (${windowSql}) ` +
-      `WHERE label IS NOT NULL AND TRY_CAST(label AS BIGINT) IS NULL LIMIT 1;`
     const checkSql = composeOverlayCastCheckSql(composition, 'label', 'BIGINT')
     const checkFires = `SELECT 'c' AS src, 1 AS hit FROM (${checkSql}) LIMIT 1;`
-    const out = runCli(DIFF_SETUP, [committedFailure, checkFires].join('\n'))
-    const committed = out.some((line) => line === 'w|1')
-    const fired = out.some((line) => line === 'c|1')
-    expect(fired, 'check vs committed window').toBe(committed)
+    return [committedFailure, checkFires]
   }
+
+  /** The agreement assertion over the two probes' `w|1` / `c|1` output lines. */
+  function expectCheckAgreement(lines: readonly string[], label: string): void {
+    const committed = lines.some((line) => line === 'w|1')
+    const fired = lines.some((line) => line === 'c|1')
+    expect(fired, label).toBe(committed)
+  }
+
+  /** Queries enqueued per history by the batched seeded corpus below. */
+  const QUERIES_PER_HISTORY = 3
 
   it('seeded randomized histories over the real fold and composer: 0 mismatches', () => {
     let cellChecks = 0
@@ -1510,13 +1574,28 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
     let checkAgreements = 0
     for (const seed of [20261115, 7, 199, 404, 271828, 88, 31337, 5150]) {
       const rng = makeRng(seed)
+      // tb-1: the RNG stream is consumed in exactly the same order as the
+      // per-history loop did (generate, then execute), but the seed's 40
+      // histories are *executed* in one CLI process: 3 queries each (window
+      // dump, committed-window probe, cast-check probe) batched into a single
+      // spawn — 8 spawns for the whole 320-history corpus instead of ≈640. No
+      // history, cell check or check agreement is dropped or reordered.
+      const sessions: EditOp[][] = []
       for (let session = 0; session < 40; session++) {
+        sessions.push(genDiffOps(rng, rng.int(4, 14)))
+      }
+      const blocks = runCliBatched(
+        DIFF_SETUP,
+        sessions.flatMap((ops) => [windowDumpSql(ops), ...checkAgreementProbes(ops)]),
+      )
+      for (let session = 0; session < sessions.length; session++) {
+        const ops = sessions[session] as EditOp[]
+        const first = session * QUERIES_PER_HISTORY
         histories += 1
-        const ops = genDiffOps(rng, rng.int(4, 14))
         const repairCount = ops.filter((op) => op.kind === 'column-repair').length
         if (repairCount >= 2) multiRepairCases += 1
         const expected = modelExpectedLabels(ops)
-        const actual = executeWindow(ops)
+        const actual = parseWindowRows(blocks[first] as string[])
         expect(
           [...actual.keys()].sort(),
           `seed ${String(seed)} session ${String(session)}: projected rows`,
@@ -1530,7 +1609,10 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
         }
         // The pending-cast check must agree with the committed window on
         // every history (fires iff some committed value fails TRY_CAST).
-        executeWindowAndCheck(ops)
+        expectCheckAgreement(
+          [...(blocks[first + 1] as string[]), ...(blocks[first + 2] as string[])],
+          `check vs committed window (seed ${String(seed)} session ${String(session)})`,
+        )
         checkAgreements += 1
       }
     }
@@ -1539,6 +1621,18 @@ describe.skipIf(!hasDuckDbCli)('U5 differential — real fold + composer vs the 
     expect(cellChecks).toBeGreaterThan(1500)
     expect(multiRepairCases).toBeGreaterThan(60)
     expect(checkAgreements).toBe(320)
+    // tb-1: the 45 s ceiling is deliberately unchanged — it was never the
+    // defect (48.8 s / 53.2 s were observed against it while the host carried
+    // load average ≈33 from an unrelated workload). The fix is the ≈640 → 8
+    // spawns above (see `runCliBatched`): the same 320 histories, the same
+    // ≥1500 cell checks and the same 320 check agreements now measure
+    // 1.25–1.69 s solo (n=6, load average 9–13.5) and 5.18–5.58 s under the
+    // coverage leg's instrumentation (n=3, load average 17.6–24.5), so the
+    // ceiling is ≈27x the solitary cost and ≈8x the instrumented one — even
+    // the ≈2.8x spawn inflation measured at load average ≈33 leaves an order
+    // of magnitude of headroom. A budget, never 0/Infinity (gd-1 register,
+    // `vitest.config.ts`), and it relaxes nothing: the corpus counters above
+    // are what proves the batched run executed every history.
   }, 45_000)
 
   it('check-agreement corpus fires in both directions (non-vacuous)', () => {
