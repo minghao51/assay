@@ -22,6 +22,19 @@ import {
   engineRejectionMessage,
   overlaySnapshot,
 } from '../edit/session'
+import { captureIsStale, repairCaptureTag } from '../edit/repair/capture'
+import type { RepairApplyGuard, RepairCaptureTag } from '../edit/repair/capture'
+import {
+  REPAIR_PREVIEW_STALE,
+  REPAIR_REFUSAL_ALREADY_ACTIVE,
+  REPAIR_REFUSAL_ZERO_AFFECTED,
+} from '../edit/repair/copy'
+import {
+  repairPlanFingerprint,
+  repairPlanIsActive,
+  repairPlanOp,
+  type RepairPlan,
+} from '../edit/repair/plan'
 import { requestSaveDestination, writeExportCopy } from '../export/save-destination'
 import type {
   SaveStrategy,
@@ -145,6 +158,23 @@ export interface EditingSession {
   readonly handleRenameColumn: (from: string, to: string) => void
   readonly handleCastColumn: (column: string, targetType: string) => void
   readonly handleSelectCursor: (nextCursor: number) => void
+  /**
+   * EW-04I: the capture tag for a `column-repair` plan — the revision a preview
+   * is tagged with (base/overlay anchors, cursor, history revision, target
+   * column + whole-schema signature). Read from the LIVE refs, so it is the
+   * same value a preview captured and the value publication re-verifies.
+   * `null` when the column is not in the effective schema.
+   */
+  readonly captureRepairTag: (column: string) => RepairCaptureTag | null
+  /**
+   * EW-04I: publish one repair plan through the existing commit boundary —
+   * append `column-repair` (one history entry) + activate + one refresh, with
+   * the same rollback/Retry semantics as every other edit. Refuses before any
+   * append when the preview is stale (U2), when the plan changes no row (U1,
+   * D8: no no-op entry) or when the identical plan is already applied at the
+   * cursor (D7, plan identity).
+   */
+  readonly handleApplyRepair: (plan: RepairPlan, guard: RepairApplyGuard) => void
   readonly retryView: () => Promise<void>
 }
 
@@ -726,6 +756,76 @@ export function useEditingSession(
   )
 
   /**
+   * EW-04I: the repair plan's capture tag, read from the live refs (`historyRef`
+   * + `historyRevision`) so a preview's tag and the publication-time check are
+   * the same measurement. Pure: no engine call, no state change.
+   */
+  const captureRepairTag = useCallback(
+    (column: string): RepairCaptureTag | null => {
+      if (phase.kind !== 'ready') return null
+      return repairCaptureTag(
+        phase.base,
+        historyRef.current,
+        stateAtCursor(phase.base, historyRef.current),
+        historyRevision.current,
+        column,
+      )
+    },
+    [phase],
+  )
+
+  /**
+   * EW-04I: publish one repair plan.
+   *
+   * Queued on the mutation chain like every other history change, so the
+   * verdicts below and the append/activation happen with no other activation
+   * in between (the `cell-set`/cast discipline). Three refusals run BEFORE
+   * `appendAndCommit`, which is what makes each of them observable as "no
+   * entry was appended":
+   *
+   * 1. **Stale preview (U2).** The guard's tag must still describe the live
+   *    session — anchors, cursor, history revision, column type, schema
+   *    signature. Any edit, undo, redo, cursor jump, rename/cast or dataset
+   *    replacement between preview and Apply refuses here with the authored
+   *    stale sentence; the plan is not appended and the view is untouched.
+   * 2. **Zero affected (U1/D8).** The preview's complete count is the
+   *    authority: a plan that changes no row is refused, never appended as a
+   *    no-op entry (the dirty predicate and the history panel would both lie
+   *    about a repair that did nothing).
+   * 3. **Repeat Apply (D7).** The identical plan already applied at this
+   *    cursor is refused by plan identity.
+   */
+  const handleApplyRepair = useCallback(
+    (plan: RepairPlan, guard: RepairApplyGuard): void => {
+      enqueue(async () => {
+        if (phase.kind !== 'ready') return
+        const current = historyRef.current
+        const liveTag = repairCaptureTag(
+          phase.base,
+          current,
+          stateAtCursor(phase.base, current),
+          historyRevision.current,
+          plan.column,
+        )
+        if (liveTag === null || captureIsStale(guard.tag, liveTag)) {
+          showEditError(REPAIR_PREVIEW_STALE)
+          return
+        }
+        if (guard.affected <= 0) {
+          showEditError(REPAIR_REFUSAL_ZERO_AFFECTED)
+          return
+        }
+        if (repairPlanIsActive(current, repairPlanFingerprint(plan))) {
+          showEditError(REPAIR_REFUSAL_ALREADY_ACTIVE)
+          return
+        }
+        await appendAndCommit(repairPlanOp(plan))
+      })
+    },
+    [phase, enqueue, showEditError, appendAndCommit],
+  )
+
+  /**
    * m4-4 double-failure recovery: re-attempt the previous view after an
    * engine outage. Success clears the honest view error; failure surfaces the
    * new error and keeps the retry affordance.
@@ -824,6 +924,8 @@ export function useEditingSession(
     handleRenameColumn,
     handleCastColumn,
     handleSelectCursor,
+    captureRepairTag,
+    handleApplyRepair,
     retryView,
   }
 }

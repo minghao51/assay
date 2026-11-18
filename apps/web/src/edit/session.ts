@@ -216,6 +216,13 @@ export type EngineErrorOperation =
    * failure here can be read as a verdict about the file.
    */
   | 'csv-preview'
+  /**
+   * The column repair's preview read (EW-04I): one complete count scan plus a
+   * bounded example window over the effective relation. A failure says both
+   * what failed and that nothing was applied — the plan is still only a draft,
+   * so the session, its history and its view are exactly as they were.
+   */
+  | 'repair-preview'
 
 /** A summary rendered as a sentence fragment: no doubled or stacked punctuation. */
 function fragment(summary: string): string {
@@ -243,6 +250,8 @@ const OPERATION_FRAMING: Record<EngineErrorOperation, (summary: string) => strin
   diff: (summary) => `${fragment(summary)}. The previous comparison view is unchanged.`,
   'csv-preview': (summary) =>
     `The preview could not be read: ${fragment(summary)}. Nothing was opened.`,
+  'repair-preview': (summary) =>
+    `The repair preview could not be read: ${fragment(summary)}. Nothing was applied.`,
 }
 
 /**

@@ -265,6 +265,10 @@ describe('engineErrorLine / engineErrorMessage — one single-line summary per s
     expect(engineErrorMessage('csv-preview', summary)).toBe(
       'The preview could not be read: the engine rejected the request. Nothing was opened.',
     )
+    // EW-04I: the repair preview (a draft's read; nothing was applied).
+    expect(engineErrorMessage('repair-preview', summary)).toBe(
+      'The repair preview could not be read: the engine rejected the request. Nothing was applied.',
+    )
   })
 
   it('does not double a full stop the summary already carries', () => {

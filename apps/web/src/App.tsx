@@ -98,6 +98,12 @@ import { writeDiffReportCopy } from './diff/diff-export'
 import { ReplaceGuard } from './replace/ReplaceGuard'
 import { CsvReviewDialog } from './csv/CsvReviewDialog'
 import type { CsvReviewMode } from './csv/CsvReviewDialog'
+import { RepairDialog } from './edit/repair/RepairDialog'
+import { REPAIR_ACTION } from './edit/repair/copy'
+import { validateRepairPlan } from './edit/repair/refusal'
+import { readRepairPreview } from './edit/repair/reader'
+import { useRepairPreview } from './edit/repair/useRepairPreview'
+import type { RepairSeam } from './edit/repair/useRepairPreview'
 import { wireCsvOptions } from './csv/options'
 import {
   CSV_REVIEW_ACTION,
@@ -1087,8 +1093,70 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     handleRenameColumn,
     handleCastColumn,
     handleSelectCursor,
+    captureRepairTag,
+    handleApplyRepair,
     retryView,
   } = useEditingSession(phase, datasetSession, sourceIdentityRef)
+
+  /**
+   * EW-04I: the column-repair surface's seam into the live editing session.
+   *
+   * Every read below is answered from the session's own snapshot — the base
+   * metadata, the active ops at the history cursor and the effective schema —
+   * so a preview describes exactly the relation the grid is showing, and
+   * `captureRepairTag`/`handleApplyRepair` (owned by the session hook, which
+   * holds the live refs) make the capture and the publication check the same
+   * measurement. `facts` reads the memoized fold (a render-path read: it is
+   * called on every render for the budget projection), while the rules that
+   * decide refusals read the live refs at the moment they run.
+   */
+  const repairSeam = useMemo<RepairSeam>(
+    () => ({
+      facts: () => {
+        if (phase.kind !== 'ready' || overlayState === null) return null
+        return {
+          liveRows: liveRowCount(phase.base, overlayState),
+          repairPairs: overlayState.repairs.reduce(
+            (total, record) => total + record.mapping.size,
+            0,
+          ),
+        }
+      },
+      captureTag: captureRepairTag,
+      validatePlan: (plan) => {
+        if (phase.kind !== 'ready') return null
+        return validateRepairPlan(phase.base, stateAtCursor(phase.base, historyRef.current), plan)
+      },
+      readPreview: (plan) => {
+        if (phase.kind !== 'ready') {
+          return Promise.reject(new Error('no table is open'))
+        }
+        const live = historyRef.current
+        return readRepairPreview(
+          {
+            handle: phase.handle,
+            overlay: overlaySnapshot(phase.base, live),
+            snapshot: {
+              viewName: viewNameForTableId(phase.tableId),
+              base: phase.base,
+              state: stateAtCursor(phase.base, live),
+            },
+          },
+          plan,
+        )
+      },
+      apply: handleApplyRepair,
+    }),
+    [phase, overlayState, captureRepairTag, handleApplyRepair, historyRef],
+  )
+
+  /**
+   * EW-04I: the repair surface's own state (capture → preview → Apply). App
+   * owns it so the dialog's lifecycle is independent of the editing panel's
+   * disclosure state, and so a late preview result is dropped by the hook's
+   * generation guard rather than by a component that might be unmounted.
+   */
+  const repairPreview = useRepairPreview(repairSeam)
 
   /**
    * rd-3c: durable edit feedback from any task.
@@ -2713,6 +2781,20 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           />
         )}
 
+        {/*
+         * EW-04I: the column-repair surface — a native `<dialog>` like the
+         * guard, the guide and the CSV review. It mounts only while the editing
+         * session is ready and the surface is open; capture and preview are
+         * local state, and the only way out is Apply through the session's
+         * existing commit boundary (`handleApplyRepair`).
+         */}
+        {phase.kind === 'ready' && repairPreview.open && (
+          <RepairDialog
+            columns={overlayState === null ? NO_COLUMNS : overlayState.columns}
+            surface={repairPreview}
+          />
+        )}
+
         {phase.kind === 'idle' && (
           <div className="idle-intro" data-testid="idle-intro">
             <p data-testid="idle-capability">{IDLE_CAPABILITY}</p>
@@ -3117,6 +3199,40 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                         pendingSummary={pendingChangesSummary(activeOps(history))}
                         error={editError}
                       />
+                      {/*
+                       * EW-04I: the bulk-repair entry point, beside the
+                       * single-cell and column affordances. Authoring a plan
+                       * applies nothing — the dialog only reads a preview
+                       * until Apply, which goes through the same commit path.
+                       * Disabled while another owned modal or a replacement
+                       * intent owns the shell (the same predicate the Open
+                       * controls use), never hidden: the affordance is
+                       * discoverable and its refusal is honest.
+                       */}
+                      <button
+                        type="button"
+                        className="repair-open"
+                        data-testid="repair-open"
+                        disabled={openControlBlocked({
+                          phase: phase.kind,
+                          intentActive: intent.kind !== 'none',
+                          openModal,
+                        })}
+                        onClick={() => {
+                          if (
+                            openControlBlocked({
+                              phase: phase.kind,
+                              intentActive: intent.kind !== 'none',
+                              openModal,
+                            })
+                          ) {
+                            return
+                          }
+                          repairPreview.openDialog()
+                        }}
+                      >
+                        {REPAIR_ACTION}
+                      </button>
                     </PanelBoundary>
                   </WorkbenchSection>
                   <WorkbenchSection
