@@ -1,6 +1,10 @@
 # Project Handoff — Assay
 
-**Last updated:** 2026-11-13. **Current lane:** launch readiness; essential-workbench first wave **executed and closed** (WF-06 merged-green at `ba36091`; EW-02D/03D/04D delivered as reviewed design-only contracts); the original UX/UI programme and bounded audit follow-up are complete. The
+**Last updated:** 2026-11-18. **Current lane:** launch readiness; the post-R1 runtime wave has closed
+**EW-02I**, **R2**, **U5** (EW-04D condition vii) and **EW-03I-a**, with **ADR 0049/0050 Accepted**; the
+remaining queue is in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md) — **EW-03I-b**
+(web CSV preview), **EW-04I** (bulk-repair web + U1–U3) and the **TB-1** test-budget follow-up. The
+original UX/UI programme and bounded audit follow-up are complete. The
 [usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) in 23 rows (ug-1…ug-23):
 **all 23 are CLOSED** and merged-verified (Shell, Grid and Panels lanes complete). The
@@ -240,6 +244,14 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ### Active
 
+**Post-R1 runtime wave — closed rows and the remaining queue (2026-11-18).** **EW-02I** (`fd5a92a`),
+**R2** (`0f77e38`/`a17f3a3`), **U5** (`94128b2`/`120af28`/`6688f71`, EW-04D condition vii) and
+**EW-03I-a** (`ae0f6cf`/`a6059c6`/`4d56036`) are merged; **ADR 0049/0050** are Accepted. The cold-pickup
+index, remaining queue, dispatch order and P0–P6 paste-ready prompts are in the
+[post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md). Remaining: **EW-03I-b** (web CSV
+preview), **EW-04I** (bulk-repair web + U1–U3), **TB-1** (test budget), optional ADR 0051. R13 stays
+unselected. Nothing pushed.
+
 **R1 CLOSED — honest engine failure text (2026-11-14).** The maintainer selected R1 (masked browser
 SQL errors, `ReferenceError: _setThrew is not defined`) and approved
 [ADR 0048](../../docs/adr/0048-engine-bundle-selection-and-honest-error-text.md) (**Accepted**). All
@@ -372,6 +384,13 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-18 (**hv**) — **post-EW-03I-a pickup published**: [20261118-post-ew03ia-pickup.md](handoff/20261118-post-ew03ia-pickup.md)
+  records the closed runtime wave (EW-02I, R2, U5/condition vii, EW-03I-a; ADR 0049/0050 Accepted), the
+  remaining queue (EW-03I-b web CSV preview, EW-04I bulk-repair web + U1–U3, TB-1 test budget, optional
+  ADR 0051), the dispatch order and paste-ready P0–P6 prompts. No row is selected by the record; R13
+  stays unselected. Own baseline `076705c`, clean; docs links **165/0**, ADR **50**; no runtime claim,
+  nothing pushed.
 
 - 2026-11-18 (**hu**) — **EW-03I-a CLOSED — merged `ae0f6cf` + `a6059c6` + `4d56036`.** The CSV
   options/preview engine half is in: closed vocabulary with double validation and quoting, 100k-row

@@ -5,6 +5,11 @@ in the [decision sheet](20261114-post-r1-decision-sheet.md) ("accept all the rec
 This record is the authority the successor briefs cite; the decision sheet remains the options/evidence
 record, not an approval.
 
+**Runtime status (2026-11-18):** D2, D5 and D6's R2 are closed; D3's engine half (EW-03I-a) is closed
+with EW-03I-b pending; D4's U5 (condition vii) is closed with EW-04I (vi + web) pending; R3/R8 remain
+recorded limitations. See the [post-EW-03I-a pickup](20261118-post-ew03ia-pickup.md) for the remaining
+queue and prompts. This sheet remains the options/evidence record.
+
 **Authority order:** accepted ADRs → this acceptance record → [EW-10 §8](20261113-ew10-first-wave-integration.md)
 dated selection → the [post-R1 pickup](20261114-post-r1-pickup.md) → the contracts. Rule zero still
 applies: the cited records are evidence, not authority; every runtime row records its own clean SHA and
@@ -63,6 +68,21 @@ open question recorded in them (each ADR now carries an "Acceptance resolutions"
 This supersedes the earlier "EW-03I still waits on ADR 0049" and "U5 remains gated on the D14 ADR"
 statements in this record and the pickup. Nothing is pushed; the runtime rows still need their own
 briefs, envelopes and independent reviews.
+
+## Runtime closure status (2026-11-18)
+
+| Decision | Runtime row            | Status                                                                                                                                                                                   |
+| -------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D2       | EW-02I                 | **CLOSED** `fd5a92a`                                                                                                                                                                     |
+| D3       | EW-03D ledger / EW-03I | Ledger accepted; **EW-03I-a** (engine) **CLOSED** `ae0f6cf` + `a6059c6` + `4d56036`; **EW-03I-b** (web) pending                                                                          |
+| D4       | EW-04D conditions      | (i) U4 measured; (ii) D16 + (iii) D17 probed/pinned; (iv) D15 cap accepted; (v) D14 = ADR 0050 **Accepted**; (vi) U1–U3 in EW-04I; (vii) **U5 CLOSED** `94128b2` + `120af28` + `6688f71` |
+| D5       | U5 slice               | **CLOSED** (same merges; UI-free domain+engine slice)                                                                                                                                    |
+| D6       | R2 / R3                | **R2 CLOSED** `0f77e38` + `a17f3a3`; R3 = RD-T07 recorded limitation                                                                                                                     |
+| D7       | R8                     | recorded limitation; no fixture reserved                                                                                                                                                 |
+
+This is a status pointer; the evidence is in each row's record. The only remaining runtime rows are
+**EW-03I-b** and **EW-04I** (plus the TB-1 test-budget follow-up); see the
+[post-EW-03I-a pickup](20261118-post-ew03ia-pickup.md).
 
 ## Integration rules carried from the decision sheet
 

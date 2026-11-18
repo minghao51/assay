@@ -1,5 +1,10 @@
 # Post-R1 pickup — remaining work and paste-ready prompts
 
+> **Superseded for dispatch (2026-11-18):** use the
+> [post-EW-03I-a pickup](20261118-post-ew03ia-pickup.md), which carries the current state, the remaining
+> queue and refreshed prompts. This record remains the decision-era evidence and the P0–P6 prompts it
+> shipped; its observations are dated 2026-11-14 and are not a current pass claim.
+
 **Date:** 2026-11-14. **Status:** **R1 is CLOSED** (R1-C `837b638`, R1-A `b0b78bc`, R1-B `5426979`;
 ADR 0048 Accepted); **EW-04D condition (i) U4 measured**; **nothing else is authorized**. This record
 is the cold-pickup index for the next agent; it does not select any row.

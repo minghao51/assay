@@ -8,6 +8,11 @@ default; the maintainer (and, for ADR-gated rows, the engine/protocol owner) dec
 [20261114-post-r1-decisions-accepted.md](20261114-post-r1-decisions-accepted.md) for the acceptance
 record and what each decision authorizes. This sheet remains the options/evidence record.
 
+**Runtime status (2026-11-18):** D2, D5 and D6's R2 are closed; D3's engine half (EW-03I-a) is closed
+with EW-03I-b pending; D4's U5 (condition vii) is closed with EW-04I (vi + web) pending; R3/R8 remain
+recorded limitations. See the [post-EW-03I-a pickup](20261118-post-ew03ia-pickup.md) for the remaining
+queue and prompts.
+
 **Authority order:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) dated selection →
 [post-R1 pickup](20261114-post-r1-pickup.md) → the contracts ([EW-02D](20261113-ew02-scope-contract.md),
 [EW-03D](20261113-ew03-csv-contract.md), [EW-04D](20261113-ew04-bulk-contract.md)) → this sheet.
