@@ -39,6 +39,10 @@ const here = dirname(fileURLToPath(import.meta.url))
  *   (H1/H4: `9007199254740993` → `…992`; disclosure is the remedy, D14).
  * - `dup-header.csv`     — duplicate + empty header names and DuckDB's
  *   auto-renames (G1–G3: `id`, `column1`, `id_1` — disclosure before adoption).
+ * - `quoted-newline.csv` — a header record whose fields carry a QUOTED
+ *   DELIMITER and a QUOTED NEWLINE, plus a duplicate and an empty name (D3's
+ *   per-file rename list: the shape a naive `split(delim)` on the head gets
+ *   wrong, so the single-record header scan is proved on it).
  */
 const FIXTURES = {
   'leading-zeros.csv': ['id,amount,label', '0017,10.5,alpha', '00042,2.25,beta', '007,9.0,gamma', '0017,10.5,alpha'],
@@ -51,6 +55,11 @@ const FIXTURES = {
   'semicolon.csv': ['id;name;score', '1;anna;10', '2;braedon;22'],
   'unsafe-int.csv': ['big,exact,max64', '9007199254740993,9007199254740992,9223372036854775807'],
   'dup-header.csv': ['id,,id', '1,x,2', '3,y,4'],
+  'quoted-newline.csv': [
+    '"a,b",id,"line\none",id,',
+    '1,alpha,3,4,5',
+    '2,beta,6,7,8',
+  ],
 }
 
 const DESCRIPTIONS = {
@@ -60,6 +69,8 @@ const DESCRIPTIONS = {
   'semicolon.csv': 'Semicolon dialect — delim/sep override pin',
   'unsafe-int.csv': 'Integers beyond 2^53 — DOUBLE sniff corruption disclosure pin (D14)',
   'dup-header.csv': 'Duplicate and empty header names — auto-rename disclosure pin (D3)',
+  'quoted-newline.csv':
+    'Quoted delimiter and quoted newline in the header record — single-record header scan pin (D3)',
 }
 
 for (const [name, lines] of Object.entries(FIXTURES)) {

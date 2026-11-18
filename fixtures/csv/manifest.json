@@ -23,6 +23,11 @@
       "description": "Quoted empty vs unquoted empty fields — D6 NULL policy pin"
     },
     {
+      "name": "quoted-newline.csv",
+      "sha256": "24f60e4afd85287633f6687d81532b19ebf6163291e63b6a85860830f0a4c575",
+      "description": "Quoted delimiter and quoted newline in the header record — single-record header scan pin (D3)"
+    },
+    {
       "name": "semicolon.csv",
       "sha256": "ecfb63bec2d82a0a6e7497ba56d121530f43b8eb9676b2d6f979c3224c140001",
       "description": "Semicolon dialect — delim/sep override pin"
