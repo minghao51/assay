@@ -73,6 +73,35 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
 
+**Verified state (2026-11-18, D3-1 CLOSED — D3's rename list):** **D3-1 merged** `a16eea5` + `9a39fe3` +
+`d941b51` (worker `ea0e230`/`a356534`/`3e80553`, independent `opencode-go/mimo-v2.6-flash` high review:
+one request-changes round, both items closed; 12 files, one `@assay/web` changeset). The CSV review now
+discloses the **per-file** rename list (`original → renamed`) before adoption, not just the rule. Because
+no engine op reports the raw header row and `packages/**` is out of scope, the derivation is a **bounded
+64 KiB head read** (`file.slice`) scanned as **one record** with the _sniffed_ dialect, and the list is
+shown **only when the reconstruction equals `sniff.columns[].name` exactly** (count and order); ten named
+bail-outs (no header, skipped rows, declared columns, unreadable file, incomplete record, unterminated
+quote, escape at the window edge, ambiguous shape, column count, name mismatch) fall back to the behaviour
+sentence plus one honest "could not be derived safely" line — **no path emits a partial list**. A new
+golden fixture `fixtures/csv/quoted-newline.csv` (quoted delimiter **and** quoted newline, duplicate and
+empty names; generator + manifest) pins the scan shape. The row also settled the **zero-based** empty-name
+rule by measurement (`,a,b` → `column0,a,b`) and corrected EW-03I-b's shipped illustration ("becomes
+column1, column2"), which was the second-column case only. Reviewer drills: the equality gate, the
+`sniffedDialect` bypass (the payload carries option **text** — `(empty)`, `\n` as two chars), a 1-based
+rule, an 8-byte cap, and — a real test gap — a `data-*` leak of a rename **original** that passed all 50
+tests, now closed by a structural "every `data-*` must be a `csv-review-*` testid" rule plus both-halves
+needles. Merged gates on `main`: format/lint clean, forced typecheck **20** (0 cached), unit **264 files /
+4058 tests**, coverage **89.52 / 84.22 / 91.82 / 91.21** (exit 0; a first coverage run had one
+unreproduced spawn failure in the pinned-CLI `row-diff-agreement` test — 8/8 green isolated in 1.3 s and
+green on the next full run at higher load), forced build **12** (0 cached), docs **167/0**, ADR **51**,
+browser **283 + 1 skip**, configured telemetry **7 passed / zero delivered**, restored stock **3 passed**
+endpoint-free. **Carried as a new candidate row (ENG-3):** `packages/engine-duckdb/src/engine-executor.ts`
+(~`:2471`) wrongly says empty dialect strings stay `''` — the sniffer reports the literal `(empty)` and
+`NewLineDelimiter` as escape text — so `copy.ts`'s `'None'` is unreachable on a real engine and Quote/
+Escape/Comment read `(empty)` in production; the reviewer notes that normalising engine-side would silently
+disable this row's list (`decodeSniffedNewLine('')` → `'ambiguous-shape'`), so it needs coordination.
+Worktree removed; nothing pushed.
+
 **Verified state (2026-11-18, EW-04I CLOSED — EW-04D condition (vi) U1–U3 + the web half):** **EW-04I
 merged** `52da4ca` + `9e62172` + `d0069be` (worker `4082677`/`aee54ff`/`5a9eb19`, independent
 `opencode-go/mimo-v2.6-flash` high review: one request-changes round and one comment-accuracy round, both
@@ -483,6 +512,25 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-18 (**id**) — **D3-1 CLOSED — merged `a16eea5` + `9a39fe3` + `d941b51`** (worker
+  `ea0e230`/`a356534`/`3e80553`; independent `opencode-go/mimo-v2.6-flash` high, one request-changes round).
+  The CSV review discloses the **per-file header rename list** before adoption: a bounded 64 KiB head read,
+  one-record scan with the sniffed dialect, and an **exact** equality check against `sniff.columns[].name`
+  before anything is shown — ten named bail-outs fall back to the behaviour sentence, and no path can emit a
+  partial list. New `fixtures/csv/quoted-newline.csv` (quoted delimiter + quoted newline + duplicate +
+  empty) through the generator and manifest. Two review findings: the shipped illustration said empty names
+  become "column1, column2" while the measured rule is **zero-based** (`,a,b` → `column0`), now corrected and
+  re-verified by the reviewer against fresh CLI probes; and the `data-*` privacy test did **not** cover
+  rename **originals** (a leak of the original passed all 50 tests), now closed with a structural
+  "only `csv-review-*` testids" rule plus both-halves needles, drilled four ways. Merged gates: typecheck
+  20/20 (0 cached), unit **264/4058**, coverage **89.52/84.22/91.82/91.21**, build 12/12 (0 cached), docs
+  **167/0**, ADR **51**, browser **283 + 1 skip**, configured telemetry **7 passed / zero delivered**,
+  restored stock **3 passed endpoint-free**. One first coverage run failed once in the pinned-CLI
+  `row-diff-agreement` test (8/8 isolated in 1.3 s, green on the next full run at higher load) — recorded,
+  not papered over. Carried: **ENG-3** (the engine's `(empty)` dialect comment is wrong and `'None'` is
+  unreachable; normalising engine-side would disable this row's list, so it needs coordination). Worktree
+  removed; nothing pushed.
 
 - 2026-11-18 (**ic**) — **ENG-1 CLOSED — ADR 0049 amended, docs-only** (`f2fb523` + `81bb8dc`; maintainer
   approved option C on 2026-11-18). A dated `## Amendment (2026-11-18) — retention on abandonment` section
