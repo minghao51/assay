@@ -220,6 +220,80 @@ ADR decisions rather than open asks (the original questions remain in git histor
 8. **Budget and lane.** Preview work sits on the query lane like `runDiffStage`. The budget and
    over-budget refusal (D8/D11) are set in the runtime row; this ADR sets no numbers.
 
+## Amendment (2026-11-18) — retention on abandonment
+
+**The shipped abandonment behaviour is intentional.** The maintainer approved (2026-11-18), quoted
+verbatim:
+
+> "Amend ADR 0049 to make the shipped abandonment behavior intentional: Stop drops local review state
+> and invalidates late results, but retains the single staged preview registration until the next
+> preview, any `engine/open`, or `engine/dispose`; no host-reachable release operation is added."
+
+That sentence is the operative rule, and it names what the merged engine already does:
+`releasePreviewSlot` is reachable only from `runOpen` and `runDispose`
+(`packages/engine-duckdb/src/engine-executor.ts:772`, `:2355`; definition at `:912`), a later preview
+reclaims the prior slot through `clearStaged` (`engine-executor.ts:832`; `PreviewRegistry.supersede`
+at `:402` is the open/dispose entry), and the client states the boundary in one line — "there is no
+cancel/release op — the slot is released by the next preview, any open, or dispose"
+(`packages/engine-duckdb/src/client.ts:485-486`). What EW-03I-b shipped as a disclosed deviation from
+decision 4's clause is now the intentional rule: `Stop` drops the local review state and bumps the
+generation so a late result can never land (`apps/web/src/csv/CsvReviewDialog.tsx:442-452`, disclosed
+at `:30-36`), and the stop handler ends the intent and says "stopped reviewing" while claiming no
+release (`apps/web/src/App.tsx:2241-2256`, wired at `:2778-2780`).
+
+**Supersession.** This amendment supersedes the abandonment-release clauses of decisions 4 and 7, and
+nothing else: decision 4's "on abandonment" half of "drops its own previous view and file before
+re-staging, on abandonment, and when adoption releases the slot", and decision 7's "abandonment also
+best-effort releases the preview slot". It does not supersede the rest of either decision — decision
+4's slot-owned registration, drop-before-re-staging, adoption-time release and "no host-reachable
+release op" stand, and so do decision 7's no-`Cancel`/no-new-op rule, the token-guard invalidation of
+late results, the no-mid-scan-abort claim and exactly-once adoption. The two superseded clauses remain
+above exactly as written (accepted ADRs are never rewritten); this section, not those clauses, states
+the rule now in force.
+
+**Retention accounting for the abandonment event: +1 retained.** The abandonment event is accounted by
+decision 5's existing table row "failure after the slot registered: +1 until the next slot event or
+`engine/dispose`", bounded by the single slot: at most one staged preview registration (its file
+registration, and its view if one was created) survives a Stop, and the slot keeps even a name whose
+stage failed reachable by the next slot event (`engine-executor.ts:420-431`). The retained state ends
+at the next preview (the drop-before-re-stage of `clearStaged`, `engine-executor.ts:832`), any
+`engine/open` (`engine-executor.ts:772`), or `engine/dispose` (`engine-executor.ts:2355`). The
+[CSV acquisition probe](../process/handoff/20261116-csv-acquisition-probe.md) bounds the rule: a
+mid-scan abandonment runs to completion and its result is discarded, never adopted (F1, transcript
+`20261116-csv-acquisition-probe.md:416`); dropping the slot's view or file while a scan is in flight is
+safe and never aborts it (E2/E3, `:413-414`); re-staging the same slot names replaces the candidate
+cleanly (C5, `:408`).
+
+Two limits belong to this rule, not to a footnote:
+
+1. **A failed preview stage can leave a tracked slot name with no registration**, and `dropFile`'s "no
+   error" cannot verify a release: dropping a never-registered name resolved with no error in every
+   observed run (probe D1, `20261116-csv-acquisition-probe.md:207-211`), so no success is derivable
+   from the absence of an exception and the accounting keeps the retained +1 wherever a release cannot
+   be verified.
+2. **The retained slot is invisible in the shipped app.** No telemetry observes it (decision 9; ADR
+   [0025](0025-telemetry-and-data-privacy-boundary.md)/[0037](0037-telemetry-opt-out-consent.md)), and
+   no UI, DOM or console surface exposes it. That invisibility is a material risk to disclose, never
+   evidence that the slot was released.
+
+**What this amendment does not change.**
+
+- **ADR 0047 stands unchanged**: no per-table release for `TableRegistry` tables, and `engine/dispose`
+  remains the only whole-engine reclamation. No host-reachable release operation is added — that is
+  the primitive resolution 2 keeps "never host-reachable" and ADR 0047 declines.
+- **Decisions 1, 2, 3, 5, 6, 8 and 9, the acceptance resolutions 1–8, and the "What this ADR does not
+  decide" list stand as written.**
+- **No protocol, telemetry, dependency or bundle change follows**: no `engine/*` op is added or removed
+  (there is still no `engine/cancel` and no `engine/release`), no telemetry event or field (ADR
+  0025/0037/0045), no dependency, bundle or engine change.
+
+One line of the accepted text now reads against this amendment and is left standing rather than
+rewritten: decision 5's table row "abandon / cancel while the slot is live" — "−1 attempted; 0 net if
+the drop succeeds, +1 if it fails" — and the Negative/risk bullet beginning "Release on abandonment is
+best-effort", both still price a release attempt on abandonment. With this amendment the abandonment
+event is accounted by the "failure after the slot registered" row (+1 retained), not by those lines;
+reconciling them further is the maintainer's call, not part of this amendment.
+
 ## What this ADR does not decide
 
 - **No implementation by this ADR.** It authorizes the EW-03I design/scope; the runtime row still needs
