@@ -27,7 +27,6 @@ import type { ColumnSchema } from '@assay/grid'
 import { pickDataFile } from '@assay/data-sources/browser'
 import type { PickedDataFile } from '@assay/data-sources/browser'
 import { detectFormatFromFileName } from '@assay/data-sources/browser'
-import type { EngineCsvOptions } from '@assay/engine-duckdb'
 import nestedFixtureText from '../../../fixtures/jsonl/nested.jsonl?raw'
 import { DataGrid } from './grid/DataGrid'
 import type { EditorReportState, GridQueryBusy } from './grid/DataGrid'
@@ -102,7 +101,6 @@ import { writeReportCopy } from './validation/report-export'
 import { writeDiffReportCopy } from './diff/diff-export'
 import { ReplaceGuard } from './replace/ReplaceGuard'
 import { CsvReviewDialog } from './csv/CsvReviewDialog'
-import type { CsvReviewMode } from './csv/CsvReviewDialog'
 import { RepairDialog } from './edit/repair/RepairDialog'
 import { REPAIR_ACTION } from './edit/repair/copy'
 import { validateRepairPlan } from './edit/repair/refusal'
@@ -116,10 +114,13 @@ import {
   CSV_REVIEW_STOPPED,
   CSV_REVIEW_STOPPED_SESSION,
 } from './csv/copy'
-import { evaluateReadyGesture } from './replace/gate'
-import type { OwnedModal, ReadyGestureRefusal } from './replace/gate'
-import { NO_REPLACEMENT_INTENT, beginIntent, canAdopt, isIntentCurrent } from './replace/machine'
-import type { ReplacementIntent } from './replace/machine'
+import type { OwnedModal } from './replace/gate'
+import { useReplacementController } from './replace/useReplacementController'
+import type {
+  AdoptionOutcome,
+  CsvAdoptionHandoff,
+  ReplacementCandidate,
+} from './replace/useReplacementController'
 import {
   REPLACE_BUSY_NOTICE,
   REPLACE_CAST_NOTICE,
@@ -339,59 +340,6 @@ export interface AppProps {
   readonly telemetry?: WebTelemetryRuntime
 }
 
-/**
- * WF-06: a fully prepared replacement candidate. Every value here is local to
- * the preparation — the candidate's own handle/base/model/provider (whose
- * overlay source is the candidate-local empty box until `adopt()` rebinds it),
- * its parked identity and open source. Nothing in this record references the
- * live session's `historyRef`, `overlayRef`, `phase` or panels.
- */
-interface ReplacementCandidate {
-  readonly file: File
-  readonly handle: EngineTableHandle
-  readonly base: OverlayBase
-  readonly model: GridViewportModel
-  readonly provider: DuckDbGridProvider
-  readonly panels: BottomPanelModules
-  readonly identity: SourceIdentity | null
-  readonly openSource: { getFile: () => Promise<File> }
-}
-
-/**
- * EW-03I-b: what the next ready-state replacement gesture will do once the
- * gate passes. `open` is the shipped candidate open; `review` is the CSV
- * review (EW-03D §3). The Open control always states its own path, so a
- * remembered review can never turn a plain Open into a review — only the
- * guard hand-off (T5) and the failure retry (C11) reuse the remembered path.
- */
-type ReplacementPath = 'open' | 'review'
-
-/**
- * EW-03I-b: the CSV review surface's App-owned inputs. The option FORM and the
- * preview payload stay inside `CsvReviewDialog` (they are display state); App
- * keeps only what adoption needs, so the review cannot write session state.
- */
-interface CsvReviewHandoff {
-  readonly mode: CsvReviewMode
-  readonly file: File
-  readonly identity: SourceIdentity | null
-  /** The phase the gesture started from — WF-06's currency capture. */
-  readonly startPhase: Phase
-  /** The WF-06 intent sequence the review belongs to. */
-  readonly intentSeq: number
-}
-
-/**
- * EW-03I-b: one-shot hand-off into the single open chain (idle adoption, or a
- * non-.csv pick from the review control). `options === undefined` keeps the
- * pre-EW-03I open path byte-identical (no options argument at all).
- */
-interface CsvAdoptionHandoff {
-  readonly file: File
-  readonly identity: SourceIdentity | null
-  readonly options: EngineCsvOptions | undefined
-}
-
 export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const telemetryConfig = useMemo(() => readWebTelemetryConfig(), [])
   const telemetry = useMemo(
@@ -518,20 +466,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */
   const [exportOpen, setExportOpen] = useState(false)
 
-  /** The replacement intent (App-local; never part of `Phase`). */
-  const [intent, setIntentState] = useState<ReplacementIntent>(NO_REPLACEMENT_INTENT)
-  /**
-   * Synchronous mirror of the intent. The gate (G2), the guard-close→choosing
-   * transition (T5) and `adopt()` step 0 all need the CURRENT intent, not the
-   * value captured by the render that created the handler.
-   */
-  const intentRef = useRef<ReplacementIntent>(NO_REPLACEMENT_INTENT)
-  /** The sequence authority (C2): bumped when an intent is entered. */
-  const intentSeqRef = useRef(0)
-  const setIntent = useCallback((next: ReplacementIntent) => {
-    intentRef.current = next
-    setIntentState(next)
-  }, [])
   /**
    * The App-owned editor-state authority (S-A2-1/IC-01). `DataGrid` writes it
    * synchronously at every editor transition; the gesture gate reads it and
@@ -540,38 +474,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const editorStateRef = useRef<EditorReportState>({ open: false, invalid: false })
   /** C9's progress element, focused explicitly when the region goes inert. */
   const replaceProgressRef = useRef<HTMLDivElement | null>(null)
-  /** T6: the picker was dismissed; the live session is unchanged (C8). */
-  const [pickerWasCancelled, setPickerWasCancelled] = useState(false)
-  /** T9/T9b: the candidate failed; only C10 + C14 render (live session kept). */
-  const [replacementFailure, setReplacementFailure] = useState<{
-    readonly cause: string
-    readonly detail: string
-  } | null>(null)
-  /** C12 — a ready gesture arrived while another intent is active. */
-  const [busyNotice, setBusyNotice] = useState(false)
-  /** C13 — G3 refusal; clears when the editor closes (the mirror callback). */
-  const [draftNotice, setDraftNotice] = useState(false)
-  /**
-   * EW-03I-b — the CSV review surface (ADR 0049; envelope §5.1/§5.2).
-   *
-   * `csvReview` is App-local UI state, never a `Phase` and never an intent
-   * kind: the review is a candidate step of the EXISTING replacement intent
-   * ("choosing" owns the shell while the modal is up), so nothing here is a
-   * second writer of the session lifecycle. It carries exactly what adoption
-   * needs — the picked `File`, its FSA identity and the phase the gesture
-   * started from — and nothing about the engine slot.
-   */
-  const [csvReview, setCsvReview] = useState<CsvReviewHandoff | null>(null)
-  /** "You stopped reviewing" — abandonment copy, cleared by the next gesture. */
-  const [csvReviewStopped, setCsvReviewStopped] = useState<CsvReviewMode | null>(null)
-  /**
-   * The path the user chose for the next replacement gesture (EW-03D §3):
-   * plain open, or the CSV review. Remembered across the dirty guard (T5) and
-   * the failure retry (C11) so a review gesture stays a review gesture; the
-   * Open control always states its own mode, so this can never silently turn
-   * a plain Open into a review.
-   */
-  const desiredModeRef = useRef<ReplacementPath>('open')
   /**
    * EW-03I-b: one-shot hand-off into the single open chain — the picked file,
    * its identity and (for a reviewed CSV) the exact reviewed option set. Set
@@ -583,17 +485,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const pendingReviewHandoffRef = useRef<CsvAdoptionHandoff | null>(null)
 
   /**
-   * IC-01: the render-only editor-state mirror. The ref write alone cannot
-   * re-render App, so the grid calls this at the same handler writes when the
-   * reported state CHANGES (never per keystroke). Its only job is clearing
-   * C13 the moment the editor closes — by Escape, by an ordinary commit, or
-   * by a blur commit — with no second Open click and no unrelated rerender.
-   */
-  const handleEditorStateChange = useCallback((next: EditorReportState) => {
-    if (!next.open) setDraftNotice(false)
-  }, [])
-
-  /**
    * rd-7 (D-03): the ONE global Help surface, plus the telemetry Settings
    * panel's open state. Both are component-local UI state — no session, no
    * engine, no telemetry event — and `settingsOpen` exists only so App can
@@ -603,41 +494,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */
   const [helpOpen, setHelpOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  /**
-   * App-local modal ownership, reused rather than replaced: Export, Settings and
-   * the first-run telemetry disclosure already own their own open state, and
-   * Help joins that set. At most one surface is open at a time — the disclosure
-   * and Help are native modals (the page behind them is inert), while Export
-   * and Settings are guarded at the opener instead of with a new trap.
-   *
-   * WF-06 (§7): the dirty replacement guard joins that set between the
-   * telemetry disclosure and Export. `otherModal` is the same value without the
-   * guard — the gate's G1 input when the guard itself is closing (T5), which is
-   * exactly "the modal closed first, so G1 passes".
-   */
-  const otherModal: Exclude<OwnedModal, 'replace'> | null = helpOpen
-    ? 'help'
-    : disclosureOpen
-      ? 'disclosure'
-      : exportOpen
-        ? 'export'
-        : settingsOpen
-          ? 'settings'
-          : null
-  const openModal: OwnedModal | null = helpOpen
-    ? 'help'
-    : disclosureOpen
-      ? 'disclosure'
-      : intent.kind === 'guard'
-        ? 'replace'
-        : otherModal
-  /**
-   * The guide's opener is disabled while a DIFFERENT surface owns the modal,
-   * and stays enabled while the guide itself is open: it is the focus-return
-   * target, and a disabled control cannot take focus back.
-   */
-  const helpBlocked = openModal !== null && openModal !== 'help'
-
   /**
    * UI-RD-01 app-local navigation state. Neither value is session data: the
    * active task exposes its sections at ≥1024px (CSS) and opens its manageable
@@ -1261,53 +1117,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     },
     [revealSectionFromNav, focusPanel],
   )
-  const handleContextAction = useCallback(() => {
-    switch (nextAction.kind) {
-      case 'open-contract':
-        revealContextPanel('validation', 'validation-open-contract')
-        return
-      case 'review-contract':
-      case 'review-findings':
-        revealContextPanel('validation', 'validation-panel')
-        return
-      case 'review-comparison':
-        revealContextPanel('compare', 'diff-run')
-        return
-      case 'validate':
-        handleValidate()
-        return
-      case 'cancel-validation':
-        handleCancelValidate()
-        return
-      case 'rerun-diff':
-        // The comparison's key mode/manual keys live in the panel, so the bar
-        // reveals the panel and focuses its existing run control instead of
-        // duplicating that state here. The panel remains the single run path.
-        revealContextPanel('compare', 'diff-run')
-        return
-      case 'cancel-diff':
-        handleCancelDiff()
-        return
-      case 'export':
-        // The dialog renders inside the Export section body, so the section
-        // must be open (and Change active) before the dialog mounts. The
-        // dialog owns its own initial focus; do not move focus to the opener.
-        // K17: an in-flight replacement owns the shell — no second surface.
-        if (intentRef.current.kind !== 'none') return
-        revealSectionFromNav('export')
-        setExportOpen(true)
-        return
-      default:
-        return
-    }
-  }, [
-    nextAction.kind,
-    revealContextPanel,
-    revealSectionFromNav,
-    handleValidate,
-    handleCancelValidate,
-    handleCancelDiff,
-  ])
   /**
    * A task choice frames the work: at ≥1024px it exposes the task's sections
    * (the others stay mounted behind `display: none`) and opens its
@@ -1683,13 +1492,197 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   /* ---------------------------------------------------------------------
    * WF-06 — session-preserving replacement (the reviewed v5 lifecycle).
    *
-   * The legacy idle/example/drop/retry/cancel chain above and below is
-   * unchanged. A ready-state Open now runs the synchronous G1–G6 gate first;
-   * only a prepared candidate that adopts atomically ever ends the live
-   * session. A cancelled chooser or a failed candidate leaves every live
-   * session slot untouched (T3/T4/T6/T9/T9b/T10) — see the intent/notice
-   * transitions below.
+   * D02b: the acquisition / preparation / currency half of a ready-state
+   * replacement lives in the app-local replacement controller
+   * (`replace/useReplacementController.ts`). It consumes the explicit ports
+   * below and returns commands + renderable state; it reuses the existing
+   * `replace/machine` + `replace/gate` modules and never writes a session
+   * slot, a history/overlay ref or a `Phase`.
+   *
+   * App stays the composition root: the ONE irreversible step —
+   * `adoptReplacement` — is defined here and is called by the controller at
+   * most once per candidate, after the controller's own step-0 currency
+   * check. The legacy idle/example/drop/retry/cancel chain below is
+   * unchanged; a cancelled chooser or a failed candidate leaves every live
+   * session slot untouched (T3/T4/T6/T9/T9b/T10).
    * ------------------------------------------------------------------- */
+
+  /**
+   * The candidate's provider + model. The controller passes an overlay source
+   * that reads the CANDIDATE-LOCAL box it builds from the candidate's own base
+   * (A1-1); the provider is rebound to the live session only in
+   * `adoptReplacement` (A1-3).
+   */
+  const createCandidateGrid = useCallback(
+    (input: {
+      readonly handle: EngineTableHandle
+      readonly overlaySource: () => ReturnType<typeof overlaySnapshot>
+    }) => {
+      const provider = new DuckDbGridProvider(engineClient, input.handle, input.overlaySource)
+      const model = new GridViewportModel(provider)
+      return { provider, model }
+    },
+    [],
+  )
+
+  /**
+   * T8 — the only irreversible step (v5 §4.3, steps 1–8 in order). Fully
+   * synchronous: no `await`, no `model.refresh()`, no second worker, no
+   * reopen, no release. The controller's step 0 (`canAdopt`) has already
+   * refused a superseded candidate, so reaching this function means exactly
+   * one adoption for this candidate; `dataset_opened` is emitted exactly as
+   * the legacy open does.
+   */
+  const adoptReplacement = useCallback(
+    (candidate: ReplacementCandidate): AdoptionOutcome => {
+      // 1. One new dataset session: token bump + every registered reset.
+      const outcome = datasetSession.beginSession()
+      if (outcome.faults.length > 0) {
+        // C03b fail closed (S5, assertion 4): the generation is invalidated and
+        // every remaining reset was attempted, but a partial reset must never be
+        // published as the candidate's `ready` phase. Steps 2–8 are skipped —
+        // the candidate is not rebound, not published, and no `dataset_opened`
+        // is emitted — and the outcome is the session-fault frame, NOT the
+        // per-file `replace-error` copy (whose cause would name the file rather
+        // than the real cause). The previous session is already gone by
+        // contract: its generation was invalidated, so no restoration is
+        // claimed.
+        setSessionFault(outcome.faults)
+        setPhase({ kind: 'idle' })
+        return 'faulted'
+      }
+      // A clean adoption supersedes any earlier fault frame: this is a fresh,
+      // fully reset session and nothing of the abandoned one is shown.
+      setSessionFault(null)
+      // 2–3. The adopted base is the candidate's own; republish history/overlay
+      // AFTER the reset (the reset nulls both).
+      const adoptedHistory = emptyHistory()
+      const adoptedOverlay = overlaySnapshot(candidate.base, adoptedHistory)
+      historyRef.current = adoptedHistory
+      overlayRef.current = adoptedOverlay
+      // 4. A1-3: only now may the candidate provider follow the live session.
+      candidate.provider.rebindOverlaySource(() => overlayRef.current ?? adoptedOverlay)
+      // 5. The adopted session's identity and bound open source.
+      sourceIdentityRef.current = candidate.identity
+      openSourceRef.current = candidate.openSource
+      // 6. Panels resolved during preparation, published before the ready frame.
+      setPanelModules(candidate.panels)
+      // 7. Publish the ready phase (one render), retiring the previous session's
+      // app-local requests so nothing from it can address the new table.
+      setRecordRequest(null)
+      setExportOpen(false)
+      setSqlRequest(null)
+      setActionError(null)
+      setScrollRequest(null)
+      setPhase({
+        kind: 'ready',
+        model: candidate.model,
+        tableId: candidate.handle.id,
+        handle: candidate.handle,
+        base: candidate.base,
+        provider: candidate.provider,
+      })
+      // 8. `dataset_opened` — closed enums only, exactly as the legacy open.
+      telemetry.emit('dataset_opened', {
+        dataset_role: 'primary',
+        format_kind: formatKindFromName(candidate.file.name),
+        size_bucket: bucketSize(candidate.file.size),
+        row_count_bucket: bucketRowCount(candidate.base.baseRowCount),
+        column_count_bucket: bucketColumnCount(candidate.base.columns.length),
+      })
+      return 'adopted'
+    },
+    [datasetSession, historyRef, overlayRef, setPhase, telemetry],
+  )
+
+  /**
+   * D02b — the app-local replacement controller. Every dependency is a named
+   * port (no registry): the synchronous authority refs, the picker, the engine
+   * operations, the candidate grid factory, the panel preload and App's
+   * exactly-once adoption. The volatile gate readings (`gateModal`,
+   * `gridBusy`) travel with the gesture that consumes them, because they are
+   * render values rather than authorities.
+   */
+  const replacement = useReplacementController({
+    phaseRef,
+    editorStateRef,
+    mutationStateRef,
+    castPendingColumnsRef,
+    historyRef,
+    pickFile: pickDataFile,
+    engine: engineClient,
+    createCandidateGrid,
+    preloadPanels: preloadBottomPanels,
+    adopt: adoptReplacement,
+  })
+  const {
+    intent,
+    pickerWasCancelled,
+    replacementFailure,
+    busyNotice,
+    draftNotice,
+    csvReview,
+    csvReviewStopped,
+    beginGesture,
+    chooseFromGuard,
+    retry: retryReplacement,
+    endIntent,
+    noteEditorClosed,
+    adoptCsvReview,
+    stopCsvReview,
+    presentCsvReview,
+    clearReviewStopped,
+    previewCsv,
+  } = replacement
+
+  /**
+   * App-local modal ownership, reused rather than replaced: Export, Settings and
+   * the first-run telemetry disclosure already own their own open state, and
+   * Help joins that set. At most one surface is open at a time — the disclosure
+   * and Help are native modals (the page behind them is inert), while Export
+   * and Settings are guarded at the opener instead of with a new trap.
+   *
+   * WF-06 (§7): the dirty replacement guard joins that set between the
+   * telemetry disclosure and Export. `otherModal` is the same value without the
+   * guard — the gate's G1 input when the guard itself is closing (T5), which is
+   * exactly "the modal closed first, so G1 passes".
+   */
+  const otherModal: Exclude<OwnedModal, 'replace'> | null = helpOpen
+    ? 'help'
+    : disclosureOpen
+      ? 'disclosure'
+      : exportOpen
+        ? 'export'
+        : settingsOpen
+          ? 'settings'
+          : null
+  const openModal: OwnedModal | null = helpOpen
+    ? 'help'
+    : disclosureOpen
+      ? 'disclosure'
+      : intent.kind === 'guard'
+        ? 'replace'
+        : otherModal
+  /**
+   * The guide's opener is disabled while a DIFFERENT surface owns the modal,
+   * and stays enabled while the guide itself is open: it is the focus-return
+   * target, and a disabled control cannot take focus back.
+   */
+  const helpBlocked = openModal !== null && openModal !== 'help'
+
+  /**
+   * IC-01: the render-only editor-state mirror. The ref write alone cannot
+   * re-render App, so the grid calls this at the same handler writes when the
+   * reported state CHANGES (never per keystroke). Its only job is clearing
+   * C13 the moment the editor closes — by Escape, by an ordinary commit, or
+   * by a blur commit — with no second Open click and no unrelated rerender.
+   */
+  const handleEditorStateChange = useCallback(
+    (next: EditorReportState) => {
+      if (!next.open) noteEditorClosed()
+    },
+    [noteEditorClosed],
+  )
 
   /**
    * C15/C16 are **lifecycle-derived**, not gesture-owned (K40/v5 §3.7):
@@ -1718,540 +1711,64 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   }, [intent.kind])
 
   /**
-   * Clear the GESTURE-scoped notices a newer gesture (or a finished intent)
-   * supersedes. C15/C16 are deliberately absent: they follow their own live
-   * observables and no gesture may clear them early.
-   */
-  const clearReplacementNotices = (): void => {
-    setPickerWasCancelled(false)
-    setReplacementFailure(null)
-    setBusyNotice(false)
-    setDraftNotice(false)
-    setCsvReviewStopped(null)
-  }
-
-  /** End the current intent without touching the live session. */
-  const endReplacementIntent = (): void => {
-    setIntent(NO_REPLACEMENT_INTENT)
-    setBusyNotice(false)
-  }
-
-  /**
-   * Enter one in-flight intent: bump the sequence authority first, then publish
-   * the intent carrying that sequence (C2). Returns the sequence the async
-   * chain must keep comparing against `intentSeqRef.current`.
-   */
-  const enterReplacementIntent = (kind: 'guard' | 'choosing' | 'opening-candidate'): number => {
-    intentSeqRef.current += 1
-    const seq = intentSeqRef.current
-    setIntent(beginIntent(kind, seq))
-    return seq
-  }
-
-  /**
-   * G3's per-kind focus chain (§3.2.1): the boolean editor's own testid, then
-   * the text/number/temporal input, then the shared editor container, then the
-   * roving row, then the Open control. Never `<body>`: the Open control is
-   * always connected. The refusal only moves focus — it never commits,
-   * cancels or types anything.
-   */
-  const focusDraftRefusal = (): void => {
-    const selectors = [
-      '[data-testid="grid-editor-boolean"]',
-      '[data-testid="grid-editor-input"]',
-      '[data-testid="grid-cell-editor"]',
-      '[data-testid="grid-viewport"] [data-testid="grid-row"][tabindex="0"]',
-      '[data-testid="open-button"]',
-    ]
-    for (const selector of selectors) {
-      const target = document.querySelector<HTMLElement>(selector)
-      if (target === null) continue
-      target.focus()
-      return
-    }
-  }
-
-  /** One refusal: a value-free notice (or the existing idle/status path). */
-  const applyReplacementRefusal = (reason: ReadyGestureRefusal): void => {
-    switch (reason) {
-      case 'modal':
-        // Existing arbitration: the opener is disabled while another owned
-        // surface is open, so this path is defensive only — no notice.
-        return
-      case 'intent':
-        setBusyNotice(true)
-        return
-      case 'editor':
-        setDraftNotice(true)
-        focusDraftRefusal()
-        return
-      case 'settling':
-      case 'cast':
-        // C15/C16 are already rendered because their observable is live; a
-        // refusal adds nothing and (critically) never owns their lifetime.
-        return
-      case 'busy':
-        // G5 reuses the grid's existing filter/sort busy status; no new copy.
-        return
-    }
-  }
-
-  /**
-   * T9/T9b: the candidate failed before adoption. The live session keeps every
-   * slot (only the notice state changes) and one retained candidate table may
-   * exist in this worker (ADR 0047 — no release primitive; never claimed
-   * leak-free). The C10 cause is the classified, value-free sentence; the raw
-   * diagnostic is parked for the collapsed C14 block only.
-   */
-  const failReplacement = (error: unknown): void => {
-    endReplacementIntent()
-    setReplacementFailure({
-      cause: openFailureMessage(error, error instanceof Error ? error.name : undefined),
-      detail: error instanceof Error ? error.message : String(error),
-    })
-  }
-
-  /**
-   * T1/T5/T6/T7 — acquire and prepare a candidate while the live session stays
-   * live. The picker is invoked synchronously from the triggering gesture (the
-   * File System Access picker needs the transient user activation), so the gate
-   * above it must already have run; nothing here awaits before it.
-   */
-  const acquireReplacementCandidate = (startPhase: Phase): void => {
-    const seq = enterReplacementIntent('choosing')
-    // The picked FSA handle is the ground truth for the export same-source
-    // guard (as in the legacy flow); structural fakes may omit it.
-    const openCapture: { handle: FileSystemFileHandle | null } = { handle: null }
-    void (async () => {
-      let picked: PickedDataFile | null
-      try {
-        picked = await pickDataFile({
-          showOpenFilePicker: async (options) => {
-            const handles = await showOpenFilePicker(options)
-            openCapture.handle = handles[0] ?? null
-            return handles
-          },
-        })
-      } catch (error) {
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        failReplacement(error)
-        return
-      }
-      if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-      if (picked === null) {
-        // T6: chooser dismissed. No reset, no phase write — the live session
-        // is byte-identical, and C8 says so.
-        endReplacementIntent()
-        setPickerWasCancelled(true)
-        return
-      }
-      const identity: SourceIdentity | null =
-        openCapture.handle === null
-          ? null
-          : { isSameEntry: openCapture.handle.isSameEntry.bind(openCapture.handle) }
-      let file: File
-      try {
-        file = await picked.source.getFile()
-      } catch (error) {
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        failReplacement(error)
-        return
-      }
-      if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-      prepareReplacementCandidate({ file, identity, startPhase })
-    })()
-  }
-
-  /**
-   * T7–T9b — prepare the candidate against its OWN base and an EMPTY local
-   * overlay box (A1-1/A1-2). The live session's refs, phase, provider, history
-   * and panels are untouched for the whole preparation. A1's stop rule applies:
-   * if a candidate read could reach `overlayRef` this would be a data-correctness
-   * defect, not a cosmetic one — the closure below references no App ref.
-   */
-  const prepareReplacementCandidate = (input: {
-    readonly file: File
-    readonly identity: SourceIdentity | null
-    readonly startPhase: Phase
-    /**
-     * EW-03I-b: the reviewed CSV option set, when this candidate came from
-     * the CSV review. It is passed straight to `engine/open` — a fresh open
-     * carrying the reviewed options (ADR 0049 acceptance resolution 5), never
-     * a promotion and never a second `TableRegistry` writer. `undefined` for
-     * every other path, which keeps that request byte-identical.
-     */
-    readonly csvOptions?: EngineCsvOptions
-  }): void => {
-    const { file, identity, startPhase, csvOptions } = input
-    const seq = enterReplacementIntent('opening-candidate')
-    void (async () => {
-      try {
-        const source = { name: file.name, getFile: () => Promise.resolve(file) }
-        // Wire shape only: a fresh plain record (structured clone), which the
-        // client and the worker each re-validate through the same total
-        // `parseCsvOptions` — no trust crosses the boundary. No reviewed
-        // options ⇒ the exact single-argument call this chain always made.
-        const reviewed = wireCsvOptions(csvOptions ?? {})
-        const handle =
-          reviewed === undefined
-            ? await engineClient.open(source)
-            : await engineClient.open(source, reviewed)
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        const candidateSchema = await engineClient.schema(handle)
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        const candidateRowCount = await engineClient.rowCount(handle)
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        const candidateBase: OverlayBase = {
-          baseAnchor: fileVersionAnchor({ size: file.size, lastModified: file.lastModified }),
-          overlayAnchor: createOverlayAnchor(),
-          columns: candidateSchema.map((column) => ({ name: column.name, type: column.type })),
-          baseRowCount: candidateRowCount,
-        }
-        // A1-1: candidate-local box, built from the CANDIDATE's base. No live
-        // ref, history or phase value is captured (A1-2).
-        const candidateOverlayBox = { current: overlaySnapshot(candidateBase, emptyHistory()) }
-        const candidateProvider = new DuckDbGridProvider(
-          engineClient,
-          handle,
-          () => candidateOverlayBox.current,
-        )
-        const candidateModel = new GridViewportModel(candidateProvider)
-        await candidateModel.load()
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        const panels = await preloadBottomPanels()
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        adoptReplacementCandidate(
-          {
-            file,
-            handle,
-            base: candidateBase,
-            model: candidateModel,
-            provider: candidateProvider,
-            panels,
-            identity,
-            openSource: { getFile: () => Promise.resolve(file) },
-          },
-          startPhase,
-        )
-      } catch (error) {
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        failReplacement(error)
-      }
-    })()
-  }
-
-  /* ---------------------------------------------------------------------
-   * EW-03I-b — the CSV review path (ADR 0049 decisions 4/6/7; EW-03D §3).
-   *
-   * The review is a CANDIDATE step of the existing machinery, not a second
-   * lifecycle: in a ready session it occupies the same `choosing` intent (so
-   * the shell stays owned, Open/Help stay disabled and G2 refuses a competing
-   * gesture) and adoption goes through the same `prepareReplacementCandidate`
-   * → `adoptReplacementCandidate` pair, exactly once, carrying the reviewed
-   * options into a fresh `engine/open`. In idle there is no session to guard,
-   * so adoption hands the reviewed file + options to the one existing open
-   * chain through a one-shot ref — the same precedent as the idle example and
-   * the dropped file.
-   *
-   * The preview itself never adopts: `CsvReviewDialog` only ever calls
-   * `csvPreview`. Abandonment drops the local candidate, bumps the sequence
-   * authority so every late result is discarded, and claims nothing about the
-   * engine (envelope §5a: there is no host-reachable release op).
-   * ------------------------------------------------------------------- */
-
-  /** The engine's non-adopting preview call, stable for the dialog's effect. */
-  const previewCsvSource = useCallback(
-    (
-      source: { readonly name: string; getFile(): Promise<File> },
-      options?: Record<string, unknown>,
-      sampleRows?: number,
-    ) => engineClient.csvPreview(source, options, sampleRows),
-    [],
-  )
-
-  /**
-   * The ready-state review acquisition (T1/T5/T6/T7 shape): the picker runs
-   * synchronously from the gesture, then a CSV pick opens the review instead
-   * of preparing a candidate. A cancelled chooser is T6 (C8: nothing opened,
-   * session unchanged); a non-CSV pick falls through to the ordinary candidate
-   * preparation unchanged.
-   */
-  const acquireCsvReview = (startPhase: Phase): void => {
-    const seq = enterReplacementIntent('choosing')
-    const openCapture: { handle: FileSystemFileHandle | null } = { handle: null }
-    void (async () => {
-      let picked: PickedDataFile | null
-      try {
-        picked = await pickDataFile({
-          showOpenFilePicker: async (options) => {
-            const handles = await showOpenFilePicker(options)
-            openCapture.handle = handles[0] ?? null
-            return handles
-          },
-        })
-      } catch (error) {
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        failReplacement(error)
-        return
-      }
-      if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-      if (picked === null) {
-        endReplacementIntent()
-        setPickerWasCancelled(true)
-        return
-      }
-      const identity: SourceIdentity | null =
-        openCapture.handle === null
-          ? null
-          : { isSameEntry: openCapture.handle.isSameEntry.bind(openCapture.handle) }
-      let file: File
-      try {
-        file = await picked.source.getFile()
-      } catch (error) {
-        if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-        failReplacement(error)
-        return
-      }
-      if (!isIntentCurrent(intentSeqRef.current, seq, phaseRef.current, startPhase)) return
-      if (detectFormatFromFileName(file.name) !== 'csv') {
-        prepareReplacementCandidate({ file, identity, startPhase })
-        return
-      }
-      setCsvReviewStopped(null)
-      setCsvReview({ mode: 'replace', file, identity, startPhase, intentSeq: seq })
-    })()
-  }
-
-  /**
-   * Adoption of a reviewed CSV — the only irreversible step, and the only one
-   * that ever writes a session. Idle: one-shot hand-off to `openDataFile` with
-   * the reviewed options. Ready: the existing guarded preparation, which ends
-   * in the same exactly-once `adoptReplacementCandidate`.
-   */
-  const adoptCsvReview = (handoff: CsvReviewHandoff, options: EngineCsvOptions): void => {
-    setCsvReviewStopped(null)
-    setCsvReview(null)
-    if (handoff.mode === 'idle') {
-      pendingReviewHandoffRef.current = {
-        file: handoff.file,
-        identity: handoff.identity,
-        options,
-      }
-      void openDataFile()
-      return
-    }
-    // Defensive (the modal owns the shell, so no gesture can supersede it):
-    // if the intent or the phase moved, open nothing and say so.
-    if (
-      !isIntentCurrent(
-        intentSeqRef.current,
-        handoff.intentSeq,
-        phaseRef.current,
-        handoff.startPhase,
-      )
-    ) {
-      endReplacementIntent()
-      setCsvReviewStopped('replace')
-      return
-    }
-    prepareReplacementCandidate({
-      file: handoff.file,
-      identity: handoff.identity,
-      startPhase: handoff.startPhase,
-      csvOptions: options,
-    })
-  }
-
-  /**
-   * Abandonment (ADR 0049 item 7; envelope §5a). Drops the candidate, bumps the
-   * sequence authority so a late preview result can never be adopted, ends any
-   * intent, and says "stopped reviewing" — never "aborted", and never that a
-   * preview slot was released. There is no host-reachable release op, so one
-   * staged preview stays retained until the next preview, an open, or
-   * `engine/dispose`; this row discloses that rather than faking a call.
-   */
-  const stopCsvReview = (handoff: CsvReviewHandoff): void => {
-    intentSeqRef.current += 1
-    setCsvReview(null)
-    endReplacementIntent()
-    setPickerWasCancelled(false)
-    setReplacementFailure(null)
-    setCsvReviewStopped(handoff.mode)
-  }
-
-  /**
-   * T8 — `adopt()`, the only irreversible step (v5 §4.3, steps 0–9 in order).
-   *
-   * Fully synchronous: no `await`, no `model.refresh()`, no second worker, no
-   * reopen, no release. Step 0 refuses when the intent was superseded or the
-   * phase changed (defensive — no gesture can reach it); a refusal writes
-   * nothing at all. `dataset_opened` is emitted exactly as the legacy open does.
-   */
-  const adoptReplacementCandidate = (
-    candidate: ReplacementCandidate,
-    startPhase: Phase,
-  ): boolean => {
-    if (
-      !canAdopt({
-        intent: intentRef.current,
-        currentSeq: intentSeqRef.current,
-        phase: phaseRef.current,
-        capturedPhase: startPhase,
-      })
-    ) {
-      return false
-    }
-    // 1. One new dataset session: token bump + every registered reset.
-    const outcome = datasetSession.beginSession()
-    if (outcome.faults.length > 0) {
-      // C03b fail closed (S5, assertion 4): the generation is invalidated and
-      // every remaining reset was attempted, but a partial reset must never be
-      // published as the candidate's `ready` phase. Steps 2–9 are skipped — the
-      // candidate is not rebound, not published, and no `dataset_opened` is
-      // emitted — the intent ends, and the outcome is the session-fault frame,
-      // NOT the per-file `replace-error` copy (whose cause would name the file
-      // rather than the real cause). The previous session is already gone by
-      // contract: its generation was invalidated, so no restoration is claimed.
-      intentSeqRef.current += 1
-      endReplacementIntent()
-      clearReplacementNotices()
-      setSessionFault(outcome.faults)
-      setPhase({ kind: 'idle' })
-      return false
-    }
-    // A clean adoption supersedes any earlier fault frame: this is a fresh,
-    // fully reset session and nothing of the abandoned one is shown.
-    setSessionFault(null)
-    // 2–3. The adopted base is the candidate's own; republish history/overlay
-    // AFTER the reset (the reset nulls both).
-    const adoptedHistory = emptyHistory()
-    const adoptedOverlay = overlaySnapshot(candidate.base, adoptedHistory)
-    historyRef.current = adoptedHistory
-    overlayRef.current = adoptedOverlay
-    // 4. A1-3: only now may the candidate provider follow the live session.
-    candidate.provider.rebindOverlaySource(() => overlayRef.current ?? adoptedOverlay)
-    // 5. The adopted session's identity and bound open source.
-    sourceIdentityRef.current = candidate.identity
-    openSourceRef.current = candidate.openSource
-    // 6. Panels resolved during preparation, published before the ready frame.
-    setPanelModules(candidate.panels)
-    // 7. Publish the ready phase (one render), retiring the previous session's
-    // app-local requests so nothing from it can address the new table.
-    setRecordRequest(null)
-    setExportOpen(false)
-    setSqlRequest(null)
-    setActionError(null)
-    setScrollRequest(null)
-    setPhase({
-      kind: 'ready',
-      model: candidate.model,
-      tableId: candidate.handle.id,
-      handle: candidate.handle,
-      base: candidate.base,
-      provider: candidate.provider,
-    })
-    // 8. `dataset_opened` — closed enums only, exactly as the legacy open.
-    telemetry.emit('dataset_opened', {
-      dataset_role: 'primary',
-      format_kind: formatKindFromName(candidate.file.name),
-      size_bucket: bucketSize(candidate.file.size),
-      row_count_bucket: bucketRowCount(candidate.base.baseRowCount),
-      column_count_bucket: bucketColumnCount(candidate.base.columns.length),
-    })
-    // 9. The intent ends last.
-    clearReplacementNotices()
-    setIntent(NO_REPLACEMENT_INTENT)
-    return true
-  }
-
-  /**
-   * The single ready-state entry point (G1–G6). `gateModal` is the owned-modal
-   * value the gate sees — `openModal` for a fresh gesture, or the non-replace
-   * value when the guard itself is closing into choosing (T5), where the modal
-   * is already gone so G1 must pass. `respectDirtyGuard` is false for T5/C11,
-   * which re-enter `choosing` directly.
-   *
-   * EW-03I-b: `path` selects WHICH picker path the gesture takes once the gate
-   * passes — the shipped candidate open (default) or the CSV review. It is a
-   * path choice, not a new lifecycle state: the gate, the guard, the notices,
-   * the intent kinds and the adoption step are unchanged for both. The chosen
-   * path is remembered in `desiredPathRef` so T5 (choose from the guard) and
-   * C11 (retry) resume the same path without inventing a per-intent field; the
-   * two entry controls always state theirs explicitly.
-   */
-  const startReplacementGate = (
-    gateModal: OwnedModal | null,
-    respectDirtyGuard: boolean,
-    path?: ReplacementPath,
-  ): void => {
-    const livePhase = phaseRef.current
-    if (livePhase.kind !== 'ready') return
-    if (path !== undefined) desiredModeRef.current = path
-    const wantedPath = desiredModeRef.current
-    // v5 §3.2: the gate runs FIRST — before any dialog, picker, await or state
-    // write. Notices are cleared only once the verdict is known; a refusal then
-    // sets its own notice, so a stale notice can never be cleared by a gesture
-    // the gate refused for another reason, and the gate never observes a render
-    // it caused.
-    const verdict = evaluateReadyGesture({
-      openModal: gateModal,
-      intent: intentRef.current,
-      editorOpen: editorStateRef.current.open,
-      mutations: mutationStateRef.current,
-      castPendingCount: castPendingColumnsRef.current.size,
-      gridBusy,
-      history: historyRef.current,
-    })
-    clearReplacementNotices()
-    if (verdict.kind === 'refuse') {
-      applyReplacementRefusal(verdict.reason)
-      return
-    }
-    if (respectDirtyGuard && verdict.dirty) {
-      enterReplacementIntent('guard')
-      return
-    }
-    if (wantedPath === 'review') acquireCsvReview(livePhase)
-    else acquireReplacementCandidate(livePhase)
-  }
-
-  /** T3: Stay / Escape — byte-identical live session, no other effect. */
-  const stayOnGuard = (): void => {
-    endReplacementIntent()
-  }
-
-  /**
    * T4 — export-first: the guard closes, the intent ends, then the EXISTING
    * exporter opens. No export outcome advances, resets or marks the session
    * clean, and nothing auto-opens a chooser afterwards.
    */
   const exportFirstFromGuard = (): void => {
-    endReplacementIntent()
+    endIntent()
     revealSectionFromNav('export')
     setExportOpen(true)
   }
 
-  /**
-   * T5 — the guard's destructive action re-enters `choosing`.
-   *
-   * `ReplaceGuard` closes the native dialog element SYNCHRONOUSLY before it
-   * calls this handler (v5 §3.2/T5: "the modal closed first, so G1 passes"),
-   * so the picker that `acquireReplacementCandidate` invokes below is never
-   * started behind an open modal. The intent also drops to `none` before the
-   * gate so G2 passes for this one transition; `otherModal` is the G1 input and
-   * still refuses if another owned surface is open.
-   */
-  const chooseFromGuard = (): void => {
-    if (phaseRef.current.kind !== 'ready') return
-    setIntent(NO_REPLACEMENT_INTENT)
-    startReplacementGate(otherModal, false)
-  }
-
-  /** C11 — retry re-enters `choosing`; it is never the destroy-first flow. */
-  const retryReplacement = (): void => {
-    startReplacementGate(otherModal, false)
-  }
-
+  const handleContextAction = useCallback(() => {
+    switch (nextAction.kind) {
+      case 'open-contract':
+        revealContextPanel('validation', 'validation-open-contract')
+        return
+      case 'review-contract':
+      case 'review-findings':
+        revealContextPanel('validation', 'validation-panel')
+        return
+      case 'review-comparison':
+        revealContextPanel('compare', 'diff-run')
+        return
+      case 'validate':
+        handleValidate()
+        return
+      case 'cancel-validation':
+        handleCancelValidate()
+        return
+      case 'rerun-diff':
+        // The comparison's key mode/manual keys live in the panel, so the bar
+        // reveals the panel and focuses its existing run control instead of
+        // duplicating that state here. The panel remains the single run path.
+        revealContextPanel('compare', 'diff-run')
+        return
+      case 'cancel-diff':
+        handleCancelDiff()
+        return
+      case 'export':
+        // The dialog renders inside the Export section body, so the section
+        // must be open (and Change active) before the dialog mounts. The
+        // dialog owns its own initial focus; do not move focus to the opener.
+        // K17: an in-flight replacement owns the shell — no second surface.
+        if (intent.kind !== 'none') return
+        revealSectionFromNav('export')
+        setExportOpen(true)
+        return
+      default:
+        return
+    }
+  }, [
+    intent.kind,
+    nextAction.kind,
+    revealContextPanel,
+    revealSectionFromNav,
+    handleValidate,
+    handleCancelValidate,
+    handleCancelDiff,
+  ])
   const openDataFile = useCallback(async () => {
     // AR-W13: generation guard. `beginSession` bumps the shared session token
     // and runs every per-domain reset (f-1), so a picker/open chain that
@@ -2275,7 +1792,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     // A no-file drop's notice belongs to the idle screen only; any real open
     // attempt (including a cancelled picker returning to idle) supersedes it.
     setDropNotice(null)
-    setCsvReviewStopped(null)
+    clearReviewStopped()
     // A fresh attempt starts from a clean frame: the earlier fault was that
     // invocation's, and a new `beginSession` re-runs every reset from scratch.
     setSessionFault(null)
@@ -2447,7 +1964,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         errorName: error instanceof Error ? error.name : undefined,
       })
     }
-  }, [datasetSession, historyRef, overlayRef, setPhase, telemetry])
+  }, [clearReviewStopped, datasetSession, historyRef, overlayRef, setPhase, telemetry])
 
   /**
    * EW-03I-b — the idle review entry: pick a file, then review it; or, for
@@ -2510,8 +2027,13 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         void openDataFile()
         return
       }
-      setCsvReviewStopped(null)
-      setCsvReview({ mode: 'idle', file, identity, startPhase: phaseRef.current, intentSeq: 0 })
+      presentCsvReview({
+        mode: 'idle',
+        file,
+        identity,
+        startPhase: phaseRef.current,
+        intentSeq: 0,
+      })
     })()
   }
 
@@ -2610,9 +2132,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
          */}
         {intent.kind === 'guard' && (
           <ReplaceGuard
-            onStay={stayOnGuard}
+            onStay={endIntent}
             onExport={exportFirstFromGuard}
-            onChoose={chooseFromGuard}
+            onChoose={() => {
+              chooseFromGuard({ gateModal: otherModal, gridBusy })
+            }}
           />
         )}
         {/*
@@ -2629,9 +2153,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
               name: csvReview.file.name,
               getFile: () => Promise.resolve(csvReview.file),
             }}
-            requestPreview={previewCsvSource}
+            requestPreview={previewCsv}
             onAdopt={(options) => {
-              adoptCsvReview(csvReview, options)
+              const handoffToOpen = adoptCsvReview(csvReview, options)
+              if (handoffToOpen === null) return
+              pendingReviewHandoffRef.current = handoffToOpen
+              void openDataFile()
             }}
             onStop={() => {
               stopCsvReview(csvReview)
@@ -2695,8 +2222,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
               }
               // WF-06: a ready-state Open enters the synchronous gate; every
               // other phase keeps the unchanged legacy destroy-first chain.
-              if (phase.kind === 'ready') startReplacementGate(openModal, true, 'open')
-              else void openDataFile()
+              if (phase.kind === 'ready') {
+                beginGesture(
+                  { gateModal: openModal, gridBusy },
+                  { respectDirtyGuard: true, path: 'open' },
+                )
+              } else void openDataFile()
             }}
             /* IC-03/K17 (§4.6): disabled when an intent is active OR ANY owned
                modal is open — not only when both are true, and not only in
@@ -2743,8 +2274,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                 ) {
                   return
                 }
-                if (phase.kind === 'ready') startReplacementGate(openModal, true, 'review')
-                else startCsvReviewFromIdle()
+                if (phase.kind === 'ready') {
+                  beginGesture(
+                    { gateModal: openModal, gridBusy },
+                    { respectDirtyGuard: true, path: 'review' },
+                  )
+                } else startCsvReviewFromIdle()
               }}
             >
               {CSV_REVIEW_ACTION}
@@ -2849,7 +2384,13 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                 {replacementFailure.cause}
                 {REPLACE_FAILURE_SUFFIX}
               </p>
-              <button type="button" data-testid="replace-retry" onClick={retryReplacement}>
+              <button
+                type="button"
+                data-testid="replace-retry"
+                onClick={() => {
+                  retryReplacement({ gateModal: otherModal, gridBusy })
+                }}
+              >
                 {REPLACE_RETRY_LABEL}
               </button>
               <details data-testid="replace-error-details">
