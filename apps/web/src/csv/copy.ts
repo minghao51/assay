@@ -141,7 +141,21 @@ export const CSV_REVIEW_SNIFF_TIMESTAMPFORMAT = 'Timestamp format'
 export const CSV_REVIEW_SNIFF_PROMPT_HEADING = 'The read_csv call for these settings'
 export const CSV_REVIEW_SNIFF_PROMPT_NOTE =
   'Display text only. It names the reader’s staging name, not your file, and nothing here runs it.'
+
+/**
+ * B02 — the one text for a GENUINELY DISABLED dialect setting: comments have no
+ * prefix configured, or an empty-string option turned quoting/escaping/comments
+ * off. It is never used for a field the reader simply did not infer from the
+ * sample — that is {@link CSV_REVIEW_NOT_INFERRED}.
+ */
 export const CSV_REVIEW_NONE_VALUE = 'None'
+
+/**
+ * B02 — the reader inferred no value for this field (an unset `Quote`/`Escape`
+ * in `sniff_csv`, a null date/timestamp format). The reader's default still
+ * applies, so this is an absent inference, not a disabled setting.
+ */
+export const CSV_REVIEW_NOT_INFERRED = 'Not inferred'
 
 /** Effective-options disclosure: exactly what the sample's read composed. */
 export const CSV_REVIEW_EFFECTIVE_HEADING = 'Options this sample used'

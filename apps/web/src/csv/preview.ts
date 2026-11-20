@@ -30,7 +30,7 @@ import type { EngineCsvPreviewResult } from '@assay/engine-duckdb'
 import { formatCell } from '../grid/format'
 import { projectBatchToRows } from '../grid/provider'
 import type { ArrowTableLike } from '../grid/provider'
-import { CSV_REVIEW_NULL_CELL, CSV_REVIEW_NONE_VALUE } from './copy'
+import { CSV_REVIEW_NULL_CELL } from './copy'
 
 /** One column of the sample table, as the engine disclosed it. */
 export interface CsvSampleColumn {
@@ -142,30 +142,7 @@ export function toPreviewView(result: EngineCsvPreviewResult): CsvPreviewView {
   }
 }
 
-/**
- * Render one dialect character/string for display. The engine reports `''` for
- * an unset dialect string (probe B1/B2 and the acquisition record), which must
- * read as an explicit "None" rather than a blank cell, and a control character
- * is shown escaped so a newline delimiter is legible and cannot reflow the
- * disclosure. Display only — the raw value is never reinterpreted.
- */
-export function displayDialect(value: string): string {
-  if (value === '') return CSV_REVIEW_NONE_VALUE
-  const escapes: Readonly<Record<string, string>> = {
-    '\n': '\\n',
-    '\r': '\\r',
-    '\t': '\\t',
-    '\u0000': '\\0',
-  }
-  return escapes[value] ?? value
-}
-
 /** Render a boolean disclosure value ("Yes"/"No", never a blank). */
 export function displayBoolean(value: boolean): string {
   return value ? 'Yes' : 'No'
-}
-
-/** Render a nullable text disclosure value. */
-export function displayNullableText(value: string | null): string {
-  return value === null || value === '' ? CSV_REVIEW_NONE_VALUE : value
 }

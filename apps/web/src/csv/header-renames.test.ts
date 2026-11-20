@@ -206,6 +206,31 @@ describe('the sniffed dialect is option TEXT and is decoded before scanning', ()
     expect(decodeSniffedNewLine('\\')).toBe('\\')
   })
 
+  it('does not accept display text in place of the decoded terminator (B02 boundary)', () => {
+    // The display adapter renders the payload's escape text as the two visible
+    // characters `\\n`. Feeding that text to the scan finds no record terminator
+    // (the bytes hold a real LF), so the rename list would be silently lost —
+    // which is exactly why the display adapter is not parser input.
+    const head = 'id,,id\n1,x,2\n3,y,4\n'
+    expect(
+      scanHeaderRecord(head, {
+        delimiter: ',',
+        quote: '',
+        escape: '',
+        newLineDelimiter: '\\n',
+      }),
+    ).toEqual({ kind: 'limit', limit: 'incomplete-record' })
+    // The decoded value is what the scan reads.
+    expect(
+      scanHeaderRecord(head, {
+        delimiter: ',',
+        quote: '',
+        escape: '',
+        newLineDelimiter: '\n',
+      }),
+    ).toEqual({ kind: 'fields', fields: ['id', '', 'id'] })
+  })
+
   it('translates the whole sniffed dialect in one place', () => {
     expect(
       sniffedDialect({

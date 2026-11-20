@@ -41,6 +41,9 @@ const RENAME_NOTHING =
   'The reader renamed nothing in this header: every name above is the name the file itself uses.'
 const RENAME_UNAVAILABLE =
   'No per-file rename list is shown for this file: it could not be derived safely from the head of the file.'
+/** B02: the two display states that replaced the literal `(empty)` sentinel. */
+const NOT_INFERRED = 'Not inferred'
+const NONE = 'None'
 
 /** One observed engine request (only the fields this spec asserts). */
 interface ObservedRequest {
@@ -134,6 +137,17 @@ test('the review reads the semicolon fixture, follows an option change, and adop
 
   // The reader's own dialect for this fixture: ';' and three columns.
   await expect(page.getByTestId('csv-review-sniff-delimiter')).toHaveText(';')
+  // B02 on the REAL engine: the unset Quote/Escape arrive as the literal text
+  // `(empty)` and must read as an absent inference — never `None` (nothing was
+  // disabled) and never the sentinel. A comment with no prefix IS off.
+  await expect(page.getByTestId('csv-review-sniff-quote')).toHaveText(NOT_INFERRED)
+  await expect(page.getByTestId('csv-review-sniff-escape')).toHaveText(NOT_INFERRED)
+  await expect(page.getByTestId('csv-review-sniff-comment')).toHaveText(NONE)
+  // NewLineDelimiter is escape text on the wire and stays legible on screen.
+  await expect(page.getByTestId('csv-review-sniff-newline')).toHaveText('\\n')
+  await expect(page.getByTestId('csv-review-sniff-dateformat')).toHaveText(NOT_INFERRED)
+  // The literal wire sentinel reaches no screen at all.
+  expect(await page.getByTestId('csv-review').innerText()).not.toContain('(empty)')
   await expect(page.getByTestId('csv-review-sniff-column')).toHaveCount(3)
   await expect(page.getByTestId('csv-review-sniff-column-name').first()).toHaveText('id')
   await expect(page.getByTestId('csv-review-sample-column-name')).toHaveCount(3)
@@ -232,6 +246,13 @@ test('a header holding a quoted delimiter and a quoted newline gets no false lis
 }) => {
   await openIdleReview(page, QUOTED_NEWLINE_FIXTURE)
 
+  // B02: a real quote character is a value, the unset escape is not inferred,
+  // and this LF file's terminator is the escape text `\n`.
+  await expect(page.getByTestId('csv-review-sniff-quote')).toHaveText('"')
+  await expect(page.getByTestId('csv-review-sniff-escape')).toHaveText(NOT_INFERRED)
+  await expect(page.getByTestId('csv-review-sniff-newline')).toHaveText('\\n')
+  await expect(page.getByTestId('csv-review-sniff-comment')).toHaveText(NONE)
+
   // One record was scanned, not split: five columns, the two quoted fields
   // intact (`a,b` and a two-line name).
   await expect(page.getByTestId('csv-review-sniff-column-name')).toHaveText([
@@ -256,6 +277,44 @@ test('a header holding a quoted delimiter and a quoted newline gets no false lis
 
   // The file names itself nowhere (ADR 0025), and nothing is opened here.
   expect(await page.getByTestId('csv-review').innerText()).not.toContain('quoted-newline')
+  expect((await observed(page)).filter((request) => request.type === 'engine/open')).toHaveLength(0)
+})
+
+/* ---- B02: the dialect disclosure on the real engine ----------------------
+ *
+ * The committed fixtures are LF. A CRLF file is uploaded as bytes (no fixture
+ * is added: `fixtures/` is outside this row) so the ONLY real-engine case that
+ * needs a new file shape still runs through the real DuckDB-WASM sniffer.
+ * `sniff_csv` reports the terminator as ESCAPE TEXT, so `\r\n` is four
+ * characters on the wire and must read legibly on screen — while an unset
+ * quote/escape is an absent inference, not a disabled setting.
+ */
+
+test('a CRLF file discloses its terminator and never renders the raw sentinel', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForPhase(page, 'idle')
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByTestId('csv-review-button').click()
+  const chooser = await chooserPromise
+  await chooser.setFiles({
+    name: 'crlf-review.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('id;name\r\n1;anna\r\n2;braedon\r\n'),
+  })
+  await expect(page.getByTestId('csv-review')).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('csv-review-sample-table')).toBeVisible({ timeout: 20_000 })
+
+  await expect(page.getByTestId('csv-review-sniff-delimiter')).toHaveText(';')
+  // Two escape sequences, four characters: legible, never a real CR/LF.
+  await expect(page.getByTestId('csv-review-sniff-newline')).toHaveText('\\r\\n')
+  await expect(page.getByTestId('csv-review-sniff-quote')).toHaveText(NOT_INFERRED)
+  await expect(page.getByTestId('csv-review-sniff-escape')).toHaveText(NOT_INFERRED)
+  await expect(page.getByTestId('csv-review-sniff-comment')).toHaveText(NONE)
+  expect(await page.getByTestId('csv-review').innerText()).not.toContain('(empty)')
+  // Still non-adopting, and the file's own name is nowhere on the surface.
+  expect(await page.getByTestId('csv-review').innerText()).not.toContain('crlf-review')
   expect((await observed(page)).filter((request) => request.type === 'engine/open')).toHaveLength(0)
 })
 

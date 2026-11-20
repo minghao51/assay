@@ -6,8 +6,6 @@ import type { ArrowTableLike } from '../grid/provider'
 import {
   disclosureColumns,
   displayBoolean,
-  displayDialect,
-  displayNullableText,
   formatSampleCell,
   projectSampleBatch,
   toPreviewView,
@@ -182,23 +180,12 @@ describe('toPreviewView', () => {
   })
 })
 
-describe('disclosure display helpers', () => {
-  it('makes an unset dialect string an explicit None', () => {
-    expect(displayDialect('')).toBe('None')
-    expect(displayDialect(';')).toBe(';')
-  })
-
-  it('escapes control characters so a newline delimiter cannot reflow the disclosure', () => {
-    expect(displayDialect('\n')).toBe('\\n')
-    expect(displayDialect('\t')).toBe('\\t')
-    expect(displayDialect('\r')).toBe('\\r')
-  })
-
-  it('never renders a boolean or a nullable text as blank', () => {
+describe('displayBoolean', () => {
+  it('never renders a boolean as blank', () => {
     expect(displayBoolean(true)).toBe('Yes')
     expect(displayBoolean(false)).toBe('No')
-    expect(displayNullableText(null)).toBe('None')
-    expect(displayNullableText('')).toBe('None')
-    expect(displayNullableText('%Y-%m-%d')).toBe('%Y-%m-%d')
   })
 })
+
+// B02: the dialect display helpers moved to `dialect-display.ts`, where the
+// sniffer's sentinel and the disabled/not-inferred distinction are pinned.
