@@ -59,6 +59,9 @@ export interface CreateOnlyWriter {
 /**
  * The identity facts the writer relies on. `fs.Stats` satisfies this
  * structurally; the test seam supplies its own objects.
+ *
+ * @internal Test seam (B04) — stripped from any emitted declarations by
+ * `stripInternal`.
  */
 export interface CreateOnlyWriterStat {
   readonly dev: number
@@ -71,6 +74,10 @@ export interface CreateOnlyWriterStat {
  * The narrow filesystem surface the writer uses. Injectable ONLY so the
  * acquisition/cleanup phases can be fault-injected (B04 acceptance); the
  * extension runtime goes through `createOnlyWriter` and the real `node:fs`.
+ *
+ * @internal Test seam (B04) — stripped from any emitted declarations by
+ * `stripInternal`; the extension build bundles this module without exporting
+ * it (`dist/extension.cjs` exports only `activate`/`deactivate`).
  */
 export interface CreateOnlyWriterFs {
   readonly open: (path: string, flags: string, mode: number) => Promise<FileHandle>
@@ -110,6 +117,9 @@ export async function createOnlyWriter(
  * Internal test seam (B04): the same writer over an injected fs surface. Not a
  * runtime entry point — `createOnlyWriter` above is the only production
  * caller, and no `fs` option is threaded through the extension API.
+ *
+ * @internal Stripped from any emitted declarations by `stripInternal`; the
+ * extension runtime surface is `createOnlyWriter` alone.
  */
 export async function createOnlyWriterWithFs(
   fs: CreateOnlyWriterFs,

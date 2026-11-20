@@ -262,7 +262,12 @@ export async function writeDcrArtifactNew(
   return writeNewArtifact(nodeFs, outPath, text)
 }
 
-/** The identity facts the residue cleanup relies on (`fs.Stats` satisfies it). */
+/**
+ * The identity facts the residue cleanup relies on (`fs.Stats` satisfies it).
+ *
+ * @internal Test seam (B05) — stripped from the emitted declarations by
+ * `stripInternal`; never a command surface.
+ */
 export interface DcrWriteStat {
   readonly dev: number
   readonly ino: number
@@ -274,6 +279,10 @@ export interface DcrWriteStat {
  * The narrow filesystem surface of the exclusive write. Injectable ONLY so the
  * write/close/cleanup failure paths can be fault-injected (B05 acceptance);
  * the command goes through `writeDcrArtifactNew` and the real `node:fs`.
+ *
+ * @internal Test seam (B05) — stripped from the emitted declarations by
+ * `stripInternal`; the production declaration surface is `writeDcrArtifactNew`
+ * alone.
  */
 export interface DcrWriteFs {
   readonly open: (path: string, flags: string, mode: number) => Promise<FileHandle>
@@ -302,6 +311,10 @@ const nodeFs: DcrWriteFs = {
 /**
  * Internal test seam (B05): the exclusive write over an injected fs surface.
  * Not a command surface — `writeDcrArtifactNew` is the only production entry.
+ *
+ * @internal Stripped from the emitted declarations by `stripInternal`, so the
+ * injectable filesystem is not part of the published API. The runtime export
+ * stays (the fault-injection tests import it).
  */
 export function writeDcrArtifactNewWithFs(
   fs: DcrWriteFs,

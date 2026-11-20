@@ -3,6 +3,7 @@
   "include": ["src", "webview"],
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": []
+    "types": [],
+    "stripInternal": true
   }
 }
