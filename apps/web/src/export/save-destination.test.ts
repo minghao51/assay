@@ -2,7 +2,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { detectSaveCapabilities, requestSaveDestination, writeExportCopy } from './save-destination'
-import type { SaveFileHandle, SourceIdentity } from './save-destination'
+import type { SaveFileHandle, SaveWritable, SourceIdentity } from './save-destination'
 
 function fakeHandle(writes: Uint8Array[]): SaveFileHandle {
   return {
@@ -155,14 +155,15 @@ describe('requestSaveDestination — same-source refusal for FSA-opened sources'
   })
 })
 
-describe('writeExportCopy — reads OPFS scratch and delivers to the destination', () => {
-  const result = {
-    path: 'assay-exports/assay-export-1.csv',
-    format: 'csv',
-    rowCount: 6,
-    bytes: 3,
-  } as const
+/** The engine's scratch result shape the helper reads from. */
+const result = {
+  path: 'assay-exports/assay-export-1.csv',
+  format: 'csv',
+  rowCount: 6,
+  bytes: 3,
+} as const
 
+describe('writeExportCopy — reads OPFS scratch and delivers to the destination', () => {
   it('writes the OPFS bytes into a picked handle and reports the strategy', async () => {
     const writes: Uint8Array[] = []
     const readBytes = vi.fn(async () => new Uint8Array([1, 2, 3]))
@@ -196,5 +197,179 @@ describe('writeExportCopy — reads OPFS scratch and delivers to the destination
         },
       }),
     ).rejects.toThrow('scratch entry missing')
+  })
+})
+
+/**
+ * B03 — a controllable writable: the call ORDER it saw, plus an optional
+ * injected failure per method. `abort` may be `'absent'` (a writable that
+ * does not support it at all), which is what keeps the helper's ownership of
+ * the failure explicit instead of assumed.
+ */
+type WritableCall = 'write' | 'close' | 'abort'
+
+interface WritablePlan {
+  readonly write?: Error
+  readonly close?: Error
+  /** `'absent'` omits the optional method; an Error makes the abort itself fail. */
+  readonly abort?: Error | 'absent'
+}
+
+interface WritableProbe {
+  readonly handle: SaveFileHandle
+  readonly calls: WritableCall[]
+  readonly abortReasons: unknown[]
+  readonly writes: Uint8Array[]
+  readonly createCalls: () => number
+}
+
+function probeWritable(plan: WritablePlan = {}): WritableProbe {
+  const calls: WritableCall[] = []
+  const abortReasons: unknown[] = []
+  const writes: Uint8Array[] = []
+  let created = 0
+  const handle: SaveFileHandle = {
+    createWritable: async () => {
+      created += 1
+      const writable: Record<string, unknown> = {
+        write: async (chunk: Uint8Array<ArrayBuffer>) => {
+          calls.push('write')
+          if (plan.write !== undefined) throw plan.write
+          writes.push(chunk)
+        },
+        close: async () => {
+          calls.push('close')
+          if (plan.close !== undefined) throw plan.close
+        },
+      }
+      if (plan.abort !== 'absent') {
+        writable['abort'] = async (reason?: unknown) => {
+          calls.push('abort')
+          abortReasons.push(reason)
+          if (plan.abort instanceof Error) throw plan.abort
+        }
+      }
+      return writable as unknown as SaveWritable
+    },
+  }
+  return { handle, calls, abortReasons, writes, createCalls: () => created }
+}
+
+const bytes = new Uint8Array([1, 2, 3])
+
+describe('writeExportCopy — the writable failure lifecycle (B03)', () => {
+  it('reads first: a read failure never creates or touches a writable', async () => {
+    const readError = new Error('scratch entry missing')
+    const probe = probeWritable()
+    const rejection = writeExportCopy({ via: 'file-system-access', handle: probe.handle }, result, {
+      readBytes: async () => {
+        throw readError
+      },
+    })
+    await expect(rejection).rejects.toBe(readError)
+    expect(probe.createCalls()).toBe(0)
+    expect(probe.calls).toEqual([])
+  })
+
+  it('propagates a createWritable failure without calling methods on a missing writable', async () => {
+    const createError = new Error('the picker handle was disconnected')
+    const calls: WritableCall[] = []
+    const handle: SaveFileHandle = {
+      createWritable: async () => {
+        throw createError
+      },
+    }
+    await expect(
+      writeExportCopy({ via: 'file-system-access', handle }, result, {
+        readBytes: async () => bytes,
+      }),
+    ).rejects.toBe(createError)
+    expect(calls).toEqual([])
+  })
+
+  it('aborts once after a failed write and keeps the write failure as the rejection', async () => {
+    const writeError = new Error('write failed')
+    const probe = probeWritable({ write: writeError })
+    await expect(
+      writeExportCopy({ via: 'file-system-access', handle: probe.handle }, result, {
+        readBytes: async () => bytes,
+      }),
+    ).rejects.toBe(writeError)
+    // No close after a failed write (never a success path), one abort.
+    expect(probe.calls).toEqual(['write', 'abort'])
+    expect(probe.abortReasons).toHaveLength(1)
+  })
+
+  it('does not replace the primary rejection when abort itself fails', async () => {
+    const writeError = new Error('write failed')
+    const abortError = new Error('abort failed')
+    const probe = probeWritable({ write: writeError, abort: abortError })
+    await expect(
+      writeExportCopy({ via: 'file-system-access', handle: probe.handle }, result, {
+        readBytes: async () => bytes,
+      }),
+    ).rejects.toBe(writeError)
+    expect(probe.calls).toEqual(['write', 'abort'])
+  })
+
+  it('still rejects with the write failure when the writable has no abort', async () => {
+    const writeError = new Error('write failed')
+    const probe = probeWritable({ write: writeError, abort: 'absent' })
+    await expect(
+      writeExportCopy({ via: 'file-system-access', handle: probe.handle }, result, {
+        readBytes: async () => bytes,
+      }),
+    ).rejects.toBe(writeError)
+    expect(probe.calls).toEqual(['write'])
+  })
+
+  it('aborts after a close failure, best effort, keeping the close failure', async () => {
+    const closeError = new Error('close failed')
+    const probe = probeWritable({ close: closeError })
+    await expect(
+      writeExportCopy({ via: 'file-system-access', handle: probe.handle }, result, {
+        readBytes: async () => bytes,
+      }),
+    ).rejects.toBe(closeError)
+    expect(probe.calls).toEqual(['write', 'close', 'abort'])
+  })
+
+  it('closes exactly once and never aborts on the success path', async () => {
+    const probe = probeWritable()
+    await expect(
+      writeExportCopy({ via: 'file-system-access', handle: probe.handle }, result, {
+        readBytes: async () => bytes,
+      }),
+    ).resolves.toBe('file-system-access')
+    expect(probe.calls).toEqual(['write', 'close'])
+    expect(probe.abortReasons).toEqual([])
+    expect(probe.createCalls()).toBe(1)
+  })
+
+  it('hands abort a value-free reason, never the primary error or a path', async () => {
+    const writeError = new Error(`COPY failed for ${result.path}`)
+    const probe = probeWritable({ write: writeError })
+    await expect(
+      writeExportCopy({ via: 'file-system-access', handle: probe.handle }, result, {
+        readBytes: async () => bytes,
+      }),
+    ).rejects.toBe(writeError)
+    const reason = probe.abortReasons[0]
+    expect(reason).not.toBe(writeError)
+    expect(typeof reason).toBe('string')
+    expect(String(reason)).not.toContain(result.path)
+    expect(String(reason)).not.toContain('COPY')
+  })
+
+  it('propagates a download-delivery failure on the fallback path', async () => {
+    const deliveryError = new Error('the anchor click was blocked')
+    await expect(
+      writeExportCopy({ via: 'download' }, result, {
+        readBytes: async () => bytes,
+        deliverDownload: () => {
+          throw deliveryError
+        },
+      }),
+    ).rejects.toBe(deliveryError)
   })
 })

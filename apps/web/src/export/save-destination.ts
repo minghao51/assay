@@ -55,6 +55,20 @@ export interface SaveFileHandle {
 export interface SaveWritable {
   write(chunk: Uint8Array<ArrayBuffer>): Promise<void>
   close(): Promise<void>
+  /**
+   * Discard this writable's pending content (the DOM
+   * `FileSystemWritableFileStream.abort()` operation). Optional: the platform
+   * operation this module needs is write+close, so a structural fake without
+   * it stays valid.
+   *
+   * B03 — failure cleanup: the helper attempts this AT MOST ONCE after the
+   * write or the close fails, and ignores its own failure (the primary
+   * rejection is the outcome the caller reports). It is never a success path
+   * and never retried, and it makes no promise that a browser can restore a
+   * destination — it only stops a partially written stream from being left
+   * open on the platforms that support it.
+   */
+  abort?(reason?: unknown): Promise<void>
 }
 
 /** A resolved destination: a real handle, the download fallback, or a refusal. */
@@ -140,16 +154,23 @@ export type DeliverDownload = (blob: Blob, fileName: string) => void
  * rejects, identity cannot be proven different — refuse (fail closed). The
  * cost of a false refusal is the user picking another name/location; the
  * cost of a false allow is the opened file silently replaced by its own
- * export (the ADR 0012 data-loss path this guard exists for). The cast is
- * sound at runtime: a real picker resolves a DOM FileSystemFileHandle (the
- * structural `SaveFileHandle` simply does not re-declare the DOM
- * supertype), and a fake identity's `isSameEntry` ignores the argument.
+ * export (the ADR 0012 data-loss path this guard exists for).
+ * SAFETY: the double assertion below is sound by construction, which TypeScript
+ * cannot check: a real picker resolves a DOM `FileSystemFileHandle` (the
+ * structural `SaveFileHandle` simply does not re-declare the DOM supertype), and
+ * a fake identity's `isSameEntry` ignores the argument entirely. The value is
+ * never read as anything but an opaque handle.
  */
 async function sameEntryRefusal(
   identity: SourceIdentity,
   handle: SaveFileHandle,
 ): Promise<boolean> {
   try {
+    // SAFETY: a real picker resolves a DOM FileSystemFileHandle, so the
+    // structural SaveFileHandle is at runtime exactly the value isSameEntry
+    // expects; a fake identity's isSameEntry ignores the argument. TypeScript
+    // cannot check this because the structural interface deliberately does not
+    // re-declare the DOM supertype.
     return await identity.isSameEntry(handle as unknown as FileSystemHandle)
   } catch {
     return true
@@ -198,9 +219,40 @@ export interface WriteCopyDeps {
 }
 
 /**
+ * The reason handed to `abort`. Deliberately value-free: the primary failure
+ * can carry a scratch path or engine text (ADR 0025), and this module never
+ * forwards either. It is an internal marker, not user-facing copy.
+ */
+const EXPORT_WRITE_ABORT_REASON = 'export write failed'
+
+/**
+ * One best-effort abort of a writable whose write or close failed. A writable
+ * that does not expose `abort` is simply left to the browser's own teardown,
+ * and an abort that itself rejects is swallowed: replacing the primary
+ * rejection with the cleanup's error would misreport why the export failed.
+ */
+async function abortWritableOnce(writable: SaveWritable): Promise<void> {
+  if (typeof writable.abort !== 'function') return
+  try {
+    await writable.abort(EXPORT_WRITE_ABORT_REASON)
+  } catch {
+    // Best effort by contract (B03): the primary failure is reported unchanged.
+  }
+}
+
+/**
  * Read the engine's OPFS scratch bytes for `result.path` and deliver them to
  * the resolved destination. Resolves the strategy actually used, so the result
  * line can say honestly where the copy went.
+ *
+ * Order is load-bearing (m4-5, B03): the bytes are read BEFORE a writable
+ * exists (a read failure never creates or touches one), and once
+ * `createWritable` succeeds, `write` and `close` sit inside ONE failure
+ * boundary — a failed write never falls through to `close` as if it had
+ * succeeded, and either failure gets exactly one best-effort abort before the
+ * original error propagates. A successful close is the only path that
+ * resolves `'file-system-access'`; nothing is retried (a retry would deliver
+ * the same export twice).
  */
 export async function writeExportCopy(
   destination: WritableSaveDestination,
@@ -211,9 +263,14 @@ export async function writeExportCopy(
   const bytes = await readBytes(result.path)
   if (destination.via === 'file-system-access') {
     const writable = await destination.handle.createWritable()
-    await writable.write(bytes)
-    await writable.close()
-    return 'file-system-access'
+    try {
+      await writable.write(bytes)
+      await writable.close()
+      return 'file-system-access'
+    } catch (error) {
+      await abortWritableOnce(writable)
+      throw error
+    }
   }
   const info = exportFormatInfo(result.format)
   const blob = new Blob([bytes], { type: info.mimeType })
