@@ -8,6 +8,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 
 - ADRs 0001–0039 predate the `Date` field: backfill dates opportunistically when an ADR is next legitimately edited — never bulk-rewrite. The same rule applies to early ADRs that lack an Alternatives section.
 - Run `pnpm adr:index` before committing an ADR change; the tables below are generated from each file's H1 and Status, and `pnpm adr:index:check` fails on drift.
+- Editorial drift in accepted ADRs (stale line anchors, stale status-marker text) is explained in the [2026-11-20 clarification/errata record](20261120-editorial-errata.md); accepted decision text is never rewritten.
 
 <!-- adr-index:begin -->
 

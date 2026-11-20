@@ -4,7 +4,8 @@
 (EW-04D condition vii), **EW-03I-a**, **TB-1**, **EW-03I-b**, **TB-2**, **EW-04I**, **ENG-1** and
 **D3-1**, and **ADR 0051 is Accepted**. **No product-policy decision is pending, and no row is selected.**
 What remains is **ENG-2** (typed `repair-preview` count op) and **ENG-3** (the `(empty)` dialect payload /
-`'None'` unreachable), both **recorded but unselected** and both needing a go-ahead. This
+`'None'` unreachable), both **recorded but unselected** and both needing a go-ahead; **R3/R8** remain
+recorded limitations and **R13** remains unselected (§2 below; none of these is closed). This
 record is the cold-pickup index for the next agent; it does not select any unrequested row.
 
 **Authority order:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) dated selection →
@@ -61,23 +62,31 @@ three consecutive coverage runs were green at load 30→97. Do not weaken a thre
 | R3 / R8      | Human study / real-engine N9-T9b fixture                                                                   | recorded limitations                                                          | no action unless the maintainer re-decides                                                                               |
 | R13          | EW-05…08, WF-03/04/07/08/09, WF-O1/O2, WFD-03/04/05/07, D-06/D-11, SQL sizing, overlay profiles            | unselected                                                                    | **do not start**; no implicit selection                                                                                  |
 
-**One web-runtime writer at a time.** **EW-03I-b and EW-04I are closed**, so **D3-1 is now the only
-live web row** and no second writer is authorised until it closes. ENG-2 would be an engine row and
-serialises against any web row consuming it; ENG-1 is a docs-only amendment if the maintainer takes option
-C.
+**One web-runtime writer at a time.** EW-03I-b and EW-04I closed first; D3-1 was then the only live
+web row, and **D3-1 is now CLOSED** (`a16eea5` + `9a39fe3` + `d941b51`), so **there is no live web
+row** and no web writer is in flight. The one-writer rule still binds any future web row, and nothing
+here authorises a dispatch without a fresh maintainer go-ahead. ENG-2 would be an engine row and
+serialises against any web row consuming it; **ENG-1** closed as the docs-only ADR 0049 amendment
+(option C taken 2026-11-18, `f2fb523` + `81bb8dc`).
 
 ## 3. Dispatch order
+
+> **Historical dispatch order as recorded 2026-11-18 — do not dispatch.** Every runtime row below is
+> closed (see §1/§2); the sequence is kept as the dispatch record of the wave and selects nothing.
+> Current entry point: the living handoff's current-state block ([handoff.md](../handoff.md)).
 
 1. **EW-04I** (web writer) — **CLOSED** `52da4ca` + `9e62172` + `d0069be` (U1–U3 closed). Do not
    re-dispatch it.
 2. **D3-1** (web writer) — the per-file rename list, now unblocked; it owns `apps/web` until it closes.
+   **CLOSED** `a16eea5` + `9a39fe3` + `d941b51` (rename list shipped with the zero-based rule;
+   `(empty)`-payload trap found) — historical dispatch step; do not re-dispatch it.
 3. **TB-1** (test-only) — **CLOSED** `30b6564` + `4b147a1`; it ran first because the `ee65c54` baseline
    was red. Do not re-dispatch it.
 4. **EW-03I-b** (web writer) — **CLOSED** `233dc6a` + `e954d8c`. Do not re-dispatch it.
 5. **ADR 0051** — **ACCEPTED 2026-11-18** (status block updated, decision text unchanged; index
    51 records / 43 accepted / 8 proposed). **ENG-1** = option C approved by the maintainer on 2026-11-18:
-   the ADR 0049 amendment is a docs-only row in flight. **ENG-2** (typed `repair-preview` count op) remains
-   recorded-but-unselected.
+   the ADR 0049 amendment is a docs-only row in flight (**CLOSED** `f2fb523` + `81bb8dc`). **ENG-2**
+   (typed `repair-preview` count op) remains recorded-but-unselected.
 
 Every runtime row: filled envelope, branch/worktree, shifted ports, one web writer, full stock +
 configured + restored gates, an independent reviewer (different model **and** thinking) with mutation
@@ -85,7 +94,16 @@ controls and byte-identical restoration, and **never push**.
 
 ## 4. Paste-ready prompts
 
-### P0 — cold pickup (paste to the next orchestrator)
+> **Historical record — do not dispatch (label added 2026-11-20).** The prompts below are the
+> pasted briefs exactly as they stood on 2026-11-18, kept as history. Every runtime row they dispatch
+> is closed (see §2 above) — **D3-1 included** (`a16eea5` + `9a39fe3` + `d941b51`), so there is **no
+> live web row** — and **P0's "remaining queue" text is obsolete**; no prompt in this section is a
+> current starting instruction. R3/R8/R13 were never dispatch rows and were not closed by this wave:
+> **R3/R8** remain recorded limitations and **R13** remains unselected (§2); the
+> recorded-but-unselected **ENG-2/ENG-3** need a fresh maintainer go-ahead. Current entry point: the
+> living handoff's current-state block ([handoff.md](../handoff.md)).
+
+### P0 — cold pickup (paste to the next orchestrator) (**historical — do not dispatch**)
 
 ```text
 Pick up docs/process/handoff/20261118-post-ew03ia-pickup.md (the post-EW-03I-a state, remaining queue
@@ -144,7 +162,7 @@ reviewed options). Stop if the merged engine API is insufficient (that is a new 
 policy is unresolved. Never push.
 ```
 
-### P2 — EW-04I worker brief (web bulk repair + U1–U3; **the only queued runtime row** — paste with a fresh envelope)
+### P2 — EW-04I worker brief (web bulk repair + U1–U3; **CLOSED** `52da4ca` + `9e62172` + `d0069be` — kept as the row record; its "the only queued runtime row — paste with a fresh envelope" line is 2026-11-18 snapshot wording, do not dispatch)
 
 ```text
 Row: EW-04I — web plan capture/preview/publication for the column-repair op, closing EW-04D condition

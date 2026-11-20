@@ -24,6 +24,9 @@ A justified docs-only verification subset is permitted by the operating model, b
 
 Rules:
 
+- A package-changing PR must include a `pnpm changeset` record (AGENTS.md § Commands —
+  "Record a releasable change (with PRs that change packages)"); none of the gates above creates
+  one. Docs-only changes do not need a changeset.
 - Never hand-format code to fix lint failures; run `pnpm format` only if the failure is formatting.
 - A failure inside `packages/domain` is special: domain src is a dependency-free zone (no external imports, dev deps included).
 - Every dataset-shape bug fix must ship a minimal golden fixture + regression test before the gate can pass.

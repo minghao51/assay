@@ -33,9 +33,13 @@ pending (manual action M1), so the only install path today is a source checkout
 of this repository.
 
 ```bash
-pnpm install   # requires Node >= 22 (see .node-version); pnpm via corepack
+pnpm install   # development requires Node 24 (tested 24.13.0; see .node-version); pnpm via corepack
 pnpm dev       # start the web app
 ```
+
+Development requires **Node 24** (root policy `^24.0.0`, tested 24.13.0). The shipped CLI and
+extension keep a declared `node: ">=22"` product floor whose minimum is not exercised in this
+environment; the full constraint table is the [node support contract](docs/process/handoff/20261120-node-support-contract.md).
 
 Every other task is a root script: `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test`
 (unit), `pnpm test:e2e` (Playwright), `pnpm format`, `pnpm changeset`, and

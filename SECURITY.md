@@ -2,7 +2,7 @@
 
 Assay is the local-first data workbench: it inspects, validates, compares,
 repairs, transforms, and governs structured datasets (Parquet, JSONL, JSON,
-CSV, Arrow) inside your own browser or on your own machine. **Your data does
+CSV — Arrow is used internally as transport) inside your own browser or on your own machine. **Your data does
 not leave your machine by default.** That local-first promise is why security
 reports matter to us: a flaw in Assay can expose the sensitive data you
 already hold, not just data in some remote service.
@@ -133,8 +133,17 @@ does not override their terms.
   that degrades shared infrastructure (including GitHub).
 - Bugs in builds that are not produced from this repository, or issues that
   cannot be reproduced from a specific `main` commit.
-- The `apps/vscode` package: it is a **placeholder** that ships no
-  functionality and therefore has no attack surface yet.
+- The `apps/vscode` desktop extension — **an explicit scope exclusion, not a claim that it has no
+  attack surface** (clarified 2026-11-20). The extension is no longer a placeholder: it implements
+  offline dataset viewing, session-only overlay editing with undo/redo, create-only export,
+  effective-view validation, confirmed-key staged diff with installed-CLI agreement, and Git
+  context (PT-V slice 2 closed 2026-10-19; contributions and activation live in
+  `apps/vscode/package.json` and `apps/vscode/src/extension.ts`). It remains out of scope here
+  because the project is pre-launch and the extension is **not distributed** — there is no release
+  or marketplace artifact to attack (see "Supported versions"): only the tip of `main` is
+  supported. This exclusion is maintainer support-scope policy and will be revisited when
+  artifacts ship. Contributor documentation describing implemented functionality is not a
+  security support commitment.
 
 ## Our commitments
 

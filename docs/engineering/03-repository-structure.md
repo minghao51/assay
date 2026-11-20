@@ -251,5 +251,7 @@ emission and opt-out integrations; collector deployment remains human-gated.
 
 `web` and `cli` implement the local workbench plus pipeline/DCR workflows.
 `vscode` implements desktop viewing and session-only overlay editing/history
-with a vendored engine and headless grid. Sources stay immutable; new-file
-export, validation, diff and Git parity remain PT-V slice-2 work.
+with a vendored engine and headless grid. Sources stay immutable. Desktop
+parity — new-file export, effective-view validation, confirmed-key staged diff
+and Git context/compare — is implemented (PT-V slice 2 closed 2026-10-19);
+the earlier "slice-2 remaining" wording is superseded by that closure.

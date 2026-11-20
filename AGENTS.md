@@ -42,7 +42,7 @@ implement and approve the same change.
 
 | Command                                      | Purpose                                                                                     |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `pnpm install`                               | Install everything (Node ≥ 22, pnpm via corepack)                                           |
+| `pnpm install`                               | Install everything (development: Node 24, tested 24.13.0; pnpm via corepack)                |
 | `pnpm dev`                                   | Web app dev server                                                                          |
 | `pnpm typecheck` / `pnpm lint` / `pnpm test` | Gates — all must pass                                                                       |
 | `pnpm build`                                 | Build buildable packages                                                                    |
@@ -50,6 +50,10 @@ implement and approve the same change.
 | `pnpm format`                                | Prettier — do not hand-format code                                                          |
 | `pnpm changeset`                             | Record a releasable change (with PRs that change packages)                                  |
 | `bash fixtures/parquet/generate.sh`          | Regenerate Parquet golden fixtures (needs DuckDB CLI)                                       |
+
+Development requires **Node 24** (root policy `^24.0.0`, tested 24.13.0). The `node: ">=22"` floor
+declared in package/app manifests is the product floor; its minimum is not exercised in this
+environment — see the [node support contract](docs/process/handoff/20261120-node-support-contract.md).
 
 ## Hard rules
 
