@@ -17,6 +17,7 @@
     "docs:links:check": "node scripts/check-doc-links.mjs",
     "current-state:check": "node scripts/check-current-state.mjs",
     "doctor": "node scripts/doctor.mjs",
+    "measure:bundle": "node scripts/measure-bundle.mjs",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",
