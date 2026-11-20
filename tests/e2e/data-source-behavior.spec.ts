@@ -27,6 +27,7 @@ const SCENARIOS = [
   'cancel-semantics',
   'capability-matrix',
   'fallback-order',
+  'acquisition-retry',
 ] as const
 
 /** Button labels as rendered by the harness (kept human-readable there). */
@@ -37,6 +38,7 @@ const BUTTON_LABELS: Record<(typeof SCENARIOS)[number], string> = {
   'cancel-semantics': 'Behavior: cancel semantics',
   'capability-matrix': 'Behavior: capability matrix',
   'fallback-order': 'Behavior: fallback order',
+  'acquisition-retry': 'Behavior: acquisition retry',
 }
 
 for (const name of SCENARIOS) {
@@ -90,6 +92,21 @@ for (const name of SCENARIOS) {
         expect(result.facts['multipleAlwaysFalse']).toBe(true)
         expect(result.facts['inputUnusedWhenPickerAvailable']).toBe(true)
         expect(result.facts['fallbackOnlyWithoutPicker']).toBe(true)
+        break
+      case 'acquisition-retry':
+        // B06/Q3: one shared in-flight attempt, exactly one retry after a
+        // failure, a retained snapshot and a captured synchronous throw. (The
+        // ADR 0025 no-name-logging pin lives in the package's own unit test:
+        // the shared suite stays framework-free and package sources may not
+        // touch `console` — q-7.)
+        expect(result.facts['sharedInFlightAttempt']).toBe(true)
+        expect(result.facts['concurrentFailureObserved']).toBe(true)
+        expect(result.facts['retriedExactlyOnce']).toBe(true)
+        expect(result.facts['staleRejectionCannotClearRetry']).toBe(true)
+        expect(result.facts['supersededAttemptCannotClearCache']).toBe(true)
+        expect(result.facts['fulfilledAttemptRetained']).toBe(true)
+        expect(result.facts['frozenHandle']).toBe(true)
+        expect(result.facts['syncThrowCaptured']).toBe(true)
         break
       default:
         break

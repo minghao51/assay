@@ -40,6 +40,8 @@ class FakeWorker implements EngineWorkerLike {
   static readonly instances: FakeWorker[] = []
   readonly postedRequests: EngineRequest[] = []
   terminated = false
+  /** How many times `terminate()` was called (C04: disposal must terminate once). */
+  terminateCalls = 0
   private readonly messageListeners: Array<(event: MessageEvent<unknown>) => void> = []
   private readonly errorListeners: Array<(event: ErrorEvent) => void> = []
 
@@ -53,6 +55,7 @@ class FakeWorker implements EngineWorkerLike {
 
   terminate(): void {
     this.terminated = true
+    this.terminateCalls += 1
   }
 
   addEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void
@@ -722,6 +725,194 @@ describe('DuckDbEngineClient file lifecycle (M1-4)', () => {
     expect(client.status).toBe('disposed')
     await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
     expect(workers).toHaveLength(1)
+  })
+})
+
+describe('DuckDbEngineClient disposal settlement (C04)', () => {
+  /** Track whether a promise settled, without awaiting it. */
+  function track(promise: Promise<unknown>): { settled: () => boolean; done: Promise<void> } {
+    let settled = false
+    return {
+      settled: () => settled,
+      done: promise.then(() => {
+        settled = true
+      }),
+    }
+  }
+
+  it('holds every dispose() caller until the one teardown settles (deferred graceful reply)', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 5_000 })
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await boot
+
+    const first = track(client.dispose())
+    const second = track(client.dispose())
+    const third = track(client.dispose())
+    await flush()
+    await flush()
+    // The graceful request is out but unanswered: NO caller may resolve yet.
+    expect(worker.postedRequests.filter((r) => r.type === 'engine/dispose')).toHaveLength(1)
+    expect(first.settled()).toBe(false)
+    expect(second.settled(), 'a second dispose() must await the same teardown').toBe(false)
+    expect(third.settled(), 'every further dispose() must await the same teardown').toBe(false)
+    expect(worker.terminated).toBe(false)
+
+    // The worker's graceful reply settles all three through one termination.
+    worker.respond({
+      type: 'engine/disposed',
+      requestId: worker.requestAt(worker.postedRequests.length - 1).requestId,
+    })
+    await Promise.all([first.done, second.done, third.done])
+    expect(first.settled() && second.settled() && third.settled()).toBe(true)
+    expect(client.status).toBe('disposed')
+    expect(worker.terminated).toBe(true)
+    expect(worker.terminateCalls).toBe(1)
+    // Exactly one graceful request crossed the boundary.
+    expect(worker.postedRequests.filter((r) => r.type === 'engine/dispose')).toHaveLength(1)
+
+    // Terminal + idempotent: a post-completion dispose() still resolves.
+    await expect(client.dispose()).resolves.toBeUndefined()
+    expect(worker.terminateCalls).toBe(1)
+    expect(worker.postedRequests.filter((r) => r.type === 'engine/dispose')).toHaveLength(1)
+  })
+
+  it('settles every dispose() caller when the graceful reply never arrives (existing bounded timeout)', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 20 })
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await boot
+
+    const first = track(client.dispose())
+    const second = track(client.dispose())
+    await flush()
+    expect(first.settled()).toBe(false)
+    expect(second.settled()).toBe(false)
+    await Promise.all([first.done, second.done])
+    expect(client.status).toBe('disposed')
+    expect(worker.terminated).toBe(true)
+    expect(worker.terminateCalls).toBe(1)
+  })
+
+  it('keeps the terminal contract while disposal is pending: new and in-flight ops reject with EngineDisposedError', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 5_000 })
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await boot
+
+    const inFlight = client.query('SELECT 1 AS value')
+    await flush()
+    const queryRequests = (): number =>
+      worker.postedRequests.filter((request) => request.type === 'engine/query').length
+    expect(queryRequests()).toBe(1) // the in-flight op did reach the worker
+    const first = client.dispose()
+    const second = client.dispose()
+    // Immediate terminal status + pending rejection, before any settlement.
+    expect(client.status).toBe('disposed')
+    await expect(inFlight).rejects.toThrow(EngineDisposedError)
+    await expect(client.query('SELECT 2 AS value')).rejects.toThrow(EngineDisposedError)
+    await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
+    // …and the post-dispose op never crossed the boundary.
+    expect(queryRequests()).toBe(1)
+
+    const disposeRequest = worker.postedRequests.at(-1)!
+    worker.respond({ type: 'engine/disposed', requestId: disposeRequest.requestId })
+    await Promise.all([first, second])
+    expect(worker.terminateCalls).toBe(1)
+  })
+
+  it('settles every caller when the graceful request cannot be posted', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 5_000 })
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await boot
+
+    // The worker rejects the post (structured-clone style failure).
+    const failingPost = worker.postMessage.bind(worker)
+    worker.postMessage = (request) => {
+      if (request.type === 'engine/dispose') {
+        throw new TypeError('could not clone the dispose payload')
+      }
+      failingPost(request)
+    }
+    const first = track(client.dispose())
+    const second = track(client.dispose())
+
+    await Promise.all([first.done, second.done])
+    expect(client.status).toBe('disposed')
+    expect(worker.terminated).toBe(true)
+    expect(worker.terminateCalls).toBe(1)
+  })
+
+  it('settles every caller when the worker crashes mid-disposal', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 5_000 })
+    const boot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await boot
+
+    const first = track(client.dispose())
+    const second = track(client.dispose())
+    await flush()
+    expect(first.settled()).toBe(false)
+    expect(second.settled()).toBe(false)
+
+    worker.crash('worker died during cleanup')
+    await Promise.all([first.done, second.done])
+    expect(client.status).toBe('disposed')
+    expect(worker.terminated).toBe(true)
+    // A crashed worker cannot resurrect the engine.
+    await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
+  })
+
+  it('dispose() before boot settles (and stays settled) for every caller', async () => {
+    const { client, workers } = makeClient()
+    const first = track(client.dispose())
+    const second = track(client.dispose())
+    await Promise.all([first.done, second.done])
+    expect(workers).toHaveLength(0)
+    expect(client.status).toBe('disposed')
+    await expect(client.dispose()).resolves.toBeUndefined()
+    await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
+  })
+
+  it('a failed boot cannot resurrect ready, and disposal after it still settles', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 20 })
+    const doomed = client.query('SELECT 1 AS value')
+    const worker = workers[0]!
+    worker.respond({
+      type: 'engine/error',
+      requestId: worker.requestAt(0).requestId,
+      message: 'instantiate failed',
+    })
+    await expect(doomed).rejects.toThrow(/instantiate failed/)
+    expect(client.status).toBe('failed')
+
+    const first = track(client.dispose())
+    const second = track(client.dispose())
+    await Promise.all([first.done, second.done])
+    expect(client.status).toBe('disposed')
+    await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
+    expect(client.status).toBe('disposed')
+  })
+
+  it('a boot/dispose race settles every disposal caller and never resurrects ready', async () => {
+    const { client, workers } = makeClient({ disposeTimeoutMs: 20 })
+    const boot = client.ensureReady() // engine/init in flight, no reply
+    const worker = workers[0]!
+    const first = track(client.dispose())
+    const second = track(client.dispose())
+
+    await expect(boot).rejects.toThrow(EngineDisposedError)
+    await Promise.all([first.done, second.done])
+    expect(client.status).toBe('disposed')
+    expect(worker.terminated).toBe(true)
+    expect(workers).toHaveLength(1)
+    await expect(client.ensureReady()).rejects.toThrow(EngineDisposedError)
   })
 })
 

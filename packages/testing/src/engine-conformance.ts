@@ -49,7 +49,9 @@
  *    *classified* engine error (operation/query category — never a crash or
  *    protocol error) and the engine stays ready and reusable; breakout
  *    probes (escape attempts) are contained: the registered view and its
- *    data survive untouched.
+ *    data survive untouched. The benign anchor's declared values AND order —
+ *    not only its row count — are asserted before the probes and after each
+ *    containment probe (C05), so a count-preserving corruption cannot pass.
  *
  * m2-5 adds the profiling scenario (the surface m2-6's profile panel drives):
  *
@@ -2090,12 +2092,44 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       'subject misconfiguration: declare at least one filtered window-semantics entry as the benign anchor',
     )
     const anchorFilters = anchor!.filters!
+    const anchorSort = anchor!.sort ?? []
+    // C05: the anchor's declared values AND order are asserted, not just its
+    // count — a count-preserving corruption must fail this scenario. The
+    // request stays a *bounded* span: the expected whole-matching-set row
+    // count is never equated with a smaller returned batch when the engine cap
+    // is tighter, so the assertion compares exactly the rows the window can
+    // contain. (The suite already requires `expectRowCount` to fit one window
+    // in the window-filter-sort scenario; this scenario fails loudly here
+    // instead of comparing a truncated batch against the full list.)
+    expectCondition(
+      anchor!.expectRowCount >= 1 && anchor!.expectRowCount <= subject.maxWindowRows,
+      `subject misconfiguration: the anchor semantics entry "${anchor!.label}" expects ${String(anchor!.expectRowCount)} rows — must be within 1…maxWindowRows so the whole matching set fits one bounded window`,
+    )
+    expectCondition(
+      anchor!.expectValues.length === anchor!.expectRowCount,
+      `subject misconfiguration: the anchor semantics entry "${anchor!.label}" declares ${String(anchor!.expectValues.length)} values for ${String(anchor!.expectRowCount)} rows`,
+    )
     const anchorEndRow = Math.min(anchor!.expectRowCount, subject.maxWindowRows)
+    const anchorValues = anchor!.expectValues.slice(0, anchorEndRow)
+    const expectAnchorWindow = async (label: string): Promise<void> => {
+      const window = await client.fetchRange(handle, {
+        startRow: 0,
+        endRow: anchorEndRow,
+        filters: anchorFilters,
+        ...(anchorSort.length > 0 ? { sort: anchorSort } : {}),
+      })
+      expectEqual(window.batch.numRows, anchorEndRow, `${label}: anchor window row count`)
+      expectColumnValues(window.batch, anchor!.expectColumn, anchorValues, label)
+    }
     expectEqual(
       await client.rowCount(handle, { filters: anchorFilters }),
       anchor!.expectRowCount,
       'benign anchor rowCount (pre-probe)',
     )
+    // The unchanged baseline: the anchor's declared values before any probe,
+    // so a later mismatch is attributable to the probes rather than to the
+    // staged fixture.
+    await expectAnchorWindow('benign anchor window (pre-probe)')
 
     // Predicate/identifier failures must surface as a *classified* engine
     // error (operation or query category — the engine's own error surface,
@@ -2166,6 +2200,11 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
           `a rejected breakout probe must be a classified engine error (got: ${errorMessage(outcome)})`,
         )
       }
+      // The anchor's exact values and order, not only its count, survive each
+      // containment probe.
+      await expectAnchorWindow(
+        `benign anchor window (after breakout probe ${JSON.stringify(probe.predicate)})`,
+      )
       containedBreakouts += 1
     }
     const registryAfter = await subject.registeredTableCount(client)
@@ -2174,15 +2213,23 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       `the registry must be unchanged by the probes (before: ${String(registryBefore)}, after: ${String(registryAfter)})`,
     )
 
-    // The benign anchor still answers with exactly its declared values.
+    // The benign anchor still answers with exactly its declared values, in
+    // order (C05: the count alone is not evidence of intact data).
     const anchorWindow = await client.fetchRange(handle, {
       startRow: 0,
       endRow: anchorEndRow,
       filters: anchorFilters,
+      ...(anchorSort.length > 0 ? { sort: anchorSort } : {}),
     })
     expectEqual(
       anchorWindow.batch.numRows,
       anchor!.expectRowCount,
+      'benign anchor window (post-probe)',
+    )
+    expectColumnValues(
+      anchorWindow.batch,
+      anchor!.expectColumn,
+      anchor!.expectValues,
       'benign anchor window (post-probe)',
     )
     return {

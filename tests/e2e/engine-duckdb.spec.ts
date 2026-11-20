@@ -171,3 +171,35 @@ test('a failed query rejects with the engine error and the engine stays reusable
   await expect(page.getByTestId('post-error-value')).toHaveText('7')
   await expect(page.getByTestId('engine-status')).toHaveText('ready')
 })
+
+// C04: every dispose() caller awaits the same real-engine teardown. The
+// pre-C04 client short-circuited a second dispose() on the terminal status, so
+// it resolved while the graceful handshake and the worker termination were
+// still in flight — visible here as a settlement order that starts with the
+// second caller.
+test('every dispose() caller awaits the same real-engine teardown (C04)', async ({ page }) => {
+  await page.goto(HARNESS_URL)
+  await page.getByRole('button', { name: 'Dispose twice concurrently' }).click()
+  const element = page.getByTestId('dispose-twice-result')
+  await expect(element).not.toHaveText('not run', { timeout: 60_000 })
+  const facts = JSON.parse((await element.textContent())!) as {
+    booted?: boolean
+    firstQueryValue?: string
+    settlementOrder?: string[]
+    bothSettled?: boolean
+    statusAfter?: string
+    postDisposeRejected?: boolean
+    repeatedDisposeResolved?: boolean
+    fatal?: string
+  }
+
+  expect(facts.fatal).toBeUndefined()
+  expect(facts.booted).toBe(true)
+  expect(facts.firstQueryValue).toBe('7')
+  expect(facts.bothSettled).toBe(true)
+  // The first dispose() settles first: the second awaited the same teardown.
+  expect(facts.settlementOrder).toEqual(['first', 'second'])
+  expect(facts.statusAfter).toBe('disposed')
+  expect(facts.postDisposeRejected).toBe(true)
+  expect(facts.repeatedDisposeResolved).toBe(true)
+})

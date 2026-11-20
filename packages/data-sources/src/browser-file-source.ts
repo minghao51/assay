@@ -16,10 +16,20 @@
  *   package deliberately does not claim persistent file identity, because
  *   stable cross-session ids would require persistent browser storage
  *   (ADR 0017 allows OPFS/IndexedDB for disposable caches only).
- * - The underlying `File` is resolved lazily exactly once (`getFile()` for
- *   the handle path; the given `File` for the fallback path) and cached, so
- *   `open()`/`metadata()` observe one consistent snapshot for the instance's
- *   lifetime.
+ * - The underlying `File` is acquired lazily through **one in-flight attempt**
+ *   (`getFile()` for the handle path; the given `File` for the fallback
+ *   path). Concurrent `open()`/`metadata()`/`getFile()` calls share that
+ *   attempt and all observe its outcome.
+ * - A *failed* attempt is deliberately retryable (decision Q3): the rejection
+ *   is rethrown to every caller waiting on it, and the next call starts one
+ *   fresh attempt. Retirement is identity-guarded — only the attempt the
+ *   source currently holds may retire the cache, so a failure from an attempt
+ *   that no longer owns it (a handle that re-enters `getFile()` while another
+ *   acquisition is being created, leaving a superseded nested attempt) can
+ *   never clear the cached attempt.
+ * - A *fulfilled* attempt is retained for the instance's lifetime: its `File`
+ *   is never re-fetched because the file changed on disk, so
+ *   `open()`/`metadata()` keep observing one consistent snapshot.
  */
 import { detectFormatFromFileName } from './detect-format'
 import type { DataHandle, DataSource, DataSourceMetadata } from './index'
@@ -66,23 +76,51 @@ export class BrowserFileSource implements DataSource {
   }
 
   /**
-   * The `File` for this source, resolved lazily once and cached (the same
-   * consistent snapshot `open()`/`metadata()` observe — see the identity
-   * semantics above). This accessor (M1-4) lets engines that need the bytes
-   * reach them without a package dependency in either direction: an engine
-   * takes a `BrowserFileSource` through a structural seam. It never reads
-   * dataset bytes here — resolving the reference only (ADR 0001/0025).
+   * The `File` for this source, acquired lazily through the one shared
+   * attempt and then retained (the same consistent snapshot
+   * `open()`/`metadata()` observe — see the identity semantics above). This
+   * accessor (M1-4) lets engines that need the bytes reach them without a
+   * package dependency in either direction: an engine takes a
+   * `BrowserFileSource` through a structural seam. It never reads dataset
+   * bytes here — resolving the reference only (ADR 0001/0025).
    */
   getFile(): Promise<File> {
     return this.#ensureFile()
   }
 
-  /** Lazily fetch the `File` once and cache it (one consistent snapshot per instance). */
+  /**
+   * One acquisition attempt per instance, shared by every caller while it is
+   * in flight. Fulfilment is kept forever; a rejection is rethrown and retires
+   * the attempt so the next call retries once (never logging the source or
+   * file name — ADR 0025).
+   */
   #ensureFile(): Promise<File> {
-    this.#file ??=
-      'fileSystemHandle' in this.#input
-        ? this.#input.fileSystemHandle.getFile()
-        : Promise.resolve(this.#input.file)
-    return this.#file
+    const cached = this.#file
+    if (cached !== null) return cached
+
+    // One attempt. A synchronous `getFile()` throw is captured into the same
+    // path as an asynchronous rejection, so this accessor never throws
+    // synchronously and every caller shares the attempt's outcome.
+    let attempt: Promise<File>
+    try {
+      attempt =
+        'fileSystemHandle' in this.#input
+          ? this.#input.fileSystemHandle.getFile()
+          : Promise.resolve(this.#input.file)
+    } catch (error) {
+      attempt = Promise.reject(error)
+    }
+
+    // `.catch` passes a fulfilled attempt through untouched; a rejection is
+    // retired (see below) and rethrown to every caller.
+    const shared: Promise<File> = attempt.catch((error: unknown) => {
+      // Retry semantics (Q3): retire the failed attempt only while it is still
+      // the cached one, so an older rejection can never clear a newer
+      // in-flight attempt. The error propagates unchanged.
+      if (this.#file === shared) this.#file = null
+      throw error
+    })
+    this.#file = shared
+    return shared
   }
 }

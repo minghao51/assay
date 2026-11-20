@@ -20,7 +20,7 @@ import {
   runEngineConformanceScenarios,
   runPipelineRunnerConformanceScenarios,
 } from '@assay/testing'
-import { DuckDbEngineClient, quotedIdentifier } from '../src/index'
+import { DuckDbEngineClient, EngineDisposedError, quotedIdentifier } from '../src/index'
 import type {
   EngineFileSource,
   EngineQueryResult,
@@ -84,6 +84,19 @@ errorReuseButton.addEventListener('click', () => {
 })
 requiredElement<HTMLButtonElement>('#run-parallel-calls').addEventListener('click', () => {
   void runParallelCalls()
+})
+
+// ── C04 disposal settlement (tests/e2e/engine-duckdb.spec.ts) ──
+//
+// Every `dispose()` caller must await the SAME real-engine teardown. A
+// dedicated client is booted, used once, then disposed twice concurrently:
+// the settlement ORDER proves the second caller waited for the first (before
+// C04 the second call short-circuited on the terminal status and resolved
+// while the graceful handshake was still in flight), a repeated dispose after
+// completion still resolves, and a fresh op rejects with the disposal
+// category. Privacy: counts, a literal value and status strings only.
+requiredElement<HTMLButtonElement>('#dispose-twice').addEventListener('click', () => {
+  void runDisposeTwice()
 })
 
 // ── m2-2 filtered/sorted windows (tests/e2e/engine-filtered-windows.spec.ts) ──
@@ -1273,6 +1286,53 @@ function renderColumn(result: EngineQueryResult, columnName: string): string {
     values.push(value === null || value === undefined ? 'null' : String(value))
   }
   return values.join('|')
+}
+
+interface DisposalSettlementFacts {
+  booted?: boolean
+  firstQueryValue?: string
+  settlementOrder?: string[]
+  bothSettled?: boolean
+  statusAfter?: string
+  postDisposeRejected?: boolean
+  repeatedDisposeResolved?: boolean
+  fatal?: string
+}
+
+/** C04: two concurrent dispose() callers must share one teardown settlement. */
+async function runDisposeTwice(): Promise<void> {
+  const facts: DisposalSettlementFacts = {}
+  const disposalClient = new DuckDbEngineClient()
+  try {
+    await disposalClient.ensureReady()
+    const before = await disposalClient.query('SELECT 7 AS answer')
+    facts.booted = true
+    facts.firstQueryValue = String(before.batch.getChildAt(0)?.get(0))
+
+    const settlementOrder: string[] = []
+    const first = disposalClient.dispose().then(() => {
+      settlementOrder.push('first')
+    })
+    const second = disposalClient.dispose().then(() => {
+      settlementOrder.push('second')
+    })
+    await Promise.all([first, second])
+    facts.settlementOrder = settlementOrder
+    facts.bothSettled = true
+    facts.statusAfter = disposalClient.status
+
+    try {
+      await disposalClient.query('SELECT 1 AS answer')
+      facts.postDisposeRejected = false
+    } catch (error) {
+      facts.postDisposeRejected = error instanceof EngineDisposedError
+    }
+    await disposalClient.dispose()
+    facts.repeatedDisposeResolved = true
+  } catch (error) {
+    facts.fatal = errorMessage(error)
+  }
+  setText('dispose-twice-result', JSON.stringify(facts))
 }
 
 function setText(testId: string, value: string): void {

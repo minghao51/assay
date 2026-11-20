@@ -42,6 +42,16 @@
  *    it wins (asked for exactly one file, `multiple: false`) and the input
  *    fallback never runs; without it, the input fallback is used; the picked
  *    source wraps the file the chosen step produced.
+ * 7. `acquisition-retry` — deliberate retry semantics for the lazily acquired
+ *    `File` (B06/Q3): concurrent `open()`/`metadata()`/`getFile()` calls share
+ *    one in-flight attempt and all observe its failure; the next call after a
+ *    failure retries exactly once (a caller joining the retry shares it); a
+ *    failed attempt that is no longer the cached one cannot retire the cached
+ *    attempt (identity-guarded retirement, observable when a handle re-enters
+ *    the source while an acquisition is being created); a fulfilled attempt is
+ *    retained for the instance lifetime; a synchronous handle throw becomes
+ *    the attempt's rejection instead of escaping synchronously; and a failed
+ *    acquisition never logs the file name (ADR 0025).
  *
  * Environments: every type here is structural (no DOM names — a `File` and a
  * `FileSystemFileHandle` satisfy `BehaviorFile`/`BehaviorFileHandle` by
@@ -184,6 +194,7 @@ export const dataSourceBehaviorScenarioNames = [
   'cancel-semantics',
   'capability-matrix',
   'fallback-order',
+  'acquisition-retry',
 ] as const
 
 export type DataSourceBehaviorScenarioName = (typeof dataSourceBehaviorScenarioNames)[number]
@@ -291,6 +302,113 @@ const FORMAT_BEHAVIOR_MATRIX: Readonly<Partial<Record<string, { readonly sizeByt
 }
 
 // ---- Scenarios ----
+
+/** A promise plus its settlement handles — the suite scripts attempt outcomes itself. */
+interface Deferred<T> {
+  readonly promise: Promise<T>
+  resolve(value: T): void
+  reject(reason: unknown): void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+/** Let queued microtasks and one macrotask turn run (late/queued work lands). */
+function settleTurns(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * Identity-guarded retirement of a *superseded* acquisition attempt (B06/Q3).
+ *
+ * A handle's `getFile()` is external code that the source calls synchronously,
+ * and a handle that calls back into the source while an acquisition is being
+ * created makes the source cache its own (outer) attempt while a nested
+ * attempt exists. That nested attempt is *not* the cached one, so its failure
+ * must leave the cache alone: an identity-blind retirement would drop the
+ * still-in-flight attempt and force a third acquisition. A single-slot cache
+ * is only observable here — outside re-entrancy the cached attempt is always
+ * the one that fails, so a blind clear and a guarded one behave identically.
+ *
+ * Returns `true` when pinned, or `'seam-absent'` for a source without the
+ * additive `getFile()` seam (recorded in the facts, never passed vacuously).
+ */
+async function expectSupersededAttemptCannotClearCache(
+  subject: DataSourceBehaviorSubject,
+  snapshot: BehaviorFile,
+): Promise<string | boolean> {
+  const outerAttempt = deferred<BehaviorFile>()
+  const nestedAttempt = deferred<BehaviorFile>()
+  let acquisitions = 0
+  let reentrantGetFile: (() => Promise<BehaviorFile>) | null = null
+  const nestedCalls: Promise<BehaviorFile>[] = []
+  const reentrantHandle: BehaviorFileHandle = {
+    name: snapshot.name,
+    getFile: () => {
+      acquisitions += 1
+      if (acquisitions === 1) {
+        // Re-enter while this (outer) acquisition is being created: the source
+        // has not cached it yet, so the nested call caches an attempt of its
+        // own — which the creator then supersedes.
+        if (reentrantGetFile !== null) nestedCalls.push(reentrantGetFile())
+        return outerAttempt.promise
+      }
+      if (acquisitions === 2) return nestedAttempt.promise
+      return Promise.resolve(snapshot)
+    },
+  }
+  const reentrantSource = subject.createHandleSource(reentrantHandle)
+  const seam = reentrantSource.getFile
+  if (typeof seam !== 'function') return 'seam-absent'
+  reentrantGetFile = seam.bind(reentrantSource)
+
+  const outerCall = reentrantGetFile()
+  outerCall.catch(() => undefined)
+  expectEqual(
+    acquisitions,
+    2,
+    'the re-entrant acquisition must produce a nested attempt alongside the outer one',
+  )
+
+  const nestedStarted = nestedCalls[0]
+  if (nestedStarted === undefined) {
+    fail('the re-entrant acquisition must hand the nested attempt to its caller')
+  }
+  nestedAttempt.reject(new Error('NotFoundError: superseded attempt failed'))
+  expectCondition(
+    (await rejectionOf(nestedStarted)) !== null,
+    'the superseded attempt must surface its own failure to the caller that started it',
+  )
+  // Any queued late work lands before the join below.
+  await settleTurns()
+
+  const joined = reentrantGetFile()
+  joined.catch(() => undefined)
+  expectEqual(
+    acquisitions,
+    2,
+    'a failed attempt that is no longer the cached one must not retire the cached attempt (no extra acquisition)',
+  )
+
+  outerAttempt.resolve(snapshot)
+  expectCondition(
+    (await outerCall) === snapshot,
+    'the cached attempt must still fulfil after the superseded attempt failed',
+  )
+  expectCondition(
+    (await joined) === snapshot,
+    'a caller joining after the superseded failure must observe the cached attempt',
+  )
+  expectEqual(acquisitions, 2, 'the cached attempt must never be re-acquired')
+  return true
+}
 
 type DataSourceBehaviorScenario = (
   subject: DataSourceBehaviorSubject,
@@ -714,6 +832,153 @@ const scenarios: Record<DataSourceBehaviorScenarioName, DataSourceBehaviorScenar
       multipleAlwaysFalse: true,
       inputUnusedWhenPickerAvailable: true,
       fallbackOnlyWithoutPicker: true,
+    }
+  },
+
+  'acquisition-retry': async (subject) => {
+    // B06/Q3: the lazily acquired file is ONE in-flight attempt (shared by
+    // every caller), a failed attempt is retryable exactly once on the next
+    // call, an old rejection never clears a newer attempt, and a fulfilled
+    // attempt is retained for the instance lifetime. The suite scripts the
+    // attempts itself through the handle seam, so the assertions bite whatever
+    // the subject claims.
+    const snapshot = subject.makeFile('assay-behavior-retry.parquet', 48)
+    const firstAttempt = deferred<BehaviorFile>()
+    const retryAttempt = deferred<BehaviorFile>()
+    let attempts = 0
+    const scriptedHandle: BehaviorFileHandle = {
+      name: snapshot.name,
+      getFile: () => {
+        attempts += 1
+        if (attempts === 1) return firstAttempt.promise
+        if (attempts === 2) return retryAttempt.promise
+        return Promise.reject(new Error('unexpected acquisition attempt'))
+      },
+    }
+    const source = subject.createHandleSource(scriptedHandle)
+    const seam = source.getFile
+    const getFile = typeof seam === 'function' ? seam.bind(source) : null
+
+    // Every caller joins the one in-flight attempt; all observe its failure.
+    const concurrent: Promise<unknown>[] = [source.open(), source.metadata()]
+    if (getFile !== null) concurrent.push(getFile())
+    expectEqual(attempts, 1, 'concurrent calls must share one in-flight acquisition attempt')
+
+    firstAttempt.reject(new Error('NotAllowedError: permission revoked'))
+    const failures = await Promise.all(concurrent.map((promise) => rejectionOf(promise)))
+    for (const [index, failure] of failures.entries()) {
+      expectCondition(
+        failure !== null,
+        `concurrent caller ${String(index)} must observe the shared acquisition failure`,
+      )
+    }
+    expectEqual(attempts, 1, 'observing the shared failure must not start another attempt')
+
+    // The next call retries exactly once. The retry stays in flight across
+    // several turns — a late (or unconditional) clear queued by the first
+    // rejection would drop it — and a caller joining it must share it.
+    const retried = source.open()
+    // The scenarios below decide the verdict; keep a would-be rejection from
+    // surfacing as an unhandled rejection when an earlier assertion fails.
+    retried.catch(() => undefined)
+    expectEqual(attempts, 2, 'the next call after a failure must acquire exactly once more')
+    await settleTurns()
+    await settleTurns()
+    // A caller joining now must still share the in-flight retry: an old
+    // rejection's cleanup must never drop a newer attempt.
+    const joinedViaSeam = getFile !== null
+    const joined: Promise<BehaviorFile | BehaviorDataHandle> = joinedViaSeam
+      ? getFile()
+      : source.open()
+    joined.catch(() => undefined)
+    expectEqual(
+      attempts,
+      2,
+      'a caller joining the in-flight retry must share it — an old rejection must not clear the newer attempt',
+    )
+
+    retryAttempt.resolve(snapshot)
+    const handle = await retried
+    expectEqual(handle.kind, 'data-handle', 'handle kind after the retry fulfilled')
+    expectEqual(handle.sourceId, source.id, 'handle sourceId after the retry fulfilled')
+    expectCondition(Object.isFrozen(handle), 'the DataHandle must be frozen (immutable)')
+    if (joinedViaSeam) {
+      expectCondition(
+        (await joined) === snapshot,
+        'a caller joining the retry must observe the same acquired snapshot',
+      )
+    } else {
+      await joined
+    }
+
+    // The fulfilled attempt is retained: nothing re-acquires it afterwards.
+    const metadata = await source.metadata()
+    expectEqual(metadata.format, 'parquet', 'metadata after the retry fulfilled (format)')
+    expectEqual(metadata.sizeBytes, snapshot.size, 'metadata after the retry fulfilled (size)')
+    await source.open()
+    if (getFile !== null) expectCondition((await getFile()) === snapshot, 'same snapshot')
+    expectEqual(
+      attempts,
+      2,
+      'a fulfilled attempt must be retained for the instance lifetime (never re-acquired)',
+    )
+
+    // A synchronous handle throw must arrive as the attempt's rejection — the
+    // accessor may never throw synchronously. Without the additive `getFile()`
+    // seam the check is not observable (recorded, never passed vacuously).
+    let syncThrowCaptured: string | boolean = 'seam-absent'
+    if (getFile !== null) {
+      let syncAttempts = 0
+      const syncHandle: BehaviorFileHandle = {
+        name: snapshot.name,
+        getFile: () => {
+          syncAttempts += 1
+          if (syncAttempts === 1) throw new Error('SecurityError: synchronous failure')
+          return Promise.resolve(snapshot)
+        },
+      }
+      const syncSource = subject.createHandleSource(syncHandle)
+      const syncSeam = syncSource.getFile
+      if (typeof syncSeam === 'function') {
+        const syncGetFile = syncSeam.bind(syncSource)
+        let pendingFile: Promise<BehaviorFile> | null = null
+        let threwSynchronously = false
+        try {
+          pendingFile = syncGetFile()
+        } catch {
+          threwSynchronously = true
+        }
+        expectCondition(
+          !threwSynchronously && pendingFile !== null,
+          'a synchronous handle throw must become the acquisition attempt rejection, not a synchronous throw',
+        )
+        expectCondition(
+          (await rejectionOf(pendingFile!)) !== null,
+          'a synchronous handle throw must reject the shared attempt',
+        )
+        // Same retry contract on this path.
+        expectCondition(
+          (await syncGetFile()) === snapshot,
+          'the next call after a synchronous failure must retry and succeed',
+        )
+        syncThrowCaptured = true
+      }
+    }
+
+    const supersededAttemptCannotClearCache = await expectSupersededAttemptCannotClearCache(
+      subject,
+      snapshot,
+    )
+
+    return {
+      sharedInFlightAttempt: true,
+      concurrentFailureObserved: true,
+      retriedExactlyOnce: true,
+      staleRejectionCannotClearRetry: true,
+      supersededAttemptCannotClearCache,
+      fulfilledAttemptRetained: true,
+      frozenHandle: true,
+      syncThrowCaptured,
     }
   },
 }

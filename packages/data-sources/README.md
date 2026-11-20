@@ -53,9 +53,22 @@ picker libraries make.
   creates a new source with a new id: no persistent file identity is claimed,
   because that would require persistent browser storage (ADR 0017 allows it
   for disposable caches only).
-- **Snapshot:** the underlying `File` is resolved lazily exactly once
-  (`handle.getFile()` on the FSA path; the given `File` on the fallback path)
-  and cached — `open()`/`metadata()` see one consistent snapshot per instance.
+- **Snapshot and retry (Q3):** the underlying `File` is acquired lazily
+  through **one in-flight attempt** (`handle.getFile()` on the FSA path; the
+  given `File` on the fallback path). Concurrent `open()`/`metadata()`/
+  `getFile()` calls share that attempt and all observe its outcome.
+  - A **failed** attempt is deliberately retryable: the error propagates
+    unchanged to every waiting caller, the attempt is retired _only while it is
+    still the cached attempt_ (so an older rejection can never clear a newer
+    one), and the next call starts one fresh attempt. A source therefore never
+    caches a permanent failure — callers that want to give up point at a new
+    source.
+  - A **fulfilled** attempt is retained for the instance's lifetime: its
+    `File` is never re-fetched because the file changed on disk, so
+    `open()`/`metadata()` keep observing one consistent snapshot.
+  - A synchronous `getFile()` throw is captured into the same attempt path, so
+    the accessor never throws synchronously.
+  - Nothing is logged on either path — not even the file name (ADR 0025).
 - **Metadata without reads:** `metadata()` uses `File.size` (plain file
   metadata) and the file-name extension. Extension rules (case-insensitive,
   last extension only): `parquet`, `jsonl`, `json`, `csv`, `arrow`,
@@ -93,7 +106,10 @@ genuine OPFS-staged handles and real browser capability globals;
 `tests/e2e/data-source-behavior.spec.ts` asserts each scenario's result and
 evidence. This locks the m1-3/m1-4 semantics (identity/idempotency, one-shot
 `getFile`, metadata = format+size, cancel → `null`, capability matrix, R5
-fallback order) against regression.
+fallback order) and the B06/Q3 acquisition-retry contract (one shared in-flight
+attempt, exactly one retry after a failure, identity-guarded retirement so a
+superseded attempt's failure cannot drop the cached one, a retained fulfilled
+snapshot, a captured synchronous throw, and no name logging) against regression.
 
 `harness/public/customers.csv` is a byte-identical copy of the canonical
 `fixtures/csv/customers.csv` (sha-256 `202ea367…`), kept inside the harness so

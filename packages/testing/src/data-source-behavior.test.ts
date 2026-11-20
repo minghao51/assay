@@ -43,6 +43,14 @@ interface FakeMutations {
   metadataLiesAboutSize?: boolean
   /** The source does not ship the additive getFile() seam. */
   omitsFileSeam?: boolean
+  /** A failed acquisition attempt is cached forever (the next call never retries). */
+  keepsFailedAttempt?: boolean
+  /** A failed attempt also queues a late, identity-blind cache clear. */
+  lateUnconditionalClear?: boolean
+  /** A failed attempt clears the cache immediately, without owning it. */
+  immediateUnconditionalClear?: boolean
+  /** A synchronous handle throw escapes instead of rejecting the attempt. */
+  syncThrowEscapes?: boolean
   /** An FSA AbortError propagates as a rejection instead of resolving null. */
   cancelRejects?: boolean
   /** Non-abort picker failures resolve null instead of propagating. */
@@ -99,11 +107,50 @@ function createFakeSource(
   let filePromise: Promise<BehaviorFile> | null = null
   let handleObject: BehaviorDataHandle | null = null
 
+  // Deliberate retry semantics (B06/Q3), compliant by default: one shared
+  // in-flight attempt; a failure is rethrown and retires the attempt only
+  // while it is still the cached one; a fulfilled attempt is retained.
   const ensureFile = (): Promise<BehaviorFile> => {
-    if (mutations.sourceReacquiresHandle === true || filePromise === null) {
+    if (mutations.sourceReacquiresHandle === true) {
       filePromise = handle.getFile()
+      return filePromise
     }
-    return filePromise
+    const cached = filePromise
+    if (cached !== null) return cached
+    let attempt: Promise<BehaviorFile>
+    if (mutations.syncThrowEscapes === true) {
+      // Deliberate violation: a synchronous throw escapes the attempt cache.
+      attempt = handle.getFile()
+    } else {
+      try {
+        attempt = Promise.resolve(handle.getFile())
+      } catch (error) {
+        // Same path as an asynchronous rejection.
+        attempt = Promise.reject(error)
+      }
+    }
+    const shared: Promise<BehaviorFile> = attempt.catch((error: unknown) => {
+      if (mutations.keepsFailedAttempt !== true) {
+        if (mutations.immediateUnconditionalClear === true) {
+          // Deliberate violation: retire the cache without checking that this
+          // failure belongs to the attempt the source currently holds.
+          filePromise = null
+        } else if (filePromise === shared) {
+          filePromise = null
+        }
+        if (mutations.lateUnconditionalClear === true) {
+          // Deliberate violation: a queued, identity-blind clear drops
+          // whatever attempt is current by the time it runs — including a
+          // newer one that already replaced this failed attempt.
+          setTimeout(() => {
+            filePromise = null
+          }, 0)
+        }
+      }
+      throw error
+    })
+    filePromise = shared
+    return shared
   }
 
   const source: BehaviorDataSource = {
@@ -381,5 +428,32 @@ describe('data-source behavior suite (detects non-compliant sources)', () => {
     const { passed, detail } = await runOne({ pickerMultipleTrue: true }, 'fallback-order')
     expect(passed).toBe(false)
     expect(detail).toContain('{multiple: false}')
+  })
+
+  it('acquisition-retry: detects a failed attempt that is cached forever', async () => {
+    const { passed, detail } = await runOne({ keepsFailedAttempt: true }, 'acquisition-retry')
+    expect(passed).toBe(false)
+    expect(detail).toContain('must acquire exactly once more')
+  })
+
+  it('acquisition-retry: detects a late identity-blind clear of a newer attempt', async () => {
+    const { passed, detail } = await runOne({ lateUnconditionalClear: true }, 'acquisition-retry')
+    expect(passed).toBe(false)
+    expect(detail).toContain('must not clear the newer attempt')
+  })
+
+  it('acquisition-retry: detects an immediate identity-blind retirement of a superseded attempt', async () => {
+    const { passed, detail } = await runOne(
+      { immediateUnconditionalClear: true },
+      'acquisition-retry',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('must not retire the cached attempt')
+  })
+
+  it('acquisition-retry: detects a synchronous handle throw escaping the attempt', async () => {
+    const { passed, detail } = await runOne({ syncThrowEscapes: true }, 'acquisition-retry')
+    expect(passed).toBe(false)
+    expect(detail).toContain('not a synchronous throw')
   })
 })
