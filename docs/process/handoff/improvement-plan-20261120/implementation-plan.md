@@ -32,22 +32,22 @@ Scheduling bands `W0…W4` below are recommended order, **not severity**. Reques
 
 Read `AGENTS.md`, current handoff, roadmap §7 and applicable ADRs before each claim. Current authority at the baseline is the header and queue in `docs/process/handoff/20261118-post-ew03ia-pickup.md:3-8,48-63`, not its obsolete embedded prompts.
 
-| Preserve | Consequence for this plan |
-| --- | --- |
-| ADR 0001/0012, immutable source + overlay | Never mutate an opened dataset in place. Preserve same-source refusal and browser-download fallback. No auto-adopt or history clearing after export. |
-| ADR 0011 logical row identity | A viewport index is not a mutation key. Preserve row-ID anchors, ordinal semantics and undo/redo. |
-| ADR 0025/0037/0045 privacy | No dataset values, sensitive filenames, SQL, raw engine payloads or paths in new telemetry/logging. No new telemetry event required by this plan. |
-| ADR 0040 two worker lanes | UI invalidation is not worker interruption; do not add a hard-cancel promise or serialize away the registry lane. |
-| ADR 0044 grid-centric shell | Keep persistent grid, task navigation, existing keyboard/focus/modal behavior and lazy boundaries. No central-grid replacement. |
-| ADR 0047 retired tables | Retention is accepted, without a finite bound. No table-release API under a cleanup/refactor task. |
-| ADR 0049 **amended option C** | Abandoned CSV preview keeps one slot until next preview, open or dispose; Stop invalidates delivery. ENG-1 is CLOSED, not a release implementation backlog. |
-| ADR 0050/0051 repair | Exact undo-by-refold, stacked projection layers, linear emitted size and set-membership predicates stay. No re-nested CASE chains, lifted caps or unsupported heap guarantees. |
-| Package direction | `domain` is external-dependency-free; `core` is not an engine/browser/UI dumping ground; packages never import apps. Do not populate scaffold `ui/core/security/ai/transforms` merely to shorten app files. |
-| Closed WF-06, R1/R2, EW-02I/03I/04I, D3-1 | Session preservation, error honesty, scalar temporal display, CSV preview and bulk repair already exist. Strengthen bounded seams, do not reimplement the workflows. |
-| TB-1/TB-2 closed | Eight-spawn pin exists. Do not redispatch it or tighten 45 s from a quiet-machine run; separate ceiling work requires fresh load ≥30 evidence. |
-| ENG-2/ENG-3 unselected | Reuse these IDs if selected. ENG-2 count-op extraction is not implicit in an engine refactor; B02 coordinates ENG-3. |
-| WF-O1/O2 and WF-03/04/07/08/09 | Optional UX changes require their existing design/selection steps. E04 is a design brief, not a back door to runtime. |
-| Publication/human gates | Changesets, private workspace dependencies and successful local pack tests do not establish registry distribution or G0 approval. No publish, remote collector probe or push. |
+| Preserve                                  | Consequence for this plan                                                                                                                                                                                   |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ADR 0001/0012, immutable source + overlay | Never mutate an opened dataset in place. Preserve same-source refusal and browser-download fallback. No auto-adopt or history clearing after export.                                                        |
+| ADR 0011 logical row identity             | A viewport index is not a mutation key. Preserve row-ID anchors, ordinal semantics and undo/redo.                                                                                                           |
+| ADR 0025/0037/0045 privacy                | No dataset values, sensitive filenames, SQL, raw engine payloads or paths in new telemetry/logging. No new telemetry event required by this plan.                                                           |
+| ADR 0040 two worker lanes                 | UI invalidation is not worker interruption; do not add a hard-cancel promise or serialize away the registry lane.                                                                                           |
+| ADR 0044 grid-centric shell               | Keep persistent grid, task navigation, existing keyboard/focus/modal behavior and lazy boundaries. No central-grid replacement.                                                                             |
+| ADR 0047 retired tables                   | Retention is accepted, without a finite bound. No table-release API under a cleanup/refactor task.                                                                                                          |
+| ADR 0049 **amended option C**             | Abandoned CSV preview keeps one slot until next preview, open or dispose; Stop invalidates delivery. ENG-1 is CLOSED, not a release implementation backlog.                                                 |
+| ADR 0050/0051 repair                      | Exact undo-by-refold, stacked projection layers, linear emitted size and set-membership predicates stay. No re-nested CASE chains, lifted caps or unsupported heap guarantees.                              |
+| Package direction                         | `domain` is external-dependency-free; `core` is not an engine/browser/UI dumping ground; packages never import apps. Do not populate scaffold `ui/core/security/ai/transforms` merely to shorten app files. |
+| Closed WF-06, R1/R2, EW-02I/03I/04I, D3-1 | Session preservation, error honesty, scalar temporal display, CSV preview and bulk repair already exist. Strengthen bounded seams, do not reimplement the workflows.                                        |
+| TB-1/TB-2 closed                          | Eight-spawn pin exists. Do not redispatch it or tighten 45 s from a quiet-machine run; separate ceiling work requires fresh load ≥30 evidence.                                                              |
+| ENG-2/ENG-3 unselected                    | Reuse these IDs if selected. ENG-2 count-op extraction is not implicit in an engine refactor; B02 coordinates ENG-3.                                                                                        |
+| WF-O1/O2 and WF-03/04/07/08/09            | Optional UX changes require their existing design/selection steps. E04 is a design brief, not a back door to runtime.                                                                                       |
+| Publication/human gates                   | Changesets, private workspace dependencies and successful local pack tests do not establish registry distribution or G0 approval. No publish, remote collector probe or push.                               |
 
 Accepted ADRs are not rewritten to make the audit disappear. Editorial discrepancies in accepted ADRs are explained in a linked current clarification/errata record; a durable changed decision uses the repository's ADR process. Existing dated amendments remain authoritative.
 
@@ -55,46 +55,46 @@ Accepted ADRs are not rewritten to make the audit disappear. Editorial discrepan
 
 All entries below are **recommendations**, not already accepted project policy. A maintainer/orchestrator records the chosen option in the queue before dispatch; architectural changes follow ADR process.
 
-| Decision | Recommended default | Alternatives / bound | Gates |
-| --- | --- | --- | --- |
-| Q1 development Node support | Align contributor/tooling support with selected Node 24 (`^24.0.0` only if the locked package engines confirm that range). Keep runtime product constraints distinct. | Retain Node 22 only after choosing a compatible intersection, at least 22.13 on the 22 line, and testing the actual lower bound. Do not advertise arbitrary odd/future majors from `>=22`. | A03/A04 |
-| Q2 duplicate CSV types | Refuse repeated exact parsed names, including identical type repeats, with a value-free line-level diagnostic. | Explicit last-wins is possible but must be disclosed, not silently retained. This plan recommends refusal. Names remain case-sensitive; do not invent case folding. | B01 |
-| Q3 failed File acquisition | Prefer retry-on-rejection on the same BrowserFileSource, never refresh a fulfilled snapshot. | Preserve exactly-once attempted acquisition and make UI retry construct a new source. Source snapshot identity must be documented either way. | B06 |
-| Q4 whole-list filters | Add an **optional atomic replaceFilters(list)** provider capability; retain a documented non-atomic legacy path. | Breaking mandatory migration is larger; automatic compensation cannot promise atomicity if restoration fails. | C01/C02 |
-| Q5 callback faults | After C03a probes, keep session reset callbacks synchronous, explicitly nonthrowing by contract; on an unexpected fault invalidate/reset all dependents and fail closed rather than publishing ready. Commit activation exceptions get an explicit unknown/restoration-failed outcome. | Full rollback of arbitrary React callbacks is not feasible. Returning success after swallowing the fault is rejected. Final API/copy comes from C03a; approval gates C03b, not the read-only design itself. | C03b |
-| Q6 telemetry opt-out | If selected, abort the active send and prevent retries after off/dispose; never claim already-sent bytes can be recalled. | Current policy can instead remain with an accurate in-flight limitation. No observed privacy incident justifies silently changing the contract. | E01 |
-| Q7 larger UX work | Select **one** existing design row, recommended WF-O1 filter-draft clarity first. | WF-O2 requires nested/Record/SQL type propagation; no generic formatter sweep. | E04 |
+| Decision                    | Recommended default                                                                                                                                                                                                                                                                    | Alternatives / bound                                                                                                                                                                                        | Gates   |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Q1 development Node support | Align contributor/tooling support with selected Node 24 (`^24.0.0` only if the locked package engines confirm that range). Keep runtime product constraints distinct.                                                                                                                  | Retain Node 22 only after choosing a compatible intersection, at least 22.13 on the 22 line, and testing the actual lower bound. Do not advertise arbitrary odd/future majors from `>=22`.                  | A03/A04 |
+| Q2 duplicate CSV types      | Refuse repeated exact parsed names, including identical type repeats, with a value-free line-level diagnostic.                                                                                                                                                                         | Explicit last-wins is possible but must be disclosed, not silently retained. This plan recommends refusal. Names remain case-sensitive; do not invent case folding.                                         | B01     |
+| Q3 failed File acquisition  | Prefer retry-on-rejection on the same BrowserFileSource, never refresh a fulfilled snapshot.                                                                                                                                                                                           | Preserve exactly-once attempted acquisition and make UI retry construct a new source. Source snapshot identity must be documented either way.                                                               | B06     |
+| Q4 whole-list filters       | Add an **optional atomic replaceFilters(list)** provider capability; retain a documented non-atomic legacy path.                                                                                                                                                                       | Breaking mandatory migration is larger; automatic compensation cannot promise atomicity if restoration fails.                                                                                               | C01/C02 |
+| Q5 callback faults          | After C03a probes, keep session reset callbacks synchronous, explicitly nonthrowing by contract; on an unexpected fault invalidate/reset all dependents and fail closed rather than publishing ready. Commit activation exceptions get an explicit unknown/restoration-failed outcome. | Full rollback of arbitrary React callbacks is not feasible. Returning success after swallowing the fault is rejected. Final API/copy comes from C03a; approval gates C03b, not the read-only design itself. | C03b    |
+| Q6 telemetry opt-out        | If selected, abort the active send and prevent retries after off/dispose; never claim already-sent bytes can be recalled.                                                                                                                                                              | Current policy can instead remain with an accurate in-flight limitation. No observed privacy incident justifies silently changing the contract.                                                             | E01     |
+| Q7 larger UX work           | Select **one** existing design row, recommended WF-O1 filter-draft clarity first.                                                                                                                                                                                                      | WF-O2 requires nested/Record/SQL type propagation; no generic formatter sweep.                                                                                                                              | E04     |
 
 ## 4. Queue, dependencies and scope sizing
 
 Every row is **PROPOSED**, not CLAIMED or READY. `S` = typically one bounded PR, `M` = multiple focused commits/PRs, `L` = split into the named children before dispatch; not a time or staffing promise. All runtime rows depend on A00 and an approved envelope. Root configuration/docs are orchestrator-owned even when listed as task targets.
 
-| ID | Wave | Kind | Size | Deliverable | Additional prerequisites | Owner / primary boundary |
-| --- | --- | --- | --- | --- | --- | --- |
-| A00 | W0 | VERIFICATION | S | Fresh baseline and execution envelope | Scope selection for execution | Orchestrator, no product implementation |
-| A01 | W0 | CORRECTION | M | Reconciled current docs and pickup index | A00 | Orchestrator, docs/root instructions |
-| A02 | W1 | HARDENING | S | Narrow current-state drift checks | A01 | Orchestrator, scripts/docs tests |
-| A03 | W0 | CORRECTION | M | Explicit dev/runtime support contract | A00, Q1 | Orchestrator, root configs/manifests/docs |
-| A04 | W1 | HARDENING | S | Offline development preflight/doctor | A03 | Orchestrator, scripts |
-| B01 | W1 | CORRECTION | S | Non-lossy CSV type declarations | Q2 | Worker, apps/web CSV |
-| B02 | W1 | CORRECTION | M | ENG-3 dialect disclosure repair | ENG-3 selected + engine/web owners | Existing ENG-3, coordinated engine/web children |
-| B03 | W1 | HARDENING | S | Browser writable failure lifecycle | A00 | Worker, apps/web export |
-| B04 | W1 | HARDENING | M | Desktop create-only acquisition cleanup | A00 | Worker, apps/vscode pure writer |
-| B05 | W2 | HARDENING | M | DCR partial-write policy | B04 design reviewed, CLI owner selection | Worker, apps/cli DCR writer |
-| B06 | W2 | HARDENING | S | Recoverable file acquisition semantics | Q3 | Worker, packages/data-sources |
-| C01 | W2 | DESIGN | S | Atomic filter-list contract/caller map | A00 | Grid owner design; app consumers read-only |
-| C02 | W2 | HARDENING | L | Atomic capability and consumers | C01 accepted, Q4 | Grid → web → VS Code serial children |
-| C03 | W2 | DESIGN | M | Reset/activation failure contract and probes | A00; Q5 gates C03b only | Web owner, two independently selected children |
-| C04 | W1 | HARDENING | S | Shared engine disposal completion | A00 | Worker, packages/engine-duckdb client |
-| C05 | W1 | VERIFICATION | S | Exact-value conformance integrity pin | A00 | Worker, packages/testing + harness spec reservation |
-| D01 | W2 | REFACTOR | S | Honest contract text-read naming | A00 | Worker, apps/web contract import + callers |
-| D02 | W3 | REFACTOR | L | Web ownership extraction | Relevant B/C fixes stable | apps/web, D02a/b/c serial |
-| D03 | W3 | REFACTOR | L | Desktop bridge/controller extraction | B04 stable; C02 if selected | apps/vscode, D03a/b serial |
-| D04 | W3 | REFACTOR | L | Engine handler/composer module seams | B02/C04 stable if selected | packages/engine-duckdb, D04a/b serial |
-| E01 | W4 | DESIGN | M | Opt-out cancellation enhancement | Q6, explicit privacy-policy selection | Web, then separate CLI parity review |
-| E02 | W4 | VERIFICATION | M | Dependency compatibility and bundle attribution | A03 | Tooling owner; targeted package reservations |
-| E03 | W2 | VERIFICATION | M | Truthful test/coverage map | A00 | Orchestrator + test owners, config decision separated |
-| E04 | W4 | DESIGN | M | Bounded intuitive-UX successor contract | Q7, existing UX queue selected | Design-only, no runtime reservation |
+| ID  | Wave | Kind         | Size | Deliverable                                     | Additional prerequisites                 | Owner / primary boundary                              |
+| --- | ---- | ------------ | ---- | ----------------------------------------------- | ---------------------------------------- | ----------------------------------------------------- |
+| A00 | W0   | VERIFICATION | S    | Fresh baseline and execution envelope           | Scope selection for execution            | Orchestrator, no product implementation               |
+| A01 | W0   | CORRECTION   | M    | Reconciled current docs and pickup index        | A00                                      | Orchestrator, docs/root instructions                  |
+| A02 | W1   | HARDENING    | S    | Narrow current-state drift checks               | A01                                      | Orchestrator, scripts/docs tests                      |
+| A03 | W0   | CORRECTION   | M    | Explicit dev/runtime support contract           | A00, Q1                                  | Orchestrator, root configs/manifests/docs             |
+| A04 | W1   | HARDENING    | S    | Offline development preflight/doctor            | A03                                      | Orchestrator, scripts                                 |
+| B01 | W1   | CORRECTION   | S    | Non-lossy CSV type declarations                 | Q2                                       | Worker, apps/web CSV                                  |
+| B02 | W1   | CORRECTION   | M    | ENG-3 dialect disclosure repair                 | ENG-3 selected + engine/web owners       | Existing ENG-3, coordinated engine/web children       |
+| B03 | W1   | HARDENING    | S    | Browser writable failure lifecycle              | A00                                      | Worker, apps/web export                               |
+| B04 | W1   | HARDENING    | M    | Desktop create-only acquisition cleanup         | A00                                      | Worker, apps/vscode pure writer                       |
+| B05 | W2   | HARDENING    | M    | DCR partial-write policy                        | B04 design reviewed, CLI owner selection | Worker, apps/cli DCR writer                           |
+| B06 | W2   | HARDENING    | S    | Recoverable file acquisition semantics          | Q3                                       | Worker, packages/data-sources                         |
+| C01 | W2   | DESIGN       | S    | Atomic filter-list contract/caller map          | A00                                      | Grid owner design; app consumers read-only            |
+| C02 | W2   | HARDENING    | L    | Atomic capability and consumers                 | C01 accepted, Q4                         | Grid → web → VS Code serial children                  |
+| C03 | W2   | DESIGN       | M    | Reset/activation failure contract and probes    | A00; Q5 gates C03b only                  | Web owner, two independently selected children        |
+| C04 | W1   | HARDENING    | S    | Shared engine disposal completion               | A00                                      | Worker, packages/engine-duckdb client                 |
+| C05 | W1   | VERIFICATION | S    | Exact-value conformance integrity pin           | A00                                      | Worker, packages/testing + harness spec reservation   |
+| D01 | W2   | REFACTOR     | S    | Honest contract text-read naming                | A00                                      | Worker, apps/web contract import + callers            |
+| D02 | W3   | REFACTOR     | L    | Web ownership extraction                        | Relevant B/C fixes stable                | apps/web, D02a/b/c serial                             |
+| D03 | W3   | REFACTOR     | L    | Desktop bridge/controller extraction            | B04 stable; C02 if selected              | apps/vscode, D03a/b serial                            |
+| D04 | W3   | REFACTOR     | L    | Engine handler/composer module seams            | B02/C04 stable if selected               | packages/engine-duckdb, D04a/b serial                 |
+| E01 | W4   | DESIGN       | M    | Opt-out cancellation enhancement                | Q6, explicit privacy-policy selection    | Web, then separate CLI parity review                  |
+| E02 | W4   | VERIFICATION | M    | Dependency compatibility and bundle attribution | A03                                      | Tooling owner; targeted package reservations          |
+| E03 | W2   | VERIFICATION | M    | Truthful test/coverage map                      | A00                                      | Orchestrator + test owners, config decision separated |
+| E04 | W4   | DESIGN       | M    | Bounded intuitive-UX successor contract         | Q7, existing UX queue selected           | Design-only, no runtime reservation                   |
 
 **Suggested first selected slice:** A00 → A01 → A03, then B01 → B03 → B04 → C04 → C05, serially with independent review per task. A02/A04 follow to keep it maintainable. B02 is valuable but must be dispatched as ENG-3 with explicit payload compatibility ownership, not mixed into B01.
 
@@ -117,6 +117,7 @@ Never have two web writers, two writers in one package, or a web writer racing a
 **Targets:** living handoff header/§6, open-asks checklist, active pickup header/status versus superseded prompts, repository structure, security scope rationale, telemetry collector timing and package README. Prepare an explicit file reservation; do not bulk edit 406 Markdown files.
 
 **Spec:**
+
 1. Put one short current-state/next-action block at the top of the living handoff; link authoritative dated closures, unselected ENG-2/ENG-3 and human asks. Label obsolete pasted prompts as historical/do-not-dispatch rather than leaving them executable-looking. Keep dates, gate evidence and closure narrative intact.
 2. Security text must acknowledge implemented desktop functionality. **Do not silently extend supported security versions/surfaces**: maintainer chooses whether exclusion remains policy; if so explain it honestly. Contributor documentation is not a support commitment.
 3. Split transport defaults into actual web and CLI rows; preserve retry/drop policy and collector/operator responsibility. Document recursive pipeline-runner package allowlist; do not imply a tarball was freshly audited.

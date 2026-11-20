@@ -3,28 +3,9 @@
   "baselineRevision": "e68bde91d32b38a854c9fa573819a34ee418135f",
   "status": "proposal only; no repository implementation",
   "executionAuthorized": false,
-  "recommendedFirstSelection": [
-    "A00",
-    "A01",
-    "A03",
-    "B01",
-    "B03",
-    "B04",
-    "C04",
-    "C05"
-  ],
-  "stateMachine": [
-    "proposed",
-    "selected",
-    "claimed",
-    "in-review",
-    "integrating",
-    "closed"
-  ],
-  "terminalAlternatives": [
-    "blocked",
-    "not-selected"
-  ],
+  "recommendedFirstSelection": ["A00", "A01", "A03", "B01", "B03", "B04", "C04", "C05"],
+  "stateMachine": ["proposed", "selected", "claimed", "in-review", "integrating", "closed"],
+  "terminalAlternatives": ["blocked", "not-selected"],
   "authority": "Accepted ADRs and current repository queues outrank this proposal. Selection of a dependency does not select its dependents.",
   "sizing": "S/M/L are relative scope, not duration estimates; split parents require individually reserved children.",
   "tasks": [
@@ -60,9 +41,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -83,10 +62,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00",
-        "A01"
-      ],
+      "dependsOn": ["A00", "A01"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -107,12 +83,8 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
-      "requiredDecisions": [
-        "Q1"
-      ],
+      "dependsOn": ["A00"],
+      "requiredDecisions": ["Q1"],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
       "specHeading": "A03 — Align the development support contract, not arbitrary dependency majors",
@@ -132,13 +104,8 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00",
-        "A03"
-      ],
-      "requiredDecisions": [
-        "Q1"
-      ],
+      "dependsOn": ["A00", "A03"],
+      "requiredDecisions": ["Q1"],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
       "specHeading": "A04 — Add a safe offline contributor preflight",
@@ -158,12 +125,8 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
-      "requiredDecisions": [
-        "Q2"
-      ],
+      "dependsOn": ["A00"],
+      "requiredDecisions": ["Q2"],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
       "specHeading": "B01 — Refuse duplicate CSV declared-type names before information is lost",
@@ -183,9 +146,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": "ENG-3",
       "specFile": "implementation-plan.md",
@@ -206,9 +167,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -229,9 +188,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -252,10 +209,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00",
-        "B04"
-      ],
+      "dependsOn": ["A00", "B04"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -276,12 +230,8 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
-      "requiredDecisions": [
-        "Q3"
-      ],
+      "dependsOn": ["A00"],
+      "requiredDecisions": ["Q3"],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
       "specHeading": "B06 — Deliberate retry semantics for File acquisition",
@@ -301,9 +251,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -324,13 +272,8 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00",
-        "C01"
-      ],
-      "requiredDecisions": [
-        "Q4"
-      ],
+      "dependsOn": ["A00", "C01"],
+      "requiredDecisions": ["Q4"],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
       "specHeading": "C02 — Implement atomic filter capability in serial children",
@@ -338,11 +281,7 @@
       "completionEvidence": null,
       "reviewerVerdict": null,
       "dispatchMode": "select children individually; do not implement parent as one task",
-      "children": [
-        "C02a",
-        "C02b",
-        "C02c"
-      ]
+      "children": ["C02a", "C02b", "C02c"]
     },
     {
       "id": "C02a",
@@ -354,13 +293,8 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "Grid → web → VS Code serial children",
-      "dependsOn": [
-        "A00",
-        "C01"
-      ],
-      "requiredDecisions": [
-        "Q4"
-      ],
+      "dependsOn": ["A00", "C01"],
+      "requiredDecisions": ["Q4"],
       "specFile": "implementation-plan.md",
       "specHeading": "C02 — Implement atomic filter capability in serial children",
       "dispatchMode": "separate selection, envelope, changeset and independent review",
@@ -378,13 +312,8 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "Grid → web → VS Code serial children",
-      "dependsOn": [
-        "A00",
-        "C02a"
-      ],
-      "requiredDecisions": [
-        "Q4"
-      ],
+      "dependsOn": ["A00", "C02a"],
+      "requiredDecisions": ["Q4"],
       "specFile": "implementation-plan.md",
       "specHeading": "C02 — Implement atomic filter capability in serial children",
       "dispatchMode": "separate selection, envelope, changeset and independent review",
@@ -402,13 +331,8 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "Grid → web → VS Code serial children",
-      "dependsOn": [
-        "A00",
-        "C02b"
-      ],
-      "requiredDecisions": [
-        "Q4"
-      ],
+      "dependsOn": ["A00", "C02b"],
+      "requiredDecisions": ["Q4"],
       "specFile": "implementation-plan.md",
       "specHeading": "C02 — Implement atomic filter capability in serial children",
       "dispatchMode": "separate selection, envelope, changeset and independent review",
@@ -427,9 +351,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -438,10 +360,7 @@
       "completionEvidence": null,
       "reviewerVerdict": null,
       "dispatchMode": "select children individually; do not implement parent as one task",
-      "children": [
-        "C03a",
-        "C03b"
-      ]
+      "children": ["C03a", "C03b"]
     },
     {
       "id": "C03a",
@@ -453,9 +372,7 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "Web owner, two independently selected children",
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "specFile": "implementation-plan.md",
       "specHeading": "C03 — Clarify and probe reset/commit callback failure boundaries",
@@ -474,13 +391,8 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "Web owner, two independently selected children",
-      "dependsOn": [
-        "A00",
-        "C03a"
-      ],
-      "requiredDecisions": [
-        "Q5"
-      ],
+      "dependsOn": ["A00", "C03a"],
+      "requiredDecisions": ["Q5"],
       "specFile": "implementation-plan.md",
       "specHeading": "C03 — Clarify and probe reset/commit callback failure boundaries",
       "dispatchMode": "separate selection, envelope, changeset and independent review",
@@ -499,9 +411,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -522,9 +432,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -545,9 +453,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -568,9 +474,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -579,11 +483,7 @@
       "completionEvidence": null,
       "reviewerVerdict": null,
       "dispatchMode": "select children individually; do not implement parent as one task",
-      "children": [
-        "D02a",
-        "D02b",
-        "D02c"
-      ],
+      "children": ["D02a", "D02b", "D02c"],
       "conditionalPrerequisites": "Reconcile and stabilize relevant selected B/C fixes before refactoring their boundaries; record exact dependencies at dispatch."
     },
     {
@@ -596,9 +496,7 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "apps/web, D02a/b/c serial",
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "specFile": "implementation-plan.md",
       "specHeading": "D02 — Decompose App by ownership, not by an arbitrary line count",
@@ -617,10 +515,7 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "apps/web, D02a/b/c serial",
-      "dependsOn": [
-        "A00",
-        "D02a"
-      ],
+      "dependsOn": ["A00", "D02a"],
       "requiredDecisions": [],
       "specFile": "implementation-plan.md",
       "specHeading": "D02 — Decompose App by ownership, not by an arbitrary line count",
@@ -639,10 +534,7 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "apps/web, D02a/b/c serial",
-      "dependsOn": [
-        "A00",
-        "D02b"
-      ],
+      "dependsOn": ["A00", "D02b"],
       "requiredDecisions": [],
       "specFile": "implementation-plan.md",
       "specHeading": "D02 — Decompose App by ownership, not by an arbitrary line count",
@@ -662,10 +554,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00",
-        "B04"
-      ],
+      "dependsOn": ["A00", "B04"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -674,10 +563,7 @@
       "completionEvidence": null,
       "reviewerVerdict": null,
       "dispatchMode": "select children individually; do not implement parent as one task",
-      "children": [
-        "D03a",
-        "D03b"
-      ],
+      "children": ["D03a", "D03b"],
       "conditionalPrerequisites": "Reconcile and stabilize relevant selected B/C fixes before refactoring their boundaries; record exact dependencies at dispatch."
     },
     {
@@ -690,10 +576,7 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "apps/vscode, D03a/b serial",
-      "dependsOn": [
-        "A00",
-        "B04"
-      ],
+      "dependsOn": ["A00", "B04"],
       "requiredDecisions": [],
       "specFile": "implementation-plan.md",
       "specHeading": "D03 — Split desktop bridge ownership and webview composition",
@@ -712,10 +595,7 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "apps/vscode, D03a/b serial",
-      "dependsOn": [
-        "A00",
-        "D03a"
-      ],
+      "dependsOn": ["A00", "D03a"],
       "requiredDecisions": [],
       "specFile": "implementation-plan.md",
       "specHeading": "D03 — Split desktop bridge ownership and webview composition",
@@ -735,9 +615,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -746,10 +624,7 @@
       "completionEvidence": null,
       "reviewerVerdict": null,
       "dispatchMode": "select children individually; do not implement parent as one task",
-      "children": [
-        "D04a",
-        "D04b"
-      ],
+      "children": ["D04a", "D04b"],
       "conditionalPrerequisites": "Reconcile and stabilize relevant selected B/C fixes before refactoring their boundaries; record exact dependencies at dispatch."
     },
     {
@@ -762,9 +637,7 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "packages/engine-duckdb, D04a/b serial",
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "specFile": "implementation-plan.md",
       "specHeading": "D04 — Create engine seams without rewriting compiler or execution semantics",
@@ -783,10 +656,7 @@
       "selected": false,
       "executionAuthorized": false,
       "boundary": "packages/engine-duckdb, D04a/b serial",
-      "dependsOn": [
-        "A00",
-        "D04a"
-      ],
+      "dependsOn": ["A00", "D04a"],
       "requiredDecisions": [],
       "specFile": "implementation-plan.md",
       "specHeading": "D04 — Create engine seams without rewriting compiler or execution semantics",
@@ -806,12 +676,8 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
-      "requiredDecisions": [
-        "Q6"
-      ],
+      "dependsOn": ["A00"],
+      "requiredDecisions": ["Q6"],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
       "specHeading": "E01 — Optional opt-out cancellation strengthening",
@@ -831,10 +697,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00",
-        "A03"
-      ],
+      "dependsOn": ["A00", "A03"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -855,9 +718,7 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
+      "dependsOn": ["A00"],
       "requiredDecisions": [],
       "existingOwner": null,
       "specFile": "implementation-plan.md",
@@ -878,12 +739,8 @@
       "status": "proposed",
       "executionAuthorized": false,
       "selected": false,
-      "dependsOn": [
-        "A00"
-      ],
-      "requiredDecisions": [
-        "Q7"
-      ],
+      "dependsOn": ["A00"],
+      "requiredDecisions": ["Q7"],
       "existingOwner": "WF-O1 or WF-O2; select one existing design row",
       "specFile": "implementation-plan.md",
       "specHeading": "E04 — Design intuitive UX improvements through existing rows",
