@@ -16,6 +16,7 @@
     "docs:links": "node scripts/check-doc-links.mjs",
     "docs:links:check": "node scripts/check-doc-links.mjs",
     "current-state:check": "node scripts/check-current-state.mjs",
+    "assurance-map:check": "node scripts/check-assurance-map.mjs",
     "doctor": "node scripts/doctor.mjs",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",

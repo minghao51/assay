@@ -114,3 +114,39 @@ and `pnpm build` remain the gates.
 a missing executable, a wrong version, a probe timeout, a path containing spaces,
 an occupied port, an unavailable port probe, an invalid port override,
 `--strict` promotion, the stable JSON field set, usage errors and output privacy.
+
+## 3. `pnpm assurance-map:check` — bounded assurance-map consistency
+
+`scripts/check-assurance-map.mjs` (improvement-plan row E03) keeps
+[the assurance coverage map](11-assurance-coverage-map.md) from drifting away
+from the repository without pretending to check semantics. It proves four
+things:
+
+| Fact                    | What it verifies                                                                                                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `map-exists`            | the map document exists and still carries its `\| Contract \|` table header                                                                                             |
+| `assertion-paths-exist` | every backticked repo-relative path the map names resolves on disk                                                                                                      |
+| `runner-classified`     | every **test** file the map names is swept by a Vitest project `include` (minus its `exclude`), a Playwright `testDir`/`testMatch`, or a declared extension-host runner |
+| `runner-scripts-exist`  | the runner scripts/manifests exist and the root `package.json` declares `test`, `test:coverage`, `test:e2e` and `assurance-map:check`                                   |
+
+The Vitest projects and Playwright discovery are **parsed from the committed
+configs** (not hard-coded), so a restructured config fails the check instead of
+silently classifying nothing. Exit codes: `0` clean, `1` drift; findings print
+as `map:line: [fact] message`. Normal mode writes nothing.
+
+Deliberate limits: it does **not** check that a named assertion still asserts
+its contract, the map's subject/environment/command cells, coverage numbers,
+dates or SHAs, and it cannot see that a test skips at runtime. Only the
+registered path prefixes (`apps/`, `packages/`, `tests/`, `scripts/`, `docs/`,
+`fixtures/`) plus the three root config files are path-checked; anything else in
+backticks (`.changeset/` names, commands, environment variables) is ignored.
+
+`scripts/check-assurance-map.test.mjs` mutates the real map/config text in
+memory — a missing map, a removed table header, an invented path, a removed
+`scripts/**/*.test.mjs` include, a renamed web include, an emptied projects
+list, a Playwright `testDir` moved away from `tests/e2e`, a missing visual
+config, a missing extension-host runner script, a removed root script and an
+unparseable `package.json` — and asserts each produces a located finding, with
+the unmutated repository passing. It runs in `pnpm test` (the `node` Vitest
+project's `scripts/**/*.test.mjs` include); the check is not wired into CI as a
+separate step, because its test is the gate.
