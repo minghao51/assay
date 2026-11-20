@@ -43,7 +43,8 @@
  * typed.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { lstat, open, readFile, unlink } from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { schemaDrift } from '@assay/diff'
 import type { SchemaDriftFinding } from '@assay/diff'
@@ -226,23 +227,191 @@ function refuseExistingOut(outPath: string): CliError {
 }
 
 /**
- * The exclusive write. `wx` creates the file only if it does not exist —
- * the race-proof half of the ADR 0012 pin (the pre-flight check alone would
- * still lose a path created between check and write).
+ * The exclusive write (ADR 0012). `wx` creates the file only if it does not
+ * exist — the race-proof half of the ADR 0012 pin (the pre-flight check alone
+ * would still lose a path created between check and write). The artifact is
+ * written as UTF-8 in full, then the handle is closed, and the exact number of
+ * bytes written is returned.
+ *
+ * FAILED-WRITE RESIDUE (B05), the bounded contract — deliberately NOT
+ * all-or-nothing publication: if the write or the close fails, the acquired
+ * handle is closed and cleanup is attempted ONLY with verified ownership.
+ *
+ * "Verified ownership" is a BEST-EFFORT identity match: the writer records the
+ * dev/ino/nlink of the handle it created, re-reads the path with `lstat` and
+ * unlinks only on an exact match. The check and the unlink are two syscalls,
+ * so a replacement that appears between them can still be removed — this is
+ * the same non-atomic check-then-unlink race as the desktop writer (B04) and
+ * is NOT advertised as universal replacement safety. Eliminating that race
+ * needs a platform-specific atomic design, not another check.
+ *
+ * When the identity cannot be established (stat failed) or no longer matches,
+ * the residue is LEFT IN PLACE and the authored failure says the requested new
+ * artifact may be incomplete — it never claims nothing was written. The
+ * primary failure is preserved: cleanup can only add the honest suffix, never
+ * replace the exit code or the authored message. Temporary-file/rename
+ * publishing is not used (replacement/no-replace semantics differ by platform).
  */
 export async function writeDcrArtifactNew(
   outPath: string,
   text: string,
 ): Promise<{ ok: true; bytes: number } | { ok: false; reason: 'path-exists' }> {
+  // Fast refusal before the exclusive open: the common case (an existing --out)
+  // never opens anything. `wx` below remains the authoritative guard.
   if (existsSync(outPath)) return { ok: false, reason: 'path-exists' }
+  return writeNewArtifact(nodeFs, outPath, text)
+}
+
+/**
+ * The identity facts the residue cleanup relies on (`fs.Stats` satisfies it).
+ *
+ * @internal Test seam (B05) — stripped from the emitted declarations by
+ * `stripInternal`; never a command surface.
+ */
+export interface DcrWriteStat {
+  readonly dev: number
+  readonly ino: number
+  readonly nlink: number
+  isFile(): boolean
+}
+
+/**
+ * The narrow filesystem surface of the exclusive write. Injectable ONLY so the
+ * write/close/cleanup failure paths can be fault-injected (B05 acceptance);
+ * the command goes through `writeDcrArtifactNew` and the real `node:fs`.
+ *
+ * @internal Test seam (B05) — stripped from the emitted declarations by
+ * `stripInternal`; the production declaration surface is `writeDcrArtifactNew`
+ * alone.
+ */
+export interface DcrWriteFs {
+  readonly open: (path: string, flags: string, mode: number) => Promise<FileHandle>
+  readonly stat: (handle: FileHandle) => Promise<DcrWriteStat>
+  readonly write: (
+    handle: FileHandle,
+    bytes: Uint8Array,
+    offset: number,
+    length: number,
+  ) => Promise<{ readonly bytesWritten: number }>
+  readonly close: (handle: FileHandle) => Promise<void>
+  readonly lstat: (path: string) => Promise<DcrWriteStat>
+  readonly unlink: (path: string) => Promise<void>
+}
+
+/** The real `node:fs` implementation of the write surface. */
+const nodeFs: DcrWriteFs = {
+  open: (path, flags, mode) => open(path, flags, mode),
+  stat: (handle) => handle.stat(),
+  write: (handle, bytes, offset, length) => handle.write(bytes, offset, length, null),
+  close: (handle) => handle.close(),
+  lstat: (path) => lstat(path),
+  unlink: (path) => unlink(path),
+}
+
+/**
+ * Internal test seam (B05): the exclusive write over an injected fs surface.
+ * Not a command surface — `writeDcrArtifactNew` is the only production entry.
+ *
+ * @internal Stripped from the emitted declarations by `stripInternal`, so the
+ * injectable filesystem is not part of the published API. The runtime export
+ * stays (the fault-injection tests import it).
+ */
+export function writeDcrArtifactNewWithFs(
+  fs: DcrWriteFs,
+  outPath: string,
+  text: string,
+): Promise<{ ok: true; bytes: number } | { ok: false; reason: 'path-exists' }> {
+  return writeNewArtifact(fs, outPath, text)
+}
+
+async function writeNewArtifact(
+  fs: DcrWriteFs,
+  outPath: string,
+  text: string,
+): Promise<{ ok: true; bytes: number } | { ok: false; reason: 'path-exists' }> {
+  const bytes = new TextEncoder().encode(text)
+  let handle: FileHandle
   try {
-    await writeFile(outPath, text, { flag: 'wx', encoding: 'utf8' })
+    // `0o666` is the historical `writeFile` default (the umask still applies):
+    // B05 changes the failure handling, not the artifact's permissions.
+    handle = await fs.open(outPath, 'wx', 0o666)
   } catch (error) {
-    const code = (error as { readonly code?: unknown }).code
-    if (code === 'EEXIST') return { ok: false, reason: 'path-exists' }
+    // A path that appeared between the pre-flight and the open is the same
+    // refusal, not a write failure.
+    if ((error as { readonly code?: unknown }).code === 'EEXIST') {
+      return { ok: false, reason: 'path-exists' }
+    }
     throw usageError(`dcr output could not be written: ${outPath}`)
   }
-  return { ok: true, bytes: Buffer.byteLength(text, 'utf8') }
+  // Best-effort ownership identity: unavailable metadata must not turn into an
+  // unverified unlink later, so it only disables cleanup.
+  let owned: { readonly dev: number; readonly ino: number } | undefined
+  try {
+    const opened = await fs.stat(handle)
+    if (opened.isFile() && opened.nlink === 1) owned = { dev: opened.dev, ino: opened.ino }
+  } catch {
+    /* identity unverifiable: the residue stays */
+  }
+  let closeStarted = false
+  const closeOnce = async (): Promise<void> => {
+    if (closeStarted) return
+    closeStarted = true
+    await fs.close(handle)
+  }
+  let written = 0
+  try {
+    while (written < bytes.byteLength) {
+      const result = await fs.write(handle, bytes, written, bytes.byteLength - written)
+      if (result.bytesWritten <= 0) throw new Error('write-failed')
+      written += result.bytesWritten
+    }
+    await closeOnce()
+  } catch {
+    await closeOnce().catch(() => undefined)
+    const removed = await removeOwnedResidue(fs, outPath, owned)
+    throw dcrWriteFailure(outPath, removed)
+  }
+  return { ok: true, bytes: written }
+}
+
+/**
+ * The narrow cleanup routine: unlink ONLY the identity this write created.
+ * Returns whether the residue was removed; every failure is swallowed (the
+ * caller reports residue, never a cleanup error).
+ */
+async function removeOwnedResidue(
+  fs: DcrWriteFs,
+  outPath: string,
+  owned: { readonly dev: number; readonly ino: number } | undefined,
+): Promise<boolean> {
+  if (owned === undefined) return false
+  try {
+    const current = await fs.lstat(outPath)
+    if (
+      !current.isFile() ||
+      current.dev !== owned.dev ||
+      current.ino !== owned.ino ||
+      current.nlink !== 1
+    )
+      return false
+    await fs.unlink(outPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The authored write failure (exit 2). The primary category and path are
+ * unchanged; the suffix states what happened to the partial file, and the
+ * honest default is that an incomplete artifact may remain.
+ */
+function dcrWriteFailure(outPath: string, residueRemoved: boolean): CliError {
+  return usageError(
+    residueRemoved
+      ? `dcr output could not be written: ${outPath} (the incomplete new artifact was removed — no DCR artifact exists at that path)`
+      : `dcr output could not be written: ${outPath} (the requested new artifact may be incomplete: an interrupted write can leave partial bytes at that path — inspect or remove it)`,
+  )
 }
 
 /**

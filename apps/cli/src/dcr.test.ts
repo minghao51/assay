@@ -7,15 +7,23 @@
  * and the export-report renderers' byte contracts. The end-to-end journeys
  * (including the golden byte pin) live in `dcr.integration.test.ts`.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { lstat, open, rename, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 import { parseDcr, serializeDcr } from '@assay/pipeline'
 import type { PipelineV1 } from '@assay/pipeline'
 import type { PipelineRunNodeResult, PipelineRunResult } from '@assay/engine-duckdb/node'
-import { deriveDcrArtifact, resolveDcrOptions, runDcrCommand, writeDcrArtifactNew } from './dcr.js'
-import type { DcrOptions } from './dcr.js'
+import {
+  deriveDcrArtifact,
+  resolveDcrOptions,
+  runDcrCommand,
+  writeDcrArtifactNew,
+  writeDcrArtifactNewWithFs,
+} from './dcr.js'
+import type { DcrOptions, DcrWriteFs, DcrWriteStat } from './dcr.js'
+import { CliError } from './errors.js'
 import type { CommandContext } from './context.js'
 import { renderHumanDcrExportReport, renderJsonDcrExportReport } from './report-dcr.js'
 import { REPORT_VERSION } from './report-shared.js'
@@ -192,6 +200,245 @@ describe('writeDcrArtifactNew — the ADR 0012 no-rewrite pin', () => {
     const refused = await writeDcrArtifactNew(out, 'replacement bytes\n')
     expect(refused).toEqual({ ok: false, reason: 'path-exists' })
     expect(readFileSync(out, 'utf8')).toBe('original bytes\n')
+  })
+
+  it('returns the UTF-8 BYTE length, not the character count', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'unicode.yaml')
+    const text = 'format: assay-dcr\nnote: café — naïve\n'
+    const written = await writeDcrArtifactNew(out, text)
+    expect(text.length).not.toBe(Buffer.byteLength(text, 'utf8'))
+    expect(written).toEqual({ ok: true, bytes: Buffer.byteLength(text, 'utf8') })
+    expect(readFileSync(out, 'utf8')).toBe(text)
+  })
+})
+
+/**
+ * The private fs seam for the exclusive write (B05): operation counters plus
+ * optional fault injection over the real filesystem.
+ */
+interface ProbeFs {
+  readonly fs: DcrWriteFs
+  readonly calls: { stat: number; write: number; close: number; lstat: number; unlink: number }
+}
+
+function probeFs(overrides: Partial<DcrWriteFs> = {}): ProbeFs {
+  const calls = { stat: 0, write: 0, close: 0, lstat: 0, unlink: 0 }
+  const fs: DcrWriteFs = {
+    open: (path, flags, mode) =>
+      overrides.open === undefined ? open(path, flags, mode) : overrides.open(path, flags, mode),
+    stat: async (handle) => {
+      calls.stat += 1
+      return overrides.stat === undefined ? await handle.stat() : await overrides.stat(handle)
+    },
+    write: async (handle, bytes, offset, length) => {
+      calls.write += 1
+      return overrides.write === undefined
+        ? await handle.write(bytes, offset, length, null)
+        : await overrides.write(handle, bytes, offset, length)
+    },
+    close: async (handle) => {
+      calls.close += 1
+      if (overrides.close !== undefined) await overrides.close(handle)
+      else await handle.close()
+    },
+    lstat: async (path) => {
+      calls.lstat += 1
+      return overrides.lstat === undefined ? await lstat(path) : await overrides.lstat(path)
+    },
+    unlink: async (path) => {
+      calls.unlink += 1
+      if (overrides.unlink !== undefined) await overrides.unlink(path)
+      else await unlink(path)
+    },
+  }
+  return { fs, calls }
+}
+
+describe('writeDcrArtifactNew — failed-write residue (B05)', () => {
+  it('leaves a concurrently created output untouched (wx stays authoritative)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'raced.yaml')
+    const { fs, calls } = probeFs({
+      // The other writer wins the race between our pre-flight and our open.
+      open: async (path, flags, mode) => {
+        await writeFile(path, 'concurrent bytes\n')
+        return await open(path, flags, mode)
+      },
+    })
+    const refused = await writeDcrArtifactNewWithFs(fs, out, 'ours\n')
+    expect(refused).toEqual({ ok: false, reason: 'path-exists' })
+    expect(readFileSync(out, 'utf8')).toBe('concurrent bytes\n')
+    expect(calls.unlink).toBe(0)
+    expect(calls.write).toBe(0)
+  })
+
+  it('completes short writes and reports the exact byte count', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'short-writes.yaml')
+    const text = 'format: assay-dcr\nnote: café\n'
+    const { fs, calls } = probeFs({
+      write: async (handle, bytes, offset, length) =>
+        await handle.write(bytes, offset, Math.min(3, length), null),
+    })
+    const written = await writeDcrArtifactNewWithFs(fs, out, text)
+    expect(written).toEqual({ ok: true, bytes: Buffer.byteLength(text, 'utf8') })
+    expect(calls.write).toBeGreaterThan(1)
+    expect(readFileSync(out, 'utf8')).toBe(text)
+  })
+
+  it('rejects nonpositive write progress and removes its own residue', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    for (const bytesWritten of [0, -1]) {
+      const out = join(dir, `zero-${String(bytesWritten)}.yaml`)
+      const { fs, calls } = probeFs({ write: async () => ({ bytesWritten }) })
+      const failure = await writeDcrArtifactNewWithFs(fs, out, 'format: assay-dcr\n').catch(
+        (error: unknown) => error,
+      )
+      expect(failure).toBeInstanceOf(CliError)
+      expect((failure as CliError).exitCode).toBe(2)
+      expect((failure as CliError).message).toContain('dcr output could not be written: ')
+      expect((failure as CliError).message).toContain(out)
+      expect((failure as CliError).message).toContain('the incomplete new artifact was removed')
+      expect(calls.close).toBe(1)
+      expect(calls.unlink).toBe(1)
+      expect(existsSync(out)).toBe(false)
+    }
+  })
+
+  it('keeps the primary failure when the close fails, and removes the residue', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'close-broken.yaml')
+    const { fs, calls } = probeFs({
+      close: async (handle) => {
+        await handle.close()
+        throw new Error('close-failed')
+      },
+    })
+    const failure = await writeDcrArtifactNewWithFs(fs, out, 'format: assay-dcr\n').catch(
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(CliError)
+    expect((failure as CliError).message).toContain('dcr output could not be written: ')
+    expect((failure as CliError).message).toContain('the incomplete new artifact was removed')
+    // No cross-app/raw error text and no double close.
+    expect((failure as CliError).message).not.toContain('close-failed')
+    expect(calls.close).toBe(1)
+    expect(calls.unlink).toBe(1)
+    expect(existsSync(out)).toBe(false)
+  })
+
+  it('leaves residue and says the artifact may be incomplete when unlinking fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'unlink-failed.yaml')
+    const { fs, calls } = probeFs({
+      write: async (handle) => {
+        await handle.write(Buffer.from('partial'), 0, 7, null)
+        throw new Error('disk full')
+      },
+      unlink: async () => {
+        throw new Error('unlink-failed')
+      },
+    })
+    const failure = await writeDcrArtifactNewWithFs(fs, out, 'format: assay-dcr\n').catch(
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(CliError)
+    const message = (failure as CliError).message
+    expect(message).toContain('dcr output could not be written: ')
+    expect(message).toContain('may be incomplete')
+    // Honest wording: never "nothing was written".
+    expect(message).not.toContain('no DCR artifact exists')
+    expect(message).not.toContain('nothing was written')
+    expect(message).not.toContain('disk full')
+    expect(calls.unlink).toBe(1)
+    expect(readFileSync(out, 'utf8')).toBe('partial')
+  })
+
+  it('never unlinks a replacement that appeared before the identity check', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'replaced.yaml')
+    const staging = join(dir, 'staging.yaml')
+    writeFileSync(staging, 'replacement bytes\n')
+    const { fs, calls } = probeFs({
+      write: async () => {
+        throw new Error('write-failed')
+      },
+      lstat: async (path) => {
+        await rename(staging, path)
+        return await lstat(path)
+      },
+    })
+    const failure = await writeDcrArtifactNewWithFs(fs, out, 'format: assay-dcr\n').catch(
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(CliError)
+    expect((failure as CliError).message).toContain('may be incomplete')
+    expect(calls.lstat).toBe(1)
+    expect(calls.unlink).toBe(0)
+    expect(readFileSync(out, 'utf8')).toBe('replacement bytes\n')
+  })
+
+  it('leaves residue when the ownership identity cannot be established', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'unverified.yaml')
+    const { fs, calls } = probeFs({
+      stat: async () => {
+        throw new Error('stat-failed')
+      },
+      write: async () => {
+        throw new Error('write-failed')
+      },
+    })
+    const failure = await writeDcrArtifactNewWithFs(fs, out, 'format: assay-dcr\n').catch(
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(CliError)
+    expect((failure as CliError).message).toContain('may be incomplete')
+    expect(calls.lstat).toBe(0)
+    expect(calls.unlink).toBe(0)
+    expect(existsSync(out)).toBe(true)
+  })
+
+  it('refuses a destination that is not a single-link regular file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'not-file.yaml')
+    const stat: DcrWriteStat = { dev: 1, ino: 2, nlink: 2, isFile: () => true }
+    const { fs, calls } = probeFs({
+      stat: async () => stat,
+      write: async () => {
+        throw new Error('write-failed')
+      },
+    })
+    const failure = await writeDcrArtifactNewWithFs(fs, out, 'format: assay-dcr\n').catch(
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(CliError)
+    expect((failure as CliError).message).toContain('may be incomplete')
+    expect(calls.unlink).toBe(0)
+    expect(existsSync(out)).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('reports the open failure as the unchanged authored category when no file was created', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'assay-dcr-unit-'))
+    const out = join(dir, 'open-failed.yaml')
+    const { fs, calls } = probeFs({
+      open: async () => {
+        const error = new Error('EACCES: permission denied') as Error & { code?: string }
+        error.code = 'EACCES'
+        throw error
+      },
+    })
+    const failure = await writeDcrArtifactNewWithFs(fs, out, 'format: assay-dcr\n').catch(
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(CliError)
+    expect((failure as CliError).exitCode).toBe(2)
+    // Unchanged primary category and text: nothing existed to clean up.
+    expect((failure as CliError).message).toBe(`dcr output could not be written: ${out}`)
+    expect(calls.close).toBe(0)
+    expect(calls.unlink).toBe(0)
   })
 })
 
