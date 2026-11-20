@@ -189,6 +189,23 @@ describe('ExportDialog — cancel and failure paths leave the app usable', () =>
     expect((screen.getByTestId('export-confirm') as HTMLButtonElement).disabled).toBe(false)
   })
 
+  it('B03: a writable write/close failure shows the error and no success line', async () => {
+    // The helper now aborts and re-throws the ORIGINAL failure; this pins the
+    // surface half of the matrix — no result line, no "saved" claim, controls
+    // usable again.
+    renderDialog({
+      writeCopy: vi.fn(async () => {
+        throw new Error('the writable could not be closed')
+      }),
+    })
+    fireEvent.click(screen.getByTestId('export-confirm'))
+    const error = await screen.findByTestId('export-error')
+    expect(error.textContent).toContain('Export failed: the writable could not be closed')
+    expect(screen.queryByTestId('export-result')).toBeNull()
+    expect(screen.queryByTestId('export-reopen-hint')).toBeNull()
+    expect((screen.getByTestId('export-confirm') as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('surfaces an engine export rejection readably', async () => {
     renderDialog({
       runEngineExport: vi.fn(async () => {

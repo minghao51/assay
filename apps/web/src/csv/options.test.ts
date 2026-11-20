@@ -175,6 +175,113 @@ describe('adoptionOptions — sample_size never rides engine/open (ADR 0049 item
   })
 })
 
+describe('declared types — a repeated column name is refused, never overwritten (B01)', () => {
+  it('refuses a repeated name even when the type repeats exactly', () => {
+    const built = formOptionRecord(form({ typesText: 'id: BIGINT\nid: BIGINT' }))
+    expect(built.ok).toBe(false)
+    if (built.ok) return
+    expect(built.refusal).toEqual({ code: 'duplicate-column', line: 2 })
+  })
+
+  it('refuses a repeated name with a different type (no silent last-wins overwrite)', () => {
+    // The pre-fix code assigned `columns[name] = type`, so the second line
+    // silently replaced the first: a declared type was lost with no notice.
+    const built = formOptionRecord(form({ typesText: 'id: BIGINT\nid: VARCHAR' }))
+    expect(built.ok).toBe(false)
+    if (built.ok) return
+    expect(built.refusal).toEqual({ code: 'duplicate-column', line: 2 })
+  })
+
+  it('decides sameness from the parsed names (surrounding whitespace stripped)', () => {
+    const built = formOptionRecord(form({ typesText: '  id : BIGINT \n\tid:\tVARCHAR' }))
+    expect(built.ok).toBe(false)
+    if (built.ok) return
+    expect(built.refusal).toEqual({ code: 'duplicate-column', line: 2 })
+  })
+
+  it('keeps names case-sensitive: a and A are different columns', () => {
+    const built = formOptionRecord(form({ typesText: 'a: BIGINT\nA: VARCHAR' }))
+    expect(built.ok).toBe(true)
+    if (!built.ok) return
+    expect(Object.keys(built.record['columns'] as Record<string, string>)).toEqual(['a', 'A'])
+  })
+
+  it('keeps line numbering across blank lines', () => {
+    const built = formOptionRecord(form({ typesText: '\n\nid: BIGINT\n   \nid: VARCHAR' }))
+    expect(built.ok).toBe(false)
+    if (built.ok) return
+    expect(built.refusal).toEqual({ code: 'duplicate-column', line: 5 })
+  })
+
+  it('reports the malformed line number with its own value-free sentence', () => {
+    const built = formOptionRecord(form({ typesText: 'id: BIGINT\nnope' }))
+    expect(built.ok).toBe(false)
+    if (built.ok) return
+    expect(built.refusal).toEqual({ code: 'malformed-line', line: 2 })
+    const refused = previewOptions(form({ typesText: 'id: BIGINT\nnope' }))
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.reason).toBe('Each line must read name: TYPE.')
+  })
+
+  it('refuses a repeat with a sentence that never echoes the name or the type', () => {
+    const refused = previewOptions(form({ typesText: 'customer_id: BIGINT\ncustomer_id: TEXT' }))
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.reason).toBe('Each column name may be declared only once.')
+    expect(refused.reason).not.toContain('customer_id')
+    expect(refused.reason).not.toContain('BIGINT')
+    expect(refused.reason).not.toContain('TEXT')
+  })
+
+  it('refuses the one literal name a columns map cannot own, instead of losing it', () => {
+    // `Object.entries` sees a `__proto__` own key, but a plain object's
+    // assignment for that name hits the inherited setter — the engine's
+    // validated map drops the column and the declaration would silently
+    // vanish. Refusing here is the non-lossy outcome for a literal name.
+    const built = formOptionRecord(form({ typesText: 'id: BIGINT\n__proto__: VARCHAR' }))
+    expect(built.ok).toBe(false)
+    if (built.ok) return
+    expect(built.refusal).toEqual({ code: 'unsupported-column-name', line: 2 })
+    const refused = previewOptions(form({ typesText: '__proto__: VARCHAR' }))
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.reason).toBe('That column name cannot be declared here.')
+    expect(refused.reason).not.toContain('__proto__')
+  })
+
+  it('carries other Object.prototype names as literal own keys, end to end', () => {
+    const typesText = 'constructor: VARCHAR\ntoString: BIGINT'
+    const built = formOptionRecord(form({ typesText }))
+    expect(built.ok).toBe(true)
+    if (!built.ok) return
+    const columns = built.record['columns'] as Record<string, string>
+    // Own-key-safe construction: no prototype chain to shadow a literal name.
+    expect(Object.getPrototypeOf(columns)).toBeNull()
+    expect(Object.hasOwn(columns, 'constructor')).toBe(true)
+    expect(Object.hasOwn(columns, 'toString')).toBe(true)
+    const parsed = previewOptions(form({ typesText }))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const wire = wireCsvOptions(parsed.options)
+    // The engine request boundary is a structured clone; the names stay
+    // literal keys of the map and never become the record's own prototype.
+    expect(structuredClone(wire)).toEqual({
+      columns: { constructor: 'VARCHAR', toString: 'BIGINT' },
+    })
+    expect(Object.getPrototypeOf(wire?.['columns'] as object)).toBe(Object.prototype)
+  })
+
+  it('leaves an ordinary declaration’s wire record byte-identical', () => {
+    const parsed = previewOptions(form({ typesText: 'id: BIGINT\nlabel: VARCHAR' }))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(JSON.stringify(wireCsvOptions(parsed.options))).toBe(
+      '{"columns":{"id":"BIGINT","label":"VARCHAR"}}',
+    )
+  })
+})
+
 describe('wireCsvOptions — the no-options request stays byte-identical', () => {
   it('returns undefined for an empty set so no options field is sent at all', () => {
     expect(wireCsvOptions({})).toBeUndefined()

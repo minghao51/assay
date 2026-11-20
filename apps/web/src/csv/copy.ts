@@ -102,6 +102,21 @@ export const CSV_REVIEW_TYPES_HELPER =
 /** Our own line-shape refusal: never echoes the typed line (it can name a header). */
 export const CSV_REVIEW_TYPES_LINE_ERROR = 'Each line must read name: TYPE.'
 
+/**
+ * B01 — a name declared twice. The declaration is refused instead of being
+ * merged or last-wins overwritten, so no declared type is lost silently. The
+ * sentence names neither the column nor its type (a header name is content).
+ */
+export const CSV_REVIEW_TYPES_DUPLICATE_ERROR = 'Each column name may be declared only once.'
+
+/**
+ * B01 — the one literal name this surface declines: `__proto__` cannot be an
+ * own key of a plain object, so the engine's validated copy of the map would
+ * silently drop that column. Refusal keeps the outcome non-lossy and honest
+ * about the limit; no name is echoed here either.
+ */
+export const CSV_REVIEW_TYPES_UNSUPPORTED_NAME_ERROR = 'That column name cannot be declared here.'
+
 /** Update-sample control and the staleness note. */
 export const CSV_REVIEW_UPDATE_SAMPLE = 'Update sample'
 export const CSV_REVIEW_SAMPLE_STALE =

@@ -14,6 +14,14 @@
  * hand or generated from schemas; a megabyte of YAML is not a contract, and
  * reading unbounded text into the main thread on a click is a bad trade.
  * The bound is checked from the picked `File`'s size BEFORE any read.
+ *
+ * D01 — naming honesty: this module READS text. It does not parse a contract,
+ * so a successful outcome is `{ kind: 'read' }` (decoded text), never a claim
+ * that the contract was understood. `@assay/contracts`' `parseContract` is the
+ * parser, and both callers (`useValidationSession` for the panel,
+ * `usePipelineSession` for a `validate` node) invoke it on the `read` text —
+ * an invalid contract is therefore a successful read followed by a typed
+ * downstream parse refusal, which is exactly what the kinds say.
  */
 
 /**
@@ -34,21 +42,27 @@ export interface ContractFileLike {
   text(): Promise<string>
 }
 
-/** A contract import outcome: parsed contract, typed parse errors, or over-bound. */
+/**
+ * A contract import outcome: the file's decoded TEXT (`'read'` — a read
+ * result, not a parse verdict), over the size bound, or a failed read. What
+ * the text means is decided downstream by `parseContract`, never here.
+ */
 export type ContractImportResult =
   | { readonly kind: 'too-large' }
-  | { readonly kind: 'parsed'; readonly text: string }
+  | { readonly kind: 'read'; readonly text: string }
   | { readonly kind: 'read-failed'; readonly message: string }
 
 /**
  * Read a picked contract file as text, enforcing the size bound before any
  * byte is read. Read failures (a moved/revoked handle) degrade to a typed
  * outcome with a readable message — never a raw throw into the render path.
+ * The resolved `'read'` text is unparsed input: the caller's `parseContract`
+ * call (the total parser) produces the typed success or parse errors.
  */
 export async function readContractFile(file: ContractFileLike): Promise<ContractImportResult> {
   if (file.size > MAX_CONTRACT_BYTES) return { kind: 'too-large' }
   try {
-    return { kind: 'parsed', text: await file.text() }
+    return { kind: 'read', text: await file.text() }
   } catch (error) {
     return {
       kind: 'read-failed',
