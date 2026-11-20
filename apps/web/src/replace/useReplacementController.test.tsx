@@ -71,6 +71,10 @@ interface HarnessState {
   openGate: Promise<void> | null
   /** Parks `preloadPanels` (the last await before adoption). */
   panelsGate: Promise<void> | null
+  /** Parks the picked handle's `getFile` read (the post-picker window). */
+  getFileGate: Promise<void> | null
+  /** How many times the picked handle's `getFile` was entered. */
+  getFileCalls: number
   /** The overlay source handed to `createCandidateGrid`. */
   candidateOverlaySource: (() => EngineOverlay) | null
   editorOpen: boolean
@@ -124,6 +128,8 @@ function harness(): Harness {
     adoptOutcome: 'adopted',
     openGate: null,
     panelsGate: null,
+    getFileGate: null,
+    getFileCalls: 0,
     candidateOverlaySource: null,
     editorOpen: false,
     castPending: new Set<string>(),
@@ -158,7 +164,17 @@ function harness(): Harness {
       if (next instanceof Error) throw next
       return {
         via: 'file-system-access',
-        source: { getFile: async () => next },
+        source: {
+          getFile: async () => {
+            state.getFileCalls += 1
+            const gate = state.getFileGate
+            if (gate !== null) {
+              state.getFileGate = null
+              await gate
+            }
+            return next
+          },
+        },
       } as unknown as PickedDataFile
     },
     engine: {
@@ -366,8 +382,57 @@ describe('D02b — currency checks after every await', () => {
     h.state.phase = livePhase()
     await flush(64)
 
+    // The post-picker check is the one that drops this chain: the superseded
+    // chain never even starts the picked file's read. (The companion test below
+    // pins the check AFTER that read, with the phase moving mid-read.)
+    expect(h.state.getFileCalls).toBe(0)
     expect(h.state.engineCalls).toEqual([])
     expect(h.state.loadCalls).toBe(0)
+    expect(h.state.adoptCalls).toEqual([])
+    // And no notice claims a failure for a silently dropped stale chain.
+    expect(h.api().replacementFailure).toBeNull()
+  })
+
+  it('drops the chain when the phase moves while the picked file read is pending', async () => {
+    const h = harness()
+    h.mount()
+    let release: () => void = () => undefined
+    h.state.getFileGate = new Promise<void>((resolve) => {
+      release = () => {
+        resolve()
+      }
+    })
+    h.state.picks = [CANDIDATE_FILE]
+
+    act(() => {
+      h.api().beginGesture(READY_READINGS, { respectDirtyGuard: true, path: 'open' })
+    })
+    await flush(32)
+
+    // The picker has already resolved and its own currency check has passed:
+    // the chain is parked on `picked.source.getFile()` itself, so ONLY the
+    // check that follows that read can drop what comes next.
+    expect(h.state.pickCalls).toBe(1)
+    expect(h.state.getFileCalls).toBe(1)
+    expect(h.state.engineCalls).toEqual([])
+    expect(h.api().intent.kind).toBe('choosing')
+
+    // Supersede the captured phase while the read is in flight, then resolve
+    // it with a perfectly valid File: a missing post-read check would go on to
+    // prepare and adopt a candidate for a session that is no longer live.
+    h.state.phase = livePhase()
+    await act(async () => {
+      release()
+      await Promise.resolve()
+    })
+    await flush(64)
+
+    // No candidate work at all — no open, no schema/rowCount, no candidate
+    // grid or overlay box, no model load, no panel preload — and no adoption.
+    expect(h.state.engineCalls).toEqual([])
+    expect(h.state.candidateOverlaySource).toBeNull()
+    expect(h.state.loadCalls).toBe(0)
+    expect(h.state.preloadCalls).toBe(0)
     expect(h.state.adoptCalls).toEqual([])
     // And no notice claims a failure for a silently dropped stale chain.
     expect(h.api().replacementFailure).toBeNull()
@@ -515,6 +580,40 @@ describe('D02b — the CSV review path', () => {
     expect(h.api().csvReview).toBeNull()
     expect(h.state.engineCalls).toEqual(['open', 'schema', 'rowCount'])
     expect(h.state.adoptCalls).toHaveLength(1)
+  })
+
+  it('drops the review when the phase moves while the picked file read is pending', async () => {
+    const h = harness()
+    h.mount()
+    let release: () => void = () => undefined
+    h.state.getFileGate = new Promise<void>((resolve) => {
+      release = () => {
+        resolve()
+      }
+    })
+    h.state.picks = [new File(['a,b\n1,2\n'], 'review.csv')]
+
+    act(() => {
+      h.api().beginGesture(READY_READINGS, { respectDirtyGuard: true, path: 'review' })
+    })
+    await flush(32)
+
+    // Parked on the file read, after the picker's own currency check passed.
+    expect(h.state.getFileCalls).toBe(1)
+    expect(h.api().csvReview).toBeNull()
+
+    h.state.phase = livePhase()
+    await act(async () => {
+      release()
+      await Promise.resolve()
+    })
+    await flush(32)
+
+    // The stale read mounts no review, opens nothing and adopts nothing.
+    expect(h.api().csvReview).toBeNull()
+    expect(h.state.engineCalls).toEqual([])
+    expect(h.state.adoptCalls).toEqual([])
+    expect(h.api().replacementFailure).toBeNull()
   })
 
   it('previews through the engine port without adopting, and Stop says "stopped"', async () => {
