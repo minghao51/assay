@@ -24,7 +24,6 @@
  */
 import * as vscode from 'vscode'
 import { createOnlyWriter } from './pure/create-only-writer'
-import { acceptExportFrame, EXPORT_MAX_BYTES } from './pure/export-transfer'
 import { VENDORED_RUNTIME } from './assets'
 import { buildDatasetHtml } from './webview-html'
 import { gitContextFor } from './git-adapter'
@@ -34,6 +33,11 @@ import {
   neutralDatasetName,
   SUPPORTED_FILENAME_PATTERNS,
 } from './pure/dataset-format'
+import {
+  createExportTransferController,
+  type ExportDestination,
+} from './pure/export-transfer-controller'
+import type { SafeExportFormat } from './pure/export-transfer'
 import {
   DatasetOpenError,
   normalizeAcceptanceProof,
@@ -242,24 +246,41 @@ export function bridgeDatasetIntoPanel(
     formatFromName(uri.path.split('/').pop() ?? uri.path) ?? 'parquet',
   )
   return new Promise<DatasetReport>((resolve, reject) => {
-    let exportWriter: Awaited<ReturnType<typeof createOnlyWriter>> | undefined
-    let exportState: import('./pure/export-transfer').ExportTransferState | undefined
-    let exportId: string | undefined
-    let exportGeneration = 0
-    let exportWritePending = false
     let comparisonGeneration = 0
     let comparisonRequest: { readonly id: string; readonly generation: number } | undefined
     let comparisonUri: vscode.Uri | undefined
     let reportWriter: Awaited<ReturnType<typeof createOnlyWriter>> | undefined
     let reportRequest: { readonly id: string; readonly generation: number } | undefined
     let panelDisposed = false
-    const exportCleanup = async (): Promise<void> => {
-      await exportWriter?.cleanup()
-      exportWriter = undefined
-      exportState = undefined
-      exportId = undefined
-      exportWritePending = false
+    /**
+     * Destination acquisition for the owned export transfer: the harness path
+     * in test mode, the real save dialog otherwise. The transfer itself
+     * (request/start/chunk/finish/cancel, writer ownership, disposal) lives in
+     * the desktop-local export transfer controller (D03a).
+     */
+    const acquireExportDestination = async (
+      format: SafeExportFormat,
+    ): Promise<ExportDestination> => {
+      const testHarness =
+        context.extensionMode === vscode.ExtensionMode.Test &&
+        process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
+      const target = testHarness
+        ? vscode.Uri.file(
+            `${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/assay-export-proof-${String(++testExportSequence)}.${format}`,
+          )
+        : await vscode.window.showSaveDialog({
+            saveLabel: 'Export new dataset file',
+            filters: { 'Dataset export': [format] },
+          })
+      if (target === undefined) return { kind: 'cancelled' }
+      return { kind: 'selected', scheme: target.scheme, fsPath: target.fsPath }
     }
+    const exportController = createExportTransferController({
+      post: (message) => void panel.webview.postMessage(message),
+      acquireDestination: acquireExportDestination,
+      createWriter: (destination, sourcePaths) => createOnlyWriter(destination, sourcePaths),
+      sourcePaths: [uri.fsPath],
+    })
     const timeout = setTimeout(() => {
       reject(new Error(`dataset bridge timed out after ${String(BRIDGE_TIMEOUT_MS / 1000)}s`))
     }, BRIDGE_TIMEOUT_MS)
@@ -268,13 +289,13 @@ export function bridgeDatasetIntoPanel(
       comparisonGeneration++
       comparisonRequest = undefined
       reportRequest = undefined
-      void exportCleanup()
+      void exportController.dispose()
       void reportWriter?.cleanup()
       reportWriter = undefined
     })
     const finish = (report: DatasetReport): void => {
       clearTimeout(timeout)
-      void exportCleanup()
+      void exportController.dispose()
       lastReport = report
       resolve(report)
     }
@@ -589,186 +610,28 @@ export function bridgeDatasetIntoPanel(
         })
         return
       }
+      // The export transfer lifecycle (request/start/chunk/finish/cancel, its
+      // create-only writer and disposal) is the desktop-local controller's
+      // (D03a); this bridge only routes the frames. Destination acquisition,
+      // posting and the writer factory are the injected dependencies.
       if (kind === 'export-request') {
-        const request = message as { id?: unknown; generation?: unknown; format?: unknown }
-        if (
-          typeof request.id !== 'string' ||
-          request.id.length === 0 ||
-          request.id.length > 64 ||
-          !Number.isSafeInteger(request.generation) ||
-          Number(request.generation) < 0 ||
-          !['parquet', 'jsonl', 'json', 'csv', 'arrow'].includes(String(request.format))
-        )
-          return
-        const id = request.id
-        const generation = Number(request.generation)
-        if (exportWriter !== undefined || exportId !== undefined) {
-          void panel.webview.postMessage({
-            kind: 'export-error',
-            id,
-            generation,
-            errorKind: 'export-busy',
-          })
-          return
-        }
-        void (async () => {
-          const testHarness =
-            context.extensionMode === vscode.ExtensionMode.Test &&
-            process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
-          const target = testHarness
-            ? vscode.Uri.file(
-                `${process.env['ASSAY_E2E_WORKSPACE'] ?? ''}/assay-export-proof-${String(++testExportSequence)}.${String(request.format)}`,
-              )
-            : await vscode.window.showSaveDialog({
-                saveLabel: 'Export new dataset file',
-                filters: { 'Dataset export': [String(request.format)] },
-              })
-          if (target === undefined) {
-            void panel.webview.postMessage({ kind: 'export-cancelled', id, generation })
-            return
-          }
-          if (target.scheme !== 'file' || target.fsPath === uri.fsPath) {
-            void panel.webview.postMessage({
-              kind: 'export-error',
-              id,
-              generation,
-              errorKind: 'destination-refused',
-            })
-            return
-          }
-          try {
-            exportWriter = await createOnlyWriter(target.fsPath, [uri.fsPath])
-            exportId = id
-            exportGeneration = generation
-            void panel.webview.postMessage({ kind: 'export-ready', id, generation })
-          } catch {
-            void panel.webview.postMessage({
-              kind: 'export-error',
-              id,
-              generation,
-              errorKind: 'destination-refused',
-            })
-          }
-        })().catch(() => {
-          void panel.webview.postMessage({
-            kind: 'export-error',
-            id,
-            generation,
-            errorKind: 'export-failed',
-          })
-        })
+        exportController.request(message)
         return
       }
       if (kind === 'export-start') {
-        const start = message as { id?: unknown; generation?: unknown; totalBytes?: unknown }
-        if (
-          start.id !== exportId ||
-          start.generation !== exportGeneration ||
-          !Number.isSafeInteger(start.totalBytes) ||
-          Number(start.totalBytes) < 0 ||
-          Number(start.totalBytes) > EXPORT_MAX_BYTES
-        ) {
-          void exportCleanup()
-          return
-        }
-        if (typeof exportId !== 'string') return
-        exportState = {
-          id: exportId,
-          generation: exportGeneration,
-          totalBytes: Number(start.totalBytes),
-          nextSequence: 0,
-          nextOffset: 0,
-        }
-        void panel.webview.postMessage({
-          kind: 'export-credit',
-          id: exportId,
-          generation: exportGeneration,
-        })
+        exportController.start(message)
         return
       }
       if (kind === 'export-chunk') {
-        try {
-          if (exportState === undefined || exportWriter === undefined || exportWritePending)
-            throw new Error('invalid-frame')
-          const accepted = acceptExportFrame(exportState, message)
-          exportState = accepted.state
-          exportWritePending = true
-          void exportWriter.write(accepted.bytes).then(
-            () => {
-              exportWritePending = false
-              void panel.webview.postMessage({
-                kind: 'export-credit',
-                id: exportId,
-                generation: exportGeneration,
-              })
-            },
-            () => {
-              exportWritePending = false
-              void exportCleanup()
-              void panel.webview.postMessage({
-                kind: 'export-error',
-                id: exportId,
-                generation: exportGeneration,
-                errorKind: 'export-failed',
-              })
-            },
-          )
-        } catch {
-          void exportCleanup()
-          void panel.webview.postMessage({
-            kind: 'export-error',
-            id: exportId,
-            generation: exportGeneration,
-            errorKind: 'export-failed',
-          })
-        }
+        exportController.chunk(message)
         return
       }
       if (kind === 'export-finish') {
-        const done = message as { id?: unknown; generation?: unknown }
-        if (
-          done.id !== exportId ||
-          done.generation !== exportGeneration ||
-          exportState === undefined ||
-          exportWriter === undefined ||
-          exportState.nextOffset !== exportState.totalBytes
-        ) {
-          void exportCleanup()
-          return
-        }
-        void exportWriter
-          .close()
-          .then(() => {
-            exportWriter = undefined
-            void panel.webview.postMessage({
-              kind: 'export-complete',
-              id: exportId,
-              generation: exportGeneration,
-            })
-            exportState = undefined
-            exportId = undefined
-          })
-          .catch(() => {
-            void exportCleanup()
-            void panel.webview.postMessage({
-              kind: 'export-error',
-              id: done.id,
-              generation: done.generation,
-              errorKind: 'export-failed',
-            })
-          })
+        exportController.finish(message)
         return
       }
       if (kind === 'export-cancel') {
-        const cancel = message as { id?: unknown; generation?: unknown }
-        if (cancel.id === exportId && cancel.generation === exportGeneration) {
-          void exportCleanup()
-          void panel.webview.postMessage({
-            kind: 'export-cancelled',
-            id: cancel.id,
-            generation: cancel.generation,
-          })
-        }
+        exportController.cancel(message)
         return
       }
       if (kind === 'ready') {

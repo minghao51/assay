@@ -3,7 +3,13 @@
 export const EXPORT_CHUNK_BYTES = 64 * 1024
 export const EXPORT_MAX_BYTES = 512 * 1024 * 1024
 
-export type SafeExportFormat = 'parquet' | 'jsonl' | 'json' | 'csv' | 'arrow'
+/**
+ * The one export format vocabulary: the host ingress, the controller and the
+ * `SafeExportFormat` type all read this tuple (no duplicated literal list).
+ */
+export const SAFE_EXPORT_FORMATS = ['parquet', 'jsonl', 'json', 'csv', 'arrow'] as const
+
+export type SafeExportFormat = (typeof SAFE_EXPORT_FORMATS)[number]
 
 export type ExportHostRequest =
   | {
