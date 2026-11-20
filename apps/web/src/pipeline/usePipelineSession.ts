@@ -453,7 +453,7 @@ export function usePipelineSession(params: PipelineSessionParams): PipelineSessi
         if (session.tokenRef.current !== sessionId) return
         const read = await readContractFile(file)
         if (session.tokenRef.current !== sessionId) return
-        if (read.kind !== 'parsed') {
+        if (read.kind !== 'read') {
           bindFailed()
           return
         }
