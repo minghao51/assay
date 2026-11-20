@@ -1,11 +1,21 @@
 # Project Handoff — Assay
 
+**Current state / next action (2026-11-20).** The post-R1 runtime wave is fully closed — **EW-02I**,
+**R2**, **U5**, **EW-03I-a**, **TB-1**, **EW-03I-b**, **EW-04I**, **TB-2**, **ENG-1** (ADR 0049
+option-C amendment) and **D3-1** — with **ADR 0049/0050/0051 Accepted**; authoritative closures are
+the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md) §1/§2 and the Verified-state
+entries below. **No row is selected for dispatch.** Recorded but unselected: **ENG-2** (typed
+`repair-preview` count op) and **ENG-3** (`(empty)` dialect payload; needs engine/web coordination) —
+both need a maintainer + engine-owner go-ahead. Human asks are consolidated in the
+[open-asks checklist](handoff/20261019-open-asks.md). Improvement-plan execution (A00 closed; A01–A03
+dispatched, Q1–Q7 selected) is the [execution record](handoff/20261120-improvement-plan-execution.md).
+
 **Last updated:** 2026-11-18. **Current lane:** launch readiness; the post-R1 runtime wave has closed
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
-Accepted**; the remaining queue is in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md)
-— **EW-03I-b** (web CSV preview) and **EW-04I** (bulk-repair web + U1–U3), plus the optional ADR 0051 and
-two rows recorded but unselected (TB-2 spawn-count pin / ceiling tightening; the ADR 0049 decision-4
-abandonment-release divergence). The
+Accepted**; the post-EW-03I-a queue has since closed in full (EW-03I-b, EW-04I, TB-2, ENG-1 = the ADR
+0049 decision-4 option-C amendment, D3-1; ADR 0051 Accepted) — see the current-state block above;
+**ENG-2/ENG-3** remain recorded but unselected in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md).
+The
 original UX/UI programme and bounded audit follow-up are complete. The
 [usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
 [usability gap review](../reviews/2026-10-26-usability-gap-review.md) in 23 rows (ug-1…ug-23):
@@ -377,11 +387,12 @@ an ADR, never a silent rewrite of an accepted decision.
 (`ae0f6cf`/`a6059c6`/`4d56036`), **TB-1** (`30b6564`/`4b147a1`) and **EW-03I-b** (`233dc6a`/`e954d8c`)
 are merged; **ADR 0049/0050** are Accepted. TB-1 ran first because its flake made the baseline red on this
 host; EW-03I-b closed D3's web half. The cold-pickup index, remaining queue, dispatch order and P0–P6
-paste-ready prompts are in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md). Remaining:
-**EW-04I** (bulk-repair web + U1–U3) — the only selected runtime row — plus optional ADR 0051 and three
-recorded-but-unselected rows: TB-2 (pin the CLI spawn count or tighten TB-1's loose ceiling), the ADR
-0049 decision-4 abandonment-release engine row, and D3's rename-_list_ affordance (needs a sound header
-read). R13 stays unselected. Nothing pushed.
+paste-ready prompts are in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md) (its
+prompts are historical — see the do-not-dispatch label there). Corrected 2026-11-20: the rows listed
+here as remaining have all since closed — **EW-04I** `52da4ca`+`9e62172`+`d0069be`, **TB-2** `6e97d14`,
+**ENG-1** `f2fb523`+`81bb8dc` (ADR 0049 option-C amendment), **D3-1** `a16eea5`+`9a39fe3`+`d941b51`,
+**ADR 0051 Accepted**; the recorded-but-unselected remainder is **ENG-2** (typed `repair-preview`
+count op) and **ENG-3** (`(empty)` dialect payload). R13 stays unselected. Nothing pushed.
 
 **R1 CLOSED — honest engine failure text (2026-11-14).** The maintainer selected R1 (masked browser
 SQL errors, `ReferenceError: _setThrew is not defined`) and approved

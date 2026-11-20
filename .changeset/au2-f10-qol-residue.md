@@ -1,6 +1,7 @@
 ---
 '@assay/engine-duckdb': patch
 '@assay/data-sources': patch
+'@assay/web': patch
 ---
 
 chore(au2-f10): QoL residue batch.

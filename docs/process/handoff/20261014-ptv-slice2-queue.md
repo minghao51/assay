@@ -1,5 +1,9 @@
 # PT-V Slice 2 — Desktop Dataset Workflows
 
+> **Status correction (2026-11-20).** This queue **CLOSED 2026-10-19** (see §4). The `ACTIVE`
+> marker below and any "next dispatch" wording in this file are historical snapshots — **do not
+> dispatch from this file**; the living [handoff](../handoff.md) owns current state.
+
 **ACTIVE — authored 2026-10-14.** Maintainer authorized the recommended
 maintenance → PT-V slice 2 → PT-Q sequence on 2026-10-14. Entry: `980a22b`,
 clean tree; [repository maintenance](20261014-repository-maintenance.md) closed.

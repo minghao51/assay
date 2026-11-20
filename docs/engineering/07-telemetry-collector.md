@@ -22,6 +22,9 @@ never log or store raw request bodies.**
 - **Endpoint sources** ([design §8.1](06-telemetry-design.md)): CLI `ASSAY_TELEMETRY_ENDPOINT` /
   `ASSAY_TELEMETRY_TOKEN`; web build-time `ASSAY_TELEMETRY_ENDPOINT` / `ASSAY_TELEMETRY_TOKEN`
   (Vite `define`, no default baked into the source).
+- **Timing defaults are per surface** (corrected 2026-11-20): the retry/drop policy is identical on
+  both surfaces (see §2), but the CLI ships the design-sketch constants (1.5 s timeout, 200 ms
+  backoff base) while the web transport ships 5 s / 250 ms. The table in §2 carries both.
 - **Endpoint validation** ([§8.2](06-telemetry-design.md), pinned in
   `packages/telemetry/src/endpoint.ts`): `https` always allowed; `http` only for loopback hosts
   (`localhost`, `127.0.0.1`, `[::1]`); missing/malformed/wrong-scheme/cleartext-non-loopback is
@@ -39,16 +42,16 @@ never log or store raw request bodies.**
 One HTTP request per batch ([§8.3](06-telemetry-design.md)); the shipped transports are
 `apps/cli/src/telemetry/transport.ts` and `apps/web/src/telemetry/transport.ts`.
 
-| Aspect          | Value                                                                                                                                 |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Method / path   | `POST` to the configured endpoint (no query string, no credentials in the URL)                                                        |
-| Headers         | `content-type: application/json`; optional `authorization: Bearer <ASSAY_TELEMETRY_TOKEN>` (write-only ingest token)                  |
-| Body            | a JSON **array of event objects** (each a §3 envelope + payload); compact JSON                                                        |
-| Batch bounds    | ≤ **32 events** and ≤ **256 KiB** per request (client splits; excess dropped)                                                         |
-| Compression     | gzip is optional in the design; the shipped client does not gzip                                                                      |
-| Client timeout  | 1.5 s per attempt                                                                                                                     |
-| Retries         | 5xx / network / timeout: ≤ **2** retries with exponential backoff (200 ms, 400 ms), then drop; 4xx: drop, **no retry**; 2xx: accepted |
-| Failure posture | every client-side failure is swallowed (R9) — telemetry never blocks or surfaces errors                                               |
+| Aspect          | Value                                                                                                                                                                                                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Method / path   | `POST` to the configured endpoint (no query string, no credentials in the URL)                                                                                                                                                                                               |
+| Headers         | `content-type: application/json`; optional `authorization: Bearer <ASSAY_TELEMETRY_TOKEN>` (write-only ingest token)                                                                                                                                                         |
+| Body            | a JSON **array of event objects** (each a §3 envelope + payload); compact JSON                                                                                                                                                                                               |
+| Batch bounds    | ≤ **32 events** and ≤ **256 KiB** per request (client splits; excess dropped)                                                                                                                                                                                                |
+| Compression     | gzip is optional in the design; the shipped client does not gzip                                                                                                                                                                                                             |
+| Client timeout  | **CLI** 1.5 s per attempt (`apps/cli/src/telemetry/transport.ts`, `DEFAULT_TIMEOUT_MS`); **web** 5 s per attempt (`apps/web/src/telemetry/transport.ts`, `DEFAULT_TIMEOUT_MS`)                                                                                               |
+| Retries         | 5xx / network / timeout: ≤ **2** retries with exponential backoff, then drop; 4xx: drop, **no retry**; 2xx: accepted. Backoff base: **CLI** 200 ms (waits 200 ms, 400 ms) / **web** 250 ms (waits 250 ms, 500 ms) — `BACKOFF_BASE_MS` in each `*/src/telemetry/transport.ts` |
+| Failure posture | every client-side failure is swallowed (R9) — telemetry never blocks or surfaces errors                                                                                                                                                                                      |
 
 ### 2.1 Acceptance and validation (collector)
 

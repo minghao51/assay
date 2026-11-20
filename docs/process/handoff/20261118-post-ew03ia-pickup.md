@@ -85,7 +85,14 @@ controls and byte-identical restoration, and **never push**.
 
 ## 4. Paste-ready prompts
 
-### P0 — cold pickup (paste to the next orchestrator)
+> **Historical record — do not dispatch (label added 2026-11-20).** The prompts below are the
+> pasted briefs exactly as they stood on 2026-11-18, kept as history. Every row they name is closed
+> (see §2 above); **P0's "remaining queue" text is obsolete** and no prompt in this section is a
+> current starting instruction. Current entry point: the living handoff's current-state block
+> ([handoff.md](../handoff.md)); recorded-but-unselected rows are **ENG-2/ENG-3** and need a fresh
+> maintainer go-ahead.
+
+### P0 — cold pickup (paste to the next orchestrator) (**historical — do not dispatch**)
 
 ```text
 Pick up docs/process/handoff/20261118-post-ew03ia-pickup.md (the post-EW-03I-a state, remaining queue

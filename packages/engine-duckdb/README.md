@@ -36,13 +36,18 @@ stays swappable).
   the root Playwright config on port 4179.
 - `tsc --build tsconfig.build.json` emits the library at the `dist/` root.
 
-The `files` globs in [`package.json`](package.json) are flat (non-recursive)
-deliberately: they match only the library's top-level emit by extension
-(`dist/*.js`, `*.d.ts`, and their maps), so the harness's non-library output is
-excluded — both its nested `assets/` and its top-level `index.html` and
-`fixtures/` — and a packed tarball stays library-only (au2-2 pack finding).
-During development the library surface is consumed directly as TypeScript
-source via `exports`.
+The `files` allowlist in [`package.json`](package.json) is a positive pattern
+list: top-level library emit by extension (`dist/*.js`, `*.d.ts`, and their
+maps) **plus the recursive `dist/pipeline-runner/**` JavaScript, declarations
+and maps** that back the runner graph behind the `./node` seam. The top-level
+globs stay flat deliberately (the au2-2 pack finding — historical, not re-run
+here — covers that half); the recursive pipeline-runner globs were added later
+(`a7dfe35`) and are the one named exception. The harness's non-library output
+is excluded: its nested `assets/` and its top-level `index.html` and
+`fixtures/` match no positive pattern. This paragraph compares the allowlist
+against the manifest as written; it is **not** a fresh tarball build or
+inspection. During development the library surface is consumed directly as
+TypeScript source via `exports`.
 
 ## Harness (M1 e2e + conformance)
 

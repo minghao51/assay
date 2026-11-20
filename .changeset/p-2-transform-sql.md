@@ -1,5 +1,6 @@
 ---
 '@assay/pipeline': minor
+'@assay/contracts': patch
 ---
 
 feat(p-2): transform compilation to SQL (pure module)
