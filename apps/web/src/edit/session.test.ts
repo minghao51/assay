@@ -13,6 +13,8 @@ import {
   undo,
 } from '@assay/domain'
 import {
+  ACTIVATION_RECOVERED_MESSAGE,
+  ACTIVATION_UNKNOWN_MESSAGE,
   activeOps,
   castRefusalMessage,
   classifyOpenFailure,
@@ -29,6 +31,7 @@ import {
   overlaySnapshot,
   resolveProfileColumn,
 } from './session'
+import type { CommitEffects } from './session'
 
 const BASE: OverlayBase = {
   baseAnchor: 'fv-5-1000',
@@ -434,6 +437,24 @@ describe('castRefusalMessage — readable, text-only refusal for a doomed cast',
   })
 })
 
+/**
+ * C03b: one recording `setActive`. Every case that reaches a publish reports
+ * `true`; cases that model "not published" say `false` explicitly.
+ */
+function recordingSetActive(published: TransformationHistory[]) {
+  return (history: TransformationHistory): boolean => {
+    published.push(history)
+    return true
+  }
+}
+
+/**
+ * The value every fault injection throws. It stands in for an opaque
+ * engine/glue error: no test may ever find this text in a message, a rendered
+ * fault object or a DOM node (ADR 0025 / C03b assertion 10).
+ */
+const VIOLENT = 'VIOLENT-C03B-PAYLOAD: SELECT secret FROM leak'
+
 describe('commitWithRollback — a rejected overlay restores the previous effective view', () => {
   const previous = emptyHistory()
   const next = appendOp(BASE, previous, {
@@ -447,12 +468,12 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     const published: TransformationHistory[] = []
     let refreshes = 0
     const result = await commitWithRollback(previous, next, {
-      setActive: (history) => published.push(history),
+      setActive: recordingSetActive(published),
       refresh: async () => {
         refreshes += 1
       },
     })
-    expect(result).toEqual({ message: null, restoreFailed: false })
+    expect(result).toEqual({ message: null, restoreFailed: false, activation: 'applied' })
     expect(published).toEqual([next])
     expect(refreshes).toBe(1)
   })
@@ -461,7 +482,7 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     const published: TransformationHistory[] = []
     let refreshes = 0
     const result = await commitWithRollback(previous, next, {
-      setActive: (history) => published.push(history),
+      setActive: recordingSetActive(published),
       refresh: async () => {
         refreshes += 1
         if (refreshes === 1) {
@@ -478,13 +499,14 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(result.message).toContain('Conversion Error')
     expect(result.message).not.toContain('LINE 1')
     expect(result.restoreFailed).toBe(false)
+    expect(result.activation).toBe('rolled-back')
   })
 
   it('rolls back when the refresh window read rejects (value-level cast class)', async () => {
     const published: TransformationHistory[] = []
     let refreshes = 0
     const result = await commitWithRollback(previous, next, {
-      setActive: (history) => published.push(history),
+      setActive: recordingSetActive(published),
       refresh: async () => {
         refreshes += 1
         if (refreshes === 1) {
@@ -496,13 +518,14 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(refreshes).toBe(2)
     expect(result.message).toContain('Conversion Error')
     expect(result.restoreFailed).toBe(false)
+    expect(result.activation).toBe('rolled-back')
   })
 
   it('q-8: rolls back on a value-free engine class and renders no value fragment', async () => {
     const published: TransformationHistory[] = []
     let refreshes = 0
     const result = await commitWithRollback(previous, next, {
-      setActive: (history) => published.push(history),
+      setActive: recordingSetActive(published),
       refresh: async () => {
         refreshes += 1
         if (refreshes === 1) {
@@ -519,12 +542,13 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
         'The previous view is unchanged.',
     )
     expect(result.restoreFailed).toBe(false)
+    expect(result.activation).toBe('rolled-back')
   })
 
   it('attributes a double failure honestly and flags the view as unrestored', async () => {
     const published: TransformationHistory[] = []
     const result = await commitWithRollback(previous, next, {
-      setActive: (history) => published.push(history),
+      setActive: recordingSetActive(published),
       refresh: async () => {
         throw new Error('_setThrew is not defined')
       },
@@ -537,12 +561,13 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(result.message).toContain('Restoring the previous view also failed')
     expect(result.message).toContain('Retry')
     expect(result.restoreFailed).toBe(true)
+    expect(result.activation).toBe('unknown')
   })
 
   it('does not report a restored view when the restore refresh fails', async () => {
     let refreshes = 0
     const result = await commitWithRollback(previous, next, {
-      setActive: () => {},
+      setActive: () => true,
       refresh: async () => {
         refreshes += 1
         throw new Error('engine unavailable')
@@ -550,6 +575,7 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     })
     expect(refreshes).toBe(2)
     expect(result.restoreFailed).toBe(true)
+    expect(result.activation).toBe('unknown')
     expect(result.message).toContain('Restoring the previous view also failed')
     expect(result.message).toContain('engine unavailable')
   })
@@ -564,6 +590,7 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
       setActive: (history) => {
         order.push('setActive')
         published.push(history)
+        return true
       },
       refresh: async () => {
         order.push('refresh')
@@ -571,7 +598,7 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     })
     expect(order).toEqual(['validate', 'setActive', 'refresh'])
     expect(published).toEqual([next])
-    expect(result).toEqual({ message: null, restoreFailed: false })
+    expect(result).toEqual({ message: null, restoreFailed: false, activation: 'applied' })
   })
 
   it('refuses a rejected validate: nothing activated, no refresh, framed message (R1-C)', async () => {
@@ -581,7 +608,7 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
       validate: async () => {
         throw new Error(COLUMN_TYPE_REJECTED_SUMMARY)
       },
-      setActive: (history) => published.push(history),
+      setActive: recordingSetActive(published),
       refresh: async () => {
         refreshes += 1
       },
@@ -595,6 +622,7 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
         "The engine rejected this edit: the column's type rejected the value. " +
         'The previous view is unchanged.',
       restoreFailed: false,
+      activation: 'refused-before-activation',
     })
   })
 
@@ -603,7 +631,7 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     let refreshes = 0
     const result = await commitWithRollback(previous, next, {
       validate: async () => {},
-      setActive: (history) => published.push(history),
+      setActive: recordingSetActive(published),
       refresh: async () => {
         refreshes += 1
         if (refreshes === 1) throw new Error('Conversion Error: invalid date field format')
@@ -615,6 +643,200 @@ describe('commitWithRollback — a rejected overlay restores the previous effect
     expect(refreshes).toBe(2)
     expect(result.message).toContain('Conversion Error')
     expect(result.restoreFailed).toBe(false)
+    expect(result.activation).toBe('rolled-back')
+  })
+})
+
+/**
+ * C03b — the activation faults (S8–S11). The pre-fix code called
+ * `effects.setActive(next)` outside any protection, so a throw escaped
+ * `commitWithRollback` ("Never throws" was false) and the caller's generic
+ * rejection net reported it as "the previous view is unchanged" with no retry.
+ * These are the same injections as probes 1–5, now as assertions.
+ */
+describe('C03b — commit activation faults are contained and reported honestly', () => {
+  const previous = emptyHistory()
+  const next = appendOp(BASE, previous, {
+    kind: 'cell-set',
+    rowId: baseRowId(BASE.baseAnchor, 0),
+    column: 'label',
+    value: { kind: 'text', text: '2025-01-04' },
+  }).history
+
+  it('S8: a throwing next activation restored by the previous one resolves rolled-back (no rejection, no value claim)', async () => {
+    const published: TransformationHistory[] = []
+    let refreshes = 0
+    const result = await commitWithRollback(previous, next, {
+      // Publication happens first, then the fault: the worst honest case, the
+      // new overlay may already be visible inside the provider.
+      setActive: (history) => {
+        published.push(history)
+        if (history === next) throw new Error(VIOLENT)
+        return true
+      },
+      refresh: async () => {
+        refreshes += 1
+      },
+    })
+
+    expect(published).toEqual([next, previous])
+    expect(refreshes).toBe(1)
+    expect(result.activation).toBe('rolled-back')
+    expect(result.restoreFailed).toBe(false)
+    expect(result.message).toBe(ACTIVATION_RECOVERED_MESSAGE)
+    // The raw fault never reaches the user, and the value-only claim is gone.
+    expect(result.message).not.toContain(VIOLENT)
+    expect(result.message).not.toContain('previous view is unchanged')
+    expect(result.message).toContain('The previous view has been restored.')
+  })
+
+  it('S9: a throwing previous activation resolves unknown with the retry instruction', async () => {
+    const published: TransformationHistory[] = []
+    let refreshes = 0
+    const result = await commitWithRollback(previous, next, {
+      setActive: (history) => {
+        published.push(history)
+        if (history === previous) throw new Error(VIOLENT)
+        return true
+      },
+      refresh: async () => {
+        refreshes += 1
+        if (refreshes === 1) throw new Error('engine unavailable')
+      },
+    })
+
+    // The failed view was published, the restore activation faulted: no restore
+    // refresh is attempted (it could not describe a view the grid is showing).
+    expect(published).toEqual([next, previous])
+    expect(refreshes).toBe(1)
+    expect(result.activation).toBe('unknown')
+    expect(result.restoreFailed).toBe(true)
+    expect(result.message).toBe(ACTIVATION_UNKNOWN_MESSAGE)
+    expect(result.message).not.toContain(VIOLENT)
+    expect(result.message).not.toContain('previous view is unchanged')
+    expect(result.message).toContain('Retry')
+  })
+
+  it('contains a SYNCHRONOUS refresh throw (probe 3) and still reports the double failure', async () => {
+    // A `refresh` implementation that throws before returning its promise is
+    // the same class as one that rejects: probe 3 was already contained, and
+    // the contained restore path must not regress it.
+    const result = await commitWithRollback(previous, next, {
+      setActive: () => true,
+      refresh: () => {
+        throw new Error('engine unavailable')
+      },
+    })
+    expect(result.activation).toBe('unknown')
+    expect(result.restoreFailed).toBe(true)
+    expect(result.message).toContain('Restoring the previous view also failed')
+    expect(result.message).toContain('Retry')
+  })
+
+  it('contains a fault in both activation steps without rejecting', async () => {
+    let refreshes = 0
+    const result = await commitWithRollback(previous, next, {
+      setActive: () => {
+        throw new Error(VIOLENT)
+      },
+      refresh: async () => {
+        refreshes += 1
+      },
+    })
+    expect(refreshes).toBe(0)
+    expect(result.activation).toBe('unknown')
+    expect(result.message).toBe(ACTIVATION_UNKNOWN_MESSAGE)
+  })
+
+  it('treats a next activation that could not publish as unknown, never applied', async () => {
+    const published: TransformationHistory[] = []
+    const result = await commitWithRollback(previous, next, {
+      // The phase is no longer ready: `activateHistory` writes nothing and
+      // reports it (S11). An unproven activation is never marketed as applied.
+      setActive: () => false,
+      refresh: async () => {
+        published.push(next)
+      },
+    })
+    expect(published).toEqual([])
+    expect(result.activation).toBe('unknown')
+    expect(result.restoreFailed).toBe(true)
+    expect(result.message).toBe(ACTIVATION_UNKNOWN_MESSAGE)
+  })
+
+  it('S10: keeps the double-refresh failure distinguishable from a single one', async () => {
+    let singleRefreshes = 0
+    const single = await commitWithRollback(previous, next, {
+      setActive: () => true,
+      refresh: async () => {
+        singleRefreshes += 1
+        if (singleRefreshes === 1) throw new Error('engine unavailable')
+      },
+    })
+    let doubleRefreshes = 0
+    const double = await commitWithRollback(previous, next, {
+      setActive: () => true,
+      refresh: async () => {
+        doubleRefreshes += 1
+        throw new Error('engine unavailable')
+      },
+    })
+    // Probe 5 (must stay passing): both refreshes failing is the unchanged
+    // double-failure class; one refresh failure is the unchanged rolled-back
+    // class. The two are distinguishable in both `activation` and copy.
+    expect(singleRefreshes).toBe(2)
+    expect(doubleRefreshes).toBe(2)
+    expect(single.activation).toBe('rolled-back')
+    expect(double.activation).toBe('unknown')
+    expect(single.message).not.toContain('Restoring the previous view also failed')
+    expect(double.message).toContain('Restoring the previous view also failed')
+    expect(double.message).toContain('Retry')
+  })
+
+  it('pins restoreFailed === (activation === unknown) for every outcome class', async () => {
+    const cases: Array<{
+      readonly name: string
+      readonly effects: (published: TransformationHistory[]) => CommitEffects
+    }> = [
+      {
+        name: 'applied',
+        effects: (published) => ({
+          setActive: recordingSetActive(published),
+          refresh: async () => {},
+        }),
+      },
+      {
+        name: 'refused',
+        effects: (published) => ({
+          validate: async () => {
+            throw new Error(VIOLENT)
+          },
+          setActive: recordingSetActive(published),
+          refresh: async () => {},
+        }),
+      },
+      {
+        name: 'rolled-back',
+        effects: (published) => ({
+          setActive: (history) => {
+            published.push(history)
+            if (history === next) throw new Error(VIOLENT)
+            return true
+          },
+          refresh: async () => {},
+        }),
+      },
+      { name: 'unknown', effects: () => ({ setActive: () => false, refresh: async () => {} }) },
+    ]
+    for (const entry of cases) {
+      const published: TransformationHistory[] = []
+      const result = await commitWithRollback(previous, next, entry.effects(published))
+      expect(result.restoreFailed, entry.name).toBe(result.activation === 'unknown')
+      if (result.activation === 'unknown') {
+        expect(result.message, entry.name).toContain('Retry')
+        expect(result.message, entry.name).not.toContain(VIOLENT)
+      }
+    }
   })
 })
 

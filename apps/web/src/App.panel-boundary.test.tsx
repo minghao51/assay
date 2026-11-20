@@ -31,7 +31,12 @@ const h = vi.hoisted(() => {
   const beginSession = vi.fn(() => {
     tokenRef.current += 1
     for (const reset of resets) reset()
-    return tokenRef.current
+    // C03b: `beginSession` now reports a value-free outcome; these pins count
+    // its calls and never inject a reset fault.
+    return {
+      token: tokenRef.current,
+      faults: [] as Array<{ index: number; kind: 'reset-callback' }>,
+    }
   })
   return {
     beginSession,

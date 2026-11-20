@@ -150,7 +150,7 @@ function deferredText(): {
 function sessionWithToken(token: number): DatasetSession {
   return {
     tokenRef: { current: token },
-    beginSession: () => token,
+    beginSession: () => ({ token, faults: [] }),
     registerReset: () => () => {},
   }
 }

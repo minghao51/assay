@@ -53,6 +53,8 @@ import {
   IDLE_FORMATS,
   OPEN_CANCEL_LABEL,
   OPEN_PROGRESS_LABEL,
+  SESSION_FAULT_COPY,
+  SESSION_FAULT_RELOAD_LABEL,
   TAGLINE,
   openAnnouncementText,
   openStatusCopy,
@@ -131,6 +133,7 @@ import {
   REPLACE_TECHNICAL_SUMMARY,
 } from './replace/messages'
 import { useDatasetSession } from './sessions/session-reset'
+import type { SessionResetFault } from './sessions/session-reset'
 import { useEditingSession } from './sessions/useEditingSession'
 import { useValidationSession } from './sessions/useValidationSession'
 import { useDiffSession } from './sessions/useDiffSession'
@@ -410,6 +413,15 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * token/ordering rationale.
    */
   const datasetSession = useDatasetSession()
+  /**
+   * C03b fail-closed recovery state: the value-free faults of the last
+   * `beginSession()` that could not close/start the dataset session cleanly.
+   * Non-null means the current session was abandoned (never published ready)
+   * and the recovery frame replaces every ordinary open-flow surface for it.
+   * `null` on a clean epoch — including the next clean open, because the fault
+   * is per-invocation and the registry re-runs every callback from scratch.
+   */
+  const [sessionFault, setSessionFault] = useState<readonly SessionResetFault[] | null>(null)
 
   const [phase, setPhaseState] = useState<Phase>({ kind: 'idle' })
   /**
@@ -1659,7 +1671,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * late result. Honest UI reset + token discard, never a claimed abort.
    */
   const cancelOpen = useCallback(() => {
-    datasetSession.beginSession()
+    const outcome = datasetSession.beginSession()
+    // C03b: a faulted reset means the generation is invalidated but the reset
+    // only partly ran. The normal idle frame would claim a clean close that did
+    // not happen, so reach the recovery frame instead — and never the stuck
+    // `opening` phase the uncaught throw used to leave behind.
+    setSessionFault(outcome.faults.length === 0 ? null : outcome.faults)
     setPhase({ kind: 'idle' })
   }, [datasetSession, setPhase])
 
@@ -2085,7 +2102,26 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       return false
     }
     // 1. One new dataset session: token bump + every registered reset.
-    datasetSession.beginSession()
+    const outcome = datasetSession.beginSession()
+    if (outcome.faults.length > 0) {
+      // C03b fail closed (S5, assertion 4): the generation is invalidated and
+      // every remaining reset was attempted, but a partial reset must never be
+      // published as the candidate's `ready` phase. Steps 2–9 are skipped — the
+      // candidate is not rebound, not published, and no `dataset_opened` is
+      // emitted — the intent ends, and the outcome is the session-fault frame,
+      // NOT the per-file `replace-error` copy (whose cause would name the file
+      // rather than the real cause). The previous session is already gone by
+      // contract: its generation was invalidated, so no restoration is claimed.
+      intentSeqRef.current += 1
+      endReplacementIntent()
+      clearReplacementNotices()
+      setSessionFault(outcome.faults)
+      setPhase({ kind: 'idle' })
+      return false
+    }
+    // A clean adoption supersedes any earlier fault frame: this is a fresh,
+    // fully reset session and nothing of the abandoned one is shown.
+    setSessionFault(null)
     // 2–3. The adopted base is the candidate's own; republish history/overlay
     // AFTER the reset (the reset nulls both).
     const adoptedHistory = emptyHistory()
@@ -2240,7 +2276,22 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     // attempt (including a cancelled picker returning to idle) supersedes it.
     setDropNotice(null)
     setCsvReviewStopped(null)
-    const session = datasetSession.beginSession()
+    // A fresh attempt starts from a clean frame: the earlier fault was that
+    // invocation's, and a new `beginSession` re-runs every reset from scratch.
+    setSessionFault(null)
+    const outcome = datasetSession.beginSession()
+    if (outcome.faults.length > 0) {
+      // C03b fail closed (S7): the generation is invalidated and every remaining
+      // reset was attempted, but the reset is partial, so this session is never
+      // published. Abandon the chain before its first await — no picker, no
+      // engine open, no `dataset_opened`/`dataset_open_failed` — and surface the
+      // recovery frame instead of a half-reset `opening` or `ready` screen.
+      sourceIdentityRef.current = null
+      setSessionFault(outcome.faults)
+      setPhase({ kind: 'idle' })
+      return
+    }
+    const session = outcome.token
     // au3-12: warm the below-fold panel chunks in parallel with the open flow
     // so they are resident by `ready` (see `lib/bottom-panels.ts`).
     // Swallow a warm-up rejection here: the awaited re-call below re-rejects
@@ -2723,6 +2774,31 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           <span data-testid="open-status" data-phase={phase.kind}>
             {openStatusCopy(phase.kind)}
           </span>
+          {/*
+           * C03b fail-closed recovery frame: exactly one, whenever the last
+           * `beginSession()` reported a reset fault. The copy is fixed and
+           * value-free (no error text, file, column or cell — ADR 0025) and the
+           * only affordance is a fresh page, because the app cannot prove which
+           * resets completed and has no persisted state to repair. Rendered
+           * outside every phase branch so `openDataFile`, `cancelOpen` and
+           * adoption surface the same frame and none of them shows `ready`.
+           */}
+          {sessionFault !== null && (
+            <div className="session-fault" data-testid="session-fault">
+              <p role="alert" data-testid="session-fault-text">
+                {SESSION_FAULT_COPY}
+              </p>
+              <button
+                type="button"
+                data-testid="session-fault-reload"
+                onClick={() => {
+                  window.location.reload()
+                }}
+              >
+                {SESSION_FAULT_RELOAD_LABEL}
+              </button>
+            </div>
+          )}
           {/*
            * EW-03I-b: abandonment copy (ADR 0049 item 7 / envelope §5a).
            * "Stopped reviewing" — never "aborted", and never a claim that a

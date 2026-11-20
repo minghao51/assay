@@ -429,8 +429,13 @@ export function castRacedMessage(column: string, targetType: string): string {
 
 /** The effects a history commit needs from the composition root. */
 export interface CommitEffects {
-  /** Publish `history` as the active overlay (overlay ref + React state). */
-  setActive(history: TransformationHistory): void
+  /**
+   * Publish `history` as the active overlay (overlay ref + React state), and
+   * report whether it was actually published. `false` means the owning session
+   * is no longer ready, so nothing was written — the commit must not claim an
+   * applied change in that state (C03b assertion 8, "no silent no-op").
+   */
+  setActive(history: TransformationHistory): boolean
   /** Re-materialize the active overlay through a fresh data epoch. */
   refresh(): Promise<void>
   /**
@@ -447,14 +452,135 @@ export interface CommitEffects {
 }
 
 /**
+ * C03b: what one commit's activation actually established. Activation is a
+ * three-valued fact, not a boolean — "nothing was published", "it was published
+ * and then undone", and "it may have been published and could not be restored"
+ * are different promises to the user.
+ *
+ * - `applied`: `setActive(next)` published and `refresh()` materialized it.
+ * - `refused-before-activation`: `validate()` rejected; nothing was activated,
+ *   so the previous view is still exactly on screen (R1-C, unchanged).
+ * - `rolled-back`: something was (possibly) activated but the previous history
+ *   was re-activated and re-materialized. `message` names the original failure.
+ * - `unknown`: an activation/restore step faulted, so the effective view cannot
+ *   be proven. The host must offer `retryView` — never claim the previous view
+ *   is unchanged and never market the commit as a success.
+ */
+export type CommitActivation = 'applied' | 'refused-before-activation' | 'rolled-back' | 'unknown'
+
+/**
  * The outcome of a history commit: `message` is `null` on success, and
- * `restoreFailed` is true only when the previous view could not be
+ * `restoreFailed` is true only when the previous view could not be proven
  * re-materialized after a rejection (the double-failure case the alert must
- * attribute honestly and the host must offer a retry for).
+ * attribute honestly and the host must offer a retry for). It is exactly
+ * `activation === 'unknown'` — pinned by test — and `activation` adds the
+ * three-valued fact for callers that need to distinguish a refusal from a
+ * rollback.
  */
 export interface CommitResult {
   readonly message: string | null
   readonly restoreFailed: boolean
+  readonly activation: CommitActivation
+}
+
+/**
+ * C03b: an activation fault that the restore path then undid. The copy says the
+ * view could not be updated and that the previous view is back — it never
+ * claims the *value* was rejected (the commit never got that far) and never
+ * carries the fault's own text.
+ */
+export const ACTIVATION_RECOVERED_MESSAGE =
+  'The change could not be applied: the view could not be updated. The previous view has been restored.'
+
+/**
+ * C03b: both the new activation and the restore failed, so the effective view
+ * is unknown. Fixed, value-free copy ending in the same retry instruction as
+ * the existing double-failure message (`viewError` renders the retry control).
+ */
+export const ACTIVATION_UNKNOWN_MESSAGE =
+  'The change could not be applied: publishing the new view failed and the previous view could not be restored. ' +
+  'Use Retry to reload the view.'
+
+/**
+ * Internal marker for a `setActive` that reported "not published". It never
+ * reaches a message: the activation outcome for that state is `unknown` (the
+ * commit cannot prove what the view holds), exactly like a thrown fault.
+ */
+const ACTIVATION_NOT_PUBLISHED = Symbol('activation-not-published')
+
+/** Which step of the commit faulted, for the honest restore report. */
+type FailedStep = 'activate' | 'refresh'
+
+/**
+ * C03b restore path: re-activate and re-materialize the previous history after
+ * a fault, containing both steps. Returns the honest outcome:
+ *
+ * - both restore steps succeeded → `rolled-back`;
+ * - either restore step faulted (or refused to publish) → `unknown`.
+ *
+ * A failed restore activation skips the restore refresh: the previous overlay
+ * was not published, so re-materializing it would describe a view the grid is
+ * not showing. Nothing is rethrown — the documented "never throws" contract is
+ * what keeps the caller's `finally` bookkeeping (the mutation counter) intact.
+ */
+async function restorePrevious(
+  previous: TransformationHistory,
+  effects: CommitEffects,
+  failed: FailedStep,
+  originalError: unknown,
+): Promise<CommitResult> {
+  let restoreActivationFailed = false
+  try {
+    if (effects.setActive(previous) !== true) restoreActivationFailed = true
+  } catch {
+    restoreActivationFailed = true
+  }
+  let restoreError: unknown = null
+  if (!restoreActivationFailed) {
+    try {
+      await effects.refresh()
+    } catch (error) {
+      restoreError = error
+    }
+  }
+  if (restoreActivationFailed) {
+    // The restore's own activation faulted, so there is no re-materialized
+    // previous view to point at and no restore error object to name. This is
+    // the "same copy as above" case: the view is unknown and retry is the only
+    // honest advice, whatever the original step was.
+    return { message: ACTIVATION_UNKNOWN_MESSAGE, restoreFailed: true, activation: 'unknown' }
+  }
+  if (restoreError !== null) {
+    if (failed === 'refresh') {
+      return {
+        // Existing double-failure honesty (m4-3 carry-over): name both
+        // failures and attribute the engine/view, not a value claim. The
+        // message's engine lines are the sanitized summaries the alert always
+        // used; no raw SQL tail or payload is attached.
+        message:
+          `The change could not be applied: ${engineErrorLine(originalError, 'the engine or view rejected it')}. ` +
+          `Restoring the previous view also failed: ${engineErrorLine(restoreError, 'the engine or view was unavailable')}. ` +
+          'Use Retry to reload the view.',
+        restoreFailed: true,
+        activation: 'unknown',
+      }
+    }
+    return { message: ACTIVATION_UNKNOWN_MESSAGE, restoreFailed: true, activation: 'unknown' }
+  }
+  if (failed === 'refresh') {
+    // Unchanged single-failure framing: the value/first refresh was rejected
+    // and the previous view really is back.
+    return {
+      message: engineRejectionMessage(originalError),
+      restoreFailed: false,
+      activation: 'rolled-back',
+    }
+  }
+  return {
+    message: ACTIVATION_RECOVERED_MESSAGE,
+    restoreFailed: false,
+    activation: 'rolled-back',
+  }
 }
 
 /**
@@ -472,11 +598,20 @@ export interface CommitResult {
  * `setActive(next)` runs first so the provider reads the new overlay during
  * `refresh()`; on rejection `setActive(previous)` + a second `refresh()`
  * restore the prior effective view. **Double-failure honesty** (m4-3
- * carry-over): if that restore also rejects, the returned message names
+ * carry-over): if that restore also fails, the returned message names
  * *both* failures — it never claims only the value was rejected — and
  * `restoreFailed: true` tells the host to surface a retry affordance, so an
  * engine outage cannot leave the user with an unattributed alert and no way
  * back. Never throws.
+ *
+ * C03b: **every** step is now individually contained, so "never throws" is
+ * true by construction rather than by hope: `setActive(next)`, both
+ * `refresh()` calls and the restore's `setActive(previous)` cannot reject out
+ * of here. A throwing `setActive(next)` means "may have activated" — the
+ * restore path runs and the result is `rolled-back` (previous view proven
+ * back) or `unknown` (retry required, and no claim that the previous view is
+ * unchanged). A `setActive` that reports it did not publish is treated the
+ * same way: an unproven activation is never reported as `applied`.
  *
  * m4-4 fix round: the bounded `verify()` probe is gone. A cast whose values
  * cannot convert is now refused *before* the op is appended via the engine's
@@ -490,7 +625,8 @@ export interface CommitResult {
  * roll back and the existing rejection framing is already true. That is what
  * keeps a value the engine cannot convert from reaching the view at all — the
  * `refresh()` above only reads metadata (`schema()`/`rowCount()`), which never
- * evaluates the edited value.
+ * evaluates the edited value. A successful commit is still exactly one history
+ * activation and one refresh (one history entry / one undo step).
  */
 export async function commitWithRollback(
   previous: TransformationHistory,
@@ -503,35 +639,28 @@ export async function commitWithRollback(
     } catch (error) {
       // Refused before activation: the previous view was never replaced and no
       // refresh was needed, so the honest report is the rejection itself.
-      return { message: engineRejectionMessage(error), restoreFailed: false }
+      return {
+        message: engineRejectionMessage(error),
+        restoreFailed: false,
+        activation: 'refused-before-activation',
+      }
     }
   }
-  effects.setActive(next)
+  let activationFaulted = false
+  try {
+    if (effects.setActive(next) !== true) activationFaulted = true
+  } catch {
+    // Contained: whether this published is unknowable, which is exactly the
+    // `unknown`/restore case — never a rejection to the caller.
+    activationFaulted = true
+  }
+  if (activationFaulted) {
+    return restorePrevious(previous, effects, 'activate', ACTIVATION_NOT_PUBLISHED)
+  }
   try {
     await effects.refresh()
-    return { message: null, restoreFailed: false }
+    return { message: null, restoreFailed: false, activation: 'applied' }
   } catch (error) {
-    effects.setActive(previous)
-    let restoreError: unknown = null
-    try {
-      await effects.refresh()
-    } catch (restoreFailure) {
-      restoreError = restoreFailure
-    }
-    if (restoreError === null) {
-      return { message: engineRejectionMessage(error), restoreFailed: false }
-    }
-    return {
-      // Name both failures and attribute the engine/view, not a value claim:
-      // an opaque glue error here describes an engine outage as much as a bad
-      // cell, so the neutral fallback is the honest one. `restoreFailed` tells
-      // the host to pair this with a retry, so rows can never sit in an
-      // unattributed loading state.
-      message:
-        `The change could not be applied: ${engineErrorLine(error, 'the engine or view rejected it')}. ` +
-        `Restoring the previous view also failed: ${engineErrorLine(restoreError, 'the engine or view was unavailable')}. ` +
-        'Use Retry to reload the view.',
-      restoreFailed: true,
-    }
+    return restorePrevious(previous, effects, 'refresh', error)
   }
 }

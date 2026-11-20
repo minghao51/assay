@@ -76,6 +76,24 @@ export const OPEN_PROGRESS_LABEL = 'Opening progress' as const
 export const OPEN_CANCEL_LABEL = 'Cancel opening' as const
 
 /**
+ * C03b session-fault recovery copy. One registered reset threw while the
+ * dataset session was being closed/started: the generation is already
+ * invalidated and every remaining reset was attempted, but the reset was
+ * partial, so the app must not show that session as ready (and must not claim
+ * the previous session was restored). The copy is fixed and value-free — no
+ * error message, filename, column, row or cell value ever reaches it (ADR 0025).
+ */
+export const SESSION_FAULT_COPY =
+  'This session could not be closed cleanly, so it was ended instead of shown. Reload the page to start a clean session.' as const
+
+/**
+ * The only affordance in the session-fault frame. A fresh page is the only
+ * honest recovery: the app cannot prove which reset callbacks completed, and
+ * there is no persisted state to repair.
+ */
+export const SESSION_FAULT_RELOAD_LABEL = 'Reload the page' as const
+
+/**
  * Polite live-region announcement for a completed open (ux-2/UX-10). Row and
  * column counts are already public in the info line; the text never carries a
  * filename, path, cell value, or PII (ADR 0025).

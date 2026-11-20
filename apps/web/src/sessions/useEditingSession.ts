@@ -308,10 +308,14 @@ export function useEditingSession(
    * Publish one history as the active overlay. `overlayRef` is updated
    * synchronously (the provider is read during `refresh()`), then React state
    * re-renders and the revision bump makes the inspector re-read.
+   *
+   * Returns whether it actually published (C03b): a phase that is no longer
+   * `ready` (the dataset was replaced) writes nothing and says so, so
+   * `commitWithRollback` can never report an unproven activation as `applied`.
    */
   const activateHistory = useCallback(
-    (next: TransformationHistory): void => {
-      if (phase.kind !== 'ready') return
+    (next: TransformationHistory): boolean => {
+      if (phase.kind !== 'ready') return false
       historyRef.current = next
       // Bump before publishing: the cast guard reads this ref synchronously at
       // both snapshot and append time, so any activation between them is seen.
@@ -319,6 +323,7 @@ export function useEditingSession(
       overlayRef.current = overlaySnapshot(phase.base, next)
       setHistory(next)
       setOverlayRevision((revision) => revision + 1)
+      return true
     },
     [phase],
   )
@@ -400,6 +405,10 @@ export function useEditingSession(
       check?: CellValueCheck,
     ): Promise<void> => {
       if (phase.kind !== 'ready') return
+      // C03b stale-result fence: the session this commit belongs to. A commit
+      // whose `await` spanned a dataset replacement must not publish its
+      // outcome (alert or view-error) onto the new session's surface.
+      const token = session.tokenRef.current
       // S-A2-2: count the commit before its first await so the ready-state
       // gesture gate can refuse while it materializes (no time bound claimed).
       mutationStateRef.current += 1
@@ -416,10 +425,14 @@ export function useEditingSession(
           // the alert surface — reporting a stale edit error would be a lie.
           return
         }
+        if (session.tokenRef.current !== token) return
         // An honest non-applied outcome (a no-op entry) must survive a
         // successful commit; an engine rejection message wins if present.
         showEditError(result.message ?? outcomeMessage)
-        setViewError(result.restoreFailed)
+        // C03b: the three-valued activation is the authority — an unproven view
+        // gets the existing retry affordance; `restoreFailed` is exactly
+        // `activation === 'unknown'` (pinned in `edit/session.test.ts`).
+        setViewError(result.activation === 'unknown')
         // q-3: announce a clean commit. `showEditError` already announced any
         // rejection/no-op message; only a fully applied edit reaches here silent.
         if (result.message === null && outcomeMessage === null) {
@@ -432,7 +445,7 @@ export function useEditingSession(
         setMutationPending(mutationStateRef.current > 0)
       }
     },
-    [phase, activateHistory, showEditError, announceEdit],
+    [phase, session, activateHistory, showEditError, announceEdit],
   )
 
   /**

@@ -127,7 +127,7 @@ function readyPhase(): Phase {
 
 const SESSION: DatasetSession = {
   tokenRef: { current: 1 },
-  beginSession: () => 1,
+  beginSession: () => ({ token: 1, faults: [] }),
   registerReset: () => () => {},
 }
 

@@ -1430,7 +1430,7 @@ describe('pipeline panel — gates, contracts, lineage, badges, preview (p2-6)',
 function stubSession(): DatasetSession {
   return {
     tokenRef: { current: 0 },
-    beginSession: () => 0,
+    beginSession: () => ({ token: 0, faults: [] }),
     registerReset: () => () => {},
   }
 }
