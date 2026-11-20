@@ -39,7 +39,7 @@ gap (WF-O1). Audited surfaces (all anchors verified at this baseline):
 | Filter failure (single)              | "The filter could not be applied: …. The previous filters are still in effect."                                                                                                                                                                                           | `apps/web/src/edit/session.ts:247-248`; shown at `FilterBar.tsx:668-670` (`role="alert"`)      |
 | Filter failure (double)              | "The filter could not be applied and the previous filters could not be restored. Re-apply a filter or reopen the dataset if the grid looks wrong."                                                                                                                        | `FilterBar.tsx:326-330`; identical wording in `apps/web/src/App.tsx:1737-1739` (profile top-k) |
 | Filter-to-failures (validation)      | "…The previous filters are back in effect." / double: "…Clear filters manually."                                                                                                                                                                                          | `apps/web/src/sessions/useValidationSession.ts:293-301`                                        |
-| Keyboard (filters)                   | Enter submits from the compose value input and from every active-row predicate input                                                                                                                                                                                      | `FilterBar.tsx:512-514`, `562-564`                                                             |
+| Keyboard (filters)                   | Enter submits from the compose value input and from every active-row predicate input                                                                                                                                                                                      | `FilterBar.tsx:510-512`, `564-566`                                                             |
 | SQL run states                       | status text Ready/Running…/Done/Cancelled/Failed; error `role="alert"`                                                                                                                                                                                                    | `apps/web/src/sql/SqlPanel.tsx:279-289`, `347-351`                                             |
 | SQL Cancel                           | "Cancelled. The engine has no query interrupt, so this query may still run to completion in the background (a following run queues behind it); its result is discarded and will not be shown."                                                                            | `SqlPanel.tsx:253-256`, `353-357`                                                              |
 | Export success (FSA / download)      | "Exported N rows as X (size) to a new file." / "— your browser is downloading it as a new file." + "The opened file is unchanged."                                                                                                                                        | `apps/web/src/export/messages.ts:51-58`                                                        |
@@ -111,11 +111,25 @@ except additive assertions).
 - Where: only controls whose displayed draft differs exactly from accepted — the active-row
   predicate input and the SQL-escape-hatch input (same draft map), not the compose value (which is a
   new filter, not a draft of an accepted one).
-- What: a small text marker beside the input. Proposed visible copy: `Not applied`; exposed to AT
-  as the input's description (`aria-describedby`), value-free (ADR 0025 — never echo the predicate
-  into a live region). Styling in the scoped CSS of the WF-O1 reservation; nothing global.
-- Revert affordance: clicking the marker restores the accepted predicate into the draft (draft-only
-  change; no dispatch). This is the whole "reset" story — no Reset/Apply-all controls.
+- What: one small text-styled control beside the input, rendered only while that input is dirty.
+  Proposed visible copy: `Not applied`. The marker **is** the revert affordance: a native
+  `<button type="button">` — the same control class as the per-row Apply/Remove buttons
+  (`FilterBar.tsx:568-593`) — not a link (nothing is navigated) and not a status (it is operable).
+  The input's AT description is a separate value-free sentence (§3.4),
+  `This input differs from the applied filter.`, carried on a `visually-hidden` span (existing
+  utility class, `index.css:249`) referenced by `aria-describedby`; neither name nor description
+  carries the predicate (ADR 0025 — never echo the predicate into a name or live region). Styling
+  in the scoped CSS of the WF-O1 reservation; nothing global, quiet text styling only — no banner,
+  error or warning treatment, which would read as dataset dirtiness (§3.1 forbidden claim).
+- Revert affordance (what activation does): restores the accepted predicate string into that
+  column's draft — a draft-only change; no dispatch, no busy state, no network call. The accessible
+  name is `Not applied — restore the applied filter in this input` (starts with the visible copy per
+  WCAG 2.5.3 Label in Name; value-free), phrased as restoring, never as discarding or losing: only
+  the un-applied draft text is replaced — no filter, dataset or file state is touched (§3.1 "Not
+  'unsaved dataset'"). This is the whole "reset" story — no Reset/Apply-all controls.
+- States: not rendered while the draft is clean (§3.2 "Untouched" — no phantom tab stop), and
+  `disabled` while an apply is pending like every bar control (`FilterBar.tsx:559`, `573`, `587`),
+  re-enabled on settle including failure paths.
 - **Alternatives rejected:** a draft/apply workflow with Apply-all/Reset-all buttons (plan E04:
   one modest input-dirty indication is preferable to a new workflow); a banner claiming dirty
   dataset state (forbidden claim, §3.1); a status-union change (that is C01's decision —
@@ -132,12 +146,20 @@ except additive assertions).
 
 ### 3.5 Keyboard, focus and live-region behavior (proposal)
 
-- Keep existing Enter-submits (`FilterBar.tsx:512-514`, `562-564`) and disabled-while-pending.
+- Keep existing Enter-submits (`FilterBar.tsx:510-512`, `564-566`) and disabled-while-pending.
+- The revert marker (§3.3) is a native button: one Tab stop directly after its input, activated by
+  **Enter and Space** (browser default — no custom key handling; the only custom Enter behavior is
+  the input-submits above). After activation, focus returns to the input the marker belongs to: the
+  marker unmounts as soon as the draft matches accepted (§3.2), so focus left on it would drop to
+  the document body, and the restored value is announced by the input receiving focus.
 - Keep failures in their existing `role="alert"` paragraphs (`FilterBar.tsx:525-532`, `668-670`);
   no new live region; no announcement of predicate values (ADR 0025).
-- Marker is not announced on every keystroke: it is a rendered description, not an `aria-live`
-  event. The app's single polite live region (`App.tsx:3086-3095`, `edit-live-region`) is for edit
-  announcements and is **not** repurposed here.
+- Marker and revert are not announced on every keystroke or through a live region: the marker and
+  its `aria-describedby` description (§3.3) are rendered text, not `aria-live` events, and the
+  marker disappearing after a revert is not announced. The app's single polite live region
+  (`App.tsx:3086-3095`, `edit-live-region`) is for edit announcements and is **not** repurposed
+  here; a revert itself produces no announcement — the restored value is conveyed only by the input
+  receiving focus.
 - Optional, needs selection: on successful apply, no announcement (status quo) vs one polite
   status via the existing grid busy footer settling on "Filters applied". Recommendation: status
   quo — the chips/summary (`FilterBar.tsx:113-117`) already show the accepted result; a new
@@ -163,7 +185,8 @@ except additive assertions).
   `query-state.test.ts`), scoped `index.css`, an additive e2e. Proposed new pure helper (e.g.
   `draftDirty(displayed, accepted)`) with its own Node test keeps the equality rules out of JSX.
 - Test matrix named by the map row (T-WFO1): seed/clear/invalid/no-op/programmatic
-  replace/single+double rollback failure — extended with marker-visibility and revert cases.
+  replace/single+double rollback failure — extended with marker-visibility and revert cases
+  (keyboard activation, focus return after revert, no dispatch on revert).
 - Untrusted text: predicates and engine error lines are untrusted content rendered as React text
   only (existing posture, `FilterBar.tsx:184-193`; ADR 0007/0025). No proposal changes that.
 

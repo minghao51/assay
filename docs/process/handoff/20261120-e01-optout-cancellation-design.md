@@ -49,7 +49,11 @@ All items in this section are **PROPOSED** (option A of §6). Nothing is impleme
 - **Compatibility:** the parameter is optional. Every existing injected transport — including the
   one-parameter test fakes (`apps/web/src/telemetry/runtime.test.ts`) — remains assignable and
   keeps compiling and behaving exactly as today; a transport that ignores the signal simply has no
-  cancellation (see §5). No existing test rewrites.
+  cancellation, and its own retry loop is not the runtime's to stop (see §5). Conversely,
+  accepting the parameter is a contract: a transport that takes `options.signal` must honor it per
+  §3.3 — the runtime cannot enforce that (it never sees inside `send`), so "stop retries" (Q6's
+  direction) is delivered by transports that honor the signal, not by runtime power. No existing
+  test rewrites.
 - Unchanged by contract: the never-reject production policy (R9), the 2xx/4xx/5xx decision
   (`transport.ts:84-92`), the empty-batch no-op (`transport.ts:61`), and the strict no-reject rule
   for the shipped transport.
@@ -143,8 +147,15 @@ Privacy and environment constraints on any such test (plan E01 acceptance):
 - **Recalling delivered bytes is never claimed.** Anything the collector has received stays
   received; the disclosure says so (§3.4).
 - **Transports that ignore the signal** (existing injected fakes; any future transport opting out of
-  the parameter) keep exactly today's behavior: their sends are not abortable, only prevented from
-  being retried/replaced by the runtime's own checks.
+  the parameter) keep exactly today's behavior, and the runtime cannot stop what it does not own.
+  Runtime-side, opt-out can still drop queued events (the synchronous clear, `runtime.ts:324`) and
+  stop starting new sends (`shouldSend()` blocks every later check; the §3.2 between-batches check
+  ends the batch loop). But it **cannot stop a retry loop owned by the transport itself**: an
+  ignoring transport runs its in-flight `send`'s full retry policy to completion (the §2 fact
+  "Transport retries continue after opt-out"; loop at `apps/web/src/telemetry/transport.ts:68-95`),
+  and bytes may still leave the machine after opt-out. Retries can only be stopped through the §3.3
+  signal contract, which binds transports that accept the parameter — for transports that ignore
+  it, retries cannot be stopped.
 - **The `keepalive: true` exit flush** (`transport.ts:82`) is unchanged. Whether an abort issued
   during page unload stops a request already handed to the network stack is platform-defined and
   **unverified** — this design makes no claim about it.
@@ -154,8 +165,10 @@ Privacy and environment constraints on any such test (plan E01 acceptance):
 ## 6. Alternatives considered
 
 - **A — optional cancellation parameter (§3). Recommended** because it matches Q6's selected
-  direction ("abort active send and stop retries"), preserves every injected transport, and adds no
-  surface beyond one optional parameter.
+  direction ("abort active send and stop retries") for every transport that accepts and honors the
+  signal, preserves every injected transport, and adds no surface beyond one optional parameter.
+  The stop-retries half is a contract on conforming transports (§3.1), not a runtime power: for a
+  transport that ignores the signal, only the runtime-side stops and queue drop hold (§5).
 - **B — Q6's named alternative: no code change, accurate in-flight limitation in the disclosure
   only.** Rejected as the recommendation because Q6 selected the abort direction; still a valid
   minimal fallback if implementation is never selected. Note that the §3.4 disclosure correction is
