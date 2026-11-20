@@ -1671,15 +1671,24 @@ describe('GridViewportModel — atomic filter transaction (C02a)', () => {
     // are in flight supersedes it — and the superseded run must leave the
     // provider on its published target BEFORE the sort run refreshes, so the
     // sort's one epoch belongs to the restored filter list.
-    const provider = new FakeProvider({ rowCount: 1000 })
+    //
+    // The provider is manual so the pre-filter page stays in flight across the
+    // whole interleave: it resolves inside the sort's epoch and must be
+    // dropped by the generation guard, never published.
+    const provider = new FakeProvider({ rowCount: 1000, manual: true })
     const model = new GridViewportModel(provider, { overscanRows: 0 })
     await model.load()
-    model.observeViewport(0, 9)
+    model.observeViewport(0, 9) // held fetch, issued under the pre-filter epoch
     await flush()
     await model.setFilters(LIST_P) // published: P (filter(null), filter(P))
     await flush()
     expect(model.filters).toEqual(LIST_P)
     expect(model.totalRows).toBe(10)
+    expect(provider.fetchLog.length).toBe(2) // the pre-filter page is still in flight
+    provider.releaseAt(1) // P's own page lands; the pre-filter page stays held
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+    expect(model.stats.rowsReceived).toBe(10)
 
     const filterSnapshots: string[] = []
     model.subscribe(() =>
@@ -1749,25 +1758,56 @@ describe('GridViewportModel — atomic filter transaction (C02a)', () => {
     expect(provider.rowCountCalls).toBe(loadsBefore + 1) // one refresh, no extra scan
     expect(provider.fetchLog.length).toBe(fetchesBefore + 1) // one refetch, no extra/late page
     expect(model.totalRows).toBe(10)
-    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
-    expect(model.getRow(9)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
-    expect(model.stats.rowsReceived).toBe(10)
+    expect(model.stats.rowsReceived).toBe(0) // the sorted epoch accepted nothing yet
     expect(model.filtersUnknown).toBe(false)
     expect(model.reloadError).toBeNull()
+
+    // The pre-filter page held since the beginning is the one stale request
+    // this interleave must not let publish: its arrival is inside the sorted
+    // epoch, so no row, stat, or subscriber snapshot may accept it.
+    const accepted: string[] = []
+    const versionBeforeStale = model.getVersion()
+    model.subscribe(() => {
+      const row = model.getRow(0)
+      accepted.push(
+        `${String(model.stats.rowsReceived)}:${row.status === 'ready' ? JSON.stringify(row.row) : row.status}`,
+      )
+    })
+    provider.releaseAt(0) // the stale pre-filter page resolves (ids 0–9)
+    await flush()
+    expect(accepted).toEqual([]) // no snapshot ever saw the stale page
+    expect(model.getVersion()).toBe(versionBeforeStale) // and no notify fired for it
+    expect(model.stats.rowsReceived).toBe(0)
+    expect(model.getRow(0)).toEqual({ status: 'loading' }) // not [0, 'cell-0']
+    expect(model.filters).toEqual(LIST_P) // the published state is untouched
+
+    provider.releaseAt(0) // the sorted epoch's own page resolves
+    await flush()
+    expect(accepted).toHaveLength(1) // exactly one acceptance, for the new epoch
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.getRow(9)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+    expect(model.stats.rowsReceived).toBe(10) // only the sorted page's 10 rows
     // No observable snapshot ever carried A (or an ephemeral empty list).
     expect(filterSnapshots.every((snapshot) => snapshot === SPEC_P.predicate)).toBe(true)
     expect(filterSnapshots).not.toContain(SPEC_A.predicate)
   })
 
   it('§6 T9 (R-C01 rule 1): a held atomic filter apply restores its target before setSort proceeds', async () => {
-    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    // Manual provider: the pre-filter page is left in flight across the whole
+    // interleave and must be discarded when it resolves in the sorted epoch.
+    const provider = new AtomicFakeProvider({ rowCount: 1000, manual: true })
     const model = new GridViewportModel(provider, { overscanRows: 0 })
     await model.load()
-    model.observeViewport(0, 9)
+    model.observeViewport(0, 9) // held fetch, issued under the pre-filter epoch
     await flush()
     await model.setFilters(LIST_P)
     await flush()
     expect(provider.replaceCalls).toEqual([LIST_P])
+    expect(provider.fetchLog.length).toBe(2) // the pre-filter page is still in flight
+    provider.releaseAt(1) // P's own page lands; the pre-filter page stays held
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+    expect(model.stats.rowsReceived).toBe(10)
 
     const loadsBefore = provider.rowCountCalls
     const fetchesBefore = provider.fetchLog.length
@@ -1815,9 +1855,32 @@ describe('GridViewportModel — atomic filter transaction (C02a)', () => {
     expect(provider.rowCountCalls).toBe(loadsBefore + 1) // the sort's one refresh
     expect(provider.fetchLog.length).toBe(fetchesBefore + 1)
     expect(model.totalRows).toBe(10)
-    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
-    expect(model.stats.rowsReceived).toBe(10)
+    expect(model.stats.rowsReceived).toBe(0) // the sorted epoch accepted nothing yet
     expect(model.filtersUnknown).toBe(false)
+
+    // The stale pre-filter page resolves inside the sorted epoch: the
+    // generation guard must drop it — no row, stat, or snapshot accepts it.
+    const accepted: string[] = []
+    const versionBeforeStale = model.getVersion()
+    model.subscribe(() => {
+      const row = model.getRow(0)
+      accepted.push(
+        `${String(model.stats.rowsReceived)}:${row.status === 'ready' ? JSON.stringify(row.row) : row.status}`,
+      )
+    })
+    provider.releaseAt(0) // the stale pre-filter page resolves (ids 0–9)
+    await flush()
+    expect(accepted).toEqual([]) // no snapshot ever saw the stale page
+    expect(model.getVersion()).toBe(versionBeforeStale) // and no notify fired for it
+    expect(model.stats.rowsReceived).toBe(0)
+    expect(model.getRow(0)).toEqual({ status: 'loading' }) // not [0, 'cell-0']
+    expect(model.filters).toEqual(LIST_P)
+
+    provider.releaseAt(0) // the sorted epoch's own page resolves
+    await flush()
+    expect(accepted).toHaveLength(1) // exactly one acceptance, for the new epoch
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.stats.rowsReceived).toBe(10) // only the sorted page's 10 rows
   })
 
   it('§6 T10: a late pre-transaction page cannot land across a failed reload', async () => {
