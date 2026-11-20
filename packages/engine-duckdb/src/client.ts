@@ -1159,11 +1159,26 @@ export class DuckDbEngineClient {
    * worker — the hard guarantee that the whole engine instance, including
    * everything registered, is reclaimed. Fails all pending work. Terminal,
    * idempotent; safe before the first boot.
+   *
+   * Every caller — the first one, one that races it, and one that arrives
+   * after the terminal status is already set — awaits the SAME teardown
+   * settlement (C04). The cached disposal promise is therefore checked BEFORE
+   * the terminal-status short-circuit: returning early there would let a
+   * second caller observe "disposed" while the graceful handshake and the
+   * worker termination are still in flight. An in-flight or later operation
+   * keeps failing immediately with `EngineDisposedError` (immediate terminal
+   * status is unchanged); only disposal callers wait.
    */
   async dispose(): Promise<void> {
+    const inFlight = this.disposal
+    if (inFlight !== null) return inFlight
     if (this.disposed || this.currentStatus === 'disposed') return
-    this.disposal ??= this.runDisposal()
-    await this.disposal
+    // One teardown per instance: the graceful request, the bounded timeout and
+    // the single `worker.terminate()` all live in `runDisposal()`. A teardown
+    // failure is never swallowed — every caller sees the same rejection.
+    const disposal = this.runDisposal()
+    this.disposal = disposal
+    return disposal
   }
 
   private async runDisposal(): Promise<void> {

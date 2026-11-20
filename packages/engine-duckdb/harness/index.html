@@ -193,6 +193,23 @@
       </section>
 
       <!--
+        C04 disposal settlement: boots a dedicated engine, uses it once, then
+        calls dispose() twice concurrently. Both callers must await the same
+        teardown — the settlement order proves the second caller did not
+        short-circuit on the terminal status — and a post-completion dispose
+        plus a post-disposal op must behave (resolve / reject with the typed
+        disposal category). Privacy: a literal value, counts and status only.
+      -->
+      <section>
+        <h2>C04: dispose() twice concurrently — one shared teardown</h2>
+        <button id="dispose-twice" type="button">Dispose twice concurrently</button>
+        <dl>
+          <dt>settlement facts (JSON)</dt>
+          <dd><pre data-testid="dispose-twice-result">not run</pre></dd>
+        </dl>
+      </section>
+
+      <!--
         m2-7 head-of-line measurement: quantifies the interactive ops' wait
         behind a long user query (the grid's scroll traffic queued behind a
         SQL-editor run) against their idle-engine baseline. Per repeat: idle
