@@ -2471,11 +2471,26 @@ function normalizePreviewSampleRows(value: unknown): number {
  * Read the sniff disclosure from the sniff_csv result (one row). Column names
  * are exactly the engine's (probed on the shipped browser build: EW-03D B1/B2
  * and the acquisition record's sniff legs); anything else is a value-free
- * engine-deviation error, never a guessed field. Empty dialect strings stay
- * `''` (the sniffer's unset rendering on the CLI control AND the browser
- * build); DateFormat/TimestampFormat/Prompt stay null when the engine reports
- * null. The `Prompt` is transported verbatim as display text — nothing
- * composes SQL from it (ADR 0049 item 3).
+ * engine-deviation error, never a guessed field.
+ *
+ * The dialect values are transported VERBATIM as the sniffer's own TEXT, which
+ * is not raw bytes and not an empty string (B02/ENG-3):
+ *
+ * - an UNSET `Quote`/`Escape`/`Comment` is the literal seven characters
+ *   `(empty)` — `hex(Quote)` = `28656D70747929` on the installed DuckDB v1.5.5
+ *   and in the browser build, NOT a NULL and NOT `''`;
+ * - `NewLineDelimiter` is ESCAPE TEXT: `\n` (two characters) for an LF file
+ *   and `\r\n` for a CRLF file, i.e. what `new_line = '…'` would be written
+ *   as;
+ * - `Delimiter` (and a real `Quote`/`Escape`) is an actual character
+ *   (`hex` = `2C`, `22`, `09`).
+ *
+ * Normalising that representation here was rejected (plan B02): the web
+ * display adapter interprets the sentinel for display and the D3-1 header
+ * scan decodes the escape text separately, while this payload keeps the shape
+ * the rename-list equality gate was verified against. DateFormat/TimestampFormat/
+ * Prompt stay null when the engine reports null. The `Prompt` is transported
+ * verbatim as display text — nothing composes SQL from it (ADR 0049 item 3).
  */
 function readSniffPayload(result: Table): EngineCsvSniff {
   const unexpected = 'sniff_csv returned an unexpected shape'

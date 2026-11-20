@@ -462,6 +462,16 @@ export function csvSampleSql(
  * stays the sniffer's own evidence (the effective option set discloses the
  * declarations separately). `sample_size` DOES ride the sniff — it governs
  * inference, which is exactly what the sniffer does.
+ *
+ * The returned row is the sniffer's own TEXT evidence, transported verbatim
+ * (B02/ENG-3 — measured on the installed DuckDB v1.5.5): an unset
+ * `Quote`/`Escape`/`Comment` is the literal seven characters `(empty)`
+ * (`hex` = `28656D70747929`), `NewLineDelimiter` is escape text (`\n`,
+ * `\r\n`), and `Delimiter`/a real quote is an actual character. Nothing here
+ * normalises that shape: the web display adapter interprets the sentinel for
+ * display only, and the per-file header scan decodes the escape text
+ * separately, so the rename-list equality gate keeps the representation it was
+ * verified against. The literal `(empty)` is never a NULL and never `''`.
  */
 export function csvSniffSql(registeredFileName: string, options: EngineCsvOptions): string {
   const args = csvOptionArgsSql(options, (name) => name !== 'columns')
