@@ -20,7 +20,15 @@
  * - value-free output (ADR 0025): no dataset cell value appears anywhere.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -530,6 +538,70 @@ describe('assay dcr — result-class refusals (exit 1, the report on stdout, no 
     expect(run.exitCode).toBe(1)
     expect(run.stdout).toContain('REFUSED')
     expect(existsSync(outPath)).toBe(false)
+  })
+})
+
+describe('assay dcr — failed-write residue is explicit (B05)', () => {
+  /**
+   * The real-filesystem failure case the CLI can reach without fault
+   * injection: an output directory that refuses the exclusive create. Nothing
+   * was created, so the authored message stays the unchanged primary category
+   * and no residue claim appears.
+   */
+  it('refuses an unwritable output directory with exit 2 and creates nothing', () => {
+    const locked = join(dir, 'read-only-output')
+    mkdirSync(locked)
+    chmodSync(locked, 0o500)
+    const outPath = join(locked, 'artifact.yaml')
+    try {
+      const run = runCli([
+        'dcr',
+        GOLDEN_COMPLETED,
+        '--out',
+        outPath,
+        '--base-node',
+        'renamed',
+        '--base-dataset-id',
+        'customers_base',
+        '--candidate-node',
+        'by_country',
+        '--candidate-dataset-id',
+        'customers_by_country',
+      ])
+      expect(run.exitCode).toBe(2)
+      expect(run.stderr).toContain(`dcr output could not be written: ${outPath}`)
+      // No residue language when the open itself refused: nothing existed.
+      expect(run.stderr).not.toContain('may be incomplete')
+      expect(run.stdout).toBe('')
+      expect(existsSync(outPath)).toBe(false)
+    } finally {
+      chmodSync(locked, 0o700)
+    }
+  })
+
+  it('reports the bytes it actually wrote for a completed golden run', () => {
+    const outPath = out('b05-completed.yaml')
+    const run = runCli([
+      'dcr',
+      GOLDEN_COMPLETED,
+      '--out',
+      outPath,
+      '--base-node',
+      'renamed',
+      '--base-dataset-id',
+      'customers_base',
+      '--candidate-node',
+      'by_country',
+      '--candidate-dataset-id',
+      'customers_by_country',
+      '--format',
+      'json',
+    ])
+    expect(run.exitCode).toBe(0)
+    const payload = JSON.parse(run.stdout) as { artifact: { bytes: number } }
+    // The reported count is the on-disk byte length, not a character count.
+    expect(payload.artifact.bytes).toBe(readFileSync(outPath).byteLength)
+    expect(payload.artifact.bytes).toBeGreaterThan(0)
   })
 })
 
