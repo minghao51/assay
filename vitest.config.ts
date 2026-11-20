@@ -41,6 +41,11 @@ export default defineConfig({
             'packages/*/src/**/*.test.ts',
             'apps/cli/src/**/*.test.{ts,tsx}',
             'apps/vscode/src/pure/**/*.test.ts',
+            // A02/A04: the repo's zero-dependency tooling scripts are plain
+            // Node ESM with injected seams; their tests live beside them and
+            // need the node environment. No coverage impact — the coverage
+            // include is `src/**` only.
+            'scripts/**/*.test.mjs',
           ],
           // gd-1: keep the include sets disjoint — the spawn-heavy CLI
           // integration files belong to the `cli-integration` project below
