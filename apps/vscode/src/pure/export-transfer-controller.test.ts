@@ -37,17 +37,23 @@ class FakeWriter implements CreateOnlyWriter {
   readonly written: Uint8Array[] = []
   closed = false
   cleaned = false
+  /** How many times `cleanup` was called (never expected to exceed 1). */
+  cleanupCalls = 0
   /** When set, `write` settles through this deferred instead of immediately. */
   writeGate: { readonly promise: Promise<void> } | undefined
+  /** When set, `close` settles through this deferred instead of immediately. */
+  closeGate: { readonly promise: Promise<void> } | undefined
 
   async write(bytes: Uint8Array): Promise<void> {
     this.written.push(bytes)
     if (this.writeGate !== undefined) await this.writeGate.promise
   }
   async close(): Promise<void> {
+    if (this.closeGate !== undefined) await this.closeGate.promise
     this.closed = true
   }
   async cleanup(): Promise<void> {
+    this.cleanupCalls += 1
     this.cleaned = true
   }
 }
@@ -440,6 +446,93 @@ describe('export transfer controller: frame bounds', () => {
   })
 })
 
+describe('export transfer controller: cancel racing an in-flight close', () => {
+  it('answers one export-cancelled and never a completion when cancel wins the close', async () => {
+    const h = harness()
+    const writer = await begun(h)
+    h.controller.chunk(chunkFrame(0, 0, [1, 2, 3]))
+    await flush()
+    const closeGate = deferred<void>()
+    writer.closeGate = { promise: closeGate.promise }
+    // `close()` is now in flight; the controller still owns the transfer.
+    h.controller.finish(finishFrame)
+    await flush()
+    expect(writer.closed).toBe(false)
+
+    // The matching cancel lands while `close()` is pending: it owns the
+    // terminal response and cleans the writer up exactly once.
+    h.controller.cancel(cancelFrame)
+    await flush()
+    expect(writer.cleaned).toBe(true)
+    expect(writer.cleanupCalls).toBe(1)
+
+    // A late close completion must not post a second terminal response.
+    closeGate.resolve()
+    await flush()
+    const terminals = h.posted.filter(
+      (message) =>
+        message.kind === 'export-complete' ||
+        message.kind === 'export-cancelled' ||
+        message.kind === 'export-error',
+    )
+    expect(terminals).toEqual([
+      { kind: 'export-cancelled', id: REQUEST_ID, generation: GENERATION },
+    ])
+    expect(writer.cleanupCalls).toBe(1)
+  })
+
+  it('a late close rejection after cancel posts no export-failed', async () => {
+    const h = harness()
+    const writer = await begun(h)
+    h.controller.chunk(chunkFrame(0, 0, [1, 2, 3]))
+    await flush()
+    const closeGate = deferred<void>()
+    writer.closeGate = { promise: closeGate.promise }
+    h.controller.finish(finishFrame)
+    await flush()
+    h.controller.cancel(cancelFrame)
+    await flush()
+    closeGate.reject(new Error('destination-raced'))
+    await flush()
+    expect(errorKinds(h.posted)).toEqual([])
+    expect(
+      h.posted.filter(
+        (message) => message.kind === 'export-complete' || message.kind === 'export-cancelled',
+      ),
+    ).toEqual([{ kind: 'export-cancelled', id: REQUEST_ID, generation: GENERATION }])
+    expect(writer.cleanupCalls).toBe(1)
+  })
+
+  it('a late close cannot resurrect a cancelled transfer or clean a new one up', async () => {
+    const h = harness()
+    const cancelled = await begun(h)
+    h.controller.chunk(chunkFrame(0, 0, [1, 2, 3]))
+    await flush()
+    const closeGate = deferred<void>()
+    cancelled.closeGate = { promise: closeGate.promise }
+    h.controller.finish(finishFrame)
+    await flush()
+    h.controller.cancel(cancelFrame)
+    await flush()
+    expect(cancelled.cleaned).toBe(true)
+
+    // A new transfer starts while the stale close is still pending.
+    await begun(h)
+    const owned = h.writers[1]
+    if (owned === undefined) throw new Error('no second writer created')
+    const postedBefore = h.posted.length
+
+    // The stale close completes: it owns neither the response nor the writer.
+    closeGate.resolve()
+    await flush()
+    expect(h.posted).toHaveLength(postedBefore)
+    expect(h.posted.some((message) => message.kind === 'export-complete')).toBe(false)
+    expect(cancelled.cleanupCalls).toBe(1)
+    expect(owned.cleaned).toBe(false)
+    expect(owned.closed).toBe(false)
+  })
+})
+
 describe('export transfer controller: disposal and session change', () => {
   it('cancels the owned transfer on dispose and ignores later frames', async () => {
     const h = harness()
@@ -608,5 +701,42 @@ describe('export transfer controller: create-only delivery', () => {
     await settle(async () => {
       await expect(readFile(destination)).rejects.toMatchObject({ code: 'ENOENT' })
     })
+  })
+
+  it('removes the partial file and answers only export-cancelled when cancel wins a held close', async () => {
+    const dir = await tempDir()
+    const destination = join(dir, 'raced.csv')
+    const closeGate = deferred<void>()
+    const h = harness({
+      destination: selected(destination),
+      sourcePaths: [],
+      // The real create-only writer, with its close held open so a cancel can
+      // land deterministically while the close is still in flight.
+      writerFactory: async (path, sourcePaths) => {
+        const real = await createOnlyWriter(path, sourcePaths)
+        return {
+          write: (bytes) => real.write(bytes),
+          close: async () => {
+            await closeGate.promise
+            await real.close()
+          },
+          cleanup: () => real.cleanup(),
+        }
+      },
+    })
+    await deliver(h, 'real-5', [4, 5, 6])
+    h.controller.finish({ ...finishFrame, id: 'real-5' })
+    // The matching cancel lands before the held close can settle.
+    h.controller.cancel({ kind: 'export-cancel', id: 'real-5', generation: GENERATION })
+    await settle(async () => {
+      await expect(readFile(destination)).rejects.toMatchObject({ code: 'ENOENT' })
+    })
+    closeGate.resolve()
+    await flush()
+    expect(h.posted.filter((message) => message.kind === 'export-cancelled')).toEqual([
+      { kind: 'export-cancelled', id: 'real-5', generation: GENERATION },
+    ])
+    expect(h.posted.some((message) => message.kind === 'export-complete')).toBe(false)
+    expect(errorKinds(h.posted)).toEqual([])
   })
 })

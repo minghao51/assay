@@ -45,11 +45,16 @@
  *   5. A duplicate `export-start` for the owned transfer refuses instead of
  *      rewinding `nextSequence`/`nextOffset` (which let replay re-append
  *      bytes); this closes a bounds hole, it does not add vocabulary.
- *   6. Disposal and session change cancel the owned transfer: `dispose()` is
- *      terminal, invalidates every in-flight continuation through the internal
- *      epoch, and cleans up any writer created by a continuation that raced
- *      the disposal (previously such a writer leaked its file). No response is
- *      posted after disposal.
+ *   6. Disposal, session change and cancellation cancel the owned transfer:
+ *      `dispose()` is terminal, and every in-flight continuation (acquisition,
+ *      writer creation, chunk write, finish close) captures the ownership
+ *      epoch and re-checks it before committing — a continuation whose epoch
+ *      moved (cancelled, superseded, disposed) posts nothing and touches no
+ *      writer. `cleanup()` also runs any writer a continuation created after
+ *      its epoch moved, so no file leaks (previously such a writer was left
+ *      behind). No response is posted after disposal, and a `close()` that
+ *      settles after a `cancel` never posts `export-complete`/`export-failed`
+ *      for the cancelled transfer or releases a newer one.
  *   7. Delivery is create-only: the controller never opens, truncates or
  *      removes anything itself; it only asks the injected factory and calls
  *      `write`/`close`/`cleanup` on what it was given.
@@ -313,15 +318,21 @@ export function createExportTransferController(
         void cleanup()
         return
       }
+      const ownedEpoch = epoch
       void owned.close().then(
         () => {
+          // A cancel (or session change/disposal) may land while `close()` is
+          // in flight: it owns the terminal response and already released the
+          // writer. The disposal flag alone cannot tell that apart — the epoch
+          // does, and cleanup must stay with the transfer that still owns it
+          // (cleaning up here would release a newer transfer).
+          if (disposed || epoch !== ownedEpoch) return
           void cleanup()
-          if (disposed) return
           deps.post({ kind: 'export-complete', id: ownedId, generation: ownedGeneration })
         },
         () => {
+          if (disposed || epoch !== ownedEpoch) return
           void cleanup()
-          if (disposed) return
           postError(ownedId, ownedGeneration, 'export-failed')
         },
       )
