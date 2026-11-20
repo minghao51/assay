@@ -118,3 +118,22 @@ explicit policy; the Node development policy is A03's separate, Q1-selected chan
 | `.changeset/p-2-transform-sql.md` map omitted `@assay/contracts` although its body announces the re-exports → **intake correction**: `'@assay/contracts': patch` added (no `changeset version`, no version bump)                 | commit `2046e73` added `canonicalDecimal`/`isExactDecimalLiteral`/`CanonicalDecimal` to `packages/contracts/src/index.ts` (+4) and the body announces them                                                    |
 | `.dsh/skills/assay-gates/SKILL.md` gate checklist omitted the `pnpm changeset` requirement → requirement added as a skill rule                                                                                                   | `AGENTS.md` § Commands (`pnpm changeset` — "with PRs that change packages"); provenance/notices in `.dsh/skills/PROVENANCE.md` untouched                                                                      |
 | Accepted ADRs carried drifted line anchors / a stale status marker → recorded in a clarification/errata record; **no accepted decision text changed**                                                                            | `docs/adr/20261120-editorial-errata.md` (ADR 0044 Deciders leftover; ADR 0049 `CsvReviewDialog.tsx:442-452`; ADR 0050 `history.ts` ranges; ADR 0051 `overlay-query.ts:70-95`)                                 |
+
+**Scope note (reviewer warning, 2026-11-20) — the `packages/engine-duckdb/README.md` edit is in
+A01's scope.** The improvement plan's A01 **Targets** list names "package README" among the
+reconciliation targets ("…repository structure, security scope rationale, telemetry collector timing
+and package README"), and A01 spec item 3 directs "Document recursive pipeline-runner package
+allowlist; do not imply a tarball was freshly audited". The README row of the table above implements
+exactly that target: the edit is **in scope per the A01 target list**, authorized, and intentionally
+left in place (not reverted).
+
+**Follow-up reconciliation (commit `docs(a01): reconcile the post-EW-03I-a pickup with the closure
+record`).** Reviewer items on `20261118-post-ew03ia-pickup.md`: its §2 still called closed **D3-1**
+"the only live web row" and its §3 gave D3-1 a live dispatch step, and the §4 banner claimed "Every
+row they name is closed" although **R3/R8** are recorded limitations and **R13** is unselected.
+Corrected in place with history preserved: **D3-1** recorded **CLOSED** `a16eea5` + `9a39fe3` +
+`d941b51`, no live web row remains, the §3 dispatch order is labelled historical/do-not-dispatch, and
+the remaining recorded items are the unselected **ENG-2/ENG-3** plus **R3/R8** (recorded limitations)
+and **R13** (unselected) — each keeping the status already recorded in the pickup §2 and the post-R1
+acceptance record (D6/D7). No status vocabulary changed; no closed-row narrative, date or commit
+evidence was removed.
