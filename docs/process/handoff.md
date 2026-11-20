@@ -334,7 +334,10 @@ these or widen publication/telemetry boundaries in a packaging fix.
 
 ## 4. Environment and tooling
 
-- Node 24 on this host; Node ≥22 supported. pnpm **11.26.0** via corepack.
+- Development requires Node 24 (root policy `^24.0.0`; tested **24.13.0** on this host). Product
+  manifests keep `node: ">=22"` as a declared floor whose minimum is **not exercised in this
+  environment** — see the [node support contract](handoff/20261120-node-support-contract.md).
+  pnpm **11.26.0** via corepack.
 - `DUCKDB=/tmp/duckdb` (pinned CLI **1.5.5**) for generated large fixtures and
   real-engine tests. Regenerate committed Parquet deliberately and verify digests.
 - Playwright Chromium must be installed; e2e serves built output, so build first.
