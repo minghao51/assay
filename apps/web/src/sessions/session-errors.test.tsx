@@ -70,7 +70,7 @@ const PHASE: Phase = {
 
 const SESSION: DatasetSession = {
   tokenRef: { current: 1 },
-  beginSession: () => 1,
+  beginSession: () => ({ token: 1, faults: [] }),
   registerReset: () => () => {},
 }
 
@@ -360,7 +360,7 @@ describe('R1-C — the pre-commit cell value check (useEditingSession)', () => {
     h.overlayCastCheck.mockReturnValue(held.promise)
     const session: DatasetSession = {
       tokenRef: { current: 1 },
-      beginSession: () => 2,
+      beginSession: () => ({ token: 2, faults: [] }),
       registerReset: () => () => {},
     }
     const { result, refreshes } = mountEditing(session)
@@ -405,7 +405,7 @@ describe('R1-C — the pre-commit cell value check (useEditingSession)', () => {
     h.overlayCastCheck.mockReturnValue(held.promise)
     const session: DatasetSession = {
       tokenRef: { current: 1 },
-      beginSession: () => 2,
+      beginSession: () => ({ token: 2, faults: [] }),
       registerReset: () => () => {},
     }
     const { result, refreshes } = mountEditing(session)
@@ -683,5 +683,55 @@ describe('R1-C — the pre-commit cell value check (useEditingSession)', () => {
     })
     expect(h.overlayCastCheck).not.toHaveBeenCalled()
     expect(refreshes()).toBe(1)
+  })
+})
+
+/**
+ * C03b — an `unknown` activation outcome must reach the EXISTING retry
+ * affordance (`viewError`/`view-retry`), never a success claim and never a
+ * dead end. The commit here fails both refreshes, which is the double-failure
+ * class the host already renders a retry for; `retryView()` then clears it once
+ * the view materializes.
+ */
+describe('C03b — an unknown commit activation exposes the view retry', () => {
+  it('sets viewError for an unknown outcome and retryView clears it when the view reloads', async () => {
+    h.overlayCastCheck.mockResolvedValue({ hasNonConvertibleValues: false })
+    let engineDown = true
+    const refresh = vi.fn(async () => {
+      if (engineDown) throw new Error('engine unavailable')
+    })
+    const phase: Phase = {
+      kind: 'ready',
+      model: { refresh } as unknown as GridViewportModel,
+      tableId: 't1',
+      handle: { kind: 'table', id: 't1' },
+      base: BASE,
+      provider: {} as never,
+    }
+    const { result } = renderHook(() => useEditingSession(phase, SESSION, { current: null }))
+
+    act(() => {
+      result.current.handleCommitCell(baseRowId(BASE.baseAnchor, 0), 'id', {
+        kind: 'text',
+        text: '7',
+      })
+    })
+
+    await waitFor(() => {
+      expect(result.current.viewError).toBe(true)
+    })
+    // The double-failure copy is attributable, and the activation is not claimed
+    // as a value rejection nor as a success.
+    expect(result.current.editError).toContain('Restoring the previous view also failed')
+    expect(result.current.editError).not.toContain('Edit committed')
+    expect(result.current.editAnnouncement?.text).toBe(result.current.editError)
+
+    engineDown = false
+    await act(async () => {
+      await result.current.retryView()
+    })
+    expect(result.current.viewError).toBe(false)
+    expect(result.current.editError).toBeNull()
+    expect(refresh).toHaveBeenCalledTimes(3)
   })
 })

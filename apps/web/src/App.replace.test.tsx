@@ -185,7 +185,10 @@ vi.mock('./sessions/session-reset', () => ({
           h.beginCalls += 1
           h.token += 1
           for (const reset of h.resets) reset()
-          return h.token
+          // C03b: the registry reports its value-free outcome; these pins never
+          // inject a reset fault (the faulted-adoption journey lives in
+          // `App.session-fault.test.tsx`).
+          return { token: h.token, faults: [] }
         },
         registerReset: (reset: () => void) => {
           h.resets.push(reset)

@@ -165,7 +165,8 @@ vi.mock('./sessions/session-reset', () => ({
           h.beginCalls += 1
           h.token += 1
           for (const reset of h.resets) reset()
-          return h.token
+          // C03b: the registry reports its value-free outcome; no fault here.
+          return { token: h.token, faults: [] }
         },
         registerReset: (reset: () => void) => {
           h.resets.push(reset)

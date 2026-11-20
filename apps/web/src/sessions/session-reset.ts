@@ -27,7 +27,46 @@ import { useRef } from 'react'
  * relative order is not observable; registration order keeps the reset
  * sequence legible and matches the hook call order in `App` (editing,
  * validation, diff).
+ *
+ * C03b (fail closed): the "synchronous React setters and ref writes" above is
+ * the registrants' **contract**, not a language guarantee. An unexpected
+ * throw must therefore neither abort the remaining resets nor turn a partial
+ * reset into a published `ready` session. Each callback runs under its own
+ * isolation, a fault is recorded as a value-free reset fault, the remaining
+ * callbacks still run, and `beginSession` returns the outcome instead of
+ * throwing. Callers must then abandon the flow (never publish `ready`) and
+ * surface the session-fault recovery frame. There is no rollback promise: a
+ * faulted callback's effects are whatever they were — the contract is "this
+ * session is abandoned", never "the previous session was restored".
  */
+
+/**
+ * One value-free reset fault (C03b). It deliberately carries no error message,
+ * stack, column, row or value: a reset fault is a session-lifecycle fact, and
+ * the recovery copy is fixed text (ADR 0025). `index` is the callback's
+ * registration order within the epoch, which is the only detail the contract
+ * exposes.
+ */
+export interface SessionResetFault {
+  /** Registration order within this epoch, 0-based. */
+  readonly index: number
+  /** Closed enum — the only fault class a reset can produce. */
+  readonly kind: 'reset-callback'
+}
+
+/**
+ * What one `beginSession()` did. `faults` empty means every registered reset
+ * completed; a non-empty list means the generation was invalidated and the
+ * session must not be published (fail closed), whatever the remaining
+ * callbacks managed to do.
+ */
+export interface SessionResetOutcome {
+  /** The new session token (bumped before any callback ran). */
+  readonly token: number
+  /** Empty means every registered reset completed. */
+  readonly faults: readonly SessionResetFault[]
+}
+
 export interface DatasetSession {
   /**
    * Live session token. An async intent reads `.current` at capture time and
@@ -37,14 +76,20 @@ export interface DatasetSession {
   readonly tokenRef: { current: number }
   /**
    * Start a new dataset session: bump the token, run every registered domain
-   * reset, and return the new token so the open flow can guard its own async
-   * chain against later opens.
+   * reset under its own isolation, and return the new token plus any
+   * value-free reset faults. **Never throws** — a caller's flow must check
+   * `faults` before publishing `ready` (C03b fail-closed contract).
    */
-  readonly beginSession: () => number
+  readonly beginSession: () => SessionResetOutcome
   /**
    * Register one domain-session reset; returns an unregister callback for
    * effect cleanup (so StrictMode's mount/cleanup/mount does not double-list
    * a reset).
+   *
+   * Contract for a registered reset: synchronous, no `await`, no external or
+   * engine call, no user-supplied callback — state writes, ref writes and
+   * counter bumps only. It must not throw; a throw is contained and reported
+   * as a fault, but it still abandons the session.
    */
   readonly registerReset: (reset: () => void) => () => void
 }
@@ -63,9 +108,27 @@ export function useDatasetSession(): DatasetSession {
   const session: DatasetSession = {
     tokenRef,
     beginSession: () => {
+      // The generation is invalidated before any callback runs, so a callback
+      // that reads `.current` already sees the new token (assertion-pinned) and
+      // every in-flight intent is fenced even if a later callback faults.
       tokenRef.current += 1
-      for (const reset of resets) reset()
-      return tokenRef.current
+      const faults: SessionResetFault[] = []
+      let index = 0
+      for (const reset of resets) {
+        // One isolation boundary per callback: a fault is recorded, not
+        // rethrown, and never short-circuits the remaining resets. Attempting
+        // every reset is the strongest honest behaviour — full rollback of
+        // arbitrary React state/ref writes is not representable.
+        try {
+          reset()
+        } catch {
+          // Value-free by construction: the error object is dropped here and
+          // only the closed enum + registration index leave this frame.
+          faults.push({ index, kind: 'reset-callback' })
+        }
+        index += 1
+      }
+      return { token: tokenRef.current, faults }
     },
     registerReset: (reset) => {
       resets.add(reset)
