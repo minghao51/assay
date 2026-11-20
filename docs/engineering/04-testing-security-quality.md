@@ -61,6 +61,11 @@ Use Playwright for:
 - diff,
 - export.
 
+Which suite proves which **critical contract**, against what subject (fake, real
+engine/browser, installed host), with which prerequisites and command, is mapped
+in [11-assurance-coverage-map.md](11-assurance-coverage-map.md) — read it before
+citing a green suite as assurance for a contract.
+
 ### Fuzz
 
 Prioritize:
