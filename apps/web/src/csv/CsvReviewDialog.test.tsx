@@ -109,6 +109,7 @@ const APPROVED = {
     'The number of rows read to guess types applies to this review only. It never applies to the opened dataset, which guesses its own types, so a column type can differ after opening.',
   nullCell: 'NULL',
   noneValue: 'None',
+  notInferred: 'Not inferred',
 } as const
 
 /** The cap sentence, composed from the CAP THE RESPONSE REPORTS. */
@@ -143,11 +144,13 @@ function previewResult(overrides: Partial<EngineCsvPreviewResult> = {}): EngineC
   return {
     previewId: 'p1',
     sniff: {
+      // The engine's REAL payload shape (B02): unset dialect values arrive as
+      // the literal text `(empty)` and the terminator as escape text `\n`.
       delimiter: ';',
-      quote: '"',
-      escape: '',
-      newLineDelimiter: '\n',
-      comment: '',
+      quote: '(empty)',
+      escape: '(empty)',
+      newLineDelimiter: '\\n',
+      comment: '(empty)',
       skipRows: 0,
       hasHeader: true,
       columns: [
@@ -338,21 +341,63 @@ describe('CSV review — the sniff and effective-option disclosure (ADR 0049 ite
     expect(sniff).toContain(APPROVED.sniffHeading)
     expect(sniff).toContain(APPROVED.sniffNote)
     expect(textOf('csv-review-sniff-delimiter')).toBe(';')
-    expect(textOf('csv-review-sniff-quote')).toBe('"')
-    // '' from the engine reads as an explicit None, never a blank cell.
-    expect(textOf('csv-review-sniff-escape')).toBe(APPROVED.noneValue)
+    // B02: the sniffer's `(empty)` is never rendered literally. An unset quote
+    // or escape is an ABSENT INFERENCE (the reader's default still applies), so
+    // it must not claim None; a comment with no prefix genuinely is disabled.
+    expect(textOf('csv-review-sniff-quote')).toBe(APPROVED.notInferred)
+    expect(textOf('csv-review-sniff-escape')).toBe(APPROVED.notInferred)
     expect(textOf('csv-review-sniff-newline')).toBe('\\n')
     expect(textOf('csv-review-sniff-comment')).toBe(APPROVED.noneValue)
     expect(textOf('csv-review-sniff-skip')).toBe('0')
     expect(textOf('csv-review-sniff-header')).toBe(APPROVED.yes)
-    expect(textOf('csv-review-sniff-dateformat')).toBe(APPROVED.noneValue)
-    expect(textOf('csv-review-sniff-timestampformat')).toBe(APPROVED.noneValue)
+    expect(textOf('csv-review-sniff-dateformat')).toBe(APPROVED.notInferred)
+    expect(textOf('csv-review-sniff-timestampformat')).toBe(APPROVED.notInferred)
+    // The literal wire sentinel reaches no screen at all.
+    expect(textOf('csv-review-sniff')).not.toContain('(empty)')
     const columns = screen.getAllByTestId('csv-review-sniff-column')
     expect(columns.map((column) => column.textContent)).toEqual(['id BIGINT', 'note VARCHAR'])
     expect(sniff).toContain(APPROVED.sniffColumnsHeading)
     expect(sniff).toContain(APPROVED.sniffPromptHeading)
     expect(sniff).toContain(APPROVED.sniffPromptNote)
     expect(textOf('csv-review-sniff-prompt')).toBe("read_csv('preview_p1', delim = ';')")
+  })
+
+  it('says None only for a disabled setting, never for an unset/inferred field (B02)', async () => {
+    mount(() => Promise.resolve(previewResult({ effectiveOptions: { quote: '', comment: '' } })))
+    await waitForSample()
+    // The raw payload is the same `(empty)` in both cases — only the option set
+    // the read composed can tell "turned off" from "not inferred".
+    expect(textOf('csv-review-sniff-quote')).toBe(APPROVED.noneValue)
+    expect(textOf('csv-review-sniff-comment')).toBe(APPROVED.noneValue)
+    expect(textOf('csv-review-sniff-escape')).toBe(APPROVED.notInferred)
+    // The effective-option disclosure shows the disabled settings, not blanks.
+    expect(textOf('csv-review-effective-quote')).toBe(APPROVED.noneValue)
+    expect(textOf('csv-review-effective-comment')).toBe(APPROVED.noneValue)
+  })
+
+  it('renders the real values of a quoted CRLF payload as values', async () => {
+    mount(() =>
+      Promise.resolve(
+        previewResult({
+          sniff: {
+            ...previewResult().sniff,
+            quote: '"',
+            escape: '"',
+            newLineDelimiter: '\\r\\n',
+            comment: '#',
+            dateFormat: '%Y-%m-%d',
+            timestampFormat: null,
+          },
+        }),
+      ),
+    )
+    await waitForSample()
+    expect(textOf('csv-review-sniff-quote')).toBe('"')
+    expect(textOf('csv-review-sniff-escape')).toBe('"')
+    expect(textOf('csv-review-sniff-newline')).toBe('\\r\\n')
+    expect(textOf('csv-review-sniff-comment')).toBe('#')
+    expect(textOf('csv-review-sniff-dateformat')).toBe('%Y-%m-%d')
+    expect(textOf('csv-review-sniff-timestampformat')).toBe(APPROVED.notInferred)
   })
 
   it('states the effective option set the sample read composed, sample_size included', async () => {

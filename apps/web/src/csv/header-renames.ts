@@ -78,6 +78,7 @@
  * an error string). The picked file's name is never read here at all.
  */
 import type { EngineCsvSniff } from '@assay/engine-duckdb'
+import { SNIFF_UNSET_TEXT } from './sniff-wire'
 
 /**
  * The head read's bound: 64 KiB. A CSV header record is the first line of the
@@ -145,21 +146,13 @@ export type CsvHeaderScan =
   | { readonly kind: 'limit'; readonly limit: CsvHeaderLimit }
 
 /**
- * `sniff_csv` renders an UNSET dialect value as this literal text, not as an
- * empty string: `hex(Quote)` for a file with no quoting is
- * `28656D70747929` — the seven characters `(empty)`. Verified on the installed
- * DuckDB v1.5.5 and observed in the shipped browser build's own review surface
- * (its Quote/Escape rows read `(empty)`). D3's scan must not treat those seven
- * characters as a quote character, so they are decoded to "unset".
- */
-const SNIFF_UNSET = '(empty)'
-
-/**
  * `sniff_csv` reports `NewLineDelimiter` as ESCAPE TEXT, not as bytes:
  * `hex(NewLineDelimiter)` is `5C6E` (`\` `n`, two characters) for an LF file
  * and `5C725C6E` for a CRLF file — the value is what `new_line = '…'` would be
  * written as. Everything else in the payload is a real character (`hex(Delimiter)`
  * is `09` for a tab file, `2C` for a comma; `hex(Quote)` is `22` for `"`).
+ * The UNSET sentinel itself is documented once in `sniff-wire.ts`; an unset
+ * `Quote`/`Escape` never reaches this map.
  */
 const SNIFF_ESCAPES: Readonly<Record<string, string>> = {
   n: '\n',
@@ -174,7 +167,7 @@ const SNIFF_ESCAPES: Readonly<Record<string, string>> = {
  * decodes to `''` (no quoting / no escape character), never to `(empty)`.
  */
 export function decodeSniffedDialectChar(reported: string): string {
-  return reported === SNIFF_UNSET ? '' : reported
+  return reported === SNIFF_UNSET_TEXT ? '' : reported
 }
 
 /**
@@ -183,7 +176,7 @@ export function decodeSniffedDialectChar(reported: string): string {
  * stricter (an unmatched terminator ends in `'incomplete-record'`).
  */
 export function decodeSniffedNewLine(reported: string): string {
-  if (reported === SNIFF_UNSET) return ''
+  if (reported === SNIFF_UNSET_TEXT) return ''
   let decoded = ''
   for (let index = 0; index < reported.length; index += 1) {
     const char = reported[index] ?? ''

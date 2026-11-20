@@ -139,8 +139,9 @@ import {
   wireCsvOptions,
 } from './options'
 import type { CsvEffectiveEntry, CsvReviewForm, CsvTriState } from './options'
-import { displayBoolean, displayDialect, displayNullableText, toPreviewView } from './preview'
+import { displayBoolean, toPreviewView } from './preview'
 import type { CsvPreviewView } from './preview'
+import { displaySniffDialect, displaySniffText } from './dialect-display'
 import { readHeaderRenames } from './header-renames'
 import type { CsvHeaderRenames } from './header-renames'
 
@@ -318,8 +319,14 @@ function SniffRow(props: {
   )
 }
 
-/** The sniff disclosure (ADR 0049 item 6). */
-function SniffDisclosure({ sniff }: { readonly sniff: EngineCsvSniff }): React.JSX.Element {
+/** The sniff disclosure (ADR 0049 item 6; B02 display adapter). */
+function SniffDisclosure({
+  sniff,
+  effectiveOptions,
+}: {
+  readonly sniff: EngineCsvSniff
+  readonly effectiveOptions: EngineCsvEffectiveOptions
+}): React.JSX.Element {
   return (
     <section aria-labelledby="csv-review-sniff-heading" data-testid="csv-review-sniff">
       <h3 id="csv-review-sniff-heading" className="csv-review-heading">
@@ -330,27 +337,29 @@ function SniffDisclosure({ sniff }: { readonly sniff: EngineCsvSniff }): React.J
         <SniffRow
           testId="csv-review-sniff-delimiter"
           label={CSV_REVIEW_SNIFF_DELIMITER}
-          value={displayDialect(sniff.delimiter)}
+          value={displaySniffDialect('delimiter', sniff.delimiter, effectiveOptions).text}
         />
         <SniffRow
           testId="csv-review-sniff-quote"
           label={CSV_REVIEW_SNIFF_QUOTE}
-          value={displayDialect(sniff.quote)}
+          value={displaySniffDialect('quote', sniff.quote, effectiveOptions).text}
         />
         <SniffRow
           testId="csv-review-sniff-escape"
           label={CSV_REVIEW_SNIFF_ESCAPE}
-          value={displayDialect(sniff.escape)}
+          value={displaySniffDialect('escape', sniff.escape, effectiveOptions).text}
         />
         <SniffRow
           testId="csv-review-sniff-newline"
           label={CSV_REVIEW_SNIFF_NEWLINE}
-          value={displayDialect(sniff.newLineDelimiter)}
+          value={
+            displaySniffDialect('newLineDelimiter', sniff.newLineDelimiter, effectiveOptions).text
+          }
         />
         <SniffRow
           testId="csv-review-sniff-comment"
           label={CSV_REVIEW_SNIFF_COMMENT}
-          value={displayDialect(sniff.comment)}
+          value={displaySniffDialect('comment', sniff.comment, effectiveOptions).text}
         />
         <SniffRow
           testId="csv-review-sniff-skip"
@@ -365,12 +374,12 @@ function SniffDisclosure({ sniff }: { readonly sniff: EngineCsvSniff }): React.J
         <SniffRow
           testId="csv-review-sniff-dateformat"
           label={CSV_REVIEW_SNIFF_DATEFORMAT}
-          value={displayNullableText(sniff.dateFormat)}
+          value={displaySniffText(sniff.dateFormat).text}
         />
         <SniffRow
           testId="csv-review-sniff-timestampformat"
           label={CSV_REVIEW_SNIFF_TIMESTAMPFORMAT}
-          value={displayNullableText(sniff.timestampFormat)}
+          value={displaySniffText(sniff.timestampFormat).text}
         />
       </dl>
       <h4 className="csv-review-subheading">{CSV_REVIEW_SNIFF_COLUMNS}</h4>
@@ -672,7 +681,15 @@ export function CsvReviewDialog({
               helper={CSV_REVIEW_DELIM_HELPER}
               value={form.delim}
               maxLength={64}
-              placeholder={state.view === null ? '' : displayDialect(state.view.sniff.delimiter)}
+              placeholder={
+                state.view === null
+                  ? ''
+                  : displaySniffDialect(
+                      'delimiter',
+                      state.view.sniff.delimiter,
+                      state.view.effectiveOptions,
+                    ).text
+              }
               onChange={(value) => {
                 update({ delim: value })
               }}
@@ -830,7 +847,10 @@ export function CsvReviewDialog({
               </p>
             ) : null}
             <EffectiveOptions options={state.view.effectiveOptions} />
-            <SniffDisclosure sniff={state.view.sniff} />
+            <SniffDisclosure
+              sniff={state.view.sniff}
+              effectiveOptions={state.view.effectiveOptions}
+            />
             <section aria-labelledby="csv-review-sample-heading" data-testid="csv-review-sample">
               <h3 id="csv-review-sample-heading" className="csv-review-heading">
                 {CSV_REVIEW_SAMPLE_HEADING}

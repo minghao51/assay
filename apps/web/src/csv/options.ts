@@ -50,6 +50,7 @@ import {
   CSV_REVIEW_TYPES_LINE_ERROR,
   CSV_REVIEW_TYPES_UNSUPPORTED_NAME_ERROR,
 } from './copy'
+import { displayEffectiveDialectOption } from './dialect-display'
 
 /** A tri-state boolean option: left to the reader, or forced either way. */
 export type CsvTriState = 'unset' | 'yes' | 'no'
@@ -262,11 +263,20 @@ const EFFECTIVE_LABELS: readonly (readonly [keyof EngineCsvEffectiveOptions, str
   ['sample_size', 'Rows read to guess types'],
 ]
 
+/**
+ * Keys whose EMPTY STRING is a genuine "turn this off" (B02): rendering it as a
+ * blank cell would hide a setting the read actually applied. Unset keys are
+ * absent from the record entirely, so they never reach here.
+ */
+const DISABLED_DIALECT_KEYS: ReadonlySet<string> = new Set(['quote', 'escape', 'comment'])
+
 /** Render one raw option value without ever quoting it as dataset content. */
-function displayOptionValue(value: unknown): string {
+function displayOptionValue(key: string, value: unknown): string {
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   if (typeof value === 'number') return String(value)
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') {
+    return DISABLED_DIALECT_KEYS.has(key) ? displayEffectiveDialectOption(value) : value
+  }
   if (typeof value === 'object' && value !== null) {
     return Object.entries(value as Record<string, string>)
       .map(([name, type]) => `${name}: ${type}`)
@@ -285,7 +295,7 @@ export function effectiveOptionEntries(options: EngineCsvEffectiveOptions): CsvE
   for (const [key, label] of EFFECTIVE_LABELS) {
     const value = options[key]
     if (value === undefined) continue
-    entries.push({ key, label, value: displayOptionValue(value) })
+    entries.push({ key, label, value: displayOptionValue(key, value) })
   }
   return entries
 }
