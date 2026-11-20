@@ -362,6 +362,26 @@ test('a refused option never reaches the engine', async ({ page }) => {
   await expect(page.getByTestId('csv-review-stale')).toBeVisible()
 })
 
+test('a repeated declared column name is refused and never reaches the engine (B01)', async ({
+  page,
+}) => {
+  await openIdleReview(page, SEMICOLON_FIXTURE)
+  await page.getByTestId('csv-review-types').fill('id: BIGINT\nid: VARCHAR')
+  const refusal = page.getByTestId('csv-review-refusal')
+  await expect(refusal).toContainText('Each column name may be declared only once.')
+  // The sentence names neither the column nor either declared type.
+  await expect(refusal).not.toContainText('id')
+  await expect(refusal).not.toContainText('BIGINT')
+  await expect(refusal).not.toContainText('VARCHAR')
+  await expect(page.getByTestId('csv-review-update')).toBeDisabled()
+  await expect(page.getByTestId('csv-review-adopt')).toBeDisabled()
+  // The only preview is the initial one: the repeated declaration was refused
+  // before dispatch, so no engine call carries it.
+  const previews = (await observed(page)).filter((request) => request.type === 'engine/csv-preview')
+  expect(previews).toHaveLength(1)
+  await expect(page.getByTestId('csv-review-stale')).toBeVisible()
+})
+
 /* ---- Catalog neutrality, both directions (EW-03I-b done-when 6) -------------
  *
  * The preview's registration is proven not to grow the USER catalog, and the
