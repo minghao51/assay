@@ -147,6 +147,35 @@ export interface GridDataProvider {
    * rejection must leave the previous list in effect.
    */
   filter(spec: FilterSpec | null): Promise<void>
+  /**
+   * Optional capability: replace the whole ordered predicate list in one
+   * transaction (`[]` clears, exactly like `filter(null)`).
+   *
+   * Semantics (the additive C02 capability — the grid uses it whenever it is
+   * present and falls back to the `filter` sequence otherwise):
+   *
+   * - **All-before-commit.** Every spec is validated before any state change.
+   *   A rejection therefore leaves the previously accepted list in effect and
+   *   observable — the same promise `sort`/`filter` already make, but for the
+   *   whole list at once instead of one call at a time.
+   * - **Opaque values.** Implementations validate the *shape* only; there is
+   *   no parsing, normalizing, sorting or de-duplication. The list is stored
+   *   in exactly the order given, because that order is what the UI displays
+   *   and what the engine composes into `WHERE`.
+   * - **Empty list.** `replaceFilters([])` and `filter(null)` must map to the
+   *   same internal empty state, so the engine request bytes are unchanged.
+   * - **No metadata on the rejection.** Reject with the provider's own
+   *   existing error (`Error`, or the client/engine error it already
+   *   surfaces). The grid classifies the outcome (`FilterApplyError.phase`);
+   *   a provider must not add a phase, echo predicates, or wrap the error.
+   *
+   * `filter()`'s one-predicate protocol remains the documented **fallback**,
+   * and it stays **non-atomic** about a whole list: `filter(null)` followed
+   * by N × `filter(spec)` leaves the provider holding a prefix of the list
+   * if a middle call rejects. Providers that do not implement this capability
+   * keep that limitation; the grid never pretends otherwise.
+   */
+  replaceFilters?(specs: readonly FilterSpec[]): Promise<void>
   schema(): Promise<ColumnSchema[]>
 }
 

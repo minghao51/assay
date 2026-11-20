@@ -37,5 +37,6 @@ export type {
   GridRowSlot,
   SortSpec,
 } from './contracts.js'
-export { GridViewportModel } from './viewport-model.js'
+export { FilterApplyError, GridViewportModel } from './viewport-model.js'
+export type { FilterFailurePhase } from './viewport-model.js'
 export type { GridViewportOptions, GridViewportStats } from './viewport-model.js'
