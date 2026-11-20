@@ -10,7 +10,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import type { ReactNode } from 'react'
 import { viewNameForTableId } from '@assay/engine-duckdb'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
 import {
@@ -20,10 +19,8 @@ import {
   bucketSize,
   classifyOsFamily,
 } from '@assay/telemetry'
-import type { OverlayBase, TransformationHistory } from '@assay/domain'
+import type { OverlayBase } from '@assay/domain'
 import { emptyHistory, liveRowCount, stateAtCursor } from '@assay/domain'
-import type { DiffRunState } from './diff/DiffPanel'
-import type { ValidationRunState } from './validation/ValidationPanel'
 import type { ContractV1 } from '@assay/contracts'
 import { GridViewportModel } from '@assay/grid'
 import type { ColumnSchema } from '@assay/grid'
@@ -76,13 +73,19 @@ import type {
 } from './workbench/next-action'
 import {
   DEFAULT_WORKBENCH_TASK,
-  WORKBENCH_SECTIONS,
-  WORKBENCH_SECTION_PURPOSES,
   sectionsForTask,
   taskOfSection,
   type WorkbenchSectionId,
   type WorkbenchTaskId,
 } from './workbench/tasks'
+import { PanelBoundary } from './workbench/PanelBoundary'
+import { WorkbenchSection } from './workbench/WorkbenchSection'
+import {
+  comparisonSectionSummary,
+  failingRuleCount,
+  historySectionSummary,
+  validationSectionSummary,
+} from './workbench/section-summaries'
 import { RecordInspector } from './record/RecordInspector'
 import type { RecordRequest } from './record/RecordInspector'
 import { parseDuckDbType } from './schema/parseType'
@@ -146,6 +149,15 @@ import { TelemetryProvider } from './telemetry/TelemetryContext'
 import { TelemetryDisclosure } from './telemetry/TelemetryDisclosure'
 import { TelemetrySettings } from './telemetry/TelemetrySettings'
 import { WorkbenchHelp, WORKBENCH_HELP_OPEN_LABEL } from './help/WorkbenchHelp'
+
+/**
+ * D02a seam. The three shell section summaries moved verbatim to
+ * `workbench/section-summaries.ts`; App re-exports them so the existing tests
+ * (`App.section-summaries.test.tsx` imports them from `./App`) keep working
+ * across the migration. Every section shell component (`WorkbenchSection`,
+ * `PanelBoundary`) moved with them; only App's own imports changed.
+ */
+export { comparisonSectionSummary, historySectionSummary, validationSectionSummary }
 
 /**
  * R-07 request-consumption ledger. App owns exactly one ledger for the
@@ -286,52 +298,6 @@ function paneToggleLabel(collapsed: boolean): string {
 }
 
 /**
- * ug-17 / UG-27: the count of rules the CURRENT verdict reports as failing
- * (the same `failing` flag the Validation panel renders). Not a row count and
- * never a rule name — the summary is value-free (ADR 0025) and only ever
- * renders when > 0. A stale verdict keeps its count; the panel owns the stale
- * marking, so the summary neither claims freshness nor repeats it.
- */
-function failingRuleCount(run: ValidationRunState): number {
-  if (run.kind !== 'verdict') return 0
-  return run.report.rows.filter((row) => row.failing).length
-}
-
-/**
- * ug-17: state summary for the shell-owned Validation toggle, byte-exact
- * (`Validation · <N> failing`, singular and plural alike). `null` at 0 and in
- * every non-verdict state (idle/running/cancelled/failed/binding-errors), so
- * the toggle renders no summary element at all.
- */
-export function validationSectionSummary(run: ValidationRunState): string | null {
-  const count = failingRuleCount(run)
-  return count > 0 ? `Validation \u00b7 ${String(count)} failing` : null
-}
-
-/**
- * ug-17: state summary for the shell-owned Compare toggle, byte-exact
- * (`Compare · <N> changed`) from the current row-diff result's `changed`
- * count. `null` for 0 changed and for every non-result state, and a stale
- * result keeps its count (the panel owns the stale marking).
- */
-export function comparisonSectionSummary(run: DiffRunState): string | null {
-  const count = run.kind === 'result' ? run.report.changed.count : 0
-  return count > 0 ? `Compare \u00b7 ${String(count)} changed` : null
-}
-
-/**
- * ug-17: state summary for the shell-owned History toggle, byte-exact
- * (`History · <N> pending`). N is `activeOps(history).length` — the SAME
- * staged-operation count R-16 (ug-10) labels in the Profile panel, not a net
- * difference — so the toggle and the panel can never disagree. `null` at
- * cursor 0 and after undoing back to 0.
- */
-export function historySectionSummary(history: TransformationHistory): string | null {
-  const count = activeOps(history).length
-  return count > 0 ? `History \u00b7 ${String(count)} pending` : null
-}
-
-/**
  * ug-12 (UG-26): the jump-to-row announcement for the SINGLE polite live
  * region. The validation/compare “Show row” gesture scrolls the grid, opens
  * the record inspector and lands roving focus on the target row; the region
@@ -342,165 +308,6 @@ export function historySectionSummary(history: TransformationHistory): string | 
  */
 export function rowJumpAnnouncementText(displayKey?: string): string | null {
   return displayKey === undefined ? null : `Showing ${displayKey} in the grid and record inspector`
-}
-
-interface WorkbenchSectionProps {
-  readonly id: WorkbenchSectionId
-  readonly children: ReactNode
-  /**
-   * `managed` (default): this shell owns the section's single disclosure
-   * toggle. `inner`: the section's own component already exposes an equivalent
-   * `aria-expanded` disclosure (Schema, Profile, Filters — the ux-3/ux-4
-   * pattern this shell reuses), so the shell renders NO second toggle and just
-   * wraps the content as the nav/scroll target.
-   */
-  readonly disclosure?: 'managed' | 'inner'
-  /**
-   * q-15: pane-controlled disclosure state. The tool pane owns the open set
-   * (component-local shell state, never engine/data flow — ADR 0044) so a
-   * sticky-nav activation can expand its target. Inner-disclosure sections
-   * ignore this and stay open (their own control governs content).
-   */
-  readonly open: boolean
-  readonly onToggle?: (id: WorkbenchSectionId) => void
-  /**
-   * ug-17: optional state summary for a shell-owned toggle (e.g.
-   * `Validation · 2 failing`). The call site decides visibility — pass a
-   * string only at count > 0 and `null`/nothing otherwise, so a zero count is
-   * never rendered. It renders inside the toggle's text column, which keeps
-   * it visible while the body is collapsed (the R-14 purpose precedent), and
-   * becomes the toggle's SECOND description (after the purpose) without
-   * touching the accessible name. Inner-disclosure sections ignore it: their
-   * panels own their own collapsed summary (e.g. `Filters · N active`).
-   */
-  readonly summary?: string | null
-}
-
-/**
- * One top-level section shell. Collapse is CSS-only DOM structure + component
- * state: the body stays MOUNTED and gains the `hidden` attribute when
- * collapsed, so the grid's fetch/window/virtualization behavior and the f-2
- * memo boundaries are byte-identical (rendering position only, ADR 0022). The
- * stable `section-<id>` anchor is the sticky nav's scroll target;
- * `scroll-margin-top` (index.css) keeps it clear of the pinned nav.
- */
-function WorkbenchSection({
-  id,
-  children,
-  disclosure = 'managed',
-  open,
-  onToggle,
-  summary = null,
-}: WorkbenchSectionProps) {
-  const title = WORKBENCH_SECTIONS.find((section) => section.id === id)?.title ?? id
-  const purpose = WORKBENCH_SECTION_PURPOSES[id]
-  const contentId = `section-${id}-content`
-  const purposeId = `section-${id}-purpose`
-  const summaryId = `section-${id}-summary`
-  // Only a shell-owned toggle can carry a summary; inner-disclosure panels
-  // keep their own collapsed idiom (Filters) and get none from the shell.
-  const summaryText = disclosure === 'managed' ? summary : null
-  const toggleLabel = `${open ? 'Collapse' : 'Expand'} ${title}`
-  const task = taskOfSection(id)
-  return (
-    <section
-      className="workbench-section"
-      id={`section-${id}`}
-      data-section={id}
-      data-task={task ?? undefined}
-    >
-      {disclosure === 'managed' && (
-        <button
-          type="button"
-          className="workbench-section-toggle"
-          data-testid={`section-toggle-${id}`}
-          aria-expanded={open}
-          aria-controls={contentId}
-          /* ug-13/R-14: the purpose line is the toggle's DESCRIPTION, not its
-             name — `Expand/Collapse <Title>` stays the accessible name the
-             existing specs and pins query (the ug-4 hint pattern). */
-          /* ug-17: the summary joins the description (purpose first, summary
-             second) only while one exists; the name above is untouched. */
-          aria-describedby={summaryText === null ? purposeId : `${purposeId} ${summaryId}`}
-          aria-label={toggleLabel}
-          title={toggleLabel}
-          onClick={() => {
-            onToggle?.(id)
-          }}
-        >
-          <span className="workbench-section-marker" aria-hidden="true">
-            {open ? '▾' : '▸'}
-          </span>
-          <span className="workbench-section-text">
-            <span className="workbench-section-label">{title}</span>
-            <span
-              className="workbench-section-purpose"
-              id={purposeId}
-              data-testid={`section-purpose-${id}`}
-            >
-              {purpose}
-            </span>
-            {summaryText !== null && (
-              <span
-                className="workbench-section-summary"
-                id={summaryId}
-                data-testid={`section-summary-${id}`}
-              >
-                {summaryText}
-              </span>
-            )}
-          </span>
-        </button>
-      )}
-      {/*
-       * Inner-disclosure sections (Schema/Filters/Profile/Record) own their
-       * own toggle, so the shell renders the same purpose line directly above
-       * the body instead of inside a shell button. It stays visible while the
-       * inner panel is collapsed (the bodies it describes are the panel's own)
-       * and the nav link below points at this stable id.
-       */}
-      {disclosure === 'inner' && (
-        <p
-          className="workbench-section-purpose"
-          id={purposeId}
-          data-testid={`section-purpose-${id}`}
-        >
-          {purpose}
-        </p>
-      )}
-      <div id={contentId} className="workbench-section-body" hidden={!open}>
-        {children}
-      </div>
-    </section>
-  )
-}
-
-/**
- * ug-7/R-06: one panel-scope boundary around a tool section's body. The
- * boundary itself owns only the failed/retry state; App owns the section's
- * visibility (managed open set or the inner-disclosure override) and the
- * focus move to the section's existing nav link on close.
- */
-function PanelBoundary({
-  id,
-  onClose,
-  children,
-}: {
-  readonly id: WorkbenchSectionId
-  readonly onClose: (id: WorkbenchSectionId) => void
-  readonly children: ReactNode
-}) {
-  return (
-    <ErrorBoundary
-      scope="panel"
-      sectionId={id}
-      onClose={() => {
-        onClose(id)
-      }}
-    >
-      {children}
-    </ErrorBoundary>
-  )
 }
 
 /**
