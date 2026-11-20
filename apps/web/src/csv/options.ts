@@ -34,10 +34,22 @@
  *    entry through as the raw STRING, so the engine vocabulary produces its
  *    own refusal ("must be a non-negative safe integer") instead of this
  *    module inventing a second message.
+ *
+ * B01 — a declared column name is never overwritten. The types textarea used
+ * to assign `columns[name] = type` unconditionally, so a repeated name
+ * (same type or not) silently kept only the LAST line: a declaration the user
+ * made was lost with no notice. A repeat is now refused before dispatch with
+ * a typed, value-free {@link CsvTypesRefusal} (1-based line, no name/type in
+ * the sentence). Names stay case-sensitive and are compared after the same
+ * trim the line grammar already applies; blank lines never lose their number.
  */
 import { parseCsvOptions } from '@assay/engine-duckdb'
 import type { EngineCsvEffectiveOptions, EngineCsvOptions } from '@assay/engine-duckdb'
-import { CSV_REVIEW_TYPES_LINE_ERROR } from './copy'
+import {
+  CSV_REVIEW_TYPES_DUPLICATE_ERROR,
+  CSV_REVIEW_TYPES_LINE_ERROR,
+  CSV_REVIEW_TYPES_UNSUPPORTED_NAME_ERROR,
+} from './copy'
 
 /** A tri-state boolean option: left to the reader, or forced either way. */
 export type CsvTriState = 'unset' | 'yes' | 'no'
@@ -95,26 +107,73 @@ function numericField(value: string): number | string {
 }
 
 /**
+ * A declared-types line this module refuses: a typed, value-free internal
+ * outcome. `line` is 1-based over the textarea's own lines (blank lines are
+ * skipped, never renumbered). Nothing here carries the name, the type or any
+ * other text the user typed — a header name is dataset content (ADR 0025).
+ */
+export type CsvTypesRefusal =
+  | { readonly code: 'malformed-line'; readonly line: number }
+  | { readonly code: 'duplicate-column'; readonly line: number }
+  | { readonly code: 'unsupported-column-name'; readonly line: number }
+
+/** The one user sentence per refusal code — never interpolates anything. */
+function typesRefusalMessage(refusal: CsvTypesRefusal): string {
+  switch (refusal.code) {
+    case 'malformed-line':
+      return CSV_REVIEW_TYPES_LINE_ERROR
+    case 'duplicate-column':
+      return CSV_REVIEW_TYPES_DUPLICATE_ERROR
+    case 'unsupported-column-name':
+      return CSV_REVIEW_TYPES_UNSUPPORTED_NAME_ERROR
+  }
+}
+
+/**
  * Parse the declared-types textarea into the vocabulary's `columns` map.
  * An empty box means "no declaration" (omitted, not an empty map — the
  * vocabulary refuses an empty map, and omitting is what "no declaration"
- * means). A malformed line is refused by this module because the engine
- * vocabulary has no line syntax to validate; the refusal never echoes the
- * line (a header name is dataset content).
+ * means). A malformed line and a repeated name are refused by this module
+ * (the engine vocabulary has no line syntax to validate); neither refusal
+ * echoes the line.
+ *
+ * The map is built with NO prototype (`Object.create(null)`), so a declared
+ * name is always a literal own key: `constructor`, `toString` and every other
+ * `Object.prototype` member are ordinary column names here, never inherited
+ * lookups. That is name handling, not a security claim. `__proto__` is the
+ * one exception this map cannot carry honestly — a plain object assignment for
+ * that name reaches the inherited accessor, and the engine's validated copy of
+ * the map drops the column — so it is refused instead of silently lost.
  */
 function parseTypesText(
   text: string,
-): { ok: true; columns: Record<string, string> } | { ok: false } {
-  if (text.trim() === '') return { ok: true, columns: {} }
-  const columns: Record<string, string> = {}
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.trim()
+): { ok: true; columns: Record<string, string> } | { ok: false; refusal: CsvTypesRefusal } {
+  // Null prototype: own-key-safe construction for every literal column name.
+  const columns: Record<string, string> = Object.create(null) as Record<string, string>
+  if (text.trim() === '') return { ok: true, columns }
+  /** Every parsed name, in the order the lines declared it. */
+  const declared = new Set<string>()
+  const lines = text.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? ''
     if (line === '') continue
+    const lineNumber = index + 1
     const separator = line.indexOf(':')
-    if (separator <= 0) return { ok: false }
+    if (separator <= 0) return { ok: false, refusal: { code: 'malformed-line', line: lineNumber } }
     const name = line.slice(0, separator).trim()
     const type = line.slice(separator + 1).trim()
-    if (name === '' || type === '') return { ok: false }
+    if (name === '' || type === '') {
+      return { ok: false, refusal: { code: 'malformed-line', line: lineNumber } }
+    }
+    if (name === '__proto__') {
+      return { ok: false, refusal: { code: 'unsupported-column-name', line: lineNumber } }
+    }
+    // B01: a repeat is refused BEFORE the assignment — never a last-wins
+    // overwrite that would drop the earlier declaration silently.
+    if (declared.has(name)) {
+      return { ok: false, refusal: { code: 'duplicate-column', line: lineNumber } }
+    }
+    declared.add(name)
     columns[name] = type
   }
   return { ok: true, columns }
@@ -129,7 +188,9 @@ function parseTypesText(
  */
 export function formOptionRecord(
   form: CsvReviewForm,
-): { readonly ok: true; readonly record: Record<string, unknown> } | { readonly ok: false } {
+):
+  | { readonly ok: true; readonly record: Record<string, unknown> }
+  | { readonly ok: false; readonly refusal: CsvTypesRefusal } {
   const record: Record<string, unknown> = {}
   const text = (key: string, value: string): void => {
     const trimmed = value.trim()
@@ -150,7 +211,7 @@ export function formOptionRecord(
   if (form.sampleSize.trim() !== '') record['sample_size'] = numericField(form.sampleSize)
   if (form.skip.trim() !== '') record['skip'] = numericField(form.skip)
   const types = parseTypesText(form.typesText)
-  if (!types.ok) return { ok: false }
+  if (!types.ok) return { ok: false, refusal: types.refusal }
   if (Object.keys(types.columns).length > 0) record['columns'] = types.columns
   return { ok: true, record }
 }
@@ -161,7 +222,7 @@ export function formOptionRecord(
  */
 export function previewOptions(form: CsvReviewForm): CsvOptionRecordResult {
   const built = formOptionRecord(form)
-  if (!built.ok) return { ok: false, reason: CSV_REVIEW_TYPES_LINE_ERROR }
+  if (!built.ok) return { ok: false, reason: typesRefusalMessage(built.refusal) }
   const parsed = parseCsvOptions(built.record, 'preview')
   return parsed.ok ? { ok: true, options: parsed.options } : { ok: false, reason: parsed.reason }
 }

@@ -60,6 +60,8 @@ const APPROVED = {
   typesHelper:
     'One column per line, as name: TYPE (for example id: BIGINT). A type the reader does not accept is refused before it is sent.',
   typesLineError: 'Each line must read name: TYPE.',
+  duplicateColumnError: 'Each column name may be declared only once.',
+  unsupportedColumnNameError: 'That column name cannot be declared here.',
   update: 'Update sample',
   stale:
     'These options changed after the sample was read. Choose Update sample so the sample and the disclosure match what Open this file would use.',
@@ -798,6 +800,30 @@ describe('CSV review — the option form composes through the engine vocabulary'
       `${APPROVED.refusalPrefix}${APPROVED.typesLineError}${APPROVED.refusalSuffix}`,
     )
     expect(refusal).not.toContain('id BIGINT')
+  })
+
+  it('refuses a repeated column name: nothing is dispatched, adoption is blocked', async () => {
+    // B01 regression: the parser used to assign `columns[name] = type` per
+    // line, so `id: BIGINT` followed by `id: VARCHAR` silently declared only
+    // VARCHAR. The repeat is now refused before dispatch — and the refusal is
+    // value-free, so neither the column name nor either type appears.
+    const harness = mount()
+    await waitForSample()
+    change('csv-review-types', 'id: BIGINT\nid: VARCHAR')
+    const refusal = textOf('csv-review-refusal')
+    expect(refusal).toBe(
+      `${APPROVED.refusalPrefix}${APPROVED.duplicateColumnError}${APPROVED.refusalSuffix}`,
+    )
+    expect(refusal).not.toContain('id')
+    expect(refusal).not.toContain('BIGINT')
+    expect(refusal).not.toContain('VARCHAR')
+    // A refusal blocks the re-read and the adoption; the settled sample on
+    // screen is untouched (the review opens nothing in the first place).
+    expect(button('csv-review-update').disabled).toBe(true)
+    expect(button('csv-review-adopt').disabled).toBe(true)
+    fireEvent.click(button('csv-review-update'))
+    expect(harness.calls).toHaveLength(1)
+    expect(harness.onAdopt).not.toHaveBeenCalled()
   })
 
   it('sends a declared column map when the lines are well formed', async () => {
