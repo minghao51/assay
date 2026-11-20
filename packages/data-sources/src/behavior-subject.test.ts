@@ -47,5 +47,18 @@ describe('BrowserFileSource — data-source behavior suite (Node unit)', () => {
     expect(cancel?.['fsaCancelResolvedNull']).toBe(true)
     expect(cancel?.['inputCancelResolvedNull']).toBe(true)
     expect(cancel?.['nonAbortPropagated']).toBe(true)
+
+    // B06/Q3 acquisition retry: one shared in-flight attempt, exactly one
+    // retry after a failure, a retained snapshot, and a captured synchronous
+    // throw. (The ADR 0025 no-name-logging pin lives in the package's own
+    // unit test — `browser-file-source.test.ts`.)
+    const retry = byName.get('acquisition-retry')
+    expect(retry?.['sharedInFlightAttempt']).toBe(true)
+    expect(retry?.['concurrentFailureObserved']).toBe(true)
+    expect(retry?.['retriedExactlyOnce']).toBe(true)
+    expect(retry?.['staleRejectionCannotClearRetry']).toBe(true)
+    expect(retry?.['fulfilledAttemptRetained']).toBe(true)
+    expect(retry?.['frozenHandle']).toBe(true)
+    expect(retry?.['syncThrowCaptured']).toBe(true)
   })
 })
