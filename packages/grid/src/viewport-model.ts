@@ -136,6 +136,51 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * Value-free classification of a failed `setFilters()` (C02 contract, §5.2).
+ * It is an enum so callers can choose copy/retry without parsing text, and it
+ * never carries predicates, column names or a snapshot:
+ *
+ * - `refused-before-change` — the target list is in effect; the published
+ *   list was not touched. Recovery is a retry of the user's intent.
+ * - `accepted-reload-failed` — the provider accepted the NEW list and the
+ *   model published it, but the following data reload failed. The accepted
+ *   list stays in effect (`reloadError` holds the diagnostic string);
+ *   recovery is `refresh()`.
+ * - `restore-failed` — a provider change could not be rolled back to the
+ *   published list, so the provider's list is unknown (`filtersUnknown`).
+ *   Recovery is Re-apply or Clear filters.
+ */
+export type FilterFailurePhase =
+  'refused-before-change' | 'accepted-reload-failed' | 'restore-failed'
+
+/**
+ * The one additive error shape for a failed `setFilters()` (C02a). `phase` is
+ * the value-free classification above; `cause` is the provider's rejection
+ * **unchanged** (identity preserved) so existing framing helpers keep
+ * working. The class adds no values of its own: `message` mirrors the cause's
+ * message (so un-migrated callers keep their current text until C02b/C02c map
+ * `phase`), and the grid never composes predicates, column names or engine
+ * text into it.
+ *
+ * A malformed spec list is **not** this error: it keeps rejecting with the
+ * plain `TypeError` from `assertFilterSpec` before any provider dispatch.
+ */
+export class FilterApplyError extends Error {
+  readonly phase: FilterFailurePhase
+  override readonly cause: unknown
+
+  constructor(phase: FilterFailurePhase, cause: unknown) {
+    // Carry the provider's own message unchanged (never a composed string):
+    // pre-C02 callers frame `cause` themselves, and C02b/C02c switch to copy
+    // derived from `phase`. `phase` is the only classification the grid adds.
+    super(errorMessage(cause))
+    this.name = 'FilterApplyError'
+    this.phase = phase
+    this.cause = cause
+  }
+}
+
 /** Renderer-bug guard: a sort spec must name a column and a direction. */
 function assertSortSpec(spec: SortSpec): void {
   if (typeof spec.column !== 'string' || spec.column.length === 0) {
@@ -173,6 +218,20 @@ export class GridViewportModel {
   private sortState: SortSpec | null = null
   /** Active filters, in model order — the order pushed to the provider. */
   private filterState: FilterSpec[] = []
+  /**
+   * True only when the provider is known **not** to hold the published
+   * filter list and the model could not restore it (C02 `restore-failed`, or
+   * a superseded run whose restore failed). Cleared only by a successful
+   * `setFilters()`; `retry()` deliberately does not clear it.
+   */
+  private providerFiltersUnknown = false
+  /**
+   * Diagnostic message from a **post-acceptance** `refresh()` failure (C02
+   * phase `accepted-reload-failed`). Diagnostics only — UI copy comes from
+   * `FilterApplyError.phase`, never from this string. Cleared by the next
+   * successful `load()`/`refresh()`.
+   */
+  private reloadFailure: string | null = null
   /** LRU row cache: row index → cells. Insertion order = least- to most-recent. */
   private readonly cache = new Map<number, readonly unknown[]>()
   /**
@@ -260,6 +319,28 @@ export class GridViewportModel {
     return this.filterState
   }
 
+  /**
+   * True when the provider is known **not** to hold the published `filters`
+   * list (a restore attempt failed, or a superseded run's restore failed).
+   * In that state no claim can be made about the provider's list; recovery is
+   * a successful `setFilters()` (Re-apply or Clear filters). `retry()` does
+   * not clear it — it only re-requests failed spans.
+   */
+  get filtersUnknown(): boolean {
+    return this.providerFiltersUnknown
+  }
+
+  /**
+   * Diagnostic message from a post-acceptance reload failure (C02 phase
+   * `accepted-reload-failed`), or `null`. Same shape as
+   * `stats.fatalError`; the accepted filter list **stays** in effect in this
+   * state and recovery is `refresh()`. Never rendered raw — UI copy comes
+   * from `FilterApplyError.phase`.
+   */
+  get reloadError(): string | null {
+    return this.reloadFailure
+  }
+
   /** True once `load()` has delivered schema and row count. */
   get loaded(): boolean {
     return this.totalRowCount !== null && this.schemaColumns !== null
@@ -317,6 +398,9 @@ export class GridViewportModel {
     }
     this.schemaColumns = schema
     this.totalRowCount = rowCount
+    // A successful reload clears a previous post-acceptance reload failure
+    // (C02): the epoch was rebuilt, so the diagnostic no longer applies.
+    this.reloadFailure = null
     this.notify()
   }
 
@@ -393,38 +477,124 @@ export class GridViewportModel {
   }
 
   /**
-   * Replace the whole filter list (`[]` clears all). Pushes `filter(null)`
-   * then each spec in order, so the provider's list is deterministically
-   * rebuilt to match the model's (see `GridDataProvider.filter`). Records
-   * the state only after every push is accepted; an accepted change starts
-   * a fresh data epoch via `refresh()` — cached windows are dropped, the
-   * provider's row count is re-read (filters change totals), and the
-   * visible window is refetched under the new state with the generation
-   * guard discarding stale in-flight pages. A mid-sequence provider
-   * rejection leaves the model state (and cache) untouched; the next
-   * successful `setFilters` re-syncs the provider from scratch.
+   * Replace the whole filter list (`[]` clears all) as one **transaction**
+   * (C02). The whole list is snapshotted and validated before any provider
+   * dispatch — a malformed spec still throws the plain `TypeError` and never
+   * touches the provider. Then, inside the existing serialized query queue:
+   *
+   * 1. The provider's whole-list capability (`replaceFilters`) is used when
+   *    present, so a rejection is all-before-commit. Providers without it
+   *    keep the documented legacy `filter(null)` + N × `filter(spec)`
+   *    sequence, which stays **non-atomic** (a mid-sequence rejection is a
+   *    partial apply); the model then issues exactly one restore to the
+   *    published list and reports `restore-failed` if that also fails.
+   * 2. A provider-accepted list becomes **effective only together with its
+   *    refresh**: the state is published, then `refresh()` rebuilds the data
+   *    epoch (cached windows dropped, row count re-read, visible window
+   *    refetched, stale in-flight pages discarded by the generation guard).
+   * 3. A post-acceptance reload failure keeps the accepted list published and
+   *    records `reloadError`; it rejects `accepted-reload-failed` and never
+   *    claims the previous list is still in effect.
+   *
+   * **R-C01 reconciliation (overlapping requests).** The target of every run
+   * is the **published** list, read inside the queue when the run's provider
+   * section starts — never a snapshot from call time. A request the provider
+   * accepted but that was superseded before it published restores that target
+   * (one attempt) and publishes/refreshes/opens no epoch; a newer request
+   * refused before changing anything restores the already-published list.
+   *
+   * Rejections are `FilterApplyError` with a value-free `phase`
+   * (`refused-before-change` / `accepted-reload-failed` / `restore-failed`)
+   * carrying the provider's own error as `cause`; a superseded run never
+   * rejects. `retry()` never clears `filtersUnknown`/`reloadError`.
    *
    * **Sequence guard (AR-D5):** overlapping calls are serialized so their
-   * provider pushes apply in request order, and the **last requested** list
-   * wins — a superseded call neither assigns `filterState` nor starts a
-   * refresh, so the exposed list can never disagree with what `fetchRange`
-   * serves.
+   * provider operations apply in request order, and the last settled list
+   * wins — a superseded call can never leave the provider serving a list the
+   * UI does not claim (see above).
    */
   async setFilters(specs: readonly FilterSpec[]): Promise<void> {
     if (!Array.isArray(specs)) {
       throw new TypeError(`filters must be an array, got ${String(specs)}`)
     }
+    // Snapshot + validate the whole list BEFORE dispatch (T1): a malformed
+    // spec is a programming error, not a provider outcome — plain TypeError,
+    // no phase, zero pushes.
     const list = [...specs]
     for (const spec of list) assertFilterSpec(spec)
     const seq = ++this.querySeq
     return this.enqueueQuery(async () => {
-      if (seq !== this.querySeq) return // superseded before it ran
-      await this.provider.filter(null)
-      for (const spec of list) await this.provider.filter(spec)
-      if (seq !== this.querySeq) return // superseded while the provider applied it
+      if (seq !== this.querySeq) return // superseded before it ran: nothing happened
+      // R-C01: read the reconciliation target here, inside the queue.
+      const target = this.filterState
+      const atomic = this.provider.replaceFilters !== undefined
+      try {
+        await this.applyProviderFilters(list)
+      } catch (cause) {
+        if (atomic) {
+          // All-before-commit: the provider's list is untouched, `target`
+          // still in effect. A superseded run settles quietly.
+          if (seq !== this.querySeq) return
+          throw new FilterApplyError('refused-before-change', cause)
+        }
+        // Legacy sequence: a partial apply is possible — restore once.
+        const restored = await this.restoreOneShot(target)
+        if (seq !== this.querySeq) return // superseded: settle quietly (T5 state)
+        throw new FilterApplyError(restored ? 'refused-before-change' : 'restore-failed', cause)
+      }
+      // The provider accepted `list` — a fact about the provider, not yet an
+      // effective query state.
+      if (seq !== this.querySeq) {
+        // R-C01 rule 1: `list` must never become effective.
+        await this.restoreOneShot(target)
+        return // no rejection, no publish, no refresh, no epoch
+      }
+      // R-C01 rule 2: effective only together with its refresh (the epoch
+      // that makes `totalRows`/cache belong to this list).
       this.filterState = list
-      await this.refresh()
+      this.providerFiltersUnknown = false
+      try {
+        await this.refresh()
+      } catch (cause) {
+        // Case (b): accepted and published, view not reloaded. Never a
+        // rollback — the engine is already filtering by the accepted list.
+        this.reloadFailure = errorMessage(cause)
+        throw new FilterApplyError('accepted-reload-failed', cause)
+      }
+      this.reloadFailure = null
     })
+  }
+
+  /**
+   * Dispatch a whole list to the provider: the optional atomic capability
+   * when present, else the documented legacy clear-then-add sequence.
+   */
+  private async applyProviderFilters(specs: readonly FilterSpec[]): Promise<void> {
+    const replace = this.provider.replaceFilters
+    if (replace !== undefined) {
+      await replace.call(this.provider, specs)
+      return
+    }
+    await this.provider.filter(null)
+    for (const spec of specs) await this.provider.filter(spec)
+  }
+
+  /**
+   * Exactly one model-owned restoration attempt to the published list
+   * (R-C01). Never throws — a failed restore flips `filtersUnknown` so no
+   * caller can claim either list is in effect. Never touches `reloadError`
+   * and never starts a refresh/epoch: restoring only realigns the provider
+   * with a list that is already published and already has its epoch.
+   */
+  private async restoreOneShot(target: readonly FilterSpec[]): Promise<boolean> {
+    try {
+      await this.applyProviderFilters(target)
+      this.providerFiltersUnknown = false
+      return true
+    } catch {
+      this.providerFiltersUnknown = true
+      return false
+    }
   }
 
   /**

@@ -9,7 +9,12 @@ import type {
   GridDataProvider,
   SortSpec,
 } from './contracts'
-import { GridViewportModel } from './viewport-model'
+import {
+  FilterApplyError as FilterApplyErrorFromIndex,
+  GridViewportModel as ModelFromIndex,
+} from './index'
+import { FilterApplyError, GridViewportModel } from './viewport-model'
+import type { FilterFailurePhase } from './viewport-model'
 
 // Vitest 4 no longer leaks Node's ambient globals into test files (this pure
 // package's lib is ES2022-only and it has no `@types/node`), so the platform
@@ -37,17 +42,38 @@ class FakeProvider implements GridDataProvider {
   failStartRows: ReadonlySet<number>
   private readonly manual: boolean
   private sortSpec: SortSpec | null = null
-  private readonly filterList: FilterSpec[] = []
+  protected filterList: FilterSpec[] = []
   /** Accepted sort pushes, in order (a `null` entry = a clear). */
   readonly sortCalls: (SortSpec | null)[] = []
   /** Accepted filter pushes, in order (`null` entries = clears). */
   readonly filterCalls: (FilterSpec | null)[] = []
+  /**
+   * Every `filter()` invocation, including refused ones — C02's transition
+   * assertions need the refused push in the log order (T8b).
+   */
+  readonly filterAttempts: (FilterSpec | null)[] = []
   rejectQueryPushes = false
+  /**
+   * C02 partial-apply mode: return `true` to reject that `filter()` call
+   * *before* it touches state (per-call atomicity, like a real provider).
+   * `callIndex` is the 0-based ordinal of the call, so a test can let the
+   * clear push land and refuse the next spec.
+   */
+  shouldRejectFilterPush: ((spec: FilterSpec | null, callIndex: number) => boolean) | null = null
+  /**
+   * C02 case (b): when set, `rowCount()` rejects with THIS error object — a
+   * post-acceptance reload failure, not a filter rejection.
+   */
+  failRowCountWith: Error | null = null
+  /** `schema()` call count (epoch/load accounting for the C02 assertions). */
+  schemaCalls = 0
+  /** `rowCount()` call count (one per `load()`, i.e. one per fresh epoch). */
+  rowCountCalls = 0
   /** When true, every span fails (a persistently failing provider, AR-D4). */
   failAllSpans = false
   /** When true, `sort`/`filter` return held promises (resolution via `releaseQueryPush`, AR-D5). */
   holdQueryPushes = false
-  private pendingQueryPushes: Array<{ resolve: () => void }> = []
+  protected pendingQueryPushes: Array<{ resolve: () => void }> = []
   private pending: Array<{
     range: CellRange
     /** Frozen at request time, like a real provider's computed page. */
@@ -71,6 +97,8 @@ class FakeProvider implements GridDataProvider {
   }
 
   async rowCount(): Promise<number> {
+    this.rowCountCalls += 1
+    if (this.failRowCountWith !== null) throw this.failRowCountWith
     // Echo the raw count while no query state is set — this keeps the
     // load()-validation tests (bogus counts) honest; under sort/filter the
     // provider reports the view size, which is what the model must absorb.
@@ -78,7 +106,13 @@ class FakeProvider implements GridDataProvider {
     return this.viewIds().length
   }
 
+  /** The provider's accepted filter list (a copy) — C02 convergence checks. */
+  get effectiveFilters(): readonly FilterSpec[] {
+    return [...this.filterList]
+  }
+
   async schema(): Promise<ColumnSchema[]> {
+    this.schemaCalls += 1
     return [
       { name: 'id', type: 'BIGINT' },
       { name: 'label', type: 'VARCHAR' },
@@ -106,22 +140,28 @@ class FakeProvider implements GridDataProvider {
     if (this.rejectQueryPushes) throw new Error('sort rejected by provider')
     this.sortSpec = spec
     this.sortCalls.push(spec)
-    if (this.holdQueryPushes) {
-      await new Promise<void>((resolve) => this.pendingQueryPushes.push({ resolve }))
-    }
+    if (this.holdQueryPushes) await this.holdQueryPush()
   }
 
   async filter(spec: FilterSpec | null): Promise<void> {
+    const callIndex = this.filterAttempts.length
+    this.filterAttempts.push(spec)
     if (this.rejectQueryPushes) throw new Error('filter rejected by provider')
+    if (this.shouldRejectFilterPush?.(spec, callIndex) === true) {
+      throw new Error(`filter push ${String(callIndex)} rejected by provider`)
+    }
     if (spec === null) {
       this.filterList.length = 0
     } else {
       this.filterList.push(spec)
     }
     this.filterCalls.push(spec)
-    if (this.holdQueryPushes) {
-      await new Promise<void>((resolve) => this.pendingQueryPushes.push({ resolve }))
-    }
+    if (this.holdQueryPushes) await this.holdQueryPush()
+  }
+
+  /** Hold one query push until `releaseQueryPush()` (AR-D5/C02 pin control). */
+  protected holdQueryPush(): Promise<void> {
+    return new Promise<void>((resolve) => this.pendingQueryPushes.push({ resolve }))
   }
 
   /** Release one held `sort`/`filter` push (FIFO by default) — AR-D5 pin control. */
@@ -215,6 +255,31 @@ class FakeProvider implements GridDataProvider {
       return onLabel[1] === '=' ? id === Number(onLabel[2]) : id !== Number(onLabel[2])
     }
     throw new Error(`fake provider cannot interpret predicate: ${spec.predicate}`)
+  }
+}
+
+/**
+ * C02 atomic capability double: the same in-memory provider plus the optional
+ * `replaceFilters()` capability. The atomic path commits the WHOLE list in one
+ * assignment, and its refusal mode (`failReplaceWith`) rejects before touching
+ * the list — so a test can prove all-before-commit (T2) and that the model
+ * adds no restore push for it.
+ */
+class AtomicFakeProvider extends FakeProvider {
+  /** Accepted whole-list replacements, in order. */
+  readonly replaceCalls: FilterSpec[][] = []
+  /** Every `replaceFilters()` invocation, including refused ones. */
+  readonly replaceAttempts: FilterSpec[][] = []
+  /** When set, `replaceFilters` rejects with THIS error object, unchanged. */
+  failReplaceWith: Error | null = null
+
+  async replaceFilters(specs: readonly FilterSpec[]): Promise<void> {
+    this.replaceAttempts.push([...specs])
+    if (this.rejectQueryPushes) throw new Error('replaceFilters rejected by provider')
+    if (this.failReplaceWith !== null) throw this.failReplaceWith
+    this.filterList = [...specs]
+    this.replaceCalls.push([...specs])
+    if (this.holdQueryPushes) await this.holdQueryPush()
   }
 }
 
@@ -1030,10 +1095,17 @@ describe('GridViewportModel — provider rejections leave state and cache untouc
     expect(model.totalRows).toBe(5)
     const fetchesBefore = provider.fetchLog.length
 
+    // C02: the whole list is a transaction; this provider refuses EVERY push,
+    // so its legacy clear-then-add restore also fails → `restore-failed` and
+    // `filtersUnknown`, while the published state and cache stay untouched.
     provider.rejectQueryPushes = true
-    await expect(model.setFilters([{ column: 'id', predicate: 'id <= 10' }])).rejects.toThrow(
-      'filter rejected',
-    )
+    const failure = model.setFilters([{ column: 'id', predicate: 'id <= 10' }])
+    await expect(failure).rejects.toBeInstanceOf(FilterApplyError)
+    await failure.catch((error: FilterApplyError) => {
+      expect(error.phase).toBe('restore-failed')
+      expect((error.cause as Error).message).toBe('filter rejected by provider')
+    })
+    expect(model.filtersUnknown).toBe(true)
 
     expect(model.filters).toEqual([{ column: 'id', predicate: 'id >= 995' }])
     expect(model.totalRows).toBe(5)
@@ -1134,6 +1206,738 @@ describe('GridViewportModel — overlapping query-state mutations (AR-D5)', () =
 
     expect(model.filters).toEqual(secondList)
     expect(provider.filterCalls.at(-1)).toEqual(secondList[0])
+    expect(model.totalRows).toBe(5)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
+  })
+})
+
+/*
+ * C02a — the grid half of the atomic filter capability (contract:
+ * docs/process/handoff/20261120-c01-filter-transaction-contract.md).
+ *
+ * These tests pin §9.1's numbered assertions and the §6 transition shapes:
+ * T1 (plain TypeError), T2 (atomic refusal), T3 (accepted + reload failed),
+ * T4/T5 (legacy partial apply + restore succeeds/fails), T6 (rapid requests),
+ * T7/T8/T8b (R-C01 reconciliation rules 1 and 2, including the overlap),
+ * T9 (shared sort/filter queue), T10 (late page across a failed reload), plus
+ * the `filtersUnknown`/`reloadError` lifecycle, value-free metadata and the
+ * export surface. The FakeProvider (legacy) and AtomicFakeProvider (optional
+ * `replaceFilters` capability) are the provider doubles.
+ */
+
+const SPEC_P: FilterSpec = { column: 'id', predicate: 'id >= 990' }
+const SPEC_A: FilterSpec = { column: 'id', predicate: 'id >= 995' }
+const SPEC_B: FilterSpec = { column: 'id', predicate: 'id <= 4' }
+const LIST_P: FilterSpec[] = [SPEC_P]
+const LIST_A: FilterSpec[] = [SPEC_A]
+const LIST_B: FilterSpec[] = [SPEC_B]
+const SORT_DESC: SortSpec = { column: 'id', direction: 'desc' }
+
+/** Settle a promise and return its rejection (or throw when it resolved). */
+function capture(promise: Promise<unknown>): Promise<unknown> {
+  return promise.then(
+    () => {
+      throw new Error('expected the promise to reject')
+    },
+    (error: unknown) => error,
+  )
+}
+
+describe('GridViewportModel — atomic filter transaction (C02a)', () => {
+  it('§9.1-1 / T1: a malformed spec rejects with the plain TypeError, no phase, zero pushes', async () => {
+    for (const provider of [
+      new FakeProvider({ rowCount: 1000 }),
+      new AtomicFakeProvider({ rowCount: 1000 }),
+    ]) {
+      const model = new GridViewportModel(provider, { overscanRows: 0 })
+      await model.load()
+      const statsBefore = model.stats
+      const loadsBefore = provider.rowCountCalls
+
+      // The malformed spec is the SECOND entry: validation covers the whole
+      // list before any dispatch, so the valid first entry is never pushed.
+      const malformed: FilterSpec[] = [SPEC_P, { column: '', predicate: 'id >= 1' }]
+      const malformedError = await capture(model.setFilters(malformed))
+      expect(malformedError).toBeInstanceOf(TypeError)
+      expect(malformedError).not.toBeInstanceOf(FilterApplyError)
+      expect('phase' in (malformedError as object)).toBe(false)
+
+      const notAnArray = await capture(model.setFilters(undefined as unknown as FilterSpec[]))
+      expect(notAnArray).toBeInstanceOf(TypeError)
+
+      expect(provider.filterAttempts).toEqual([])
+      expect(provider.filterCalls).toEqual([])
+      if (provider instanceof AtomicFakeProvider) expect(provider.replaceAttempts).toEqual([])
+      expect(model.filters).toEqual([])
+      expect(model.filtersUnknown).toBe(false)
+      expect(model.stats).toEqual(statsBefore)
+      expect(provider.rowCountCalls).toBe(loadsBefore) // no epoch
+    }
+  })
+
+  it('§9.1-2 / T2: an atomic refusal is refused-before-change, cause identity, no restore push', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+    const loadsBefore = provider.rowCountCalls
+    const fetchesBefore = provider.fetchLog.length
+
+    const providerError = new Error('replace refused by provider')
+    provider.failReplaceWith = providerError
+    const error = await capture(model.setFilters(LIST_A))
+
+    expect(error).toBeInstanceOf(FilterApplyError)
+    const failure = error as FilterApplyError
+    expect(failure.phase).toBe('refused-before-change')
+    expect(failure.cause).toBe(providerError) // unchanged provider rejection (identity)
+    expect(model.filters).toEqual(LIST_P)
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    // All-before-commit: no restore push, no refresh, no new epoch, cache intact.
+    expect(provider.replaceCalls).toEqual([LIST_P])
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+    expect(provider.fetchLog.length).toBe(fetchesBefore)
+    expect(model.filtersUnknown).toBe(false)
+    expect(model.totalRows).toBe(10)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+  })
+
+  it('§9.1-3 / T3: a post-acceptance reload failure keeps the accepted list + reloadError', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+
+    const reloadFailure = new Error('rowCount exploded')
+    provider.failRowCountWith = reloadFailure
+    const error = await capture(model.setFilters(LIST_A))
+
+    expect(error).toBeInstanceOf(FilterApplyError)
+    const failure = error as FilterApplyError
+    expect(failure.phase).toBe('accepted-reload-failed')
+    expect(failure.cause).toBe(reloadFailure)
+    // Accepted and published: the new list IS the effective state.
+    expect(model.filters).toEqual(LIST_A)
+    expect(provider.effectiveFilters).toEqual(LIST_A)
+    expect(model.reloadError).toBe('rowCount exploded')
+    expect(model.filtersUnknown).toBe(false)
+    // No rollback/restore push after the accepted list — the provider log ends at it.
+    expect(provider.replaceAttempts).toEqual([LIST_P, LIST_A])
+    expect(provider.replaceCalls).toEqual([LIST_P, LIST_A])
+    // The epoch could not be rebuilt: count is stale and the cache was dropped.
+    expect(model.totalRows).toBe(10)
+    expect(model.getRow(0)).toEqual({ status: 'loading' })
+  })
+
+  it('§9.1-4 / T4: a legacy mid-sequence refusal restores the published list exactly once', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P) // filter(null), filter(P)
+    await flush()
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    const loadsBefore = provider.rowCountCalls
+
+    // Let B's clear land and refuse only its spec push: a partial apply that
+    // leaves the provider on `[]`, exactly the probe-B shape.
+    provider.shouldRejectFilterPush = (_spec, callIndex) => callIndex === 3
+    const error = await capture(model.setFilters(LIST_A)) // 2=clear, 3=spec(refused), 4/5=restore
+
+    expect(error).toBeInstanceOf(FilterApplyError)
+    expect((error as FilterApplyError).phase).toBe('refused-before-change')
+    expect((error as Error).cause).toBeInstanceOf(Error)
+    expect(model.filters).toEqual(LIST_P)
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    // Exactly one restore, and its target is the published list (not B).
+    expect(provider.filterAttempts.slice(2)).toEqual([null, SPEC_A, null, SPEC_P])
+    expect(provider.filterCalls.slice(2)).toEqual([null, null, SPEC_P])
+    expect(provider.rowCountCalls).toBe(loadsBefore) // no epoch, cache intact
+    expect(model.totalRows).toBe(10)
+    expect(model.filtersUnknown).toBe(false)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+  })
+
+  it('§9.1-4 / T5: a failed restore reports restore-failed and marks filtersUnknown', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+
+    // B's clear lands (partial apply → provider on []), then every later push
+    // is refused, including the model's one restore attempt.
+    provider.shouldRejectFilterPush = (_spec, callIndex) => callIndex >= 3
+    const error = await capture(model.setFilters(LIST_A))
+
+    expect(error).toBeInstanceOf(FilterApplyError)
+    expect((error as FilterApplyError).phase).toBe('restore-failed')
+    expect(model.filters).toEqual(LIST_P) // published list unchanged…
+    expect(provider.effectiveFilters).toEqual([]) // …and the provider is unknown, not P
+    expect(model.filtersUnknown).toBe(true)
+    expect(model.totalRows).toBe(10) // no epoch was opened
+    expect(model.reloadError).toBeNull()
+  })
+
+  it('§9.1-5 / T7 (R-C01 rule 1): a superseded accepted request restores and publishes nothing', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+
+    const snapshots: string[] = []
+    model.subscribe(() => snapshots.push(model.filters.map((spec) => spec.predicate).join(',')))
+    const loadsAfterP = provider.rowCountCalls
+    const fetchesAfterP = provider.fetchLog.length
+
+    provider.holdQueryPushes = true
+    const superseded = model.setFilters(LIST_A)
+    await flush()
+    expect(provider.effectiveFilters).toEqual(LIST_A) // the provider accepted A…
+
+    const winner = model.setFilters(LIST_B) // …and A is superseded while held
+    await flush()
+
+    provider.releaseQueryPush(0) // A's provider push resolves
+    await flush()
+    // A restored P with exactly one attempt and is held on the restore.
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(provider.replaceCalls).toEqual([LIST_P, LIST_A, LIST_P])
+    expect(model.filters).toEqual(LIST_P)
+    expect(provider.rowCountCalls).toBe(loadsAfterP) // no epoch opened by A
+    expect(provider.fetchLog.length).toBe(fetchesAfterP)
+
+    provider.releaseQueryPush(0) // restore resolves → A settles → B starts
+    await flush()
+    expect(model.filters).toEqual(LIST_P) // still nothing published by A
+    expect(provider.rowCountCalls).toBe(loadsAfterP)
+
+    provider.holdQueryPushes = false
+    provider.releaseQueryPush(0) // B publishes + refreshes
+    await Promise.all([superseded, winner])
+    await flush()
+
+    expect(provider.replaceCalls).toEqual([LIST_P, LIST_A, LIST_P, LIST_B])
+    expect(model.filters).toEqual(LIST_B)
+    expect(model.totalRows).toBe(5)
+    expect(provider.rowCountCalls).toBe(loadsAfterP + 1) // only the winner opened an epoch
+    // No observable snapshot ever carried A: `model.filters` never read it.
+    expect(snapshots).not.toContain(SPEC_A.predicate)
+    expect(snapshots).toContain(SPEC_B.predicate)
+  })
+
+  it('§9.1-6 / T8 (R-C01 rule 2): a newer refusal restores the published list, one attempt, no reload', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+    await model.setFilters(LIST_A) // published A
+    await flush()
+    const loadsBefore = provider.rowCountCalls
+    const attemptsBefore = provider.filterAttempts.length
+
+    provider.shouldRejectFilterPush = (_spec, callIndex) => callIndex === attemptsBefore + 1
+    const error = await capture(model.setFilters(LIST_B))
+
+    expect(error).toBeInstanceOf(FilterApplyError)
+    expect((error as FilterApplyError).phase).toBe('refused-before-change')
+    expect(model.filters).toEqual(LIST_A)
+    expect(provider.effectiveFilters).toEqual(LIST_A)
+    // Exactly one restore, and it pushes A — not the list that preceded A.
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null, SPEC_B, null, SPEC_A])
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+    expect(model.totalRows).toBe(5)
+    expect(model.filtersUnknown).toBe(false)
+  })
+
+  it('§9.1-7 / T8b: accepted-but-superseded A restores P; a later refused B converges on P', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P) // filter(null), filter(P)
+    await flush()
+    const snapshots: string[] = []
+    model.subscribe(() => snapshots.push(model.filters.map((spec) => spec.predicate).join(',')))
+
+    provider.shouldRejectFilterPush = (spec) => spec !== null && spec.predicate === SPEC_B.predicate
+    provider.holdQueryPushes = true
+    const a = model.setFilters(LIST_A)
+    await flush() // A's clear applied and held
+    provider.releaseQueryPush(0)
+    await flush() // A's spec applied and held
+    expect(provider.effectiveFilters).toEqual(LIST_A)
+
+    const b = model.setFilters(LIST_B) // supersedes A
+    provider.holdQueryPushes = false
+    provider.releaseQueryPush(0) // A's spec resolves → A restores P → B runs
+    const rejection = await capture(b)
+    await a
+    await flush()
+
+    expect(rejection).toBeInstanceOf(FilterApplyError)
+    expect((rejection as FilterApplyError).phase).toBe('refused-before-change')
+    // P-apply, A-pushes, A-restore-to-P, B's (refused) pushes, B's restore.
+    expect(provider.filterAttempts).toEqual([
+      null,
+      SPEC_P,
+      null,
+      SPEC_A,
+      null,
+      SPEC_P,
+      null,
+      SPEC_B,
+      null,
+      SPEC_P,
+    ])
+    expect(model.filters).toEqual(LIST_P)
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    // A never became effective: no snapshot ever carried it.
+    expect(snapshots).not.toContain(SPEC_A.predicate)
+    expect(model.totalRows).toBe(10)
+  })
+
+  it('§9.1-8: a run starting after a publish uses the newly published list as its target', async () => {
+    // P published, then A published, then a refused B: the single restore
+    // pushes A. (T8's log order assertion is the ordering pin; this one names
+    // the semantics the overlap must not regress to — restoring P.)
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+    await model.setFilters(LIST_A)
+    await flush()
+    const attemptsBefore = provider.filterAttempts.length
+    provider.shouldRejectFilterPush = (_spec, callIndex) => callIndex === attemptsBefore + 1
+
+    const error = await capture(model.setFilters(LIST_B))
+    expect((error as FilterApplyError).phase).toBe('refused-before-change')
+    const restore = provider.filterAttempts.slice(attemptsBefore + 2)
+    expect(restore).toEqual([null, SPEC_A]) // not [null, SPEC_P]
+    expect(provider.effectiveFilters).toEqual(LIST_A)
+  })
+
+  it('§9.1-9: reloadError is cleared by a successful refresh, never by retry()', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+
+    provider.failRowCountWith = new Error('reload failed once')
+    await capture(model.setFilters(LIST_A))
+    expect(model.reloadError).toBe('reload failed once')
+
+    model.retry() // spans only — must not clear the reload diagnostic
+    await flush()
+    expect(model.reloadError).toBe('reload failed once')
+
+    provider.failRowCountWith = null
+    await model.refresh() // the case-(b) Retry: a successful reload clears it
+    expect(model.reloadError).toBeNull()
+    expect(model.filters).toEqual(LIST_A)
+  })
+
+  it('§9.1-9: filtersUnknown is cleared only by a successful setFilters, never by retry()', async () => {
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+
+    provider.shouldRejectFilterPush = (_spec, callIndex) => callIndex >= 3
+    await capture(model.setFilters(LIST_A))
+    expect(model.filtersUnknown).toBe(true)
+
+    model.retry()
+    await flush()
+    expect(model.filtersUnknown).toBe(true) // retry() re-requests spans only
+
+    provider.shouldRejectFilterPush = null
+    await model.setFilters(LIST_P) // Re-apply: a successful whole-list transaction
+    await flush()
+    expect(model.filtersUnknown).toBe(false)
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+  })
+
+  it('§9.1-10: the error adds exactly phase + cause (plus name) and carries no values', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    await model.setFilters(LIST_P)
+
+    const providerError = new Error('engine rejected the predicate')
+    provider.failReplaceWith = providerError
+    const violent: FilterSpec = { column: 'VIOLENT_COLUMN', predicate: 'VIOLENT_PREDICATE' }
+    const error = (await capture(model.setFilters([violent]))) as FilterApplyError
+
+    expect(error).toBeInstanceOf(FilterApplyError)
+    expect(['refused-before-change', 'accepted-reload-failed', 'restore-failed']).toContain(
+      error.phase,
+    )
+    // Exactly the contract's own members — no predicate/column/snapshot field.
+    expect(Object.keys(error).sort()).toEqual(['cause', 'name', 'phase'])
+    expect(error.name).toBe('FilterApplyError')
+    expect(error.cause).toBe(providerError)
+    // The class adds no values: the message mirrors the cause's own message,
+    // and neither `phase` nor a phase-derived payload echoes a value.
+    expect(error.message).toBe(providerError.message)
+    expect(error.message).not.toContain('VIOLENT')
+    expect(JSON.stringify({ phase: error.phase })).not.toContain('VIOLENT')
+  })
+
+  it('§9.1-11: FilterApplyError/FilterFailurePhase are exported from the package entry', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 10 })
+    const model = new ModelFromIndex(provider) // the public entry's model
+    await model.load()
+    await model.setFilters(LIST_P)
+    provider.failReplaceWith = new Error('refused at the entry')
+
+    const error = await capture(model.setFilters(LIST_A))
+    expect(error).toBeInstanceOf(FilterApplyErrorFromIndex) // module-boundary instanceof
+    expect(error).toBeInstanceOf(FilterApplyError)
+    const failure = error as FilterApplyError
+    expect(failure.name).toBe('FilterApplyError')
+    const phase: FilterFailurePhase = failure.phase
+    expect(phase).toBe('refused-before-change')
+  })
+
+  it('§6 T6: two requests in one tick issue one provider sequence and one refresh', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    const fetchesBefore = provider.fetchLog.length
+
+    const loser = model.setFilters(LIST_P)
+    const winner = model.setFilters(LIST_A) // supersedes before any push runs
+    await Promise.all([loser, winner])
+    await flush()
+
+    expect(provider.replaceAttempts).toEqual([LIST_A]) // zero pushes for the loser
+    expect(model.filters).toEqual(LIST_A)
+    expect(provider.rowCountCalls).toBe(2) // the initial load + the winner's one refresh
+    expect(provider.fetchLog.length).toBe(fetchesBefore + 1) // one refetch, no extra scans
+  })
+
+  it('§6 T6: three rapid applies produce exactly one provider sequence and one scan', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    const loadsBefore = provider.rowCountCalls
+    const fetchesBefore = provider.fetchLog.length
+
+    // One "keypress" per accepted list, all in one tick.
+    const first = model.setFilters(LIST_P)
+    const second = model.setFilters(LIST_A)
+    const third = model.setFilters(LIST_B)
+    await Promise.all([first, second, third])
+    await flush()
+
+    expect(provider.replaceAttempts).toEqual([LIST_B])
+    expect(provider.rowCountCalls).toBe(loadsBefore + 1) // no extra scan per keypress
+    expect(provider.fetchLog.length).toBe(fetchesBefore + 1)
+  })
+
+  it('§6 T9 (R-C01 rule 1): a held legacy filter apply restores its published list before setSort proceeds', async () => {
+    // Probe F's shape, the reason T9 exists: the filter run shares `querySeq`
+    // with `setSort`, so a sort requested while the filter's provider pushes
+    // are in flight supersedes it — and the superseded run must leave the
+    // provider on its published target BEFORE the sort run refreshes, so the
+    // sort's one epoch belongs to the restored filter list.
+    //
+    // The provider is manual so the pre-filter page stays in flight across the
+    // whole interleave: it resolves inside the sort's epoch and must be
+    // dropped by the generation guard, never published.
+    const provider = new FakeProvider({ rowCount: 1000, manual: true })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9) // held fetch, issued under the pre-filter epoch
+    await flush()
+    await model.setFilters(LIST_P) // published: P (filter(null), filter(P))
+    await flush()
+    expect(model.filters).toEqual(LIST_P)
+    expect(model.totalRows).toBe(10)
+    expect(provider.fetchLog.length).toBe(2) // the pre-filter page is still in flight
+    provider.releaseAt(1) // P's own page lands; the pre-filter page stays held
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+    expect(model.stats.rowsReceived).toBe(10)
+
+    const filterSnapshots: string[] = []
+    model.subscribe(() =>
+      filterSnapshots.push(model.filters.map((spec) => spec.predicate).join(',')),
+    )
+    const attemptsBefore = provider.filterAttempts.length
+    const loadsBefore = provider.rowCountCalls
+    const fetchesBefore = provider.fetchLog.length
+
+    provider.holdQueryPushes = true
+    const heldApply = model.setFilters(LIST_A)
+    await flush()
+    // A's clear landed and is held — the provider is mid-sequence.
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null])
+    const sortRun = model.setSort(SORT_DESC) // supersedes the held apply
+    await flush()
+
+    // A's spec push is accepted while the model still publishes P: exactly the
+    // divergence probe F reported, and the state the restore must undo.
+    provider.releaseQueryPush(0)
+    await flush()
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null, SPEC_A])
+    expect(provider.effectiveFilters).toEqual(LIST_A)
+    expect(model.filters).toEqual(LIST_P) // the superseded run publishes nothing
+    expect(model.sort).toBeNull()
+    expect(provider.sortCalls).toEqual([])
+
+    // A's accepted push resolves: the superseded run restores `target` = P
+    // (one attempt) and opens no epoch of its own.
+    provider.releaseQueryPush(0)
+    await flush()
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null, SPEC_A, null])
+    expect(model.filters).toEqual(LIST_P)
+    expect(model.sort).toBeNull()
+    expect(provider.rowCountCalls).toBe(loadsBefore) // no scan, no epoch
+    expect(provider.fetchLog.length).toBe(fetchesBefore)
+    expect(model.totalRows).toBe(10) // P's epoch is still the published one
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+
+    provider.releaseQueryPush(0) // the restore's clear resolves → filter(P) pushed
+    await flush()
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null, SPEC_A, null, SPEC_P])
+    expect(provider.effectiveFilters).toEqual(LIST_P) // restored…
+    expect(provider.sortCalls).toEqual([]) // …before the sort's own push runs
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+
+    provider.releaseQueryPush(0) // the restore lands → the sort run starts
+    await flush()
+    // The ordering pin: the sort's provider push happens against the restored
+    // list, and it has not refreshed yet (its push is still held).
+    expect(provider.sortCalls).toEqual([SORT_DESC])
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+
+    provider.holdQueryPushes = false
+    provider.releaseQueryPush(0) // the sort push resolves → exactly one refresh
+    await Promise.all([heldApply, sortRun]) // neither run rejects
+    await flush()
+
+    // Published filters/sort equal the provider's, and the single epoch the
+    // sort opened belongs to the restored filter list (10 rows, not 1000).
+    expect(model.filters).toEqual(LIST_P)
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(model.sort).toEqual(SORT_DESC)
+    expect(provider.sortCalls).toEqual([SORT_DESC])
+    expect(provider.filterAttempts).toEqual([null, SPEC_P, null, SPEC_A, null, SPEC_P])
+    expect(provider.rowCountCalls).toBe(loadsBefore + 1) // one refresh, no extra scan
+    expect(provider.fetchLog.length).toBe(fetchesBefore + 1) // one refetch, no extra/late page
+    expect(model.totalRows).toBe(10)
+    expect(model.stats.rowsReceived).toBe(0) // the sorted epoch accepted nothing yet
+    expect(model.filtersUnknown).toBe(false)
+    expect(model.reloadError).toBeNull()
+
+    // The pre-filter page held since the beginning is the one stale request
+    // this interleave must not let publish: its arrival is inside the sorted
+    // epoch, so no row, stat, or subscriber snapshot may accept it.
+    const accepted: string[] = []
+    const versionBeforeStale = model.getVersion()
+    model.subscribe(() => {
+      const row = model.getRow(0)
+      accepted.push(
+        `${String(model.stats.rowsReceived)}:${row.status === 'ready' ? JSON.stringify(row.row) : row.status}`,
+      )
+    })
+    provider.releaseAt(0) // the stale pre-filter page resolves (ids 0–9)
+    await flush()
+    expect(accepted).toEqual([]) // no snapshot ever saw the stale page
+    expect(model.getVersion()).toBe(versionBeforeStale) // and no notify fired for it
+    expect(model.stats.rowsReceived).toBe(0)
+    expect(model.getRow(0)).toEqual({ status: 'loading' }) // not [0, 'cell-0']
+    expect(model.filters).toEqual(LIST_P) // the published state is untouched
+
+    provider.releaseAt(0) // the sorted epoch's own page resolves
+    await flush()
+    expect(accepted).toHaveLength(1) // exactly one acceptance, for the new epoch
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.getRow(9)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+    expect(model.stats.rowsReceived).toBe(10) // only the sorted page's 10 rows
+    // No observable snapshot ever carried A (or an ephemeral empty list).
+    expect(filterSnapshots.every((snapshot) => snapshot === SPEC_P.predicate)).toBe(true)
+    expect(filterSnapshots).not.toContain(SPEC_A.predicate)
+  })
+
+  it('§6 T9 (R-C01 rule 1): a held atomic filter apply restores its target before setSort proceeds', async () => {
+    // Manual provider: the pre-filter page is left in flight across the whole
+    // interleave and must be discarded when it resolves in the sorted epoch.
+    const provider = new AtomicFakeProvider({ rowCount: 1000, manual: true })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9) // held fetch, issued under the pre-filter epoch
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+    expect(provider.replaceCalls).toEqual([LIST_P])
+    expect(provider.fetchLog.length).toBe(2) // the pre-filter page is still in flight
+    provider.releaseAt(1) // P's own page lands; the pre-filter page stays held
+    await flush()
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+    expect(model.stats.rowsReceived).toBe(10)
+
+    const loadsBefore = provider.rowCountCalls
+    const fetchesBefore = provider.fetchLog.length
+
+    provider.holdQueryPushes = true
+    const heldApply = model.setFilters(LIST_A)
+    await flush()
+    expect(provider.replaceAttempts).toEqual([LIST_P, LIST_A]) // accepted, held
+    const sortRun = model.setSort(SORT_DESC)
+    await flush()
+    expect(provider.sortCalls).toEqual([]) // the sort is queued behind the apply
+
+    // The accepted-but-superseded run restores `target` = P in ONE atomic
+    // replacement, publishes nothing and opens no epoch.
+    provider.releaseQueryPush(0)
+    await flush()
+    expect(provider.replaceAttempts).toEqual([LIST_P, LIST_A, LIST_P])
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(provider.sortCalls).toEqual([]) // restored before the sort's push
+    expect(model.filters).toEqual(LIST_P)
+    expect(model.sort).toBeNull()
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+    expect(provider.fetchLog.length).toBe(fetchesBefore)
+    expect(model.totalRows).toBe(10)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+
+    provider.releaseQueryPush(0) // the restore resolves → the sort run starts
+    await flush()
+    expect(provider.sortCalls).toEqual([SORT_DESC])
+    expect(provider.effectiveFilters).toEqual(LIST_P) // the sort sees the restored list
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+
+    provider.holdQueryPushes = false
+    provider.releaseQueryPush(0)
+    await Promise.all([heldApply, sortRun])
+    await flush()
+
+    expect(model.filters).toEqual(LIST_P)
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(model.sort).toEqual(SORT_DESC)
+    expect(provider.sortCalls).toEqual([SORT_DESC])
+    expect(provider.replaceAttempts).toEqual([LIST_P, LIST_A, LIST_P]) // no restore after the sort
+    expect(provider.replaceCalls).toEqual([LIST_P, LIST_A, LIST_P])
+    expect(provider.filterAttempts).toEqual([]) // the legacy sequence was never used
+    expect(provider.rowCountCalls).toBe(loadsBefore + 1) // the sort's one refresh
+    expect(provider.fetchLog.length).toBe(fetchesBefore + 1)
+    expect(model.totalRows).toBe(10)
+    expect(model.stats.rowsReceived).toBe(0) // the sorted epoch accepted nothing yet
+    expect(model.filtersUnknown).toBe(false)
+
+    // The stale pre-filter page resolves inside the sorted epoch: the
+    // generation guard must drop it — no row, stat, or snapshot accepts it.
+    const accepted: string[] = []
+    const versionBeforeStale = model.getVersion()
+    model.subscribe(() => {
+      const row = model.getRow(0)
+      accepted.push(
+        `${String(model.stats.rowsReceived)}:${row.status === 'ready' ? JSON.stringify(row.row) : row.status}`,
+      )
+    })
+    provider.releaseAt(0) // the stale pre-filter page resolves (ids 0–9)
+    await flush()
+    expect(accepted).toEqual([]) // no snapshot ever saw the stale page
+    expect(model.getVersion()).toBe(versionBeforeStale) // and no notify fired for it
+    expect(model.stats.rowsReceived).toBe(0)
+    expect(model.getRow(0)).toEqual({ status: 'loading' }) // not [0, 'cell-0']
+    expect(model.filters).toEqual(LIST_P)
+
+    provider.releaseAt(0) // the sorted epoch's own page resolves
+    await flush()
+    expect(accepted).toHaveLength(1) // exactly one acceptance, for the new epoch
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.stats.rowsReceived).toBe(10) // only the sorted page's 10 rows
+  })
+
+  it('§6 T10: a late pre-transaction page cannot land across a failed reload', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000, manual: true })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9) // held fetch, issued under the pre-filter epoch
+    await flush()
+    expect(provider.fetchLog.length).toBe(1)
+
+    provider.failRowCountWith = new Error('reload exploded')
+    const error = await capture(model.setFilters(LIST_P))
+    expect((error as FilterApplyError).phase).toBe('accepted-reload-failed')
+
+    provider.releaseAll() // the old page resolves after the failed epoch
+    await flush()
+
+    // The generation guard drops it: no rows under the failed epoch.
+    expect(model.getRow(0)).toEqual({ status: 'loading' })
+    expect(model.stats.rowsReceived).toBe(0)
+    expect(model.filters).toEqual(LIST_P) // the accepted list stays published
+    expect(model.reloadError).toBe('reload exploded')
+  })
+
+  it('§6 T12: replaceFilters([]) clears in one call, like the legacy filter(null) clear', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+    expect(model.totalRows).toBe(10)
+    const loadsBefore = provider.rowCountCalls
+
+    await model.setFilters([])
+    await flush()
+
+    expect(provider.replaceCalls).toEqual([LIST_P, []]) // one call, exactly [] (clear)
+    expect(model.filters).toEqual([])
+    expect(model.totalRows).toBe(1000)
+    expect(provider.rowCountCalls).toBe(loadsBefore + 1) // one epoch
+  })
+
+  it('§6 T13: providers without the capability keep working (legacy path, no mandatory migration)', async () => {
+    // A provider object typed by the interface that implements only the five
+    // pre-C02 members must still satisfy `GridDataProvider`.
+    const legacy: GridDataProvider = new FakeProvider({ rowCount: 10 })
+    expect('replaceFilters' in legacy).toBe(false)
+    const model = new GridViewportModel(legacy, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 4)
+    await flush()
+
+    await model.setFilters(LIST_B)
+    await flush()
+    expect(model.filters).toEqual(LIST_B)
     expect(model.totalRows).toBe(5)
     expect(model.getRow(0)).toEqual({ status: 'ready', row: [0, 'cell-0'] })
   })
