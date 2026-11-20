@@ -15,6 +15,7 @@
     "adr:index:check": "node scripts/generate-adr-index.mjs --check",
     "docs:links": "node scripts/check-doc-links.mjs",
     "docs:links:check": "node scripts/check-doc-links.mjs",
+    "current-state:check": "node scripts/check-current-state.mjs",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",
