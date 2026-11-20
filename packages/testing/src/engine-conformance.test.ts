@@ -102,6 +102,11 @@ interface FakeMutations {
   resolvesRejectingFilters?: boolean
   /** m2-2: after a predicate error every later op fails (engine not reusable). */
   wedgedAfterPredicateError?: boolean
+  /**
+   * C05: filtered windows preserve every count, the readiness and the registry
+   * but serve one altered anchor value (a count-preserving corruption).
+   */
+  corruptsAnchorValue?: boolean
   /** m2-5: every nullCount is inflated by one. */
   liesAboutProfileNullCounts?: boolean
   /** m2-5: every distinctCount is inflated by one. */
@@ -2710,7 +2715,14 @@ class FakeEngineClient implements ConformanceEngineClient {
     if (sort.length > 0 && !this.mutations.ignoresSort) {
       rows = this.applySort(rows, sort)
     }
-    return { batch: rowsToTable(rows.slice(window.startRow, end)), hasMore: false }
+    const windowed = rows.slice(window.startRow, end)
+    if (this.mutations.corruptsAnchorValue === true && filters.length > 0 && windowed.length > 0) {
+      // Deliberate violation: the counts, the readiness and the registry all
+      // stay intact — only one declared anchor value changes.
+      const first = windowed[0]!
+      windowed[0] = { ...first, id: first.id + 1000 }
+    }
+    return { batch: rowsToTable(windowed), hasMore: false }
   }
 
   async query(sql: string): Promise<ConformanceBatchResult> {
@@ -3855,6 +3867,12 @@ describe('engine conformance suite (detects non-compliant engines)', () => {
     )
     expect(passed).toBe(false)
     expect(detail).toContain('wedged') // the final anchor window can no longer be served
+  })
+
+  it('predicate-error-reuse: detects a count-preserving anchor value corruption', async () => {
+    const { passed, detail } = await runOne({ corruptsAnchorValue: true }, 'predicate-error-reuse')
+    expect(passed).toBe(false)
+    expect(detail).toContain('id[0]')
   })
 
   it('profile-semantics: detects inflated nullCounts', async () => {
