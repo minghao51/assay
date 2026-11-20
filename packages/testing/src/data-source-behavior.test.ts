@@ -47,6 +47,8 @@ interface FakeMutations {
   keepsFailedAttempt?: boolean
   /** A failed attempt also queues a late, identity-blind cache clear. */
   lateUnconditionalClear?: boolean
+  /** A failed attempt clears the cache immediately, without owning it. */
+  immediateUnconditionalClear?: boolean
   /** A synchronous handle throw escapes instead of rejecting the attempt. */
   syncThrowEscapes?: boolean
   /** An FSA AbortError propagates as a rejection instead of resolving null. */
@@ -129,7 +131,13 @@ function createFakeSource(
     }
     const shared: Promise<BehaviorFile> = attempt.catch((error: unknown) => {
       if (mutations.keepsFailedAttempt !== true) {
-        if (filePromise === shared) filePromise = null
+        if (mutations.immediateUnconditionalClear === true) {
+          // Deliberate violation: retire the cache without checking that this
+          // failure belongs to the attempt the source currently holds.
+          filePromise = null
+        } else if (filePromise === shared) {
+          filePromise = null
+        }
         if (mutations.lateUnconditionalClear === true) {
           // Deliberate violation: a queued, identity-blind clear drops
           // whatever attempt is current by the time it runs — including a
@@ -432,6 +440,15 @@ describe('data-source behavior suite (detects non-compliant sources)', () => {
     const { passed, detail } = await runOne({ lateUnconditionalClear: true }, 'acquisition-retry')
     expect(passed).toBe(false)
     expect(detail).toContain('must not clear the newer attempt')
+  })
+
+  it('acquisition-retry: detects an immediate identity-blind retirement of a superseded attempt', async () => {
+    const { passed, detail } = await runOne(
+      { immediateUnconditionalClear: true },
+      'acquisition-retry',
+    )
+    expect(passed).toBe(false)
+    expect(detail).toContain('must not retire the cached attempt')
   })
 
   it('acquisition-retry: detects a synchronous handle throw escaping the attempt', async () => {

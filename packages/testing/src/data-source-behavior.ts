@@ -45,9 +45,11 @@
  * 7. `acquisition-retry` — deliberate retry semantics for the lazily acquired
  *    `File` (B06/Q3): concurrent `open()`/`metadata()`/`getFile()` calls share
  *    one in-flight attempt and all observe its failure; the next call after a
- *    failure retries exactly once (a caller joining the retry shares it); an
- *    old rejection cannot clear a newer in-flight attempt; a fulfilled attempt
- *    is retained for the instance lifetime; a synchronous handle throw becomes
+ *    failure retries exactly once (a caller joining the retry shares it); a
+ *    failed attempt that is no longer the cached one cannot retire the cached
+ *    attempt (identity-guarded retirement, observable when a handle re-enters
+ *    the source while an acquisition is being created); a fulfilled attempt is
+ *    retained for the instance lifetime; a synchronous handle throw becomes
  *    the attempt's rejection instead of escaping synchronously; and a failed
  *    acquisition never logs the file name (ADR 0025).
  *
@@ -321,6 +323,91 @@ function deferred<T>(): Deferred<T> {
 /** Let queued microtasks and one macrotask turn run (late/queued work lands). */
 function settleTurns(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * Identity-guarded retirement of a *superseded* acquisition attempt (B06/Q3).
+ *
+ * A handle's `getFile()` is external code that the source calls synchronously,
+ * and a handle that calls back into the source while an acquisition is being
+ * created makes the source cache its own (outer) attempt while a nested
+ * attempt exists. That nested attempt is *not* the cached one, so its failure
+ * must leave the cache alone: an identity-blind retirement would drop the
+ * still-in-flight attempt and force a third acquisition. A single-slot cache
+ * is only observable here — outside re-entrancy the cached attempt is always
+ * the one that fails, so a blind clear and a guarded one behave identically.
+ *
+ * Returns `true` when pinned, or `'seam-absent'` for a source without the
+ * additive `getFile()` seam (recorded in the facts, never passed vacuously).
+ */
+async function expectSupersededAttemptCannotClearCache(
+  subject: DataSourceBehaviorSubject,
+  snapshot: BehaviorFile,
+): Promise<string | boolean> {
+  const outerAttempt = deferred<BehaviorFile>()
+  const nestedAttempt = deferred<BehaviorFile>()
+  let acquisitions = 0
+  let reentrantGetFile: (() => Promise<BehaviorFile>) | null = null
+  const nestedCalls: Promise<BehaviorFile>[] = []
+  const reentrantHandle: BehaviorFileHandle = {
+    name: snapshot.name,
+    getFile: () => {
+      acquisitions += 1
+      if (acquisitions === 1) {
+        // Re-enter while this (outer) acquisition is being created: the source
+        // has not cached it yet, so the nested call caches an attempt of its
+        // own — which the creator then supersedes.
+        if (reentrantGetFile !== null) nestedCalls.push(reentrantGetFile())
+        return outerAttempt.promise
+      }
+      if (acquisitions === 2) return nestedAttempt.promise
+      return Promise.resolve(snapshot)
+    },
+  }
+  const reentrantSource = subject.createHandleSource(reentrantHandle)
+  const seam = reentrantSource.getFile
+  if (typeof seam !== 'function') return 'seam-absent'
+  reentrantGetFile = seam.bind(reentrantSource)
+
+  const outerCall = reentrantGetFile()
+  outerCall.catch(() => undefined)
+  expectEqual(
+    acquisitions,
+    2,
+    'the re-entrant acquisition must produce a nested attempt alongside the outer one',
+  )
+
+  const nestedStarted = nestedCalls[0]
+  if (nestedStarted === undefined) {
+    fail('the re-entrant acquisition must hand the nested attempt to its caller')
+  }
+  nestedAttempt.reject(new Error('NotFoundError: superseded attempt failed'))
+  expectCondition(
+    (await rejectionOf(nestedStarted)) !== null,
+    'the superseded attempt must surface its own failure to the caller that started it',
+  )
+  // Any queued late work lands before the join below.
+  await settleTurns()
+
+  const joined = reentrantGetFile()
+  joined.catch(() => undefined)
+  expectEqual(
+    acquisitions,
+    2,
+    'a failed attempt that is no longer the cached one must not retire the cached attempt (no extra acquisition)',
+  )
+
+  outerAttempt.resolve(snapshot)
+  expectCondition(
+    (await outerCall) === snapshot,
+    'the cached attempt must still fulfil after the superseded attempt failed',
+  )
+  expectCondition(
+    (await joined) === snapshot,
+    'a caller joining after the superseded failure must observe the cached attempt',
+  )
+  expectEqual(acquisitions, 2, 'the cached attempt must never be re-acquired')
+  return true
 }
 
 type DataSourceBehaviorScenario = (
@@ -878,11 +965,17 @@ const scenarios: Record<DataSourceBehaviorScenarioName, DataSourceBehaviorScenar
       }
     }
 
+    const supersededAttemptCannotClearCache = await expectSupersededAttemptCannotClearCache(
+      subject,
+      snapshot,
+    )
+
     return {
       sharedInFlightAttempt: true,
       concurrentFailureObserved: true,
       retriedExactlyOnce: true,
       staleRejectionCannotClearRetry: true,
+      supersededAttemptCannotClearCache,
       fulfilledAttemptRetained: true,
       frozenHandle: true,
       syncThrowCaptured,

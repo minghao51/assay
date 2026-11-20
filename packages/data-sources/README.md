@@ -107,8 +107,9 @@ genuine OPFS-staged handles and real browser capability globals;
 evidence. This locks the m1-3/m1-4 semantics (identity/idempotency, one-shot
 `getFile`, metadata = format+size, cancel → `null`, capability matrix, R5
 fallback order) and the B06/Q3 acquisition-retry contract (one shared in-flight
-attempt, exactly one retry after a failure, a retained fulfilled snapshot, a
-captured synchronous throw, and no name logging) against regression.
+attempt, exactly one retry after a failure, identity-guarded retirement so a
+superseded attempt's failure cannot drop the cached one, a retained fulfilled
+snapshot, a captured synchronous throw, and no name logging) against regression.
 
 `harness/public/customers.csv` is a byte-identical copy of the canonical
 `fixtures/csv/customers.csv` (sha-256 `202ea367…`), kept inside the harness so

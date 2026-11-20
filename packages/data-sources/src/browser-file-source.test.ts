@@ -294,6 +294,60 @@ describe('BrowserFileSource — deliberate acquisition retry semantics (B06)', (
     expect(attempts()).toBe(2)
   })
 
+  test('a failed attempt that is no longer the cached one cannot retire the cached attempt', async () => {
+    // Identity-guarded retirement, the only flow that can observe it: the
+    // handle's `getFile()` is external code the source calls synchronously, so
+    // a handle that re-enters the source *while an acquisition is being
+    // created* makes the source cache its own (outer) attempt while a nested
+    // attempt exists. That nested attempt is not the cached one — an
+    // identity-blind clear would drop the still-in-flight cached attempt and
+    // make the next call acquire a third time.
+    const outer = deferred<File>()
+    const nested = deferred<File>()
+    const file = new File([csvBytes], 'reentrant.csv')
+    let acquisitions = 0
+    let getFile: (() => Promise<File>) | null = null
+    const nestedCalls: Promise<File>[] = []
+    const handle: FileSystemFileHandle = {
+      kind: 'file',
+      name: 'reentrant.csv',
+      getFile: () => {
+        acquisitions += 1
+        if (acquisitions === 1) {
+          // Re-enter while the outer acquisition is being created.
+          if (getFile !== null) nestedCalls.push(getFile())
+          return outer.promise
+        }
+        if (acquisitions === 2) return nested.promise
+        return Promise.resolve(file)
+      },
+      isSameEntry: async () => false,
+      createWritable: async () => {
+        throw new Error('createWritable is not part of the read-only source contract')
+      },
+    }
+    const source = new BrowserFileSource({ fileSystemHandle: handle })
+    getFile = source.getFile.bind(source)
+
+    const outerCall = getFile()
+    expect(acquisitions).toBe(2) // the nested attempt was cached first, then superseded
+
+    const nestedStarted = nestedCalls[0]
+    if (nestedStarted === undefined) throw new Error('expected a nested acquisition attempt')
+    nested.reject(new Error('NotFoundError: superseded attempt failed'))
+    expect(await rejectionOf(nestedStarted)).toBeInstanceOf(Error)
+    await settleTurns() // any queued late clear lands here
+
+    // The cache still holds the outer attempt: a join shares it, no third fetch.
+    const joined = source.getFile()
+    expect(acquisitions).toBe(2)
+
+    outer.resolve(file)
+    await expect(outerCall).resolves.toBe(file)
+    await expect(joined).resolves.toBe(file)
+    expect(acquisitions).toBe(2)
+  })
+
   test('a synchronous getFile() throw becomes the attempt rejection (never a synchronous throw) and is retried', async () => {
     const file = new File([csvBytes], 'sync-throw.csv')
     let attempt = 0

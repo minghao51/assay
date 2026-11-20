@@ -103,6 +103,7 @@ for (const name of SCENARIOS) {
         expect(result.facts['concurrentFailureObserved']).toBe(true)
         expect(result.facts['retriedExactlyOnce']).toBe(true)
         expect(result.facts['staleRejectionCannotClearRetry']).toBe(true)
+        expect(result.facts['supersededAttemptCannotClearCache']).toBe(true)
         expect(result.facts['fulfilledAttemptRetained']).toBe(true)
         expect(result.facts['frozenHandle']).toBe(true)
         expect(result.facts['syncThrowCaptured']).toBe(true)

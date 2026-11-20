@@ -57,6 +57,7 @@ describe('BrowserFileSource — data-source behavior suite (Node unit)', () => {
     expect(retry?.['concurrentFailureObserved']).toBe(true)
     expect(retry?.['retriedExactlyOnce']).toBe(true)
     expect(retry?.['staleRejectionCannotClearRetry']).toBe(true)
+    expect(retry?.['supersededAttemptCannotClearCache']).toBe(true)
     expect(retry?.['fulfilledAttemptRetained']).toBe(true)
     expect(retry?.['frozenHandle']).toBe(true)
     expect(retry?.['syncThrowCaptured']).toBe(true)

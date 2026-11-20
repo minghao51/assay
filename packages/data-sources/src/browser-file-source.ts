@@ -22,8 +22,11 @@
  *   attempt and all observe its outcome.
  * - A *failed* attempt is deliberately retryable (decision Q3): the rejection
  *   is rethrown to every caller waiting on it, and the next call starts one
- *   fresh attempt. The failed attempt is retired only while it is still the
- *   cached attempt, so an older rejection can never clear a newer one.
+ *   fresh attempt. Retirement is identity-guarded — only the attempt the
+ *   source currently holds may retire the cache, so a failure from an attempt
+ *   that no longer owns it (a handle that re-enters `getFile()` while another
+ *   acquisition is being created, leaving a superseded nested attempt) can
+ *   never clear the cached attempt.
  * - A *fulfilled* attempt is retained for the instance's lifetime: its `File`
  *   is never re-fetched because the file changed on disk, so
  *   `open()`/`metadata()` keep observing one consistent snapshot.
