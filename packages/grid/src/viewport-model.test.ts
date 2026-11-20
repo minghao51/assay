@@ -1231,6 +1231,7 @@ const SPEC_B: FilterSpec = { column: 'id', predicate: 'id <= 4' }
 const LIST_P: FilterSpec[] = [SPEC_P]
 const LIST_A: FilterSpec[] = [SPEC_A]
 const LIST_B: FilterSpec[] = [SPEC_B]
+const SORT_DESC: SortSpec = { column: 'id', direction: 'desc' }
 
 /** Settle a promise and return its rejection (or throw when it resolved). */
 function capture(promise: Promise<unknown>): Promise<unknown> {
@@ -1662,6 +1663,161 @@ describe('GridViewportModel — atomic filter transaction (C02a)', () => {
     expect(provider.replaceAttempts).toEqual([LIST_B])
     expect(provider.rowCountCalls).toBe(loadsBefore + 1) // no extra scan per keypress
     expect(provider.fetchLog.length).toBe(fetchesBefore + 1)
+  })
+
+  it('§6 T9 (R-C01 rule 1): a held legacy filter apply restores its published list before setSort proceeds', async () => {
+    // Probe F's shape, the reason T9 exists: the filter run shares `querySeq`
+    // with `setSort`, so a sort requested while the filter's provider pushes
+    // are in flight supersedes it — and the superseded run must leave the
+    // provider on its published target BEFORE the sort run refreshes, so the
+    // sort's one epoch belongs to the restored filter list.
+    const provider = new FakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P) // published: P (filter(null), filter(P))
+    await flush()
+    expect(model.filters).toEqual(LIST_P)
+    expect(model.totalRows).toBe(10)
+
+    const filterSnapshots: string[] = []
+    model.subscribe(() =>
+      filterSnapshots.push(model.filters.map((spec) => spec.predicate).join(',')),
+    )
+    const attemptsBefore = provider.filterAttempts.length
+    const loadsBefore = provider.rowCountCalls
+    const fetchesBefore = provider.fetchLog.length
+
+    provider.holdQueryPushes = true
+    const heldApply = model.setFilters(LIST_A)
+    await flush()
+    // A's clear landed and is held — the provider is mid-sequence.
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null])
+    const sortRun = model.setSort(SORT_DESC) // supersedes the held apply
+    await flush()
+
+    // A's spec push is accepted while the model still publishes P: exactly the
+    // divergence probe F reported, and the state the restore must undo.
+    provider.releaseQueryPush(0)
+    await flush()
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null, SPEC_A])
+    expect(provider.effectiveFilters).toEqual(LIST_A)
+    expect(model.filters).toEqual(LIST_P) // the superseded run publishes nothing
+    expect(model.sort).toBeNull()
+    expect(provider.sortCalls).toEqual([])
+
+    // A's accepted push resolves: the superseded run restores `target` = P
+    // (one attempt) and opens no epoch of its own.
+    provider.releaseQueryPush(0)
+    await flush()
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null, SPEC_A, null])
+    expect(model.filters).toEqual(LIST_P)
+    expect(model.sort).toBeNull()
+    expect(provider.rowCountCalls).toBe(loadsBefore) // no scan, no epoch
+    expect(provider.fetchLog.length).toBe(fetchesBefore)
+    expect(model.totalRows).toBe(10) // P's epoch is still the published one
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+
+    provider.releaseQueryPush(0) // the restore's clear resolves → filter(P) pushed
+    await flush()
+    expect(provider.filterAttempts.slice(attemptsBefore)).toEqual([null, SPEC_A, null, SPEC_P])
+    expect(provider.effectiveFilters).toEqual(LIST_P) // restored…
+    expect(provider.sortCalls).toEqual([]) // …before the sort's own push runs
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+
+    provider.releaseQueryPush(0) // the restore lands → the sort run starts
+    await flush()
+    // The ordering pin: the sort's provider push happens against the restored
+    // list, and it has not refreshed yet (its push is still held).
+    expect(provider.sortCalls).toEqual([SORT_DESC])
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+
+    provider.holdQueryPushes = false
+    provider.releaseQueryPush(0) // the sort push resolves → exactly one refresh
+    await Promise.all([heldApply, sortRun]) // neither run rejects
+    await flush()
+
+    // Published filters/sort equal the provider's, and the single epoch the
+    // sort opened belongs to the restored filter list (10 rows, not 1000).
+    expect(model.filters).toEqual(LIST_P)
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(model.sort).toEqual(SORT_DESC)
+    expect(provider.sortCalls).toEqual([SORT_DESC])
+    expect(provider.filterAttempts).toEqual([null, SPEC_P, null, SPEC_A, null, SPEC_P])
+    expect(provider.rowCountCalls).toBe(loadsBefore + 1) // one refresh, no extra scan
+    expect(provider.fetchLog.length).toBe(fetchesBefore + 1) // one refetch, no extra/late page
+    expect(model.totalRows).toBe(10)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.getRow(9)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+    expect(model.stats.rowsReceived).toBe(10)
+    expect(model.filtersUnknown).toBe(false)
+    expect(model.reloadError).toBeNull()
+    // No observable snapshot ever carried A (or an ephemeral empty list).
+    expect(filterSnapshots.every((snapshot) => snapshot === SPEC_P.predicate)).toBe(true)
+    expect(filterSnapshots).not.toContain(SPEC_A.predicate)
+  })
+
+  it('§6 T9 (R-C01 rule 1): a held atomic filter apply restores its target before setSort proceeds', async () => {
+    const provider = new AtomicFakeProvider({ rowCount: 1000 })
+    const model = new GridViewportModel(provider, { overscanRows: 0 })
+    await model.load()
+    model.observeViewport(0, 9)
+    await flush()
+    await model.setFilters(LIST_P)
+    await flush()
+    expect(provider.replaceCalls).toEqual([LIST_P])
+
+    const loadsBefore = provider.rowCountCalls
+    const fetchesBefore = provider.fetchLog.length
+
+    provider.holdQueryPushes = true
+    const heldApply = model.setFilters(LIST_A)
+    await flush()
+    expect(provider.replaceAttempts).toEqual([LIST_P, LIST_A]) // accepted, held
+    const sortRun = model.setSort(SORT_DESC)
+    await flush()
+    expect(provider.sortCalls).toEqual([]) // the sort is queued behind the apply
+
+    // The accepted-but-superseded run restores `target` = P in ONE atomic
+    // replacement, publishes nothing and opens no epoch.
+    provider.releaseQueryPush(0)
+    await flush()
+    expect(provider.replaceAttempts).toEqual([LIST_P, LIST_A, LIST_P])
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(provider.sortCalls).toEqual([]) // restored before the sort's push
+    expect(model.filters).toEqual(LIST_P)
+    expect(model.sort).toBeNull()
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+    expect(provider.fetchLog.length).toBe(fetchesBefore)
+    expect(model.totalRows).toBe(10)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [990, 'cell-990'] })
+
+    provider.releaseQueryPush(0) // the restore resolves → the sort run starts
+    await flush()
+    expect(provider.sortCalls).toEqual([SORT_DESC])
+    expect(provider.effectiveFilters).toEqual(LIST_P) // the sort sees the restored list
+    expect(provider.rowCountCalls).toBe(loadsBefore)
+
+    provider.holdQueryPushes = false
+    provider.releaseQueryPush(0)
+    await Promise.all([heldApply, sortRun])
+    await flush()
+
+    expect(model.filters).toEqual(LIST_P)
+    expect(provider.effectiveFilters).toEqual(LIST_P)
+    expect(model.sort).toEqual(SORT_DESC)
+    expect(provider.sortCalls).toEqual([SORT_DESC])
+    expect(provider.replaceAttempts).toEqual([LIST_P, LIST_A, LIST_P]) // no restore after the sort
+    expect(provider.replaceCalls).toEqual([LIST_P, LIST_A, LIST_P])
+    expect(provider.filterAttempts).toEqual([]) // the legacy sequence was never used
+    expect(provider.rowCountCalls).toBe(loadsBefore + 1) // the sort's one refresh
+    expect(provider.fetchLog.length).toBe(fetchesBefore + 1)
+    expect(model.totalRows).toBe(10)
+    expect(model.getRow(0)).toEqual({ status: 'ready', row: [999, 'cell-999'] })
+    expect(model.stats.rowsReceived).toBe(10)
+    expect(model.filtersUnknown).toBe(false)
   })
 
   it('§6 T10: a late pre-transaction page cannot land across a failed reload', async () => {
