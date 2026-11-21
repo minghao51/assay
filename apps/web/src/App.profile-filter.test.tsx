@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GridViewportModel } from '@assay/grid'
 import { App } from './App'
+import { FILTER_RELOAD_FAILED_MESSAGE } from './grid/filter-failure'
 import type { ArrowTableLike } from './grid/provider'
 
 /**
@@ -496,8 +497,10 @@ describe('ug-16 — base-derived stats refuse rather than remap', () => {
     vi.restoreAllMocks()
   })
 
-  it('surfaces the framed filter error and rolls back when the engine rejects the apply', async () => {
+  it('keeps the accepted filters and reports the reload failure when the view cannot reload (C02b)', async () => {
     const setFilters = vi.spyOn(GridViewportModel.prototype, 'setFilters')
+    // The provider accepts the list; the FOLLOWING filtered count fails — C01
+    // case (b), accepted-reload-failed.
     h.failFilteredCountOnce = true
     await openFixture()
     expandProfile()
@@ -507,14 +510,26 @@ describe('ug-16 — base-derived stats refuse rather than remap', () => {
       fireEvent.click(topKButton('country', 'SG'))
     })
 
-    // The apply rejected, the previous (empty) filter list was restored, and
-    // the existing framed `filter` copy is shown as an alert.
-    expect(setFilters).toHaveBeenCalledTimes(2)
-    expect(setFilters.mock.calls[1]?.[0]).toEqual([])
+    // Exactly one attempt: the model owns the transaction and its single
+    // restoration attempt (C01 §7), so the bridge issues no compensating
+    // `setFilters(previous)`.
+    expect(setFilters).toHaveBeenCalledTimes(1)
+    expect(setFilters.mock.calls[0]?.[0]).toEqual([{ column: 'country', predicate: "= 'SG'" }])
+    const model = setFilters.mock.instances[0] as GridViewportModel
+    // The list was applied and published; only the view failed to reload, so
+    // the copy may not claim a rollback and the chips stay.
+    expect(model.filters).toEqual([{ column: 'country', predicate: "= 'SG'" }])
+    expect(model.filtersUnknown).toBe(false)
+    expect(model.reloadError).not.toBeNull()
     expect(screen.getByTestId('profile-filter-error').textContent).toBe(
-      'The filter could not be applied: engine unavailable. The previous filters are still in effect.',
+      'The filters were applied, but the grid could not be reloaded. Retry to reload the view.',
     )
     expect(screen.getByTestId('profile-filter-error').getAttribute('role')).toBe('alert')
+    expect(screen.getByTestId('profile-filter-error').textContent).not.toContain('previous filters')
+    // The reload diagnostic is never rendered.
+    expect(document.body.textContent).not.toContain('engine unavailable')
+    expect(screen.getAllByTestId('filter-chip')).toHaveLength(1)
+    // The stale epoch is honest: the total was not re-read.
     expect(screen.getByTestId('grid-total-rows').textContent).toBe('1')
     vi.restoreAllMocks()
   })
@@ -566,27 +581,29 @@ describe('ug-16 round 2 — one apply at a time (single-flight)', () => {
     expect(filteredRequests()).toHaveLength(1)
     expect(filteredRequests().some((list) => list[0]?.predicate === "= 'US'")).toBe(false)
 
-    // Attempt 1's own rejection is current: it rolls back to its own previous
-    // list (never a stale one) and surfaces the framed copy.
+    // Attempt 1's own rejection is current. C02b: there is nothing to restore
+    // — the provider accepted the list and the model published it; only the
+    // view failed to reload — so one call stays one call and the copy is the
+    // reload sentence, never a rollback claim.
     await act(async () => {
       failure.reject()
     })
     await flushAsync()
-    expect(setFilters).toHaveBeenCalledTimes(2)
-    expect(setFilters.mock.calls[1]?.[0]).toEqual([])
+    expect(setFilters).toHaveBeenCalledTimes(1)
     const model = setFilters.mock.instances[0] as GridViewportModel
-    expect(model.filters).toEqual([])
+    expect(model.filters).toEqual([{ column: 'country', predicate: "= 'SG'" }])
     expect(screen.getByTestId('profile-filter-error').textContent).toBe(
-      'The filter could not be applied: engine unavailable. The previous filters are still in effect.',
+      FILTER_RELOAD_FAILED_MESSAGE,
     )
 
-    // The gate released with the attempt: the next click applies normally.
+    // The gate released with the attempt: the next click applies normally and
+    // replaces the accepted list (no residue from the failed attempt).
     expect((topKButton('country', 'US') as HTMLButtonElement).disabled).toBe(false)
     await act(async () => {
       fireEvent.click(topKButton('country', 'US'))
     })
-    expect(setFilters).toHaveBeenCalledTimes(3)
-    expect(setFilters.mock.calls[2]?.[0]).toEqual([{ column: 'country', predicate: "= 'US'" }])
+    expect(setFilters).toHaveBeenCalledTimes(2)
+    expect(setFilters.mock.calls[1]?.[0]).toEqual([{ column: 'country', predicate: "= 'US'" }])
     expect(model.filters).toEqual([{ column: 'country', predicate: "= 'US'" }])
     expect(screen.queryByTestId('profile-filter-error')).toBeNull()
     vi.restoreAllMocks()
