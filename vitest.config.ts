@@ -55,6 +55,21 @@ export default defineConfig({
         },
       },
       {
+        // D03b: the desktop webview's extracted presentation controllers
+        // (`apps/vscode/webview/{validation-panel,diff-panel,dirty-history}.ts`)
+        // are DOM-bound, so their tests need a DOM. They add NO coverage
+        // denominator and claim none: the coverage include is
+        // `apps/*/src/**`, and `apps/vscode/webview` stays outside it (a
+        // browser coverage collector is the separate D03/A04 decision). The
+        // include set is disjoint from the other projects, so nothing is
+        // double-run.
+        test: {
+          name: 'vscode-webview',
+          include: ['apps/vscode/webview/**/*.test.ts'],
+          environment: 'happy-dom',
+        },
+      },
+      {
         // gd-1 (2026-10-28): the CLI integration gate is the only spawn-heavy
         // suite. Every test shells out to the COMPILED CLI in a fresh process
         // (`node --import tsx dist/index.js …`, ADR 0042), and the tsx + module
