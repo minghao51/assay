@@ -217,7 +217,7 @@ describe('current-state checker — active-queue mutations', () => {
       'active-queue',
     )
     expect(findings.map((finding) => finding.expected)).toContain(
-      'the unselected clause names exactly ENG-2, ENG-3 (pickup "recorded, not selected")',
+      'the unselected clause names exactly ENG-2 (pickup "recorded, not selected")',
     )
     expect(findings[0].actual).toContain('EW-04I')
   })
@@ -251,7 +251,7 @@ describe('current-state checker — active-queue mutations', () => {
       'active-queue',
     )
     expect(findings.map((finding) => finding.expected)).toContain(
-      'the unselected clause names exactly ENG-3 (pickup "recorded, not selected")',
+      'the unselected clause names exactly none (pickup "recorded, not selected")',
     )
   })
 

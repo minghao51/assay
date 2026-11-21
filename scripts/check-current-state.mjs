@@ -635,7 +635,7 @@ function checkActiveQueue(deps, report) {
     report.expect(
       sameSet(named, expectedRemaining),
       { fact, file: SOURCES.handoff, line: blockLine },
-      `the unselected clause names exactly ${formatSet(expectedRemaining)} (pickup "recorded, not selected")`,
+      `the unselected clause names exactly ${expectedRemaining.length === 0 ? 'none' : formatSet(expectedRemaining)} (pickup "recorded, not selected")`,
       named.length === 0 ? 'none named' : formatSet(named),
     )
   }
