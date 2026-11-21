@@ -2668,7 +2668,7 @@
         },
         {
           "file": "apps/web/src/App.tsx",
-          "line": 24,
+          "line": 18,
           "via": "import-type",
           "symbols": ["ContractV1"]
         },
@@ -2754,19 +2754,19 @@
         },
         {
           "file": "apps/web/src/App.tsx",
-          "line": 27,
+          "line": 21,
           "via": "import",
           "symbols": ["pickDataFile"]
         },
         {
           "file": "apps/web/src/App.tsx",
-          "line": 28,
+          "line": 22,
           "via": "import-type",
           "symbols": ["PickedDataFile"]
         },
         {
           "file": "apps/web/src/App.tsx",
-          "line": 29,
+          "line": 23,
           "via": "import",
           "symbols": ["detectFormatFromFileName"]
         },
@@ -2926,7 +2926,7 @@
       "workspaceTarget": "packages/domain",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 82,
+      "useSiteCount": 84,
       "useSites": [
         {
           "file": "apps/web/src/App.section-summaries.test.tsx",
@@ -2942,15 +2942,15 @@
         },
         {
           "file": "apps/web/src/App.tsx",
-          "line": 22,
+          "line": 16,
           "via": "import-type",
           "symbols": ["OverlayBase"]
         },
         {
           "file": "apps/web/src/App.tsx",
-          "line": 23,
+          "line": 17,
           "via": "import",
-          "symbols": ["emptyHistory", "liveRowCount", "stateAtCursor"]
+          "symbols": ["liveRowCount", "stateAtCursor"]
         },
         {
           "file": "apps/web/src/edit/HistoryPanel.tsx",
@@ -3006,7 +3006,7 @@
       "workspaceTarget": "packages/engine-duckdb",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 86,
+      "useSiteCount": 88,
       "useSites": [
         {
           "file": "apps/web/src/App.column-ops.test.tsx",
@@ -3086,7 +3086,7 @@
       "workspaceTarget": "packages/grid",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 46,
+      "useSiteCount": 48,
       "useSites": [
         {
           "file": "apps/web/src/App.profile-filter.test.tsx",
@@ -3102,13 +3102,13 @@
         },
         {
           "file": "apps/web/src/App.tsx",
-          "line": 25,
+          "line": 19,
           "via": "import",
           "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/web/src/App.tsx",
-          "line": 26,
+          "line": 20,
           "via": "import-type",
           "symbols": ["ColumnSchema"]
         },
@@ -3246,19 +3246,13 @@
       "workspaceTarget": "packages/telemetry",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 16,
+      "useSiteCount": 17,
       "useSites": [
         {
           "file": "apps/web/src/App.tsx",
           "line": 15,
           "via": "import",
-          "symbols": [
-            "bucketColumnCount",
-            "bucketFindingCount",
-            "bucketRowCount",
-            "bucketSize",
-            "classifyOsFamily"
-          ]
+          "symbols": ["bucketFindingCount", "classifyOsFamily"]
         },
         {
           "file": "apps/web/src/export/ExportDialog.tsx",
@@ -3271,6 +3265,12 @@
           "line": 10,
           "via": "import",
           "symbols": ["bucketColumnCount"]
+        },
+        {
+          "file": "apps/web/src/sessions/useSessionOwner.ts",
+          "line": 107,
+          "via": "import",
+          "symbols": ["bucketColumnCount", "bucketRowCount", "bucketSize"]
         },
         {
           "file": "apps/web/src/sql/SqlPanel.tsx",
@@ -3315,24 +3315,6 @@
           "line": 4,
           "via": "import-type",
           "symbols": ["TelemetryEvent"]
-        },
-        {
-          "file": "apps/web/src/telemetry/runtime.ts",
-          "line": 24,
-          "via": "import",
-          "symbols": [
-            "SCHEMA_VERSION",
-            "createEventBuffer",
-            "createSessionTracker",
-            "createTelemetryCore",
-            "generateInstallToken",
-            "generateSessionToken",
-            "isInstallToken",
-            "isSessionToken",
-            "isTelemetryEnabled",
-            "splitIntoBatches",
-            "validateEvent"
-          ]
         }
       ],
       "useSitesTruncated": true,
@@ -3457,7 +3439,7 @@
         "react": "^18.0.0 || ^19.0.0",
         "react-dom": "^18.0.0 || ^19.0.0"
       },
-      "useSiteCount": 74,
+      "useSiteCount": 75,
       "useSites": [
         {
           "file": "apps/web/src/App.column-ops.test.tsx",
@@ -3537,7 +3519,7 @@
       "workspaceTarget": null,
       "engines": null,
       "peerDependencies": {},
-      "useSiteCount": 60,
+      "useSiteCount": 61,
       "useSites": [
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
@@ -3698,7 +3680,7 @@
         "node": ">=0.10.0"
       },
       "peerDependencies": null,
-      "useSiteCount": 60,
+      "useSiteCount": 61,
       "useSites": [
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
@@ -3920,7 +3902,7 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 141,
+      "useSiteCount": 142,
       "useSites": [
         {
           "file": "apps/web/src/App.column-ops.test.tsx",
