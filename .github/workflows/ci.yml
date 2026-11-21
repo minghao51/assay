@@ -309,6 +309,11 @@ jobs:
       - name: Test VS Code runtime selection policy
         run: pnpm --filter @assay/vscode run test:runtime
 
+      # The e2e acceptance leg compares the desktop diff/validate reports with
+      # the installed CLI; that needs the built workspaces (`apps/cli/dist`).
+      - name: Build packages for the installed-CLI agreement leg
+        run: pnpm build
+
       - name: Run real VS Code dataset e2e
         run: pnpm --filter @assay/vscode run e2e
 
