@@ -883,8 +883,19 @@ describe('FilterBar active-row prefill fidelity (ug-18 round 2)', () => {
     })
     expect(model.filters).toEqual([{ column: 'income', predicate: '> 50000' }])
 
-    // Enter is the same submission path.
-    fireEvent.keyDown(input, { key: 'Enter' })
+    // The second attempt is only dispatchable once the first has finished: the
+    // bar is single-flight (`pending` disables every control and `applyList`
+    // refuses a submit, ug-19). A user cannot press Enter mid-apply either —
+    // the row's input is disabled then — so wait on the bar's own transition
+    // back to idle rather than assume the first await already landed it.
+    await waitFor(() => {
+      expect((control('filter-active-apply', 'income') as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    // Enter is the same submission path. Re-queried: the row is keyed by
+    // column:predicate, so a wait that crosses a render must not reuse a node
+    // captured before it.
+    fireEvent.keyDown(control('filter-active-predicate', 'income'), { key: 'Enter' })
     await waitFor(() => {
       expect(setFilters).toHaveBeenCalledTimes(2)
     })
