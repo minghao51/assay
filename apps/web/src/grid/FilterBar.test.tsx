@@ -2,7 +2,8 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { FilterSpec, GridViewportModel } from '@assay/grid'
+import { FilterApplyError, GridViewportModel } from '@assay/grid'
+import type { FilterSpec, GridDataProvider } from '@assay/grid'
 import {
   FILTER_COMPOSE_VALUE_ID,
   FilterBar,
@@ -10,6 +11,7 @@ import {
   filterChipKey,
   filterInputId,
 } from './FilterBar'
+import { FILTER_RELOAD_FAILED_MESSAGE, FILTER_RESTORE_FAILED_MESSAGE } from './filter-failure'
 
 /**
  * AR-W11 pins: distinct column names must produce distinct DOM ids. The old
@@ -133,10 +135,10 @@ function blockingModel(
 
 /**
  * A model whose first `failures.length` `setFilters` calls reject in order,
- * then accepts — the applyList rollback shapes the FilterBar error state is
- * built on (UG-30): one failure for the apply + a successful restore, or two
- * for the apply + failed restore (the double failure). `filters` seeds the
- * accepted list (so a removal/apply has a previous list to restore).
+ * then accepts. Each entry is thrown verbatim, so a test names the exact
+ * `FilterApplyError.phase` the real model would classify (C02b: the FilterBar
+ * no longer restores anything itself — the model owns the transaction and its
+ * single restoration attempt). `filters` seeds the published list.
  */
 function failingModel(
   columns: readonly { name: string; type: string }[],
@@ -144,7 +146,11 @@ function failingModel(
     failures = [],
     filters = [],
   }: { failures?: readonly unknown[]; filters?: readonly FilterSpec[] } = {},
-): { model: GridViewportModel; setFilters: ReturnType<typeof vi.fn> } {
+): {
+  model: GridViewportModel
+  setFilters: ReturnType<typeof vi.fn>
+  refresh: ReturnType<typeof vi.fn>
+} {
   let version = 0
   const listeners = new Set<() => void>()
   let calls = 0
@@ -155,6 +161,7 @@ function failingModel(
     version += 1
     for (const listener of listeners) listener()
   })
+  const refresh = vi.fn(async () => {})
   const model = {
     schema: columns,
     filters: filters as readonly FilterSpec[],
@@ -166,8 +173,13 @@ function failingModel(
     },
     getVersion: () => version,
     setFilters,
+    refresh,
   }
-  return { model: model as unknown as GridViewportModel, setFilters }
+  return {
+    model: model as unknown as GridViewportModel,
+    setFilters,
+    refresh,
+  }
 }
 
 /** A per-column control scoped to one column (the SQL hatch repeats per column). */
@@ -1020,7 +1032,7 @@ describe('FilterBar removal guard and rollback (ug-18 round 2)', () => {
     expect(model.filters).toEqual([])
   })
 
-  it('restores the previous list and frames the error when a removal is rejected', async () => {
+  it('leaves restoration to the model and frames the refusal once (single setFilters per attempt)', async () => {
     const previous = [
       { column: 'income', predicate: '> 50000' },
       { column: 'country', predicate: "= 'US'" },
@@ -1028,9 +1040,12 @@ describe('FilterBar removal guard and rollback (ug-18 round 2)', () => {
     const { model, setFilters } = failingModel(COLUMNS, {
       filters: previous,
       failures: [
-        new Error(
-          'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
-            'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+        new FilterApplyError(
+          'refused-before-change',
+          new Error(
+            'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
+              'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+          ),
         ),
       ],
     })
@@ -1045,11 +1060,12 @@ describe('FilterBar removal guard and rollback (ug-18 round 2)', () => {
         'FROM clause. The previous filters are still in effect.',
     )
     expect(error.textContent).not.toMatch(/\r|\n/)
-    // Removal goes through the SAME pending/rollback path as an apply: the
-    // rejected list, then the exact previous list restored.
-    expect(setFilters).toHaveBeenCalledTimes(2)
-    expect(setFilters.mock.calls[0]?.[0]).toEqual([{ column: 'country', predicate: "= 'US'" }])
-    expect(setFilters).toHaveBeenLastCalledWith(previous)
+    // C02b — exactly ONE `setFilters` per attempt: the refusal is
+    // all-before-commit and the model keeps the previous list effective, so
+    // there is nothing for the bar to restore (C01 §7 single owner).
+    expect(setFilters).toHaveBeenCalledTimes(1)
+    expect(setFilters).toHaveBeenCalledWith([{ column: 'country', predicate: "= 'US'" }])
+    expect(model.filters).toEqual(previous)
   })
 })
 
@@ -1099,17 +1115,22 @@ describe('FilterBar SQL predicate escape hatch (ux-4 / ug-18)', () => {
 })
 
 /**
- * UG-30 pin: a rejected filter change renders ONE framed, single-line message
- * through the shared engine-error helper, and the rollback to the previous
- * filter list is part of that message (not a second raw diagnostic).
+ * UG-30 pin, extended by C02b: a rejected filter change renders ONE
+ * single-line message. The FilterBar no longer restores anything itself — the
+ * model owns the transaction, its single restoration attempt and the
+ * `FilterApplyError.phase` classification (C01 §7), so the copy is derived
+ * from the phase and the bar issues exactly one `setFilters` per attempt.
  */
-describe('FilterBar engine-error framing (UG-30)', () => {
-  it('renders a single-line, framed filter error and restores the previous filters', async () => {
+describe('FilterBar engine-error framing (UG-30, C02b phases)', () => {
+  it('renders a single-line, framed refusal and leaves restoration to the model', async () => {
     const { model, setFilters } = failingModel(COLUMNS, {
       failures: [
-        new Error(
-          'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
-            'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+        new FilterApplyError(
+          'refused-before-change',
+          new Error(
+            'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
+              'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+          ),
         ),
       ],
     })
@@ -1127,19 +1148,25 @@ describe('FilterBar engine-error framing (UG-30)', () => {
     )
     expect(error.textContent).not.toMatch(/\r|\n/)
     expect(document.body.textContent).not.toContain('LINE 1')
-    // The rejection rolled the model back to the previous (empty) list.
-    expect(setFilters).toHaveBeenCalledTimes(2)
-    expect(setFilters).toHaveBeenLastCalledWith([])
+    // One attempt, no compensating restore: the refused list was never in
+    // effect, so the model still publishes the previous (empty) list.
+    expect(setFilters).toHaveBeenCalledTimes(1)
+    expect(setFilters).toHaveBeenCalledWith([{ column: 'country', predicate: "= 'US'" }])
+    expect(model.filters).toEqual([])
+    // A refusal offers no recovery control: re-applying IS the recovery.
+    expect(screen.queryByTestId('filter-error-retry')).toBeNull()
+    expect(screen.queryByTestId('filter-error-clear')).toBeNull()
   })
 
-  it('never claims the previous filters survive when the restore also fails', async () => {
-    const APPLY_FAILURE = new Error(
-      'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
-        'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
-    )
-    const RESTORE_FAILURE = new Error('_setThrew is not defined')
-    const { model, setFilters } = failingModel(COLUMNS, {
-      failures: [APPLY_FAILURE, RESTORE_FAILURE],
+  it('renders the reload-failure copy for an accepted apply whose view could not reload (case b)', async () => {
+    const VIOLENT = 'VIOLENT_SENTINEL'
+    const { model, setFilters, refresh } = failingModel(COLUMNS, {
+      failures: [
+        new FilterApplyError(
+          'accepted-reload-failed',
+          new Error(`${VIOLENT}: the filtered count failed to execute\nLINE 1: SELECT ...`),
+        ),
+      ],
     })
     render(<FilterBar model={model} />)
     ensureOpen()
@@ -1149,23 +1176,368 @@ describe('FilterBar engine-error framing (UG-30)', () => {
 
     const error = await screen.findByTestId('filter-error')
     expect(error.getAttribute('role')).toBe('alert')
-    // The double-failure copy states only what is known: both calls failed.
-    // It must not inherit the single-failure framing, which asserts a rollback
-    // that was just reported as failed.
-    expect(error.textContent).toBe(
-      'The filter could not be applied and the previous filters could not be restored. ' +
-        'Re-apply a filter or reopen the dataset if the grid looks wrong.',
-    )
+    // C01 §10 decision 5: applied, view not reloaded. Never a rollback claim.
+    expect(error.textContent).toBe(FILTER_RELOAD_FAILED_MESSAGE)
+    expect(error.textContent).not.toContain('previous filters')
     expect(error.textContent).not.toContain('still in effect')
-    // The single-failure sentence (framed with a colon) is not shown either.
-    expect(error.textContent).not.toContain('could not be applied:')
+    // The reload error is diagnostics only — `model.reloadError` is never
+    // rendered, so the sentinel and any engine text stay out of the DOM.
+    expect(document.body.textContent).not.toContain(VIOLENT)
+    expect(document.body.textContent).not.toContain('LINE 1')
+    expect(error.textContent).not.toMatch(/\r|\n/)
+    // One attempt; the accepted list is the model's business.
+    expect(setFilters).toHaveBeenCalledTimes(1)
+
+    // The recovery is the model's own reload: one `refresh()`, no filter write,
+    // and the alert clears once the view actually reloads.
+    const retry = screen.getByTestId('filter-error-retry') as HTMLButtonElement
+    expect(retry.textContent).toBe('Retry')
+    fireEvent.click(retry)
+    await waitFor(() => {
+      expect(refresh).toHaveBeenCalledTimes(1)
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('filter-error')).toBeNull()
+    })
+    expect(setFilters).toHaveBeenCalledTimes(1)
+  })
+
+  it('states the unknown filter list when a legacy restore also failed (restore-failed)', async () => {
+    const { model, setFilters } = failingModel(COLUMNS, {
+      failures: [
+        new FilterApplyError(
+          'restore-failed',
+          new Error(
+            'Binder Error: Referenced column "nope" not found in FROM clause!\n' +
+              'LINE 1: SELECT * FROM "assay_t1" WHERE "nope" = 1',
+          ),
+        ),
+      ],
+    })
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
+    fireEvent.click(control('filter-apply', 'country'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.getAttribute('role')).toBe('alert')
+    expect(error.textContent).toBe(FILTER_RESTORE_FAILED_MESSAGE)
+    // Neither list is claimed: no rollback promise may survive here.
+    expect(error.textContent).not.toContain('still in effect')
     // No raw diagnostic, no engine vocabulary, no second line.
     expect(error.textContent).not.toContain('Binder Error')
-    expect(error.textContent).not.toContain('_setThrew')
     expect(error.textContent).not.toMatch(/\r|\n/)
     expect(document.body.textContent).not.toContain('LINE 1')
-    // Exactly the apply + the attempted restore; nothing silently retried.
-    expect(setFilters).toHaveBeenCalledTimes(2)
+    // Exactly one attempt: the model's restore already failed, so a caller
+    // retry would be a second guess at an unknown state.
+    expect(setFilters).toHaveBeenCalledTimes(1)
+
+    // The documented way out: Clear filters re-applies the empty list — the
+    // one call that also clears the model's `filtersUnknown`.
+    const clear = screen.getByTestId('filter-error-clear') as HTMLButtonElement
+    expect(clear.textContent).toBe('Clear filters')
+    fireEvent.click(clear)
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledTimes(2)
+    })
+    expect(setFilters).toHaveBeenLastCalledWith([])
+  })
+})
+
+/**
+ * C02b end-to-end (C01 §9.1 row 13): the FilterBar over the REAL
+ * `GridViewportModel` and a provider double. Here the transaction, the
+ * restoration and the phase classification are the production ones — the bar
+ * only maps the outcome to copy. The pins:
+ *
+ * - an atomic provider refusal issues ONE list write and no restore (the
+ *   refusal was all-before-commit, the published list never changed);
+ * - a legacy provider (no `replaceFilters`) that rejects mid-sequence gets
+ *   exactly ONE model-owned restore to the published list — the bar adds no
+ *   second one — and reports `refused-before-change`;
+ * - an accepted list whose reload fails reports `accepted-reload-failed`,
+ *   keeps the accepted list, and records `reloadError` without rendering it.
+ */
+describe('FilterBar over the real model (C02b) — one owner of restoration', () => {
+  interface ProviderLog {
+    readonly lists: (readonly FilterSpec[])[]
+    readonly legacyCalls: (FilterSpec | null)[]
+    readonly rowCounts: number
+  }
+
+  /**
+   * A provider double. `atomic: false` omits `replaceFilters` entirely, so the
+   * model takes the documented legacy `filter(null)` + N x `filter(spec)`
+   * sequence (the non-atomic fallback C02b must keep honest).
+   */
+  function providerDouble(options: {
+    atomic: boolean
+    refuse?: (specs: readonly FilterSpec[]) => boolean
+    refuseLegacyCall?: (call: FilterSpec | null, index: number) => boolean
+    failReloads?: number
+  }): {
+    provider: GridDataProvider
+    log: ProviderLog
+    current: () => readonly FilterSpec[]
+    armReloadFailure: () => void
+    /** Hold the next accepted list INSIDE the provider call (before publish). */
+    holdNextReplace: () => () => void
+  } {
+    const log = {
+      lists: [] as (readonly FilterSpec[])[],
+      legacyCalls: [] as (FilterSpec | null)[],
+      rowCounts: 0,
+    }
+    let current: FilterSpec[] = []
+    let reloadFailures = options.failReloads ?? 0
+    let replaceGate: Promise<void> | null = null
+    const provider: GridDataProvider = {
+      schema: async () => COLUMNS.map((column) => ({ ...column })),
+      rowCount: async () => {
+        log.rowCounts += 1
+        if (reloadFailures > 0) {
+          reloadFailures -= 1
+          throw new Error('VIOLENT_SENTINEL: the filtered count failed')
+        }
+        return 0
+      },
+      fetchRange: async (range) => ({ startRow: range.startRow, rows: [] }),
+      sort: async () => {},
+      filter: async (spec) => {
+        log.legacyCalls.push(spec)
+        if (options.refuseLegacyCall?.(spec, log.legacyCalls.length - 1) === true) {
+          throw new Error('VIOLENT_SENTINEL: legacy mid-sequence refusal')
+        }
+        current = spec === null ? [] : [...current, spec]
+      },
+    }
+    if (options.atomic) {
+      provider.replaceFilters = async (specs) => {
+        log.lists.push([...specs])
+        if (options.refuse?.(specs) === true) {
+          throw new Error('VIOLENT_SENTINEL: atomic refusal')
+        }
+        current = [...specs]
+        // Optional hold AFTER the provider committed but BEFORE the model
+        // publishes: the window R-C01 rule 1 is about.
+        if (replaceGate !== null) {
+          const gate = replaceGate
+          replaceGate = null
+          await gate
+        }
+      }
+    }
+    return {
+      provider,
+      log,
+      current: () => current,
+      armReloadFailure: () => {
+        reloadFailures = 1
+      },
+      holdNextReplace: () => {
+        let release: () => void = () => {}
+        replaceGate = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        return () => {
+          release()
+        }
+      },
+    }
+  }
+
+  it('an atomic refusal writes the list once, restores nothing, and says so', async () => {
+    const { provider, log, current } = providerDouble({ atomic: true, refuse: () => true })
+    const model = new GridViewportModel(provider)
+    // One load so the bar has a schema to build inputs from; the refusal below
+    // is the only request this test measures.
+    await model.load()
+    const countsAfterLoad = log.rowCounts
+    const setFilters = vi.spyOn(model, 'setFilters')
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
+    fireEvent.click(control('filter-apply', 'country'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.textContent).toBe(
+      'The filter could not be applied: VIOLENT_SENTINEL: atomic refusal. ' +
+        'The previous filters are still in effect.',
+    )
+    // One list write, no restore sequence, no second setFilters.
+    expect(log.lists).toEqual([[{ column: 'country', predicate: "= 'US'" }]])
+    expect(setFilters).toHaveBeenCalledTimes(1)
+    expect(current()).toEqual([])
+    expect(model.filters).toEqual([])
+    // Refused before any change: no epoch was opened, so no scan happened.
+    expect(log.rowCounts).toBe(countsAfterLoad)
+  })
+
+  it('a legacy mid-sequence refusal gets exactly one model restore to the published list', async () => {
+    const published: FilterSpec = { column: 'income', predicate: '> 50000' }
+    const { provider, log, current } = providerDouble({
+      atomic: false,
+      // Refuse the SECOND legacy call of the second request only: the first
+      // request (seeding `published`) pushes `null` then one spec.
+      refuseLegacyCall: (_spec, index) => index === 4,
+    })
+    const model = new GridViewportModel(provider)
+    const setFilters = vi.spyOn(model, 'setFilters')
+    await model.setFilters([published])
+    expect(model.filters).toEqual([published])
+    setFilters.mockClear()
+
+    render(<FilterBar model={model} />)
+    ensureOpen()
+    fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
+    fireEvent.click(control('filter-apply', 'country'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.textContent).toBe(
+      'The filter could not be applied: VIOLENT_SENTINEL: legacy mid-sequence refusal. ' +
+        'The previous filters are still in effect.',
+    )
+    // The bar issued exactly one list write...
+    expect(setFilters).toHaveBeenCalledTimes(1)
+    expect(setFilters).toHaveBeenCalledWith([
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ])
+    // ...and the model issued exactly one restore, to the PUBLISHED list
+    // (clear + the published spec), never to the refused list.
+    expect(log.legacyCalls).toEqual([
+      null,
+      { column: 'income', predicate: '> 50000' }, // the seeding request
+      null,
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" }, // refused here
+      null,
+      { column: 'income', predicate: '> 50000' }, // the one restore
+    ])
+    expect(current()).toEqual([published])
+    expect(model.filters).toEqual([published])
+  })
+
+  it('an accepted list whose reload fails keeps the list, offers Retry, and never renders reloadError', async () => {
+    const { provider, log, armReloadFailure } = providerDouble({ atomic: true })
+    const model = new GridViewportModel(provider)
+    await model.load()
+    armReloadFailure()
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(control('filter-input', 'country'), { target: { value: "= 'US'" } })
+    fireEvent.click(control('filter-apply', 'country'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.textContent).toBe(FILTER_RELOAD_FAILED_MESSAGE)
+    // Case (b): the provider and the published list hold the NEW list, and the
+    // model records the reload diagnostic — which is never rendered.
+    expect(log.lists).toEqual([[{ column: 'country', predicate: "= 'US'" }]])
+    expect(model.filters).toEqual([{ column: 'country', predicate: "= 'US'" }])
+    expect(model.reloadError).not.toBeNull()
+    expect(model.filtersUnknown).toBe(false)
+    expect(document.body.textContent).not.toContain('VIOLENT_SENTINEL')
+    expect(document.body.textContent).not.toContain('LINE 1')
+
+    // Retry reloads the view through the model and clears the alert: the
+    // accepted list is untouched by the recovery.
+    fireEvent.click(screen.getByTestId('filter-error-retry'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('filter-error')).toBeNull()
+    })
+    expect(model.reloadError).toBeNull()
+    expect(model.filters).toEqual([{ column: 'country', predicate: "= 'US'" }])
+  })
+
+  it('scans once per apply however many specs the list holds (no per-spec scan)', async () => {
+    const { provider, log } = providerDouble({ atomic: true })
+    const model = new GridViewportModel(provider)
+    await model.load()
+    const counts = log.rowCounts
+
+    await model.setFilters([
+      { column: 'income', predicate: '> 50000' },
+      { column: 'country', predicate: "= 'US'" },
+    ])
+
+    // One atomic list write and ONE reload: the capability is not a loop of
+    // per-spec applies, so a keypress costs one metadata count.
+    expect(log.lists).toEqual([
+      [
+        { column: 'income', predicate: '> 50000' },
+        { column: 'country', predicate: "= 'US'" },
+      ],
+    ])
+    expect(log.rowCounts).toBe(counts + 1)
+  })
+
+  it('rapid requests in one tick: the loser writes nothing, the winner scans once', async () => {
+    const { provider, log } = providerDouble({ atomic: true })
+    const model = new GridViewportModel(provider)
+    await model.load()
+    const counts = log.rowCounts
+
+    // Two requests in the same tick (the double-click / keypress burst shape).
+    const first = model.setFilters([{ column: 'income', predicate: '> 50000' }])
+    const second = model.setFilters([{ column: 'country', predicate: "= 'US'" }])
+    await Promise.all([first, second])
+
+    expect(log.lists).toEqual([[{ column: 'country', predicate: "= 'US'" }]])
+    expect(log.rowCounts).toBe(counts + 1)
+    expect(model.filters).toEqual([{ column: 'country', predicate: "= 'US'" }])
+  })
+
+  it('superseded accepted A never becomes effective; a newer refused B leaves the published list', async () => {
+    const P: FilterSpec = { column: 'income', predicate: '> 50000' }
+    const A: FilterSpec = { column: 'income', predicate: '> 70000' }
+    const B: FilterSpec = { column: 'country', predicate: "= 'REFUSE'" }
+    const { provider, log, current, holdNextReplace } = providerDouble({
+      atomic: true,
+      refuse: (specs) => specs.some((spec) => spec.predicate.includes('REFUSE')),
+    })
+    const model = new GridViewportModel(provider)
+    await model.load()
+    await model.setFilters([P])
+
+    // Every published snapshot, to prove A is never observable.
+    const snapshots: (readonly FilterSpec[])[] = []
+    const unsubscribe = model.subscribe(() => {
+      snapshots.push(model.filters)
+    })
+
+    const release = holdNextReplace()
+    const acceptedA = model.setFilters([A])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // The provider holds A, but the model has not published it yet.
+    expect(current()).toEqual([A])
+    expect(model.filters).toEqual([P])
+
+    // B supersedes A while A is parked inside the provider call.
+    const refusedB = model.setFilters([B])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    release()
+
+    // R-C01 rule 1: A settles quietly and is restored to P (never published).
+    await expect(acceptedA).resolves.toBeUndefined()
+    // R-C01 rule 2: B is refused before changing anything. The refusal is
+    // all-before-commit, so the provider still holds the published list — no
+    // restore push is needed (and none may be issued).
+    await expect(refusedB).rejects.toBeInstanceOf(FilterApplyError)
+    await refusedB.catch((error: FilterApplyError) => {
+      expect(error.phase).toBe('refused-before-change')
+    })
+
+    expect(log.lists).toEqual([[P], [A], [P], [B]])
+    expect(current()).toEqual([P])
+    expect(model.filters).toEqual([P])
+    expect(model.filtersUnknown).toBe(false)
+    // No intermediate snapshot ever read A: the superseded list was never
+    // effective for the UI.
+    expect(snapshots.some((list) => JSON.stringify(list) === JSON.stringify([A]))).toBe(false)
+    unsubscribe()
   })
 })
 

@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { FilterSpec, GridViewportModel } from '@assay/grid'
 import { domId } from '../lib/dom-id'
-import { engineErrorMessage } from '../edit/session'
+import { FILTER_RELOAD_FAILURE, filterFailureCopy } from './filter-failure'
+import type { FilterFailureCopy } from './filter-failure'
 import { replaceColumnFilter } from './query-state'
 import { classifyColumnType, compileFilterInput, filterOperators } from './filter-builder'
 import type { FilterColumnProfile, FilterOperatorId } from './filter-builder'
@@ -22,12 +23,6 @@ interface FilterBarProps {
 
 /** The honest fallback profile for a column the builder cannot classify. */
 const OTHER_PROFILE: FilterColumnProfile = { kind: 'other', temporalKeyword: null }
-
-function errorMessage(error: unknown): string {
-  // UG-30: filter failures are framed once, single-line, and name the state
-  // that survives (the previous filters) — never a raw multi-line diagnostic.
-  return engineErrorMessage('filter', error)
-}
 
 /**
  * Injective, deterministic *identity* of the active filter list: `null` means
@@ -187,11 +182,15 @@ function FilterChip({
  * Error handling: invalid builder combinations are rejected **client-side**
  * with an inline, value-free message and never reach the engine. The escape
  * hatch keeps the m2-3 behavior: an invalid fragment rejects at the engine
- * while the model's refresh re-reads the filtered total; the rejection is
- * caught, the last accepted list is restored, and the engine's own message is
- * surfaced as a text-only alert (ADR 0007 spirit — predicate fragments and
- * engine errors are untrusted *content*, never markup; ADR 0025 — nothing
- * here touches the file name).
+ * while the model's refresh re-reads the filtered total. C02b: the model owns
+ * the transaction (and the single restoration attempt, C01 §7), so this bar
+ * issues exactly one `setFilters` per attempt and only maps the resulting
+ * `FilterApplyError.phase` to copy (`filter-failure.ts`) — the one recovery
+ * control a phase offers is rendered beside that alert: `Retry`
+ * (`model.refresh()`) for accepted-but-not-reloaded, `Clear filters` for the
+ * unknown state. All copy is single-line and text-only (ADR 0007 spirit —
+ * predicate fragments and engine errors are untrusted *content*, never markup;
+ * ADR 0025 — nothing here touches the file name).
  */
 export function FilterBar({ model, onPendingChange }: FilterBarProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
@@ -210,7 +209,10 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
   const [composeOperator, setComposeOperator] = useState<FilterOperatorId | null>(null)
   const [composeValue, setComposeValue] = useState('')
   const [composeError, setComposeError] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // The last FAILED apply's copy + recovery control (`filter-failure.ts`).
+  // Derived from the model's `FilterApplyError.phase`, never from the error
+  // text, so no engine diagnostic and no value can reach the alert.
+  const [failure, setFailure] = useState<FilterFailureCopy | null>(null)
   const [pending, setPending] = useState(false)
 
   const profiles = new Map(schema.map((column) => [column.name, classifyColumnType(column.type)]))
@@ -296,46 +298,41 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
     setDrafts(draftsFrom(model.filters))
   }, [model.filters])
 
-  /** Apply a filter list; `true` when the model accepted it (ug-18 compose). */
-  const applyList = async (
-    previous: readonly FilterSpec[],
-    next: readonly FilterSpec[],
-  ): Promise<boolean> => {
+  /**
+   * Apply a filter list; `true` when the model accepted it (ug-18 compose).
+   *
+   * C02b: the model is the **single owner of restoration** (C01 §7). One
+   * `setFilters` call per attempt — a rejection is classified by the model
+   * (`FilterApplyError.phase`) and this caller only maps the phase to copy and
+   * the one recovery control that phase offers. No compensating
+   * `setFilters(previous)` here: for an atomic refusal the previous list never
+   * stopped being effective, for an accepted-but-reload-failed apply the new
+   * list *is* effective (a caller rollback would fight the engine), and for a
+   * failed legacy restore the model has already said the state is unknown.
+   */
+  const applyList = async (next: readonly FilterSpec[]): Promise<boolean> => {
     if (pending) return false
     setPending(true)
     onPendingChange?.(true)
-    setError(null)
+    setFailure(null)
     try {
       await model.setFilters(next)
       syncDrafts(next)
       return true
     } catch (cause) {
-      const message = errorMessage(cause)
-      try {
-        // Restore the last accepted list: the failed refresh left the model
-        // and provider holding the rejected list, and the contract's rule is
-        // that a rejection leaves the previous filter state in effect.
-        await model.setFilters(previous)
-        syncDrafts(previous)
-        setError(message)
-      } catch {
-        // Double failure: the apply failed AND the restore failed. This branch
-        // must NOT inherit the single-failure framing — that copy asserts the
-        // previous filters are still in effect, which is exactly what could
-        // not be restored, so the state may be unknown or partially changed.
-        // Say only what is known (both calls failed), emit no values and no
-        // newline, and point at the two ways back.
-        setError(
-          'The filter could not be applied and the previous filters could not be restored. ' +
-            'Re-apply a filter or reopen the dataset if the grid looks wrong.',
-        )
-      }
+      // Drafts are NOT re-synced here: the accepted list is whatever the model
+      // published (a refusal publishes nothing, an accepted+failed reload keeps
+      // the accepted list), and the drafts effect already mirrors that list.
+      // The user's typed value therefore survives a refusal so it can be fixed
+      // and re-applied — draft text is not accepted filter state (WF-O1 is
+      // separate work; this only avoids pretending the value was applied).
+      setFailure(filterFailureCopy(cause))
       return false
     } finally {
       setPending(false)
       // ug-19 (UG-19): the epoch is over on success AND on every failure path
-      // (including the double failure), so the host's busy status always
-      // clears.
+      // (refused, accepted-but-not-reloaded, unknown state), so the host's
+      // busy status always clears.
       onPendingChange?.(false)
     }
   }
@@ -364,30 +361,53 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
     }
     setComposeError(null)
     const column = selectedColumn.name
-    void applyList(
-      model.filters,
-      replaceColumnFilter(model.filters, column, result.predicate),
-    ).then((accepted) => {
-      // Clear only the value: the column/operator stay selected for the next
-      // filter on the same column (ug-18 contract).
-      if (accepted) setComposeValue('')
-    })
+    void applyList(replaceColumnFilter(model.filters, column, result.predicate)).then(
+      (accepted) => {
+        // Clear only the value: the column/operator stay selected for the next
+        // filter on the same column (ug-18 contract).
+        if (accepted) setComposeValue('')
+      },
+    )
   }
 
   const applyDraft = (column: string): void => {
     // Submit exactly what the input displays. An explicitly emptied input
     // still removes the filter: `replaceColumnFilter` drops the column on `''`.
-    void applyList(
-      model.filters,
-      replaceColumnFilter(model.filters, column, displayedPredicate(column)),
-    )
+    void applyList(replaceColumnFilter(model.filters, column, displayedPredicate(column)))
   }
 
   const removeFilter = (column: string): void => {
-    void applyList(
-      model.filters,
-      model.filters.filter((filter) => filter.column !== column),
-    )
+    void applyList(model.filters.filter((filter) => filter.column !== column))
+  }
+
+  /**
+   * The `accepted-reload-failed` recovery (C01 §7): reload the view through
+   * the model's ordinary `refresh()`. The accepted list stays in effect across
+   * the retry — this never re-applies or rolls back filters.
+   */
+  const retryReload = (): void => {
+    if (pending) return
+    setPending(true)
+    onPendingChange?.(true)
+    void model
+      .refresh()
+      .then(() => setFailure(null))
+      // A failed reload is still the same honest state: applied, view not
+      // reloaded. Never re-classified as a refusal or a rollback.
+      .catch(() => setFailure(FILTER_RELOAD_FAILURE))
+      .finally(() => {
+        setPending(false)
+        onPendingChange?.(false)
+      })
+  }
+
+  /**
+   * The `restore-failed` recovery affordance (C01 §7): clear the filters. A
+   * successful `setFilters([])` is also what clears the model's
+   * `filtersUnknown`, so this is the documented way out of the unknown state.
+   */
+  const clearFilters = (): void => {
+    void applyList([])
   }
 
   const activeCount = model.filters.length
@@ -664,10 +684,36 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
               No active filters
             </p>
           )}
-          {error !== null && (
-            <p className="filter-error" role="alert" data-testid="filter-error">
-              {error}
-            </p>
+          {failure !== null && (
+            <div className="filter-error-group" data-testid="filter-error-group">
+              {/* The phase-derived sentence only: `model.reloadError` is
+                  diagnostics and is never rendered (C01 §10 decision 4). */}
+              <p className="filter-error" role="alert" data-testid="filter-error">
+                {failure.message}
+              </p>
+              {failure.recovery?.kind === 'retry' && (
+                <button
+                  type="button"
+                  className="filter-error-retry"
+                  data-testid="filter-error-retry"
+                  disabled={pending}
+                  onClick={retryReload}
+                >
+                  Retry
+                </button>
+              )}
+              {failure.recovery?.kind === 'clear' && (
+                <button
+                  type="button"
+                  className="filter-error-clear"
+                  data-testid="filter-error-clear"
+                  disabled={pending}
+                  onClick={clearFilters}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -208,24 +208,42 @@ test('filter + sort compose: country = US with income desc orders the matches', 
   await expect(page.locator('[data-testid="filter-chip"] code')).toHaveText(["country = 'US'"])
 })
 
-test('an invalid predicate surfaces the engine error and keeps the previous filter state', async ({
+test('an invalid predicate is accepted, fails to reload, and keeps the accepted filters (case b)', async ({
   page,
 }) => {
   await openCustomersFixture(page)
 
-  // `oops` is not valid SQL on its own — the engine rejects the fragment
-  // when the model's refresh re-reads the filtered total; the UI restores
-  // the previous (empty) list and shows the engine's message as text.
+  // C02b (C01 §2 case (b)): `> oops` is a well-formed fragment, so the web
+  // provider's atomic replaceFilters ACCEPTS it — the rejection happens one
+  // layer down, when the model's refresh re-reads the filtered total. That is
+  // NOT a rollback: the accepted list stays published (chips included), the
+  // view could not be reloaded, and the copy says exactly that — it may never
+  // claim the previous filters are still in effect, and it renders no engine
+  // text (the reload diagnostic stays diagnostics-only).
   await applyFilter(page, 'income', '> oops')
-  await expect(page.getByTestId('filter-error')).toBeVisible()
-  await expect(page.getByTestId('filter-error')).not.toHaveText('')
-  await expect(page.getByTestId('grid-total-rows')).toHaveText('5') // unchanged
-  await expectCustomerOrder(page, ['1', '2', '3', '4', '5']) // restored
-  await expect(page.getByTestId('filter-empty')).toBeVisible()
+  const error = page.getByTestId('filter-error')
+  await expect(error).toBeVisible()
+  await expect(error).toHaveText(
+    'The filters were applied, but the grid could not be reloaded. Retry to reload the view.',
+  )
+  await expect(error).not.toContainText('previous filters')
+  await expect(error).not.toContainText('still in effect')
+  await expect(error).not.toContainText('Binder Error')
+  // The accepted chips remain (the list was applied) …
+  await expect(page.getByTestId('filter-chip')).toHaveText(['income > oops'])
+  await expect(page.getByTestId('filter-empty')).toHaveCount(0)
+  // … while the epoch could not be rebuilt: the total is the stale,
+  // pre-filter one and no row can be presented as ready under it.
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('5')
+  await expect(page.locator('[data-testid="grid-row"][data-status="ready"]')).toHaveCount(0)
+  // The recovery control is the model's own reload (no filter write).
+  await expect(page.getByTestId('filter-error-retry')).toBeVisible()
 
-  // The engine stays reusable: fixing the predicate recovers immediately.
+  // The engine stays reusable: fixing the predicate recovers immediately and
+  // the accepted list is replaced by the new one.
   await applyFilter(page, 'income', '> 50000')
   await expect(page.getByTestId('filter-error')).toHaveCount(0)
   await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
   await expectCustomerOrder(page, ['1', '2', '5'])
+  await expect(page.getByTestId('filter-chip')).toHaveText(['income > 50000'])
 })

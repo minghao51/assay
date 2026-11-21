@@ -37,7 +37,7 @@ import { EditToolbar } from './edit/EditToolbar'
 import { ExportDialog } from './export/ExportDialog'
 import type { SourceIdentity } from './export/save-destination'
 import { HistoryPanel } from './edit/HistoryPanel'
-import { activeOps, engineErrorMessage, openFailureMessage, overlaySnapshot } from './edit/session'
+import { activeOps, openFailureMessage, overlaySnapshot } from './edit/session'
 import { pendingChangesSummary } from './edit/op-summary'
 import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
 import {
@@ -95,6 +95,7 @@ import { composeNestedAction } from './sql/nested-actions'
 import { planProfileFilter } from './profile/filter-action'
 import type { ProfileFilterIntent } from './profile/filter-action'
 import { replaceColumnFilter } from './grid/query-state'
+import { filterFailureCopy } from './grid/filter-failure'
 import type { NestedAction } from './sql/nested-actions'
 import type { SqlRunRequest } from './sql/SqlPanel'
 import { writeReportCopy } from './validation/report-export'
@@ -1260,8 +1261,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * - `apply` compiles through the existing grid builder against the effective
    *   column type, then replaces that column's filter with
    *   `replaceColumnFilter` + `model.setFilters` (the FilterBar path, chips
-   *   included — no new chip code). An engine rejection rolls the previous
-   *   filter list back and surfaces the existing framed `filter` error copy.
+   *   included — no new chip code). C02b: a rejection is mapped from the
+   *   model's `FilterApplyError.phase` to the shared, value-free copy
+   *   (`filter-failure.ts`); the model is the single owner of restoration, so
+   *   this bridge issues exactly one `setFilters` per attempt and never a
+   *   compensating `setFilters(previous)`.
    *
    * The refusal/error feedback is cleared on the next click, a profile re-run
    * (the panel calls `clearProfileFilterFeedback`), undo/redo (cursor move),
@@ -1273,20 +1277,18 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    *
    * 1. *Single-flight* (the `FilterBar.applyList` precedent): while one apply
    *    is in flight the panel's filter controls are disabled
-   *    (`profileFilterPending`) and a further click is ignored, so no later
-   *    list can be submitted that an earlier attempt's failure rollback would
-   *    then supersede. `GridViewportModel.setFilters` serializes calls
-   *    last-request-wins, so an unconditional rollback issued after a newer
-   *    action would overwrite that action's list — this gate makes that
-   *    sequence unrepresentable.
+   *    (`profileFilterPending`) and a further click is ignored, so an
+   *    unrelated later action cannot race this attempt's feedback.
+   *    `GridViewportModel.setFilters` serializes calls last-request-wins and
+   *    reconciles superseded runs to the published list itself (R-C01), so no
+   *    caller-side rollback is needed or allowed.
    * 2. *Attempt/session identity*: every attempt captures its token, its
    *    originating model and the dataset-session token; after EVERY `await`
    *    the attempt must still be the current one on the live session and the
    *    originating model must still be active, otherwise the completion is a
-   *    silent no-op — no `setFilters` rollback, no feedback. This is what
-   *    stops a late rejection from a previous dataset (or from before an
-   *    undo/redo cursor move) restoring stale filters or resurrecting
-   *    feedback on the session that replaced it.
+   *    silent no-op — no feedback, no filter write. This is what stops a late
+   *    rejection from a previous dataset (or from before an undo/redo cursor
+   *    move) resurrecting feedback on the session that replaced it.
    */
   const [profileFilterRefusal, setProfileFilterRefusal] = useState<string | null>(null)
   const [profileFilterError, setProfileFilterError] = useState<string | null>(null)
@@ -1328,8 +1330,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       }
       const originModel = phase.model
       const originSession = datasetSession.tokenRef.current
-      const previous = originModel.filters
-      const next = replaceColumnFilter(previous, plan.column, plan.predicate)
+      const next = replaceColumnFilter(originModel.filters, plan.column, plan.predicate)
       const attempt = (profileFilterAttemptRef.current += 1)
       /**
        * True only while this attempt is still the current one, on the live
@@ -1349,24 +1350,15 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         try {
           await originModel.setFilters(next)
         } catch (cause) {
-          // A superseded attempt's rejection is swallowed: rolling back now
-          // would replace a newer list (or a newer session's state).
+          // A superseded attempt's rejection is swallowed: the model already
+          // reconciled the provider to the published list (R-C01), so there is
+          // nothing to undo and its report would describe a state the user has
+          // already left.
           if (!isCurrentAttempt()) return
-          const message = engineErrorMessage('filter', cause)
-          try {
-            await originModel.setFilters(previous)
-            if (!isCurrentAttempt()) return
-            setProfileFilterError(message)
-          } catch {
-            if (!isCurrentAttempt()) return
-            // Same double-failure honesty as the FilterBar: the single-failure
-            // framing would claim the previous filters are back in effect,
-            // which is exactly what could not be restored.
-            setProfileFilterError(
-              'The filter could not be applied and the previous filters could not be restored. ' +
-                'Re-apply a filter or reopen the dataset if the grid looks wrong.',
-            )
-          }
+          // One `setFilters` per attempt (C02b): the phase-derived copy only.
+          // `accepted-reload-failed` never claims a rollback happened, and
+          // `restore-failed` states the unknown state it actually is.
+          setProfileFilterError(filterFailureCopy(cause).message)
         } finally {
           // Only the current attempt may release the gate; a superseded one
           // leaves the pending state to whoever invalidated it.

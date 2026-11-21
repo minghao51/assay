@@ -7,7 +7,8 @@ import type { EngineOverlay } from '@assay/engine-duckdb'
 import { parseContract } from '@assay/contracts'
 import type { ContractV1 } from '@assay/contracts'
 import { compileContract } from '@assay/validation'
-import { engineErrorMessage, engineErrorLine, overlaySnapshot } from '../edit/session'
+import { engineErrorMessage, overlaySnapshot } from '../edit/session'
+import { filterFailureCopy } from '../grid/filter-failure'
 import { engineClient } from '../lib/engine'
 import { readContractFile } from '../validation/contract-import'
 import { buildValidationReport, resolveRowKeyIndex } from '../validation/report-model'
@@ -271,9 +272,15 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
    * Filter-to-failures: apply the rule's single-column predicate through the
    * m2-2 filter channel, REPLACING the active filter list (the control is a
    * view toggle, not an accumulation — the resulting view is "only the rows
-   * failing this rule"). An engine rejection restores the previous filters
-   * (the grid contract's rejection-leaves-state rule) and surfaces readable
-   * text; the m4-3 rollback convention, applied to filters.
+   * failing this rule").
+   *
+   * C02b: the model owns the filter transaction **and** its single restoration
+   * attempt (C01 §7), so this bridge issues exactly one `setFilters` per click
+   * and maps the resulting `FilterApplyError.phase` to the shared, value-free
+   * copy (`filter-failure.ts`) — never a caller-side
+   * `setFilters(previous)`, and never the engine's own diagnostic (UG-30: the
+   * alert is single-line and says what state survives, which the phase knows
+   * and the raw text does not).
    */
   const handleFilterToFailures = useCallback(
     (row: ValidationReportRow) => {
@@ -282,25 +289,11 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
       const column = row.column
       const predicate = row.filter.predicate
       void (async () => {
-        const previous = phase.model.filters
         try {
           await phase.model.setFilters([{ column, predicate }])
           setFilterToFailuresError(null)
         } catch (cause) {
-          // UG-30: the filter bridge is one of the adopted surfaces — only the
-          // first line of the rejection is echoed, so no multi-line engine
-          // diagnostic can reach this alert.
-          const message = engineErrorLine(cause, 'the engine rejected it')
-          try {
-            await phase.model.setFilters(previous)
-            setFilterToFailuresError(
-              `The grid rejected the failure filter (${message}). The previous filters are back in effect.`,
-            )
-          } catch {
-            setFilterToFailuresError(
-              'The grid rejected the failure filter, and restoring the previous filters also failed. Clear filters manually.',
-            )
-          }
+          setFilterToFailuresError(filterFailureCopy(cause).message)
         }
       })()
     },
