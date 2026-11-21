@@ -1933,7 +1933,7 @@
       "workspaceTarget": "packages/diff",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 5,
+      "useSiteCount": 6,
       "useSites": [
         {
           "file": "apps/vscode/src/pure/diff-controller.test.ts",
@@ -1973,16 +1973,22 @@
           ]
         },
         {
-          "file": "apps/vscode/webview/dataset.ts",
-          "line": 25,
+          "file": "apps/vscode/src/pure/diff-presenter.ts",
+          "line": 14,
+          "via": "import-type",
+          "symbols": ["DatasetProfile"]
+        },
+        {
+          "file": "apps/vscode/webview/diff-panel.ts",
+          "line": 31,
           "via": "import",
           "symbols": ["diffDatasets", "inferRowDiffKeys"]
         },
         {
-          "file": "apps/vscode/webview/dataset.ts",
-          "line": 26,
+          "file": "apps/vscode/webview/diff-panel.ts",
+          "line": 32,
           "via": "import-type",
-          "symbols": ["DatasetProfile", "DiffReport", "KeyInferenceResult"]
+          "symbols": ["RowDiffPlan"]
         }
       ],
       "useSitesTruncated": false,
@@ -2002,13 +2008,37 @@
       "workspaceTarget": "packages/domain",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 15,
+      "useSiteCount": 31,
       "useSites": [
         {
           "file": "apps/vscode/src/pure/cell-input.ts",
           "line": 3,
           "via": "import-type",
           "symbols": ["CellValue"]
+        },
+        {
+          "file": "apps/vscode/src/pure/dirty-history-view.test.ts",
+          "line": 3,
+          "via": "import",
+          "symbols": ["appendOp", "baseRowId", "emptyHistory", "insertRowId", "stateAtCursor"]
+        },
+        {
+          "file": "apps/vscode/src/pure/dirty-history-view.test.ts",
+          "line": 4,
+          "via": "import-type",
+          "symbols": ["OverlayBase", "RowId"]
+        },
+        {
+          "file": "apps/vscode/src/pure/dirty-history-view.ts",
+          "line": 13,
+          "via": "import",
+          "symbols": ["overlayEdit"]
+        },
+        {
+          "file": "apps/vscode/src/pure/dirty-history-view.ts",
+          "line": 14,
+          "via": "import-type",
+          "symbols": ["OverlayState", "RowId"]
         },
         {
           "file": "apps/vscode/src/pure/edit-controller.test.ts",
@@ -2039,30 +2069,6 @@
           "line": 4,
           "via": "import-type",
           "symbols": ["CellValue", "EditOp", "OverlayBase", "TransformationHistory"]
-        },
-        {
-          "file": "apps/vscode/src/pure/edit-controller.ts",
-          "line": 5,
-          "via": "import",
-          "symbols": ["appendOp", "emptyHistory", "insertRowId", "redo", "stateAtCursor", "undo"]
-        },
-        {
-          "file": "apps/vscode/src/pure/edit-controller.ts",
-          "line": 6,
-          "via": "import-type",
-          "symbols": ["RowId"]
-        },
-        {
-          "file": "apps/vscode/src/pure/overlay-snapshot.ts",
-          "line": 3,
-          "via": "import-type",
-          "symbols": ["EditOp", "OverlayBase", "TransformationHistory"]
-        },
-        {
-          "file": "apps/vscode/webview/data-grid.ts",
-          "line": 28,
-          "via": "import-type",
-          "symbols": ["CellValue", "RowId"]
         }
       ],
       "useSitesTruncated": true,
@@ -2082,8 +2088,14 @@
       "workspaceTarget": "packages/engine-duckdb",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 11,
+      "useSiteCount": 16,
       "useSites": [
+        {
+          "file": "apps/vscode/src/pure/diff-presenter.ts",
+          "line": 15,
+          "via": "import-type",
+          "symbols": ["EngineDatasetProfile"]
+        },
         {
           "file": "apps/vscode/src/pure/overlay-snapshot.ts",
           "line": 4,
@@ -2098,21 +2110,39 @@
         },
         {
           "file": "apps/vscode/webview/dataset.ts",
-          "line": 27,
+          "line": 126,
+          "via": "dynamic-import",
+          "symbols": []
+        },
+        {
+          "file": "apps/vscode/webview/dataset.ts",
+          "line": 127,
+          "via": "dynamic-import",
+          "symbols": []
+        },
+        {
+          "file": "apps/vscode/webview/diff-panel.test.ts",
+          "line": 15,
           "via": "import-type",
-          "symbols": ["EngineComparisonHandle", "EngineDatasetProfile"]
+          "symbols": [
+            "EngineColumnSchema",
+            "EngineComparisonHandle",
+            "EngineDatasetProfile",
+            "EngineTableHandle"
+          ]
         },
         {
-          "file": "apps/vscode/webview/dataset.ts",
-          "line": 168,
-          "via": "dynamic-import",
-          "symbols": []
-        },
-        {
-          "file": "apps/vscode/webview/dataset.ts",
-          "line": 169,
-          "via": "dynamic-import",
-          "symbols": []
+          "file": "apps/vscode/webview/diff-panel.ts",
+          "line": 23,
+          "via": "import-type",
+          "symbols": [
+            "EngineColumnSchema",
+            "EngineComparisonHandle",
+            "EngineDatasetProfile",
+            "EngineFileSource",
+            "EngineTableHandle",
+            "EngineOverlay"
+          ]
         },
         {
           "file": "apps/vscode/webview/engine-boot.ts",
@@ -2137,18 +2167,6 @@
             "EngineRangeWindow",
             "EngineTableHandle"
           ]
-        },
-        {
-          "file": "apps/vscode/webview/main.ts",
-          "line": 55,
-          "via": "import",
-          "symbols": ["DuckDbEngineClient"]
-        },
-        {
-          "file": "apps/vscode/webview/main.ts",
-          "line": 56,
-          "via": "import-type",
-          "symbols": ["EngineAssetsMessage"]
         }
       ],
       "useSitesTruncated": true,
@@ -2168,7 +2186,7 @@
       "workspaceTarget": "packages/grid",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 5,
+      "useSiteCount": 9,
       "useSites": [
         {
           "file": "apps/vscode/webview/data-grid.ts",
@@ -2178,15 +2196,9 @@
         },
         {
           "file": "apps/vscode/webview/dataset.ts",
-          "line": 24,
+          "line": 34,
           "via": "import",
           "symbols": ["GridViewportModel"]
-        },
-        {
-          "file": "apps/vscode/webview/dataset.ts",
-          "line": 28,
-          "via": "import-type",
-          "symbols": ["GridDataProvider"]
         },
         {
           "file": "apps/vscode/webview/grid-provider.ts",
@@ -2205,6 +2217,36 @@
           "file": "apps/vscode/webview/main.ts",
           "line": 57,
           "via": "import",
+          "symbols": ["GridViewportModel"]
+        },
+        {
+          "file": "apps/vscode/webview/test-proof/editor.ts",
+          "line": 17,
+          "via": "import",
+          "symbols": ["GridViewportModel"]
+        },
+        {
+          "file": "apps/vscode/webview/test-proof/editor.ts",
+          "line": 18,
+          "via": "import-type",
+          "symbols": ["GridDataProvider"]
+        },
+        {
+          "file": "apps/vscode/webview/test-proof/harness.ts",
+          "line": 14,
+          "via": "import-type",
+          "symbols": ["GridViewportModel"]
+        },
+        {
+          "file": "apps/vscode/webview/test-proof/index.ts",
+          "line": 21,
+          "via": "import-type",
+          "symbols": ["GridViewportModel"]
+        },
+        {
+          "file": "apps/vscode/webview/test-proof/validation.ts",
+          "line": 15,
+          "via": "import-type",
           "symbols": ["GridViewportModel"]
         }
       ],
@@ -2536,7 +2578,7 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 11,
+      "useSiteCount": 18,
       "useSites": [
         {
           "file": "apps/vscode/src/pure/bridge-contracts.test.ts",
@@ -2575,6 +2617,18 @@
           "symbols": ["describe", "expect", "it"]
         },
         {
+          "file": "apps/vscode/src/pure/diff-presenter.test.ts",
+          "line": 2,
+          "via": "import",
+          "symbols": ["describe", "expect", "it"]
+        },
+        {
+          "file": "apps/vscode/src/pure/dirty-history-view.test.ts",
+          "line": 2,
+          "via": "import",
+          "symbols": ["describe", "expect", "it"]
+        },
+        {
           "file": "apps/vscode/src/pure/edit-controller.test.ts",
           "line": 5,
           "via": "import",
@@ -2585,18 +2639,6 @@
           "line": 5,
           "via": "import",
           "symbols": ["afterEach", "describe", "expect", "it", "vi"]
-        },
-        {
-          "file": "apps/vscode/src/pure/export-transfer.test.ts",
-          "line": 2,
-          "via": "import",
-          "symbols": ["describe", "expect", "it"]
-        },
-        {
-          "file": "apps/vscode/src/pure/git-context.test.ts",
-          "line": 2,
-          "via": "import",
-          "symbols": ["describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": true,
@@ -2884,7 +2926,7 @@
       "workspaceTarget": "packages/domain",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 80,
+      "useSiteCount": 82,
       "useSites": [
         {
           "file": "apps/web/src/App.section-summaries.test.tsx",
@@ -3044,7 +3086,7 @@
       "workspaceTarget": "packages/grid",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 39,
+      "useSiteCount": 46,
       "useSites": [
         {
           "file": "apps/web/src/App.profile-filter.test.tsx",
@@ -3415,7 +3457,7 @@
         "react": "^18.0.0 || ^19.0.0",
         "react-dom": "^18.0.0 || ^19.0.0"
       },
-      "useSiteCount": 73,
+      "useSiteCount": 74,
       "useSites": [
         {
           "file": "apps/web/src/App.column-ops.test.tsx",
@@ -3878,7 +3920,7 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 139,
+      "useSiteCount": 141,
       "useSites": [
         {
           "file": "apps/web/src/App.column-ops.test.tsx",
