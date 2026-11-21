@@ -291,4 +291,42 @@ export class EngineGridProvider implements GridDataProvider {
         ? []
         : [...this.filterPredicates, { column: spec.column, predicate: spec.predicate }]
   }
+
+  /**
+   * C02c — replace the whole ordered filter list in **one transaction**
+   * (`[]` clears, exactly like `filter(null)`).
+   *
+   * All-before-commit: every spec is shape-checked into a local array first,
+   * and only a fully valid list is assigned, so a rejection leaves the
+   * previously accepted list in effect and observable (no partial state) —
+   * the same promise `sort`/`filter` make per call, but for the whole list at
+   * once. Shape is the *only* thing inspected: `predicate` stays opaque
+   * engine text, and the list keeps exactly the given order — no parsing,
+   * normalizing, sorting or de-duplication, because that order is what the UI
+   * displays and what the engine AND-composes into `WHERE`. The rejection is
+   * this adapter's own `TypeError`; it carries no phase, because the model
+   * classifies the outcome (`FilterApplyError.phase`, C01 §5.1/§10).
+   *
+   * The capability is webview-local state only: it adds no host-bridge
+   * message, no engine op and no extra scan (the model's single `refresh()`
+   * is what re-reads totals/windows). `filter(null)` and `replaceFilters([])`
+   * both leave `filterPredicates` empty, so the engine request bytes are
+   * unchanged.
+   */
+  async replaceFilters(specs: readonly FilterSpec[]): Promise<void> {
+    if (!Array.isArray(specs)) {
+      throw new TypeError(`filters must be an array, got ${typeof specs}`)
+    }
+    const next: { column: string; predicate: string }[] = []
+    for (const spec of specs) {
+      if (typeof spec?.column !== 'string' || spec.column.length === 0) {
+        throw new TypeError('filter spec must name a column')
+      }
+      if (typeof spec.predicate !== 'string') {
+        throw new TypeError('filter spec predicate must be a string')
+      }
+      next.push({ column: spec.column, predicate: spec.predicate })
+    }
+    this.filterPredicates = next
+  }
 }

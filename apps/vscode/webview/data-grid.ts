@@ -28,6 +28,8 @@
 import type { CellValue, RowId } from '@assay/domain'
 import type { GridViewportModel, SortSpec } from '@assay/grid'
 import { parseCellDraft, supportsCellDraft } from '../src/pure/cell-input'
+import { filterFailureCopy } from '../src/pure/filter-failure'
+import type { FilterFailureRecovery } from '../src/pure/filter-failure'
 
 /** Fixed row height for the DOM renderer (the web app's `GRID_ROW_HEIGHT_PX`). */
 export const GRID_ROW_HEIGHT_PX = 28
@@ -50,6 +52,13 @@ export function nextSortSpec(current: SortSpec | null, column: string): SortSpec
   if (current.direction === 'asc') return { column, direction: 'desc' }
   return null
 }
+
+/**
+ * How one rejected query-state mutation is reported. It is per-mutation, not
+ * per-error-shape: a filter write is a C02 transaction (phase copy), a sort is
+ * a plain provider rejection (its own framing). See `trackQuery`.
+ */
+type QueryFailureHandler = (error: unknown) => void
 
 export interface WebviewDataGridOptions {
   /** Accessible name for the grid viewport. Default 'Dataset grid'. */
@@ -181,6 +190,7 @@ export class WebviewDataGrid {
   private filterInput: HTMLInputElement | null = null
   private filterStatus: HTMLElement | null = null
   private commandError: HTMLElement | null = null
+  private commandErrorAction: HTMLButtonElement | null = null
   private editButtons: {
     readonly undo: HTMLButtonElement
     readonly redo: HTMLButtonElement
@@ -368,7 +378,21 @@ export class WebviewDataGrid {
     error.hidden = true
     this.commandError = error
 
-    toolbar.append(select, input, apply, clear, status, error)
+    // C02c: the one recovery action a failed apply can offer (Retry the
+    // reload, or the explicit Clear-filters counterpart of the unknown-list
+    // state). Hidden unless a phase names it.
+    const action = document.createElement('button')
+    action.type = 'button'
+    action.className = 'assay-grid-command-action'
+    // Kept in the DOM (hidden unless a phase offers it) with a permanent
+    // accessible name: the harness audits every toolbar button's name and
+    // does not special-case `hidden`.
+    action.textContent = 'Filter recovery'
+    action.setAttribute('aria-label', 'Filter recovery')
+    action.hidden = true
+    this.commandErrorAction = action
+
+    toolbar.append(select, input, apply, clear, status, error, action)
     const editing = this.options.editing
     if (editing !== undefined) {
       const insert = document.createElement('button')
@@ -471,7 +495,9 @@ export class WebviewDataGrid {
 
   /** The header sort button's path (the harness clicks the button itself). */
   private applySort(column: string): void {
-    this.trackQuery(this.model.setSort(nextSortSpec(this.model.sort, column)))
+    this.trackQuery(this.model.setSort(nextSortSpec(this.model.sort, column)), (error) => {
+      this.showSortFailure(error)
+    })
   }
 
   private applyFilter(): void {
@@ -482,36 +508,111 @@ export class WebviewDataGrid {
       this.showCommandError('enter a predicate (engine SQL fragment, e.g. > 100)')
       return
     }
-    this.trackQuery(this.model.setFilters([{ column, predicate }]))
+    this.trackQuery(this.model.setFilters([{ column, predicate }]), (error) => {
+      this.showFilterFailure(error)
+    })
   }
 
   private clearFilters(): void {
     if (this.filterInput !== null) this.filterInput.value = ''
-    this.trackQuery(this.model.setFilters([]))
+    this.trackQuery(this.model.setFilters([]), (error) => {
+      this.showFilterFailure(error)
+    })
   }
 
-  /** Run one query-state mutation: errors surface in the alert, never here. */
-  private trackQuery(query: Promise<void>): void {
+  /**
+   * Run one query-state mutation: errors surface in the alert, never here.
+   *
+   * The failure handling belongs to the CALLER because the two mutations fail
+   * differently. A filter write is a C02 transaction whose rejection carries a
+   * value-free `FilterApplyError.phase`, so its copy is derived from the phase
+   * (C01 §7). A sort is a plain `provider.sort()`/reload rejection with no
+   * phase and no filter involvement, so reporting it with the filter copy would
+   * claim "the previous filters are still in effect" about filters that nobody
+   * touched — `onFailure` keeps the two apart.
+   */
+  private trackQuery(query: Promise<void>, onFailure: QueryFailureHandler): void {
     this.hideCommandError()
     const settled = query.then(
       () => undefined,
       (error: unknown) => {
-        this.showCommandError(error instanceof Error ? error.message : String(error))
+        onFailure(error)
       },
     )
     this.querySettled = settled
   }
 
-  private showCommandError(message: string): void {
+  /** Render one failed apply from its phase (`FilterApplyError`). */
+  private showFilterFailure(error: unknown): void {
+    const copy = filterFailureCopy(error)
+    this.showCommandError(copy.message, copy.recovery)
+  }
+
+  /**
+   * Render one failed header sort. A sort is not a C02 transaction: the
+   * rejection is the provider's own error, nothing was filtered, and the model
+   * publishes `sort` only after the provider accepted it. This is therefore the
+   * surface's pre-C02 sort framing (the provider's message, exactly what the
+   * web app's `cycleSort` renders) — never the filter sentences, and no claim
+   * about which filter list is in effect. It also claims nothing about the
+   * sort: a refused `provider.sort()` leaves the previous sort published, while
+   * an accepted sort whose reload failed leaves the new one; `model.sort` is
+   * the truth, so no copy here can contradict it.
+   */
+  private showSortFailure(error: unknown): void {
+    this.showCommandError(error instanceof Error ? error.message : String(error))
+  }
+
+  private showCommandError(message: string, recovery: FilterFailureRecovery = null): void {
     if (this.commandError === null) return
     this.commandError.textContent = message
     this.commandError.hidden = false
+    this.renderCommandAction(recovery)
+  }
+
+  /** Keep the one optional recovery control in step with the rendered copy. */
+  private renderCommandAction(recovery: FilterFailureRecovery): void {
+    const action = this.commandErrorAction
+    if (action === null) return
+    action.onclick = null
+    if (recovery === null) {
+      action.hidden = true
+      action.textContent = 'Filter recovery'
+      action.setAttribute('aria-label', 'Filter recovery')
+      action.removeAttribute('data-action')
+      return
+    }
+    const label = recovery.kind === 'retry' ? 'Retry' : 'Clear filters'
+    action.hidden = false
+    action.dataset.action = recovery.kind
+    action.textContent = label
+    action.setAttribute('aria-label', label)
+    action.onclick = () => {
+      if (recovery.kind === 'retry') {
+        // Case (b) recovery is the model's own reload, never a second filter
+        // write: the accepted list stays in effect.
+        this.trackQuery(this.model.refresh(), (error) => {
+          this.showFilterFailure(error)
+        })
+      } else {
+        // Restore-failed recovery: the documented Clear-filters affordance
+        // (a successful `setFilters([])` also clears `filtersUnknown`).
+        this.clearFilters()
+      }
+    }
   }
 
   private hideCommandError(): void {
     if (this.commandError === null) return
     this.commandError.hidden = true
     this.commandError.textContent = ''
+    if (this.commandErrorAction !== null) {
+      this.commandErrorAction.hidden = true
+      this.commandErrorAction.textContent = 'Filter recovery'
+      this.commandErrorAction.setAttribute('aria-label', 'Filter recovery')
+      this.commandErrorAction.removeAttribute('data-action')
+      this.commandErrorAction.onclick = null
+    }
   }
 
   private updateSortIndicators(): void {
