@@ -12,6 +12,33 @@ Until the first tagged release, everything accumulates under _Unreleased_.
 
 ## [Unreleased]
 
+### Changed — improvement-plan batch: honest failures, atomic filters, clearer CSV (2026-11-20)
+
+- **CSV options:** a declared column name may appear only once; a repeat (even with the same type)
+  is refused with a value-free line-level message instead of silently keeping the last declaration.
+  `constructor`/`toString` work as literal column names; `__proto__` is refused rather than silently
+  dropped by the engine's validated map copy.
+- **CSV dialect disclosure:** the review dialog now says `None` only for genuinely disabled
+  quoting/comments and `Not inferred` for unset fields; the literal `(empty)` and escaped newline
+  text no longer reach the screen, and the per-file header rename list is unchanged.
+- **Filters:** whole-list filter replacement validates before committing (atomic when the provider
+  supports it, documented non-atomic fallback otherwise). The grid owns restoration; the UI maps the
+  three failure phases to distinct copy — previous filters in effect, applied-but-reload-failed
+  (with Retry), or unknown filters (with Clear). Desktop adopts the same contract.
+- **Exports:** a failed browser write/close attempts one abort and rethrows the original error
+  instead of recording success; the desktop create-only writer closes on every post-open failure and
+  never unlinks without an identity, and a failed DCR write now says the artifact may be incomplete
+  rather than claiming nothing was written.
+- **Acquisition and session failures:** a rejected file acquisition can be retried on the same
+  source (a fulfilled snapshot is never re-read); a throwing session reset or commit activation fails
+  closed into an explicit recovery frame instead of a ready state or a false "unchanged" message.
+- **Engine/testing:** every `dispose()` caller awaits the same teardown; conformance's
+  predicate-error-reuse scenario now checks exact anchor values and order, not just counts.
+- **Developer tooling:** development policy is Node 24 (`^24.0.0`; package product floors stay
+  `>= 22`), `pnpm run doctor` checks local prerequisites offline, `pnpm current-state:check` guards a
+  bounded set of current-state facts, and dependency/bundle measurements plus an assurance map are
+  recorded under `docs/engineering/` (budgets intentionally unset).
+
 ### Fixed — disclosure and record keyboard accessibility (2026-11-04)
 
 - The telemetry disclosure is a real modal with neutral initial focus, Tab/Shift+Tab containment,

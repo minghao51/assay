@@ -5,12 +5,16 @@
 option-C amendment) and **D3-1** — with **ADR 0049/0050/0051 Accepted**; authoritative closures are
 the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md) §1/§2 and the Verified-state
 entries below. **No row is selected for dispatch.** Recorded but unselected: **ENG-2** (typed
-`repair-preview` count op) and **ENG-3** (`(empty)` dialect payload; needs engine/web coordination) —
-both need a maintainer + engine-owner go-ahead. Human asks are consolidated in the
-[open-asks checklist](handoff/20261019-open-asks.md). Improvement-plan execution (A00 closed; A01–A03
-dispatched, Q1–Q7 selected) is the [execution record](handoff/20261120-improvement-plan-execution.md).
+`repair-preview` count op) — it needs a maintainer + engine-owner go-ahead. **ENG-3** (`(empty)`
+dialect payload) is **CLOSED** by the 2026-11-20 improvement plan's B02 slice (`407c59f` + `c344b16`:
+wire representation retained, engine comment corrected, web display adapter; D3-1 rename list
+preserved); the penultimate runtime wave is otherwise closed. Human asks are consolidated in the
+[open-asks checklist](handoff/20261019-open-asks.md). **The 2026-11-20 improvement plan is executed**
+— all 24 rows accounted for (20 closed with merged evidence, 4 design-closed); decisions Q1–Q7,
+per-row commits, reviewer verdicts, final merged gates and carried limits are in the
+[execution record](handoff/20261120-improvement-plan-execution.md).
 
-**Last updated:** 2026-11-18. **Current lane:** launch readiness; the post-R1 runtime wave has closed
+**Last updated:** 2026-11-20. **Current lane:** launch readiness; the post-R1 runtime wave has closed
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
 Accepted**; the post-EW-03I-a queue has since closed in full (EW-03I-b, EW-04I, TB-2, ENG-1 = the ADR
 0049 decision-4 option-C amendment, D3-1; ADR 0051 Accepted) — see the current-state block above;

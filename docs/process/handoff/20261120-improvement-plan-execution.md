@@ -53,36 +53,42 @@ recorded here as project policy for the dependent row.
 
 ## 3. Task queue status
 
-Statuses use the plan's vocabulary. All rows were `proposed` at dispatch; this record is updated as
-rows land. Design rows deliver a document and stop.
+Rows close only with a merged commit and an independent reviewer verdict (listed per row). Design
+rows deliver a document and stop at `design-closed`; they do not authorize their implementation.
 
-| Row      | Wave | Status                           | Evidence       |
-| -------- | ---- | -------------------------------- | -------------- |
-| A00      | W0   | **closed**                       | this record §1 |
-| A01      | W0   | dispatched                       |                |
-| A02      | W1   | dispatched (after A01)           |                |
-| A03      | W0   | dispatched                       |                |
-| A04      | W1   | dispatched                       |                |
-| B01      | W1   | dispatched                       |                |
-| B02      | W1   | queued (after web lane)          |                |
-| B03      | W1   | dispatched                       |                |
-| B04      | W1   | dispatched                       |                |
-| B05      | W2   | queued (after B04 design review) |                |
-| B06      | W2   | dispatched                       |                |
-| C01      | W2   | queued                           |                |
-| C02a/b/c | W2   | queued (after C01)               |                |
-| C03a     | W2   | queued                           |                |
-| C03b     | W2   | queued (after C03a)              |                |
-| C04      | W1   | dispatched                       |                |
-| C05      | W1   | dispatched                       |                |
-| D01      | W2   | dispatched with web lane         |                |
-| D02a/b/c | W3   | queued                           |                |
-| D03a/b   | W3   | queued                           |                |
-| D04a/b   | W3   | queued                           |                |
-| E01      | W4   | queued (design)                  |                |
-| E02      | W4   | queued                           |                |
-| E03      | W2   | queued                           |                |
-| E04      | W4   | queued (design)                  |                |
+| Row  | Status            | Evidence (merge / commits / review)                                                                                                      |
+| ---- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| A00  | **closed**        | this record §1                                                                                                                           |
+| A01  | **closed**        | `4b64ff0`, `5354e20`; reviewer `approve` after two request-changes rounds (pickup contradictions, authorized package-README scope)       |
+| A02  | **closed**        | `6d11204`; reviewer `approve` (fact mutations fail; closed history does not trigger)                                                     |
+| A03  | **closed**        | `5c65f4f`; reviewer `approve`; `pnpm install --frozen-lockfile` exit 0                                                                   |
+| A04  | **closed**        | `0219c3c`; reviewer `approve` (seams, exit matrix, no secret leakage)                                                                    |
+| B01  | **closed**        | `41850c2`, `8347474`; reviewer `approve` (mutation: duplicate check + wire bytes)                                                        |
+| B02  | **closed**        | `407c59f`, `c344b16`; reviewer `approve`; ENG-3 route = wire retained + web display adapter                                              |
+| B03  | **closed**        | `0cf8044`; reviewer `approve` (abort matrix, error identity)                                                                             |
+| B04  | **closed**        | `170177c`, `5a6c3e0`; reviewer `approve` after seam-stripping fix                                                                        |
+| B05  | **closed**        | `ee0b841`, `5a6c3e0`; reviewer `approve` (residue identities, no "nothing written")                                                      |
+| B06  | **closed**        | `85014b5`, `a93460d`; reviewer `approve` after the identity-guard pin                                                                    |
+| C01  | **design-closed** | `d858ac4`, `9190425`; design review request-changes resolved (R-C01 + settled error API); implementation is C02                          |
+| C02a | **closed**        | `d6430d6`, `a4ba9b6`, `9738d49`; reviewer `approve` after T9 interleave + stale-page pin                                                 |
+| C02b | **closed**        | `dbb37b9`, `94e558f`, `a670e03`, `f81e904`; reviewer `approve` after drill/copy-claim fix                                                |
+| C02c | **closed**        | `3b239f2`, `1c3b77f`, `e5d53cc`, `d1e5c28`; reviewer `approve` after the sort-copy split                                                 |
+| C03a | **design-closed** | `d858ac4`; design review verified inventory/contract; implementation is C03b                                                             |
+| C03b | **closed**        | `19f86fb`; reviewer `approve` (fail-closed reset + honest activation outcomes)                                                           |
+| C04  | **closed**        | `c32a0e9`; reviewer `approve` (shared settlement, one terminate)                                                                         |
+| C05  | **closed**        | `f83fd96`, `a9a299e`; reviewer `approve` (count-preserving corruption detected)                                                          |
+| D01  | **closed**        | `4d7ef4c`, `e704d02`; reviewer `approve` after caller/stale-token pins                                                                   |
+| D02a | **closed**        | `2d7a96f`; reviewer `approve`                                                                                                            |
+| D02b | **closed**        | `12e2981`, `65b7d22`; reviewer `approve` after the post-read currency pin                                                                |
+| D02c | **closed**        | `fb10abe`, `9f07939`, `89a7cea`; reviewer `approve` after manifest regeneration                                                          |
+| D03a | **closed**        | `1d76fed`, `2e46573`; reviewer `approve` after the cancel/close epoch guard                                                              |
+| D03b | **closed**        | `6a48583`, `04fed7f`, `d9e23e3`; reviewer `approve` after interrupted-session adoption                                                   |
+| D04a | **closed**        | `8b290c0`, `9b065eb`, `8cd015b`; reviewer `approve` after drill evidence + changeset                                                     |
+| D04b | **closed**        | `1d5fec3`, `e5374c3`, `b219ecd`; reviewer `approve`                                                                                      |
+| E01  | **design-closed** | `bc91591`, `2681de2`; design review request-changes resolved (transport limitation, revert affordance). Implementation not selected (Q6) |
+| E02  | **closed**        | `3ac917a`, `e772396`; reviewer `approve` (independent size/manifest spot-checks)                                                         |
+| E03  | **closed**        | `a64a144`, `080192c`, `a230a25`, `1367647`; reviewer `approve` after the C02a/C03b refresh                                               |
+| E04  | **design-closed** | `bc91591`, `2681de2`; design review request-changes resolved. No runtime row selected (Q7)                                               |
 
 ## 4. Lane reservations and conflict rules
 
@@ -137,3 +143,76 @@ the remaining recorded items are the unselected **ENG-2/ENG-3** plus **R3/R8** (
 and **R13** (unselected) — each keeping the status already recorded in the pickup §2 and the post-R1
 acceptance record (D6/D7). No status vocabulary changed; no closed-row narrative, date or commit
 evidence was removed.
+
+## 6. Final integration evidence (2026-11-20)
+
+All touched lanes were independent-worktree branches; each was reviewed by a
+different agent (model/provider distinct from the implementer) before merge.
+The merged gates below were run by the orchestrator on `main` after the last
+merge (`D02c`).
+
+| Gate                                             | Result                                                                                                                                                     |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm format:check`                              | exit 0                                                                                                                                                     |
+| `pnpm lint`                                      | exit 0                                                                                                                                                     |
+| `pnpm typecheck`                                 | exit 0 (20/20 tasks)                                                                                                                                       |
+| `pnpm test`                                      | exit 0 — **291 files / 4444 tests**                                                                                                                        |
+| `pnpm build`                                     | exit 0 — 12/12 tasks                                                                                                                                       |
+| `pnpm docs:links:check`                          | exit 0                                                                                                                                                     |
+| `pnpm adr:index:check`                           | exit 0 (51 records)                                                                                                                                        |
+| `pnpm current-state:check`                       | exit 0 (91 assertions / 5 facts)                                                                                                                           |
+| `pnpm assurance-map:check`                       | exit 0                                                                                                                                                     |
+| `node scripts/dependency-report.mjs --check`     | exit 0 (114 entries / 31 annotations)                                                                                                                      |
+| `pnpm measure:bundle`                            | exit 0 (deterministic; see `10-dependency-and-bundle-measurements.md`)                                                                                     |
+| `pnpm test:coverage` (`--maxWorkers=4`)          | exit 0 — **statements 90.22 % (19856/22007), branches 84.97 % (13227/15565), functions 92.11 % (3259/3538), lines 91.9 % (17957/19538)**; floors unchanged |
+| `pnpm test:e2e` (`DUCKDB=/tmp/duckdb`)           | exit 0 — **287 passed, 1 skipped** (the 1M-row fixture leg)                                                                                                |
+| `node apps/cli/scripts/pack-consumer-smoke.mjs`  | exit 0 — `PACK CONSUMER SMOKE: PASS`                                                                                                                       |
+| Pinned VS Code extension host (per desktop rows) | exit 0 — `ALL SCENARIOS PASSED`, CLI agreement legs pass                                                                                                   |
+
+A first `test:coverage` attempt at default worker count failed two
+contention-sensitive tests (a telemetry `duration_bucket` boundary and the
+`dcr-round-trip` fuzz timeout at 20 s); both pass at four workers and the
+suite is green there. No timeout, ceiling or threshold was changed.
+
+### Carried limits (not erased)
+
+1. **Node 22 product-floor minimum is unexercised.** Development policy is Node
+   24 (`^24.0.0`, tested 24.13.0); each package keeps a declared `>= 22`
+   product floor, and no Node 22 runtime exists in this environment. Narrow the
+   floor or exercise it elsewhere before claiming it tested.
+2. **CSV `quote = ''` (quoting disabled) is CLI-controlled, not UI-reachable.**
+   The shipped form treats blank as "reader choice"; B02 proves disabled
+   semantics at the DuckDB 1.5.5 CLI-control level and in a dialog test, and
+   every reachable UI case in the real WASM browser.
+3. **Browser `abort()` does not roll back a destination.** B03 attempts one
+   abort on failure and rethrows the primary error; it makes no claim that the
+   destination is restored or that a download is durable.
+4. **Cleanup identity-check → unlink is not atomic (B04/B05).** A replacement
+   appearing between the check and the unlink can still be removed; both tasks
+   document this and leave unverifiable residue rather than deleting it.
+5. **Cancel after a verified desktop close can leave a complete file** (D03a
+   writer contract); response correctness is fixed, file removal in that
+   narrow window is not.
+6. **Desktop webview has no coverage instrumentation.** D03b adds real unit
+   subjects (the `vscode-webview` happy-dom project) but the coverage include
+   and floors are unchanged; browser-level webview coverage remains a separate
+   config decision.
+7. **`TEST-PROOF` code remains in the production webview bundle.** Removing it
+   is a separate measured bundling decision, not part of D03b.
+8. **Reset callbacks cannot be rolled back** (C03b). A fault abandons the
+   session into an honest, value-free recovery frame; it does not restore
+   arbitrary effects from other React owners.
+9. **C02b/C02c copy affordances are local.** Accepted-reload/unknown-state
+   recovery is offered from the filter bar; the profile and validation panels
+   reuse the sentences without panel-local buttons.
+10. **E02 budgets are deliberately unset** pending representative repeated
+    baselines; no dependency was removed or upgraded.
+
+### Program status
+
+All 24 planned rows are accounted for: 20 implementation/verification rows are
+`closed` with merged evidence, and 4 design rows (C01, C03a, E01, E04) are
+`design-closed`. C02/C03/E01/E04 implementation choices remain separate
+decisions where the plan said they were (Q6/Q7 design-only; C02 children were
+selected and executed). No push, publish, collector traffic or remote CI was
+performed.
