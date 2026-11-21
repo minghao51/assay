@@ -114,6 +114,7 @@ a local T1/T2 follow-up, not a reopened MVP or completed implementation.
 - [x] Telemetry design (D2 tail) — **approved 2026-09-29 (ruling C-pt0-1; [ADR 0045](../adr/0045-telemetry-design-adopted.md))**; implementation complete in the [closed telemetry queue](../process/handoff/20260929-telemetry-queue.md) (self-hosted collector deployment and public disclosure remain the maintainer's G0 tail).
 - [x] Product name decision — **Assay** (ADR 0039) — 2026-09-14.
 - [ ] Demo dataset curation for the MVP demo scenario begins (opportunity O5) — **approach decided 2026-09-16: hybrid** (real open data + injected flaws).
+- [x] **Improvement-plan batch executed (2026-11-20)** — the 24-row/12-child [improvement plan](../process/handoff/improvement-plan-20261120/implementation-plan.md) is accounted for: 20 implementation/verification rows closed with independent review, 4 design rows delivered (C01/C03a filters & callback contracts, E01 telemetry opt-out cancellation design, E04 bounded-UX/WF-O1 design). User-visible: duplicate CSV declarations refused, honest CSV dialect disclosure, atomic whole-list filters + phase-aware recovery copy (web and desktop), export/acquisition cleanup and retry, fail-closed session callbacks. Tooling: Node 24 development policy, offline `doctor`, current-state and assurance checks, dependency/bundle baseline. **ENG-3 closed**; **ENG-2 remains the only recorded-but-unselected runtime row.** Evidence, decisions Q1–Q7 and ten carried limits: [execution record](../process/handoff/20261120-improvement-plan-execution.md).
 
 ### Next
 

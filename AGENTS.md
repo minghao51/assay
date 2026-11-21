@@ -49,6 +49,10 @@ implement and approve the same change.
 | `pnpm test:e2e`                              | Playwright (needs `pnpm build` first; browsers via `pnpm exec playwright install chromium`) |
 | `pnpm format`                                | Prettier — do not hand-format code                                                          |
 | `pnpm changeset`                             | Record a releasable change (with PRs that change packages)                                  |
+| `pnpm run doctor`                            | Offline prerequisite check (Node/pnpm/install/DuckDB/Playwright/VS Code/test ports)         |
+| `pnpm current-state:check`                   | Bounded current-state documentation drift check                                             |
+| `pnpm assurance-map:check`                   | Verify the assurance map's named paths are swept by a declared runner                       |
+| `pnpm measure:bundle`                        | Offline bundle/package size report (reads built `dist/`; run `pnpm build` first)            |
 | `bash fixtures/parquet/generate.sh`          | Regenerate Parquet golden fixtures (needs DuckDB CLI)                                       |
 
 Development requires **Node 24** (root policy `^24.0.0`, tested 24.13.0). The `node: ">=22"` floor

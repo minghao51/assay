@@ -2,12 +2,12 @@
 
 **Added:** 2026-11-20 (improvement-plan row E03). **Coverage-measurement
 baseline:** `06d8e20` (`main`) — historical, recorded at 2026-11-20T16:01:35Z
-(§4.1). **Last verified:** `24065db`
-(`24065db8eedae8f16e6607c143353f71033a788a`, `main`, after C02a and C03b merged)
-on 2026-11-20 — the rows below and the refreshed §4.1 artifact were checked at
-that SHA. The runner matrix was later extended for D03b's `vscode-webview`
-project; its rows are verified by `pnpm assurance-map:check` and the linked
-tests. **Status:** documentation + one bounded consistency check. No product
+(§4.1). **Last verified:** `d44190d` (`main`, 2026-11-20, after C02b/C02c/D02c and the
+D03b `vscode-webview` runner registration) — the rows below, the runner matrix
+and the §4.1 final artifact were checked at that tree. The coverage artifact
+itself was measured at the code-final commit `c0e48eb` (the commits after it are
+docs/scripts-only and outside the coverage include). The original
+`06d8e20` baseline and the `24065db` refresh are kept as history. **Status:** documentation + one bounded consistency check. No product
 code, test, Vitest project, coverage floor or floor-relevant config changed by
 this record.
 
@@ -163,6 +163,29 @@ map's last-verified SHA. Neither is committed, and neither is carried forward.
 | Lines              | **91.71 %** (17 788 / 19 396)                                                                                                                                             |
 | Denominator        | **278 non-test source modules** (every `apps/*/src` + `packages/*/src` module; test files are excluded by Vitest)                                                         |
 | Floors (unchanged) | statements 83, branches 76, functions 80, lines 84                                                                                                                        |
+
+**Final refresh — `c0e48eb` (code-final; map re-verified at `d44190d`).**
+
+| Fact               | Value                                                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Commit             | `c0e48eb` (`main` after D02c; later commits are docs/scripts-only and outside `apps/*/src` + `packages/*/src`)                                                                 |
+| Coverage config    | `vitest.config.ts`, sha256 `737621e5ada2173df38f72a4c8c6a805735c38d98c4b849b0cc87242933f60bb` (D03b added the `vscode-webview` **test** project; include and floors unchanged) |
+| Command            | `DUCKDB=/tmp/duckdb pnpm exec vitest run --coverage --testTimeout=20000 --maxWorkers=4` (after `tsc --build apps/cli/tsconfig.build.json`)                                     |
+| Measured at (UTC)  | 2026-11-20T~13:45Z                                                                                                                                                             |
+| Runtime            | Node `v24.13.0`, pnpm `11.26.0`, Linux x86_64, 16 CPUs, `coverage` v8 provider                                                                                                 |
+| Exit               | 0 — **291 test files / 4 444 tests passed**, thresholds held, no test failed                                                                                                   |
+| Statements         | **90.22 %** (19 856 / 22 007)                                                                                                                                                  |
+| Branches           | **84.97 %** (13 227 / 15 565)                                                                                                                                                  |
+| Functions          | **92.11 %** (3 259 / 3 538)                                                                                                                                                    |
+| Lines              | **91.9 %** (17 957 / 19 538)                                                                                                                                                   |
+| Denominator        | **290 non-test source modules** (every `apps/*/src` + `packages/*/src` module; test files excluded by Vitest)                                                                  |
+| Floors (unchanged) | statements 83, branches 76, functions 80, lines 84                                                                                                                             |
+
+A first attempt at the default 16 workers failed two contention-sensitive tests
+(a `SqlPanel` telemetry `duration_bucket` boundary and the `dcr-round-trip`
+fuzz timeout at 20 s). Both pass alone and in the four-worker re-run recorded
+above; no timeout, ceiling or floor was changed. This is the current artifact
+for the improvement-plan closure.
 
 The first invocation at `24065db` failed one contention-sensitive `waitFor` pin
 (`apps/web/src/sql/SqlPanel.telemetry.test.tsx` › "emits user_sql with a coarse

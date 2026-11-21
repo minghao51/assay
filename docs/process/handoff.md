@@ -18,7 +18,8 @@ per-row commits, reviewer verdicts, final merged gates and carried limits are in
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
 Accepted**; the post-EW-03I-a queue has since closed in full (EW-03I-b, EW-04I, TB-2, ENG-1 = the ADR
 0049 decision-4 option-C amendment, D3-1; ADR 0051 Accepted) — see the current-state block above;
-**ENG-2/ENG-3** remain recorded but unselected in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md).
+**ENG-2** remains recorded but unselected in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md);
+**ENG-3** closed on 2026-11-20 with the improvement-plan B02 slice (`407c59f` + `c344b16`).
 The
 original UX/UI programme and bounded audit follow-up are complete. The
 [usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
@@ -86,6 +87,26 @@ Hosted/AI/enterprise work remains gated by roadmap G2–G4.
 | Pipeline        | P1 IR/runner, P2 gates/materialization, P3 candidate references + canonical DCR                                                                                                                                                                    | P4 adapter priority is a later user-demand decision             |
 | Desktop VS Code | Immutable-source editor, overlay editing/history, create-only export, effective-view validation, staged diff with confirmed keys + installed-CLI agreement, Git context + compare command, exit-acceptance chain, virtualized grid, offline engine | PT-V slice 2 closed; maintenance + track planning               |
 | Release         | Complete packed CLI runtime closure verified under plain Node                                                                                                                                                                                      | Private-dependency registry distribution policy + human release |
+
+**Verified state (2026-11-20 — improvement-plan batch executed):** the 24-row improvement plan
+(A00–E04, 12 children) is accounted for: **20 implementation/verification rows CLOSED** and **4
+design rows DESIGN-CLOSED** (C01, C03a, E01, E04), each with an independent reviewer verdict. Shipped
+behaviour: duplicate CSV declared names are refused (value-free, own-key-safe); CSV dialect disclosure
+says `None` only for disabled semantics and `Not inferred` for unset fields (ENG-3/`B02`, wire
+representation retained, D3-1 rename list preserved); whole-list filter replacement is atomic in grid,
+web and desktop with phase-aware failure copy and one-owner restoration; browser export failures abort
+once and rethrow the original error; desktop create-only/DCR writers close on post-open failures and
+never unlink unverified paths; file acquisition is retryable while a fulfilled snapshot is retained;
+session reset/commit-activation faults fail closed; every `dispose()` caller awaits one teardown;
+conformance pins exact anchor values. Maintainability: D02a/b/c (shell, replacement controller, session
+owner), D03a/b (desktop export controller, webview controllers), D04a/b (engine CSV-dispatch and
+SQL-emission seams), D01 honest naming. QoL/evidence: `pnpm run doctor`, `pnpm current-state:check`,
+dependency-use manifest + bundle measurements, assurance map, and design records for telemetry opt-out
+cancellation (E01) and bounded UX (E04) — neither implemented by selection. Merged gates on the final
+tree: format/lint/typecheck clean, unit **291 files / 4444 tests**, build 12/12, coverage
+**90.22 / 84.97 / 92.11 / 91.9**, docs **183/0**, ADR **51**, browser **287 + 1 skip**, pack-consumer
+smoke PASS, pinned extension host PASS. Full per-row commits, verdicts, decisions Q1–Q7 and ten carried
+limits: [execution record](handoff/20261120-improvement-plan-execution.md). Nothing pushed.
 
 **Verified state (2026-11-18, D3-1 CLOSED — D3's rename list):** **D3-1 merged** `a16eea5` + `9a39fe3` +
 `d941b51` (worker `ea0e230`/`a356534`/`3e80553`, independent `opencode-go/mimo-v2.6-flash` high review:
@@ -396,7 +417,9 @@ prompts are historical — see the do-not-dispatch label there). Corrected 2026-
 here as remaining have all since closed — **EW-04I** `52da4ca`+`9e62172`+`d0069be`, **TB-2** `6e97d14`,
 **ENG-1** `f2fb523`+`81bb8dc` (ADR 0049 option-C amendment), **D3-1** `a16eea5`+`9a39fe3`+`d941b51`,
 **ADR 0051 Accepted**; the recorded-but-unselected remainder is **ENG-2** (typed `repair-preview`
-count op) and **ENG-3** (`(empty)` dialect payload). R13 stays unselected. Nothing pushed.
+count op). **ENG-3** (`(empty)` dialect payload) closed on 2026-11-20 with the improvement-plan B02
+slice (`407c59f` + `c344b16` — wire representation retained, engine comment corrected, web display
+adapter). R13 stays unselected. Nothing pushed.
 
 **R1 CLOSED — honest engine failure text (2026-11-14).** The maintainer selected R1 (masked browser
 SQL errors, `ReferenceError: _setThrew is not defined`) and approved
@@ -530,6 +553,22 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-20 (**improvement plan**) — the 24-row improvement plan and its 12 children are **closed
+  (20) or design-closed (4)**: A01 docs reconciliation, A02 `current-state:check`, A03 Node 24
+  development policy, A04 offline doctor; B01 duplicate CSV-declaration refusal, B02/ENG-3 dialect
+  display adapter, B03 writable abort-on-failure, B04/B05 cleanup + honest DCR residue, B06 retryable
+  acquisition; C01/C02a-c atomic filters (grid→web→desktop) with phase copy, C03a/b fail-closed
+  callbacks, C04 shared disposal, C05 exact-value conformance; D01 naming, D02a-c App decomposition,
+  D03a/b desktop splits, D04a/b engine seams; E01/E04 designs, E02 dependency/bundle baseline, E03
+  assurance map. Independent review per row (several request-changes rounds: docs contradictions,
+  missing mutation pins, an identity-guard gap, a cancel/close race, a sort-copy regression, stale
+  generated manifests). Final merged gates: unit **291/4444**, coverage **90.22/84.97/92.11/91.9**,
+  browser **287 + 1 skip**, docs **183/0**, pack smoke PASS, pinned host PASS. **ENG-3 is now CLOSED**
+  (`407c59f`+`c344b16`); **ENG-2 remains the only recorded-but-unselected row**. Ten carried limits
+  (Node 22 floor unexercised, non-atomic cleanup, webview coverage boundary, deferred proof-bundle
+  exclusion, unset bundle budgets, …) are recorded in the execution record. Worktrees/branches
+  removed; nothing pushed.
 
 - 2026-11-18 (**id**) — **D3-1 CLOSED — merged `a16eea5` + `9a39fe3` + `d941b51`** (worker
   `ea0e230`/`a356534`/`3e80553`; independent `opencode-go/mimo-v2.6-flash` high, one request-changes round).

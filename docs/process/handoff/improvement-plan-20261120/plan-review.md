@@ -24,4 +24,4 @@ Final reviewer follow-up confirmed Q5 is confined to C03b, B05's race limitation
 
 ## Handoff status
 
-The reviewed planning corrections have been incorporated and the final startup files are present. All tasks remain proposed and execution unauthorized. The next agent must select/reserve each task and obtain the required independent **implementation** review, executable regression evidence and fresh gates. Nothing in this review closes or approves a runtime task.
+The reviewed planning corrections have been incorporated and the final startup files are present. At planning time all tasks remained proposed and execution unauthorized. **Executed 2026-11-20:** all rows are closed or design-closed — see the [execution record](../20261120-improvement-plan-execution.md); this file remains the historical planning review. The next agent must select/reserve each task and obtain the required independent **implementation** review, executable regression evidence and fresh gates. Nothing in this review closes or approves a runtime task.

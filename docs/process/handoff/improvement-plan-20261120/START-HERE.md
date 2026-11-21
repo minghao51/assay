@@ -1,3 +1,9 @@
+> **STATUS 2026-11-20 — EXECUTED.** This bundle is preserved planning evidence, not dispatch authority.
+> All 24 rows are accounted for (20 closed with merged commits + independent review, 4 design-closed);
+> `tasks.json` carries the per-row status and evidence, and the authoritative record is
+> [`../../20261120-improvement-plan-execution.md`](../20261120-improvement-plan-execution.md).
+> The "not implemented yet" statements below describe the bundle as written on 2026-11-20 before execution.
+
 # Start here — Assay improvement handoff
 
 ## Files

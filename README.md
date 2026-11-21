@@ -43,8 +43,12 @@ environment; the full constraint table is the [node support contract](docs/proce
 
 Every other task is a root script: `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test`
 (unit), `pnpm test:e2e` (Playwright), `pnpm format`, `pnpm changeset`, and
-`bash fixtures/parquet/generate.sh` (regenerate Parquet fixtures). The full command table with
-descriptions is the single source of truth at [AGENTS.md § Commands](AGENTS.md#commands).
+`bash fixtures/parquet/generate.sh` (regenerate Parquet fixtures). For a local preflight, run
+**`pnpm run doctor`** (offline: Node/pnpm/install/DuckDB/Playwright/VS Code/test ports); the
+bounded `pnpm current-state:check` and `pnpm assurance-map:check` guard documentation facts and the
+test-assurance map, and `pnpm measure:bundle` reports bundle/package sizes after a build. The full
+command table with descriptions is the single source of truth at
+[AGENTS.md § Commands](AGENTS.md#commands).
 
 **Telemetry:** see [Telemetry and your privacy](docs/telemetry-disclosure.md) for what is
 collected and how to opt out.

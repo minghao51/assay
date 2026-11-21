@@ -3,9 +3,10 @@
 **Date:** 2026-11-18. **Status:** the post-R1 runtime wave has closed **EW-02I**, **R2**, **U5**
 (EW-04D condition vii), **EW-03I-a**, **TB-1**, **EW-03I-b**, **TB-2**, **EW-04I**, **ENG-1** and
 **D3-1**, and **ADR 0051 is Accepted**. **No product-policy decision is pending, and no row is selected.**
-What remains is **ENG-2** (typed `repair-preview` count op) and **ENG-3** (the `(empty)` dialect payload /
-`'None'` unreachable), both **recorded but unselected** and both needing a go-ahead; **R3/R8** remain
-recorded limitations and **R13** remains unselected (§2 below; none of these is closed). This
+What remains is **ENG-2** (typed `repair-preview` count op), **recorded but unselected** and needing a
+go-ahead; **ENG-3** (the `(empty)` dialect payload / `'None'` unreachable) is **CLOSED 2026-11-20** by
+the improvement-plan B02 slice (`407c59f` + `c344b16`). **R3/R8** remain recorded limitations and
+**R13** remains unselected (§2 below; none of these is closed). This
 record is the cold-pickup index for the next agent; it does not select any unrequested row.
 
 **Authority order:** accepted ADRs → [EW-10 §8](20261113-ew10-first-wave-integration.md) dated selection →
@@ -100,7 +101,7 @@ controls and byte-identical restoration, and **never push**.
 > live web row** — and **P0's "remaining queue" text is obsolete**; no prompt in this section is a
 > current starting instruction. R3/R8/R13 were never dispatch rows and were not closed by this wave:
 > **R3/R8** remain recorded limitations and **R13** remains unselected (§2); the
-> recorded-but-unselected **ENG-2/ENG-3** need a fresh maintainer go-ahead. Current entry point: the
+> recorded-but-unselected **ENG-2** needs a fresh maintainer go-ahead (**ENG-3 closed 2026-11-20**). Current entry point: the
 > living handoff's current-state block ([handoff.md](../handoff.md)).
 
 ### P0 — cold pickup (paste to the next orchestrator) (**historical — do not dispatch**)
