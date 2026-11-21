@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CellValue, EditOp, RowId, TransformationHistory } from '@assay/domain'
+import type { CellValue, EditOp, OverlayBase, RowId, TransformationHistory } from '@assay/domain'
 import {
   appendOp,
   emptyHistory,
@@ -139,12 +139,32 @@ export interface EditingSession {
   readonly overlayRef: { current: EngineOverlay | null }
   readonly announceEdit: (text: string) => void
   /**
-   * m4-5 export effects. `runExport` materializes the active overlay snapshot
-   * (base + ops at the history cursor) — never the source path, never the
-   * base view alone (ADR 0012); the two destination helpers thread the
-   * same-source guard through the save picker.
+   * D02c — the session owner's publication command for a **newly adopted
+   * base**. Called once, immediately after that session's clean reset (the
+   * reset has already published the empty render state in the same batch), so
+   * this writes the two authoritative refs for the adopted base — history first,
+   * then the overlay snapshot built from it — and deliberately writes no render
+   * state.
+   *
+   * This is the only way another module may publish this hook's history/overlay:
+   * `historyRef`/`overlayRef` stay mutable refs for the fold/commit paths below,
+   * and no caller receives them to write.
    */
-  readonly runExport: (format: EngineExportFormat) => Promise<EngineExportResult>
+  readonly publishEmptyBase: (base: OverlayBase) => void
+  /**
+   * D02c — the exact overlay the grid is showing for `base`: the published
+   * `overlayRef` when it belongs to that same base, else the pure fold of the
+   * live history over it. Used by the session owner to rebind a provider and to
+   * freeze an export's in-flight snapshot (ADR 0012), so an export or a
+   * provider never borrows another base's snapshot.
+   */
+  readonly snapshotOverlay: (base: OverlayBase) => EngineOverlay
+  /**
+   * m4-5 export destination helpers. The export **run** itself (and the frozen
+   * in-flight snapshot it hands the engine) belongs to the session owner
+   * (`sessions/useSessionOwner.ts`) since D02c; these two thread the same-source
+   * guard through the save picker and write the delivered bytes.
+   */
   readonly requestExportDestination: typeof requestSaveDestination
   readonly deliverExportCopy: (
     destination: WritableSaveDestination,
@@ -855,22 +875,30 @@ export function useEditingSession(
   }, [phase, showEditError])
 
   /**
-   * m4-5 export effects. `runExport` materializes the **active** overlay
-   * snapshot (base + ops at the history cursor) through the engine's merged
-   * export op — never the source path, never the base view alone (ADR 0012).
-   * `overlayRef` is the synchronous source the grid already reads, so the
-   * exported copy is exactly the view on screen.
+   * D02c — publish a newly adopted base. The session owner calls this exactly
+   * once per adopted session, immediately after that session's clean reset (so
+   * `setHistory(emptyHistory())` has already been published by the reset in the
+   * same batch). History is written before the overlay so the snapshot is built
+   * from the value the provider will read.
    */
-  const runExport = useCallback(
-    (format: EngineExportFormat): Promise<EngineExportResult> => {
-      if (phase.kind !== 'ready') {
-        return Promise.reject(new Error('no table is open'))
-      }
-      const overlay = overlayRef.current ?? overlaySnapshot(phase.base, historyRef.current)
-      return engineClient.exportView(phase.handle, { format, overlay })
-    },
-    [phase, overlayRef, historyRef],
-  )
+  const publishEmptyBase = useCallback((base: OverlayBase): void => {
+    const adoptedHistory = emptyHistory()
+    historyRef.current = adoptedHistory
+    overlayRef.current = overlaySnapshot(base, adoptedHistory)
+  }, [])
+
+  /**
+   * D02c — the exact overlay for `base`. The published ref is the snapshot the
+   * provider reads; it is borrowed only when it belongs to `base` by identity
+   * (an adopted base or the live `phase.base`), so a request for a different
+   * (candidate) base folds that base's history instead of returning another
+   * base's overlay.
+   */
+  const snapshotOverlay = useCallback((base: OverlayBase): EngineOverlay => {
+    const live = overlayRef.current
+    if (live !== null && live.base === base) return live
+    return overlaySnapshot(base, historyRef.current)
+  }, [])
 
   const requestExportDestination = useCallback(
     (format: EngineExportFormat) =>
@@ -926,7 +954,8 @@ export function useEditingSession(
     historyRef,
     overlayRef,
     announceEdit,
-    runExport,
+    publishEmptyBase,
+    snapshotOverlay,
     requestExportDestination,
     deliverExportCopy,
     handleUndo,

@@ -12,15 +12,9 @@ import {
 } from 'react'
 import { viewNameForTableId } from '@assay/engine-duckdb'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
-import {
-  bucketColumnCount,
-  bucketFindingCount,
-  bucketRowCount,
-  bucketSize,
-  classifyOsFamily,
-} from '@assay/telemetry'
+import { bucketFindingCount, classifyOsFamily } from '@assay/telemetry'
 import type { OverlayBase } from '@assay/domain'
-import { emptyHistory, liveRowCount, stateAtCursor } from '@assay/domain'
+import { liveRowCount, stateAtCursor } from '@assay/domain'
 import type { ContractV1 } from '@assay/contracts'
 import { GridViewportModel } from '@assay/grid'
 import type { ColumnSchema } from '@assay/grid'
@@ -59,7 +53,6 @@ import {
   openStatusCopy,
 } from './lib/app'
 import { preloadBottomPanels } from './lib/bottom-panels'
-import type { BottomPanelModules } from './lib/bottom-panels'
 import { engineClient } from './lib/engine'
 import { classifyHistoryShortcut, shouldAutoExpandHistory } from './lib/history-shortcut'
 import { NO_COLUMNS, useModelSlice } from './lib/use-model-slice'
@@ -117,11 +110,7 @@ import {
 } from './csv/copy'
 import type { OwnedModal } from './replace/gate'
 import { useReplacementController } from './replace/useReplacementController'
-import type {
-  AdoptionOutcome,
-  CsvAdoptionHandoff,
-  ReplacementCandidate,
-} from './replace/useReplacementController'
+import type { CsvAdoptionHandoff, ReplacementCandidate } from './replace/useReplacementController'
 import {
   REPLACE_BUSY_NOTICE,
   REPLACE_CAST_NOTICE,
@@ -134,20 +123,14 @@ import {
   REPLACE_SETTLING_NOTICE,
   REPLACE_TECHNICAL_SUMMARY,
 } from './replace/messages'
-import { useDatasetSession } from './sessions/session-reset'
-import type { SessionResetFault } from './sessions/session-reset'
+import { useSessionOwner } from './sessions/useSessionOwner'
+import type { SessionGridPorts, SessionOwnerPorts } from './sessions/useSessionOwner'
 import { useEditingSession } from './sessions/useEditingSession'
 import { useValidationSession } from './sessions/useValidationSession'
 import { useDiffSession } from './sessions/useDiffSession'
 import type { NavigateToRow, Phase, ScrollRequest } from './sessions/types'
 import { readWebTelemetryConfig } from './telemetry/config'
-import {
-  diffRunOutcome,
-  durationSince,
-  formatKindFromName,
-  reasonCodeFromError,
-  validationOutcome,
-} from './telemetry/emit'
+import { diffRunOutcome, durationSince, validationOutcome } from './telemetry/emit'
 import { browserStorage, createWebTelemetry } from './telemetry/runtime'
 import type { WebTelemetryRuntime } from './telemetry/runtime'
 import { TelemetryProvider } from './telemetry/TelemetryContext'
@@ -333,6 +316,15 @@ export function openControlBlocked(input: {
   return input.phase === 'opening' || input.intentActive || input.openModal !== null
 }
 
+/**
+ * D02c — the session owner's engine export port. The in-flight snapshot is
+ * frozen by the owner (one `EngineOverlay` value per click); this is a plain
+ * forward to the one engine client, kept at module scope so the port identity
+ * is stable for the owner's whole lifetime.
+ */
+const exportViewPort: SessionOwnerPorts['exportView'] = (handle, request) =>
+  engineClient.exportView(handle, request)
+
 export interface AppProps {
   /**
    * Telemetry injection seam for tests. When omitted, `App` builds the
@@ -356,40 +348,57 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */
   const [disclosureOpen, setDisclosureOpen] = useState(() => telemetry.shouldShowDisclosure())
   /**
-   * f-1: dataset-session epoch + reset registry. `beginSession` bumps the
-   * shared token and runs every per-domain reset, so `openDataFile` no longer
-   * hand-nulls each session slot. See `sessions/session-reset.ts` for the
-   * token/ordering rationale.
+   * D02c — App-owned, **session-scoped request slots**. They are the state the
+   * session owner retires at every session boundary (a previous dataset's
+   * request can never address the new one). The owner decides WHEN; App owns
+   * WHAT, so it passes `retireRequests` as one named port.
    */
-  const datasetSession = useDatasetSession()
-  /**
-   * C03b fail-closed recovery state: the value-free faults of the last
-   * `beginSession()` that could not close/start the dataset session cleanly.
-   * Non-null means the current session was abandoned (never published ready)
-   * and the recovery frame replaces every ordinary open-flow surface for it.
-   * `null` on a clean epoch — including the next clean open, because the fault
-   * is per-invocation and the registry re-runs every callback from scratch.
-   */
-  const [sessionFault, setSessionFault] = useState<readonly SessionResetFault[] | null>(null)
-
-  const [phase, setPhaseState] = useState<Phase>({ kind: 'idle' })
-  /**
-   * ug-15: the window-level drop listener is registered once and reads the
-   * live phase through this mirror. `dragover`/`drop` must be prevented in
-   * every phase (otherwise the browser navigates to the dropped file), while
-   * only an idle drop may start an open.
-   *
-   * The mirror is written SYNCHRONOUSLY by the stable `setPhase` wrapper, not
-   * by a passive effect: a drop that lands in the same task as the click that
-   * started an open would otherwise still read `idle` (effects have not run
-   * yet) and start a second `openDataFile`/`beginSession`, invalidating the
-   * first open. `setPhase` is the only writer of either half.
-   */
-  const phaseRef = useRef(phase)
-  const setPhase = useCallback((next: Phase) => {
-    phaseRef.current = next
-    setPhaseState(next)
+  const [recordRequest, setRecordRequest] = useState<RecordRequest | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [sqlRequest, setSqlRequest] = useState<SqlRunRequest | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null)
+  const scrollSeq = useRef(0)
+  const retireRequests = useCallback(() => {
+    setRecordRequest(null)
+    setExportOpen(false)
+    setSqlRequest(null)
+    setActionError(null)
+    setScrollRequest(null)
   }, [])
+  /**
+   * D02c — the session owner. It owns the reset registry + token, the live
+   * `phase` (and its synchronous mirror), the fail-closed fault frame, the
+   * adopted source slots, the resolved panels, the one irreversible adoption
+   * step, exactly-once `dataset_opened` and the export-in-flight snapshot. See
+   * `sessions/useSessionOwner.ts` for the boundary and the ownership table.
+   *
+   * `App` stays the composition root: it supplies the telemetry runtime, the
+   * app-local request slots to retire, and the engine export op — nothing else.
+   * Each per-domain reset body stays with its own hook; this passes the
+   * registry to them below.
+   */
+  const sessionOwner = useSessionOwner({ telemetry, retireRequests, exportView: exportViewPort })
+  const {
+    session: datasetSession,
+    phase,
+    phaseRef,
+    sessionFault,
+    openSourceRef,
+    sourceIdentityRef,
+    panelModules,
+    currentToken,
+    isCurrent: isCurrentSession,
+    beginOpen,
+    cancelOpen,
+    publishIdle,
+    publishError,
+    failOpen,
+    publishReady,
+    adopt: adoptSession,
+    runExport: runSessionExport,
+  } = sessionOwner
+
   /**
    * ug-15: readable inline notice for a drop that carried no `File` (dragged
    * text, a page selection). Shown only on the idle screen; a real file drop
@@ -429,9 +438,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * m3-3 record inspector open gesture. App holds it so a row open survives
    * the grid's re-renders; `seq` makes every gesture distinct so re-opening
    * the SAME row re-fires the inspector's open effect. Cleared when a new
-   * file is opened — a request must never leak across tables.
+   * file is opened — a request must never leak across tables. (The slot itself
+   * is declared with the other retirable request slots above.)
    */
-  const [recordRequest, setRecordRequest] = useState<RecordRequest | null>(null)
   /**
    * ug-19 (UG-19): the in-flight query epoch shown on the grid. App owns the
    * combined state because the two sources live in different components: the
@@ -460,12 +469,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     setGridFiltering(false)
   }, [gridModel])
   /**
-   * m4-5 export dialog visibility. Closing unmounts the dialog, so its format
-   * choice and result reset on every open (no stale "Exported…" line from a
-   * previous session). The dialog itself never touches the base source
-   * (ADR 0012).
+   * m4-5 export dialog visibility: a retirable App-local request slot (declared
+   * with the others above; the session owner retires it on every boundary).
+   * Closing unmounts the dialog, so its format choice and result reset on every
+   * open (no stale "Exported…" line from a previous session). The dialog itself
+   * never touches the base source (ADR 0012).
    */
-  const [exportOpen, setExportOpen] = useState(false)
 
   /**
    * The App-owned editor-state authority (S-A2-1/IC-01). `DataGrid` writes it
@@ -669,50 +678,33 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */
   const [paneCollapsed, setPaneCollapsed] = useState(false)
   /**
-   * Identity of the opened source, retained from the open flow for the
-   * export same-source guard (m4-5 fix round): the save picker can return
-   * the opened file's own entry, and writing the export there would replace
-   * the source. `requestExportDestination` threads this into
-   * `requestSaveDestination`, which refuses such a destination before any
-   * engine work or byte write. Only FSA opens retain an identity (the
-   * handle's authoritative `isSameEntry`); an open without a retained
-   * handle keeps this null — identity cannot be proven, so that session is
-   * never offered a direct-write destination at all (m4-5 fix round 2).
-   * Null until a file is open (and briefly during each open attempt). Never
-   * rendered or logged (ADR 0025).
+   * D02c — the two **adopted source slots** are session-owned state now
+   * (`openSourceRef`, `sourceIdentityRef` on the owner above). Both are
+   * published only by a ready frame and cleared at the next session start:
+   *
+   * - `sourceIdentityRef` is the export same-source guard's identity (m4-5 fix
+   *   round): only FSA opens retain one (the handle's authoritative
+   *   `isSameEntry`), so an open without a retained handle is never offered a
+   *   direct-write destination at all (round 2). Never rendered or logged
+   *   (ADR 0025).
+   * - `openSourceRef` is the opened `File` retained so a pipeline source node
+   *   can bind it with no second OS picker (ug-9/R-15). A reference only — no
+   *   bytes are read here — and deliberately NOT the export identity: a plain
+   *   `File` has no `FileSystemHandle`, so it can never prove same-entry. The
+   *   name reaches the engine for format detection only.
+   * - `panelModules` (au3-12) is the resolved below-fold panel set; the owner
+   *   publishes it from the open chain's or the adopted candidate's resolve,
+   *   before the `ready` render, so the grid and panels mount in one render.
+   *   (See `lib/bottom-panels.ts` for why these live in state, not `React.lazy`.)
    */
-  const sourceIdentityRef = useRef<SourceIdentity | null>(null)
-
-  /**
-   * ug-9/R-15: the open dataset as App-held state. The opened `File` is
-   * retained for the rest of the session so a pipeline source node can bind
-   * it without a second OS picker ("Use the open dataset"). This is a
-   * reference only — no bytes are read here — and it is deliberately NOT the
-   * export same-source identity (`sourceIdentityRef`): a plain `File` has no
-   * `FileSystemHandle`, so it can never prove same-entry. Set on every
-   * successful open (picker, hidden-input fallback, bundled example), cleared
-   * by the session reset and at the start of every open attempt. The name is
-   * transported to the engine for format detection only and never rendered
-   * or logged (ADR 0025).
-   */
-  const openSourceRef = useRef<{ getFile: () => Promise<File> } | null>(null)
-  useEffect(
-    () =>
-      datasetSession.registerReset(() => {
-        // A new dataset epoch owns a new open source; nothing from the
-        // previous session may be re-bound in the pipeline panel.
-        openSourceRef.current = null
-      }),
-    [datasetSession],
-  )
 
   /**
    * m3-5 nested-action dispatch: both click surfaces (schema tree, grid
    * headers) emit a `NestedAction`; the app composes it through m3-4's pure
    * composer against the parsed schema and the SQL-facing view name, then
-   * hands the SQL to the m2-4 pane via `sqlRequest`.
-   */ const [sqlRequest, setSqlRequest] = useState<SqlRunRequest | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
+   * hands the SQL to the m2-4 pane via `sqlRequest` (a retirable request slot
+   * declared above).
+   */
   const requestSeq = useRef(0)
   /**
    * R-07: App-owned, session-scoped consumption state. The ledger instance
@@ -721,8 +713,8 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */
   const sqlRequestLedger = useMemo(() => createSqlRequestLedger(), [])
   const claimSqlRequest = useCallback(
-    (request: SqlRunRequest) => sqlRequestLedger.claim(request, datasetSession.tokenRef.current),
-    [datasetSession, sqlRequestLedger],
+    (request: SqlRunRequest) => sqlRequestLedger.claim(request, currentToken()),
+    [currentToken, sqlRequestLedger],
   )
   useEffect(
     () =>
@@ -758,7 +750,8 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     historyRef,
     overlayRef,
     announceEdit,
-    runExport,
+    publishEmptyBase,
+    snapshotOverlay,
     requestExportDestination,
     deliverExportCopy,
     handleUndo,
@@ -773,6 +766,18 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     handleApplyRepair,
     retryView,
   } = useEditingSession(phase, datasetSession, sourceIdentityRef)
+
+  /**
+   * D02c — the grid publication ports the session owner uses at a transition.
+   * Both commands belong to the history/overlay owner (`useEditingSession`);
+   * they are memoized here so the owner can hold them in its dependency list
+   * without a mutable port slot (`App` stays the composition root; the owner
+   * never writes another module's state).
+   */
+  const grid = useMemo<SessionGridPorts>(
+    () => ({ publishEmptyBase, snapshotOverlay }),
+    [publishEmptyBase, snapshotOverlay],
+  )
 
   /**
    * EW-04I: the column-repair surface's seam into the live editing session.
@@ -878,10 +883,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    * identity only (ADR 0025). The announcement lives here, after the editing
    * session supplies `announceEdit`, so no second region or announcement
    * mechanism is introduced. A jump without a label (no caller supplies one
-   * today) still navigates, silently.
+   * today) still navigates, silently. The scroll request slot itself is
+   * declared with the other retirable request slots at the top of `App`.
    */
-  const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null)
-  const scrollSeq = useRef(0)
   const navigateToRow = useCallback(
     (rowIndex: number, displayKey?: string) => {
       scrollSeq.current += 1
@@ -962,7 +966,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [handleRedo, handleUndo])
+  }, [handleRedo, handleUndo, phaseRef])
 
   /**
    * ug-6 (UG-10) history surface cue: auto-expand the History section on the
@@ -1143,13 +1147,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   }, [jumpOrigin, revealContextPanel])
 
   /**
-   * au3-12: resolved below-fold panel components (see `lib/bottom-panels.ts`
-   * for why these live in state instead of `React.lazy`). `null` before the
-   * first open completes; published before the `ready` render.
-   */
-  const [panelModules, setPanelModules] = useState<BottomPanelModules | null>(null)
-
-  /**
    * AR-W5: release the engine (every registered view + file handle) when the
    * tab goes away. `dispose()` is the only release op the current client
    * exposes and is terminal + idempotent; the ref makes repeated unload
@@ -1243,10 +1240,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         seq: requestSeq.current,
         // Stamped with the live dataset session: a request that outlives its
         // session can be rejected synchronously by the App-owned ledger.
-        session: datasetSession.tokenRef.current,
+        session: currentToken(),
       })
     },
-    [datasetSession, nestedSpecs, openSection, phase],
+    [currentToken, nestedSpecs, openSection, phase],
   )
 
   /**
@@ -1329,7 +1326,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         return
       }
       const originModel = phase.model
-      const originSession = datasetSession.tokenRef.current
+      const originSession = currentToken()
       const next = replaceColumnFilter(originModel.filters, plan.column, plan.predicate)
       const attempt = (profileFilterAttemptRef.current += 1)
       /**
@@ -1340,7 +1337,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
        */
       const isCurrentAttempt = (): boolean => {
         if (profileFilterAttemptRef.current !== attempt) return false
-        if (datasetSession.tokenRef.current !== originSession) return false
+        if (!isCurrentSession(originSession)) return false
         const live = phaseRef.current
         return live.kind === 'ready' && live.model === originModel
       }
@@ -1369,7 +1366,15 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         }
       })()
     },
-    [clearProfileFilterFeedback, datasetSession, history, modelSchema, phase],
+    [
+      clearProfileFilterFeedback,
+      currentToken,
+      isCurrentSession,
+      history,
+      modelSchema,
+      phase,
+      phaseRef,
+    ],
   )
 
   /**
@@ -1464,22 +1469,13 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const pendingDropFileRef = useRef<File | null>(null)
 
   /**
-   * ug-21: cancel an in-flight open by starting a new (empty) dataset session
-   * and returning to the normal idle frame. There is no engine interrupt in
-   * the protocol, so this does NOT abort the engine operation: it bumps the
-   * shared session token through `beginSession` (running every registered
-   * domain reset) and the open chain's post-await token comparisons drop the
-   * late result. Honest UI reset + token discard, never a claimed abort.
+   * ug-21: cancelling an in-flight open is the session owner's command
+   * (`cancelOpen` below): it starts a new (empty) session, runs every registered
+   * reset, publishes `idle`/the fault frame, and the open chain's post-await
+   * token comparisons drop the late result. There is no engine interrupt in the
+   * protocol, so this is an honest UI reset + token discard, never a claimed
+   * abort.
    */
-  const cancelOpen = useCallback(() => {
-    const outcome = datasetSession.beginSession()
-    // C03b: a faulted reset means the generation is invalidated but the reset
-    // only partly ran. The normal idle frame would claim a clean close that did
-    // not happen, so reach the recovery frame instead — and never the stuck
-    // `opening` phase the uncaught throw used to leave behind.
-    setSessionFault(outcome.faults.length === 0 ? null : outcome.faults)
-    setPhase({ kind: 'idle' })
-  }, [datasetSession, setPhase])
 
   /* ---------------------------------------------------------------------
    * WF-06 — session-preserving replacement (the reviewed v5 lifecycle).
@@ -1518,73 +1514,18 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   )
 
   /**
-   * T8 — the only irreversible step (v5 §4.3, steps 1–8 in order). Fully
-   * synchronous: no `await`, no `model.refresh()`, no second worker, no
-   * reopen, no release. The controller's step 0 (`canAdopt`) has already
-   * refused a superseded candidate, so reaching this function means exactly
-   * one adoption for this candidate; `dataset_opened` is emitted exactly as
-   * the legacy open does.
+   * D02c — the one irreversible step, as a **port** for the replacement
+   * controller. Steps 1–8 (session reset → history/overlay publication →
+   * provider rebind → source slots → panels → ready + request retirement →
+   * `dataset_opened`) live in the session owner; this call site only bounds the
+   * controller's exactly-once call to it with the same grid publication ports
+   * the open chain uses (`App` stays the composition root). The controller's
+   * step 0 (`canAdopt`) has already refused a superseded candidate, so reaching
+   * this function means exactly one adoption for this candidate.
    */
   const adoptReplacement = useCallback(
-    (candidate: ReplacementCandidate): AdoptionOutcome => {
-      // 1. One new dataset session: token bump + every registered reset.
-      const outcome = datasetSession.beginSession()
-      if (outcome.faults.length > 0) {
-        // C03b fail closed (S5, assertion 4): the generation is invalidated and
-        // every remaining reset was attempted, but a partial reset must never be
-        // published as the candidate's `ready` phase. Steps 2–8 are skipped —
-        // the candidate is not rebound, not published, and no `dataset_opened`
-        // is emitted — and the outcome is the session-fault frame, NOT the
-        // per-file `replace-error` copy (whose cause would name the file rather
-        // than the real cause). The previous session is already gone by
-        // contract: its generation was invalidated, so no restoration is
-        // claimed.
-        setSessionFault(outcome.faults)
-        setPhase({ kind: 'idle' })
-        return 'faulted'
-      }
-      // A clean adoption supersedes any earlier fault frame: this is a fresh,
-      // fully reset session and nothing of the abandoned one is shown.
-      setSessionFault(null)
-      // 2–3. The adopted base is the candidate's own; republish history/overlay
-      // AFTER the reset (the reset nulls both).
-      const adoptedHistory = emptyHistory()
-      const adoptedOverlay = overlaySnapshot(candidate.base, adoptedHistory)
-      historyRef.current = adoptedHistory
-      overlayRef.current = adoptedOverlay
-      // 4. A1-3: only now may the candidate provider follow the live session.
-      candidate.provider.rebindOverlaySource(() => overlayRef.current ?? adoptedOverlay)
-      // 5. The adopted session's identity and bound open source.
-      sourceIdentityRef.current = candidate.identity
-      openSourceRef.current = candidate.openSource
-      // 6. Panels resolved during preparation, published before the ready frame.
-      setPanelModules(candidate.panels)
-      // 7. Publish the ready phase (one render), retiring the previous session's
-      // app-local requests so nothing from it can address the new table.
-      setRecordRequest(null)
-      setExportOpen(false)
-      setSqlRequest(null)
-      setActionError(null)
-      setScrollRequest(null)
-      setPhase({
-        kind: 'ready',
-        model: candidate.model,
-        tableId: candidate.handle.id,
-        handle: candidate.handle,
-        base: candidate.base,
-        provider: candidate.provider,
-      })
-      // 8. `dataset_opened` — closed enums only, exactly as the legacy open.
-      telemetry.emit('dataset_opened', {
-        dataset_role: 'primary',
-        format_kind: formatKindFromName(candidate.file.name),
-        size_bucket: bucketSize(candidate.file.size),
-        row_count_bucket: bucketRowCount(candidate.base.baseRowCount),
-        column_count_bucket: bucketColumnCount(candidate.base.columns.length),
-      })
-      return 'adopted'
-    },
-    [datasetSession, historyRef, overlayRef, setPhase, telemetry],
+    (candidate: ReplacementCandidate) => adoptSession(candidate, grid),
+    [adoptSession, grid],
   )
 
   /**
@@ -1785,38 +1726,20 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     // attempt (including a cancelled picker returning to idle) supersedes it.
     setDropNotice(null)
     clearReviewStopped()
-    // A fresh attempt starts from a clean frame: the earlier fault was that
-    // invocation's, and a new `beginSession` re-runs every reset from scratch.
-    setSessionFault(null)
-    const outcome = datasetSession.beginSession()
-    if (outcome.faults.length > 0) {
-      // C03b fail closed (S7): the generation is invalidated and every remaining
-      // reset was attempted, but the reset is partial, so this session is never
-      // published. Abandon the chain before its first await — no picker, no
-      // engine open, no `dataset_opened`/`dataset_open_failed` — and surface the
-      // recovery frame instead of a half-reset `opening` or `ready` screen.
-      sourceIdentityRef.current = null
-      setSessionFault(outcome.faults)
-      setPhase({ kind: 'idle' })
-      return
-    }
-    const session = outcome.token
+    // D02c: the session owner starts the session — token bump + every reset,
+    // the adopted source slots cleared, the previous session's requests retired,
+    // and `opening` published. C03b fail closed (S7): a faulted reset
+    // invalidates the generation, publishes the recovery frame + `idle`, and
+    // returns `faulted` so this chain abandons before its first await — no
+    // picker, no engine open, no `dataset_opened`/`dataset_open_failed`.
+    const start = beginOpen()
+    if (start.kind === 'faulted') return
+    const session = start.token
     // au3-12: warm the below-fold panel chunks in parallel with the open flow
     // so they are resident by `ready` (see `lib/bottom-panels.ts`).
     // Swallow a warm-up rejection here: the awaited re-call below re-rejects
     // from the same memoized promises and the open flow's catch handles it.
     void preloadBottomPanels().catch(() => undefined)
-    setPhase({ kind: 'opening' })
-    setRecordRequest(null)
-    setExportOpen(false)
-    // m3-5: a new table invalidates the previous table's dispatch. The
-    // previous source's identity must not leak into the new session's export
-    // guard either (m4-5 fix round).
-    setSqlRequest(null)
-    setActionError(null)
-    setScrollRequest(null)
-    sourceIdentityRef.current = null
-    openSourceRef.current = null
     // Retained so the export same-source guard can compare the save picker's
     // destination against the opened entry. `pickDataFile` does not expose
     // the picked FSA handle (packages/** is outside this task's
@@ -1837,10 +1760,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
             return handles
           },
         })
-        if (datasetSession.tokenRef.current !== session) return
+        if (!isCurrentSession(session)) return
         if (picked === null) {
           // User dismissed the picker — back to idle, nothing opened.
-          setPhase({ kind: 'idle' })
+          publishIdle()
           return
         }
         // BrowserFileSource exposes getFile() but not its input's name, and the
@@ -1849,7 +1772,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         // ADR 0001); the name is transported per protocol but never rendered or
         // logged (ADR 0025).
         file = await picked.source.getFile()
-        if (datasetSession.tokenRef.current !== session) return
+        if (!isCurrentSession(session)) return
       } else {
         // The bundled synthetic example and a dropped file skip only picker
         // acquisition. Both rejoin the exact same guarded engine/session open
@@ -1869,8 +1792,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       const pickedHandle = oneShotFile === null ? openCapture.handle : null
       // EW-03I-b: the review path picked its file one step earlier (its own
       // picker), so it supplies the identity it captured there; every other
-      // open derives it here exactly as before.
-      sourceIdentityRef.current =
+      // open derives it here exactly as before. The identity is handed to the
+      // ready frame (the session owner publishes it), so nothing leaks into the
+      // new session's export guard by assignment here.
+      const identity: SourceIdentity | null =
         reviewHandoff !== null
           ? reviewHandoff.identity
           : pickedHandle !== null
@@ -1887,76 +1812,62 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         reviewedOptions === undefined
           ? await engineClient.open(openSource)
           : await engineClient.open(openSource, reviewedOptions)
-      if (datasetSession.tokenRef.current !== session) return
+      if (!isCurrentSession(session)) return
       // Base metadata for the editing session (ADR 0011/0012). The anchor is
       // the stable function of the file *version* (size + mtime) — re-opening
       // the same unchanged file keeps base row ids stable; the token is never
       // rendered or logged.
       const baseSchema = await engineClient.schema(handle)
-      if (datasetSession.tokenRef.current !== session) return
+      if (!isCurrentSession(session)) return
       const baseRowCount = await engineClient.rowCount(handle)
-      if (datasetSession.tokenRef.current !== session) return
+      if (!isCurrentSession(session)) return
       const base: OverlayBase = {
         baseAnchor: fileVersionAnchor({ size: file.size, lastModified: file.lastModified }),
         overlayAnchor: createOverlayAnchor(),
         columns: baseSchema.map((column) => ({ name: column.name, type: column.type })),
         baseRowCount,
       }
-      const initialHistory = emptyHistory()
-      historyRef.current = initialHistory
-      overlayRef.current = overlaySnapshot(base, initialHistory)
-      const provider = new DuckDbGridProvider(
-        engineClient,
-        handle,
-        () => overlayRef.current ?? overlaySnapshot(base, initialHistory),
+      // The provider reads the live overlay through the editing session's
+      // snapshot command; after the ready frame publishes this base's empty
+      // overlay the ref is that base's own, so `model.load()` here and every
+      // later refresh read exactly the adopted view (ADR 0012).
+      const provider = new DuckDbGridProvider(engineClient, handle, () =>
+        grid.snapshotOverlay(base),
       )
       const model = new GridViewportModel(provider)
       await model.load()
-      if (datasetSession.tokenRef.current !== session) return
+      if (!isCurrentSession(session)) return
       // au3-12: the below-fold chunks were requested at the top of this flow;
-      // resolving them here publishes the panel components as state BEFORE the
-      // `ready` render, so the grid and panels mount in one synchronous render
-      // (no post-ready fallback cycle — see `lib/bottom-panels.ts`).
+      // resolving them here hands them to the ready frame BEFORE the `ready`
+      // render, so the grid and panels mount in one synchronous render (no
+      // post-ready fallback cycle — see `lib/bottom-panels.ts`).
       const panels = await preloadBottomPanels()
-      if (datasetSession.tokenRef.current !== session) return
-      setPanelModules(panels)
-      setPhase({ kind: 'ready', model, tableId: handle.id, handle, base, provider })
-      // ug-9/R-15: retain the opened `File` for the rest of the session so a
-      // pipeline source node can bind it with no picker. Only a successful
-      // open publishes this — a failed chain leaves the previous reset in
-      // force.
-      openSourceRef.current = { getFile: () => Promise.resolve(file) }
-      // `dataset_opened` (design §2/Appendix C): role/format/size/row/column
-      // buckets only — the file name is read for its extension and discarded
-      // (ADR 0025). The runtime enforces the 50-per-session cap.
-      telemetry.emit('dataset_opened', {
-        dataset_role: 'primary',
-        format_kind: formatKindFromName(file.name),
-        size_bucket: bucketSize(file.size),
-        row_count_bucket: bucketRowCount(baseRowCount),
-        column_count_bucket: bucketColumnCount(baseSchema.length),
-      })
+      if (!isCurrentSession(session)) return
+      // D02c: one publication for a completed open — history/overlay for the
+      // adopted base, the source slots, the panels, request retirement, the
+      // `ready` phase and exactly-once `dataset_opened`. A superseded chain
+      // publishes nothing.
+      publishReady(
+        {
+          file,
+          handle,
+          base,
+          model,
+          provider,
+          panels,
+          identity,
+          openSource: { getFile: () => Promise.resolve(file) },
+        },
+        session,
+        grid,
+      )
     } catch (error) {
-      // A stale chain must not surface its failure over the newer phase.
-      if (datasetSession.tokenRef.current !== session) return
-      // `dataset_open_failed` (design §2/Appendix C): a closed reason enum
-      // only; the error message/stack are never attached (ADR 0025/R3).
-      telemetry.emit('dataset_open_failed', {
-        dataset_role: 'primary',
-        format_kind: 'unknown',
-        reason_code: reasonCodeFromError(error),
-      })
-      setPhase({
-        kind: 'error',
-        message: error instanceof Error ? error.message : String(error),
-        // UG-5: a `DOMException` (`getFile()` missing/unreadable/refused)
-        // carries its cause in the NAME while its message is generic, so the
-        // alert needs the name to classify. The name is a closed, value-free
-        // identifier and is never attached to telemetry (ADR 0025).
-        errorName: error instanceof Error ? error.name : undefined,
-      })
+      // A stale chain must not surface its failure over the newer phase; the
+      // owner emits the value-free `dataset_open_failed` reason enum and the
+      // terminal error frame only for the live session.
+      failOpen(session, error)
     }
-  }, [clearReviewStopped, datasetSession, historyRef, overlayRef, setPhase, telemetry])
+  }, [beginOpen, clearReviewStopped, failOpen, grid, isCurrentSession, publishIdle, publishReady])
 
   /**
    * EW-03I-b — the idle review entry: pick a file, then review it; or, for
@@ -1972,7 +1883,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    */
   const startCsvReviewFromIdle = (): void => {
     if (phaseRef.current.kind !== 'idle') return
-    const session = datasetSession.tokenRef.current
+    const session = currentToken()
     const openCapture: { handle: FileSystemFileHandle | null } = { handle: null }
     void (async () => {
       let picked: PickedDataFile | null
@@ -1989,7 +1900,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         // exactly the idle Open control's picker behaviour.
         return
       }
-      if (datasetSession.tokenRef.current !== session) return
+      if (!isCurrentSession(session)) return
       if (picked === null) return
       if (phaseRef.current.kind !== 'idle') return
       const identity: SourceIdentity | null =
@@ -2000,19 +1911,16 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       try {
         file = await picked.source.getFile()
       } catch (error) {
-        if (datasetSession.tokenRef.current !== session) return
+        if (!isCurrentSession(session)) return
         if (phaseRef.current.kind !== 'idle') return
         // The same terminal error frame the open chain uses for this exact
         // failure (a picked file that cannot be read); no second
-        // classification and no new copy.
-        setPhase({
-          kind: 'error',
-          message: error instanceof Error ? error.message : String(error),
-          errorName: error instanceof Error ? error.name : undefined,
-        })
+        // classification and no new copy, and no `dataset_open_failed` (no
+        // session was started on this idle path).
+        publishError(error)
         return
       }
-      if (datasetSession.tokenRef.current !== session) return
+      if (!isCurrentSession(session)) return
       if (phaseRef.current.kind !== 'idle') return
       if (detectFormatFromFileName(file.name) !== 'csv') {
         pendingReviewHandoffRef.current = { file, identity, options: undefined }
@@ -2065,7 +1973,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       window.removeEventListener('dragover', handleDragOver)
       window.removeEventListener('drop', handleDrop)
     }
-  }, [openDataFile])
+  }, [openDataFile, phaseRef])
 
   /*
    * ug-17: the three shell-owned section summaries. Derived from state App
@@ -2711,7 +2619,10 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                             // subset"; the dialog describes only the active state.
                             viewFiltered={modelFilters.length > 0}
                             viewSorted={modelSort !== null}
-                            runEngineExport={runExport}
+                            // D02c: the session owner freezes the exact view on
+                            // screen for this export (its in-flight snapshot) and
+                            // forwards it to the engine export op.
+                            runEngineExport={(format) => runSessionExport(format, grid)}
                             requestDestination={requestExportDestination}
                             writeCopy={deliverExportCopy}
                             onClose={() => {
