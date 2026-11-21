@@ -79,7 +79,12 @@ describe('assurance-map checker — baseline', () => {
 
   it('reads the committed Vitest projects and Playwright configs by name', () => {
     const projects = parseVitestProjects(repo.readText(VITEST_CONFIG) ?? '')
-    expect(projects.map((project) => project.name)).toEqual(['web', 'node', 'cli-integration'])
+    expect(projects.map((project) => project.name)).toEqual([
+      'web',
+      'node',
+      'vscode-webview',
+      'cli-integration',
+    ])
     // The cli-integration project is the only one that sweeps the integration
     // files: the node project excludes them, so the exclusion must be parsed.
     const integration = 'apps/cli/src/dcr.integration.test.ts'

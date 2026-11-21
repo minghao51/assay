@@ -5,7 +5,9 @@ baseline:** `06d8e20` (`main`) — historical, recorded at 2026-11-20T16:01:35Z
 (§4.1). **Last verified:** `24065db`
 (`24065db8eedae8f16e6607c143353f71033a788a`, `main`, after C02a and C03b merged)
 on 2026-11-20 — the rows below and the refreshed §4.1 artifact were checked at
-that SHA. **Status:** documentation + one bounded consistency check. No product
+that SHA. The runner matrix was later extended for D03b's `vscode-webview`
+project; its rows are verified by `pnpm assurance-map:check` and the linked
+tests. **Status:** documentation + one bounded consistency check. No product
 code, test, Vitest project, coverage floor or floor-relevant config changed by
 this record.
 
@@ -94,22 +96,25 @@ tooling checks are [09-local-tooling-checks.md](09-local-tooling-checks.md).
   assertion set is claimed. The
   [C03a handoff](../process/handoff/20261120-c03-callback-failure-contract.md)
   remains the design record (and the probe source) for that contract.
-- **Desktop webview controllers.** Only the extracted pure modules
-  (`apps/vscode/src/pure/**`) have Node subjects; the webview itself has none
-  (§4.2).
+- **Desktop webview controllers.** The extracted pure modules
+  (`apps/vscode/src/pure/**`) run in the Node project. After D03b, the extracted
+  webview controllers (`apps/vscode/webview/{validation,diff,dirty-history}*.ts`)
+  also have happy-dom unit subjects under the `vscode-webview` Vitest project;
+  the webview itself still has **no coverage instrumentation** (§4.2).
 
 ## 3. Runner matrix
 
-| Runner                      | Sweeps                                                                                                                                                      | Command                                                                                                                     | Prerequisites                                                                                                                     |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Vitest `web` (happy-dom)    | `apps/web/src/**/*.test.{ts,tsx}`                                                                                                                           | `pnpm exec vitest run --project web <paths>`                                                                                | none                                                                                                                              |
-| Vitest `node`               | `packages/*/src/**/*.test.ts`, `apps/cli/src/**/*.test.{ts,tsx}` (integration files excluded), `apps/vscode/src/pure/**/*.test.ts`, `scripts/**/*.test.mjs` | `pnpm exec vitest run --project node <paths>`                                                                               | `DUCKDB=/tmp/duckdb` for the `skipIf` CLI-agreement blocks                                                                        |
-| Vitest `cli-integration`    | `apps/cli/src/**/*.integration.test.ts`                                                                                                                     | `pnpm exec tsc --build apps/cli/tsconfig.build.json && pnpm exec vitest run --project cli-integration <paths>`              | compiled CLI; a real temp dir; 20 s per-test budget (contention, not a relaxed assertion)                                         |
-| All Vitest projects         | the three above                                                                                                                                             | `pnpm test` (and `DUCKDB=/tmp/duckdb pnpm test:coverage` for the recorded coverage artifact)                                | `DUCKDB` for CLI agreement; nothing else                                                                                          |
-| Playwright (root config)    | `tests/e2e/**/*.spec.ts`                                                                                                                                    | `pnpm build && pnpm test:e2e` (or `pnpm exec playwright test <spec>`)                                                       | `pnpm build`; Chromium cache; ports 4173/4179/4180 free (override with `ASSAY_E2E_PORT_WEB/ENGINE/DS`)                            |
-| Playwright (visual configs) | `tests/visual/panel-recovery.spec.ts`; `tests/visual/telemetry-disclosure-theme.spec.ts` + `tests/visual/workbench-help-disclosure.spec.ts`                 | `pnpm exec playwright test --config tests/visual/playwright.panel-recovery.config.ts` (telemetry leg: the telemetry config) | `pnpm build`; ports 4473/4479/4480; the telemetry leg needs a build with `ASSAY_TELEMETRY_ENDPOINT` and blocks collector requests |
-| Extension host              | `apps/vscode/test/e2e/dataset-runner.ts`                                                                                                                    | `pnpm --filter @assay/vscode run e2e`                                                                                       | pinned VS Code `1.130.0` in `~/.vscode-test`, `DUCKDB=/tmp/duckdb`, `xvfb-run` on a headless box, `CI=1` selects the pinned cache |
-| Node test (not Vitest)      | `apps/vscode/test/vscode-runtime.test.mjs` (runtime-selection policy)                                                                                       | `pnpm --filter @assay/vscode run test:runtime`                                                                              | none                                                                                                                              |
+| Runner                              | Sweeps                                                                                                                                                      | Command                                                                                                                     | Prerequisites                                                                                                                     |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Vitest `web` (happy-dom)            | `apps/web/src/**/*.test.{ts,tsx}`                                                                                                                           | `pnpm exec vitest run --project web <paths>`                                                                                | none                                                                                                                              |
+| Vitest `node`                       | `packages/*/src/**/*.test.ts`, `apps/cli/src/**/*.test.{ts,tsx}` (integration files excluded), `apps/vscode/src/pure/**/*.test.ts`, `scripts/**/*.test.mjs` | `pnpm exec vitest run --project node <paths>`                                                                               | `DUCKDB=/tmp/duckdb` for the `skipIf` CLI-agreement blocks                                                                        |
+| Vitest `vscode-webview` (happy-dom) | `apps/vscode/webview/**/*.test.ts` (D03b controller tests)                                                                                                  | `pnpm exec vitest run --project vscode-webview <paths>`                                                                     | none; **no coverage instrumentation** (include stays `apps/*/src/**`)                                                             |
+| Vitest `cli-integration`            | `apps/cli/src/**/*.integration.test.ts`                                                                                                                     | `pnpm exec tsc --build apps/cli/tsconfig.build.json && pnpm exec vitest run --project cli-integration <paths>`              | compiled CLI; a real temp dir; 20 s per-test budget (contention, not a relaxed assertion)                                         |
+| All Vitest projects                 | the three above                                                                                                                                             | `pnpm test` (and `DUCKDB=/tmp/duckdb pnpm test:coverage` for the recorded coverage artifact)                                | `DUCKDB` for CLI agreement; nothing else                                                                                          |
+| Playwright (root config)            | `tests/e2e/**/*.spec.ts`                                                                                                                                    | `pnpm build && pnpm test:e2e` (or `pnpm exec playwright test <spec>`)                                                       | `pnpm build`; Chromium cache; ports 4173/4179/4180 free (override with `ASSAY_E2E_PORT_WEB/ENGINE/DS`)                            |
+| Playwright (visual configs)         | `tests/visual/panel-recovery.spec.ts`; `tests/visual/telemetry-disclosure-theme.spec.ts` + `tests/visual/workbench-help-disclosure.spec.ts`                 | `pnpm exec playwright test --config tests/visual/playwright.panel-recovery.config.ts` (telemetry leg: the telemetry config) | `pnpm build`; ports 4473/4479/4480; the telemetry leg needs a build with `ASSAY_TELEMETRY_ENDPOINT` and blocks collector requests |
+| Extension host                      | `apps/vscode/test/e2e/dataset-runner.ts`                                                                                                                    | `pnpm --filter @assay/vscode run e2e`                                                                                       | pinned VS Code `1.130.0` in `~/.vscode-test`, `DUCKDB=/tmp/duckdb`, `xvfb-run` on a headless box, `CI=1` selects the pinned cache |
+| Node test (not Vitest)              | `apps/vscode/test/vscode-runtime.test.mjs` (runtime-selection policy)                                                                                       | `pnpm --filter @assay/vscode run test:runtime`                                                                              | none                                                                                                                              |
 
 `pnpm test:e2e` and `pnpm test:coverage` do **not** imply each other: the
 coverage artifact comes from Vitest only, and the browser/desktop rows above are
@@ -185,7 +190,9 @@ are **not** comparable to a report produced with a narrower include.
   `apps/*/src/**` include. It appears in the coverage report **at no line**, not
   at 0 %: there is no Node instrumentation for it at all, and adding a webview
   glob would report 0 % "execution" for code that only ever runs in a webview.
-  This map deliberately does not add one.
+  This map deliberately does not add one. D03b added **unit** subjects for the
+  extracted webview controllers (the `vscode-webview` happy-dom project), which
+  are real assertions but still add no line-coverage denominator.
 - The host-side desktop modules that **are** inside the include are measured at
   **0 %** by the Node run — `apps/vscode/src/extension.ts`, `dataset.ts`,
   `assets.ts`, `git-adapter.ts`, `webview-html.ts` and
