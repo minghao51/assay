@@ -58,14 +58,6 @@ import {
   quotedIdentifier,
 } from './format-view.js'
 import {
-  csvCreateViewSql,
-  csvSampleSql,
-  csvSniffSql,
-  effectiveCsvOptions,
-  parseCsvOptions,
-} from './csv-options.js'
-import type { EngineCsvOptions } from './csv-options.js'
-import {
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
   composeOverlayExportSql,
@@ -80,9 +72,6 @@ import { parseEngineRequestEnvelope } from './protocol.js'
 import type {
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
-  EngineCsvPreviewRequest,
-  EngineCsvPreviewSample,
-  EngineCsvSniff,
   EnginePipelineHandleRequest,
   EnginePipelineMaterializeRequest,
   EnginePipelineSourceRequest,
@@ -101,11 +90,30 @@ import type {
   EngineResponse,
   EngineValidateRequest,
 } from './protocol.js'
-import { MAX_RANGE_ROWS, validateRowWindow } from './range-window.js'
+import { validateRowWindow } from './range-window.js'
+import { errorMessage } from './errors.js'
 import { OpChannel } from './op-channel.js'
 import { classifyProfileColumnType } from './profile-classify.js'
 import { composeProfileBaseSql, composeProfileTopKSql, PROFILE_BASE_SLOT } from './profile-query.js'
 import { TableRegistry } from './table-registry.js'
+import { PreviewRegistry } from './preview-registry.js'
+import type {
+  EngineConnectionLike,
+  EngineExecutorDeps,
+  EngineHandlerContext,
+  EngineOpLane,
+} from './executor-context.js'
+import {
+  captureCsvPreviewIntent,
+  releasePreviewSlot,
+  runCsvPreviewHandler,
+  runOpenHandler,
+} from './csv-dispatch.js'
+import type {
+  CapturedPreviewState,
+  PreviewCaptureContext,
+  PreviewSlotContext,
+} from './csv-dispatch.js'
 import type { RegisteredTable } from './table-registry.js'
 import { PipelineSourceRegistry } from './pipeline-runner/worker-registry.js'
 import {
@@ -178,14 +186,6 @@ const OVERLAY_MATERIALIZATION_FAILURE = 'the edited view could not be materializ
 const EXPORT_MATERIALIZATION_FAILURE = 'the view could not be exported'
 
 /**
- * The value-free supersession reply for a preview that an open overtook
- * mid-flight (the other-lane race): the op never installs, releases whatever
- * landed, and the caller gets exactly one typed reply instead of the late
- * result payload (which is discarded — the open owns the session now).
- */
-const PREVIEW_SUPERSEDED_MESSAGE = 'the CSV preview was superseded by an open'
-
-/**
  * The pipeline export node's OPFS destination shape (p2-4). The runner
  * resolves the destination (`assay-exports/assay-pipeline-export-<stem>.parquet`)
  * with the compiler's path-safe stem encoding; the distinct
@@ -202,241 +202,24 @@ const PIPELINE_EXPORT_STEM_PREFIX = 'assay-pipeline-export-vfs-'
 const PIPELINE_EXPORT_FORMAT_OPTIONS = 'FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880'
 
 /**
- * Minimal structural view of an Apache Arrow record-batch stream reader —
- * the slice of `arrow.AsyncRecordBatchStreamReader` the executor consumes
- * (`next` resolves batches; `cancel` releases the connection-side result).
+ * D04a exports: the preview slot registry and its pinned name shape moved to
+ * `./preview-registry.js`, the structural session/deps/lane seams to
+ * `./executor-context.js`, and the CSV preview/open dispatch handlers to
+ * `./csv-dispatch.js` (re-exported here so existing callers and tests keep
+ * their import paths). The executor remains the single owner of the registry
+ * instance, both pending-query lanes, and every response it posts.
  */
-export interface EngineResultReaderLike {
-  next(): Promise<IteratorResult<RecordBatch, undefined>>
-  cancel(): Promise<void>
-}
-
-/**
- * Minimal structural view of a DuckDB connection: everything the executor
- * may touch. All three members are connection-scoped in duckdb-wasm — which
- * is why the executor never runs two of them concurrently (see op-channel).
- */
-export interface EngineConnectionLike {
-  /** Materialized query (`send` + full drain inside duckdb-wasm). */
-  query(sql: string): Promise<Table>
-  /** Stream a query; the pending-query slot is held until drain/cancel. */
-  send(sql: string): Promise<EngineResultReaderLike>
-  /** Cancel the connection's pending query (drains discarded tails). */
-  cancelSent(): Promise<unknown>
-}
-
-/** Minimal structural view of a booted engine session (one lane pair). */
-export interface EngineSessionLike {
-  /** Version probe for `engine/init` (db-level, boot-time only). */
-  getVersion(): Promise<string>
-  /** Registry-lane connection: open/schema/range/rowCount/dispose. */
-  readonly conn: EngineConnectionLike
-  /** Query-lane connection: `engine/query` and `engine/profile` (m2-7). */
-  readonly queryConn: EngineConnectionLike
-}
-
-/** Dependencies injected by the worker entry (or faked by unit tests). */
-export interface EngineExecutorDeps {
-  /** Lazy session boot; failures reset so the next op retries (unchanged). */
-  ensureSession(): Promise<EngineSessionLike>
-  /** Register the picked `File` under its engine-generated name (m1-4). */
-  registerFileHandle(registeredFileName: string, file: File): Promise<void>
-  /** Best-effort file deregistration (rollback + dispose). */
-  dropFile(registeredFileName: string): Promise<unknown>
-  /**
-   * Read a file DuckDB wrote into its virtual filesystem (m4-2 export:
-   * `COPY … TO` lands there; the bytes then move to OPFS scratch space).
-   */
-  copyExportBytes(registeredFileName: string): Promise<Uint8Array>
-  /**
-   * Persist export bytes into OPFS scratch space under the generated
-   * destination path (ADR 0017 disposable-cache framing — never the source
-   * path). Injected because the executor must stay Node-testable.
-   */
-  writeExportFile(path: string, bytes: Uint8Array): Promise<void>
-  /** Deliver a protocol response (with an optional zero-copy transfer list). */
-  post(response: EngineResponse, transfer?: ArrayBuffer[]): void
-}
-
-/**
- * One pending-query lane: its FIFO channel (`OpChannel`) plus the connection
- * its ops run on, derived from the session. Routing (`accept`) and connection
- * choice are the same decision — both come from this object — so rerouting an
- * op class to another lane moves it onto that lane's connection too. The m2-7
- * fix round pinned this: with the connection hard-coded per handler, rerouting
- * `profile` to the registry lane would run its DESCRIBE beside a parked user
- * query on the query-lane connection — the exact T2 pending-query collision
- * (guarded by the parked-query unit drill in engine-executor.test.ts).
- */
-interface OpLane {
-  readonly channel: OpChannel
-  readonly connection: (session: EngineSessionLike) => EngineConnectionLike
-}
-
-/** One staged preview candidate (EW-03I; ADR 0049 decision 4). */
-export interface StagedPreview {
-  readonly previewId: string
-  readonly viewName: string
-  readonly registeredFileName: string
-}
-
-/**
- * The acceptance-time capture for one csv-preview request (EW-03I round-2
- * race fix): taken SYNCHRONOUSLY in `accept` before the request queues
- * behind query-lane work, and threaded through `dispatch` to the op. The op
- * re-checks `generation` at every checkpoint — an open that completed while
- * the preview sat queued has already moved it, and the op then answers with
- * the typed supersession error instead of ever touching the engine.
- */
-interface CapturedPreviewState {
-  readonly intent: StagedPreview
-  readonly generation: number
-  readonly options: EngineCsvOptions
-  readonly rowCap: number
-}
-
-/** View names are the preview id with a namespaced prefix: `assay_preview_p1`. */
-export function viewNameForPreviewId(previewId: string): string {
-  return `assay_preview_${previewId}`
-}
-
-/** The only view name shape the preview slot may ever drop (allowlist guard). */
-const PREVIEW_VIEW_NAME_SHAPE = /^assay_preview_p\d+$/
-
-/**
- * Structural allowlist for the preview slot's release: the interpolated name
- * must be the registry's own engine-generated shape (`assay_preview_pN`) —
- * nothing host-reachable can reach the DROP (DuckDB's binding has no
- * parameterized DDL; the repo rule is engine-generated identifiers only,
- * quoted via `quotedIdentifier` before composition).
- */
-function assertPreviewViewName(viewName: string): void {
-  if (!PREVIEW_VIEW_NAME_SHAPE.test(viewName)) {
-    throw new Error('preview slot release refused a non-preview view name')
-  }
-}
-
-/**
- * Worker-side SINGLE-SLOT preview registry (ADR 0049 decision 4): its own id
- * sequence (`p1`, `p2`, …), its own view name (`assay_preview_p1`) and its own
- * DuckDB file-registration name (`preview_p1`). It NEVER inserts into the
- * `TableRegistry` — a preview never creates a session relation, never sets a
- * ready phase, never adopts (adoption is exactly a fresh `engine/open`).
- *
- * Bare registration is the default: the acquisition probe proved the shipped
- * build scans `read_csv('preview_pN')` / `sniff_csv('preview_pN')` with NO
- * view and no catalog object, so the preview path creates no view at all. The
- * view name is still owned (and its release still attempted first, view-then-
- * file, both swallowed — the `runDiffStage` ordering), which keeps the slot's
- * release contract uniform if a future slice ever creates a view.
- *
- * Like `ComparisonRegistry` this class is pure bookkeeping — DuckDB calls
- * live in the executor — so it is unit-testable under Node. Monotonic ids
- * mean a re-stage never reuses names (the probe: reusing a LIVE file name
- * degrades silently, and a live view name fails loudly — neither is needed).
- *
- * Cross-lane race discipline: previews run on the query lane, but
- * `engine/open` and `engine/dispose` run on the registry lane — and a preview
- * accepted while query-lane work is in flight QUEUES behind it, so its op
- * body may start long after acceptance. The registry therefore tracks a live
- * slot plus a supersede generation, and the INTENT IS CAPTURED
- * SYNCHRONOUSLY AT REQUEST ACCEPTANCE (EngineOpExecutor.accept calls
- * {@linkcode PreviewRegistry.reserve reserve} +
- * {@linkcode PreviewRegistry.beginIntent beginIntent} before enqueueing):
- *
- * - `staged` — the live slot (installed post-registration; released by the
- *   next slot event or dispose);
- * - the reserved slot name — held by the queued op itself (reserve() is
- *   synchronous and monotonic, so acceptance-time capture reserves the name);
- * - `generation` — captured at acceptance and bumped by every
- *   {@linkcode PreviewRegistry.supersede supersede} (open/dispose). An open
- *   that completes while a preview sits queued advances the generation past
- *   the captured one, so when the op finally runs, its checkpoints see it
- *   stale: it never touches the engine, self-releases whatever landed, and
- *   is answered with the typed supersession error instead of a result.
- *
- * No method awaits, so generation transitions have no interleaving window
- * inside this class; multiple queued previews are each invalidated by the
- * one bump because each holds its own captured generation.
- */
-export class PreviewRegistry {
-  private nextSequence = 1
-  private staged: StagedPreview | null = null
-  private generation = 1
-
-  /** Reserve the next preview id; pair with `beginIntent()` immediately (synchronously, at acceptance). */
-  reserve(): StagedPreview {
-    const previewId = `p${this.nextSequence++}`
-    return {
-      previewId,
-      viewName: viewNameForPreviewId(previewId),
-      registeredFileName: `preview_${previewId}`,
-    }
-  }
-
-  /**
-   * Capture the supersede generation for an intent taken SYNCHRONOUSLY at
-   * request acceptance. The reserved slot name is held by the queued op; the
-   * returned generation is what the op re-checks at every checkpoint — an
-   * open/dispose supersede after acceptance moves it past the captured
-   * value, making the op stale before it ever runs.
-   */
-  beginIntent(): number {
-    return this.generation
-  }
-
-  /** True while no supersede (open/dispose) has invalidated the captured generation. */
-  isCurrent(generation: number): boolean {
-    return this.generation === generation
-  }
-
-  /**
-   * Supersede ALL preview state (open/dispose, other lanes): clears the live
-   * slot (the CALLER releases its view/file) and bumps the generation,
-   * invalidating every intent captured before this call — queued or in-
-   * flight, each stale op self-releases at its checkpoints and never
-   * installs. Synchronous, and it bumps even when no live slot exists (a
-   * queued preview is invalidated by the generation alone). Returns the live
-   * slot that needs releasing, if any.
-   */
-  supersede(): StagedPreview | null {
-    const staged = this.staged
-    this.staged = null
-    this.generation += 1
-    return staged
-  }
-
-  /**
-   * Sequential drop-before-restage (same lane — no other preview op can be
-   * running): clears the live slot WITHOUT bumping the generation. The
-   * caller releases what is returned.
-   */
-  clearStaged(): StagedPreview | null {
-    const staged = this.staged
-    this.staged = null
-    return staged
-  }
-
-  /**
-   * Commit the reservation as the single live slot. Called only after the
-   * op's staleness checkpoints pass (an intent that queued behind an open is
-   * stale at its first checkpoint and NEVER reaches confirm — it self-
-   * releases instead). Also called on a non-superseded failure: the slot
-   * then tracks a name whose registration may not exist, which is harmless
-   * (the probe: `dropFile` on a missing name does not throw) and keeps every
-   * reserved name reachable by the NEXT slot event (re-stage, open) or
-   * `engine/dispose` — the ADR's "+1 retained until the next slot event or
-   * dispose" row is exactly this bookkeeping.
-   */
-  confirm(entry: StagedPreview): void {
-    this.staged = entry
-  }
-
-  /** The current staged preview, if any. */
-  current(): StagedPreview | null {
-    return this.staged
-  }
-}
+export { PreviewRegistry, viewNameForPreviewId } from './preview-registry.js'
+export type { StagedPreview } from './preview-registry.js'
+export type {
+  EngineConnectionLike,
+  EngineExecutorDeps,
+  EngineFirstBatch,
+  EngineHandlerContext,
+  EngineOpLane,
+  EngineResultReaderLike,
+  EngineSessionLike,
+} from './executor-context.js'
 
 export class EngineOpExecutor {
   /**
@@ -444,11 +227,11 @@ export class EngineOpExecutor {
    * on the query lane; the short registry/window ops serialize on the
    * registry lane. See `./op-channel` for the measured rationale.
    */
-  private readonly queryLane: OpLane = {
+  private readonly queryLane: EngineOpLane = {
     channel: new OpChannel(),
     connection: (session) => session.queryConn,
   }
-  private readonly registryLane: OpLane = {
+  private readonly registryLane: EngineOpLane = {
     channel: new OpChannel(),
     connection: (session) => session.conn,
   }
@@ -463,6 +246,35 @@ export class EngineOpExecutor {
   private nextExportSeq = 1
 
   constructor(private readonly deps: EngineExecutorDeps) {}
+
+  /**
+   * D04a: the ONE explicit context each engine-local dispatch handler
+   * receives (`./csv-dispatch`). Built per op from the executor's own
+   * members — the injected deps, the session-table registry instance, the
+   * preview-slot registry instance, and the lane `accept` routed to — so a
+   * handler can never reach a second registry, a different connection than
+   * its lane's, or an un-posted error (nothing is global or module-level).
+   */
+  private handlerContext(lane: EngineOpLane): EngineHandlerContext {
+    return {
+      deps: this.deps,
+      registry: this.registry,
+      previews: this.previews,
+      lane,
+      streamFirstBatch: (conn, sql) => this.streamFirstBatch(conn, sql),
+      post: (response) => this.post(response),
+    }
+  }
+
+  /** The acceptance-time capture seam (before routing: no lane or session yet). */
+  private previewCaptureContext(): PreviewCaptureContext {
+    return { previews: this.previews, post: (response) => this.post(response) }
+  }
+
+  /** The slot-release seam used by `engine/dispose`. */
+  private previewSlotContext(): PreviewSlotContext {
+    return { deps: this.deps, previews: this.previews }
+  }
 
   /**
    * Entry point for raw worker messages. Parsing happens synchronously at
@@ -510,7 +322,7 @@ export class EngineOpExecutor {
     // exactly like the malformed-envelope path above.
     let previewState: CapturedPreviewState | undefined
     if (request.type === 'engine/csv-preview') {
-      previewState = this.capturePreviewIntentOrRefuse(request)
+      previewState = captureCsvPreviewIntent(this.previewCaptureContext(), request)
       if (previewState === undefined) return // refusal already posted
     }
     // Route to the op class's lane and serialize there: no two operations
@@ -551,52 +363,9 @@ export class EngineOpExecutor {
     void lane.channel.run(() => this.dispatch(request, lane, previewState))
   }
 
-  /**
-   * The acceptance-time capture for one csv-preview request: the slot intent
-   * (synchronously reserved — the name is the queued op's), the generation it
-   * must re-check at every checkpoint, and the canonical options + sample
-   * row cap from the same synchronous refusals. Captured in `accept` BEFORE
-   * any lane await; see the race-fix note there.
-   */
-  private capturePreviewIntentOrRefuse(
-    request: EngineCsvPreviewRequest,
-  ): CapturedPreviewState | undefined {
-    const parsed = parseCsvOptions(request.options ?? {}, 'preview')
-    if (!parsed.ok) {
-      this.post({ type: 'engine/error', requestId: request.requestId, message: parsed.reason })
-      return undefined
-    }
-    if (detectFileFormat(request.name) !== 'csv') {
-      this.post({
-        type: 'engine/error',
-        requestId: request.requestId,
-        message: 'csv preview requires a .csv file: this op reviews the CSV reader only',
-      })
-      return undefined
-    }
-    let rowCap: number
-    try {
-      rowCap = normalizePreviewSampleRows(request.sampleRows)
-    } catch (error) {
-      this.post({
-        type: 'engine/error',
-        requestId: request.requestId,
-        message: errorMessage(error),
-      })
-      return undefined
-    }
-    const intent = this.previews.reserve()
-    return {
-      intent,
-      generation: this.previews.beginIntent(),
-      options: parsed.options,
-      rowCap,
-    }
-  }
-
   private async dispatch(
     request: EngineRequest,
-    lane: OpLane,
+    lane: EngineOpLane,
     previewState?: CapturedPreviewState,
   ): Promise<void> {
     try {
@@ -628,7 +397,13 @@ export class EngineOpExecutor {
           break
         }
         case 'engine/open': {
-          await this.runOpen(request.requestId, request.name, request.file, request.options, lane)
+          await runOpenHandler(
+            this.handlerContext(lane),
+            request.requestId,
+            request.name,
+            request.file,
+            request.options,
+          )
           break
         }
         case 'engine/csv-preview': {
@@ -637,7 +412,7 @@ export class EngineOpExecutor {
             // request before enqueueing (the acceptance-time race fix).
             throw new Error('csv preview dispatched without its acceptance-time intent')
           }
-          await this.runCsvPreview(request, lane, previewState)
+          await runCsvPreviewHandler(this.handlerContext(lane), request, previewState)
           break
         }
         case 'engine/schema': {
@@ -730,206 +505,13 @@ export class EngineOpExecutor {
   }
 
   /**
-   * Register the picked file and create its per-format view. The file is
-   * registered under the generated table id, so user-controlled names never
-   * enter SQL (see `table-registry.ts` / `format-view.ts`). A failure rolls
-   * the registration back so a failed open leaves no phantom entry behind.
-   *
-   * EW-03I (ADR 0049 decision 1): an optional CSV option set may ride the
-   * request — the adoption of an already-reviewed set. It is re-validated
-   * here (the main thread is untrusted) and refused before ANY engine touch;
-   * `sample_size` is preview-only and refused by the same parse (context
-   * 'open'). Options compose the view's scan (`csvCreateViewSql`); the
-   * no-options path keeps the pre-EW-03I SQL byte-identical. Any open —
-   * adoption or not — supersedes the review flow, so the preview slot is
-   * released best-effort first (ADR 0049 item 5: adoption is a fresh
-   * `engine/open`; the slot's release is its own, never host-reachable).
-   */
-  private async runOpen(
-    requestId: number,
-    name: string,
-    file: File,
-    options: Record<string, unknown> | undefined,
-    lane: OpLane,
-  ): Promise<void> {
-    const format = detectFileFormat(name)
-    if (format === null) {
-      // No file names in messages (ADR 0025) — the extension kind is enough.
-      throw new Error(
-        'unsupported dataset format: this engine reads .parquet, .csv, .jsonl and .json files',
-      )
-    }
-    let csvOptions: EngineCsvOptions | undefined
-    if (options !== undefined) {
-      if (format !== 'csv') {
-        throw new Error('csv options require a .csv file: the other readers take no options')
-      }
-      const parsed = parseCsvOptions(options, 'open')
-      if (!parsed.ok) throw new Error(parsed.reason)
-      csvOptions = parsed.options
-    }
-    const conn = lane.connection(await this.deps.ensureSession())
-    await this.releasePreviewSlot(conn)
-    const entry = this.registry.reserve(format)
-    try {
-      // Lazy reference registration: with the BROWSER_FILEREADER protocol the
-      // engine reads the File through slice + FileReaderSync on demand —
-      // nothing is copied until a query touches it (verified against the
-      // 1.32.0 worker bundle's runtime: protocol case 2). The real protocol
-      // constant is injected by the worker entry (deps.registerFileHandle).
-      await this.deps.registerFileHandle(entry.registeredFileName, file)
-      const viewSql =
-        csvOptions === undefined
-          ? createViewSql(entry.viewName, entry.registeredFileName, format)
-          : csvCreateViewSql(entry.viewName, entry.registeredFileName, csvOptions)
-      await conn.query(viewSql)
-      this.post({ type: 'engine/open-result', requestId, tableId: entry.tableId, format })
-    } catch (error) {
-      this.registry.remove(entry.tableId)
-      await this.deps.dropFile(entry.registeredFileName).catch(() => undefined)
-      throw error
-    }
-  }
-
-  /**
-   * The non-adopting CSV preview (EW-03I; ADR 0049 decisions 1/4/6, probe
-   * proven by the acquisition record). Refusals happen BEFORE any engine
-   * touch (the worker re-validates — the main thread is untrusted). Staging:
-   * drop the previous slot first (view-then-file, best-effort), then register
-   * the candidate under the slot's OWN name via `registerFileHandle` — bare
-   * registration, no view (the probe: scans need none). The sniff query and
-   * the optional bounded sample then read the registered name directly; a
-   * failure there is the engine's own (honest EH first line where available,
-   * ADR 0048) and never classified from its text. The slot stays live on such
-   * a failure — the ADR's "failure after the slot registered → +1 until the
-   * next slot event or dispose" — and the sample is transported with its cap
-   * STATED, never as a validation verdict (a sample is not a check).
-   */
-  private async runCsvPreview(
-    request: EngineCsvPreviewRequest,
-    lane: OpLane,
-    captured: CapturedPreviewState,
-  ): Promise<void> {
-    // The synchronous refusals (vocabulary, format, inference budget) and the
-    // slot intent + supersede generation already ran at ACCEPTANCE
-    // (EngineOpExecutor.accept → capturePreviewIntentOrRefuse) — before this
-    // op queued behind query-lane work. First checkpoint: a preview that
-    // queued behind an open never touches the engine at all — no session, no
-    // registration, no SQL — and is answered with the typed supersession
-    // error instead of a result.
-    if (!this.previews.isCurrent(captured.generation)) {
-      throw new Error(PREVIEW_SUPERSEDED_MESSAGE)
-    }
-    const intent = captured.intent
-    const options = captured.options
-    let conn: EngineConnectionLike | undefined
-    try {
-      conn = lane.connection(await this.deps.ensureSession())
-      // Sequential drop-before-restage: previews serialize on the query lane
-      // (their OPS do — acceptance-time intents may queue), so a live slot
-      // here belongs to a settled op; release it view-then-file, best-effort,
-      // WITHOUT bumping our own generation.
-      const previous = this.previews.clearStaged()
-      if (previous !== null) {
-        assertPreviewViewName(previous.viewName)
-        await conn
-          .query(`DROP VIEW IF EXISTS ${quotedIdentifier(previous.viewName)}`)
-          .catch(() => undefined)
-        await this.deps.dropFile(previous.registeredFileName).catch(() => undefined)
-      }
-      // The acquisition probe's proven call: the lazy File handle under the
-      // slot's own name — no byte copy, no view, no catalog object.
-      await this.deps.registerFileHandle(intent.registeredFileName, request.file)
-      if (!this.previews.isCurrent(captured.generation)) {
-        // An open completed while this registration was in flight: never
-        // install — release what landed (below) and answer with the typed
-        // supersession error instead of the late result payload.
-        throw new Error(PREVIEW_SUPERSEDED_MESSAGE)
-      }
-      this.previews.confirm(intent)
-      const sniffRows = await conn.query(csvSniffSql(intent.registeredFileName, options))
-      const sniff = readSniffPayload(sniffRows)
-      let sample: EngineCsvPreviewSample | null = null
-      if (captured.rowCap > 0) {
-        const { batchIpc, hasMore } = await this.streamFirstBatch(
-          conn,
-          csvSampleSql(intent.registeredFileName, options, captured.rowCap),
-        )
-        sample = { batchIpc, hasMore, rowCap: captured.rowCap }
-      }
-      if (!this.previews.isCurrent(captured.generation)) {
-        // Superseded while scanning: the open already released the live slot;
-        // the check-then-post pair below is synchronous, so a stale result is
-        // never delivered.
-        throw new Error(PREVIEW_SUPERSEDED_MESSAGE)
-      }
-      this.post({
-        type: 'engine/csv-preview-result',
-        requestId: request.requestId,
-        previewId: intent.previewId,
-        sniff,
-        effectiveOptions: effectiveCsvOptions(options),
-        sample,
-      })
-    } catch (error) {
-      if (!this.previews.isCurrent(captured.generation)) {
-        // Superseded at some checkpoint: NEVER install — release whatever
-        // landed. The dropFile is the half that removes the bytes and is
-        // db-level (needs no connection); the view never existed on a
-        // superseded-in-registration path, and on a superseded-in-scan path
-        // the superseding open already dropped it — `DROP VIEW IF EXISTS` is
-        // attempted only when a connection exists and is swallowed either
-        // way. dropFile on a missing/already-dropped name does not throw
-        // (probe D1), so the double release is harmless.
-        if (conn !== undefined) {
-          await conn
-            .query(`DROP VIEW IF EXISTS ${quotedIdentifier(intent.viewName)}`)
-            .catch(() => undefined)
-        }
-        await this.deps.dropFile(intent.registeredFileName).catch(() => undefined)
-        throw new Error(PREVIEW_SUPERSEDED_MESSAGE)
-      }
-      // Not superseded: the slot keeps tracking the name even on failure —
-      // the ADR's "+1 retained until the next slot event or dispose" row
-      // (dropFile on a missing name does not throw — probe D1).
-      this.previews.confirm(intent)
-      throw error
-    }
-  }
-
-  /**
-   * Supersede-and-release for the OTHER-lane slot events (open, dispose):
-   * invalidates any in-flight preview intent (its op self-releases at its
-   * next checkpoint and never installs) and best-effort releases the live
-   * slot, view-then-file, both halves swallowed — the acquisition probe:
-   * `DROP VIEW IF EXISTS` never throws on a missing view, a failed view drop
-   * must still reach the `dropFile`, and `dropFile` on a missing name does
-   * not throw. Never host-reachable: the only triggers are an open, dispose,
-   * and (sequentially, via `clearStaged`) the next preview dispatch. The
-   * preview NEVER reads its candidate's bytes back (`copyFileToBuffer`
-   * poisons the release into a 1-byte stub — probe D3).
-   */
-  private async releasePreviewSlot(conn: EngineConnectionLike): Promise<void> {
-    const staged = this.previews.supersede()
-    if (staged === null) return
-    // Allowlist guard: only the slot's own engine-generated names may ever
-    // reach a DROP statement (the registry is their only producer — pinned by
-    // the id→name shape tests).
-    assertPreviewViewName(staged.viewName)
-    await conn
-      .query(`DROP VIEW IF EXISTS ${quotedIdentifier(staged.viewName)}`)
-      .catch(() => undefined)
-    await this.deps.dropFile(staged.registeredFileName).catch(() => undefined)
-  }
-
-  /**
    * Column name/type pairs straight from DuckDB (`DESCRIBE`). Type strings are
    * passed through as-is — nested types arrive as their full SQL strings
    * (`STRUCT(...)`, `VARCHAR[]`, `DECIMAL(21,1)`, …); a mapping layer would
    * duplicate DuckDB's type system for no M1 benefit (documented M1-4 choice;
    * m1-6 renders these strings in the schema tree).
    */
-  private async runSchema(requestId: number, tableId: string, lane: OpLane): Promise<void> {
+  private async runSchema(requestId: number, tableId: string, lane: EngineOpLane): Promise<void> {
     const entry = this.requireTable(tableId)
     const conn = lane.connection(await this.deps.ensureSession())
     const columns = await this.describeView(conn, entry.viewName)
@@ -972,7 +554,7 @@ export class EngineOpExecutor {
    * invalid predicate rejects this op with the engine's own error message and
    * leaves the engine untouched (see `window-query.ts` for composition rules).
    */
-  private async runRange(request: EngineRangeRequest, lane: OpLane): Promise<void> {
+  private async runRange(request: EngineRangeRequest, lane: EngineOpLane): Promise<void> {
     const entry = this.requireTable(request.tableId)
     const window = validateRowWindow(request.startRow, request.endRow)
     if (!window.valid) {
@@ -1003,7 +585,7 @@ export class EngineOpExecutor {
   private async runRowCount(
     requestId: number,
     tableId: string,
-    lane: OpLane,
+    lane: EngineOpLane,
     filters?: EngineFilterSpec[],
   ): Promise<void> {
     const entry = this.requireTable(tableId)
@@ -1056,7 +638,7 @@ export class EngineOpExecutor {
     requestId: number,
     tableId: string,
     overlay: EngineOverlayPayload,
-    lane: OpLane,
+    lane: EngineOpLane,
   ): Promise<void> {
     const entry = this.requireTable(tableId)
     const conn = lane.connection(await this.deps.ensureSession())
@@ -1088,7 +670,7 @@ export class EngineOpExecutor {
     requestId: number,
     tableId: string,
     overlay: EngineOverlayPayload,
-    lane: OpLane,
+    lane: EngineOpLane,
     filters?: EngineFilterSpec[],
   ): Promise<void> {
     const entry = this.requireTable(tableId)
@@ -1116,7 +698,10 @@ export class EngineOpExecutor {
    * first-batch transport as `runRange`. Registry lane: grid-class scroll
    * traffic (ADR 0040) — overlay windows queue behind nothing but each other.
    */
-  private async runOverlayRange(request: EngineOverlayRangeRequest, lane: OpLane): Promise<void> {
+  private async runOverlayRange(
+    request: EngineOverlayRangeRequest,
+    lane: EngineOpLane,
+  ): Promise<void> {
     const entry = this.requireTable(request.tableId)
     const window = validateRowWindow(request.startRow, request.endRow)
     if (!window.valid) {
@@ -1160,7 +745,7 @@ export class EngineOpExecutor {
    */
   private async runOverlayCastCheck(
     request: EngineOverlayCastCheckRequest,
-    lane: OpLane,
+    lane: EngineOpLane,
   ): Promise<void> {
     const entry = this.requireTable(request.tableId)
     const conn = lane.connection(await this.deps.ensureSession())
@@ -1245,7 +830,7 @@ export class EngineOpExecutor {
    * plus a ruleId, which the wire pins to the m5-0 rule-id grammar) and
    * pass through.
    */
-  private async runValidate(request: EngineValidateRequest, lane: OpLane): Promise<void> {
+  private async runValidate(request: EngineValidateRequest, lane: EngineOpLane): Promise<void> {
     const entry = this.requireTable(request.tableId)
     const conn = lane.connection(await this.deps.ensureSession())
     const plan = request.plan
@@ -1507,7 +1092,7 @@ export class EngineOpExecutor {
     requestId: number,
     name: string,
     file: File,
-    lane: OpLane,
+    lane: EngineOpLane,
   ): Promise<void> {
     const format = detectFileFormat(name)
     if (format === null) {
@@ -1594,7 +1179,7 @@ export class EngineOpExecutor {
    * its owner, but is never interpolated into an error message or log (ADR
    * 0025).
    */
-  private async runDiff(request: EngineDiffRequest, lane: OpLane): Promise<void> {
+  private async runDiff(request: EngineDiffRequest, lane: EngineOpLane): Promise<void> {
     const entryA = this.requireTable(request.tableId)
     const comparison = this.comparisons.get(request.comparisonId)
     if (comparison === null) {
@@ -1830,7 +1415,7 @@ export class EngineOpExecutor {
    * never surface the offending cell text across the worker boundary (S2,
    * ADR 0025). Composer output stays outside the wrap.
    */
-  private async runExport(request: EngineExportRequest, lane: OpLane): Promise<void> {
+  private async runExport(request: EngineExportRequest, lane: EngineOpLane): Promise<void> {
     const entry = this.requireTable(request.tableId)
     const conn = lane.connection(await this.deps.ensureSession())
     const seq = this.nextExportSeq++
@@ -1968,7 +1553,7 @@ export class EngineOpExecutor {
    * inside ONE query-lane op (m2-7: profile shares the query lane — it is a
    * heavy scan like user SQL, and must never sit on the registry lane where
    * it would block the grid's windows for its whole scan) on the connection
-   * that lane provides (`OpLane` — routing and connection are one decision):
+   * that lane provides (`EngineOpLane` — routing and connection are one decision):
    * the sequential awaits never overlap on the query connection (per-lane T2
    * invariant), and any failure rejects this op with the engine's own error,
    * leaving the engine reusable.
@@ -1977,7 +1562,7 @@ export class EngineOpExecutor {
    * only name/type/nullCount/distinctCount — an exotic type can never fail
    * the profile (classifier contract).
    */
-  private async runProfile(requestId: number, tableId: string, lane: OpLane): Promise<void> {
+  private async runProfile(requestId: number, tableId: string, lane: EngineOpLane): Promise<void> {
     const entry = this.requireTable(tableId)
     const conn = lane.connection(await this.deps.ensureSession())
     const schema = await this.describeView(conn, entry.viewName)
@@ -2075,7 +1660,7 @@ export class EngineOpExecutor {
    */
   private async runPipelineSource(
     request: EnginePipelineSourceRequest,
-    lane: OpLane,
+    lane: EngineOpLane,
   ): Promise<void> {
     const relation = assertPipelineRelation(request.relation)
     const format = detectFileFormat(request.name)
@@ -2127,7 +1712,7 @@ export class EngineOpExecutor {
    */
   private async runPipelineMaterialize(
     request: EnginePipelineMaterializeRequest,
-    lane: OpLane,
+    lane: EngineOpLane,
   ): Promise<void> {
     const relation = assertPipelineRelation(request.relation)
     if (!classifyVerbatimSql(request.sql).ok) {
@@ -2163,7 +1748,7 @@ export class EngineOpExecutor {
    */
   private async runPipelineExecute(
     request: EnginePipelineExecuteRequest,
-    lane: OpLane,
+    lane: EngineOpLane,
   ): Promise<void> {
     const relation = assertPipelineRelation(request.relation)
     if (!classifyVerbatimSql(request.sql).ok) {
@@ -2238,7 +1823,10 @@ export class EngineOpExecutor {
   }
 
   /** Row-diff two pipeline session relations (p2-4); see {@link executeDiffCore}. */
-  private async runPipelineDiff(request: EnginePipelineDiffRequest, lane: OpLane): Promise<void> {
+  private async runPipelineDiff(
+    request: EnginePipelineDiffRequest,
+    lane: EngineOpLane,
+  ): Promise<void> {
     const inputRelation = assertPipelineRelation(request.inputRelation)
     const againstRelation = assertPipelineRelation(request.againstRelation)
     const conn = lane.connection(await this.deps.ensureSession())
@@ -2264,7 +1852,7 @@ export class EngineOpExecutor {
    */
   private async runPipelineHandle(
     request: EnginePipelineHandleRequest,
-    lane: OpLane,
+    lane: EngineOpLane,
   ): Promise<void> {
     const relation = assertPipelineRelation(request.relation)
     const conn = lane.connection(await this.deps.ensureSession())
@@ -2324,7 +1912,7 @@ export class EngineOpExecutor {
    * straggler would get its own clean engine error. The client's dispose
    * timeout bounds the barrier wait and terminates the worker regardless.)
    */
-  private async runDispose(requestId: number, lane: OpLane): Promise<void> {
+  private async runDispose(requestId: number, lane: EngineOpLane): Promise<void> {
     // Query-lane barrier: resolves once every enqueued query/profile op has
     // settled. It cannot deadlock — the query lane never awaits the registry
     // lane.
@@ -2352,7 +1940,7 @@ export class EngineOpExecutor {
     // deliberately tracks; dropFile on a missing name does not throw). This
     // is the terminal release of the ADR 0049 accounting: after dispose no
     // preview name survives.
-    await this.releasePreviewSlot(conn)
+    await releasePreviewSlot(this.previewSlotContext(), conn)
     // p-3: pipeline source registrations and every materialized pipeline view
     // are dropped with the rest (views first, then the files they read).
     const pipelineState = this.pipeline.clear()
@@ -2446,106 +2034,6 @@ function transferableBuffer(bytes: Uint8Array): ArrayBuffer | null {
   // SharedArrayBuffer cannot go into a transfer list (structured clone).
   if (!(buffer instanceof ArrayBuffer)) return null
   return byteOffset === 0 && byteLength === buffer.byteLength ? buffer : null
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-/**
- * The preview sample window (EW-03I): absent = the worker cap — the same
- * `MAX_RANGE_ROWS` bound every row window obeys, so a sample is a grid-sized
- * head read and never a full scan — 0 = no sample, otherwise clamped DOWN to
- * the cap. Semantic validation lives here in the worker (the boundary is
- * untrusted), mirroring `validateRowWindow`'s client+worker double pass.
- */
-function normalizePreviewSampleRows(value: unknown): number {
-  if (value === undefined) return MAX_RANGE_ROWS
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error('csv preview sampleRows must be a non-negative safe integer')
-  }
-  return Math.min(value, MAX_RANGE_ROWS)
-}
-
-/**
- * Read the sniff disclosure from the sniff_csv result (one row). Column names
- * are exactly the engine's (probed on the shipped browser build: EW-03D B1/B2
- * and the acquisition record's sniff legs); anything else is a value-free
- * engine-deviation error, never a guessed field.
- *
- * The dialect values are transported VERBATIM as the sniffer's own TEXT, which
- * is not raw bytes and not an empty string (B02/ENG-3):
- *
- * - an UNSET `Quote`/`Escape`/`Comment` is the literal seven characters
- *   `(empty)` — `hex(Quote)` = `28656D70747929` on the installed DuckDB v1.5.5
- *   and in the browser build, NOT a NULL and NOT `''`;
- * - `NewLineDelimiter` is ESCAPE TEXT: `\n` (two characters) for an LF file
- *   and `\r\n` for a CRLF file, i.e. what `new_line = '…'` would be written
- *   as;
- * - `Delimiter` (and a real `Quote`/`Escape`) is an actual character
- *   (`hex` = `2C`, `22`, `09`).
- *
- * Normalising that representation here was rejected (plan B02): the web
- * display adapter interprets the sentinel for display and the D3-1 header
- * scan decodes the escape text separately, while this payload keeps the shape
- * the rename-list equality gate was verified against. DateFormat/TimestampFormat/
- * Prompt stay null when the engine reports null. The `Prompt` is transported
- * verbatim as display text — nothing composes SQL from it (ADR 0049 item 3).
- */
-function readSniffPayload(result: Table): EngineCsvSniff {
-  const unexpected = 'sniff_csv returned an unexpected shape'
-  if (result.numRows !== 1) throw new Error(unexpected)
-  const dialect = (name: string): string => {
-    const value: unknown = result.getChild(name)?.get(0)
-    return typeof value === 'string' ? value : ''
-  }
-  const nullableText = (name: string): string | null => {
-    const value: unknown = result.getChild(name)?.get(0)
-    return typeof value === 'string' ? value : null
-  }
-  const skipRowsValue: unknown = result.getChild('SkipRows')?.get(0)
-  if (
-    typeof skipRowsValue !== 'number' ||
-    !Number.isSafeInteger(skipRowsValue) ||
-    skipRowsValue < 0
-  ) {
-    throw new Error(unexpected)
-  }
-  const hasHeaderValue: unknown = result.getChild('HasHeader')?.get(0)
-  if (typeof hasHeaderValue !== 'boolean') throw new Error(unexpected)
-  const columnsVector = result.getChild('Columns')
-  if (columnsVector === null) throw new Error(unexpected)
-  const columnsValue: unknown = columnsVector.get(0)
-  if (columnsValue === null || columnsValue === undefined) throw new Error(unexpected)
-  // Arrow 17 delivers the list's one cell as an iterable of struct rows (a
-  // Vector — same shape the profile quantile reader consumes), never a plain
-  // JS array.
-  let entries: unknown[]
-  try {
-    entries = Array.from(columnsValue as Iterable<unknown>)
-  } catch {
-    throw new Error(unexpected)
-  }
-  const columns = entries.map((entry) => {
-    const record = entry as Record<string, unknown> | null
-    const name: unknown = record === null || record === undefined ? undefined : record['name']
-    const type: unknown = record === null || record === undefined ? undefined : record['type']
-    if (typeof name !== 'string' || typeof type !== 'string') throw new Error(unexpected)
-    return { name, type }
-  })
-  return {
-    delimiter: dialect('Delimiter'),
-    quote: dialect('Quote'),
-    escape: dialect('Escape'),
-    newLineDelimiter: dialect('NewLineDelimiter'),
-    comment: dialect('Comment'),
-    skipRows: skipRowsValue,
-    hasHeader: hasHeaderValue,
-    columns,
-    dateFormat: nullableText('DateFormat'),
-    timestampFormat: nullableText('TimestampFormat'),
-    prompt: nullableText('Prompt'),
-  }
 }
 
 /**

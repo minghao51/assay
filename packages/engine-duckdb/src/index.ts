@@ -147,8 +147,10 @@ export type {
 // EW-03I fold: the single-slot preview registry bookkeeping is public so the
 // slot's name shapes (`p1` / `assay_preview_p1` / `preview_p1`) are pinable by
 // hosts and conformance without re-deriving them (ADR 0049 decision 4).
-export { PreviewRegistry, viewNameForPreviewId } from './engine-executor.js'
-export type { StagedPreview } from './engine-executor.js'
+// D04a: the registry and its name shape moved to their own engine-local module;
+// the public export surface (and these specifiers) stay unchanged.
+export { PreviewRegistry, viewNameForPreviewId } from './preview-registry.js'
+export type { StagedPreview } from './preview-registry.js'
 export { MAX_RANGE_ROWS, validateRowWindow } from './range-window.js'
 export type { RowWindow, RowWindowValidation } from './range-window.js'
 // m2-7 fold (m2-4 carry-over): the engine-generated SQL-facing view name for
