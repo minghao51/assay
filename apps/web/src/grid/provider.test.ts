@@ -626,6 +626,98 @@ describe('DuckDbGridProvider query state (m2-3) — sort/filter carried into eve
 })
 
 /**
+ * C02b — the optional whole-list capability on the web local provider
+ * (`GridDataProvider.replaceFilters`, C01 §5.1/§9.1 row 12).
+ *
+ * The capability is one validated assignment before any state is read: order
+ * is preserved verbatim (`filterState` order is what the UI displays and what
+ * the engine AND-composes), `[]` is the same internal empty state as
+ * `filter(null)`, and a rejection leaves the previously accepted list in
+ * effect — the model above it then reports `refused-before-change` instead of
+ * guessing a rollback.
+ */
+describe('DuckDbGridProvider.replaceFilters (C02b) — atomic whole-list capability', () => {
+  const FIRST: FilterSpec = { column: 'country', predicate: "= 'US'" }
+  const SECOND: FilterSpec = { column: 'income', predicate: '> 50000' }
+
+  it('stores the list in exactly the given order and every later ask carries it', async () => {
+    const { client, windows, overlayRowCountOptions } = fakeClient()
+    const provider = new DuckDbGridProvider(client, handle, emptySource)
+    // Pushed in this order even though the columns sort differently: the
+    // provider neither sorts nor de-duplicates (opaque predicate text).
+    await provider.replaceFilters([SECOND, FIRST])
+    await provider.rowCount()
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(overlayRowCountOptions).toEqual([[SECOND, FIRST]])
+    expect(windows[0]?.filters).toEqual([SECOND, FIRST])
+  })
+
+  it('does the engine work of one list change, not one per spec (no extra scans)', async () => {
+    const { client, windows, baseWindows, rowCountOptions, overlayRowCountOptions } = fakeClient()
+    const provider = new DuckDbGridProvider(client, handle, emptySource)
+    await provider.replaceFilters([FIRST, SECOND])
+    // The capability itself touches no engine surface: the list is state, and
+    // the model's single refresh is what re-reads totals/windows.
+    expect({ windows, baseWindows, rowCountOptions, overlayRowCountOptions }).toEqual({
+      windows: [],
+      baseWindows: [],
+      rowCountOptions: [],
+      overlayRowCountOptions: [],
+    })
+    await provider.rowCount()
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(overlayRowCountOptions).toHaveLength(1)
+    expect(windows).toHaveLength(1)
+  })
+
+  it('map `replaceFilters([])` and `filter(null)` to the same engine asks (byte-identical)', async () => {
+    const legacy = fakeClient()
+    const legacyProvider: GridDataProvider = new DuckDbGridProvider(
+      legacy.client,
+      handle,
+      emptySource,
+    )
+    await legacyProvider.filter(FIRST)
+    await legacyProvider.filter(null)
+
+    const atomic = fakeClient()
+    const atomicProvider = new DuckDbGridProvider(atomic.client, handle, emptySource)
+    await atomicProvider.replaceFilters([FIRST])
+    await atomicProvider.replaceFilters([])
+
+    for (const provider of [legacyProvider, atomicProvider]) {
+      await provider.rowCount()
+      await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    }
+    // Cleared state is "absent fields" on both paths: the base route, the same
+    // window, the same count options — no `WHERE` for either.
+    expect(atomic.baseWindows).toEqual(legacy.baseWindows)
+    expect(atomic.windows).toEqual(legacy.windows)
+    expect(atomic.rowCountOptions).toEqual(legacy.rowCountOptions)
+    expect(atomic.overlayRowCountOptions).toEqual(legacy.overlayRowCountOptions)
+    expect(atomic.baseWindows).toEqual([{ startRow: 0, endRow: 2 }])
+  })
+
+  it('validates every spec before the one assignment (all-before-commit)', async () => {
+    const { client, windows } = fakeClient()
+    const provider = new DuckDbGridProvider(client, handle, emptySource)
+    await provider.replaceFilters([FIRST])
+
+    // Two ways a list can be malformed mid-way: the rejected list must never
+    // be partially stored — the previously accepted list stays in effect.
+    await expect(
+      provider.replaceFilters([SECOND, { column: '', predicate: '> 1' }]),
+    ).rejects.toBeInstanceOf(TypeError)
+    await expect(
+      provider.replaceFilters([SECOND, { column: 'income', predicate: 7 as unknown as string }]),
+    ).rejects.toBeInstanceOf(TypeError)
+
+    await provider.fetchRange({ startRow: 0, endRow: 2, startCol: 0, endCol: 2 })
+    expect(windows[0]?.filters).toEqual([FIRST])
+  })
+})
+
+/**
  * WF-06 A1-3 — `rebindOverlaySource`. A replacement candidate is constructed
  * against its OWN empty overlay box (so a candidate read can never resolve the
  * live session's overlay over the candidate's base), and only `adopt()` may

@@ -442,4 +442,35 @@ export class DuckDbGridProvider implements GridDataProvider {
         ? []
         : [...this.filterPredicates, { column: spec.column, predicate: spec.predicate }]
   }
+
+  /**
+   * C02b — replace the whole ordered filter list in **one transaction**
+   * (`[]` clears, exactly like `filter(null)`).
+   *
+   * All-before-commit: every spec is shape-checked into a local array first,
+   * and only a fully valid list is assigned, so a rejection leaves the
+   * previously accepted list in effect and observable (no partial state, the
+   * same promise `sort`/`filter` make per call). Shape is the *only* thing
+   * inspected: `predicate` stays opaque engine text, and the list is stored in
+   * exactly the order given — no parsing, normalizing, sorting or
+   * de-duplication, because that order is what the UI displays and what the
+   * engine AND-composes into `WHERE`. The rejection is this class's own
+   * `TypeError`; it carries no phase (phase is the model's classification).
+   */
+  async replaceFilters(specs: readonly FilterSpec[]): Promise<void> {
+    if (!Array.isArray(specs)) {
+      throw new TypeError(`filters must be an array, got ${typeof specs}`)
+    }
+    const next: EngineFilterSpec[] = []
+    for (const spec of specs) {
+      if (typeof spec?.column !== 'string' || spec.column.length === 0) {
+        throw new TypeError('filter spec must name a column')
+      }
+      if (typeof spec.predicate !== 'string') {
+        throw new TypeError('filter spec predicate must be a string')
+      }
+      next.push({ column: spec.column, predicate: spec.predicate })
+    }
+    this.filterPredicates = next
+  }
 }
