@@ -28,6 +28,8 @@
 import type { CellValue, RowId } from '@assay/domain'
 import type { GridViewportModel, SortSpec } from '@assay/grid'
 import { parseCellDraft, supportsCellDraft } from '../src/pure/cell-input'
+import { filterFailureCopy } from '../src/pure/filter-failure'
+import type { FilterFailureRecovery } from '../src/pure/filter-failure'
 
 /** Fixed row height for the DOM renderer (the web app's `GRID_ROW_HEIGHT_PX`). */
 export const GRID_ROW_HEIGHT_PX = 28
@@ -181,6 +183,7 @@ export class WebviewDataGrid {
   private filterInput: HTMLInputElement | null = null
   private filterStatus: HTMLElement | null = null
   private commandError: HTMLElement | null = null
+  private commandErrorAction: HTMLButtonElement | null = null
   private editButtons: {
     readonly undo: HTMLButtonElement
     readonly redo: HTMLButtonElement
@@ -368,7 +371,21 @@ export class WebviewDataGrid {
     error.hidden = true
     this.commandError = error
 
-    toolbar.append(select, input, apply, clear, status, error)
+    // C02c: the one recovery action a failed apply can offer (Retry the
+    // reload, or the explicit Clear-filters counterpart of the unknown-list
+    // state). Hidden unless a phase names it.
+    const action = document.createElement('button')
+    action.type = 'button'
+    action.className = 'assay-grid-command-action'
+    // Kept in the DOM (hidden unless a phase offers it) with a permanent
+    // accessible name: the harness audits every toolbar button's name and
+    // does not special-case `hidden`.
+    action.textContent = 'Filter recovery'
+    action.setAttribute('aria-label', 'Filter recovery')
+    action.hidden = true
+    this.commandErrorAction = action
+
+    toolbar.append(select, input, apply, clear, status, error, action)
     const editing = this.options.editing
     if (editing !== undefined) {
       const insert = document.createElement('button')
@@ -496,22 +513,68 @@ export class WebviewDataGrid {
     const settled = query.then(
       () => undefined,
       (error: unknown) => {
-        this.showCommandError(error instanceof Error ? error.message : String(error))
+        // C02c: map the model's value-free phase to copy — never print the
+        // raw engine message (C01 §7). The model owns any restoration.
+        this.showFilterFailure(error)
       },
     )
     this.querySettled = settled
   }
 
-  private showCommandError(message: string): void {
+  /** Render one failed apply from its phase (`FilterApplyError`). */
+  private showFilterFailure(error: unknown): void {
+    const copy = filterFailureCopy(error)
+    this.showCommandError(copy.message, copy.recovery)
+  }
+
+  private showCommandError(message: string, recovery: FilterFailureRecovery = null): void {
     if (this.commandError === null) return
     this.commandError.textContent = message
     this.commandError.hidden = false
+    this.renderCommandAction(recovery)
+  }
+
+  /** Keep the one optional recovery control in step with the rendered copy. */
+  private renderCommandAction(recovery: FilterFailureRecovery): void {
+    const action = this.commandErrorAction
+    if (action === null) return
+    action.onclick = null
+    if (recovery === null) {
+      action.hidden = true
+      action.textContent = 'Filter recovery'
+      action.setAttribute('aria-label', 'Filter recovery')
+      action.removeAttribute('data-action')
+      return
+    }
+    const label = recovery.kind === 'retry' ? 'Retry' : 'Clear filters'
+    action.hidden = false
+    action.dataset.action = recovery.kind
+    action.textContent = label
+    action.setAttribute('aria-label', label)
+    action.onclick = () => {
+      if (recovery.kind === 'retry') {
+        // Case (b) recovery is the model's own reload, never a second filter
+        // write: the accepted list stays in effect.
+        this.trackQuery(this.model.refresh())
+      } else {
+        // Restore-failed recovery: the documented Clear-filters affordance
+        // (a successful `setFilters([])` also clears `filtersUnknown`).
+        this.clearFilters()
+      }
+    }
   }
 
   private hideCommandError(): void {
     if (this.commandError === null) return
     this.commandError.hidden = true
     this.commandError.textContent = ''
+    if (this.commandErrorAction !== null) {
+      this.commandErrorAction.hidden = true
+      this.commandErrorAction.textContent = 'Filter recovery'
+      this.commandErrorAction.setAttribute('aria-label', 'Filter recovery')
+      this.commandErrorAction.removeAttribute('data-action')
+      this.commandErrorAction.onclick = null
+    }
   }
 
   private updateSortIndicators(): void {
