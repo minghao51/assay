@@ -449,13 +449,13 @@
       "useSites": [
         {
           "file": "package.json",
-          "line": 30,
+          "line": 31,
           "via": "script",
           "symbols": ["changeset"]
         },
         {
           "file": "package.json",
-          "line": 31,
+          "line": 32,
           "via": "script",
           "symbols": ["version-packages"]
         },
@@ -529,7 +529,7 @@
         },
         {
           "file": "package.json",
-          "line": 28,
+          "line": 29,
           "via": "script",
           "symbols": ["test:e2e"]
         },
@@ -599,7 +599,7 @@
       "workspaceTarget": null,
       "engines": null,
       "peerDependencies": {},
-      "useSiteCount": 149,
+      "useSiteCount": 153,
       "useSites": [
         {
           "file": "pnpm-lock.yaml",
@@ -746,7 +746,7 @@
       "useSites": [
         {
           "file": "package.json",
-          "line": 22,
+          "line": 23,
           "via": "script",
           "symbols": ["lint"]
         }
@@ -836,13 +836,13 @@
       "useSites": [
         {
           "file": "package.json",
-          "line": 23,
+          "line": 24,
           "via": "script",
           "symbols": ["format"]
         },
         {
           "file": "package.json",
-          "line": 24,
+          "line": 25,
           "via": "script",
           "symbols": ["format:check"]
         },
@@ -880,7 +880,7 @@
         },
         {
           "file": "package.json",
-          "line": 21,
+          "line": 22,
           "via": "script",
           "symbols": ["typecheck"]
         }
@@ -908,13 +908,13 @@
       "useSites": [
         {
           "file": "package.json",
-          "line": 25,
+          "line": 26,
           "via": "script",
           "symbols": ["test"]
         },
         {
           "file": "package.json",
-          "line": 26,
+          "line": 27,
           "via": "script",
           "symbols": ["test:coverage"]
         }
@@ -982,25 +982,31 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 8,
+      "useSiteCount": 9,
       "useSites": [
         {
           "file": "package.json",
-          "line": 25,
+          "line": 26,
           "via": "script",
           "symbols": ["test"]
         },
         {
           "file": "package.json",
-          "line": 26,
+          "line": 27,
           "via": "script",
           "symbols": ["test:coverage"]
         },
         {
           "file": "package.json",
-          "line": 27,
+          "line": 28,
           "via": "script",
           "symbols": ["test:watch"]
+        },
+        {
+          "file": "scripts/check-assurance-map.test.mjs",
+          "line": 17,
+          "via": "import",
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "scripts/check-current-state.test.mjs",
@@ -2283,7 +2289,7 @@
       "workspaceTarget": null,
       "engines": null,
       "peerDependencies": {},
-      "useSiteCount": 46,
+      "useSiteCount": 49,
       "useSites": [
         {
           "file": "apps/vscode/scripts/build.mjs",
@@ -2530,7 +2536,7 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 10,
+      "useSiteCount": 11,
       "useSites": [
         {
           "file": "apps/vscode/src/pure/bridge-contracts.test.ts",
@@ -2575,6 +2581,12 @@
           "symbols": ["describe", "expect", "it", "vi"]
         },
         {
+          "file": "apps/vscode/src/pure/export-transfer-controller.test.ts",
+          "line": 5,
+          "via": "import",
+          "symbols": ["afterEach", "describe", "expect", "it", "vi"]
+        },
+        {
           "file": "apps/vscode/src/pure/export-transfer.test.ts",
           "line": 2,
           "via": "import",
@@ -2585,15 +2597,9 @@
           "line": 2,
           "via": "import",
           "symbols": ["describe", "expect", "it"]
-        },
-        {
-          "file": "apps/vscode/src/pure/validation-controller.test.ts",
-          "line": 2,
-          "via": "import",
-          "symbols": ["describe", "expect", "it"]
         }
       ],
-      "useSitesTruncated": false,
+      "useSitesTruncated": true,
       "kind": "test",
       "rationale": "the unit/integration runner for every project in vitest.config.ts (web, node, cli-integration); `pnpm test` is this binary plus the CLI build.",
       "pinRationale": null
@@ -2690,7 +2696,7 @@
       "workspaceTarget": "packages/data-sources",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 6,
+      "useSiteCount": 10,
       "useSites": [
         {
           "file": "apps/web/src/App.csv-review.test.tsx",
@@ -2727,6 +2733,30 @@
           "line": 61,
           "via": "import",
           "symbols": ["pickDataFile"]
+        },
+        {
+          "file": "apps/web/src/replace/useReplacementController.test.tsx",
+          "line": 8,
+          "via": "import-type",
+          "symbols": ["PickedDataFile"]
+        },
+        {
+          "file": "apps/web/src/replace/useReplacementController.ts",
+          "line": 60,
+          "via": "import",
+          "symbols": ["pickDataFile"]
+        },
+        {
+          "file": "apps/web/src/replace/useReplacementController.ts",
+          "line": 61,
+          "via": "import",
+          "symbols": ["detectFormatFromFileName"]
+        },
+        {
+          "file": "apps/web/src/replace/useReplacementController.ts",
+          "line": 62,
+          "via": "import-type",
+          "symbols": ["PickedDataFile", "ShowOpenFilePickerOptions"]
         }
       ],
       "useSitesTruncated": false,
@@ -2854,7 +2884,7 @@
       "workspaceTarget": "packages/domain",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 76,
+      "useSiteCount": 80,
       "useSites": [
         {
           "file": "apps/web/src/App.section-summaries.test.tsx",
@@ -2934,7 +2964,7 @@
       "workspaceTarget": "packages/engine-duckdb",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 83,
+      "useSiteCount": 86,
       "useSites": [
         {
           "file": "apps/web/src/App.column-ops.test.tsx",
@@ -3014,7 +3044,7 @@
       "workspaceTarget": "packages/grid",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 37,
+      "useSiteCount": 39,
       "useSites": [
         {
           "file": "apps/web/src/App.profile-filter.test.tsx",
@@ -3385,7 +3415,7 @@
         "react": "^18.0.0 || ^19.0.0",
         "react-dom": "^18.0.0 || ^19.0.0"
       },
-      "useSiteCount": 70,
+      "useSiteCount": 73,
       "useSites": [
         {
           "file": "apps/web/src/App.column-ops.test.tsx",
@@ -3465,65 +3495,65 @@
       "workspaceTarget": null,
       "engines": null,
       "peerDependencies": {},
-      "useSiteCount": 59,
+      "useSiteCount": 60,
       "useSites": [
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 114,
+          "line": 119,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 128,
+          "line": 133,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 142,
+          "line": 147,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 156,
+          "line": 161,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 170,
+          "line": 175,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 184,
+          "line": 189,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 198,
+          "line": 203,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 212,
+          "line": 217,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 225,
+          "line": 230,
           "via": "module-types",
           "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 239,
+          "line": 244,
           "via": "module-types",
           "symbols": ["react"]
         }
@@ -3626,65 +3656,65 @@
         "node": ">=0.10.0"
       },
       "peerDependencies": null,
-      "useSiteCount": 59,
+      "useSiteCount": 60,
       "useSites": [
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 114,
+          "line": 119,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 128,
+          "line": 133,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 142,
+          "line": 147,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 156,
+          "line": 161,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 170,
+          "line": 175,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 184,
+          "line": 189,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 198,
+          "line": 203,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 212,
+          "line": 217,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 225,
+          "line": 230,
           "via": "dynamic-import",
           "symbols": []
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
-          "line": 239,
+          "line": 244,
           "via": "dynamic-import",
           "symbols": []
         }
@@ -3848,7 +3878,7 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 136,
+      "useSiteCount": 139,
       "useSites": [
         {
           "file": "apps/web/src/App.column-ops.test.tsx",
@@ -4778,7 +4808,7 @@
       "workspaceTarget": "packages/domain",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 25,
+      "useSiteCount": 27,
       "useSites": [
         {
           "file": "packages/engine-duckdb/harness/conformance-subject.ts",
@@ -4916,7 +4946,7 @@
         },
         {
           "file": "packages/engine-duckdb/src/engine-executor.ts",
-          "line": 78,
+          "line": 73,
           "via": "import",
           "symbols": ["classifyVerbatimSql"]
         },
@@ -5194,7 +5224,7 @@
       "workspaceTarget": null,
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 13,
+      "useSiteCount": 16,
       "useSites": [
         {
           "file": "packages/engine-duckdb/harness/conformance-subject.ts",
@@ -5217,6 +5247,28 @@
         {
           "file": "packages/engine-duckdb/src/client.ts",
           "line": 25,
+          "via": "import-type",
+          "symbols": ["Table"]
+        },
+        {
+          "file": "packages/engine-duckdb/src/csv-dispatch.test.ts",
+          "line": 23,
+          "via": "import",
+          "symbols": [
+            "Field",
+            "List",
+            "Table",
+            "Utf8",
+            "makeBuilder",
+            "makeVector",
+            "Struct",
+            "tableFromArrays",
+            "vectorFromArray"
+          ]
+        },
+        {
+          "file": "packages/engine-duckdb/src/csv-dispatch.ts",
+          "line": 31,
           "via": "import-type",
           "symbols": ["Table"]
         },
@@ -5252,18 +5304,6 @@
         {
           "file": "packages/engine-duckdb/src/engine-executor.test.ts",
           "line": 15,
-          "via": "import-type",
-          "symbols": ["RecordBatch"]
-        },
-        {
-          "file": "packages/engine-duckdb/src/engine-executor.ts",
-          "line": 50,
-          "via": "import",
-          "symbols": ["Table", "tableFromIPC", "tableToIPC"]
-        },
-        {
-          "file": "packages/engine-duckdb/src/engine-executor.ts",
-          "line": 51,
           "via": "import-type",
           "symbols": ["RecordBatch"]
         }
