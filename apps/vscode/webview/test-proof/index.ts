@@ -6,14 +6,16 @@
  *
  * TEST-PROOF GATE (unchanged, and re-stated here so it cannot be dropped by a
  * refactor): the webview entry calls {@link runOpenProofs} only when its
- * injected config carries `testHarness: true`, which the host sets only under
- * `vscode.ExtensionMode.Test` (`apps/vscode/src/dataset.ts`). A production open
- * therefore never runs any `exercise*` code, even though this module stays in
- * the production bundle — excluding it from bundling is a SEPARATE measured
- * decision, deliberately not taken here.
+ * injected config carries `testHarness: true`. The host computes that flag as
+ * `context.extensionMode === vscode.ExtensionMode.Test &&
+ * process.env['ASSAY_E2E_EDIT_PROOF'] === '1'` (`apps/vscode/src/dataset.ts`),
+ * so a production open never runs any `exercise*` code, even though this module
+ * stays in the production bundle — excluding it from bundling is a SEPARATE
+ * measured decision, deliberately not taken here.
  *
  * The gate inside `runOpenProofs` is a second, independent check on the same
- * flag: the proof suite refuses to run unless `testHarness` is exactly `true`.
+ * flag: the proof suite refuses to run unless `testHarness` is exactly `true`
+ * (so a truthy non-boolean cannot open it either — pinned by the module test).
  */
 import type { OverlayBase } from '@assay/domain'
 import type { GridViewportModel } from '@assay/grid'
