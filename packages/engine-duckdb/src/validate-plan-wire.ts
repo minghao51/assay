@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { quotedIdentifier } from './format-view.js'
+
 /**
  * Structural validation for validation plans crossing the worker boundary
  * (m5-2). The `engine/validate` request carries a compiled m5-1
@@ -668,7 +670,12 @@ export function assertValidationPlanRelationBinding(
   }
 }
 
-/** The plan SQL's quoted rendering of the relation name (compiler's `q(rel)`). */
+/**
+ * The plan SQL's quoted rendering of the relation name (compiler's `q(rel)`).
+ * D04b: delegates to the engine's single identifier-quoting implementation
+ * (`./format-view.js` `quotedIdentifier`) instead of re-deriving the fragment;
+ * the emitted token is byte-identical.
+ */
 export function quotedRelationToken(relation: string): string {
-  return '"' + relation.replaceAll('"', '""') + '"'
+  return quotedIdentifier(relation)
 }

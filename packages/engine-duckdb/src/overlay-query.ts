@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * SQL composition for overlay-aware windows/counts/schema and COPY-based
- * exports (m4-2) — the engine side of the ADR 0012 edit overlay.
+ * SQL composition for overlay-aware windows/counts/schema and exports
+ * (m4-2) — the engine side of the ADR 0012 edit overlay.
+ *
+ * D04b split: the COPY/export *emission* group (the pinned per-format COPY
+ * options, the destination extension convention, and the two export
+ * composers) lives in `./export-query.js`. This module stays the owner of the
+ * overlay composition itself — including the effective-source relation every
+ * materializing op wraps — plus the repair caps and the published export
+ * budget that group composes over. No SQL token, cap or budget changed.
  *
  * Composition model — **stateless**: every request carries the overlay (the
  * immutable base metadata + the op list) from the host; the worker folds the
@@ -158,7 +165,7 @@ import type {
   RowId,
 } from '@assay/domain'
 import { quotedIdentifier, sqlStringLiteral } from './format-view.js'
-import type { EngineExportFormat, EngineFilterSpec, EngineSortSpec } from './protocol.js'
+import type { EngineFilterSpec, EngineSortSpec } from './protocol.js'
 import {
   isBlobLikeEngineType,
   isStringLikeEngineType,
@@ -167,17 +174,13 @@ import {
 import { orderByClauseSql, whereClauseSql } from './window-query.js'
 
 /**
- * Column names this composer reserves for its own machinery. A dataset
- * column using one of these names would collide with the composer's internal
- * ordinal / sort-key / row-id columns; composition fails with a clear error
- * instead of silently misbehaving (the host contract: these are
- * engine-namespaced and reserved, like the `assay_tN` view names).
+ * The base-ordinal machinery column: created inside the base branch
+ * (`row_number() OVER () − 1`), carried upward by the repair layers, never
+ * projected. D04b: this is the **canonical owner** of the name — the reserved
+ * set below and `validate-query.ts`'s baked index column both derive from it,
+ * so the literal exists exactly once in this package.
  */
-export const RESERVED_OVERLAY_COLUMN_NAMES: ReadonlySet<string> = new Set([
-  'assay_overlay_ord',
-  'assay_key',
-  'assay_row_id',
-])
+export const OVERLAY_ORDINAL_COLUMN = 'assay_overlay_ord'
 
 /** The logical row-id column overlay windows add when requested. */
 export const OVERLAY_ROW_ID_COLUMN = 'assay_row_id'
@@ -185,8 +188,22 @@ export const OVERLAY_ROW_ID_COLUMN = 'assay_row_id'
 /** The sort-key column of the composed effective relation (never projected). */
 export const OVERLAY_SORT_KEY_COLUMN = 'assay_key'
 
-/** The base-ordinal alias inside the base branch (never projected). */
-const ORDINAL_COLUMN = 'assay_overlay_ord'
+/** Local shorthand for {@link OVERLAY_ORDINAL_COLUMN} (one owner, one literal). */
+const ORDINAL_COLUMN = OVERLAY_ORDINAL_COLUMN
+
+/**
+ * Column names this composer reserves for its own machinery. A dataset
+ * column using one of these names would collide with the composer's internal
+ * ordinal / sort-key / row-id columns; composition fails with a clear error
+ * instead of silently misbehaving (the host contract: these are
+ * engine-namespaced and reserved, like the `assay_tN` view names). Derived
+ * from the three constants above — one literal per reserved name.
+ */
+export const RESERVED_OVERLAY_COLUMN_NAMES: ReadonlySet<string> = new Set([
+  OVERLAY_ORDINAL_COLUMN,
+  OVERLAY_SORT_KEY_COLUMN,
+  OVERLAY_ROW_ID_COLUMN,
+])
 
 /**
  * Upper bound on live-insert `UNION ALL` branches in one composed relation
@@ -626,37 +643,6 @@ function csvSafeExpression(expr: string, type: string): string {
   if (isBlobLikeEngineType(type)) return `hex(${expr})`
   if (isStringLikeEngineType(type)) return formulaInjectionGuardSql(expr)
   return expr
-}
-
-/**
- * The CSV **header** form of one column name — the header is row 1 of any
- * spreadsheet, so a hostile column name (`=SUM(A2:A3)`, `+x`, `-x`, `@x`, or
- * a name carrying TAB/LF/CR anywhere) is a live formula unless guarded. The
- * policy is the identifier twin of {@link formulaInjectionGuardSql}: prefix
- * the apostrophe (SQL `chr(39) || name`) when the name triggers. Because the
- * name is a known composition-time string, the prefix is applied directly
- * and the guarded name interpolated as a string-literal SELECT alias.
- * Non-CSV exports never call this: there the name is a data key, not a
- * formula, and must stay byte-identical.
- *
- * Known, accepted corners: (1) guarding is not injective — `=cmd` and
- * `'=cmd` both guard to `'=cmd`, and DuckDB dedupes the colliding COPY
- * header to `'=cmd_1` silently (no error, no data loss) — the identifier
- * twin of the value-guard prefix collision; (2) `read_csv` cannot re-open
- * a CSV whose *header* carries quoted CR/LF (the auto-sniffer refuses the
- * file), so those guarded forms are pinned at the composed-SQL level, not
- * via a round-trip — pre-existing sniffer behavior, out of our control.
- *
- * Deliberate **no-BOM** policy: the exported CSV carries no UTF-8 BOM
- * (`\uFEFF`). Byte-stable golden/conformance fixtures and programmatic
- * consumers win over Excel's double-click encoding heuristic; a BOM is a
- * documented non-goal of this data-interchange format, never emitted.
- */
-function csvHeaderGuardName(name: string): string {
-  const startsWithTrigger =
-    name.startsWith('=') || name.startsWith('+') || name.startsWith('-') || name.startsWith('@')
-  const containsControl = name.includes('\t') || name.includes('\n') || name.includes('\r')
-  return startsWithTrigger || containsControl ? `'${name}` : name
 }
 
 // ---------------------------------------------------------------------------
@@ -1176,8 +1162,12 @@ function rewriteRepairsForInsertBranch(
  *
  * Emitted size is additive: `O(Σₖ (mₖ + xₖ + 1))` arms and bytes, linear in
  * the repair prefix — never `O(∏ mₖ)`.
+ *
+ * D04b seam: exported for `./export-query.js` (the COPY/export emission
+ * group), whose export SELECT must wrap exactly the relation every other
+ * materializing op reads — never a second composition of it.
  */
-function composeEffectiveSourceSql(
+export function composeEffectiveSourceSql(
   composition: OverlayComposition,
   options: {
     readonly withRowIds: boolean
@@ -1260,7 +1250,7 @@ function composeEffectiveSourceSql(
  * own branch count) — tombstoned rows are never projected, so they never pay.
  * Value-free; never claimed as an interrupt.
  */
-function assertRepairExportBudget(composition: OverlayComposition): void {
+export function assertRepairExportBudget(composition: OverlayComposition): void {
   const totalPairs = composition.state.repairs.reduce((sum, record) => sum + record.mapping.size, 0)
   if (totalPairs === 0) return
   const liveInsertCount = liveInsertRecords(composition.state).length
@@ -1848,89 +1838,16 @@ export function composeOverlayWindowSql(query: OverlayWindowQuery): string {
   return sql + ` LIMIT ${query.limit} OFFSET ${query.offset}`
 }
 
-/** Deterministic COPY options pinned for v1 exports (per format). */
-const EXPORT_FORMAT_OPTIONS: ReadonlyMap<EngineExportFormat, string> = new Map([
-  // ZSTD + the DuckDB default row-group size: same conventions as the
-  // repository's own fixture generator (ADR 0038).
-  ['parquet', 'FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880'],
-  ['csv', "FORMAT CSV, HEADER true, DELIMITER ',', QUOTE '\"', ESCAPE '\"'"],
-  // ARRAY false = newline-delimited JSON (JSONL); ARRAY true = one array.
-  ['jsonl', 'FORMAT JSON, ARRAY false'],
-  ['json', 'FORMAT JSON, ARRAY true'],
-])
-
-/** The file extension an exported destination carries for each format. */
-export function exportFileExtension(format: EngineExportFormat): string {
-  return format
-}
-
-/**
- * The COPY statement materializing the effective view (base + overlay) in
- * effective order — the export/rewrite op's SQL (ADR 0012: commit creates a
- * *new* file; the source is never written). The projection applies the CSV
- * formula-injection guard for `csv` exports. Row ids are *not* exported: a
- * written file is a new base version, and logical row ids are session-scoped
- * (the documented survival boundary). Returns `null` for `arrow`, which is
- * materialized by streaming the (identical) SELECT through Arrow IPC
- * instead — see `composeOverlayExportSelectSql` for why.
- */
-export function composeOverlayExportSql(
-  composition: OverlayComposition,
-  format: EngineExportFormat,
-  destination: string,
-): string | null {
-  if (format === 'arrow') return null
-  const options = EXPORT_FORMAT_OPTIONS.get(format)
-  if (options === undefined) {
-    throw new Error(`unsupported export format: ${format}`)
-  }
-  return (
-    `COPY (${composeOverlayExportSelectSql(composition, format)}) TO ` +
-    `${sqlStringLiteral(destination)} (${options})`
-  )
-}
-
-/**
- * The bare export SELECT (effective view, effective order, CSV guard
- * applied) — what the COPY wraps, and the statement the `arrow` path streams
- * (DuckDB-WASM's bundled build has no Arrow COPY writer, so Arrow IPC
- * *streams* are assembled worker-side from the streamed result (the web layer
- * advertises the stream MIME `application/vnd.apache.arrow.stream` — not the
- * feather-file MIME); the SELECT is byte-
- * identical to the COPY path's input, keeping the two formats honest
- * siblings).
- *
- * The projection is the **outer** SELECT above `composeSourceSql`'s
- * `UNION ALL` branches, so a CSV header alias applies uniformly to the base
- * and every insert branch (the branches already agree on raw column names,
- * and the alias is positional). For `csv` only, each projected column is
- * aliased to its apostrophe-guarded name (row 1 is a spreadsheet surface);
- * every other format projects the raw name verbatim so json/jsonl/parquet/
- * arrow bytes are unchanged — there a name is a data key, not a formula.
- */
-export function composeOverlayExportSelectSql(
-  composition: OverlayComposition,
-  format: EngineExportFormat,
-): string {
-  // The export budget is a pre-apply refusal: projected rows × mapping pairs
-  // over the published envelope refuses before any SQL is composed or run
-  // (never claimed as an interrupt).
-  assertRepairExportBudget(composition)
-  const source = composeEffectiveSourceSql(composition, {
-    withRowIds: false,
-    sanitizeCsv: format === 'csv',
-    withKey: true,
-  })
-  const projection = composition.state.columns
-    .map((column) => {
-      const reference = quotedIdentifier(column.name)
-      if (format !== 'csv') return reference
-      return `${reference} AS ${sqlStringLiteral(csvHeaderGuardName(column.name))}`
-    })
-    .join(', ')
-  let sql = `SELECT ${projection} FROM (${source})`
-  if ([...composition.state.inserts.values()].some((record) => record.live)) {
-    sql += ` ORDER BY ${quotedIdentifier(OVERLAY_SORT_KEY_COLUMN)}`
-  }
-  return sql
-}
+// ---------------------------------------------------------------------------
+// Export/rewrite emission (m4-2) — D04b seam
+// ---------------------------------------------------------------------------
+//
+// The COPY/export emission group lives in `./export-query.js`: the pinned
+// per-format COPY options (`PARQUET_COPY_OPTIONS`, the canonical owner of the
+// parquet fragment), the destination-extension convention,
+// `composeOverlayExportSql` and `composeOverlayExportSelectSql`. It composes
+// over the two seams above, so this module stays the single owner of the
+// overlay composition, of the repair caps ({@link MAX_REPAIR_EXCEPTION_ARMS})
+// and of the published export budget ({@link MAX_REPAIR_EXPORT_CELL_WORK});
+// no cap, budget or SQL token changed. The public specifiers are unchanged —
+// `./index.js` re-exports them from their new module.

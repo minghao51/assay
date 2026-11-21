@@ -72,6 +72,7 @@
  * Error messages name the failure class only — never plan content, relation
  * names, key names, or dataset contents (ADR 0025).
  */
+import { quotedIdentifier } from './format-view.js'
 import { isSingleSelectStatement, scanPlanSql } from './validate-plan-wire.js'
 import type { PlanSqlIdentifier, PlanSqlScanOk } from './validate-plan-wire.js'
 
@@ -241,9 +242,14 @@ export function parseRowDiffPlan(value: unknown): EngineRowDiffPlan | null {
   }
 }
 
-/** The SQL's quoted rendering of a relation name (the compiler's `q(rel)`). */
+/**
+ * The SQL's quoted rendering of a relation name (the compiler's `q(rel)`).
+ * D04b: delegates to the engine's single identifier-quoting implementation
+ * (`./format-view.js` `quotedIdentifier`) instead of re-deriving the fragment;
+ * the emitted token is byte-identical.
+ */
 export function quotedRelationToken(relation: string): string {
-  return '"' + relation.replaceAll('"', '""') + '"'
+  return quotedIdentifier(relation)
 }
 
 /**
