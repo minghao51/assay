@@ -2088,7 +2088,7 @@
       "workspaceTarget": "packages/engine-duckdb",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 16,
+      "useSiteCount": 17,
       "useSites": [
         {
           "file": "apps/vscode/src/pure/diff-presenter.ts",
@@ -2157,13 +2157,12 @@
           "symbols": ["EngineAssetsMessage"]
         },
         {
-          "file": "apps/vscode/webview/grid-provider.ts",
-          "line": 32,
+          "file": "apps/vscode/webview/grid-provider.test.ts",
+          "line": 5,
           "via": "import-type",
           "symbols": [
             "EngineColumnSchema",
             "EngineOverlay",
-            "EngineOverlayWindow",
             "EngineRangeWindow",
             "EngineTableHandle"
           ]
@@ -2186,8 +2185,44 @@
       "workspaceTarget": "packages/grid",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 9,
+      "useSiteCount": 16,
       "useSites": [
+        {
+          "file": "apps/vscode/src/pure/filter-failure.test.ts",
+          "line": 4,
+          "via": "import",
+          "symbols": ["FilterApplyError"]
+        },
+        {
+          "file": "apps/vscode/src/pure/filter-failure.test.ts",
+          "line": 5,
+          "via": "import-type",
+          "symbols": ["FilterFailurePhase"]
+        },
+        {
+          "file": "apps/vscode/src/pure/filter-failure.ts",
+          "line": 48,
+          "via": "import",
+          "symbols": ["FilterApplyError"]
+        },
+        {
+          "file": "apps/vscode/src/pure/filter-failure.ts",
+          "line": 49,
+          "via": "import-type",
+          "symbols": ["FilterFailurePhase"]
+        },
+        {
+          "file": "apps/vscode/webview/data-grid.filter-failure.test.ts",
+          "line": 4,
+          "via": "import",
+          "symbols": ["GridViewportModel"]
+        },
+        {
+          "file": "apps/vscode/webview/data-grid.filter-failure.test.ts",
+          "line": 5,
+          "via": "import-type",
+          "symbols": ["CellRange", "ColumnSchema", "FilterSpec", "GridDataPage", "GridDataProvider"]
+        },
         {
           "file": "apps/vscode/webview/data-grid.ts",
           "line": 29,
@@ -2201,6 +2236,12 @@
           "symbols": ["GridViewportModel"]
         },
         {
+          "file": "apps/vscode/webview/grid-provider.test.ts",
+          "line": 4,
+          "via": "import-type",
+          "symbols": ["FilterSpec", "GridDataProvider"]
+        },
+        {
           "file": "apps/vscode/webview/grid-provider.ts",
           "line": 23,
           "via": "import-type",
@@ -2212,45 +2253,9 @@
             "GridDataProvider",
             "SortSpec"
           ]
-        },
-        {
-          "file": "apps/vscode/webview/main.ts",
-          "line": 57,
-          "via": "import",
-          "symbols": ["GridViewportModel"]
-        },
-        {
-          "file": "apps/vscode/webview/test-proof/editor.ts",
-          "line": 17,
-          "via": "import",
-          "symbols": ["GridViewportModel"]
-        },
-        {
-          "file": "apps/vscode/webview/test-proof/editor.ts",
-          "line": 18,
-          "via": "import-type",
-          "symbols": ["GridDataProvider"]
-        },
-        {
-          "file": "apps/vscode/webview/test-proof/harness.ts",
-          "line": 14,
-          "via": "import-type",
-          "symbols": ["GridViewportModel"]
-        },
-        {
-          "file": "apps/vscode/webview/test-proof/index.ts",
-          "line": 21,
-          "via": "import-type",
-          "symbols": ["GridViewportModel"]
-        },
-        {
-          "file": "apps/vscode/webview/test-proof/validation.ts",
-          "line": 15,
-          "via": "import-type",
-          "symbols": ["GridViewportModel"]
         }
       ],
-      "useSitesTruncated": false,
+      "useSitesTruncated": true,
       "kind": "workspace",
       "rationale": "internal workspace link (devDependencies); the importer consumes TypeScript source through the package `exports` field and the apps → ui/core → domain direction is lint-enforced",
       "pinRationale": null
@@ -2578,7 +2583,7 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 18,
+      "useSiteCount": 21,
       "useSites": [
         {
           "file": "apps/vscode/src/pure/bridge-contracts.test.ts",
