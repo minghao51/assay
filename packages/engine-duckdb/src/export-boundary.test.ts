@@ -57,12 +57,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { foldOverlay } from '@assay/domain'
 import type { CellValue, EditOp, OverlayBase, RowId } from '@assay/domain'
-import {
-  cellLiteralRawSql,
-  cellLiteralSql,
-  composeOverlayExportSql,
-  composeOverlayWindowSql,
-} from './overlay-query'
+import { cellLiteralRawSql, cellLiteralSql, composeOverlayWindowSql } from './overlay-query'
+import { composeOverlayExportSql } from './export-query'
 
 const DUCKDB_CLI = process.env['DUCKDB'] ?? '/tmp/duckdb'
 const hasDuckDbCli = existsSync(DUCKDB_CLI)

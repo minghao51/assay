@@ -222,12 +222,9 @@ export {
   cellLiteralSql,
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
-  composeOverlayExportSelectSql,
-  composeOverlayExportSql,
   composeOverlaySchemaSql,
   composeOverlayWindowSql,
   composeSourceSql,
-  exportFileExtension,
   formulaInjectionGuardSql,
   insertSortKeys,
   MAX_OVERLAY_LIVE_INSERT_BRANCHES,
@@ -242,6 +239,15 @@ export {
   RESERVED_OVERLAY_COLUMN_NAMES,
 } from './overlay-query.js'
 export type { OverlayComposition, OverlayWindowQuery } from './overlay-query.js'
+// D04b: the COPY/export emission group moved to its own engine-local module
+// (`export-query.ts`); these specifiers are unchanged, only the module they
+// are re-exported from moved.
+export {
+  composeOverlayExportSelectSql,
+  composeOverlayExportSql,
+  exportFileExtension,
+  PARQUET_COPY_OPTIONS,
+} from './export-query.js'
 export { parseOverlayPayload, assertValidOverlayTypes } from './overlay-wire.js'
 export type { EngineOverlayPayload } from './overlay-wire.js'
 // m5-2 fold: validation execution — the strict plan wire validator, the

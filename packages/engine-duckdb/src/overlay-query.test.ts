@@ -37,12 +37,9 @@ import {
   cellLiteralSql,
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
-  composeOverlayExportSql,
-  composeOverlayExportSelectSql,
   composeOverlaySchemaSql,
   composeOverlayWindowSql,
   composeSourceSql,
-  exportFileExtension,
   formulaInjectionGuardSql,
   insertSortKeys,
   MAX_OVERLAY_LIVE_INSERT_BRANCHES,
@@ -50,6 +47,11 @@ import {
   OVERLAY_ROW_ID_COLUMN,
   RESERVED_OVERLAY_COLUMN_NAMES,
 } from './overlay-query'
+import {
+  composeOverlayExportSelectSql,
+  composeOverlayExportSql,
+  exportFileExtension,
+} from './export-query'
 import { EngineTypeError } from './type-expr'
 import { quotedIdentifier, sqlStringLiteral } from './format-view'
 

@@ -61,6 +61,7 @@
 import type { Table } from 'apache-arrow'
 import { quotedIdentifier } from './format-view.js'
 import {
+  OVERLAY_ORDINAL_COLUMN,
   OVERLAY_ROW_ID_COLUMN,
   OVERLAY_SORT_KEY_COLUMN,
   RESERVED_OVERLAY_COLUMN_NAMES,
@@ -69,17 +70,15 @@ import {
 import type { OverlayComposition } from './overlay-query.js'
 import { VALIDATION_SAMPLE_HARD_MAX } from './validate-plan-wire.js'
 import type { EngineValidationSample } from './validate-plan-wire.js'
-/**
- * The composer-reserved column this module bakes the effective row index
- * into (in `RESERVED_OVERLAY_COLUMN_NAMES`, so a dataset can never carry it).
- */
-const BAKED_ORDINAL_COLUMN = 'assay_overlay_ord'
-
-// Pin the assumption the row-key channel rests on: the baked index column is
+// Pin the assumption the row-key channel rests on: the column this module
+// bakes the effective row index into is the composer's own base-ordinal column
+// (`OVERLAY_ORDINAL_COLUMN` — its name's single owner, D04b), which is
 // composer-reserved, so no legal dataset column can shadow it (the composer
 // rejects such datasets at composition time).
-if (!RESERVED_OVERLAY_COLUMN_NAMES.has(BAKED_ORDINAL_COLUMN)) {
-  throw new Error('assay_overlay_ord is not composer-reserved; the validate view would collide')
+if (!RESERVED_OVERLAY_COLUMN_NAMES.has(OVERLAY_ORDINAL_COLUMN)) {
+  throw new Error(
+    `${OVERLAY_ORDINAL_COLUMN} is not composer-reserved; the validate view would collide`,
+  )
 }
 
 /**
@@ -118,7 +117,7 @@ export function composeValidationViewSql(
   const source = composeSourceOrderedSql(composition)
   return (
     `CREATE VIEW ${quotedIdentifier(viewName)} AS SELECT *, ` +
-    `(row_number() OVER () - 1) AS ${quotedIdentifier(BAKED_ORDINAL_COLUMN)} ` +
+    `(row_number() OVER () - 1) AS ${quotedIdentifier(OVERLAY_ORDINAL_COLUMN)} ` +
     `FROM (${source})`
   )
 }
@@ -188,9 +187,9 @@ export function composeValidationRuleQuery(ruleSql: string, effectiveLimit: numb
  */
 export function composeValidationRowKeySql(viewName: string, ordinals: readonly number[]): string {
   return (
-    `SELECT ${quotedIdentifier(BAKED_ORDINAL_COLUMN)}, ${quotedIdentifier(OVERLAY_ROW_ID_COLUMN)} ` +
+    `SELECT ${quotedIdentifier(OVERLAY_ORDINAL_COLUMN)}, ${quotedIdentifier(OVERLAY_ROW_ID_COLUMN)} ` +
     `FROM ${quotedIdentifier(viewName)} ` +
-    `WHERE ${quotedIdentifier(BAKED_ORDINAL_COLUMN)} IN (${ordinals.join(', ')})`
+    `WHERE ${quotedIdentifier(OVERLAY_ORDINAL_COLUMN)} IN (${ordinals.join(', ')})`
   )
 }
 
@@ -443,7 +442,7 @@ export function readValidationRowCount(table: Table): number {
  * a position passed off as a key).
  */
 export function readValidationRowKeys(table: Table): ReadonlyMap<number, string> {
-  const ordinalVector = table.getChild(BAKED_ORDINAL_COLUMN)
+  const ordinalVector = table.getChild(OVERLAY_ORDINAL_COLUMN)
   const keyVector = table.getChild(OVERLAY_ROW_ID_COLUMN)
   if (ordinalVector === null || keyVector === null) {
     throw new Error('validation row-key query result is missing its declared columns')

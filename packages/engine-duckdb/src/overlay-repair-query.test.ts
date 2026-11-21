@@ -47,8 +47,6 @@ import { describe, expect, it } from 'vitest'
 import {
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
-  composeOverlayExportSql,
-  composeOverlayExportSelectSql,
   composeOverlaySchemaSql,
   composeOverlayWindowSql,
   MAX_OVERLAY_LIVE_INSERT_BRANCHES,
@@ -59,6 +57,7 @@ import {
   OverlayRepairExportBudgetError,
   OverlayRepairInsertValueError,
 } from './overlay-query'
+import { composeOverlayExportSelectSql, composeOverlayExportSql } from './export-query'
 import * as engineBarrel from './index'
 
 /** Test-side branded-id constructor for canonical literal ids. */

@@ -60,12 +60,15 @@ import {
 import {
   composeOverlayCastCheckSql,
   composeOverlayCountSql,
-  composeOverlayExportSql,
-  composeOverlayExportSelectSql,
   composeOverlaySchemaSql,
   composeOverlayWindowSql,
-  exportFileExtension,
 } from './overlay-query.js'
+import {
+  composeOverlayExportSelectSql,
+  composeOverlayExportSql,
+  exportFileExtension,
+  PARQUET_COPY_OPTIONS,
+} from './export-query.js'
 import type { OverlayComposition } from './overlay-query.js'
 import { classifyVerbatimSql } from '@assay/pipeline'
 import { parseEngineRequestEnvelope } from './protocol.js'
@@ -197,9 +200,6 @@ const PIPELINE_EXPORT_PATH = /^assay-exports\/assay-pipeline-export-[A-Za-z0-9_~
 
 /** The pipeline export's engine-generated DuckDB-VFS stem prefix (never a user path). */
 const PIPELINE_EXPORT_STEM_PREFIX = 'assay-pipeline-export-vfs-'
-
-/** The pinned export options (byte-identical to the compile/ADR 0038 conventions). */
-const PIPELINE_EXPORT_FORMAT_OPTIONS = 'FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880'
 
 /**
  * D04a exports: the preview slot registry and its pinned name shape moved to
@@ -1762,7 +1762,9 @@ export class EngineOpExecutor {
       }
       const seq = this.nextExportSeq++
       const stem = `${PIPELINE_EXPORT_STEM_PREFIX}${String(seq)}`
-      const copySql = `COPY (${request.sql}) TO '${stem}' (${PIPELINE_EXPORT_FORMAT_OPTIONS})`
+      // The pinned option fragment has ONE owner (`./export-query.js`):
+      // this is the same `PARQUET_COPY_OPTIONS` token every export composes.
+      const copySql = `COPY (${request.sql}) TO '${stem}' (${PARQUET_COPY_OPTIONS})`
       const copyResult = await this.pipelineStep(
         'the pipeline export could not be materialized',
         () => conn.query(copySql),
