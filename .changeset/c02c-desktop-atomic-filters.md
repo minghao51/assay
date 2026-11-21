@@ -24,7 +24,11 @@ single-line "previous filters are still in effect" sentence,
 (`model.refresh()`) and never claims a rollback or renders `model.reloadError`,
 and `restore-failed` states the honest unknown filter list with the documented
 Clear-filters control. All restoration stays owned by `GridViewportModel`; the
-bar issues no compensating filter write. The bridge protocol, previous-report /
+bar issues no compensating filter write. The phase copy is scoped to filter
+transactions: a failed header **sort** is a plain provider/reload rejection with
+no phase and no filter involvement, so it keeps its own (pre-C02) framing — the
+provider's message, as `apps/web`'s `cycleSort` renders — and never claims that
+any filter list was left unchanged. The bridge protocol, previous-report /
 stale behaviour, create-only export, validation/diff flows and host bridge
 bounds are untouched. This is a **patch**: `@assay/vscode` is private, no public
 API or wire vocabulary changes, and the fix is additive inside the webview.
@@ -32,4 +36,7 @@ API or wire vocabulary changes, and the fix is additive inside the webview.
 Tests: the provider capability (order preservation, `[]` equivalence with
 `filter(null)`, all-before-commit, no extra scans, overlay route), the phase →
 copy mapping with a VIOLENT sentinel, and the real toolbar + real model journey
-for all three phases including the sentinel never reaching the error region.
+for all three phases including the sentinel never reaching the error region. A
+sort rejection is pinned separately: it renders the provider's message, carries
+no filter sentence or filter recovery control, and leaves the published sort in
+place.

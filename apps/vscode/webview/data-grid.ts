@@ -53,6 +53,13 @@ export function nextSortSpec(current: SortSpec | null, column: string): SortSpec
   return null
 }
 
+/**
+ * How one rejected query-state mutation is reported. It is per-mutation, not
+ * per-error-shape: a filter write is a C02 transaction (phase copy), a sort is
+ * a plain provider rejection (its own framing). See `trackQuery`.
+ */
+type QueryFailureHandler = (error: unknown) => void
+
 export interface WebviewDataGridOptions {
   /** Accessible name for the grid viewport. Default 'Dataset grid'. */
   readonly ariaLabel?: string
@@ -488,7 +495,9 @@ export class WebviewDataGrid {
 
   /** The header sort button's path (the harness clicks the button itself). */
   private applySort(column: string): void {
-    this.trackQuery(this.model.setSort(nextSortSpec(this.model.sort, column)))
+    this.trackQuery(this.model.setSort(nextSortSpec(this.model.sort, column)), (error) => {
+      this.showSortFailure(error)
+    })
   }
 
   private applyFilter(): void {
@@ -499,23 +508,35 @@ export class WebviewDataGrid {
       this.showCommandError('enter a predicate (engine SQL fragment, e.g. > 100)')
       return
     }
-    this.trackQuery(this.model.setFilters([{ column, predicate }]))
+    this.trackQuery(this.model.setFilters([{ column, predicate }]), (error) => {
+      this.showFilterFailure(error)
+    })
   }
 
   private clearFilters(): void {
     if (this.filterInput !== null) this.filterInput.value = ''
-    this.trackQuery(this.model.setFilters([]))
+    this.trackQuery(this.model.setFilters([]), (error) => {
+      this.showFilterFailure(error)
+    })
   }
 
-  /** Run one query-state mutation: errors surface in the alert, never here. */
-  private trackQuery(query: Promise<void>): void {
+  /**
+   * Run one query-state mutation: errors surface in the alert, never here.
+   *
+   * The failure handling belongs to the CALLER because the two mutations fail
+   * differently. A filter write is a C02 transaction whose rejection carries a
+   * value-free `FilterApplyError.phase`, so its copy is derived from the phase
+   * (C01 §7). A sort is a plain `provider.sort()`/reload rejection with no
+   * phase and no filter involvement, so reporting it with the filter copy would
+   * claim "the previous filters are still in effect" about filters that nobody
+   * touched — `onFailure` keeps the two apart.
+   */
+  private trackQuery(query: Promise<void>, onFailure: QueryFailureHandler): void {
     this.hideCommandError()
     const settled = query.then(
       () => undefined,
       (error: unknown) => {
-        // C02c: map the model's value-free phase to copy — never print the
-        // raw engine message (C01 §7). The model owns any restoration.
-        this.showFilterFailure(error)
+        onFailure(error)
       },
     )
     this.querySettled = settled
@@ -525,6 +546,21 @@ export class WebviewDataGrid {
   private showFilterFailure(error: unknown): void {
     const copy = filterFailureCopy(error)
     this.showCommandError(copy.message, copy.recovery)
+  }
+
+  /**
+   * Render one failed header sort. A sort is not a C02 transaction: the
+   * rejection is the provider's own error, nothing was filtered, and the model
+   * publishes `sort` only after the provider accepted it. This is therefore the
+   * surface's pre-C02 sort framing (the provider's message, exactly what the
+   * web app's `cycleSort` renders) — never the filter sentences, and no claim
+   * about which filter list is in effect. It also claims nothing about the
+   * sort: a refused `provider.sort()` leaves the previous sort published, while
+   * an accepted sort whose reload failed leaves the new one; `model.sort` is
+   * the truth, so no copy here can contradict it.
+   */
+  private showSortFailure(error: unknown): void {
+    this.showCommandError(error instanceof Error ? error.message : String(error))
   }
 
   private showCommandError(message: string, recovery: FilterFailureRecovery = null): void {
@@ -555,7 +591,9 @@ export class WebviewDataGrid {
       if (recovery.kind === 'retry') {
         // Case (b) recovery is the model's own reload, never a second filter
         // write: the accepted list stays in effect.
-        this.trackQuery(this.model.refresh())
+        this.trackQuery(this.model.refresh(), (error) => {
+          this.showFilterFailure(error)
+        })
       } else {
         // Restore-failed recovery: the documented Clear-filters affordance
         // (a successful `setFilters([])` also clears `filtersUnknown`).

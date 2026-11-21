@@ -47,6 +47,8 @@ class LegacyProvider implements GridDataProvider {
   refusePredicate: string | null = null
   /** Reject the next `rowCount()` with this object (a post-acceptance reload). */
   reloadError: Error | null = null
+  /** Reject the next `sort()` push with this error (a plain sort rejection). */
+  sortRefusal: Error | null = null
   private clearCalls = 0
 
   async schema(): Promise<ColumnSchema[]> {
@@ -71,7 +73,13 @@ class LegacyProvider implements GridDataProvider {
   }
 
   async sort(): Promise<void> {
-    // The copy under test covers filters only; sort stays a no-op recording.
+    // Filters are the phase-copy subject; a sort is a plain provider push and
+    // only rejects when a test asks it to.
+    if (this.sortRefusal !== null) {
+      const error = this.sortRefusal
+      this.sortRefusal = null
+      throw error
+    }
   }
 
   async filter(spec: FilterSpec | null): Promise<void> {
@@ -152,6 +160,13 @@ describe('WebviewDataGrid filter-failure copy (C02c)', () => {
 
   function errorAction(): HTMLButtonElement {
     return query<HTMLButtonElement>(container, '.assay-grid-command-action')
+  }
+
+  function sortToggle(column: string): HTMLButtonElement {
+    return query<HTMLButtonElement>(
+      container,
+      `button.assay-grid-sort-toggle[data-col-name="${column}"]`,
+    )
   }
 
   it('accepted-reload-failed: applied-but-not-reloaded copy, no sentinel, Retry recovery', async () => {
@@ -256,5 +271,45 @@ describe('WebviewDataGrid filter-failure copy (C02c)', () => {
     expect(errorRegion().hidden).toBe(true)
     expect(model.filters).toEqual([])
     expect(model.filtersUnknown).toBe(false)
+  })
+
+  /**
+   * C02c review fix: a failed header sort is NOT a filter transaction. It
+   * rejects with the provider's own error (no `FilterApplyError.phase`) and
+   * nothing touched the filter list, so every filter sentence — above all
+   * "the previous filters are still in effect" — is false for it. The
+   * pre-C02 sort framing (the provider's message) stays, and the honest
+   * sort state is the model's published one.
+   */
+  it('sort rejection keeps sort framing: no filter copy, previous sort intact', async () => {
+    const provider = new LegacyProvider()
+    const model = await mount(provider)
+    const toggle = sortToggle('id')
+
+    // Establish a published sort first, so the failed cycle below has an
+    // honest "previous sort" it must leave in place.
+    toggle.click()
+    await grid?.whenQuerySettled()
+    expect(model.sort).toEqual({ column: 'id', direction: 'asc' })
+
+    provider.sortRefusal = new Error('the engine refused the sort')
+    toggle.click()
+    await grid?.whenQuerySettled()
+
+    const region = errorRegion()
+    expect(region.hidden).toBe(false)
+    // The provider's own message is the surface's pre-C02 sort framing…
+    expect(region.textContent).toBe('the engine refused the sort')
+    // …and never the filter-transaction copy this rejection cannot justify.
+    expect(region.textContent).not.toMatch(/filter/i)
+    expect(region.textContent).not.toContain('could not be applied')
+    expect(region.textContent).not.toContain('still in effect')
+    // A sort failure offers no filter recovery control.
+    expect(errorAction().hidden).toBe(true)
+    // Honest state: the refused (asc → desc) cycle never replaced the
+    // published sort, and the header still advertises it.
+    expect(model.sort).toEqual({ column: 'id', direction: 'asc' })
+    expect(toggle.dataset.sort).toBe('asc')
+    expect(model.filters).toEqual([])
   })
 })
