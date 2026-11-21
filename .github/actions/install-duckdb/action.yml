@@ -17,4 +17,9 @@ runs:
         echo "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05  /tmp/duckdb_cli.zip" | sha256sum --check -
         unzip -o /tmp/duckdb_cli.zip -d /tmp/duckdb_cli
         sudo install -m 0755 /tmp/duckdb_cli/duckdb /usr/local/bin/duckdb
+        # The repo convention is `DUCKDB=/tmp/duckdb` (docs/handoff and the
+        # env-gated native-agreement/e2e lanes default to it). Install it at
+        # that path too so the vscode-verify job's DUCKDB env and the e2e specs
+        # that spawn the CLI resolve on a clean runner.
+        sudo install -m 0755 /tmp/duckdb_cli/duckdb /tmp/duckdb
         duckdb --version

@@ -69,7 +69,14 @@ jobs:
           git diff --exit-code fixtures/parquet/
           [ -z "$(git status --porcelain fixtures/parquet/)" ]
 
-      - run: pnpm lint
+      # Type-aware lint (projectService over every app/package tsconfig) peaks
+      # near ~3 GB RSS; a 2 GB heap (the default this runner sizes) aborts with
+      # "Ineffective mark-compacts". Give the step explicit headroom rather than
+      # shrinking the typed scope — the rules are the point.
+      - name: Lint (type-aware)
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm lint
 
       # au2-1: both checks pass today but were honor-system — wire them so a
       # missed prettier pass (q-5 lesson) or an ADR-index edit fails CI instead
