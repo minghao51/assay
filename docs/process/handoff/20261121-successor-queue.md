@@ -372,7 +372,18 @@ evidence.
 | **D8–D10 human asks**                                | **unchanged**                                    | npm org, trademark/domain, collector hosting, demo dataset, Actions billing: external accounts/legal/procurement. RD-T07 human study stays an accepted limitation (D-02 A).                                                                                                                                                                                                                                                                 |
 | **WF-03/04/07/08/09, WF-O2, uxv-6, overlay profile** | **DECIDED-NOT-NOW**                              | Each needs an itemized WFD design plus evidence that does not exist; no runtime row authorised, ADR 0044 stands. Reopen by naming the WFD option and the evidence it answers.                                                                                                                                                                                                                                                               |
 
-**Gates for this follow-up** (own run): `format:check`, `current-state:check`, `docs:links:check`,
-`adr:index:check`, `assurance-map:check`, `dependency-report --check`, `typecheck` (20/20) and the full
-suite with coverage (**295 files / 4583 tests**; totals now include the webview). Independent review of
-the follow-up is recorded in the decision round's pull-through commit.
+**Gates for this follow-up** (own run): `format:check`, `current-state:check` (**107 assertions,
+6 facts**), `docs:links:check`, `adr:index:check`, `assurance-map:check`, `dependency-report --check`,
+`typecheck` (20/20), `build`, pack-consumer smoke and the full suite with coverage (**295 files /
+4586 tests**, 86.19/81.46/87.79/87.67 against 83/76/80/84; totals include the webview).
+
+**Independent review of the follow-up: `REQUEST CHANGES` → fixed → `5a7101a`.** The reviewer rejected
+the first draft's `>=24` range (it also accepts Node 25+, which no gate runs — the same unverified
+claim that made `>=22` wrong), so the manifests use `^24.0.0`; its nit (the checker could not see a
+manifest drifting back) is closed by fact 6 `product-node-floor` with three mutation tests. It verified
+the coverage numbers, the absence of test/`test-proof` files in the summary, the six controller
+percentages, the changeset semver and the D-10/D-13/D-14 "closed by evidence" claims independently.
+
+**Push record:** `5a9bc87..5a7101a` (follow-up `8cdecca`). Run **45041728346** again shows four
+job-start `failure`s in ~4 s with no steps — the billing refusal, not code signal. B5/B2/A1/A2/A3/B1
+and this follow-up were verified locally; do not retry to "fix" the red runs.
