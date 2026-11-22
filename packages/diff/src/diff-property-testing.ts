@@ -281,15 +281,7 @@ function weave<T>(
  * revoked proxy, or getter-hostile), a primitive, or null/undefined. Callers
  * pass it straight to a parser typed `unknown`, which this union satisfies.
  */
-export type HostileValue =
-  | object
-  | string
-  | number
-  | boolean
-  | bigint
-  | symbol
-  | null
-  | undefined
+export type HostileValue = object | string | number | boolean | bigint | symbol | null | undefined
 
 function setField(target: Record<string, unknown>, key: string, value: unknown): void {
   try {
@@ -319,7 +311,10 @@ export function makeUnstringifiable(): HostileValue {
  * `length`-like counts, entry payloads — so the model's field guards are
  * what stands between the caller and the throw.
  */
-export function makeThrowingGetter(field: string, rest: Record<string, unknown> = {}): HostileValue {
+export function makeThrowingGetter(
+  field: string,
+  rest: Record<string, unknown> = {},
+): HostileValue {
   const hostile: Record<string, unknown> = { ...rest }
   Object.defineProperty(hostile, field, {
     get() {

@@ -651,13 +651,7 @@ describe('agreement — the Node engine path vs the spawned CLI', () => {
       })
       if (!compiled.ok) throw new Error('b4 plan must compile')
       const plan = prepareDiffPlan(compiled.plan, [renamedBase, COMPARISON_VIEW])
-      const result = await runDiffPlan(
-        conn,
-        plan,
-        a.schema,
-        COMPARISON_VIEW,
-        renamedBase,
-      )
+      const result = await runDiffPlan(conn, plan, a.schema, COMPARISON_VIEW, renamedBase)
 
       expect(result.rowCountA).toBe(3)
       expect(result.aspects.map((aspect) => [aspect.aspect, aspect.count])).toEqual([
