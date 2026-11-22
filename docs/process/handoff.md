@@ -564,7 +564,10 @@ implementation task; parent independently reviews, verifies and integrates.
   desktop e2e), with the dependency-use manifest regenerated because its CI-file use-site line
   moved. Re-run [`44886310732`](https://github.com/minghao51/assay/actions/runs/44886310732) is
   **green on `main` `71a67fc`** (verify, playwright e2e, configured telemetry, real VS Code host)
-  — open-asks **M6** is now ticked. No product/test assertion was changed to get green.
+  — open-asks **M6** is now ticked. No product/test assertion was changed to get green. The
+  docs-only follow-up run on `c2af086` (`44887930938`) did **not start any job**: GitHub annotated
+  all four as "recent account payments have failed or your spending limit needs to be increased" —
+  a maintainer billing action, not a code failure; re-run it after billing is restored.
 
 - 2026-11-20 (**improvement plan**) — the 24-row improvement plan and its 12 children are **closed
   (20) or design-closed (4)**: A01 docs reconciliation, A02 `current-state:check`, A03 Node 24
