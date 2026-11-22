@@ -221,3 +221,32 @@ D-12: keep local — no push, no publication.
 ```
 
 Any single line can be answered alone; nothing else is inferred from it.
+
+## 4. Resolutions (2026-11-21) — every row above is decided
+
+The maintainer asked for the remaining rows to be taken with best judgement. The reasoned
+recommendations in §1 were accepted as decisions, and three rows closed on verified evidence. The full
+reasoning, consequences and reopen triggers are in the
+[2026-11-21 decision round](20261121-decision-round.md) §3; this section is the sheet's own status.
+
+| Row  | Resolution                                                                                                                                                                            |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-01 | **A** — reuse the shipped pipeline surfaces (rd is complete)                                                                                                                          |
+| D-02 | **A** — explicit accepted limitation: no human usability evidence, and no wording that claims it                                                                                      |
+| D-03 | **A** — already resolved 2026-11-04 (copy byte-approved)                                                                                                                              |
+| D-04 | **A** — pin measured counts; no wall-clock threshold (C3 adds a second baseline)                                                                                                      |
+| D-05 | **A** — documented CDN autoload stays; the offline limitation stays in product/09 R-05                                                                                                |
+| D-06 | **A** — leave the staged-comparison bar gap recorded                                                                                                                                  |
+| D-07 | **A** — defer; WF-06 already preserves the live session across picker cancel/failure                                                                                                  |
+| D-08 | **A** — defer SQL sizing (uxv-6)                                                                                                                                                      |
+| D-09 | **A** — defer overlay-aware profiling (changes what a number means)                                                                                                                   |
+| D-10 | **CLOSED by evidence** — the manifest contributes four formats and the README states Arrow input is not offered; Arrow **export** is a real engine format, so that option is truthful |
+| D-11 | **A** — leave run-origin metadata open                                                                                                                                                |
+| D-12 | **B for push** (`main` → `origin` is now practice), **C (release/publication) not authorized**                                                                                        |
+| D-13 | **CLOSED by WF-02** — the section is `Recorded node outcomes:`                                                                                                                        |
+| D-14 | **CLOSED by WF-02** — the summary reads `N terminal node(s)` with `terminal` badges                                                                                                   |
+
+U-1 (unbounded replacement waits) and P4 (adapter priority) are decided in the same record: no UI
+timeout before a real engine interrupt exists (reopen with B7), and no pipeline adapter until user
+demand. The human items in §2 (publication policy, registry, org/legal/hosting, Actions billing,
+RD-T07 recruitment) are **not** decided here and remain human.

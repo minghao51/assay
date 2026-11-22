@@ -5,26 +5,42 @@
 the improvement plan's A03. This document states policy and evidence; it does not change any
 package's declared engines.
 
-## 1. Decision (Q1, selected)
+## 1. Decision (Q1 selected 2026-11-20; floor narrowed 2026-11-21)
 
 The **development** support contract is the **Node 24 line**: the root `package.json` `engines` is
 `^24.0.0`, matching `.node-version` (`24`) and CI (`node-version-file: .node-version` in
-`.github/workflows/ci.yml`, lines 40/120/198/268 — verified 2026-11-20, unchanged by A03).
-**Product manifests keep their declared `node: ">=22"` floor**; that floor is a product statement and
-is deliberately not moved by this record.
+`.github/workflows/ci.yml`, lines 40/120/198/268).
+
+**Update — 2026-11-21: the product floor is now the same line (`node: ">=24"`).** The maintainer
+asked whether a Node 22 floor is still required; it is not. Nothing in the product needs 22-only
+behaviour, no consumer is known to run it, and the `>=22` claim was never exercised (Q1's own recorded
+limit). Leaving an unverified product claim in twelve manifests while every gate runs on 24.13.0 was
+the honesty problem, so the floor was narrowed rather than kept. `>=24` keeps the previous
+_floor_ shape (a minimum line, not a tested-version pin): 24.13.0 is the tested runtime, later majors
+are not individually claimed, exactly as before.
 
 ## 2. Constraint table (complete locked `engines` strings, verbatim from the manifests)
 
 | Surface / role                        | Manifest(s)                                                                                                   | Locked `engines` (verbatim)                    | Tested runtime                         | Notes                                                                                                   |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Root development policy (tooling)     | `package.json` (root)                                                                                         | `"node": "^24.0.0"` (set by A03; was `">=22"`) | 24.13.0                                | `.node-version`: `24`; CI selects it via `node-version-file`                                            |
+| Root development policy (tooling)     | `package.json` (root)                                                                                         | `"node": "^24.0.0"` (set by A03; was `">=22"`) | 24.13.0                                | `.node-version`: `24`; CI selects it via `node-version-file`; product floor now agrees (2026-11-21)     |
 | Tooling floor — ESLint (locked)       | `eslint@10.11.0` (root devDep `^10.11.0`)                                                                     | `"node": "^20.19.0 \|\| ^22.13.0 \|\| >=24"`   | 24.13.0 (`pnpm lint`)                  | Floor is `22.13.0`, not bare `22.0.0`; moot under the Node 24 development policy                        |
 | Tooling floor — Vitest (locked)       | `vitest@4.1.11` (catalog `^4.1.11`)                                                                           | `"node": "^20.0.0 \|\| ^22.0.0 \|\| >=24.0.0"` | 24.13.0 (`pnpm test`)                  |                                                                                                         |
-| Shipped CLI                           | `apps/cli/package.json`                                                                                       | `"node": ">=22"`                               | 24.13.0 only                           | Declared product floor; **22.x minimum not exercised in this environment**                              |
-| Web app (build/dev surface)           | `apps/web/package.json`                                                                                       | `"node": ">=22"`                               | 24.13.0 only                           | Same unexercised floor                                                                                  |
-| Extension host                        | `apps/vscode/package.json`                                                                                    | `"vscode": "^1.90.0", "node": ">=22"`          | host `1.130.0` (pinned, separate legs) | VS Code host is tested separately (`xvfb-run` when headless, `~/.vscode-test/vscode-linux-x64-1.130.0`) |
-| Library packages (declared floor)     | `packages/{contracts,data-sources,diff,domain,engine-duckdb,grid,pipeline,telemetry,validation}/package.json` | `"node": ">=22"` (each, identical)             | 24.13.0 only                           | Product floor preserved; A03 does not touch package manifests                                           |
+| Shipped CLI                           | `apps/cli/package.json`                                                                                       | `"node": ">=24"`                               | 24.13.0 (all gates)                    | Product floor narrowed 2026-11-21; the old `>=22` minimum was never exercisable here                    |
+| Web app (build/dev surface)           | `apps/web/package.json`                                                                                       | `"node": ">=24"`                               | 24.13.0 (all gates)                    | Same narrowed floor; the web app is built and tested on the development line                            |
+| Extension host                        | `apps/vscode/package.json`                                                                                    | `"vscode": "^1.90.0", "node": ">=24"`          | host `1.130.0` (pinned, separate legs) | VS Code host is tested separately (`xvfb-run` when headless, `~/.vscode-test/vscode-linux-x64-1.130.0`) |
+| Library packages (declared floor)     | `packages/{contracts,data-sources,diff,domain,engine-duckdb,grid,pipeline,telemetry,validation}/package.json` | `"node": ">=24"` (each, identical)             | 24.13.0 (all gates)                    | Narrowed 2026-11-21 with the apps; unpublished (no consumer artifact exists yet)                        |
 | Scaffold packages (no floor declared) | `packages/{ai,core,engine,engine-parquet,security,testing,transforms,ui}/package.json`                        | none                                           | n/a                                    | No `engines` block exists today; adding one is out of scope for A03                                     |
+
+### What `engines.node` does and does not describe
+
+`engines.node` is an npm/tooling field. For the **extension** (`apps/vscode`) it describes the
+toolchain that builds and tests the bundle, **not** the runtime inside the extension host — that is
+the Node that the user's VS Code embeds, and VS Code enforces `engines.vscode`, never
+`engines.node`. The manifest therefore does not claim "your VS Code needs Node 24"; it claims the
+repository builds and gates this surface on the Node 24 line. The same reading applies to the library
+packages: the floor is the line the project runs, not a per-consumer runtime check (npm only warns
+unless `--engine-strict` is used).
 
 ### Separately recorded tested versions
 
@@ -48,10 +64,14 @@ is deliberately not moved by this record.
 
 ## 4. Explicit limits of this record
 
-1. **Product floor unexercised:** `node: ">=22"` remains declared on the shipped CLI, web app,
-   extension and nine library packages, but its minimum is **not exercised in this environment**.
-   A packed-CLI smoke at the 22-line minimum was not run (no Node 22 runtime is available here);
-   the plan's acceptance item for that run remains open, not silently satisfied.
+1. **Product floor is now the tested line, not a second unexercised claim:** `node: ">=24"` is
+   declared on the shipped CLI, web app, extension and nine library packages, and every gate in this
+   environment runs on 24.13.0. What remains unexercised is _other_ 24.x patches/minors and later
+   majors — a floor never claims those individually. The old `>=22` minimum is gone, so the plan's
+   "verify the 22 floor" acceptance item is **closed by narrowing the claim**, not by a Node 22 run;
+   if a Node 22 consumer ever appears, re-widening the floor is a manifest change plus a 22-line run.
+   No published artifact existed under `>=22` (nothing is published yet), so no released package is
+   retroactively narrowed.
 2. **`pnpm install --frozen-lockfile` after the root `engines` change:** exit code recorded in the A03
    commit message and the execution record — see §5 of the
    [execution record](20261120-improvement-plan-execution.md).

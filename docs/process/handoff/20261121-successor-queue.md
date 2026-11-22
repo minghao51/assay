@@ -1,7 +1,8 @@
 # Successor queue — remaining work after the 2026-11-20 improvement batch
 
 **Date:** 2026-11-21. **Status:** classified index + dispatch briefs. **The 2026-11-21 batch executed
-§2/§3 A1–A3 and B1–B5 and measured B6/C2/C3; the per-row ledger is §8.** The §1–§3 text below is
+§2/§3 A1–A3 and B1–B5, measured B6/C2/C3 (§8), and the same-day follow-up closed C1/C4 and decided
+the remaining decision rows (§9).** The §1–§3 text below is
 kept as the contract each row was dispatched against (it is the record of what was authorised, not a
 to-do list); §4–§7 keep their meaning for whatever the ledger still lists as open. Rule zero still
 applies: record a fresh SHA and run your own gates; never reuse the counts in this file as a pass
@@ -354,3 +355,24 @@ the billing block to be lifted.
   install-size table (±56–400 B across installs).
 - Everything in §4 (maintainer/human), §5's dispatch envelope discipline and §6's prompt still stand
   for the next row.
+
+## 9. Follow-up batch (2026-11-21, same day) — C1, C4 and the decision rows
+
+Under the same instruction ("complete the remaining items … best judgement"), the rows §8 left open
+for a maintainer decision were resolved. The decisions and their reasons live in the
+[2026-11-21 decision round](20261121-decision-round.md); this section records only outcome and
+evidence.
+
+| Row                                                  | Outcome                                       | Evidence                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **C4 Node 22 floor**                                 | **CLOSED — floor narrowed to `node: ">=24"`** | Twelve manifests, `AGENTS.md`, `README.md`, the node-support contract and a minor changeset; root policy (`^24.0.0`), `.node-version` (`24`) and every gate are unchanged. Nothing is published, so no released artifact is narrowed.                                                 |
+| **C1 webview coverage**                              | **CLOSED — collector yes, webview floor no**  | `apps/vscode/webview/**` (minus `test-proof`) is in the coverage include/denominator; measured 86.19/81.46/87.79/87.67 against floors 83/76/80/84; controllers 45–89.5 % lines, boot/entry 0 % as boundary markers (host-e2e-covered). No per-webview floor, on purpose.              |
+| **D-01…D-14, U-1, P4**                               | **DECIDED**                                   | Sheet recommendations accepted; D-03 already resolved; **D-10, D-13 and D-14 closed by verified evidence** (manifest + README for Arrow input, `Recorded node outcomes:`, `N terminal node(s)`); U-1 keeps fail-closed with no fake timeout (reopen with B7); P4 stays demand-driven. |
+| **D-12**                                             | **DECIDED (push yes, release no)**            | `main` is pushed to `origin` (this batch); a release cut still needs the registry/publication policy and the human steps — not authorized.                                                                                                                                            |
+| **D8–D10 human asks**                                | **unchanged**                                 | npm org, trademark/domain, collector hosting, demo dataset, Actions billing: external accounts/legal/procurement. RD-T07 human study stays an accepted limitation (D-02 A).                                                                                                           |
+| **WF-03/04/07/08/09, WF-O2, uxv-6, overlay profile** | **DECIDED-NOT-NOW**                           | Each needs an itemized WFD design plus evidence that does not exist; no runtime row authorised, ADR 0044 stands. Reopen by naming the WFD option and the evidence it answers.                                                                                                         |
+
+**Gates for this follow-up** (own run): `format:check`, `current-state:check`, `docs:links:check`,
+`adr:index:check`, `assurance-map:check`, `dependency-report --check`, `typecheck` (20/20) and the full
+suite with coverage (**295 files / 4583 tests**; totals now include the webview). Independent review of
+the follow-up is recorded in the decision round's pull-through commit.

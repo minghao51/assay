@@ -9,7 +9,16 @@ export default defineConfig({
       // (the default only measures files a test happened to load). Test/spec
       // files and build artefacts remain excluded by Vitest's hard-coded
       // coverage exclusions.
-      include: ['packages/*/src/**/*.{ts,tsx}', 'apps/*/src/**/*.{ts,tsx}'],
+      // C1 (2026-11-21): the desktop webview's presentation controllers are
+      // inside the denominator now (`apps/vscode/webview/**`). Its `test-proof`
+      // harness is test infrastructure (a proof suite reached only from the
+      // test host), so it is excluded like any other test/spec file.
+      include: [
+        'packages/*/src/**/*.{ts,tsx}',
+        'apps/*/src/**/*.{ts,tsx}',
+        'apps/vscode/webview/**/*.{ts,tsx}',
+      ],
+      exclude: ['apps/vscode/webview/test-proof/**'],
       reporter: ['text', 'json-summary'],
       // Modest floor with ≈5 pts of headroom below the 2026-09-28 strict
       // totals (statements 88.05 / branches 81.84 / functions 85.60 /
@@ -57,12 +66,13 @@ export default defineConfig({
       {
         // D03b: the desktop webview's extracted presentation controllers
         // (`apps/vscode/webview/{validation-panel,diff-panel,dirty-history}.ts`)
-        // are DOM-bound, so their tests need a DOM. They add NO coverage
-        // denominator and claim none: the coverage include is
-        // `apps/*/src/**`, and `apps/vscode/webview` stays outside it (a
-        // browser coverage collector is the separate D03/A04 decision). The
-        // include set is disjoint from the other projects, so nothing is
-        // double-run.
+        // are DOM-bound, so their tests need a DOM. C1 (2026-11-21) put the
+        // webview INSIDE the coverage denominator (`apps/vscode/webview/**`,
+        // minus the `test-proof` harness), so these tests now count towards the
+        // global floor instead of sitting outside it. The entry/boot files stay
+        // at 0% in process — their exercise is the pinned host harness, not a
+        // unit test — which is why no per-webview floor is set. The include set
+        // is disjoint from the other projects, so nothing is double-run.
         test: {
           name: 'vscode-webview',
           include: ['apps/vscode/webview/**/*.test.ts'],

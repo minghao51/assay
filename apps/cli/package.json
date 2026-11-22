@@ -9,7 +9,7 @@
     "directory": "apps/cli"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "bin": {
     "assay": "./dist/index.js"

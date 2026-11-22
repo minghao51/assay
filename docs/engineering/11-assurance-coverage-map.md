@@ -99,8 +99,10 @@ tooling checks are [09-local-tooling-checks.md](09-local-tooling-checks.md).
 - **Desktop webview controllers.** The extracted pure modules
   (`apps/vscode/src/pure/**`) run in the Node project. After D03b, the extracted
   webview controllers (`apps/vscode/webview/{validation,diff,dirty-history}*.ts`)
-  also have happy-dom unit subjects under the `vscode-webview` Vitest project;
-  the webview itself still has **no coverage instrumentation** (§4.2).
+  also have happy-dom unit subjects under the `vscode-webview` Vitest project.
+  **C1 (2026-11-21):** `apps/vscode/webview/**` (minus the `test-proof` harness)
+  is now **inside** the coverage denominator, so those controllers count towards
+  the global floor; the boot/entry files report 0 % as boundary markers (§4.2).
 
 ## 3. Runner matrix
 
@@ -108,7 +110,7 @@ tooling checks are [09-local-tooling-checks.md](09-local-tooling-checks.md).
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Vitest `web` (happy-dom)            | `apps/web/src/**/*.test.{ts,tsx}`                                                                                                                           | `pnpm exec vitest run --project web <paths>`                                                                                | none                                                                                                                              |
 | Vitest `node`                       | `packages/*/src/**/*.test.ts`, `apps/cli/src/**/*.test.{ts,tsx}` (integration files excluded), `apps/vscode/src/pure/**/*.test.ts`, `scripts/**/*.test.mjs` | `pnpm exec vitest run --project node <paths>`                                                                               | `DUCKDB=/tmp/duckdb` for the `skipIf` CLI-agreement blocks                                                                        |
-| Vitest `vscode-webview` (happy-dom) | `apps/vscode/webview/**/*.test.ts` (D03b controller tests)                                                                                                  | `pnpm exec vitest run --project vscode-webview <paths>`                                                                     | none; **no coverage instrumentation** (include stays `apps/*/src/**`)                                                             |
+| Vitest `vscode-webview` (happy-dom) | `apps/vscode/webview/**/*.test.ts` (D03b controller tests)                                                                                                  | `pnpm exec vitest run --project vscode-webview <paths>`                                                                     | none; C1 added `apps/vscode/webview/**` to the coverage include (`test-proof` excluded)                                           |
 | Vitest `cli-integration`            | `apps/cli/src/**/*.integration.test.ts`                                                                                                                     | `pnpm exec tsc --build apps/cli/tsconfig.build.json && pnpm exec vitest run --project cli-integration <paths>`              | compiled CLI; a real temp dir; 20 s per-test budget (contention, not a relaxed assertion)                                         |
 | All Vitest projects                 | the three above                                                                                                                                             | `pnpm test` (and `DUCKDB=/tmp/duckdb pnpm test:coverage` for the recorded coverage artifact)                                | `DUCKDB` for CLI agreement; nothing else                                                                                          |
 | Playwright (root config)            | `tests/e2e/**/*.spec.ts`                                                                                                                                    | `pnpm build && pnpm test:e2e` (or `pnpm exec playwright test <spec>`)                                                       | `pnpm build`; Chromium cache; ports 4173/4179/4180 free (override with `ASSAY_E2E_PORT_WEB/ENGINE/DS`)                            |
@@ -166,20 +168,20 @@ map's last-verified SHA. Neither is committed, and neither is carried forward.
 
 **Final refresh — `c0e48eb` (code-final; map re-verified at `d44190d`).**
 
-| Fact               | Value                                                                                                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Commit             | `c0e48eb` (`main` after D02c; later commits are docs/scripts-only and outside `apps/*/src` + `packages/*/src`)                                                                 |
-| Coverage config    | `vitest.config.ts`, sha256 `737621e5ada2173df38f72a4c8c6a805735c38d98c4b849b0cc87242933f60bb` (D03b added the `vscode-webview` **test** project; include and floors unchanged) |
-| Command            | `DUCKDB=/tmp/duckdb pnpm exec vitest run --coverage --testTimeout=20000 --maxWorkers=4` (after `tsc --build apps/cli/tsconfig.build.json`)                                     |
-| Measured at (UTC)  | 2026-11-20T~13:45Z                                                                                                                                                             |
-| Runtime            | Node `v24.13.0`, pnpm `11.26.0`, Linux x86_64, 16 CPUs, `coverage` v8 provider                                                                                                 |
-| Exit               | 0 — **291 test files / 4 444 tests passed**, thresholds held, no test failed                                                                                                   |
-| Statements         | **90.22 %** (19 856 / 22 007)                                                                                                                                                  |
-| Branches           | **84.97 %** (13 227 / 15 565)                                                                                                                                                  |
-| Functions          | **92.11 %** (3 259 / 3 538)                                                                                                                                                    |
-| Lines              | **91.9 %** (17 957 / 19 538)                                                                                                                                                   |
-| Denominator        | **290 non-test source modules** (every `apps/*/src` + `packages/*/src` module; test files excluded by Vitest)                                                                  |
-| Floors (unchanged) | statements 83, branches 76, functions 80, lines 84                                                                                                                             |
+| Fact               | Value                                                                                                                                                                                                |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Commit             | `c0e48eb` (`main` after D02c; later commits are docs/scripts-only and outside `apps/*/src` + `packages/*/src`)                                                                                       |
+| Coverage config    | `vitest.config.ts`, sha256 `00bad618534f9b99b95770c0cf7dff4a6a032544210148b76feb7babecf0544a` (D03b added the `vscode-webview` test project; C1 added the webview include and excluded `test-proof`) |
+| Command            | `DUCKDB=/tmp/duckdb pnpm exec vitest run --coverage --testTimeout=20000 --maxWorkers=4` (after `tsc --build apps/cli/tsconfig.build.json`)                                                           |
+| Measured at (UTC)  | 2026-11-20T~13:45Z                                                                                                                                                                                   |
+| Runtime            | Node `v24.13.0`, pnpm `11.26.0`, Linux x86_64, 16 CPUs, `coverage` v8 provider                                                                                                                       |
+| Exit               | 0 — **291 test files / 4 444 tests passed**, thresholds held, no test failed                                                                                                                         |
+| Statements         | **90.22 %** (19 856 / 22 007)                                                                                                                                                                        |
+| Branches           | **84.97 %** (13 227 / 15 565)                                                                                                                                                                        |
+| Functions          | **92.11 %** (3 259 / 3 538)                                                                                                                                                                          |
+| Lines              | **91.9 %** (17 957 / 19 538)                                                                                                                                                                         |
+| Denominator        | **290 non-test source modules** (every `apps/*/src` + `packages/*/src` module; test files excluded by Vitest)                                                                                        |
+| Floors (unchanged) | statements 83, branches 76, functions 80, lines 84                                                                                                                                                   |
 
 A first attempt at the default 16 workers failed two contention-sensitive tests
 (a `SqlPanel` telemetry `duration_bucket` boundary and the `dcr-round-trip`
@@ -205,30 +207,37 @@ stay in the denominator at 0 %. Fifteen modules currently sit at 0 %
 statements; the desktop host modules are among them (§4.2). The numbers above
 are **not** comparable to a report produced with a narrower include.
 
-### 4.2 The desktop webview has no Node instrumentation coverage
+### 4.2 Desktop webview: what is now measured, and what is still not
 
-- The desktop webview lives in `apps/vscode/webview/**` (8 modules, 5 112 lines:
-  `main.ts`, `dataset.ts`, `data-grid.ts`, `engine-boot.ts`, `engine-session.ts`,
-  `grid-provider.ts`, `worker.ts`, `grid-audit.ts`) — **outside** the
-  `apps/*/src/**` include. It appears in the coverage report **at no line**, not
-  at 0 %: there is no Node instrumentation for it at all, and adding a webview
-  glob would report 0 % "execution" for code that only ever runs in a webview.
-  This map deliberately does not add one. D03b added **unit** subjects for the
-  extracted webview controllers (the `vscode-webview` happy-dom project), which
-  are real assertions but still add no line-coverage denominator.
-- The host-side desktop modules that **are** inside the include are measured at
-  **0 %** by the Node run — `apps/vscode/src/extension.ts`, `dataset.ts`,
-  `assets.ts`, `git-adapter.ts`, `webview-html.ts` and
-  `apps/vscode/src/pure/overlay-snapshot.ts`. Their only real execution is the
-  extension-host e2e (§4.3); 0 % here is a boundary marker, not proof the code
-  is untested, and a non-zero number there would not be proof either.
-- The extracted pure modules (`apps/vscode/src/pure/**`) **are** meaningfully
-  measured: `create-only-writer.ts` 97.61 %, `diff-controller.ts` 100 %,
-  `validation-controller.ts` 90.47 %, `edit-controller.ts` 91.35 % statements in
-  this artifact. That is the payoff of the pure extraction, and exactly why a
-  webview glob is the wrong fix.
-- A browser coverage collector for the webview, or a floor for a new scope, is a
-  **separate config decision with its own floor decision** — not implied here.
+**C1 decision (2026-11-21): collect, do not invent a floor.** The webview is now
+inside the coverage denominator (`apps/vscode/webview/**`, `test-proof/**`
+excluded as test infrastructure). The measured artifact separates the two kinds
+of file honestly:
+
+- **Unit-covered controllers** (meaningful numbers): `validation-panel.ts` 89.5 %
+  lines, `dirty-history.ts` 84.4 %, `diff-panel.ts` 81.6 %, `dom.ts` 75 %,
+  `grid-provider.ts` 50 %, `data-grid.ts` 45 % of lines.
+- **Boot/entry files at 0 %** — `main.ts`, `dataset.ts`, `engine-boot.ts`,
+  `engine-session.ts`, `grid-audit.ts`, `worker.ts`. Their only real execution is
+  the pinned extension host (§4.3); 0 % here is a boundary marker, exactly like
+  the host modules already inside the include.
+- No webview-specific floor is set **on purpose**: a floor over the whole glob
+  would be satisfiable by the controllers alone while every boot file stays at
+  0 %, which would read as coverage without being it. The **global** floor now
+  includes these files, so a regression in a measured controller moves a
+  threshold that is actually enforced.
+
+Admitting the webview grew the denominator: global totals moved from
+90.26 / 85.07 / 92.18 / 91.96 to **86.19 / 81.46 / 87.79 / 87.67**
+(statements / branches / functions / lines) against floors 83 / 76 / 80 / 84.
+The floors were **not** lowered or raised for this: the old numbers measured a
+narrower include, the new ones measure the product as shipped, and the existing
+headroom still holds.
+
+What remains **not** measured: real in-webview **browser** coverage (the
+instrumentation gap the row named) — a browser collector is a separate decision,
+and no claim is made that the 0 % files are untested, only that in-process v8
+does not execute them.
 
 ### 4.3 Desktop contracts covered by the extension-host e2e instead
 

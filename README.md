@@ -37,9 +37,10 @@ pnpm install   # development requires Node 24 (tested 24.13.0; see .node-version
 pnpm dev       # start the web app
 ```
 
-Development requires **Node 24** (root policy `^24.0.0`, tested 24.13.0). The shipped CLI and
-extension keep a declared `node: ">=22"` product floor whose minimum is not exercised in this
-environment; the full constraint table is the [node support contract](docs/process/handoff/20261120-node-support-contract.md).
+Development requires **Node 24** (root policy `^24.0.0`, tested 24.13.0). The shipped CLI,
+extension, web app and library manifests declare the same `node: ">=24"` line — the earlier `>=22`
+floor was never exercised and was narrowed on 2026-11-21 rather than left unverified; the full
+constraint table is the [node support contract](docs/process/handoff/20261120-node-support-contract.md).
 
 Every other task is a root script: `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test`
 (unit), `pnpm test:e2e` (Playwright), `pnpm format`, `pnpm changeset`, and

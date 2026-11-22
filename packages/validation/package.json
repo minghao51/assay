@@ -10,7 +10,7 @@
     "directory": "packages/validation"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "exports": {
     ".": "./src/index.ts"

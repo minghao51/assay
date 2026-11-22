@@ -34,7 +34,19 @@ C1 (webview coverage config), C4 (Node 22 floor — this host has only 24.x), D1
 gates (own run, not reusable): typecheck 20/20, lint and format clean, **295 files / 4582 tests** with
 coverage **90.26 / 85.07 / 92.18 / 91.96**, e2e **288 + 1 skip** (axe included), pinned VS Code host
 PASS, pack smoke PASS, docs/ADR/current-state/assurance/dependency/bundle checks green; independent
-reviewer verdict in the queue §8.3. **Remote GitHub Actions is
+reviewer verdict in the queue §8.3.
+
+**Same-day follow-up (2026-11-21):** the rows §8 left decision-first are resolved under the same
+instruction. **C4 closed** — the product Node floor is now `node: ">=24"`, the line every gate runs on;
+the `>=22` claim was never exercisable and nothing is published, so no released artifact is narrowed.
+**C1 closed** — the VS Code webview is inside the coverage denominator (controllers 45–89.5 % lines,
+boot/entry 0 % as honest boundary markers, no invented per-webview floor); totals are now
+**86.19 / 81.46 / 87.79 / 87.67** against the unchanged floors. **The RD sheet is fully decided**
+(D-01…D-14, with D-10/D-13/D-14 closed on verified evidence), U-1 keeps fail-closed (no UI timeout
+before a real engine interrupt), P4 stays demand-driven, and D-12 authorises pushes but **not** a
+release. Reasoning and reopen triggers: [decision round](handoff/20261121-decision-round.md). What
+remains is human (publication/registry policy, npm org, trademark, collector hosting, demo dataset,
+Actions billing) plus the evidence-gated UX rows. **Remote GitHub Actions is
 billing-blocked** — the successor queue's local gate suite is the verification authority; a red
 job-start run is not code signal.
 
@@ -1773,3 +1785,19 @@ New codes continue sequentially; link to queue evidence instead of duplicating i
   tree: 295 files / 4582 tests, coverage 90.26/85.07/92.18/91.96, e2e 288 + 1 skip, pinned host PASS,
   pack smoke PASS. No ADR was proposed: B1's op is additive within ADR 0040's query lane and changes
   no accepted shape. No push to a remote CI that can run (Actions is billing-blocked).
+
+- 2026-11-21 (**hi**) — **Follow-up: C1/C4 closed and every decision-first row decided.** The Node 22
+  question was answered by narrowing the product floor: twelve manifests now declare `node: ">=24"`
+  (the development line every gate runs on), the root policy and `.node-version` are unchanged, and the
+  node-support contract records why an unexercised `>=22` claim was the wrong shape rather than a
+  promise. C1 put `apps/vscode/webview/**` (minus the `test-proof` harness) inside the coverage
+  denominator and deliberately set **no** per-webview floor (a floor over boot/entry files at 0 % would
+  be satisfied by the controllers while looking like whole-webview coverage); totals moved to
+  86.19/81.46/87.79/87.67 against unchanged floors, because the old numbers measured a narrower
+  include. The [RD decision sheet](handoff/20261104-rd-open-decisions.md) is fully decided (D-01…D-14;
+  D-10/D-13/D-14 closed on verified evidence — the VS Code manifest already contributes only the four
+  formats, and WF-02 renamed the two pipeline labels), U-1 keeps the fail-closed gate with no fake
+  timeout, P4 stays demand-driven, and D-12 separates "push" (authorised, practised) from "release"
+  (still needs the publication policy). Records: [decision round](handoff/20261121-decision-round.md),
+  queue §9. No ADR was required: every decision either accepts an existing recommendation, closes on
+  evidence, or defers behind a named reopen trigger.
