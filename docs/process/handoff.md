@@ -4,8 +4,9 @@
 **R2**, **U5**, **EW-03I-a**, **TB-1**, **EW-03I-b**, **EW-04I**, **TB-2**, **ENG-1** (ADR 0049
 option-C amendment) and **D3-1** — with **ADR 0049/0050/0051 Accepted**; authoritative closures are
 the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md) §1/§2 and the Verified-state
-entries below. **No row is selected for dispatch.** Recorded but unselected: **ENG-2** (typed
-`repair-preview` count op) — it needs a maintainer + engine-owner go-ahead. **ENG-3** (`(empty)`
+entries below. **No row is selected for dispatch.** Recorded but unselected: none — **ENG-2** (typed
+`repair-preview` count op) was **CLOSED 2026-11-21** by the successor batch (`d457eec` + `4de7233` +
+`6e7a6d2`). **ENG-3** (`(empty)`
 dialect payload) is **CLOSED** by the 2026-11-20 improvement plan's B02 slice (`407c59f` + `c344b16`:
 wire representation retained, engine comment corrected, web display adapter; D3-1 rename list
 preserved); the penultimate runtime wave is otherwise closed. Human asks are consolidated in the
@@ -15,7 +16,25 @@ per-row commits, reviewer verdicts, final merged gates and carried limits are in
 [execution record](handoff/20261120-improvement-plan-execution.md). The remaining work is classified
 in the [successor queue](handoff/20261121-successor-queue.md): two implementation-ready designs (E01,
 E04/WF-O1), spec-first items (ENG-2, PT-H carry-overs, coverage/bundle decisions), maintainer
-decisions (WF/RD rows, release, human G0 asks) and gated tracks. **Remote GitHub Actions is
+decisions (WF/RD rows, release, human G0 asks) and gated tracks.
+
+**2026-11-21 successor batch — executed (branch `work/20261121-successor-batch`, 21 commits over
+`e3fa5fd`; ledger: [successor queue](handoff/20261121-successor-queue.md) §8).** Implemented and
+closed **A1/E01** telemetry opt-out cancellation (`048b70a`, `42c04ff`), **A2/E04-WF-O1** filter-draft
+clarity (`030aa87`), **A3/C02** panel-local recovery parity (`7f044d7`, plus a late-write identity
+guard `f4178d6`), **B1/ENG-2** the typed `repair-preview-count` op (`d457eec`, `4de7233`, `6e7a6d2`),
+**B2** the engine type-boundary trio (`247ab1c`, `f93315f`, `617ea11`), **B4** explicit CLI diff side A
+(`82e9973`) and **B5** the ordinal-scan blind spot (`f020cde`). **Design-closed, not implemented:**
+**B3** registry lifecycle (ADR 0047 verdict first; the proposal refuses to widen to replacement-path
+tables) and **B7** SQL interrupt (decision request; the pinned duckdb-wasm does expose
+`cancelSent`/`cancelPendingQuery`, effect unverified). **Measured, nothing decided:** **B6** diff scale,
+**C2** TEST-PROOF bundle cost, **C3** second bundle baseline. Decisions taken without a further
+maintainer round are named in §8.2 of the queue so they can be reversed in one place. **Unchanged:**
+C1 (webview coverage config), C4 (Node 22 floor — this host has only 24.x), D1–D10 and E1. Merged-tree
+gates (own run, not reusable): typecheck 20/20, lint and format clean, **295 files / 4582 tests** with
+coverage **90.26 / 85.07 / 92.18 / 91.96**, e2e **288 + 1 skip** (axe included), pinned VS Code host
+PASS, pack smoke PASS, docs/ADR/current-state/assurance/dependency/bundle checks green; independent
+reviewer verdict in the queue §8.3. **Remote GitHub Actions is
 billing-blocked** — the successor queue's local gate suite is the verification authority; a red
 job-start run is not code signal.
 
@@ -23,8 +42,9 @@ job-start run is not code signal.
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
 Accepted**; the post-EW-03I-a queue has since closed in full (EW-03I-b, EW-04I, TB-2, ENG-1 = the ADR
 0049 decision-4 option-C amendment, D3-1; ADR 0051 Accepted) — see the current-state block above;
-**ENG-2** remains recorded but unselected in the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md);
-**ENG-3** closed on 2026-11-20 with the improvement-plan B02 slice (`407c59f` + `c344b16`).
+**ENG-2** is CLOSED 2026-11-21 (`d457eec` + `4de7233` + `6e7a6d2`), as are the successor batch's A1/A2/A3,
+B2, B4 and B5 rows; **ENG-3** closed on 2026-11-20 with the improvement-plan B02 slice (`407c59f` +
+`c344b16`).
 The
 original UX/UI programme and bounded audit follow-up are complete. The
 [usability queue](handoff/20261026-usability-queue.md) owns the 37 findings (UG-1…UG-37) of the
@@ -1731,3 +1751,25 @@ New codes continue sequentially; link to queue evidence instead of duplicating i
   independent `openai-codex/gpt-6-luna` (xhigh) review + merged-gate evidence; the doctrine "a row is not done until
   reviewed and merged-green" held. No push. WF-06, WF-03/04/07/08/09 and WF-O1/O2 remain unauthorised or blocked, and
   no participant/AT evidence exists.
+
+- 2026-11-21 (**hh**) — **Successor batch executed** on `work/20261121-successor-batch` (21 commits
+  over `e3fa5fd`; ledger [successor queue](handoff/20261121-successor-queue.md) §8). Rows closed:
+  A1/E01 opt-out cancellation (`048b70a`, `42c04ff` — generation-scoped abort, cancellable backoff,
+  caller-abort ≠ timeout, disclosure's final sentence replaced at revision 1 because the constant is
+  shared with the unchanged CLI copy), A2/E04-WF-O1 filter-draft clarity (`030aa87` — exact-string
+  `Not applied` marker that is the revert, no-op Apply, 78 FilterBar + 18 helper tests), A3/C02
+  panel-local recovery parity (`7f044d7` + `f4178d6` — option (b) on evidence that the bar's own
+  control is bar-scoped; the validation recovery now drops a late write onto a replaced session),
+  B1/ENG-2 the typed `repair-preview-count` op (`d457eec`, `4de7233`, `6e7a6d2` — predicate and
+  statement engine-owned, byte-identical to the old composition, real-CLI conformance a–i, web
+  composition deleted), B2 the engine type-boundary trio (`247ab1c` int32 modifier bound, `f93315f`
+  VARBIT/BIT VARYING refused, `617ea11` exact UHUGEINT render with the byte order probed), B4 explicit
+  CLI diff side A (`82e9973`) and B5 same-scope JOIN/HAVING/GROUP BY/QUALIFY in the ordinal scan
+  (`f020cde`). Design-closed: B3 registry lifecycle (ADR 0047 verdict first; widening `closeTable` to
+  replacement-path tables is named as the ADR's supersession trigger) and B7 SQL interrupt (decision
+  request; `cancelSent`/`cancelPendingQuery` exist in the pinned duckdb-wasm, mid-execution effect
+  unverified). Measured only: B6 diff scale, C2 TEST-PROOF bundle cost (44.7 kB, −4.14 % raw of
+  `webview/dataset.js`), C3 second bundle baseline. C1/C4/D1–D10/E1 unchanged. Own gates on the merged
+  tree: 295 files / 4582 tests, coverage 90.26/85.07/92.18/91.96, e2e 288 + 1 skip, pinned host PASS,
+  pack smoke PASS. No ADR was proposed: B1's op is additive within ADR 0040's query lane and changes
+  no accepted shape. No push to a remote CI that can run (Actions is billing-blocked).

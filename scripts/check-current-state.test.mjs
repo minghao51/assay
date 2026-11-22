@@ -206,20 +206,40 @@ describe('current-state checker — active-queue mutations', () => {
   })
 
   it('fails when a CLOSED row is presented as remaining', () => {
+    // The pickup queue is fully drained, so ANY bold id in the clause is a row
+    // the handoff presents as remaining while the tables say CLOSED.
     const findings = findingsFor(
       depsWith({
         [SOURCES.handoff]: mutated(
           SOURCES.handoff,
-          'Recorded but unselected: **ENG-2**',
-          'Recorded but unselected: **EW-04I**, **ENG-2**',
+          'Recorded but unselected: none',
+          'Recorded but unselected: **EW-04I**',
         ),
       }),
       'active-queue',
     )
     expect(findings.map((finding) => finding.expected)).toContain(
-      'the unselected clause names exactly ENG-2 (pickup "recorded, not selected")',
+      'the unselected clause names exactly none (pickup "recorded, not selected")',
     )
     expect(findings[0].actual).toContain('EW-04I')
+  })
+
+  it('passes when the queue is fully drained (no row recorded-but-unselected)', () => {
+    // The legitimate post-drain state: every parsed row is CLOSED, the clause
+    // says "none", and the equality assertion is what still guards a lost or
+    // invented remaining row.
+    const findings = findingsFor(
+      depsWith({
+        [SOURCES.pickup]: [
+          '| # | Row | Status |',
+          '| --- | --- | --- |',
+          '| **AAA-1** | first row | **CLOSED** |',
+          '| **BBB-2** | second row | **CLOSED** |',
+        ].join('\n'),
+      }),
+      'active-queue',
+    )
+    expect(findings).toEqual([])
   })
 
   it('fails when a CLOSED row is named as the next action', () => {
@@ -239,19 +259,14 @@ describe('current-state checker — active-queue mutations', () => {
     expect(findings.find((finding) => finding.actual.includes('D3-1'))).toBeDefined()
   })
 
-  it('fails when the pickup table stops marking a row unselected', () => {
-    const findings = findingsFor(
-      depsWith({
-        [SOURCES.pickup]: mutated(
-          SOURCES.pickup,
-          '**recorded, not selected**; EW-04I',
-          '**selected**; EW-04I',
-        ),
-      }),
-      'active-queue',
-    )
+  it('fails loudly when the pickup tables parse no row at all (parser rot)', () => {
+    const findings = findingsFor(depsWith({ [SOURCES.pickup]: 'no tables here\n' }), 'active-queue')
     expect(findings.map((finding) => finding.expected)).toContain(
-      'the unselected clause names exactly none (pickup "recorded, not selected")',
+      'the pickup tables parse at least one row',
+    )
+    // The CLOSED-row guard fires too, so a rotted pickup never reads as clean.
+    expect(findings.map((finding) => finding.expected)).toContain(
+      'the pickup tables mark at least one row CLOSED',
     )
   })
 

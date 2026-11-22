@@ -420,6 +420,14 @@ can move without touching the engine: `static-entry` (boot cost),
 the CLI `files` payload. Wasm/worker bytes are pinned artifacts and should be
 tracked as pin drift, not as a budget.
 
+**Second data point (2026-11-21).** The successor batch's measurement row re-ran this method on a
+later tree and recorded the deltas against the 2026-11-20 baseline, plus the two-run determinism
+verdict and the precise definition of a *stable* second baseline —
+[20261121 measurement record](../process/handoff/20261121-measurement-rows-b6-c3-c2.md) §2. **No budget
+is set by it**: the two passes differ by named feature work (+10,279 B raw web, +443 B CLI payload,
++39,301 B desktop), and the CLI tarball / install-size rows remain non-reproducible until they are
+re-normalised as that record states.
+
 ## 13. Reproduce, and how it fails safely
 
 ```bash

@@ -606,9 +606,14 @@ function checkActiveQueue(deps, report) {
     'no CLOSED status cell parsed',
   )
   report.expect(
-    expectedRemaining.length > 0,
+    // Parser-rot guard, queue-drained safe: what must be provable is that the
+    // tables PARSED, not that some row is still unselected. A fully drained
+    // pickup is a legitimate state (every row CLOSED) and must read as "none"
+    // in the handoff clause — the equality assertion below is what catches a
+    // lost or invented remaining row.
+    rows.length > 0,
     { fact, file: SOURCES.pickup, line: 1 },
-    'the pickup tables mark the unselected rows "recorded, not selected"',
+    'the pickup tables parse at least one row',
     'none parsed',
   )
 
