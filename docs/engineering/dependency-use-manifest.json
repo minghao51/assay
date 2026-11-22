@@ -414,17 +414,13 @@
           "file": "pnpm-lock.yaml",
           "line": 47,
           "via": "config-string",
-          "symbols": [
-            "@axe-core/playwright"
-          ]
+          "symbols": ["@axe-core/playwright"]
         },
         {
           "file": "tests/e2e/support/a11y.ts",
           "line": 1,
           "via": "import",
-          "symbols": [
-            "AxeBuilder"
-          ]
+          "symbols": ["AxeBuilder"]
         }
       ],
       "useSitesTruncated": false,
@@ -455,25 +451,19 @@
           "file": "package.json",
           "line": 31,
           "via": "script",
-          "symbols": [
-            "changeset"
-          ]
+          "symbols": ["changeset"]
         },
         {
           "file": "package.json",
           "line": 32,
           "via": "script",
-          "symbols": [
-            "version-packages"
-          ]
+          "symbols": ["version-packages"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 50,
           "via": "config-string",
-          "symbols": [
-            "@changesets/cli"
-          ]
+          "symbols": ["@changesets/cli"]
         }
       ],
       "useSitesTruncated": false,
@@ -501,17 +491,13 @@
           "file": "eslint.config.js",
           "line": 1,
           "via": "import",
-          "symbols": [
-            "js"
-          ]
+          "symbols": ["js"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 53,
           "via": "config-string",
-          "symbols": [
-            "@eslint/js"
-          ]
+          "symbols": ["@eslint/js"]
         }
       ],
       "useSitesTruncated": false,
@@ -545,58 +531,43 @@
           "file": "package.json",
           "line": 29,
           "via": "script",
-          "symbols": [
-            "test:e2e"
-          ]
+          "symbols": ["test:e2e"]
         },
         {
           "file": "playwright.config.ts",
           "line": 1,
           "via": "import",
-          "symbols": [
-            "defineConfig"
-          ]
+          "symbols": ["defineConfig"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 56,
           "via": "config-string",
-          "symbols": [
-            "@playwright/test"
-          ]
+          "symbols": ["@playwright/test"]
         },
         {
           "file": "tests/e2e/a11y.spec.ts",
           "line": 3,
           "via": "import-type",
-          "symbols": [
-            "Page"
-          ]
+          "symbols": ["Page"]
         },
         {
           "file": "tests/e2e/bench-ttfr.spec.ts",
           "line": 2,
           "via": "import-type",
-          "symbols": [
-            "CDPSession",
-            "Page"
-          ]
+          "symbols": ["CDPSession", "Page"]
         },
         {
           "file": "tests/e2e/cell-copy.spec.ts",
           "line": 2,
           "via": "import-type",
-          "symbols": [
-            "Page"
-          ]
+          "symbols": ["Page"]
         },
         {
           "file": "tests/e2e/column-ops.spec.ts",
           "line": 2,
           "via": "import-type",
-          "symbols": [
-            "Page"
-          ]
+          "symbols": ["Page"]
         },
         {
           "file": "tests/e2e/csv-preview.spec.ts",
@@ -608,10 +579,7 @@
           "file": "tests/e2e/diff-panel.spec.ts",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "Download",
-            "Page"
-          ]
+          "symbols": ["Download", "Page"]
         }
       ],
       "useSitesTruncated": true,
@@ -637,81 +605,61 @@
           "file": "pnpm-lock.yaml",
           "line": 9,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 59,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 120,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 156,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 374,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 392,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 420,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 448,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 2307,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 2320,
           "via": "config-string",
-          "symbols": [
-            "@types/node"
-          ]
+          "symbols": ["@types/node"]
         }
       ],
       "useSitesTruncated": true,
@@ -740,49 +688,37 @@
           "file": "pnpm-lock.yaml",
           "line": 21,
           "via": "config-string",
-          "symbols": [
-            "@vitest/coverage-v8"
-          ]
+          "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 62,
           "via": "config-string",
-          "symbols": [
-            "@vitest/coverage-v8"
-          ]
+          "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 2357,
           "via": "config-string",
-          "symbols": [
-            "@vitest/coverage-v8"
-          ]
+          "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 2377,
           "via": "config-string",
-          "symbols": [
-            "@vitest/coverage-v8"
-          ]
+          "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
           "line": 4249,
           "via": "config-string",
-          "symbols": [
-            "@vitest/coverage-v8"
-          ]
+          "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-workspace.yaml",
           "line": 12,
           "via": "config-string",
-          "symbols": [
-            "@vitest/coverage-v8"
-          ]
+          "symbols": ["@vitest/coverage-v8"]
         }
       ],
       "useSitesTruncated": false,
@@ -812,9 +748,7 @@
           "file": "package.json",
           "line": 23,
           "via": "script",
-          "symbols": [
-            "lint"
-          ]
+          "symbols": ["lint"]
         }
       ],
       "useSitesTruncated": false,
@@ -846,9 +780,7 @@
           "file": "eslint.config.js",
           "line": 2,
           "via": "import",
-          "symbols": [
-            "importX"
-          ]
+          "symbols": ["importX"]
         }
       ],
       "useSitesTruncated": false,
@@ -878,9 +810,7 @@
           "file": "eslint.config.js",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "reactHooks"
-          ]
+          "symbols": ["reactHooks"]
         }
       ],
       "useSitesTruncated": false,
@@ -908,17 +838,13 @@
           "file": "package.json",
           "line": 24,
           "via": "script",
-          "symbols": [
-            "format"
-          ]
+          "symbols": ["format"]
         },
         {
           "file": "package.json",
           "line": 25,
           "via": "script",
-          "symbols": [
-            "format:check"
-          ]
+          "symbols": ["format:check"]
         },
         {
           "file": "scripts/dependency-report.test.mjs",
@@ -950,17 +876,13 @@
           "file": "package.json",
           "line": 13,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "package.json",
           "line": 22,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -988,17 +910,13 @@
           "file": "package.json",
           "line": 26,
           "via": "script",
-          "symbols": [
-            "test"
-          ]
+          "symbols": ["test"]
         },
         {
           "file": "package.json",
           "line": 27,
           "via": "script",
-          "symbols": [
-            "test:coverage"
-          ]
+          "symbols": ["test:coverage"]
         }
       ],
       "useSitesTruncated": false,
@@ -1029,9 +947,7 @@
           "file": "eslint.config.js",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "tseslint"
-          ]
+          "symbols": ["tseslint"]
         }
       ],
       "useSitesTruncated": false,
@@ -1072,84 +988,55 @@
           "file": "package.json",
           "line": 26,
           "via": "script",
-          "symbols": [
-            "test"
-          ]
+          "symbols": ["test"]
         },
         {
           "file": "package.json",
           "line": 27,
           "via": "script",
-          "symbols": [
-            "test:coverage"
-          ]
+          "symbols": ["test:coverage"]
         },
         {
           "file": "package.json",
           "line": 28,
           "via": "script",
-          "symbols": [
-            "test:watch"
-          ]
+          "symbols": ["test:watch"]
         },
         {
           "file": "scripts/check-assurance-map.test.mjs",
           "line": 17,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "scripts/check-current-state.test.mjs",
           "line": 13,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "scripts/dependency-report.test.mjs",
           "line": 13,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "scripts/doctor.test.mjs",
           "line": 12,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "scripts/measure-bundle.test.mjs",
           "line": 15,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "vitest.config.ts",
           "line": 1,
           "via": "import",
-          "symbols": [
-            "configDefaults",
-            "defineConfig"
-          ]
+          "symbols": ["configDefaults", "defineConfig"]
         }
       ],
       "useSitesTruncated": false,
@@ -1175,43 +1062,31 @@
           "file": "apps/cli/src/node-executor.ts",
           "line": 144,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "apps/cli/src/pipeline.ts",
           "line": 58,
           "via": "import",
-          "symbols": [
-            "parseContract",
-            "describeContractError"
-          ]
+          "symbols": ["parseContract", "describeContractError"]
         },
         {
           "file": "apps/cli/src/validate.integration.test.ts",
           "line": 32,
           "via": "import",
-          "symbols": [
-            "parseContract"
-          ]
+          "symbols": ["parseContract"]
         },
         {
           "file": "apps/cli/src/validate.ts",
           "line": 24,
           "via": "import",
-          "symbols": [
-            "parseContract",
-            "describeContractError"
-          ]
+          "symbols": ["parseContract", "describeContractError"]
         },
         {
           "file": "apps/cli/src/validate.ts",
           "line": 25,
           "via": "import-type",
-          "symbols": [
-            "ContractError"
-          ]
+          "symbols": ["ContractError"]
         }
       ],
       "useSitesTruncated": false,
@@ -1237,79 +1112,55 @@
           "file": "apps/cli/src/dcr.ts",
           "line": 49,
           "via": "import",
-          "symbols": [
-            "schemaDrift"
-          ]
+          "symbols": ["schemaDrift"]
         },
         {
           "file": "apps/cli/src/dcr.ts",
           "line": 50,
           "via": "import-type",
-          "symbols": [
-            "SchemaDriftFinding"
-          ]
+          "symbols": ["SchemaDriftFinding"]
         },
         {
           "file": "apps/cli/src/diff-report.test.ts",
           "line": 10,
           "via": "import-type",
-          "symbols": [
-            "ColumnDistributionDelta",
-            "DiffReport"
-          ]
+          "symbols": ["ColumnDistributionDelta", "DiffReport"]
         },
         {
           "file": "apps/cli/src/diff.integration.test.ts",
           "line": 34,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "apps/cli/src/diff.ts",
           "line": 40,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan",
-            "diffDatasets",
-            "inferRowDiffKeys"
-          ]
+          "symbols": ["compileRowDiffPlan", "diffDatasets", "inferRowDiffKeys"]
         },
         {
           "file": "apps/cli/src/diff.ts",
           "line": 41,
           "via": "import-type",
-          "symbols": [
-            "KeyInferenceResult",
-            "RowDiffBindingError"
-          ]
+          "symbols": ["KeyInferenceResult", "RowDiffBindingError"]
         },
         {
           "file": "apps/cli/src/diff.ts",
           "line": 42,
           "via": "import",
-          "symbols": [
-            "describeRowDiffBindingError"
-          ]
+          "symbols": ["describeRowDiffBindingError"]
         },
         {
           "file": "apps/cli/src/node-executor.ts",
           "line": 145,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "apps/cli/src/node-executor.ts",
           "line": 146,
           "via": "import-type",
-          "symbols": [
-            "CategoricalTopKEntry",
-            "DatasetProfile",
-            "NumericQuantiles"
-          ]
+          "symbols": ["CategoricalTopKEntry", "DatasetProfile", "NumericQuantiles"]
         },
         {
           "file": "apps/cli/src/report-diff.ts",
@@ -1353,26 +1204,19 @@
           "file": "apps/cli/src/node-executor.ts",
           "line": 142,
           "via": "import",
-          "symbols": [
-            "initialState"
-          ]
+          "symbols": ["initialState"]
         },
         {
           "file": "apps/cli/src/node-executor.ts",
           "line": 143,
           "via": "import-type",
-          "symbols": [
-            "OverlayBase"
-          ]
+          "symbols": ["OverlayBase"]
         },
         {
           "file": "apps/cli/src/report-shared.ts",
           "line": 34,
           "via": "import",
-          "symbols": [
-            "displayRowKey",
-            "exportRowKey"
-          ]
+          "symbols": ["displayRowKey", "exportRowKey"]
         }
       ],
       "useSitesTruncated": false,
@@ -1398,28 +1242,19 @@
           "file": "apps/cli/src/connection.ts",
           "line": 26,
           "via": "import",
-          "symbols": [
-            "createViewSql",
-            "detectFileFormat",
-            "quotedIdentifier"
-          ]
+          "symbols": ["createViewSql", "detectFileFormat", "quotedIdentifier"]
         },
         {
           "file": "apps/cli/src/connection.ts",
           "line": 27,
           "via": "import-type",
-          "symbols": [
-            "EngineFileFormat"
-          ]
+          "symbols": ["EngineFileFormat"]
         },
         {
           "file": "apps/cli/src/dcr.test.ts",
           "line": 17,
           "via": "import-type",
-          "symbols": [
-            "PipelineRunNodeResult",
-            "PipelineRunResult"
-          ]
+          "symbols": ["PipelineRunNodeResult", "PipelineRunResult"]
         },
         {
           "file": "apps/cli/src/dcr.ts",
@@ -1437,10 +1272,7 @@
           "file": "apps/cli/src/dcr.ts",
           "line": 70,
           "via": "import",
-          "symbols": [
-            "candidateVersionRefFromRun",
-            "PipelineRunRefusalError"
-          ]
+          "symbols": ["candidateVersionRefFromRun", "PipelineRunRefusalError"]
         },
         {
           "file": "apps/cli/src/dcr.ts",
@@ -1452,17 +1284,13 @@
           "file": "apps/cli/src/diff-report.test.ts",
           "line": 11,
           "via": "import",
-          "symbols": [
-            "ROW_DIFF_SAMPLE_HARD_MAX"
-          ]
+          "symbols": ["ROW_DIFF_SAMPLE_HARD_MAX"]
         },
         {
           "file": "apps/cli/src/diff-report.test.ts",
           "line": 12,
           "via": "import-type",
-          "symbols": [
-            "EngineRowDiffResult"
-          ]
+          "symbols": ["EngineRowDiffResult"]
         },
         {
           "file": "apps/cli/src/diff-report.test.ts",
@@ -1474,9 +1302,7 @@
           "file": "apps/cli/src/diff.ts",
           "line": 44,
           "via": "import",
-          "symbols": [
-            "ROW_DIFF_SAMPLE_HARD_MAX"
-          ]
+          "symbols": ["ROW_DIFF_SAMPLE_HARD_MAX"]
         }
       ],
       "useSitesTruncated": true,
@@ -1502,27 +1328,19 @@
           "file": "apps/cli/src/dcr.integration.test.ts",
           "line": 35,
           "via": "import",
-          "symbols": [
-            "parseDcr",
-            "serializeDcr"
-          ]
+          "symbols": ["parseDcr", "serializeDcr"]
         },
         {
           "file": "apps/cli/src/dcr.test.ts",
           "line": 15,
           "via": "import",
-          "symbols": [
-            "parseDcr",
-            "serializeDcr"
-          ]
+          "symbols": ["parseDcr", "serializeDcr"]
         },
         {
           "file": "apps/cli/src/dcr.test.ts",
           "line": 16,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         },
         {
           "file": "apps/cli/src/dcr.ts",
@@ -1543,58 +1361,37 @@
           "file": "apps/cli/src/dcr.ts",
           "line": 62,
           "via": "import-type",
-          "symbols": [
-            "DcrArtifactV1",
-            "DcrVersionRef",
-            "PipelineError",
-            "PipelineV1"
-          ]
+          "symbols": ["DcrArtifactV1", "DcrVersionRef", "PipelineError", "PipelineV1"]
         },
         {
           "file": "apps/cli/src/node-executor.ts",
           "line": 147,
           "via": "import",
-          "symbols": [
-            "classifyVerbatimSql"
-          ]
+          "symbols": ["classifyVerbatimSql"]
         },
         {
           "file": "apps/cli/src/pipeline.ts",
           "line": 59,
           "via": "import",
-          "symbols": [
-            "compilePipeline",
-            "isDataNode",
-            "parsePipeline",
-            "validatePipeline"
-          ]
+          "symbols": ["compilePipeline", "isDataNode", "parsePipeline", "validatePipeline"]
         },
         {
           "file": "apps/cli/src/pipeline.ts",
           "line": 60,
           "via": "import-type",
-          "symbols": [
-            "PipelineError",
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineError", "PipelineV1"]
         },
         {
           "file": "apps/cli/src/report-pipeline.test.ts",
           "line": 11,
           "via": "import",
-          "symbols": [
-            "parsePipeline",
-            "compilePipeline",
-            "validatePipeline"
-          ]
+          "symbols": ["parsePipeline", "compilePipeline", "validatePipeline"]
         },
         {
           "file": "apps/cli/src/report-pipeline.test.ts",
           "line": 12,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         }
       ],
       "useSitesTruncated": true,
@@ -1620,29 +1417,19 @@
           "file": "apps/cli/src/diff.ts",
           "line": 43,
           "via": "import",
-          "symbols": [
-            "bucketColumnCount",
-            "bucketRowCount",
-            "bucketSize"
-          ]
+          "symbols": ["bucketColumnCount", "bucketRowCount", "bucketSize"]
         },
         {
           "file": "apps/cli/src/telemetry.emission.test.ts",
           "line": 21,
           "via": "import-type",
-          "symbols": [
-            "EventName",
-            "TelemetryOutcome",
-            "TelemetryPayload"
-          ]
+          "symbols": ["EventName", "TelemetryOutcome", "TelemetryPayload"]
         },
         {
           "file": "apps/cli/src/telemetry.integration.test.ts",
           "line": 14,
           "via": "import",
-          "symbols": [
-            "CLI_DISCLOSURE_COPY"
-          ]
+          "symbols": ["CLI_DISCLOSURE_COPY"]
         },
         {
           "file": "apps/cli/src/telemetry/emit.ts",
@@ -1661,25 +1448,19 @@
           "file": "apps/cli/src/telemetry/emit.ts",
           "line": 16,
           "via": "import",
-          "symbols": [
-            "bucketDuration"
-          ]
+          "symbols": ["bucketDuration"]
         },
         {
           "file": "apps/cli/src/telemetry/runtime.test.ts",
           "line": 7,
           "via": "import-type",
-          "symbols": [
-            "TelemetryEvent"
-          ]
+          "symbols": ["TelemetryEvent"]
         },
         {
           "file": "apps/cli/src/telemetry/runtime.test.ts",
           "line": 8,
           "via": "import",
-          "symbols": [
-            "CLI_DISCLOSURE_COPY"
-          ]
+          "symbols": ["CLI_DISCLOSURE_COPY"]
         },
         {
           "file": "apps/cli/src/telemetry/runtime.ts",
@@ -1718,9 +1499,7 @@
           "file": "apps/cli/src/telemetry/transport.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "TelemetryEvent"
-          ]
+          "symbols": ["TelemetryEvent"]
         }
       ],
       "useSitesTruncated": true,
@@ -1746,59 +1525,43 @@
           "file": "apps/cli/src/connection.ts",
           "line": 28,
           "via": "import-type",
-          "symbols": [
-            "EngineSchema"
-          ]
+          "symbols": ["EngineSchema"]
         },
         {
           "file": "apps/cli/src/dcr.ts",
           "line": 51,
           "via": "import-type",
-          "symbols": [
-            "EngineSchema"
-          ]
+          "symbols": ["EngineSchema"]
         },
         {
           "file": "apps/cli/src/node-executor.ts",
           "line": 148,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         },
         {
           "file": "apps/cli/src/node-executor.ts",
           "line": 149,
           "via": "import-type",
-          "symbols": [
-            "EngineSchema"
-          ]
+          "symbols": ["EngineSchema"]
         },
         {
           "file": "apps/cli/src/validate.integration.test.ts",
           "line": 30,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         },
         {
           "file": "apps/cli/src/validate.ts",
           "line": 26,
           "via": "import",
-          "symbols": [
-            "compileContract",
-            "DEFAULT_SAMPLE_LIMIT",
-            "describeBindingError"
-          ]
+          "symbols": ["compileContract", "DEFAULT_SAMPLE_LIMIT", "describeBindingError"]
         },
         {
           "file": "apps/cli/src/validate.ts",
           "line": 27,
           "via": "import-type",
-          "symbols": [
-            "BindingError"
-          ]
+          "symbols": ["BindingError"]
         }
       ],
       "useSitesTruncated": false,
@@ -1824,37 +1587,25 @@
           "file": "apps/cli/src/connection.ts",
           "line": 24,
           "via": "import",
-          "symbols": [
-            "DuckDBInstance"
-          ]
+          "symbols": ["DuckDBInstance"]
         },
         {
           "file": "apps/cli/src/connection.ts",
           "line": 25,
           "via": "import-type",
-          "symbols": [
-            "DuckDBConnection",
-            "DuckDBResultReader"
-          ]
+          "symbols": ["DuckDBConnection", "DuckDBResultReader"]
         },
         {
           "file": "apps/cli/src/node-executor.ts",
           "line": 84,
           "via": "import",
-          "symbols": [
-            "DuckDBArrayValue",
-            "DuckDBDecimalValue",
-            "DuckDBListValue"
-          ]
+          "symbols": ["DuckDBArrayValue", "DuckDBDecimalValue", "DuckDBListValue"]
         },
         {
           "file": "apps/cli/src/node-executor.ts",
           "line": 85,
           "via": "import-type",
-          "symbols": [
-            "DuckDBConnection",
-            "DuckDBResultReader"
-          ]
+          "symbols": ["DuckDBConnection", "DuckDBResultReader"]
         }
       ],
       "useSitesTruncated": false,
@@ -1880,81 +1631,61 @@
           "file": "apps/cli/scripts/pack-consumer-smoke.mjs",
           "line": 8,
           "via": "module-types",
-          "symbols": [
-            "node:child_process"
-          ]
+          "symbols": ["node:child_process"]
         },
         {
           "file": "apps/cli/scripts/pack-consumer-smoke.mjs",
           "line": 9,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "apps/cli/scripts/pack-consumer-smoke.mjs",
           "line": 18,
           "via": "module-types",
-          "symbols": [
-            "node:os"
-          ]
+          "symbols": ["node:os"]
         },
         {
           "file": "apps/cli/scripts/pack-consumer-smoke.mjs",
           "line": 19,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "apps/cli/scripts/pack-consumer-smoke.mjs",
           "line": 20,
           "via": "module-types",
-          "symbols": [
-            "node:process"
-          ]
+          "symbols": ["node:process"]
         },
         {
           "file": "apps/cli/scripts/pack-consumer-smoke.mjs",
           "line": 21,
           "via": "module-types",
-          "symbols": [
-            "node:url"
-          ]
+          "symbols": ["node:url"]
         },
         {
           "file": "apps/cli/scripts/pack-consumer-smoke.mjs",
           "line": 22,
           "via": "module-types",
-          "symbols": [
-            "node:assert"
-          ]
+          "symbols": ["node:assert"]
         },
         {
           "file": "apps/cli/src/connection.ts",
           "line": 22,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "apps/cli/src/connection.ts",
           "line": 23,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "apps/cli/src/dcr.integration.test.ts",
           "line": 22,
           "via": "module-types",
-          "symbols": [
-            "node:child_process"
-          ]
+          "symbols": ["node:child_process"]
         }
       ],
       "useSitesTruncated": true,
@@ -1999,10 +1730,7 @@
           "file": "apps/cli/src/node-executor.ts",
           "line": 83,
           "via": "import-type",
-          "symbols": [
-            "Table",
-            "Vector"
-          ]
+          "symbols": ["Table", "Vector"]
         }
       ],
       "useSitesTruncated": false,
@@ -2030,9 +1758,7 @@
           "file": "apps/cli/package.json",
           "line": 29,
           "via": "script",
-          "symbols": [
-            "dev"
-          ]
+          "symbols": ["dev"]
         }
       ],
       "useSitesTruncated": false,
@@ -2060,17 +1786,13 @@
           "file": "apps/cli/package.json",
           "line": 30,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "apps/cli/package.json",
           "line": 31,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -2111,109 +1833,61 @@
           "file": "apps/cli/src/args.test.ts",
           "line": 9,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/cli/src/dcr.integration.test.ts",
           "line": 36,
           "via": "import",
-          "symbols": [
-            "afterAll",
-            "beforeAll",
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["afterAll", "beforeAll", "describe", "expect", "it"]
         },
         {
           "file": "apps/cli/src/dcr.test.ts",
           "line": 14,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/cli/src/diff-report.test.ts",
           "line": 9,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/cli/src/diff.integration.test.ts",
           "line": 33,
           "via": "import",
-          "symbols": [
-            "beforeAll",
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["beforeAll", "describe", "expect", "it"]
         },
         {
           "file": "apps/cli/src/pipeline-gate-refusal.test.ts",
           "line": 19,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/cli/src/pipeline-lazy-engine.test.ts",
           "line": 17,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/cli/src/pipeline.integration.test.ts",
           "line": 31,
           "via": "import",
-          "symbols": [
-            "beforeAll",
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["beforeAll", "describe", "expect", "it"]
         },
         {
           "file": "apps/cli/src/pipeline.test.ts",
           "line": 16,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/cli/src/profile.integration.test.ts",
           "line": 17,
           "via": "import",
-          "symbols": [
-            "beforeAll",
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["beforeAll", "describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": true,
@@ -2239,9 +1913,7 @@
           "file": "apps/vscode/src/pure/validation-controller.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "parseContract"
-          ]
+          "symbols": ["parseContract"]
         }
       ],
       "useSitesTruncated": false,
@@ -2267,10 +1939,7 @@
           "file": "apps/vscode/src/pure/diff-controller.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "diffDatasets",
-            "inferRowDiffKeys"
-          ]
+          "symbols": ["diffDatasets", "inferRowDiffKeys"]
         },
         {
           "file": "apps/vscode/src/pure/diff-controller.ts",
@@ -2307,26 +1976,19 @@
           "file": "apps/vscode/src/pure/diff-presenter.ts",
           "line": 14,
           "via": "import-type",
-          "symbols": [
-            "DatasetProfile"
-          ]
+          "symbols": ["DatasetProfile"]
         },
         {
           "file": "apps/vscode/webview/diff-panel.ts",
           "line": 31,
           "via": "import",
-          "symbols": [
-            "diffDatasets",
-            "inferRowDiffKeys"
-          ]
+          "symbols": ["diffDatasets", "inferRowDiffKeys"]
         },
         {
           "file": "apps/vscode/webview/diff-panel.ts",
           "line": 32,
           "via": "import-type",
-          "symbols": [
-            "RowDiffPlan"
-          ]
+          "symbols": ["RowDiffPlan"]
         }
       ],
       "useSitesTruncated": false,
@@ -2352,66 +2014,43 @@
           "file": "apps/vscode/src/pure/cell-input.ts",
           "line": 3,
           "via": "import-type",
-          "symbols": [
-            "CellValue"
-          ]
+          "symbols": ["CellValue"]
         },
         {
           "file": "apps/vscode/src/pure/dirty-history-view.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "appendOp",
-            "baseRowId",
-            "emptyHistory",
-            "insertRowId",
-            "stateAtCursor"
-          ]
+          "symbols": ["appendOp", "baseRowId", "emptyHistory", "insertRowId", "stateAtCursor"]
         },
         {
           "file": "apps/vscode/src/pure/dirty-history-view.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "OverlayBase",
-            "RowId"
-          ]
+          "symbols": ["OverlayBase", "RowId"]
         },
         {
           "file": "apps/vscode/src/pure/dirty-history-view.ts",
           "line": 13,
           "via": "import",
-          "symbols": [
-            "overlayEdit"
-          ]
+          "symbols": ["overlayEdit"]
         },
         {
           "file": "apps/vscode/src/pure/dirty-history-view.ts",
           "line": 14,
           "via": "import-type",
-          "symbols": [
-            "OverlayState",
-            "RowId"
-          ]
+          "symbols": ["OverlayState", "RowId"]
         },
         {
           "file": "apps/vscode/src/pure/edit-controller.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "baseRowId",
-            "effectiveRowIds",
-            "overlayEdit"
-          ]
+          "symbols": ["baseRowId", "effectiveRowIds", "overlayEdit"]
         },
         {
           "file": "apps/vscode/src/pure/edit-controller.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "OverlayBase",
-            "TransformationHistory"
-          ]
+          "symbols": ["OverlayBase", "TransformationHistory"]
         },
         {
           "file": "apps/vscode/src/pure/edit-controller.test.ts",
@@ -2429,12 +2068,7 @@
           "file": "apps/vscode/src/pure/edit-controller.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "CellValue",
-            "EditOp",
-            "OverlayBase",
-            "TransformationHistory"
-          ]
+          "symbols": ["CellValue", "EditOp", "OverlayBase", "TransformationHistory"]
         }
       ],
       "useSitesTruncated": true,
@@ -2460,25 +2094,19 @@
           "file": "apps/vscode/src/pure/diff-presenter.ts",
           "line": 15,
           "via": "import-type",
-          "symbols": [
-            "EngineDatasetProfile"
-          ]
+          "symbols": ["EngineDatasetProfile"]
         },
         {
           "file": "apps/vscode/src/pure/overlay-snapshot.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "EngineOverlay"
-          ]
+          "symbols": ["EngineOverlay"]
         },
         {
           "file": "apps/vscode/src/pure/validation-controller.ts",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineValidationResult"
-          ]
+          "symbols": ["EngineValidationResult"]
         },
         {
           "file": "apps/vscode/webview/dataset.ts",
@@ -2520,17 +2148,13 @@
           "file": "apps/vscode/webview/engine-boot.ts",
           "line": 19,
           "via": "import",
-          "symbols": [
-            "DuckDbEngineClient"
-          ]
+          "symbols": ["DuckDbEngineClient"]
         },
         {
           "file": "apps/vscode/webview/engine-boot.ts",
           "line": 20,
           "via": "import-type",
-          "symbols": [
-            "EngineAssetsMessage"
-          ]
+          "symbols": ["EngineAssetsMessage"]
         },
         {
           "file": "apps/vscode/webview/grid-provider.test.ts",
@@ -2567,79 +2191,55 @@
           "file": "apps/vscode/src/pure/filter-failure.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "FilterApplyError"
-          ]
+          "symbols": ["FilterApplyError"]
         },
         {
           "file": "apps/vscode/src/pure/filter-failure.test.ts",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "FilterFailurePhase"
-          ]
+          "symbols": ["FilterFailurePhase"]
         },
         {
           "file": "apps/vscode/src/pure/filter-failure.ts",
           "line": 48,
           "via": "import",
-          "symbols": [
-            "FilterApplyError"
-          ]
+          "symbols": ["FilterApplyError"]
         },
         {
           "file": "apps/vscode/src/pure/filter-failure.ts",
           "line": 49,
           "via": "import-type",
-          "symbols": [
-            "FilterFailurePhase"
-          ]
+          "symbols": ["FilterFailurePhase"]
         },
         {
           "file": "apps/vscode/webview/data-grid.filter-failure.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/vscode/webview/data-grid.filter-failure.test.ts",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "CellRange",
-            "ColumnSchema",
-            "FilterSpec",
-            "GridDataPage",
-            "GridDataProvider"
-          ]
+          "symbols": ["CellRange", "ColumnSchema", "FilterSpec", "GridDataPage", "GridDataProvider"]
         },
         {
           "file": "apps/vscode/webview/data-grid.ts",
           "line": 29,
           "via": "import-type",
-          "symbols": [
-            "GridViewportModel",
-            "SortSpec"
-          ]
+          "symbols": ["GridViewportModel", "SortSpec"]
         },
         {
           "file": "apps/vscode/webview/dataset.ts",
           "line": 34,
           "via": "import",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/vscode/webview/grid-provider.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "FilterSpec",
-            "GridDataProvider"
-          ]
+          "symbols": ["FilterSpec", "GridDataProvider"]
         },
         {
           "file": "apps/vscode/webview/grid-provider.ts",
@@ -2678,25 +2278,19 @@
           "file": "apps/vscode/src/pure/diff-controller.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "DEFAULT_SAMPLE_LIMIT"
-          ]
+          "symbols": ["DEFAULT_SAMPLE_LIMIT"]
         },
         {
           "file": "apps/vscode/src/pure/diff-controller.ts",
           "line": 25,
           "via": "import",
-          "symbols": [
-            "DEFAULT_SAMPLE_LIMIT"
-          ]
+          "symbols": ["DEFAULT_SAMPLE_LIMIT"]
         },
         {
           "file": "apps/vscode/src/pure/validation-controller.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         }
       ],
       "useSitesTruncated": false,
@@ -2748,81 +2342,61 @@
           "file": "apps/vscode/scripts/build.mjs",
           "line": 41,
           "via": "module-types",
-          "symbols": [
-            "node:crypto"
-          ]
+          "symbols": ["node:crypto"]
         },
         {
           "file": "apps/vscode/scripts/build.mjs",
           "line": 43,
           "via": "module-types",
-          "symbols": [
-            "node:fs/promises"
-          ]
+          "symbols": ["node:fs/promises"]
         },
         {
           "file": "apps/vscode/scripts/build.mjs",
           "line": 44,
           "via": "module-types",
-          "symbols": [
-            "node:module"
-          ]
+          "symbols": ["node:module"]
         },
         {
           "file": "apps/vscode/scripts/build.mjs",
           "line": 45,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "apps/vscode/scripts/build.mjs",
           "line": 46,
           "via": "module-types",
-          "symbols": [
-            "node:url"
-          ]
+          "symbols": ["node:url"]
         },
         {
           "file": "apps/vscode/scripts/generate-fixture.mjs",
           "line": 15,
           "via": "module-types",
-          "symbols": [
-            "node:child_process"
-          ]
+          "symbols": ["node:child_process"]
         },
         {
           "file": "apps/vscode/scripts/generate-fixture.mjs",
           "line": 16,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "apps/vscode/scripts/generate-fixture.mjs",
           "line": 17,
           "via": "module-types",
-          "symbols": [
-            "node:os"
-          ]
+          "symbols": ["node:os"]
         },
         {
           "file": "apps/vscode/scripts/generate-fixture.mjs",
           "line": 18,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "apps/vscode/scripts/generate-fixtures.mjs",
           "line": 16,
           "via": "module-types",
-          "symbols": [
-            "node:child_process"
-          ]
+          "symbols": ["node:child_process"]
         }
       ],
       "useSitesTruncated": true,
@@ -2848,49 +2422,37 @@
           "file": "apps/vscode/src/dataset.ts",
           "line": 25,
           "via": "module-types",
-          "symbols": [
-            "vscode"
-          ]
+          "symbols": ["vscode"]
         },
         {
           "file": "apps/vscode/src/extension.ts",
           "line": 21,
           "via": "module-types",
-          "symbols": [
-            "vscode"
-          ]
+          "symbols": ["vscode"]
         },
         {
           "file": "apps/vscode/src/git-adapter.ts",
           "line": 2,
           "via": "module-types",
-          "symbols": [
-            "vscode"
-          ]
+          "symbols": ["vscode"]
         },
         {
           "file": "apps/vscode/src/webview-html.ts",
           "line": 14,
           "via": "module-types",
-          "symbols": [
-            "vscode"
-          ]
+          "symbols": ["vscode"]
         },
         {
           "file": "apps/vscode/test/e2e/dataset-runner.ts",
           "line": 25,
           "via": "module-types",
-          "symbols": [
-            "vscode"
-          ]
+          "symbols": ["vscode"]
         },
         {
           "file": "apps/vscode/test/spike-runner.ts",
           "line": 10,
           "via": "module-types",
-          "symbols": [
-            "vscode"
-          ]
+          "symbols": ["vscode"]
         }
       ],
       "useSitesTruncated": false,
@@ -2958,9 +2520,7 @@
           "file": "apps/vscode/scripts/build.mjs",
           "line": 42,
           "via": "import",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         }
       ],
       "useSitesTruncated": false,
@@ -2988,9 +2548,7 @@
           "file": "apps/vscode/package.json",
           "line": 65,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -3031,105 +2589,61 @@
           "file": "apps/vscode/src/pure/bridge-contracts.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/vscode/src/pure/cell-input.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/vscode/src/pure/cli-agreement.test.ts",
           "line": 2,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/vscode/src/pure/create-only-writer.test.ts",
           "line": 15,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["afterEach", "describe", "expect", "it"]
         },
         {
           "file": "apps/vscode/src/pure/dataset-format.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/vscode/src/pure/diff-controller.test.ts",
           "line": 2,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/vscode/src/pure/diff-presenter.test.ts",
           "line": 2,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/vscode/src/pure/dirty-history-view.test.ts",
           "line": 2,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "apps/vscode/src/pure/edit-controller.test.ts",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/vscode/src/pure/export-transfer-controller.test.ts",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "describe", "expect", "it", "vi"]
         }
       ],
       "useSitesTruncated": true,
@@ -3155,82 +2669,61 @@
           "file": "apps/web/src/App.pipeline.test.tsx",
           "line": 12,
           "via": "import",
-          "symbols": [
-            "parseContract"
-          ]
+          "symbols": ["parseContract"]
         },
         {
           "file": "apps/web/src/App.tsx",
           "line": 18,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "apps/web/src/pipeline/pipeline-state.ts",
           "line": 19,
           "via": "import-type",
-          "symbols": [
-            "ContractError",
-            "ContractV1"
-          ]
+          "symbols": ["ContractError", "ContractV1"]
         },
         {
           "file": "apps/web/src/pipeline/PipelinePanel.test.tsx",
           "line": 7,
           "via": "import",
-          "symbols": [
-            "parseContract"
-          ]
+          "symbols": ["parseContract"]
         },
         {
           "file": "apps/web/src/pipeline/PipelinePanel.test.tsx",
           "line": 8,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "apps/web/src/pipeline/PipelinePanel.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "apps/web/src/pipeline/usePipelineSession.ts",
           "line": 48,
           "via": "import",
-          "symbols": [
-            "parseContract"
-          ]
+          "symbols": ["parseContract"]
         },
         {
           "file": "apps/web/src/pipeline/usePipelineSession.ts",
           "line": 49,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "apps/web/src/sessions/session-errors.test.tsx",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "parseContract"
-          ]
+          "symbols": ["parseContract"]
         },
         {
           "file": "apps/web/src/sessions/useValidationSession.ts",
           "line": 7,
           "via": "import",
-          "symbols": [
-            "parseContract"
-          ]
+          "symbols": ["parseContract"]
         }
       ],
       "useSitesTruncated": true,
@@ -3268,66 +2761,49 @@
           "file": "apps/web/src/App.tsx",
           "line": 21,
           "via": "import",
-          "symbols": [
-            "pickDataFile"
-          ]
+          "symbols": ["pickDataFile"]
         },
         {
           "file": "apps/web/src/App.tsx",
           "line": 22,
           "via": "import-type",
-          "symbols": [
-            "PickedDataFile"
-          ]
+          "symbols": ["PickedDataFile"]
         },
         {
           "file": "apps/web/src/App.tsx",
           "line": 23,
           "via": "import",
-          "symbols": [
-            "detectFormatFromFileName"
-          ]
+          "symbols": ["detectFormatFromFileName"]
         },
         {
           "file": "apps/web/src/pipeline/usePipelineSession.ts",
           "line": 61,
           "via": "import",
-          "symbols": [
-            "pickDataFile"
-          ]
+          "symbols": ["pickDataFile"]
         },
         {
           "file": "apps/web/src/replace/useReplacementController.test.tsx",
           "line": 8,
           "via": "import-type",
-          "symbols": [
-            "PickedDataFile"
-          ]
+          "symbols": ["PickedDataFile"]
         },
         {
           "file": "apps/web/src/replace/useReplacementController.ts",
           "line": 60,
           "via": "import",
-          "symbols": [
-            "pickDataFile"
-          ]
+          "symbols": ["pickDataFile"]
         },
         {
           "file": "apps/web/src/replace/useReplacementController.ts",
           "line": 61,
           "via": "import",
-          "symbols": [
-            "detectFormatFromFileName"
-          ]
+          "symbols": ["detectFormatFromFileName"]
         },
         {
           "file": "apps/web/src/replace/useReplacementController.ts",
           "line": 62,
           "via": "import-type",
-          "symbols": [
-            "PickedDataFile",
-            "ShowOpenFilePickerOptions"
-          ]
+          "symbols": ["PickedDataFile", "ShowOpenFilePickerOptions"]
         }
       ],
       "useSitesTruncated": false,
@@ -3353,9 +2829,7 @@
           "file": "apps/web/src/diff/diff-export.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "DiffReport"
-          ]
+          "symbols": ["DiffReport"]
         },
         {
           "file": "apps/web/src/diff/diff-export.ts",
@@ -3374,10 +2848,7 @@
           "file": "apps/web/src/diff/diff-model.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "ColumnDistributionDelta",
-            "DiffReport"
-          ]
+          "symbols": ["ColumnDistributionDelta", "DiffReport"]
         },
         {
           "file": "apps/web/src/diff/diff-model.ts",
@@ -3408,19 +2879,13 @@
           "file": "apps/web/src/diff/diff-model.ts",
           "line": 60,
           "via": "import",
-          "symbols": [
-            "roundForReport"
-          ]
+          "symbols": ["roundForReport"]
         },
         {
           "file": "apps/web/src/diff/DiffPanel.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "DiffReport",
-            "KeyCandidate",
-            "KeyInferenceResult"
-          ]
+          "symbols": ["DiffReport", "KeyCandidate", "KeyInferenceResult"]
         },
         {
           "file": "apps/web/src/diff/DiffPanel.tsx",
@@ -3440,18 +2905,13 @@
           "file": "apps/web/src/diff/DiffPanel.tsx",
           "line": 47,
           "via": "import",
-          "symbols": [
-            "describeDiffIssue",
-            "describeRowDiffBindingError"
-          ]
+          "symbols": ["describeDiffIssue", "describeRowDiffBindingError"]
         },
         {
           "file": "apps/web/src/pipeline/dcr-export.ts",
           "line": 44,
           "via": "import",
-          "symbols": [
-            "schemaDrift"
-          ]
+          "symbols": ["schemaDrift"]
         }
       ],
       "useSitesTruncated": true,
@@ -3477,86 +2937,61 @@
           "file": "apps/web/src/App.section-summaries.test.tsx",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "emptyHistory",
-            "insertRowId"
-          ]
+          "symbols": ["emptyHistory", "insertRowId"]
         },
         {
           "file": "apps/web/src/App.section-summaries.test.tsx",
           "line": 6,
           "via": "import-type",
-          "symbols": [
-            "EditOp",
-            "HistoryEntry",
-            "TransformationHistory"
-          ]
+          "symbols": ["EditOp", "HistoryEntry", "TransformationHistory"]
         },
         {
           "file": "apps/web/src/App.tsx",
           "line": 16,
           "via": "import-type",
-          "symbols": [
-            "OverlayBase"
-          ]
+          "symbols": ["OverlayBase"]
         },
         {
           "file": "apps/web/src/App.tsx",
           "line": 17,
           "via": "import",
-          "symbols": [
-            "liveRowCount",
-            "stateAtCursor"
-          ]
+          "symbols": ["liveRowCount", "stateAtCursor"]
         },
         {
           "file": "apps/web/src/edit/HistoryPanel.tsx",
           "line": 27,
           "via": "import-type",
-          "symbols": [
-            "HistoryEntry"
-          ]
+          "symbols": ["HistoryEntry"]
         },
         {
           "file": "apps/web/src/edit/HistoryPanel.tsx",
           "line": 28,
           "via": "import",
-          "symbols": [
-            "describeOp"
-          ]
+          "symbols": ["describeOp"]
         },
         {
           "file": "apps/web/src/edit/op-summary.render.test.tsx",
           "line": 19,
           "via": "import-type",
-          "symbols": [
-            "EditOp"
-          ]
+          "symbols": ["EditOp"]
         },
         {
           "file": "apps/web/src/edit/op-summary.render.test.tsx",
           "line": 20,
           "via": "import",
-          "symbols": [
-            "insertRowId"
-          ]
+          "symbols": ["insertRowId"]
         },
         {
           "file": "apps/web/src/edit/op-summary.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "EditOp"
-          ]
+          "symbols": ["EditOp"]
         },
         {
           "file": "apps/web/src/edit/op-summary.test.ts",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "baseRowId",
-            "insertRowId"
-          ]
+          "symbols": ["baseRowId", "insertRowId"]
         }
       ],
       "useSitesTruncated": true,
@@ -3582,81 +3017,61 @@
           "file": "apps/web/src/App.column-ops.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         },
         {
           "file": "apps/web/src/App.csv-review.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineCsvPreviewResult"
-          ]
+          "symbols": ["EngineCsvPreviewResult"]
         },
         {
           "file": "apps/web/src/App.drop.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         },
         {
           "file": "apps/web/src/App.error-boundary.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         },
         {
           "file": "apps/web/src/App.headings.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         },
         {
           "file": "apps/web/src/App.history-shortcut.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         },
         {
           "file": "apps/web/src/App.lifecycle.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         },
         {
           "file": "apps/web/src/App.memo-probe.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         },
         {
           "file": "apps/web/src/App.open-status.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 9,
           "via": "import-type",
-          "symbols": [
-            "EngineTableHandle"
-          ]
+          "symbols": ["EngineTableHandle"]
         }
       ],
       "useSitesTruncated": true,
@@ -3682,82 +3097,61 @@
           "file": "apps/web/src/App.profile-filter.test.tsx",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "FilterApplyError",
-            "GridViewportModel"
-          ]
+          "symbols": ["FilterApplyError", "GridViewportModel"]
         },
         {
           "file": "apps/web/src/App.replace.test.tsx",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/web/src/App.tsx",
           "line": 19,
           "via": "import",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/web/src/App.tsx",
           "line": 20,
           "via": "import-type",
-          "symbols": [
-            "ColumnSchema"
-          ]
+          "symbols": ["ColumnSchema"]
         },
         {
           "file": "apps/web/src/grid/DataGrid.busy.test.tsx",
           "line": 6,
           "via": "import-type",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/web/src/grid/DataGrid.copy.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/web/src/grid/DataGrid.diagnostics.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/web/src/grid/DataGrid.interaction-hints.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/web/src/grid/DataGrid.jump-focus.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         },
         {
           "file": "apps/web/src/grid/DataGrid.keyboard.test.tsx",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "GridViewportModel"
-          ]
+          "symbols": ["GridViewportModel"]
         }
       ],
       "useSitesTruncated": true,
@@ -3783,98 +3177,61 @@
           "file": "apps/web/src/pipeline/dcr-export.test.ts",
           "line": 23,
           "via": "import",
-          "symbols": [
-            "parseDcr",
-            "parsePipeline",
-            "serializeDcr"
-          ]
+          "symbols": ["parseDcr", "parsePipeline", "serializeDcr"]
         },
         {
           "file": "apps/web/src/pipeline/dcr-export.ts",
           "line": 46,
           "via": "import",
-          "symbols": [
-            "buildDcrArtifact",
-            "sanitizePipelineText",
-            "serializeDcr"
-          ]
+          "symbols": ["buildDcrArtifact", "sanitizePipelineText", "serializeDcr"]
         },
         {
           "file": "apps/web/src/pipeline/dcr-export.ts",
           "line": 47,
           "via": "import-type",
-          "symbols": [
-            "DcrVersionRef",
-            "PipelineV1"
-          ]
+          "symbols": ["DcrVersionRef", "PipelineV1"]
         },
         {
           "file": "apps/web/src/pipeline/pipeline-model.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "compilePipeline",
-            "isDataNode",
-            "parsePipeline",
-            "validatePipeline"
-          ]
+          "symbols": ["compilePipeline", "isDataNode", "parsePipeline", "validatePipeline"]
         },
         {
           "file": "apps/web/src/pipeline/pipeline-model.test.ts",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "PipelineCompilePlan",
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineCompilePlan", "PipelineV1"]
         },
         {
           "file": "apps/web/src/pipeline/pipeline-model.ts",
           "line": 19,
           "via": "import-type",
-          "symbols": [
-            "CompiledNode",
-            "PipelineCompilePlan",
-            "PipelineNode",
-            "PipelineV1"
-          ]
+          "symbols": ["CompiledNode", "PipelineCompilePlan", "PipelineNode", "PipelineV1"]
         },
         {
           "file": "apps/web/src/pipeline/pipeline-state.ts",
           "line": 18,
           "via": "import-type",
-          "symbols": [
-            "PipelineCompilePlan",
-            "PipelineError",
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineCompilePlan", "PipelineError", "PipelineV1"]
         },
         {
           "file": "apps/web/src/pipeline/PipelinePanel.test.tsx",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "compilePipeline",
-            "isDataNode",
-            "parsePipeline",
-            "validatePipeline"
-          ]
+          "symbols": ["compilePipeline", "isDataNode", "parsePipeline", "validatePipeline"]
         },
         {
           "file": "apps/web/src/pipeline/PipelinePanel.test.tsx",
           "line": 6,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         },
         {
           "file": "apps/web/src/pipeline/PipelinePanel.tsx",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "PipelineError"
-          ]
+          "symbols": ["PipelineError"]
         }
       ],
       "useSitesTruncated": true,
@@ -3900,60 +3257,43 @@
           "file": "apps/web/src/App.tsx",
           "line": 15,
           "via": "import",
-          "symbols": [
-            "bucketFindingCount",
-            "classifyOsFamily"
-          ]
+          "symbols": ["bucketFindingCount", "classifyOsFamily"]
         },
         {
           "file": "apps/web/src/export/ExportDialog.tsx",
           "line": 22,
           "via": "import",
-          "symbols": [
-            "bucketRowCount"
-          ]
+          "symbols": ["bucketRowCount"]
         },
         {
           "file": "apps/web/src/profile/ProfilePanel.tsx",
           "line": 10,
           "via": "import",
-          "symbols": [
-            "bucketColumnCount"
-          ]
+          "symbols": ["bucketColumnCount"]
         },
         {
           "file": "apps/web/src/sessions/useSessionOwner.ts",
           "line": 107,
           "via": "import",
-          "symbols": [
-            "bucketColumnCount",
-            "bucketRowCount",
-            "bucketSize"
-          ]
+          "symbols": ["bucketColumnCount", "bucketRowCount", "bucketSize"]
         },
         {
           "file": "apps/web/src/sql/SqlPanel.tsx",
           "line": 6,
           "via": "import",
-          "symbols": [
-            "bucketRowCount"
-          ]
+          "symbols": ["bucketRowCount"]
         },
         {
           "file": "apps/web/src/sql/SqlPanel.tsx",
           "line": 7,
           "via": "import-type",
-          "symbols": [
-            "QueryKind"
-          ]
+          "symbols": ["QueryKind"]
         },
         {
           "file": "apps/web/src/telemetry/config.ts",
           "line": 17,
           "via": "import-type",
-          "symbols": [
-            "BuildChannel"
-          ]
+          "symbols": ["BuildChannel"]
         },
         {
           "file": "apps/web/src/telemetry/emit.ts",
@@ -3973,17 +3313,13 @@
           "file": "apps/web/src/telemetry/emit.ts",
           "line": 21,
           "via": "import",
-          "symbols": [
-            "bucketDuration"
-          ]
+          "symbols": ["bucketDuration"]
         },
         {
           "file": "apps/web/src/telemetry/runtime.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "TelemetryEvent"
-          ]
+          "symbols": ["TelemetryEvent"]
         }
       ],
       "useSitesTruncated": true,
@@ -4009,67 +3345,49 @@
           "file": "apps/web/src/pipeline/dcr-export.ts",
           "line": 45,
           "via": "import-type",
-          "symbols": [
-            "EngineSchema"
-          ]
+          "symbols": ["EngineSchema"]
         },
         {
           "file": "apps/web/src/pipeline/usePipelineSession.ts",
           "line": 50,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         },
         {
           "file": "apps/web/src/sessions/useValidationSession.ts",
           "line": 9,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         },
         {
           "file": "apps/web/src/validation/report-export.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         },
         {
           "file": "apps/web/src/validation/report-model.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         },
         {
           "file": "apps/web/src/validation/report-model.ts",
           "line": 57,
           "via": "import",
-          "symbols": [
-            "quoteIdentifier",
-            "sqlNumberLiteral",
-            "sqlStringLiteral"
-          ]
+          "symbols": ["quoteIdentifier", "sqlNumberLiteral", "sqlStringLiteral"]
         },
         {
           "file": "apps/web/src/validation/ValidationPanel.tsx",
           "line": 36,
           "via": "import-type",
-          "symbols": [
-            "BindingError"
-          ]
+          "symbols": ["BindingError"]
         },
         {
           "file": "apps/web/src/validation/ValidationPanel.tsx",
           "line": 37,
           "via": "import",
-          "symbols": [
-            "describeBindingError"
-          ]
+          "symbols": ["describeBindingError"]
         }
       ],
       "useSitesTruncated": false,
@@ -4098,9 +3416,7 @@
           "file": "apps/web/src/grid/DataGrid.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "useVirtualizer"
-          ]
+          "symbols": ["useVirtualizer"]
         }
       ],
       "useSitesTruncated": false,
@@ -4134,130 +3450,61 @@
           "file": "apps/web/src/App.column-ops.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen",
-            "within"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen", "within"]
         },
         {
           "file": "apps/web/src/App.csv-review.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen",
-            "waitFor"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen", "waitFor"]
         },
         {
           "file": "apps/web/src/App.drop.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "createEvent",
-            "fireEvent",
-            "render",
-            "screen"
-          ]
+          "symbols": ["act", "cleanup", "createEvent", "fireEvent", "render", "screen"]
         },
         {
           "file": "apps/web/src/App.error-boundary.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen",
-            "waitFor"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen", "waitFor"]
         },
         {
           "file": "apps/web/src/App.grid-busy.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen",
-            "waitFor"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen", "waitFor"]
         },
         {
           "file": "apps/web/src/App.headings.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen",
-            "waitFor"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen", "waitFor"]
         },
         {
           "file": "apps/web/src/App.history-shortcut.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen",
-            "waitFor"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen", "waitFor"]
         },
         {
           "file": "apps/web/src/App.lifecycle.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen"]
         },
         {
           "file": "apps/web/src/App.memo-probe.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen",
-            "waitFor"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen", "waitFor"]
         },
         {
           "file": "apps/web/src/App.open-status.test.tsx",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "act",
-            "cleanup",
-            "fireEvent",
-            "render",
-            "screen",
-            "waitFor"
-          ]
+          "symbols": ["act", "cleanup", "fireEvent", "render", "screen", "waitFor"]
         }
       ],
       "useSitesTruncated": true,
@@ -4283,81 +3530,61 @@
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 119,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 133,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 147,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 161,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 175,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 189,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 203,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 217,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 230,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         },
         {
           "file": "apps/web/src/App.panel-boundary.test.tsx",
           "line": 244,
           "via": "module-types",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         }
       ],
       "useSitesTruncated": true,
@@ -4385,9 +3612,7 @@
           "file": "apps/web/src/main.tsx",
           "line": 4,
           "via": "module-types",
-          "symbols": [
-            "react-dom/client"
-          ]
+          "symbols": ["react-dom/client"]
         }
       ],
       "useSitesTruncated": false,
@@ -4417,9 +3642,7 @@
           "file": "apps/web/vite.config.ts",
           "line": 2,
           "via": "import",
-          "symbols": [
-            "react"
-          ]
+          "symbols": ["react"]
         }
       ],
       "useSitesTruncated": false,
@@ -4550,9 +3773,7 @@
           "file": "apps/web/src/main.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "createRoot"
-          ]
+          "symbols": ["createRoot"]
         }
       ],
       "useSitesTruncated": false,
@@ -4580,9 +3801,7 @@
           "file": "apps/web/package.json",
           "line": 13,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -4623,49 +3842,37 @@
           "file": "apps/web/package.json",
           "line": 10,
           "via": "script",
-          "symbols": [
-            "dev"
-          ]
+          "symbols": ["dev"]
         },
         {
           "file": "apps/web/package.json",
           "line": 11,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "apps/web/package.json",
           "line": 12,
           "via": "script",
-          "symbols": [
-            "preview"
-          ]
+          "symbols": ["preview"]
         },
         {
           "file": "apps/web/tsconfig.json",
           "line": 6,
           "via": "config-string",
-          "symbols": [
-            "vite/client"
-          ]
+          "symbols": ["vite/client"]
         },
         {
           "file": "apps/web/tsconfig.json",
           "line": 6,
           "via": "tsconfig-types",
-          "symbols": [
-            "vite/client"
-          ]
+          "symbols": ["vite/client"]
         },
         {
           "file": "apps/web/vite.config.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "defineConfig"
-          ]
+          "symbols": ["defineConfig"]
         }
       ],
       "useSitesTruncated": false,
@@ -4706,126 +3913,61 @@
           "file": "apps/web/src/App.column-ops.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.csv-review.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "beforeEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "beforeEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.drop.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.error-boundary.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "beforeEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "beforeEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.grid-busy.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "beforeEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "beforeEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.headings.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "beforeEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "beforeEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.history-shortcut.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "beforeEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "beforeEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.lifecycle.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.memo-probe.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "describe", "expect", "it", "vi"]
         },
         {
           "file": "apps/web/src/App.open-status.test.tsx",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["afterEach", "describe", "expect", "it", "vi"]
         }
       ],
       "useSitesTruncated": true,
@@ -4853,9 +3995,7 @@
           "file": "packages/ai/package.json",
           "line": 10,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -4883,17 +4023,13 @@
           "file": "packages/contracts/package.json",
           "line": 34,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/contracts/package.json",
           "line": 35,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -4934,71 +4070,43 @@
           "file": "packages/contracts/src/json-schema.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/contracts/src/numeric.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/contracts/src/parse.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/contracts/src/re2-subset.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/contracts/src/round-trip.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/contracts/src/serialize.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/contracts/src/vocabulary.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": false,
@@ -5026,42 +4134,25 @@
           "file": "packages/contracts/src/parse.ts",
           "line": 33,
           "via": "import",
-          "symbols": [
-            "parseDocument"
-          ]
+          "symbols": ["parseDocument"]
         },
         {
           "file": "packages/contracts/src/serialize.ts",
           "line": 40,
           "via": "import",
-          "symbols": [
-            "Document",
-            "stringify"
-          ]
+          "symbols": ["Document", "stringify"]
         },
         {
           "file": "packages/contracts/src/validate.ts",
           "line": 33,
           "via": "import",
-          "symbols": [
-            "isAlias",
-            "isMap",
-            "isNode",
-            "isScalar",
-            "isSeq"
-          ]
+          "symbols": ["isAlias", "isMap", "isNode", "isScalar", "isSeq"]
         },
         {
           "file": "packages/contracts/src/validate.ts",
           "line": 34,
           "via": "import-type",
-          "symbols": [
-            "Alias",
-            "Document",
-            "Scalar",
-            "YAMLMap",
-            "YAMLSeq"
-          ]
+          "symbols": ["Alias", "Document", "Scalar", "YAMLMap", "YAMLSeq"]
         }
       ],
       "useSitesTruncated": false,
@@ -5089,9 +4180,7 @@
           "file": "packages/core/package.json",
           "line": 10,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -5117,27 +4206,19 @@
           "file": "packages/data-sources/harness/main.ts",
           "line": 27,
           "via": "import",
-          "symbols": [
-            "dataSourceBehaviorScenarioNames",
-            "runDataSourceBehaviorScenarios"
-          ]
+          "symbols": ["dataSourceBehaviorScenarioNames", "runDataSourceBehaviorScenarios"]
         },
         {
           "file": "packages/data-sources/harness/main.ts",
           "line": 28,
           "via": "import-type",
-          "symbols": [
-            "DataSourceBehaviorScenarioName"
-          ]
+          "symbols": ["DataSourceBehaviorScenarioName"]
         },
         {
           "file": "packages/data-sources/src/behavior-subject.test.ts",
           "line": 12,
           "via": "import",
-          "symbols": [
-            "dataSourceBehaviorScenarioNames",
-            "runDataSourceBehaviorScenarios"
-          ]
+          "symbols": ["dataSourceBehaviorScenarioNames", "runDataSourceBehaviorScenarios"]
         },
         {
           "file": "packages/data-sources/src/behavior-subject.ts",
@@ -5178,9 +4259,7 @@
           "file": "packages/data-sources/package.json",
           "line": 16,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -5221,17 +4300,13 @@
           "file": "packages/data-sources/package.json",
           "line": 15,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/data-sources/vite.config.ts",
           "line": 1,
           "via": "import",
-          "symbols": [
-            "defineConfig"
-          ]
+          "symbols": ["defineConfig"]
         }
       ],
       "useSitesTruncated": false,
@@ -5257,10 +4332,7 @@
           "file": "packages/diff/src/report-projection.ts",
           "line": 8,
           "via": "import",
-          "symbols": [
-            "displayRowKey",
-            "exportRowKey"
-          ]
+          "symbols": ["displayRowKey", "exportRowKey"]
         }
       ],
       "useSitesTruncated": false,
@@ -5286,41 +4358,31 @@
           "file": "packages/diff/src/diff-property-testing.ts",
           "line": 48,
           "via": "import-type",
-          "symbols": [
-            "ColumnTypeFamily"
-          ]
+          "symbols": ["ColumnTypeFamily"]
         },
         {
           "file": "packages/diff/src/input-validation.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "EngineSchemaColumn"
-          ]
+          "symbols": ["EngineSchemaColumn"]
         },
         {
           "file": "packages/diff/src/input-validation.ts",
           "line": 29,
           "via": "import-type",
-          "symbols": [
-            "EngineSchemaColumn"
-          ]
+          "symbols": ["EngineSchemaColumn"]
         },
         {
           "file": "packages/diff/src/report.ts",
           "line": 46,
           "via": "import-type",
-          "symbols": [
-            "EngineSchema"
-          ]
+          "symbols": ["EngineSchema"]
         },
         {
           "file": "packages/diff/src/row-diff-compile.ts",
           "line": 98,
           "via": "import-type",
-          "symbols": [
-            "EngineSchema"
-          ]
+          "symbols": ["EngineSchema"]
         },
         {
           "file": "packages/diff/src/row-diff-compile.ts",
@@ -5337,18 +4399,13 @@
           "file": "packages/diff/src/schema-drift.ts",
           "line": 49,
           "via": "import-type",
-          "symbols": [
-            "ColumnTypeFamily",
-            "EngineSchema"
-          ]
+          "symbols": ["ColumnTypeFamily", "EngineSchema"]
         },
         {
           "file": "packages/diff/src/schema-drift.ts",
           "line": 50,
           "via": "import",
-          "symbols": [
-            "classifyColumnType"
-          ]
+          "symbols": ["classifyColumnType"]
         }
       ],
       "useSitesTruncated": false,
@@ -5376,17 +4433,13 @@
           "file": "packages/diff/package.json",
           "line": 34,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/diff/package.json",
           "line": 35,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -5427,101 +4480,61 @@
           "file": "packages/diff/src/bins.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/deltas.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/diff-property.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/divergence.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/input-validation.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/key-inference.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/report-projection.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/report.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/rounding.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/diff/src/row-diff-compile.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": true,
@@ -5549,17 +4562,13 @@
           "file": "packages/domain/package.json",
           "line": 34,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/domain/package.json",
           "line": 35,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -5600,62 +4609,37 @@
           "file": "packages/domain/src/column-repair.test.ts",
           "line": 11,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/domain/src/edit-ops.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "expectTypeOf",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "expectTypeOf", "it"]
         },
         {
           "file": "packages/domain/src/history.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/domain/src/index.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expectTypeOf",
-            "it"
-          ]
+          "symbols": ["describe", "expectTypeOf", "it"]
         },
         {
           "file": "packages/domain/src/overlay.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/domain/src/row-identity.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": false,
@@ -5681,9 +4665,7 @@
           "file": "packages/engine/src/index.ts",
           "line": 12,
           "via": "import-type",
-          "symbols": [
-            "DataSource"
-          ]
+          "symbols": ["DataSource"]
         }
       ],
       "useSitesTruncated": false,
@@ -5711,9 +4693,7 @@
           "file": "packages/engine/package.json",
           "line": 10,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -5739,49 +4719,37 @@
           "file": "packages/engine-duckdb/harness/conformance-subject.ts",
           "line": 45,
           "via": "import",
-          "symbols": [
-            "CONTRACT_TYPE_VOCABULARY"
-          ]
+          "symbols": ["CONTRACT_TYPE_VOCABULARY"]
         },
         {
           "file": "packages/engine-duckdb/harness/main.ts",
           "line": 32,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "packages/engine-duckdb/harness/pipeline-runner-subject.ts",
           "line": 44,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "packages/engine-duckdb/harness/validation-dataset.ts",
           "line": 61,
           "via": "import",
-          "symbols": [
-            "parseContract"
-          ]
+          "symbols": ["parseContract"]
         },
         {
           "file": "packages/engine-duckdb/harness/validation-dataset.ts",
           "line": 62,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "packages/engine-duckdb/src/validate-plan-wire.test.ts",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         }
       ],
       "useSitesTruncated": false,
@@ -5807,65 +4775,49 @@
           "file": "packages/engine-duckdb/harness/pipeline-runner-subject.ts",
           "line": 26,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "packages/engine-duckdb/harness/row-diff-dataset.ts",
           "line": 32,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "packages/engine-duckdb/src/client.test.ts",
           "line": 6,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "packages/engine-duckdb/src/diff-plan-wire.test.ts",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "packages/engine-duckdb/src/engine-executor.test.ts",
           "line": 30,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "packages/engine-duckdb/src/protocol.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "packages/engine-duckdb/src/row-diff-agreement.test.ts",
           "line": 8,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "packages/engine-duckdb/src/row-diff-agreement.test.ts",
           "line": 9,
           "via": "import-type",
-          "symbols": [
-            "RowDiffPlan"
-          ]
+          "symbols": ["RowDiffPlan"]
         }
       ],
       "useSitesTruncated": false,
@@ -5891,91 +4843,61 @@
           "file": "packages/engine-duckdb/harness/conformance-subject.ts",
           "line": 42,
           "via": "import",
-          "symbols": [
-            "baseRowId",
-            "insertRowId"
-          ]
+          "symbols": ["baseRowId", "insertRowId"]
         },
         {
           "file": "packages/engine-duckdb/harness/conformance-subject.ts",
           "line": 43,
           "via": "import-type",
-          "symbols": [
-            "CellValue",
-            "EditOp",
-            "OverlayBase"
-          ]
+          "symbols": ["CellValue", "EditOp", "OverlayBase"]
         },
         {
           "file": "packages/engine-duckdb/harness/main.ts",
           "line": 34,
           "via": "import-type",
-          "symbols": [
-            "EditOp",
-            "RowId"
-          ]
+          "symbols": ["EditOp", "RowId"]
         },
         {
           "file": "packages/engine-duckdb/harness/row-diff-dataset.ts",
           "line": 40,
           "via": "import-type",
-          "symbols": [
-            "EditOp",
-            "RowId"
-          ]
+          "symbols": ["EditOp", "RowId"]
         },
         {
           "file": "packages/engine-duckdb/harness/validation-dataset.ts",
           "line": 72,
           "via": "import-type",
-          "symbols": [
-            "CellValue",
-            "EditOp",
-            "OverlayBase",
-            "RowId"
-          ]
+          "symbols": ["CellValue", "EditOp", "OverlayBase", "RowId"]
         },
         {
           "file": "packages/engine-duckdb/src/client.test.ts",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "baseRowId"
-          ]
+          "symbols": ["baseRowId"]
         },
         {
           "file": "packages/engine-duckdb/src/client.ts",
           "line": 26,
           "via": "import-type",
-          "symbols": [
-            "EditOp",
-            "OverlayBase"
-          ]
+          "symbols": ["EditOp", "OverlayBase"]
         },
         {
           "file": "packages/engine-duckdb/src/client.ts",
           "line": 27,
           "via": "import",
-          "symbols": [
-            "foldOverlay"
-          ]
+          "symbols": ["foldOverlay"]
         },
         {
           "file": "packages/engine-duckdb/src/engine-executor.test.ts",
           "line": 16,
           "via": "import",
-          "symbols": [
-            "baseRowId",
-            "insertRowId"
-          ]
+          "symbols": ["baseRowId", "insertRowId"]
         },
         {
           "file": "packages/engine-duckdb/src/engine-executor.test.ts",
           "line": 17,
           "via": "import-type",
-          "symbols": [
-            "EditOp"
-          ]
+          "symbols": ["EditOp"]
         }
       ],
       "useSitesTruncated": true,
@@ -6037,66 +4959,49 @@
           "file": "packages/engine-duckdb/harness/main.ts",
           "line": 33,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         },
         {
           "file": "packages/engine-duckdb/harness/pipeline-runner-subject.ts",
           "line": 45,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         },
         {
           "file": "packages/engine-duckdb/src/client.test.ts",
           "line": 1863,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         },
         {
           "file": "packages/engine-duckdb/src/engine-executor.ts",
           "line": 77,
           "via": "import",
-          "symbols": [
-            "classifyVerbatimSql"
-          ]
+          "symbols": ["classifyVerbatimSql"]
         },
         {
           "file": "packages/engine-duckdb/src/pipeline-runner/candidate-ref.test.ts",
           "line": 10,
           "via": "import",
-          "symbols": [
-            "buildDcrArtifact"
-          ]
+          "symbols": ["buildDcrArtifact"]
         },
         {
           "file": "packages/engine-duckdb/src/pipeline-runner/candidate-ref.test.ts",
           "line": 11,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         },
         {
           "file": "packages/engine-duckdb/src/pipeline-runner/candidate-ref.ts",
           "line": 45,
           "via": "import",
-          "symbols": [
-            "isDataNode"
-          ]
+          "symbols": ["isDataNode"]
         },
         {
           "file": "packages/engine-duckdb/src/pipeline-runner/candidate-ref.ts",
           "line": 46,
           "via": "import-type",
-          "symbols": [
-            "PipelineCompilePlan",
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineCompilePlan", "PipelineV1"]
         },
         {
           "file": "packages/engine-duckdb/src/pipeline-runner/candidate-ref.ts",
@@ -6113,9 +5018,7 @@
           "file": "packages/engine-duckdb/src/pipeline-runner/fingerprint-stability.test.ts",
           "line": 21,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         }
       ],
       "useSitesTruncated": true,
@@ -6230,43 +5133,31 @@
           "file": "packages/engine-duckdb/harness/main.ts",
           "line": 31,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         },
         {
           "file": "packages/engine-duckdb/harness/pipeline-runner-subject.ts",
           "line": 25,
           "via": "import",
-          "symbols": [
-            "compileContract",
-            "sqlStringLiteral"
-          ]
+          "symbols": ["compileContract", "sqlStringLiteral"]
         },
         {
           "file": "packages/engine-duckdb/harness/validation-dataset.ts",
           "line": 59,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         },
         {
           "file": "packages/engine-duckdb/harness/validation-dataset.ts",
           "line": 60,
           "via": "import-type",
-          "symbols": [
-            "EngineSchema",
-            "ValidationPlan"
-          ]
+          "symbols": ["EngineSchema", "ValidationPlan"]
         },
         {
           "file": "packages/engine-duckdb/src/validate-plan-wire.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         }
       ],
       "useSitesTruncated": false,
@@ -6292,41 +5183,31 @@
           "file": "packages/engine-duckdb/src/worker-core.ts",
           "line": 38,
           "via": "import",
-          "symbols": [
-            "* as duckdb"
-          ]
+          "symbols": ["* as duckdb"]
         },
         {
           "file": "packages/engine-duckdb/src/worker.ts",
           "line": 42,
           "via": "import",
-          "symbols": [
-            "duckdbMvpWorkerUrl"
-          ]
+          "symbols": ["duckdbMvpWorkerUrl"]
         },
         {
           "file": "packages/engine-duckdb/src/worker.ts",
           "line": 43,
           "via": "import",
-          "symbols": [
-            "duckdbMvpWasmUrl"
-          ]
+          "symbols": ["duckdbMvpWasmUrl"]
         },
         {
           "file": "packages/engine-duckdb/src/worker.ts",
           "line": 44,
           "via": "import",
-          "symbols": [
-            "duckdbEhWorkerUrl"
-          ]
+          "symbols": ["duckdbEhWorkerUrl"]
         },
         {
           "file": "packages/engine-duckdb/src/worker.ts",
           "line": 45,
           "via": "import",
-          "symbols": [
-            "duckdbEhWasmUrl"
-          ]
+          "symbols": ["duckdbEhWasmUrl"]
         }
       ],
       "useSitesTruncated": false,
@@ -6352,9 +5233,7 @@
           "file": "packages/engine-duckdb/src/pipeline-runner/runner.test.ts",
           "line": 7,
           "via": "import",
-          "symbols": [
-            "DuckDBInstance"
-          ]
+          "symbols": ["DuckDBInstance"]
         }
       ],
       "useSitesTruncated": false,
@@ -6380,34 +5259,25 @@
           "file": "packages/engine-duckdb/harness/conformance-subject.ts",
           "line": 44,
           "via": "import",
-          "symbols": [
-            "tableFromIPC"
-          ]
+          "symbols": ["tableFromIPC"]
         },
         {
           "file": "packages/engine-duckdb/src/client.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "tableFromArrays",
-            "tableToIPC"
-          ]
+          "symbols": ["tableFromArrays", "tableToIPC"]
         },
         {
           "file": "packages/engine-duckdb/src/client.ts",
           "line": 24,
           "via": "import",
-          "symbols": [
-            "tableFromIPC"
-          ]
+          "symbols": ["tableFromIPC"]
         },
         {
           "file": "packages/engine-duckdb/src/client.ts",
           "line": 25,
           "via": "import-type",
-          "symbols": [
-            "Table"
-          ]
+          "symbols": ["Table"]
         },
         {
           "file": "packages/engine-duckdb/src/csv-dispatch.test.ts",
@@ -6429,30 +5299,19 @@
           "file": "packages/engine-duckdb/src/csv-dispatch.ts",
           "line": 31,
           "via": "import-type",
-          "symbols": [
-            "Table"
-          ]
+          "symbols": ["Table"]
         },
         {
           "file": "packages/engine-duckdb/src/diff-query.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "Field",
-            "List",
-            "Table",
-            "Utf8",
-            "tableFromArrays",
-            "vectorFromArray"
-          ]
+          "symbols": ["Field", "List", "Table", "Utf8", "tableFromArrays", "vectorFromArray"]
         },
         {
           "file": "packages/engine-duckdb/src/diff-query.ts",
           "line": 74,
           "via": "import-type",
-          "symbols": [
-            "Table"
-          ]
+          "symbols": ["Table"]
         },
         {
           "file": "packages/engine-duckdb/src/engine-executor.test.ts",
@@ -6475,9 +5334,7 @@
           "file": "packages/engine-duckdb/src/engine-executor.test.ts",
           "line": 15,
           "via": "import-type",
-          "symbols": [
-            "RecordBatch"
-          ]
+          "symbols": ["RecordBatch"]
         }
       ],
       "useSitesTruncated": true,
@@ -6505,17 +5362,13 @@
           "file": "packages/engine-duckdb/package.json",
           "line": 43,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/engine-duckdb/package.json",
           "line": 44,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -6556,17 +5409,13 @@
           "file": "packages/engine-duckdb/package.json",
           "line": 43,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/engine-duckdb/vite.config.ts",
           "line": 1,
           "via": "import",
-          "symbols": [
-            "defineConfig"
-          ]
+          "symbols": ["defineConfig"]
         }
       ],
       "useSitesTruncated": false,
@@ -6594,9 +5443,7 @@
           "file": "packages/engine-parquet/package.json",
           "line": 10,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -6624,17 +5471,13 @@
           "file": "packages/grid/package.json",
           "line": 34,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/grid/package.json",
           "line": 35,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -6660,28 +5503,19 @@
           "file": "packages/pipeline/src/compile/compile.ts",
           "line": 195,
           "via": "import",
-          "symbols": [
-            "CONTRACT_TYPE_VOCABULARY",
-            "contractTypeHint"
-          ]
+          "symbols": ["CONTRACT_TYPE_VOCABULARY", "contractTypeHint"]
         },
         {
           "file": "packages/pipeline/src/dcr-validate.ts",
           "line": 46,
           "via": "import",
-          "symbols": [
-            "canonicalDecimal",
-            "isExactDecimalLiteral"
-          ]
+          "symbols": ["canonicalDecimal", "isExactDecimalLiteral"]
         },
         {
           "file": "packages/pipeline/src/validate.ts",
           "line": 45,
           "via": "import",
-          "symbols": [
-            "canonicalDecimal",
-            "isExactDecimalLiteral"
-          ]
+          "symbols": ["canonicalDecimal", "isExactDecimalLiteral"]
         }
       ],
       "useSitesTruncated": false,
@@ -6707,9 +5541,7 @@
           "file": "packages/pipeline/src/compile/compile.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "quoteIdentifier"
-          ]
+          "symbols": ["quoteIdentifier"]
         },
         {
           "file": "packages/pipeline/src/compile/compile.ts",
@@ -6726,17 +5558,13 @@
           "file": "packages/pipeline/src/identifiers.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "quoteIdentifier"
-          ]
+          "symbols": ["quoteIdentifier"]
         },
         {
           "file": "packages/pipeline/src/identifiers.ts",
           "line": 15,
           "via": "import",
-          "symbols": [
-            "quoteIdentifier"
-          ]
+          "symbols": ["quoteIdentifier"]
         }
       ],
       "useSitesTruncated": false,
@@ -6762,81 +5590,61 @@
           "file": "packages/pipeline/src/dcr-build.test.ts",
           "line": 3,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "packages/pipeline/src/dcr-build.test.ts",
           "line": 4,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "packages/pipeline/src/dcr-build.test.ts",
           "line": 5,
           "via": "module-types",
-          "symbols": [
-            "node:url"
-          ]
+          "symbols": ["node:url"]
         },
         {
           "file": "packages/pipeline/src/dcr-conformance.test.ts",
           "line": 34,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "packages/pipeline/src/dcr-conformance.test.ts",
           "line": 35,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "packages/pipeline/src/dcr-conformance.test.ts",
           "line": 36,
           "via": "module-types",
-          "symbols": [
-            "node:url"
-          ]
+          "symbols": ["node:url"]
         },
         {
           "file": "packages/pipeline/src/dcr-fixtures.test.ts",
           "line": 3,
           "via": "module-types",
-          "symbols": [
-            "node:crypto"
-          ]
+          "symbols": ["node:crypto"]
         },
         {
           "file": "packages/pipeline/src/dcr-fixtures.test.ts",
           "line": 4,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "packages/pipeline/src/dcr-fixtures.test.ts",
           "line": 5,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "packages/pipeline/src/dcr-fixtures.test.ts",
           "line": 6,
           "via": "module-types",
-          "symbols": [
-            "node:url"
-          ]
+          "symbols": ["node:url"]
         }
       ],
       "useSitesTruncated": true,
@@ -6864,17 +5672,13 @@
           "file": "packages/pipeline/package.json",
           "line": 35,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/pipeline/package.json",
           "line": 36,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -6915,101 +5719,61 @@
           "file": "packages/pipeline/src/ast.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/compile/compile.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/compile/sql-safety.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/dag.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/dcr-build.test.ts",
           "line": 6,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/dcr-conformance.test.ts",
           "line": 37,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/dcr-fixtures.test.ts",
           "line": 7,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/dcr-parse.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/dcr-round-trip.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/pipeline/src/dcr-serialize.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": true,
@@ -7037,92 +5801,55 @@
           "file": "packages/pipeline/src/dcr-parse.ts",
           "line": 30,
           "via": "import",
-          "symbols": [
-            "parseDocument"
-          ]
+          "symbols": ["parseDocument"]
         },
         {
           "file": "packages/pipeline/src/dcr-serialize.ts",
           "line": 36,
           "via": "import",
-          "symbols": [
-            "Document",
-            "stringify"
-          ]
+          "symbols": ["Document", "stringify"]
         },
         {
           "file": "packages/pipeline/src/dcr-validate.ts",
           "line": 44,
           "via": "import",
-          "symbols": [
-            "isAlias",
-            "isMap",
-            "isNode",
-            "isScalar",
-            "isSeq"
-          ]
+          "symbols": ["isAlias", "isMap", "isNode", "isScalar", "isSeq"]
         },
         {
           "file": "packages/pipeline/src/dcr-validate.ts",
           "line": 45,
           "via": "import-type",
-          "symbols": [
-            "Alias",
-            "Document",
-            "Scalar",
-            "YAMLMap",
-            "YAMLSeq"
-          ]
+          "symbols": ["Alias", "Document", "Scalar", "YAMLMap", "YAMLSeq"]
         },
         {
           "file": "packages/pipeline/src/parse.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "isAlias",
-            "parseDocument"
-          ]
+          "symbols": ["isAlias", "parseDocument"]
         },
         {
           "file": "packages/pipeline/src/parse.ts",
           "line": 39,
           "via": "import",
-          "symbols": [
-            "parseDocument"
-          ]
+          "symbols": ["parseDocument"]
         },
         {
           "file": "packages/pipeline/src/serialize.ts",
           "line": 34,
           "via": "import",
-          "symbols": [
-            "Document",
-            "stringify"
-          ]
+          "symbols": ["Document", "stringify"]
         },
         {
           "file": "packages/pipeline/src/validate.ts",
           "line": 43,
           "via": "import",
-          "symbols": [
-            "isAlias",
-            "isMap",
-            "isNode",
-            "isScalar",
-            "isSeq"
-          ]
+          "symbols": ["isAlias", "isMap", "isNode", "isScalar", "isSeq"]
         },
         {
           "file": "packages/pipeline/src/validate.ts",
           "line": 44,
           "via": "import-type",
-          "symbols": [
-            "Alias",
-            "Document",
-            "Scalar",
-            "YAMLMap",
-            "YAMLSeq"
-          ]
+          "symbols": ["Alias", "Document", "Scalar", "YAMLMap", "YAMLSeq"]
         }
       ],
       "useSitesTruncated": false,
@@ -7150,9 +5877,7 @@
           "file": "packages/security/package.json",
           "line": 10,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -7178,9 +5903,7 @@
           "file": "packages/telemetry/tsconfig.json",
           "line": 9,
           "via": "tsconfig-types",
-          "symbols": [
-            "node"
-          ]
+          "symbols": ["node"]
         }
       ],
       "useSitesTruncated": false,
@@ -7208,17 +5931,13 @@
           "file": "packages/telemetry/package.json",
           "line": 34,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/telemetry/package.json",
           "line": 35,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -7259,103 +5978,61 @@
           "file": "packages/telemetry/src/buckets.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/telemetry/src/buffer.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/telemetry/src/copy.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/telemetry/src/core.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["describe", "expect", "it", "vi"]
         },
         {
           "file": "packages/telemetry/src/endpoint.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/telemetry/src/red-lines.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/telemetry/src/sampling.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it",
-            "vi"
-          ]
+          "symbols": ["describe", "expect", "it", "vi"]
         },
         {
           "file": "packages/telemetry/src/schema.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/telemetry/src/session.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/telemetry/src/tokens.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": true,
@@ -7381,18 +6058,13 @@
           "file": "packages/testing/src/engine-conformance.test.ts",
           "line": 29,
           "via": "import",
-          "symbols": [
-            "CONTRACT_TYPE_VOCABULARY"
-          ]
+          "symbols": ["CONTRACT_TYPE_VOCABULARY"]
         },
         {
           "file": "packages/testing/src/engine-conformance.ts",
           "line": 167,
           "via": "import",
-          "symbols": [
-            "CONTRACT_TYPE_VOCABULARY",
-            "parseContract"
-          ]
+          "symbols": ["CONTRACT_TYPE_VOCABULARY", "parseContract"]
         }
       ],
       "useSitesTruncated": false,
@@ -7418,17 +6090,13 @@
           "file": "packages/testing/src/engine-conformance.test.ts",
           "line": 30,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         },
         {
           "file": "packages/testing/src/engine-conformance.ts",
           "line": 169,
           "via": "import",
-          "symbols": [
-            "compileRowDiffPlan"
-          ]
+          "symbols": ["compileRowDiffPlan"]
         }
       ],
       "useSitesTruncated": false,
@@ -7454,27 +6122,19 @@
           "file": "packages/testing/src/pipeline-runner-conformance.test.ts",
           "line": 4,
           "via": "import",
-          "symbols": [
-            "compilePipeline",
-            "validatePipeline"
-          ]
+          "symbols": ["compilePipeline", "validatePipeline"]
         },
         {
           "file": "packages/testing/src/pipeline-runner-conformance.test.ts",
           "line": 5,
           "via": "import-type",
-          "symbols": [
-            "PipelineNode",
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineNode", "PipelineV1"]
         },
         {
           "file": "packages/testing/src/pipeline-runner-conformance.ts",
           "line": 61,
           "via": "import-type",
-          "symbols": [
-            "PipelineV1"
-          ]
+          "symbols": ["PipelineV1"]
         }
       ],
       "useSitesTruncated": false,
@@ -7500,9 +6160,7 @@
           "file": "packages/testing/src/engine-conformance.ts",
           "line": 168,
           "via": "import",
-          "symbols": [
-            "compileContract"
-          ]
+          "symbols": ["compileContract"]
         }
       ],
       "useSitesTruncated": false,
@@ -7528,57 +6186,43 @@
           "file": "packages/testing/src/fixtures.test.ts",
           "line": 3,
           "via": "module-types",
-          "symbols": [
-            "node:crypto"
-          ]
+          "symbols": ["node:crypto"]
         },
         {
           "file": "packages/testing/src/fixtures.test.ts",
           "line": 4,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "packages/testing/src/node.test.ts",
           "line": 3,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "packages/testing/src/node.test.ts",
           "line": 4,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "packages/testing/src/node.ts",
           "line": 7,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "packages/testing/src/node.ts",
           "line": 8,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "packages/testing/src/node.ts",
           "line": 9,
           "via": "module-types",
-          "symbols": [
-            "node:url"
-          ]
+          "symbols": ["node:url"]
         }
       ],
       "useSitesTruncated": false,
@@ -7619,18 +6263,13 @@
           "file": "packages/testing/src/engine-conformance.test.ts",
           "line": 22,
           "via": "import-type",
-          "symbols": [
-            "Table"
-          ]
+          "symbols": ["Table"]
         },
         {
           "file": "packages/testing/src/engine-conformance.ts",
           "line": 166,
           "via": "import",
-          "symbols": [
-            "Vector",
-            "Table"
-          ]
+          "symbols": ["Vector", "Table"]
         }
       ],
       "useSitesTruncated": false,
@@ -7658,9 +6297,7 @@
           "file": "packages/testing/package.json",
           "line": 11,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -7701,52 +6338,31 @@
           "file": "packages/testing/src/data-source-behavior.test.ts",
           "line": 12,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/testing/src/engine-conformance.test.ts",
           "line": 21,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/testing/src/fixtures.test.ts",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/testing/src/node.test.ts",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "afterEach",
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["afterEach", "describe", "expect", "it"]
         },
         {
           "file": "packages/testing/src/pipeline-runner-conformance.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": false,
@@ -7774,9 +6390,7 @@
           "file": "packages/transforms/package.json",
           "line": 10,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -7804,9 +6418,7 @@
           "file": "packages/ui/package.json",
           "line": 10,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -7832,62 +6444,43 @@
           "file": "packages/validation/src/compile-property.test.ts",
           "line": 8,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "packages/validation/src/compile.test.ts",
           "line": 4,
           "via": "import-type",
-          "symbols": [
-            "ColumnRuleSet",
-            "ContractV1"
-          ]
+          "symbols": ["ColumnRuleSet", "ContractV1"]
         },
         {
           "file": "packages/validation/src/compile.ts",
           "line": 97,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "packages/validation/src/duckdb-agreement.test.ts",
           "line": 8,
           "via": "import-type",
-          "symbols": [
-            "ColumnRuleSet",
-            "ContractV1"
-          ]
+          "symbols": ["ColumnRuleSet", "ContractV1"]
         },
         {
           "file": "packages/validation/src/golden-plan.test.ts",
           "line": 8,
           "via": "import-type",
-          "symbols": [
-            "ContractV1"
-          ]
+          "symbols": ["ContractV1"]
         },
         {
           "file": "packages/validation/src/property-testing.ts",
           "line": 19,
           "via": "import-type",
-          "symbols": [
-            "ColumnRuleSet",
-            "ContractScalar",
-            "ContractV1",
-            "DatasetRuleSet"
-          ]
+          "symbols": ["ColumnRuleSet", "ContractScalar", "ContractV1", "DatasetRuleSet"]
         },
         {
           "file": "packages/validation/src/property-testing.ts",
           "line": 20,
           "via": "import",
-          "symbols": [
-            "CONTRACT_TYPE_VOCABULARY"
-          ]
+          "symbols": ["CONTRACT_TYPE_VOCABULARY"]
         }
       ],
       "useSitesTruncated": false,
@@ -7913,57 +6506,43 @@
           "file": "packages/validation/src/duckdb-agreement.test.ts",
           "line": 3,
           "via": "module-types",
-          "symbols": [
-            "node:child_process"
-          ]
+          "symbols": ["node:child_process"]
         },
         {
           "file": "packages/validation/src/duckdb-agreement.test.ts",
           "line": 4,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "packages/validation/src/duckdb-agreement.test.ts",
           "line": 5,
           "via": "module-types",
-          "symbols": [
-            "node:os"
-          ]
+          "symbols": ["node:os"]
         },
         {
           "file": "packages/validation/src/duckdb-agreement.test.ts",
           "line": 6,
           "via": "module-types",
-          "symbols": [
-            "node:path"
-          ]
+          "symbols": ["node:path"]
         },
         {
           "file": "packages/validation/src/re2.test.ts",
           "line": 3,
           "via": "module-types",
-          "symbols": [
-            "node:child_process"
-          ]
+          "symbols": ["node:child_process"]
         },
         {
           "file": "packages/validation/src/re2.test.ts",
           "line": 4,
           "via": "module-types",
-          "symbols": [
-            "node:fs"
-          ]
+          "symbols": ["node:fs"]
         },
         {
           "file": "packages/validation/tsconfig.json",
           "line": 4,
           "via": "tsconfig-types",
-          "symbols": [
-            "node"
-          ]
+          "symbols": ["node"]
         }
       ],
       "useSitesTruncated": false,
@@ -7991,17 +6570,13 @@
           "file": "packages/validation/package.json",
           "line": 34,
           "via": "script",
-          "symbols": [
-            "build"
-          ]
+          "symbols": ["build"]
         },
         {
           "file": "packages/validation/package.json",
           "line": 35,
           "via": "script",
-          "symbols": [
-            "typecheck"
-          ]
+          "symbols": ["typecheck"]
         }
       ],
       "useSitesTruncated": false,
@@ -8042,72 +6617,43 @@
           "file": "packages/validation/src/compile-property.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/validation/src/compile.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/validation/src/duckdb-agreement.test.ts",
           "line": 7,
           "via": "import",
-          "symbols": [
-            "afterAll",
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["afterAll", "describe", "expect", "it"]
         },
         {
           "file": "packages/validation/src/golden-plan.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/validation/src/literals.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/validation/src/re2.test.ts",
           "line": 5,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "packages/validation/src/schema.test.ts",
           "line": 3,
           "via": "import",
-          "symbols": [
-            "describe",
-            "expect",
-            "it"
-          ]
+          "symbols": ["describe", "expect", "it"]
         }
       ],
       "useSitesTruncated": false,
