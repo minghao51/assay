@@ -1249,6 +1249,81 @@ describe('DuckDbEngineClient overlay + export (m4-2)', () => {
     expect(client.status).toBe('ready')
   })
 
+  it('repairPreviewCount() posts the typed op with the plan as data and resolves the exact count (B1/ENG-2)', async () => {
+    const { client, worker, handle } = await openHandle()
+    const pending = client.repairPreviewCount(handle, overlay, {
+      column: 'label',
+      trim: ' ',
+      // Deliberately unsorted: the boundary canonicalises the pair order, so
+      // one plan posts one statement.
+      pairs: [
+        ['US', 'United States'],
+        ['SG', 'Singapore'],
+      ],
+    })
+    await flush()
+    const posted = worker.requestAt(2)
+    expect(posted).toMatchObject({ type: 'engine/repair-preview-count', tableId: 't1' })
+    if (posted.type === 'engine/repair-preview-count') {
+      expect(posted.overlay).toEqual(overlay)
+      expect(posted.plan).toEqual({
+        column: 'label',
+        trim: ' ',
+        pairs: [
+          ['SG', 'Singapore'],
+          ['US', 'United States'],
+        ],
+      })
+    }
+    worker.respond({
+      type: 'engine/repair-preview-count-result',
+      requestId: worker.requestAt(2).requestId,
+      affected: 3,
+    })
+    await expect(pending).resolves.toBe(3)
+    expect(client.status).toBe('ready')
+  })
+
+  it('repairPreviewCount() rejects a malformed or over-cap plan before posting anything (B1/ENG-2)', async () => {
+    const { client, worker, handle } = await openHandle()
+    // Shape: not a plan at all.
+    await expect(
+      client.repairPreviewCount(
+        handle,
+        overlay,
+        'label => x' as unknown as { column: string; pairs: [] },
+      ),
+    ).rejects.toThrow(EngineOperationError)
+    // Envelope: empty plan, duplicate key, bad trim, NUL text.
+    await expect(
+      client.repairPreviewCount(handle, overlay, { column: 'label', pairs: [] }),
+    ).rejects.toThrow('repair plan is empty')
+    await expect(
+      client.repairPreviewCount(handle, overlay, {
+        column: 'label',
+        pairs: [
+          ['a', 'b'],
+          ['a', 'c'],
+        ],
+      }),
+    ).rejects.toThrow('repair plan repeats a mapping key')
+    await expect(
+      client.repairPreviewCount(handle, overlay, {
+        column: 'label',
+        trim: '',
+        pairs: [['a', 'b']],
+      }),
+    ).rejects.toThrow('repair plan has an invalid trim set')
+    await expect(
+      client.repairPreviewCount(handle, overlay, {
+        column: 'label',
+        pairs: [['a\u0000b', 'c']],
+      }),
+    ).rejects.toThrow('repair plan contains text the engine cannot materialise')
+    // Nothing crossed the boundary: boot + open only.
+    expect(worker.postedRequests).toHaveLength(2)
+  })
+
   it('exportView() posts format + overlay and resolves the generated destination with honest counts', async () => {
     const { client, worker, handle } = await openHandle()
     const pending = client.exportView(handle, { format: 'csv', overlay })

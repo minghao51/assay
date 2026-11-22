@@ -25,6 +25,8 @@ import type {
   EngineSessionLike,
 } from './engine-executor'
 import type { EngineRequest, EngineResponse } from './protocol'
+import type { EngineRepairPlan } from './repair-preview-query'
+import { OverlayRepairExportBudgetError } from './overlay-query'
 import { compileRowDiffPlan } from '@assay/diff'
 import type { EngineRowDiffPlan } from './diff-plan-wire'
 import { MAX_OVERLAY_LIVE_INSERT_BRANCHES, OverlayLiveInsertLimitError } from './overlay-query'
@@ -1887,6 +1889,198 @@ describe('EngineOpExecutor overlay surface (m4-2)', () => {
     if (posted.type === 'engine/error') {
       expect(posted.message).not.toContain('DROP TABLE')
     }
+    expectNoCollisions(deps)
+  })
+})
+
+// ---- B1/ENG-2: the repair-preview affected count (query lane) ---------------
+
+/** One repair-preview count request over the scripted overlay (t1: id/label). */
+function repairPreviewCountRequest(id: number, plan: EngineRepairPlan): EngineRequest {
+  return {
+    type: 'engine/repair-preview-count',
+    requestId: id,
+    tableId: 't1',
+    overlay: overlayPayload(),
+    plan,
+  }
+}
+
+describe('EngineOpExecutor repair-preview count (B1/ENG-2; query lane)', () => {
+  const PLAN: EngineRepairPlan = { column: 'label', trim: ' ', pairs: [['a', 'b']] }
+
+  it('counts under the plan predicate over the composed effective relation on the query lane', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(repairPreviewCountRequest(2, PLAN))
+    await awaitSends(deps.queryConn, 1)
+    const sql = deps.queryConn.sentSqls[0] ?? ''
+    // The count, over the engine's own export SELECT (the composed path that
+    // carries the repair wrap), under the plan predicate.
+    expect(sql.startsWith('SELECT count(*)::BIGINT AS affected FROM (')).toBe(true)
+    expect(sql).toContain('WHERE ("label" IS NOT NULL AND ')
+    expect(sql).toContain("(trim(\"label\", ' '), \"label\") NOT IN (VALUES ('a', 'b'))")
+    // Never on the registry lane: this is a whole-column scan (ADR 0040).
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    // The count crosses as a plain safe integer.
+    deps.queryConn.resolveSend(0, countTable(2n))
+    expect(await awaitPosted(deps, 2)).toEqual({
+      type: 'engine/repair-preview-count-result',
+      requestId: 2,
+      affected: 2,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('refuses an unknown table, unknown column and non-textual column before any SQL', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    const unknownTable = await (async (): Promise<EngineResponse> => {
+      executor.accept({ ...repairPreviewCountRequest(2, PLAN), tableId: 'nope' } as EngineRequest)
+      return awaitPosted(deps, 2)
+    })()
+    expect(unknownTable).toMatchObject({
+      type: 'engine/error',
+      message: 'unknown table handle: nope',
+    })
+
+    executor.accept(repairPreviewCountRequest(3, { column: 'missing', pairs: [['a', 'b']] }))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/error',
+      message: 'unknown overlay column: missing',
+    })
+
+    // `id` is BIGINT: a repair's trim() re-declares the column type, so only
+    // VARCHAR/TEXT/STRING are targets (the domain's own rule).
+    executor.accept(repairPreviewCountRequest(4, { column: 'id', pairs: [['1', '2']] }))
+    expect(await awaitPosted(deps, 4)).toMatchObject({
+      type: 'engine/error',
+      message: 'repair target is not a text column: id',
+    })
+
+    // None of the three composed or executed anything: the only SQL is the
+    // open's CREATE VIEW.
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
+    expect(deps.conn.sentSqls).toHaveLength(1)
+    expectNoCollisions(deps)
+  })
+
+  it('refuses a plan outside the domain envelope before any SQL', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(repairPreviewCountRequest(2, { column: 'label', pairs: [] }))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      message: 'repair plan is empty',
+    })
+
+    executor.accept(
+      repairPreviewCountRequest(3, {
+        column: 'label',
+        pairs: [
+          ['dup', 'x'],
+          ['dup', 'y'],
+        ],
+      }),
+    )
+    const duplicate = await awaitPosted(deps, 3)
+    expect(duplicate).toMatchObject({
+      type: 'engine/error',
+      message: 'repair plan repeats a mapping key',
+    })
+    // Value-free: the repeated key never reaches the wire.
+    if (duplicate.type === 'engine/error') expect(duplicate.message).not.toContain('dup')
+
+    // NUL cannot be carried by a SQL literal at all (AU-3): refused here, not
+    // handed to the engine to fail opaquely.
+    executor.accept(repairPreviewCountRequest(4, { column: 'label', pairs: [['a\u0000b', 'x']] }))
+    const unmaterializable = await awaitPosted(deps, 4)
+    expect(unmaterializable).toMatchObject({
+      type: 'engine/error',
+      message: 'repair plan contains text the engine cannot materialise',
+    })
+    if (unmaterializable.type === 'engine/error') {
+      expect(unmaterializable.message).not.toContain('\u0000')
+    }
+
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
+    expectNoCollisions(deps)
+  })
+
+  it('refuses a count that is not a safe non-negative integer (never an approximation)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(repairPreviewCountRequest(2, PLAN))
+    await awaitSends(deps.queryConn, 1)
+    // A fractional count cannot be a `count(*)` result: refuse it.
+    deps.queryConn.resolveSend(0, tableFromArrays({ affected: Float64Array.from([1.5]) }))
+    expect(await awaitPosted(deps, 2)).toMatchObject({
+      type: 'engine/error',
+      message: 'the repair affected count is out of range',
+    })
+
+    // A negative count is equally impossible.
+    executor.accept(repairPreviewCountRequest(3, PLAN))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, countTable(-1n))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/error',
+      message: 'the repair affected count is out of range',
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('maps an engine failure to the shared value-free class', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    executor.accept(repairPreviewCountRequest(2, PLAN))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.rejectSend(
+      0,
+      new Error('Binder Error: Referenced column "\'; DROP TABLE x --" not found'),
+    )
+    const posted = await awaitPosted(deps, 2)
+    expect(posted).toMatchObject({
+      type: 'engine/error',
+      message: 'the edited view could not be materialized',
+    })
+    if (posted.type === 'engine/error') expect(posted.message).not.toContain('DROP TABLE')
+    expectNoCollisions(deps)
+  })
+
+  it('delivers a crossed export budget as the composer’s typed remedy, not the generic class', async () => {
+    // The budget is a property of the PREFIX (repair pairs × projected rows),
+    // so this needs an existing repair plus a large base count. It also proves
+    // the op composes the export relation: the budget belongs to that path.
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    const mapping = new Map<string, string>()
+    for (let index = 0; index < 6; index += 1) mapping.set(`k${String(index)}`, `v${String(index)}`)
+    const payload = overlayPayload()
+    executor.accept({
+      type: 'engine/repair-preview-count',
+      requestId: 2,
+      tableId: 't1',
+      overlay: {
+        base: { ...payload.base, baseRowCount: 200_000_000 },
+        ops: [{ kind: 'column-repair', column: 'label', mapping }],
+      },
+      plan: PLAN,
+    })
+    const posted = await awaitPosted(deps, 2)
+    expect(posted.type).toBe('engine/error')
+    if (posted.type !== 'engine/error') throw new Error(`expected engine/error, got ${posted.type}`)
+    // The composer's own typed, value-free remedial sentence — unchanged by
+    // this op (no cap, envelope or memory change).
+    expect(posted.message).toBe(new OverlayRepairExportBudgetError().message)
+    // Refused before execution: the only SQL is the open's CREATE VIEW.
+    expect(deps.queryConn.sentSqls).toHaveLength(0)
     expectNoCollisions(deps)
   })
 })

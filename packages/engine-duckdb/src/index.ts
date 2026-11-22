@@ -112,6 +112,9 @@ export type {
   EngineRangeResultResponse,
   EngineReadyInfo,
   EngineReadyResponse,
+  EngineRepairPlan,
+  EngineRepairPreviewCountRequest,
+  EngineRepairPreviewCountResultResponse,
   EngineRequest,
   EngineResponse,
   EngineRowCountRequest,
@@ -319,6 +322,18 @@ export {
   rowDiffCountExcess,
 } from './diff-query.js'
 export type { RowDiffAspectRows, RowDiffCountExcess, RowDiffSampleRow } from './diff-query.js'
+// B1/ENG-2: the repair preview's affected-set predicate and count composition
+// are public so the host's `overlay-range` examples filter and the typed count
+// op consume ONE definition of "affected" (the example set and the count can
+// never diverge), and so the wire parser/envelope can be pinned by hosts.
+export {
+  assertEngineRepairPlanWithinEnvelope,
+  composeRepairPreviewCountSql,
+  parseEngineRepairPlan,
+  repairAffectedFilter,
+  repairAffectedPredicate,
+} from './repair-preview-query.js'
+export type { EngineRepairPlan as EngineRepairPreviewPlan } from './repair-preview-query.js'
 // m4-2 fix-round fold: the strict engine type-expression validator and the
 // canonical string/BLOB family classifiers the CSV formula-injection guard
 // keys off. Public so hosts can validate declared cast types before

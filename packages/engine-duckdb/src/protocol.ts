@@ -55,10 +55,19 @@
  * NEW file in OPFS scratch space (ADR 0017 disposable-cache framing) and
  * never touches the source path; the response carries the generated path so
  * the host can re-open/verify the export through the engine (round-trip).
+ *
+ * B1/ENG-2 adds `engine/repair-preview-count`: the repair preview's affected
+ * count as a typed, query-lane op. It is additive (no existing request,
+ * response, cap or lane changes) and exists so the definition of "the rows
+ * this repair changes" is an engine-owned predicate
+ * (`repair-preview-query.ts`) rather than a host-composed SQL string executed
+ * through the generic `engine/query` op.
  */
 
 import type { EngineOverlayPayload } from './overlay-wire.js'
 import { isEngineTypeExpression, parseOverlayPayload } from './overlay-wire.js'
+import type { EngineRepairPlan } from './repair-preview-query.js'
+import { parseEngineRepairPlan } from './repair-preview-query.js'
 import {
   MAX_CSV_INFERENCE_SAMPLE_ROWS,
   MAX_CSV_OPTION_VALUE_CODE_POINTS,
@@ -74,6 +83,7 @@ import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire.js
 import { parseRowDiffPlan } from './diff-plan-wire.js'
 export type { EngineOverlayPayload, EngineValidationPlan, EngineValidationResult }
 export type { EngineRowDiffPlan, EngineRowDiffResult }
+export type { EngineRepairPlan }
 
 /** A column as reported by DuckDB, with its type string passed through as-is. */
 export interface EngineColumnSchema {
@@ -309,6 +319,31 @@ export interface EngineOverlayCastCheckRequest {
 }
 
 /**
+ * Repair-preview affected count (B1/ENG-2). One complete `count(*)` of the
+ * rows the `plan` changes over the table's **effective** relation (base +
+ * overlay, repair wrap included), so a column that already carries a repair
+ * in the prefix is counted on its effective values.
+ *
+ * The plan is **data, never SQL**: `column` is quoted as an identifier and
+ * every key, target and trim character is escaped by this package's own
+ * literal escaper (`repair-preview-query.ts`). The envelope validates the
+ * plan's structure; the executor refuses an unknown/non-textual column and a
+ * plan outside the domain's own envelope *before* any SQL runs, with
+ * value-free messages (ADR 0025).
+ *
+ * Query lane (ADR 0040): this is a user-initiated read scan of a whole column
+ * — the same class as the generic `engine/query` call it replaces, never the
+ * grid's window traffic.
+ */
+export interface EngineRepairPreviewCountRequest {
+  type: 'engine/repair-preview-count'
+  requestId: number
+  tableId: string
+  overlay: EngineOverlayPayload
+  plan: EngineRepairPlan
+}
+
+/**
  * Validation execution (m5-2, ADR 0040): execute the m5-1 `ValidationPlan`
  * against the **effective view** of the addressed table — base view plus the
  * optional overlay (absent `overlay` = the plain base view, the export
@@ -476,6 +511,7 @@ export type EngineRequest =
   | EngineOverlayRowCountRequest
   | EngineOverlayRangeRequest
   | EngineOverlayCastCheckRequest
+  | EngineRepairPreviewCountRequest
   | EngineValidateRequest
   | EngineDiffStageRequest
   | EngineDiffRequest
@@ -638,6 +674,19 @@ export interface EngineOverlayCastCheckResultResponse {
   type: 'engine/overlay-cast-check-result'
   requestId: number
   hasNonConvertibleValues: boolean
+}
+
+/**
+ * The complete affected count of one repair plan (B1/ENG-2): a safe,
+ * non-negative integer. A count the engine cannot represent exactly is a typed
+ * `engine/error` refusal (`count-out-of-range` semantics), never an
+ * approximation — the wire cannot silently lose precision (unreachable for a
+ * browser-resident table; stated so the contract is explicit).
+ */
+export interface EngineRepairPreviewCountResultResponse {
+  type: 'engine/repair-preview-count-result'
+  requestId: number
+  affected: number
 }
 
 /**
@@ -829,6 +878,7 @@ export type EngineResponse =
   | EngineOverlayRowCountResultResponse
   | EngineOverlayRangeResultResponse
   | EngineOverlayCastCheckResultResponse
+  | EngineRepairPreviewCountResultResponse
   | EngineValidateResultResponse
   | EngineDiffStageResultResponse
   | EngineDiffResultResponse
@@ -855,6 +905,7 @@ export type EngineSuccessResponse =
   | EngineOverlayRowCountResultResponse
   | EngineOverlayRangeResultResponse
   | EngineOverlayCastCheckResultResponse
+  | EngineRepairPreviewCountResultResponse
   | EngineValidateResultResponse
   | EngineDiffStageResultResponse
   | EngineDiffResultResponse
@@ -1083,6 +1134,19 @@ function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
       },
     }
   }
+  if (type === 'engine/repair-preview-count') {
+    if (typeof data.tableId !== 'string') return malformedField('repair-preview-count.tableId')
+    const overlay = parseOverlayPayload(data.overlay)
+    // The op is defined over the effective relation, so the payload is
+    // required (absent is a rejected envelope, never a silent base default).
+    if (overlay === null) return malformedField('repair-preview-count.overlay')
+    // The plan is the request's complex payload: shape-checked here (strings,
+    // pair pairs, unit trim) and envelope-checked in the executor before any
+    // SQL (see `repair-preview-query.ts`).
+    const plan = parseEngineRepairPlan(data.plan)
+    if (plan === null) return malformedField('repair-preview-count.plan')
+    return { ok: true, request: { type, requestId, tableId: data.tableId, overlay, plan } }
+  }
   if (type === 'engine/export') {
     if (typeof data.tableId !== 'string') return malformedField('export.tableId')
     const overlay = parseOverlayPayload(data.overlay)
@@ -1246,6 +1310,7 @@ export const ENGINE_REQUEST_TYPES = [
   'engine/overlay-row-count',
   'engine/overlay-range',
   'engine/overlay-cast-check',
+  'engine/repair-preview-count',
   'engine/validate',
   'engine/diff-stage',
   'engine/diff',
@@ -1485,6 +1550,12 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
     typeof data.hasMore === 'boolean'
   ) {
     return { type, requestId, batchIpc: data.batchIpc, hasMore: data.hasMore }
+  }
+  if (type === 'engine/repair-preview-count-result' && isRowCount(data.affected)) {
+    // A count outside the safe, non-negative integer domain is an impossible
+    // payload: the executor refuses `count-out-of-range` rather than send an
+    // approximation, so the client rejects instead of resolving a wrong count.
+    return { type, requestId, affected: data.affected }
   }
   if (
     type === 'engine/overlay-cast-check-result' &&

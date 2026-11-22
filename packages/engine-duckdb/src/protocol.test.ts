@@ -952,6 +952,111 @@ describe('m4-2: overlay + export protocol', () => {
       ).toBeNull()
     })
 
+    it('parses engine/repair-preview-count with a canonical plan and rejects malformed plans', () => {
+      // B1/ENG-2: the plan is data, never SQL. Pair order is canonicalised at
+      // the parse boundary, so one plan composes one statement.
+      expect(
+        parseEngineRequest({
+          type: 'engine/repair-preview-count',
+          requestId: 9,
+          tableId: 't1',
+          overlay: OVERLAY,
+          plan: {
+            column: 'label',
+            trim: ' ',
+            pairs: [
+              ['US', 'United States'],
+              ['SG', 'Singapore'],
+            ],
+          },
+        }),
+      ).toEqual({
+        type: 'engine/repair-preview-count',
+        requestId: 9,
+        tableId: 't1',
+        overlay: OVERLAY,
+        plan: {
+          column: 'label',
+          trim: ' ',
+          pairs: [
+            ['SG', 'Singapore'],
+            ['US', 'United States'],
+          ],
+        },
+      })
+      // A hostile value is DATA: it parses (it is a legitimate key/target) and
+      // is escaped by the composer, never interpolated as SQL.
+      expect(
+        parseEngineRequest({
+          type: 'engine/repair-preview-count',
+          requestId: 9,
+          tableId: 't1',
+          overlay: OVERLAY,
+          plan: { column: 'label', pairs: [["b'); DROP TABLE t; --", 'x']] },
+        }),
+      ).toEqual({
+        type: 'engine/repair-preview-count',
+        requestId: 9,
+        tableId: 't1',
+        overlay: OVERLAY,
+        plan: { column: 'label', pairs: [["b'); DROP TABLE t; --", 'x']] },
+      })
+      // A hostile sender may attach any predicate/plan text it likes: the
+      // parsed request keeps the protocol's own fields, so nothing it carries
+      // can become SQL text downstream.
+      const withJunk = parseEngineRequest({
+        type: 'engine/repair-preview-count',
+        requestId: 9,
+        tableId: 't1',
+        overlay: OVERLAY,
+        plan: { column: 'label', pairs: [['a', 'b']] },
+        sql: 'DROP TABLE assay_t1',
+        predicate: 'OR 1 = 1',
+      })
+      expect(withJunk).toEqual({
+        type: 'engine/repair-preview-count',
+        requestId: 9,
+        tableId: 't1',
+        overlay: OVERLAY,
+        plan: { column: 'label', pairs: [['a', 'b']] },
+      })
+      expect(JSON.stringify(withJunk)).not.toContain('DROP TABLE')
+      expect(JSON.stringify(withJunk)).not.toContain('OR 1 = 1')
+      // Malformed plans reject at the boundary (never a partial default).
+      for (const plan of [
+        undefined,
+        'label => x',
+        { pairs: [] },
+        { column: 7, pairs: [] },
+        { column: 'label', trim: 4, pairs: [] },
+        { column: 'label' },
+        { column: 'label', pairs: 'a' },
+        { column: 'label', pairs: [['a']] },
+        { column: 'label', pairs: [['a', 'b', 'c']] },
+        { column: 'label', pairs: [[1, 'b']] },
+        { column: 'label', pairs: [['a', null]] },
+      ]) {
+        expect(
+          parseEngineRequest({
+            type: 'engine/repair-preview-count',
+            requestId: 9,
+            tableId: 't1',
+            overlay: OVERLAY,
+            plan,
+          }),
+        ).toBeNull()
+      }
+      // The overlay is required: this op is defined over the effective relation.
+      expect(
+        parseEngineRequest({
+          type: 'engine/repair-preview-count',
+          requestId: 9,
+          tableId: 't1',
+          plan: { column: 'label', pairs: [] },
+        }),
+      ).toBeNull()
+    })
+
     it('parses engine/export with or without an overlay, and rejects bad formats', () => {
       expect(
         parseEngineRequest({
@@ -1350,6 +1455,42 @@ describe('m4-2: overlay + export protocol', () => {
         field: 'validate.overlay',
       },
       {
+        label: 'engine/repair-preview-count missing tableId',
+        type: 'engine/repair-preview-count',
+        payload: { overlay, plan: { column: 'label', pairs: [] } },
+        field: 'repair-preview-count.tableId',
+      },
+      {
+        label: 'engine/repair-preview-count missing overlay',
+        type: 'engine/repair-preview-count',
+        payload: { tableId: 't1', plan: { column: 'label', pairs: [] } },
+        field: 'repair-preview-count.overlay',
+      },
+      {
+        label: 'engine/repair-preview-count malformed overlay',
+        type: 'engine/repair-preview-count',
+        payload: { tableId: 't1', overlay: badOverlay, plan: { column: 'label', pairs: [] } },
+        field: 'repair-preview-count.overlay',
+      },
+      {
+        label: 'engine/repair-preview-count missing plan',
+        type: 'engine/repair-preview-count',
+        payload: { tableId: 't1', overlay },
+        field: 'repair-preview-count.plan',
+      },
+      {
+        label: 'engine/repair-preview-count malformed plan',
+        type: 'engine/repair-preview-count',
+        payload: { tableId: 't1', overlay, plan: { column: 'label', pairs: [['a', 1]] } },
+        field: 'repair-preview-count.plan',
+      },
+      {
+        label: 'engine/repair-preview-count injection-shaped plan',
+        type: 'engine/repair-preview-count',
+        payload: { tableId: 't1', overlay, plan: "'; DROP TABLE t; --" },
+        field: 'repair-preview-count.plan',
+      },
+      {
         label: 'engine/diff-stage missing name',
         type: 'engine/diff-stage',
         payload: { file },
@@ -1494,9 +1635,9 @@ describe('m4-2: overlay + export protocol', () => {
       })
     })
 
-    it('lists exactly the 22 request types and covers every one', () => {
-      expect(ENGINE_REQUEST_TYPES).toHaveLength(22)
-      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(22)
+    it('lists exactly the 23 request types and covers every one', () => {
+      expect(ENGINE_REQUEST_TYPES).toHaveLength(23)
+      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(23)
       const covered = new Set(cases.map((entry) => entry.type))
       // init and dispose have no required fields (nothing can be malformed),
       // so every other request type must appear in the malformed matrix.
@@ -1607,6 +1748,14 @@ describe('m4-2: overlay + export protocol', () => {
         requestId: 9,
         hasNonConvertibleValues: true,
       })
+      // B1/ENG-2: the affected count is a safe non-negative integer.
+      expect(
+        parseEngineResponse({
+          type: 'engine/repair-preview-count-result',
+          requestId: 10,
+          affected: 0,
+        }),
+      ).toEqual({ type: 'engine/repair-preview-count-result', requestId: 10, affected: 0 })
     })
 
     it('rejects malformed overlay results', () => {
@@ -1641,6 +1790,18 @@ describe('m4-2: overlay + export protocol', () => {
       expect(
         parseEngineResponse({ type: 'engine/overlay-cast-check-result', requestId: 9 }),
       ).toBeNull()
+      // B1/ENG-2: the affected count rejects a negative, unsafe, fractional or
+      // missing value — the client must never resolve an impossible count (the
+      // worker refuses `count-out-of-range` instead of approximating).
+      for (const affected of [-1, 1.5, Number.MAX_SAFE_INTEGER + 2, '3', undefined, null]) {
+        expect(
+          parseEngineResponse({
+            type: 'engine/repair-preview-count-result',
+            requestId: 10,
+            affected,
+          }),
+        ).toBeNull()
+      }
     })
 
     it('parses the export result with honest counts', () => {

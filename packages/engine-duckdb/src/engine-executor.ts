@@ -50,7 +50,7 @@
 import { Table, tableFromIPC, tableToIPC } from 'apache-arrow'
 import type { RecordBatch } from 'apache-arrow'
 import type { OverlayBase, OverlayState } from '@assay/domain'
-import { foldOverlay, initialState } from '@assay/domain'
+import { foldOverlay, initialState, isTextualRepairType } from '@assay/domain'
 import {
   createOrReplaceViewSql,
   createViewSql,
@@ -70,6 +70,10 @@ import {
   PARQUET_COPY_OPTIONS,
 } from './export-query.js'
 import type { OverlayComposition } from './overlay-query.js'
+import {
+  assertEngineRepairPlanWithinEnvelope,
+  composeRepairPreviewCountSql,
+} from './repair-preview-query.js'
 import { classifyVerbatimSql } from '@assay/pipeline'
 import { parseEngineRequestEnvelope } from './protocol.js'
 import type {
@@ -89,6 +93,7 @@ import type {
   EngineOverlayRangeRequest,
   EngineProfileColumn,
   EngineRangeRequest,
+  EngineRepairPreviewCountRequest,
   EngineRequest,
   EngineResponse,
   EngineValidateRequest,
@@ -347,6 +352,10 @@ export class EngineOpExecutor {
       request.type === 'engine/profile' ||
       request.type === 'engine/export' ||
       request.type === 'engine/overlay-cast-check' ||
+      // B1/ENG-2: the repair preview's affected count scans a whole column
+      // under the plan predicate — the same query-class work the generic
+      // `engine/query` call it replaces already ran on this lane.
+      request.type === 'engine/repair-preview-count' ||
       request.type === 'engine/validate' ||
       request.type === 'engine/diff-stage' ||
       request.type === 'engine/diff' ||
@@ -451,6 +460,10 @@ export class EngineOpExecutor {
         }
         case 'engine/overlay-cast-check': {
           await this.runOverlayCastCheck(request, lane)
+          break
+        }
+        case 'engine/repair-preview-count': {
+          await this.runRepairPreviewCount(request, lane)
           break
         }
         case 'engine/validate': {
@@ -765,6 +778,75 @@ export class EngineOpExecutor {
       type: 'engine/overlay-cast-check-result',
       requestId: request.requestId,
       hasNonConvertibleValues: result.numRows > 0,
+    })
+  }
+
+  /**
+   * Repair-preview affected count (B1/ENG-2, query lane per ADR 0040): one
+   * complete `count(*)` under the plan's affected predicate over the
+   * engine-composed **effective** relation (the export SELECT composer, which
+   * is the composed path carrying the repair wrap — so a column already
+   * repaired in the prefix is counted on its effective values, not its
+   * pre-repair ones).
+   *
+   * Nothing here is a value read: keys, targets and the trim set are plan
+   * configuration (ADR 0025), the response is one integer, and every refusal
+   * below is a fixed value-free sentence thrown **before** any SQL is composed
+   * or run (except the column name, which is schema, never a cell value):
+   *
+   * - unknown table handle ({@link requireTable});
+   * - unknown effective column (the folded schema, never a `DESCRIBE` — the
+   *   same fold the composed relation comes from, so the check cannot disagree
+   *   with what the engine would bind);
+   * - a column that is not a textual repair target
+   *   (`isTextualRepairType` — the domain's own rule: `VARCHAR`/`TEXT`/
+   *   `STRING`, because a repair's `trim()` re-declares the column type);
+   * - a plan outside the domain's envelope (empty, duplicate key, bad trim,
+   *   over the pair cap, or text no SQL literal can carry —
+   *   `assertEngineRepairPlanWithinEnvelope`).
+   *
+   * The composed SQL itself is composed OUTSIDE the value-free wrap, like the
+   * other overlay count/schema/window ops: a crossed export budget
+   * (`OverlayRepairExportBudgetError`) and a crossed live-insert cap are the
+   * composer's typed, value-free remedies and must reach the wire unchanged.
+   */
+  private async runRepairPreviewCount(
+    request: EngineRepairPreviewCountRequest,
+    lane: EngineOpLane,
+  ): Promise<void> {
+    const entry = this.requireTable(request.tableId)
+    const { base, state } = this.compositionOf(request.overlay)
+    // Pre-execution refusals: the plan's envelope, then the column against the
+    // folded effective schema. No SQL has been composed at this point.
+    assertEngineRepairPlanWithinEnvelope(request.plan)
+    const column = state.columns.find((candidate) => candidate.name === request.plan.column)
+    if (column === undefined) {
+      throw new Error(`unknown overlay column: ${request.plan.column}`)
+    }
+    if (!isTextualRepairType(column.type)) {
+      throw new Error(`repair target is not a text column: ${column.name}`)
+    }
+    const conn = lane.connection(await this.deps.ensureSession())
+    const sql = composeRepairPreviewCountSql(
+      { base, state, viewName: entry.viewName },
+      request.plan,
+    )
+    const { batchIpc } = await this.validationStep(OVERLAY_MATERIALIZATION_FAILURE, () =>
+      this.streamFirstBatch(conn, sql),
+    )
+    // `count(*)::BIGINT` arrives as a bigint through Arrow. A count that is not
+    // a safe non-negative integer is refused, never approximated: the wire
+    // must not silently lose precision (unreachable for a browser-resident
+    // table; stated so the contract is explicit).
+    const value = tableFromIPC(batchIpc).getChildAt(0)?.get(0)
+    const affected = typeof value === 'bigint' ? Number(value) : value
+    if (typeof affected !== 'number' || !Number.isSafeInteger(affected) || affected < 0) {
+      throw new Error('the repair affected count is out of range')
+    }
+    this.post({
+      type: 'engine/repair-preview-count-result',
+      requestId: request.requestId,
+      affected,
     })
   }
 

@@ -26,6 +26,7 @@ import type { Table } from 'apache-arrow'
 import type { EditOp, OverlayBase } from '@assay/domain'
 import { foldOverlay } from '@assay/domain'
 import { EngineTypeError, validateEngineTypeExpression } from './type-expr.js'
+import { errorMessage } from './errors.js'
 import { assertValidOverlayTypes } from './overlay-wire.js'
 import { detectFileFormat } from './format-view.js'
 import { parseCsvOptions } from './csv-options.js'
@@ -34,6 +35,11 @@ import { parseValidationPlan } from './validate-plan-wire.js'
 import type { EngineValidationPlan, EngineValidationResult } from './validate-plan-wire.js'
 import { parseRowDiffPlan } from './diff-plan-wire.js'
 import type { EngineRowDiffPlan, EngineRowDiffResult } from './diff-plan-wire.js'
+import {
+  assertEngineRepairPlanWithinEnvelope,
+  parseEngineRepairPlan,
+} from './repair-preview-query.js'
+import type { EngineRepairPlan } from './repair-preview-query.js'
 import { parseEngineResponse } from './protocol.js'
 import type {
   EngineColumnSchema,
@@ -845,6 +851,58 @@ export class DuckDbEngineClient {
     if (!state.columns.some((candidate) => candidate.name === column)) {
       throw new EngineOperationError(`unknown overlay column: ${column}`)
     }
+  }
+
+  /**
+   * Repair-preview affected count (B1/ENG-2, query lane): one complete
+   * `count(*)` of the rows `plan` changes over the table's **effective** view
+   * (base + overlay, repair wrap included), so a column that already carries a
+   * repair in the prefix is counted on its effective values.
+   *
+   * The plan is plain data — `{column, trim?, pairs}` — never SQL: the worker
+   * quotes the column and escapes every key, target and trim character through
+   * this package's own literal escaper. Both boundaries validate it: the shape
+   * and the domain envelope are checked HERE first (a malformed or over-cap
+   * plan rejects with `EngineOperationError` before anything is posted, so a
+   * hostile payload never crosses the wire), and the worker re-validates
+   * independently, then refuses an unknown/non-textual column against its own
+   * folded schema with a value-free typed error (ADR 0025).
+   *
+   * The answer is one exact integer: a count that is not a safe non-negative
+   * integer is a typed refusal worker-side, never an approximation, and the
+   * client rejects such a payload rather than resolving a wrong count.
+   */
+  async repairPreviewCount(
+    handle: EngineTableHandle,
+    overlay: EngineOverlay,
+    plan: EngineRepairPlan,
+  ): Promise<number> {
+    await this.ensureReady()
+    this.requireValidOverlayTypes(overlay)
+    const wirePlan = parseEngineRepairPlan(plan)
+    if (wirePlan === null) {
+      throw new EngineOperationError('malformed repair plan')
+    }
+    try {
+      assertEngineRepairPlanWithinEnvelope(wirePlan)
+    } catch (cause) {
+      // Value-free by construction: the envelope messages name defect classes
+      // only (no key, target or trim value).
+      throw new EngineOperationError(errorMessage(cause), { cause })
+    }
+    const response = await this.send({
+      type: 'engine/repair-preview-count',
+      requestId: this.takeRequestId(),
+      tableId: handle.id,
+      overlay: { base: overlay.base, ops: overlay.ops === undefined ? [] : [...overlay.ops] },
+      plan: wirePlan,
+    })
+    if (response.type !== 'engine/repair-preview-count-result') {
+      throw new EngineProtocolError(
+        `unexpected ${response.type} response for engine/repair-preview-count`,
+      )
+    }
+    return response.affected
   }
 
   /**
