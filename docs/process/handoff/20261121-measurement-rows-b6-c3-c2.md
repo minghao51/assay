@@ -24,7 +24,7 @@ no decision — each row states what is still missing before one can be set.
 | Build tools                     | turbo 2.11.3, vite 8.3.0, esbuild 0.28.2, typescript 6.0.3                                                                        |
 | Measurement commit              | `129e3ef3acc3d91ed568644daf39168f47ea2d1b` (detached worktree `/tmp/assay-measure-wt`)                                            |
 | Bundle baseline commit          | `06d8e200c918ce488c4c359158358e630941cae3e` (as recorded in [doc 10](../../engineering/10-dependency-and-bundle-measurements.md)) |
-| Host load during timing runs    | 1-minute load average **38.6 – 59.2** on 16 cores (other agents building/testing concurrently)                                    |
+| Host load during timing runs    | 1-minute load average **38.2 – 59.2** on 16 cores (other agents building/testing concurrently)                                    |
 
 Two facts about the working tree matter for reproducibility and are stated up front:
 
@@ -107,8 +107,9 @@ exports point at `src/index.ts` in-repo; `apps/cli/src/index.ts:339` says so exp
 supported path is the packed consumer, so the measured CLI is the installed artefact: every package
 in the CLI runtime closure was packed
 (`pnpm pack --pack-destination /tmp/assay-bench/tarballs` from each package directory) and installed
-into a throwaway consumer (`npm install --no-audit --no-fund --prefer-offline`, 42 packages, 3 s,
-no registry read observed). `/tmp/assay-bench/consumer/node_modules/.bin/assay --version` →
+into a throwaway consumer (`npm install --no-audit --no-fund --prefer-offline`, 42 packages, 3 s).
+The install was then redone from scratch with `--offline` (42 packages, 2 s) and also succeeded, so
+it needs no registry read. `/tmp/assay-bench/consumer/node_modules/.bin/assay --version` →
 `assay 0.0.0`.
 
 ```bash
@@ -368,10 +369,14 @@ emits no per-module metafile (only C2's experiment does, and only for the webvie
 | `packages/telemetry` **+1,273**                                                                             | `42c04ff` (in-flight limit stated in the disclosure copy).                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `packages/{contracts,domain,validation}`, `test-bundle`, both DuckDB pairs, `metadata`                      | Unchanged — no row in this batch touched those build outputs.                                                                                                                                                                                                                                                                                                                                                                                                  |
 
-Two notes for the orchestrator: (i) **ENG-2 did not land** (it is recorded but unselected), so no
-engine op was added to any payload in this batch — `packages/engine-duckdb` is not a publishable
-payload in §8, so an engine op would not appear in this table anyway; (ii) the B6 fixture/consumer
-work of this pass wrote nothing into the repository, so it contributes zero bytes here.
+Two notes for the orchestrator: (i) at the measurement commit `129e3ef`, **ENG-2 was still recorded
+but unselected**, so no engine op is inside the table above; it landed immediately afterwards as
+`d457eec` (`packages/engine-duckdb` only — `repair-preview-query.ts` plus client/protocol/executor
+wiring, 11 files). That package is not a §8 publishable payload, but its code _is_ consumed by the
+web engine-worker chunk and by the CLI's node entry, so the next baseline should expect
+`lazy-worker` and the CLI payload to move — this record does not measure that; (ii) the B6
+fixture/consumer work of this pass wrote nothing into the repository, so it contributes zero bytes
+here.
 
 ### 2.4 Control: the live checkout's build (peer in-flight work, excluded above)
 
@@ -594,7 +599,8 @@ cmp /tmp/run1.json /tmp/run2.json                      # byte-identical
 for p in packages/{contracts,diff,domain,engine-duckdb,pipeline,telemetry,validation,grid} apps/cli; do
   ( cd "$p" && pnpm pack --pack-destination /tmp/assay-bench/tarballs ); done
 # consumer: package.json with file: deps on every tarball, then
-npm install --no-audit --no-fund --prefer-offline        # 42 packages, no registry read observed
+npm install --no-audit --no-fund --prefer-offline        # 42 packages, 3 s
+npm install --no-audit --no-fund --offline              # same result with no network at all
 /usr/bin/time -v /tmp/assay-bench/consumer/node_modules/.bin/assay \
   diff /tmp/assay-bench/large-a.parquet /tmp/assay-bench/large-b.parquet --key id
 
