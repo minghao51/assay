@@ -16,6 +16,9 @@
  * - schedule bounded, fire-and-forget flushes through the injected transport;
  * - re-read the preference on EVERY send (§6.4), clear the buffer synchronously
  *   on mid-session opt-out (§6.5), clamp `client_day` (§6.6);
+ * - own one abort generation per send (E01 §3.2): `setPreference('off')` and
+ *   `dispose()` abort the in-flight delivery, and sending resumes on a fresh
+ *   controller so an aborted batch is dropped, never re-sent;
  * - never throw, never block, never surface an error (R9).
  *
  * The default transport is constructed only when the endpoint gate passes; the
@@ -70,6 +73,13 @@ export function clampClientDay(now: number): number {
   const day = Math.floor(now / DAY_MS)
   return Math.min(CLIENT_DAY_MAX, Math.max(CLIENT_DAY_MIN, day))
 }
+
+/**
+ * The scheduling-seam handle a default timer returns, deliberately opaque to
+ * the runtime: it is only ever handed back to the paired {@link CancelFlush}
+ * seam, never interpreted. The seam itself accepts any test handle.
+ */
+type FlushHandle = ReturnType<typeof setTimeout>
 
 /** Scheduling seam: returns a handle the runtime can later clear. */
 export type ScheduleFlush = (task: () => void, delayMs: number) => unknown
@@ -132,12 +142,12 @@ export function browserStorage(): StorageLike | null {
   }
 }
 
-function defaultSchedule(task: () => void, delayMs: number): unknown {
+function defaultSchedule(task: () => void, delayMs: number): FlushHandle {
   return setTimeout(task, delayMs)
 }
 
 function defaultCancel(handle: unknown): void {
-  clearTimeout(handle as ReturnType<typeof setTimeout>)
+  clearTimeout(handle as FlushHandle)
 }
 
 /**
@@ -169,6 +179,29 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
    * after the user has actually seen it.
    */
   let disclosureShownInMemory = false
+  /**
+   * E01 §3.2: one `AbortController` per send generation. Created lazily when a
+   * send starts, aborted by `setPreference('off')`/`dispose()`, and **replaced**
+   * (never reused) when sending resumes — so a batch drained before an opt-out
+   * is dropped and can never be re-sent or re-slept after off→on.
+   */
+  let generation: AbortController | null = null
+
+  /** Abort the active generation, if any; the next send starts a fresh one. */
+  const abortGeneration = (): void => {
+    if (generation !== null && !generation.signal.aborted) generation.abort()
+  }
+
+  /**
+   * The generation a send belongs to: a live one is reused (two overlapping
+   * `flush()` calls share an opt-out), an aborted one is replaced.
+   */
+  const beginGeneration = (): AbortSignal => {
+    if (generation === null || generation.signal.aborted) {
+      generation = new AbortController()
+    }
+    return generation.signal
+  }
 
   const installToken = (): InstallToken => {
     const persisted = readInstallToken(storage)
@@ -251,9 +284,16 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
       if (buffer.size === 0) return
       const events = buffer.drain()
       if (transport === null) return
+      // The whole drain belongs to one generation: an opt-out mid-loop aborts
+      // the signal, so no later batch (or retry) may start.
+      const signal = beginGeneration()
       for (const batch of splitIntoBatches(events)) {
+        // Between-batch guard (E01 §3.2). At default caps this loop runs once
+        // (`MAX_BUFFERED_*` == `MAX_BATCH_*`), so this is future-proofing, not a
+        // second observable batch.
+        if (signal.aborted) return
         try {
-          await transport.send(batch)
+          await transport.send(batch, { signal })
         } catch {
           // R9: a failed batch is dropped, never surfaced.
         }
@@ -321,7 +361,13 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
       // storage write failure can never silently keep telemetry on.
       memoryPreference = preference
       writePreference(storage, preference)
-      if (preference === 'off') buffer.clear()
+      if (preference === 'off') {
+        buffer.clear()
+        // E01 §3.2: stop the delivery already in flight. The batch was drained
+        // before this point, so it is dropped, never re-queued; a later
+        // off→on sends only newly emitted events.
+        abortGeneration()
+      }
     },
     isEnabledNow,
     shouldShowDisclosure,
@@ -331,7 +377,12 @@ export function createWebTelemetry(options: WebTelemetryOptions): WebTelemetryRu
       // The disclosure is now shown; a pending buffer may flush.
       scheduleFlush()
     },
-    dispose: clearTimer,
+    dispose: (): void => {
+      // Existing timer cleanup, plus the E01 §3.2 in-flight abort so a
+      // disposed runtime cannot keep delivering.
+      clearTimer()
+      abortGeneration()
+    },
   }
 }
 

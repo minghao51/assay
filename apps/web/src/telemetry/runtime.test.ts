@@ -60,6 +60,53 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
+interface HangingTransport extends TelemetryTransport {
+  readonly batches: TelemetryEvent[][]
+  readonly calls: number
+  /** The generation signal each send was handed (E01 §3.2). */
+  readonly signals: (AbortSignal | undefined)[]
+}
+
+/**
+ * A transport that models the shipped signal contract (E01 §3.1/§3.3): it stays
+ * in flight until the runtime aborts the generation, then resolves — it never
+ * rejects, and it never retries on its own.
+ */
+function hangingTransport(): HangingTransport {
+  const batches: TelemetryEvent[][] = []
+  const signals: (AbortSignal | undefined)[] = []
+  let calls = 0
+  return {
+    batches,
+    signals,
+    get calls(): number {
+      return calls
+    },
+    async send(batch, options) {
+      calls += 1
+      batches.push([...batch])
+      const signal = options?.signal
+      signals.push(signal)
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted === true) {
+          resolve()
+          return
+        }
+        signal?.addEventListener('abort', () => resolve(), { once: true })
+      })
+    },
+  }
+}
+
+/** The synthetic `app_boot` payload every canary in this suite uses. */
+function emitAppBoot(runtime: { emit: ReturnType<typeof createWebTelemetry>['emit'] }): void {
+  runtime.emit('app_boot', {
+    engine_family: 'duckdb_wasm',
+    os_family: 'linux',
+    build_channel: 'dev',
+  })
+}
+
 describe('createWebTelemetry — inert by default (R6) and hard off', () => {
   it('is inert with no endpoint: no disclosure, no buffer, no send', async () => {
     const transport = capturingTransport()
@@ -373,6 +420,134 @@ describe('createWebTelemetry — failure silence (R9)', () => {
     await settle()
     runtime.dispose()
     expect(cancel).toHaveBeenCalledWith(7)
+  })
+})
+
+describe('createWebTelemetry — E01 opt-out cancellation (§3.2, §4 matrix)', () => {
+  it('never calls the transport after an opt-out that precedes any send', async () => {
+    const transport = capturingTransport()
+    const runtime = createWebTelemetry({
+      config: config(),
+      storage: fakeStorage({ 'assay.telemetry.disclosure': '1' }),
+      transport,
+      scheduleFlush: () => 1,
+      cancelFlush: () => undefined,
+    })
+    runtime.setPreference('off')
+    emitAppBoot(runtime)
+    await settle()
+    await runtime.flush()
+    expect(transport.calls).toBe(0)
+    expect(transport.batches).toHaveLength(0)
+  })
+
+  it('aborts an in-flight send, drops the batch and still resolves flush (R9)', async () => {
+    const transport = hangingTransport()
+    const runtime = createWebTelemetry({
+      config: config(),
+      storage: fakeStorage({ 'assay.telemetry.disclosure': '1' }),
+      transport,
+      scheduleFlush: () => 1,
+      cancelFlush: () => undefined,
+    })
+    emitAppBoot(runtime)
+    await settle()
+    const flushing = runtime.flush()
+    await settle()
+    expect(transport.calls).toBe(1)
+    // The generation signal reached the attempt and the batch was already
+    // drained, so the opt-out drops it.
+    runtime.setPreference('off')
+    expect(transport.signals[0]?.aborted).toBe(true)
+    await expect(flushing).resolves.toBeUndefined()
+    expect(transport.calls).toBe(1)
+    // Repeated flush never re-sends the dropped batch.
+    await runtime.flush()
+    await runtime.flush()
+    expect(transport.calls).toBe(1)
+  })
+
+  it('sends only newly emitted events after off → on, never the aborted batch', async () => {
+    const transport = hangingTransport()
+    const runtime = createWebTelemetry({
+      config: config(),
+      storage: fakeStorage({ 'assay.telemetry.disclosure': '1' }),
+      transport,
+      scheduleFlush: () => 1,
+      cancelFlush: () => undefined,
+    })
+    emitAppBoot(runtime)
+    await settle()
+    const flushing = runtime.flush()
+    await settle()
+    expect(transport.calls).toBe(1)
+    const firstSignal = transport.signals[0]
+    runtime.setPreference('off')
+    await expect(flushing).resolves.toBeUndefined()
+    runtime.setPreference('on')
+    await runtime.flush()
+    expect(transport.calls).toBe(1)
+    // The next generation is a NEW, live controller — never the aborted one.
+    emitAppBoot(runtime)
+    await settle()
+    const second = runtime.flush()
+    await settle()
+    expect(transport.calls).toBe(2)
+    expect(transport.batches[1]?.map((event) => event.event)).toEqual(['app_boot'])
+    expect(transport.signals[1]).not.toBe(firstSignal)
+    expect(transport.signals[1]?.aborted).toBe(false)
+    // Release the in-flight second send (models a browser completing it).
+    runtime.setPreference('off')
+    await expect(second).resolves.toBeUndefined()
+  })
+
+  it('aborts the in-flight send on dispose and keeps the timer cleanup', async () => {
+    const cancel = vi.fn()
+    const transport = hangingTransport()
+    const runtime = createWebTelemetry({
+      config: config(),
+      storage: fakeStorage({ 'assay.telemetry.disclosure': '1' }),
+      transport,
+      scheduleFlush: () => 7,
+      cancelFlush: cancel,
+    })
+    emitAppBoot(runtime)
+    await settle()
+    const flushing = runtime.flush()
+    await settle()
+    expect(transport.calls).toBe(1)
+    // A second emit while the first send is in flight leaves a pending flush
+    // timer, so dispose() has both jobs to do.
+    emitAppBoot(runtime)
+    await settle()
+    cancel.mockClear()
+    runtime.dispose()
+    expect(cancel).toHaveBeenCalledWith(7)
+    expect(transport.signals[0]?.aborted).toBe(true)
+    await expect(flushing).resolves.toBeUndefined()
+    expect(transport.calls).toBe(1)
+  })
+
+  it('does not accumulate generation signals across repeated flush cycles', async () => {
+    const transport = hangingTransport()
+    const runtime = createWebTelemetry({
+      config: config(),
+      storage: fakeStorage({ 'assay.telemetry.disclosure': '1' }),
+      transport,
+      scheduleFlush: () => 1,
+      cancelFlush: () => undefined,
+    })
+    emitAppBoot(runtime)
+    await settle()
+    const flushing = runtime.flush()
+    await settle()
+    runtime.setPreference('off')
+    await flushing
+    // One send, one generation: repeated flushes of a settled/dropped batch add
+    // neither a send nor a signal (no listener/controller accumulation).
+    await runtime.flush()
+    expect(transport.signals).toHaveLength(1)
+    expect(transport.signals[0]?.aborted).toBe(true)
   })
 })
 
