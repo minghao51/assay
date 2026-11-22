@@ -495,8 +495,9 @@ export function prepareDiffPlan(
 }
 
 /**
- * Execute an already-prepared row-diff plan (m6-3) against side A's BASE view
- * (the CLI has no editing session, like m5-4) and side B's registered view,
+ * Execute an already-prepared row-diff plan (m6-3) against a caller-named
+ * side-A BASE view (the CLI has no editing session, like m5-4) and side B's
+ * registered view,
  * mirroring the engine's m6-2 `runDiff` op minus the worker transport: the
  * plan's SQL is executed byte-identically behind only the clamp wrapper, both
  * binding views are materialized under the plan's own relation names, every
@@ -514,10 +515,12 @@ export async function runDiffPlan(
   plan: EngineRowDiffPlan,
   schemaA: EngineSchema,
   stagedViewB: string,
-  // p2-5: the pipeline runner diffs two node relations (session views); the
-  // caller passes side A's base view name instead of the CLI diff command's
-  // `assay_t1`.
-  baseViewName: string = DATASET_VIEW,
+  // Side A's base view is a REQUIRED argument (no default): the CLI `diff`
+  // command passes its registered dataset view (`assay_t1`), the p2-5 pipeline
+  // runner passes the input node relation. Requiring it means a new caller
+  // cannot silently bind side A to a view it did not choose — the earlier
+  // `= DATASET_VIEW` default was the recorded CLI side-A hardcoding.
+  baseViewName: string,
 ): Promise<EngineRowDiffResult> {
   const effectiveLimit = diffEffectiveSampleLimit(plan.sampleLimit)
   // The base-view composition (the engine's base path): DESCRIBE supplies the

@@ -576,7 +576,7 @@ describe('agreement — the Node engine path vs the spawned CLI', () => {
       expect(compiledAgain.ok ? compiledAgain.plan : null).toEqual(compiled.plan)
 
       const plan = prepareDiffPlan(compiled.plan, [DATASET_VIEW, COMPARISON_VIEW])
-      const result = await runDiffPlan(conn, plan, a.schema, COMPARISON_VIEW)
+      const result = await runDiffPlan(conn, plan, a.schema, COMPARISON_VIEW, DATASET_VIEW)
 
       expect(result.rowCountA).toBe(3)
       expect(result.rowCountB).toBe(3)
@@ -624,6 +624,60 @@ describe('agreement — the Node engine path vs the spawned CLI', () => {
         )
         expect(reported.samples, aspect.aspect).toEqual(exported)
       }
+    } finally {
+      try {
+        conn.closeSync()
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  })
+
+  it('side A is the caller-named base view, not a hardcoded DATASET_VIEW (B4)', async () => {
+    // The recorded carry-over: `runDiffPlan` defaulted side A to `DATASET_VIEW`,
+    // so a pipeline caller could appear to work while its own relation was
+    // ignored. The base view is now a required argument; register the same data
+    // under a DIFFERENT name and prove the result is computed over it.
+    const conn = await openConnection()
+    try {
+      const renamedBase = 'assay_b4_renamed_base'
+      const a = await registerDatasetAs(conn, files.rowA, renamedBase)
+      const b = await registerDatasetAs(conn, files.rowB, COMPARISON_VIEW)
+
+      const compiled = compileRowDiffPlan(a.schema, b.schema, ['id'], {
+        relationA: 'b4_rel_a',
+        relationB: 'b4_rel_b',
+        sampleLimit: 20,
+      })
+      if (!compiled.ok) throw new Error('b4 plan must compile')
+      const plan = prepareDiffPlan(compiled.plan, [renamedBase, COMPARISON_VIEW])
+      const result = await runDiffPlan(
+        conn,
+        plan,
+        a.schema,
+        COMPARISON_VIEW,
+        renamedBase,
+      )
+
+      expect(result.rowCountA).toBe(3)
+      expect(result.aspects.map((aspect) => [aspect.aspect, aspect.count])).toEqual([
+        ['added', 1],
+        ['removed', 1],
+        ['changed', 1],
+      ])
+      // A-side keys still carry the logical base anchor — the base view's NAME
+      // is caller-chosen, the row-identity grammar is not.
+      expect(result.aspects.find((aspect) => aspect.aspect === 'removed')?.samples).toEqual([
+        { side: 'A', rowKey: 'base:#2' },
+      ])
+
+      // A base view that does not exist is refused with a fixed, value-free
+      // class — the parameter is load-bearing, never a silent fallback to
+      // `DATASET_VIEW` (the recorded side-A hardcoding).
+      const plan2 = prepareDiffPlan(compiled.plan, [COMPARISON_VIEW, renamedBase])
+      await expect(
+        runDiffPlan(conn, plan2, a.schema, COMPARISON_VIEW, 'assay_b4_absent_view'),
+      ).rejects.toThrow('the row-diff side A binding view could not be materialized')
     } finally {
       try {
         conn.closeSync()

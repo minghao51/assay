@@ -196,7 +196,15 @@ export async function runDiffCommand(
     // worker would accept, so every surface runs the same plans.
     context.progress.step('executing row diff')
     const plan = prepareDiffPlan(compiled.plan, [DATASET_VIEW, DIFF_COMPARISON_VIEW])
-    const result = await runDiffPlan(conn, plan, a.schema, DIFF_COMPARISON_VIEW)
+    const result = await runDiffPlan(
+      conn,
+      plan,
+      a.schema,
+      DIFF_COMPARISON_VIEW,
+      // Side A is the CLI's registered dataset view; passed explicitly because
+      // `runDiffPlan` has no default base view (B4).
+      DATASET_VIEW,
+    )
     const rowDiff = buildDiffRowDiffReport(result, plan.sharedColumns.length > 0)
     report = { diff, rowDiff }
     meta = {
