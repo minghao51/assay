@@ -207,15 +207,16 @@ test('an invalid cast spelling is refused before composing an op', async ({ page
   await expect(page.getByTestId('history-undo')).toBeDisabled()
 })
 
-test('a structurally valid but engine-unknown cast rolls back and alerts recoverably', async ({
+test('a structurally valid but engine-rejected cast rolls back and alerts recoverably', async ({
   page,
 }) => {
   await openCustomersFixture(page)
 
-  // `VARBIT` passes the client's structural validator, so it reaches the
-  // engine, which rejects it at schema materialization (DESCRIBE). This is the
-  // failure class the m4-3 rollback+alert path must own for schema ops.
-  await castColumnCustom(page, 'income', 'VARBIT')
+  // `TIMESTAMP(10)` passes the client's structural validator (one integer
+  // modifier), so it reaches the engine, which rejects it at schema
+  // materialization (precision above the supported 9). This is the failure
+  // class the m4-3 rollback+alert path must own for schema ops.
+  await castColumnCustom(page, 'income', 'TIMESTAMP(10)')
 
   // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
   // transformation history are Change-task surfaces, so the task is activated

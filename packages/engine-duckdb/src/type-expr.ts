@@ -28,7 +28,7 @@
  *   suffix    := 'WITH' 'TIME' 'ZONE'              -- TIMESTAMP/TIME
  *              | 'WITHOUT' 'TIME' 'ZONE'
  *              | 'PRECISION'                       -- DOUBLE PRECISION
- *              | 'VARYING' ['(' arglist ')']       -- CHARACTER/BIT VARYING
+ *              | 'VARYING' ['(' arglist ')']       -- CHARACTER VARYING
  *   arglist   := arg (',' arg)*
  *   arg       := number                            -- DECIMAL(10,2), VARCHAR(10)
  *              | string                            -- ENUM('a','b') labels
@@ -199,7 +199,6 @@ const OPTIONAL_INTEGER_MODIFIER_BASES: ReadonlySet<string> = new Set([
   'CHARACTER',
   'BPCHAR',
   'BIT',
-  'VARBIT',
   'TEXT',
   'STRING',
   'NVARCHAR',
@@ -434,10 +433,9 @@ class TypeExpressionParser {
         this.matchIdent('PRECISION')
         break
       case 'CHARACTER':
-      case 'BIT':
-        // The optional modifier of `CHARACTER VARYING` / `BIT VARYING`
-        // follows `VARYING`; a modifier directly after the base was already
-        // consumed above and is then a malformed double modifier.
+        // The optional modifier of `CHARACTER VARYING` follows `VARYING`; a
+        // modifier directly after the base was already consumed above and is
+        // then a malformed double modifier.
         if (this.matchIdent('VARYING')) {
           if (this.isPunct('(')) {
             if (args !== undefined) {
@@ -445,6 +443,17 @@ class TypeExpressionParser {
             }
             args = this.parseArgList()
           }
+        }
+        break
+      case 'BIT':
+        // `BIT VARYING` is a spelling, not a type: the pinned engine has no
+        // varbit at all (see the module doc), so refuse it before the
+        // argument list can be validated as if it were materializable.
+        if (this.matchIdent('VARYING')) {
+          throw new EngineTypeError(
+            'engine type BIT VARYING is outside the supported materialization ' +
+              '(the pinned DuckDB has no BIT VARYING type; use BIT or BIT(n))',
+          )
         }
         break
       default:
@@ -536,6 +545,11 @@ class TypeExpressionParser {
       case 'ENUM':
         this.requireStringArguments(base, args)
         return
+      case 'VARBIT':
+        throw new EngineTypeError(
+          'engine type VARBIT is outside the supported materialization ' +
+            '(the pinned DuckDB has no VARBIT type; use BIT or BIT(n))',
+        )
       default:
         if (OPTIONAL_INTEGER_MODIFIER_BASES.has(base)) {
           this.requireOptionalIntegerModifier(base, args)

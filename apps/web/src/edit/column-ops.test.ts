@@ -47,11 +47,17 @@ describe('validateCastTarget — the engine validator gates every spelling', () 
     }
   })
 
-  it('accepts a well-shaped but engine-unknown type — the engine owns the catalog', () => {
-    // `VARBIT` is structurally a plain identifier (the validator's permissive
-    // path), so it reaches the engine, which rejects it at schema
+  it('accepts a well-shaped but engine-rejected type — the engine owns the tight bounds', () => {
+    // `TIMESTAMP(10)` is structurally valid (one integer modifier on the
+    // validator's optional-modifier path) but the engine only has nanosecond
+    // precision 0..9, so it reaches the engine and is rejected at schema
     // materialization. This is the *second* failure class: shape validity
-    // here, catalog validity engine-side — never silently accepted as worked.
-    expect(validateCastTarget('VARBIT')).toEqual({ ok: true, targetType: 'VARBIT' })
+    // here, tighter type bounds engine-side — never silently accepted as
+    // worked. (`VARBIT` is no longer an example of this class: the engine
+    // validator now refuses it as outside the supported materialization.)
+    expect(validateCastTarget('TIMESTAMP(10)')).toEqual({
+      ok: true,
+      targetType: 'TIMESTAMP(10)',
+    })
   })
 })

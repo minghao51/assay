@@ -68,8 +68,6 @@ const ACCEPTED_TYPES: readonly string[] = [
   'CHARACTER',
   'CHARACTER VARYING',
   'CHARACTER VARYING(20)',
-  'BIT VARYING',
-  'BIT VARYING(3)',
   'INTEGER',
   'BIGINT',
   'SMALLINT',
@@ -141,6 +139,7 @@ const ACCEPTED_TYPES: readonly string[] = [
   'UHUGEINT',
   'BIT',
   'BIT(3)',
+  'BIT(10)',
   'VARINT',
   'GEOMETRY',
   'POINT',
@@ -236,6 +235,14 @@ const REJECTED_TYPES: readonly string[] = [
   'VARCHAR(99999999999999999999)',
   'TEXT(999999999999)',
   'VARCHAR(-1)',
+  // Spellings outside the supported materialization: DuckDB 1.5.5 has no
+  // VARBIT or BIT VARYING (both are Catalog Errors), so they are refused at
+  // validation while BIT/BIT(n) and CHARACTER VARYING stay accepted.
+  'VARBIT',
+  'VARBIT(10)',
+  'BIT VARYING',
+  'BIT VARYING(3)',
+  'BIT VARYING(10)',
   'DATE(2)',
   'INTEGER(2)',
   'DOUBLE(2)',
@@ -257,6 +264,26 @@ describe('parseEngineTypeExpression — modifier bounds (defect 1)', () => {
     // A negative modifier is unreachable through the grammar: the lexer has no
     // sign and rejects `-` as a disallowed character.
     expect(() => parseEngineTypeExpression('VARCHAR(-1)')).toThrow(/disallowed character/)
+  })
+})
+
+describe('parseEngineTypeExpression — unsupported materializations (defect 2)', () => {
+  it('refuses VARBIT and BIT VARYING outside the supported materialization', () => {
+    // Structural validity is not enough: these spellings pass the grammar but
+    // name a type this engine can never materialize, so the validator refuses
+    // them in the module's typed-refusal voice rather than letting the
+    // catalog error arrive after SQL composition.
+    for (const type of ['VARBIT', 'VARBIT(10)', 'BIT VARYING', 'BIT VARYING(3)']) {
+      expect(() => parseEngineTypeExpression(type), type).toThrow(
+        /outside the supported materialization/,
+      )
+    }
+    expect(() => parseEngineTypeExpression('VARBIT')).toThrow(/use BIT/)
+    expect(() => parseEngineTypeExpression('BIT VARYING')).toThrow(/use BIT/)
+    // The supported spellings are unchanged.
+    for (const type of ['BIT', 'BIT(10)', 'CHARACTER VARYING', 'CHARACTER VARYING(20)']) {
+      expect(() => parseEngineTypeExpression(type), type).not.toThrow()
+    }
   })
 })
 
@@ -465,5 +492,24 @@ describe.skipIf(!hasDuckDbCli)('type-expression agreement with the pinned DuckDB
     expect(() => parseEngineTypeExpression('VARCHAR(999999999999)')).toThrow(
       /between 0 and 2147483647/,
     )
+  })
+
+  it('VARBIT and BIT VARYING do not exist in the engine; BIT and CHARACTER VARYING do', () => {
+    // Pre-fix these spellings passed validation and the Catalog Error arrived
+    // after SQL composition:
+    expect(cliFailure('SELECT 1::VARBIT')).toMatch(/Catalog Error/)
+    expect(cliFailure('SELECT 1::VARBIT')).toMatch(/VARBIT does not exist/)
+    expect(cliFailure('SELECT 1::BIT VARYING(10)')).toMatch(/Catalog Error/)
+    expect(cliFailure('SELECT 1::BIT VARYING(10)')).toMatch(/does not exist/)
+    // What the engine really has stays accepted:
+    expect(cli("SELECT '101'::BIT(10)").trim()).toBe('101')
+    expect(cli("SELECT '1'::BIT").trim()).toBe('1')
+    expect(cli("SELECT 'abc'::CHARACTER VARYING").trim()).toBe('abc')
+    // Post-fix the unsupported spellings never compose: validation throws.
+    for (const type of ['VARBIT', 'VARBIT(10)', 'BIT VARYING', 'BIT VARYING(10)']) {
+      expect(() => parseEngineTypeExpression(type), type).toThrow(
+        /outside the supported materialization/,
+      )
+    }
   })
 })
