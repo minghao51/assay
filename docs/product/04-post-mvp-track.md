@@ -112,6 +112,10 @@ Exit: the docs 07 VS Code scenarios (open → edit → validate → diff in VS C
 
 ## 6. PT-H — hardening & backlog inventory (recorded carry-overs)
 
+> Readiness and dispatch briefs for these carry-overs are classified in the
+> [2026-11-21 successor queue](../process/handoff/20261121-successor-queue.md) §3 (B1–B7). A listed
+> item still needs its spec-first task and a selection; the inventory below is not dispatch authority.
+
 **Historical carry-over inventory; verify each item against today's tree before dispatch.**
 DCR generation (P3/M9) and a11y CI have since landed; neither is pending.
 Current pickup-ready maintenance is indexed by the [living handoff](../process/handoff.md).

@@ -1,6 +1,6 @@
 # Project Handoff — Assay
 
-**Current state / next action (2026-11-20).** The post-R1 runtime wave is fully closed — **EW-02I**,
+**Current state / next action (2026-11-21).** The post-R1 runtime wave is fully closed — **EW-02I**,
 **R2**, **U5**, **EW-03I-a**, **TB-1**, **EW-03I-b**, **EW-04I**, **TB-2**, **ENG-1** (ADR 0049
 option-C amendment) and **D3-1** — with **ADR 0049/0050/0051 Accepted**; authoritative closures are
 the [post-EW-03I-a pickup](handoff/20261118-post-ew03ia-pickup.md) §1/§2 and the Verified-state
@@ -12,9 +12,14 @@ preserved); the penultimate runtime wave is otherwise closed. Human asks are con
 [open-asks checklist](handoff/20261019-open-asks.md). **The 2026-11-20 improvement plan is executed**
 — all 24 rows accounted for (20 closed with merged evidence, 4 design-closed); decisions Q1–Q7,
 per-row commits, reviewer verdicts, final merged gates and carried limits are in the
-[execution record](handoff/20261120-improvement-plan-execution.md).
+[execution record](handoff/20261120-improvement-plan-execution.md). The remaining work is classified
+in the [successor queue](handoff/20261121-successor-queue.md): two implementation-ready designs (E01,
+E04/WF-O1), spec-first items (ENG-2, PT-H carry-overs, coverage/bundle decisions), maintainer
+decisions (WF/RD rows, release, human G0 asks) and gated tracks. **Remote GitHub Actions is
+billing-blocked** — the successor queue's local gate suite is the verification authority; a red
+job-start run is not code signal.
 
-**Last updated:** 2026-11-20. **Current lane:** launch readiness; the post-R1 runtime wave has closed
+**Last updated:** 2026-11-21. **Current lane:** launch readiness; the post-R1 runtime wave has closed
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
 Accepted**; the post-EW-03I-a queue has since closed in full (EW-03I-b, EW-04I, TB-2, ENG-1 = the ADR
 0049 decision-4 option-C amendment, D3-1; ADR 0051 Accepted) — see the current-state block above;
@@ -405,6 +410,10 @@ an ADR, never a silent rewrite of an accepted decision.
 
 ## 6. Task queues
 
+**Current successor index (2026-11-21):** [20261121-successor-queue.md](handoff/20261121-successor-queue.md)
+classifies all remaining work (design-ready, spec-first, decision-first, gated) and carries the
+local-verification protocol for the billing-blocked remote CI. It selects nothing.
+
 ### Active
 
 **Post-R1 runtime wave — closed rows and the remaining queue (2026-11-18).** **EW-02I** (`fd5a92a`),
@@ -553,6 +562,16 @@ implementation task; parent independently reviews, verifies and integrates.
   queue records. Preserve old evidence, but never label it dispatch-ready.
 
 ## 9. Changelog for this document
+
+- 2026-11-21 (**successor queue**) — added
+  [20261121-successor-queue.md](handoff/20261121-successor-queue.md): a classified index of the
+  remaining work with dispatch briefs, a local-only verification protocol (remote Actions is
+  billing-blocked: run `44887930938` refused all four jobs at start; last executed run `44886310732`
+  is green), and a paste-ready prompt for the next agent. It selects nothing. Readiness: E01 and
+  E04/WF-O1 have complete design contracts (implementation needs selection; E01 also needs a
+  disclosure-revision decision); ENG-2, the PT-H carry-overs, C02 recovery parity, webview coverage,
+  proof-bundle exclusion and E02 budgets need a small spec/measurement first; WF/RD rows and release
+  work are decision-first; G2–G4 remain gated. The current-state block and §6 now point at the queue.
 
 - 2026-11-21 (**first remote CI on the pushed batch — green**) — the 220-commit local backlog
   (including the improvement plan) was pushed. The first run (`44882622116`) was red for three
