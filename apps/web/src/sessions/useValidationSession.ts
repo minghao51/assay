@@ -356,19 +356,32 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
       if (recovery === null) return
       if (phase.kind !== 'ready') return
       const model = phase.model
+      /**
+       * A3 identity guard (the same discipline `applyProfileFilter` uses): this
+       * hook's state outlives a dataset replacement, so a recovery that lands
+       * after the reset must not resurrect its feedback on the new session.
+       * The reset bumps `validationSeq` and replaces the session token; either
+       * mismatch makes the late completion a silent no-op.
+       */
+      const sessionId = session.tokenRef.current
+      const seq = validationSeq.current
+      const isCurrent = (): boolean =>
+        seq === validationSeq.current && session.tokenRef.current === sessionId
       void (async () => {
         try {
           if (recovery.kind === 'retry') await model.refresh()
           else await model.setFilters([])
+          if (!isCurrent()) return
           clearFilterToFailuresFeedback()
         } catch (cause) {
+          if (!isCurrent()) return
           publishFilterFailure(
             recovery.kind === 'retry' ? filterRetryFailureCopy(cause) : filterFailureCopy(cause),
           )
         }
       })()
     },
-    [phase, clearFilterToFailuresFeedback, publishFilterFailure],
+    [phase, clearFilterToFailuresFeedback, publishFilterFailure, session],
   )
 
   /** m4-5 pattern for the report: destination with the same-source guard. */

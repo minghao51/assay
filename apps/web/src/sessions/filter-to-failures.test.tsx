@@ -292,4 +292,69 @@ describe('useValidationSession — the filter failure recovery (C02 parity)', ()
     expect(result.current.filterToFailuresError).toBe(FILTER_RELOAD_FAILED_MESSAGE)
     expect(result.current.filterToFailuresRecovery).toEqual({ kind: 'retry' })
   })
+
+  it('a recovery that lands after the dataset reset writes no feedback (A3 identity guard)', async () => {
+    // The hook's state outlives a dataset replacement, so a recovery that
+    // completes late must not resurrect feedback on the new session. Without
+    // the guard the rejection below publishes FILTER_RELOAD_FAILED_MESSAGE
+    // after the reset had already cleared it.
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const resets: (() => void)[] = []
+    const session: DatasetSession = {
+      tokenRef: { current: 7 },
+      beginSession: () => ({ token: 7, faults: [] }),
+      registerReset: (reset) => {
+        resets.push(reset)
+        return () => {}
+      },
+    }
+    const model = {
+      filters: [] as readonly FilterSpec[],
+      refresh: async (): Promise<void> => {
+        await gate
+        throw new Error('late engine failure')
+      },
+      setFilters: async (): Promise<void> => {},
+    }
+    const phase: Phase = {
+      kind: 'ready',
+      model: model as unknown as GridViewportModel,
+      tableId: 't1',
+      handle: { kind: 'table', id: 't1' },
+      base: BASE,
+      provider: {} as never,
+    }
+    const { result } = renderHook(() =>
+      useValidationSession({
+        phase,
+        session,
+        historyRef: HISTORY_REF,
+        overlayRef: { current: null },
+        overlayRevision: 0,
+        sourceIdentityRef: { current: null },
+        navigateToRow: () => {},
+      }),
+    )
+
+    await act(async () => {
+      result.current.handleFilterToFailuresRecover({ kind: 'retry' })
+    })
+
+    // The dataset is replaced while the refresh is still in flight.
+    act(() => {
+      for (const reset of resets) reset()
+    })
+    session.tokenRef.current = 8
+
+    await act(async () => {
+      release()
+      await Promise.resolve()
+    })
+
+    expect(result.current.filterToFailuresError).toBeNull()
+    expect(result.current.filterToFailuresRecovery).toBeNull()
+  })
 })
