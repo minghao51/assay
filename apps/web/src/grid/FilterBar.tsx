@@ -8,6 +8,14 @@ import type { FilterFailureCopy } from './filter-failure'
 import { replaceColumnFilter } from './query-state'
 import { classifyColumnType, compileFilterInput, filterOperators } from './filter-builder'
 import type { FilterColumnProfile, FilterOperatorId } from './filter-builder'
+import {
+  FILTER_DRAFT_DESCRIPTION,
+  FILTER_DRAFT_MARKER_LABEL,
+  FILTER_DRAFT_MARKER_TEXT,
+  acceptedPredicateFor,
+  applyIsNoOp,
+  draftDirty,
+} from './filter-draft'
 
 interface FilterBarProps {
   model: GridViewportModel
@@ -104,6 +112,51 @@ function draftsFrom(filters: readonly FilterSpec[]): Readonly<Record<string, str
   return next
 }
 
+/**
+ * DOM id of the value-free description of one control's dirty draft (WF-O1
+ * §3.3/§3.5). Derived from the input's own id, so it is column-keyed and
+ * stable across keystrokes; only the state it describes changes.
+ */
+function draftDescriptionId(inputId: string): string {
+  return `${inputId}-draft-description`
+}
+
+/**
+ * WF-O1 §3.3: the "Not applied" marker — one small, quiet text-styled control
+ * beside an input whose displayed draft differs exactly from the accepted
+ * predicate. It IS the revert affordance: a native `<button type="button">`
+ * with the per-row Apply/Remove control class (so Enter and Space activate the
+ * browser default — no custom key handling), rendered only while that input is
+ * dirty (no phantom tab stop) and disabled while an apply is pending like every
+ * other bar control. Its accessible name starts with the visible text and
+ * carries no predicate (ADR 0025).
+ */
+function DraftMarker({
+  column,
+  testId,
+  pending,
+  onRevert,
+}: {
+  readonly column: string
+  readonly testId: string
+  readonly pending: boolean
+  readonly onRevert: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className="filter-apply filter-draft-marker"
+      data-testid={testId}
+      data-col-name={column}
+      aria-label={FILTER_DRAFT_MARKER_LABEL}
+      disabled={pending}
+      onClick={onRevert}
+    >
+      {FILTER_DRAFT_MARKER_TEXT}
+    </button>
+  )
+}
+
 /** The collapsed/expanded summary: the count plus the active column names. */
 function summaryLabel(filters: readonly FilterSpec[]): string {
   if (filters.length === 0) return 'Filters'
@@ -191,6 +244,14 @@ function FilterChip({
  * unknown state. All copy is single-line and text-only (ADR 0007 spirit —
  * predicate fragments and engine errors are untrusted *content*, never markup;
  * ADR 0025 — nothing here touches the file name).
+ *
+ * WF-O1 (E04 filter-draft clarity, `filter-draft.ts`): an active-row or
+ * escape-hatch input whose displayed draft differs **exactly** from the
+ * accepted predicate carries one quiet `Not applied` marker beside it, and
+ * that marker is the revert affordance (draft-only; no dispatch). Applying a
+ * predicate that is already accepted (trimmed — the storage form) is a no-op:
+ * no dispatch, no busy epoch, no error, marker cleared. The marker describes
+ * only that input vs the applied filter — never the dataset or an edit.
  */
 export function FilterBar({ model, onPendingChange }: FilterBarProps) {
   useSyncExternalStore(model.subscribe, model.getVersion)
@@ -214,6 +275,14 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
   // text, so no engine diagnostic and no value can reach the alert.
   const [failure, setFailure] = useState<FilterFailureCopy | null>(null)
   const [pending, setPending] = useState(false)
+  // WF-O1 §3.5: the input a marker belongs to, keyed by DOM id. Activating the
+  // marker unmounts it (the draft then matches accepted), so focus has to go
+  // back to that input rather than drop to the document body.
+  const inputRefs = useRef(new Map<string, HTMLInputElement>())
+  const bindInput = (id: string) => (element: HTMLInputElement | null) => {
+    if (element === null) inputRefs.current.delete(id)
+    else inputRefs.current.set(id, element)
+  }
 
   const profiles = new Map(schema.map((column) => [column.name, classifyColumnType(column.type)]))
 
@@ -324,8 +393,9 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
       // published (a refusal publishes nothing, an accepted+failed reload keeps
       // the accepted list), and the drafts effect already mirrors that list.
       // The user's typed value therefore survives a refusal so it can be fixed
-      // and re-applied — draft text is not accepted filter state (WF-O1 is
-      // separate work; this only avoids pretending the value was applied).
+      // and re-applied — draft text is not accepted filter state (WF-O1's
+      // marker describes exactly that: this input differs from the applied
+      // filter; nothing here claims the value was applied).
       setFailure(filterFailureCopy(cause))
       return false
     } finally {
@@ -338,8 +408,7 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
   }
 
   /** The predicate the accepted list holds for a column (`''` = unfiltered). */
-  const acceptedPredicate = (column: string): string =>
-    model.filters.find((filter) => filter.column === column)?.predicate ?? ''
+  const acceptedPredicate = (column: string): string => acceptedPredicateFor(model.filters, column)
 
   /**
    * The value an editable input displays — and therefore the value its Apply
@@ -371,9 +440,37 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
   }
 
   const applyDraft = (column: string): void => {
+    // WF-O1 §3.1/§3.2 "No-op": submitting what is already accepted (trimmed —
+    // the storage form `replaceColumnFilter` writes) changes no filter, so it
+    // must not dispatch, open a busy epoch, surface an error or reorder the
+    // list. The draft is re-seeded to the accepted string, which is the whole
+    // feedback: the marker clears. A draft differing only by surrounding
+    // whitespace is dirty but lands here (the specified trimming edge).
+    if (applyIsNoOp(model.filters, column, displayedPredicate(column))) {
+      setDrafts((previous) => {
+        const accepted = acceptedPredicate(column)
+        const current = previous[column] ?? accepted
+        // Untouched: keep the map identity so a clean re-apply renders nothing.
+        return current === accepted ? previous : { ...previous, [column]: accepted }
+      })
+      return
+    }
     // Submit exactly what the input displays. An explicitly emptied input
     // still removes the filter: `replaceColumnFilter` drops the column on `''`.
     void applyList(replaceColumnFilter(model.filters, column, displayedPredicate(column)))
+  }
+
+  /**
+   * WF-O1 §3.3 revert: restore the accepted predicate string into that
+   * column's draft. A **draft-only** change — no `setFilters`, no busy state,
+   * no engine call, and no filter, dataset or file state is touched. Focus
+   * returns to the input the marker belongs to, because the marker unmounts as
+   * soon as the draft matches accepted.
+   */
+  const revertDraft = (column: string, inputId: string): void => {
+    const accepted = acceptedPredicate(column)
+    setDrafts((previous) => ({ ...previous, [column]: accepted }))
+    inputRefs.current.get(inputId)?.focus()
   }
 
   const removeFilter = (column: string): void => {
@@ -556,63 +653,95 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
           {/* Editable rows for the active filters (the required surface). */}
           {activeCount > 0 && (
             <ul className="filter-active-rows" data-testid="filter-active-rows">
-              {model.filters.map((filter) => (
-                <li
-                  key={filterChipKey(filter)}
-                  className="filter-active-row"
-                  data-testid="filter-active-row"
-                  data-col-name={filter.column}
-                >
-                  <label className="filter-label" htmlFor={filterActivePredicateId(filter.column)}>
-                    {filter.column}
-                  </label>
-                  <input
-                    id={filterActivePredicateId(filter.column)}
-                    className="filter-input filter-active-input"
-                    data-testid="filter-active-predicate"
+              {model.filters.map((filter) => {
+                const accepted = acceptedPredicate(filter.column)
+                const inputId = filterActivePredicateId(filter.column)
+                // WF-O1 §3.1/§3.3: the marker and the description belong to the
+                // CONTROL, not to the filter — they exist only while this
+                // input's displayed draft differs exactly from accepted.
+                const dirty = draftDirty(displayedPredicate(filter.column), accepted)
+                const descriptionId = draftDescriptionId(inputId)
+                return (
+                  <li
+                    key={filterChipKey(filter)}
+                    className="filter-active-row"
+                    data-testid="filter-active-row"
                     data-col-name={filter.column}
-                    type="text"
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder="e.g. > 50000"
-                    value={displayedPredicate(filter.column)}
-                    disabled={pending}
-                    onChange={(event) => {
-                      const value = event.target.value
-                      setDrafts((previous) => ({ ...previous, [filter.column]: value }))
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') applyDraft(filter.column)
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="filter-apply"
-                    data-testid="filter-active-apply"
-                    data-col-name={filter.column}
-                    disabled={pending}
-                    onClick={() => {
-                      applyDraft(filter.column)
-                    }}
                   >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    className="filter-active-remove"
-                    data-testid="filter-active-remove"
-                    data-col-name={filter.column}
-                    aria-label={`Remove filter ${filter.column} ${filter.predicate}`}
-                    title={`Remove filter ${filter.column} ${filter.predicate}`}
-                    disabled={pending}
-                    onClick={() => {
-                      removeFilter(filter.column)
-                    }}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
+                    <label className="filter-label" htmlFor={inputId}>
+                      {filter.column}
+                    </label>
+                    <input
+                      id={inputId}
+                      ref={bindInput(inputId)}
+                      className="filter-input filter-active-input"
+                      data-testid="filter-active-predicate"
+                      data-col-name={filter.column}
+                      type="text"
+                      spellCheck={false}
+                      autoComplete="off"
+                      placeholder="e.g. > 50000"
+                      value={displayedPredicate(filter.column)}
+                      aria-describedby={dirty ? descriptionId : undefined}
+                      disabled={pending}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setDrafts((previous) => ({ ...previous, [filter.column]: value }))
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') applyDraft(filter.column)
+                      }}
+                    />
+                    {dirty && (
+                      <>
+                        {/* Value-free, rendered text: not a live region, so
+                            nothing is announced per keystroke (WF-O1 §3.5). */}
+                        <span
+                          id={descriptionId}
+                          className="visually-hidden"
+                          data-testid="filter-active-draft-description"
+                        >
+                          {FILTER_DRAFT_DESCRIPTION}
+                        </span>
+                        <DraftMarker
+                          column={filter.column}
+                          testId="filter-active-draft-marker"
+                          pending={pending}
+                          onRevert={() => {
+                            revertDraft(filter.column, inputId)
+                          }}
+                        />
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className="filter-apply"
+                      data-testid="filter-active-apply"
+                      data-col-name={filter.column}
+                      disabled={pending}
+                      onClick={() => {
+                        applyDraft(filter.column)
+                      }}
+                    >
+                      Apply
+                    </button>
+                    <button
+                      type="button"
+                      className="filter-active-remove"
+                      data-testid="filter-active-remove"
+                      data-col-name={filter.column}
+                      aria-label={`Remove filter ${filter.column} ${filter.predicate}`}
+                      title={`Remove filter ${filter.column} ${filter.predicate}`}
+                      disabled={pending}
+                      onClick={() => {
+                        removeFilter(filter.column)
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
           {/* UG-16: the per-column SQL-fragment escape hatch, own disclosure. */}
@@ -625,44 +754,73 @@ export function FilterBar({ model, onPendingChange }: FilterBarProps) {
               on that column.
             </p>
             <ul className="filter-columns" data-testid="filter-columns">
-              {schema.map((column) => (
-                <li key={column.name} className="filter-column" data-testid="filter-column">
-                  <label className="filter-label" htmlFor={filterInputId(column.name)}>
-                    {column.name}
-                  </label>
-                  <input
-                    id={filterInputId(column.name)}
-                    className="filter-input"
-                    data-testid="filter-input"
-                    data-col-name={column.name}
-                    type="text"
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder="e.g. > 50000"
-                    value={displayedPredicate(column.name)}
-                    disabled={pending}
-                    onChange={(event) => {
-                      const value = event.target.value
-                      setDrafts((previous) => ({ ...previous, [column.name]: value }))
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') applyDraft(column.name)
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="filter-apply"
-                    data-testid="filter-apply"
-                    data-col-name={column.name}
-                    disabled={pending}
-                    onClick={() => {
-                      applyDraft(column.name)
-                    }}
-                  >
-                    Apply
-                  </button>
-                </li>
-              ))}
+              {schema.map((column) => {
+                const accepted = acceptedPredicate(column.name)
+                const inputId = filterInputId(column.name)
+                // The escape hatch shares the draft map with the active rows, so
+                // its marker follows the same exact-string rule (WF-O1 §3.3).
+                const dirty = draftDirty(displayedPredicate(column.name), accepted)
+                const descriptionId = draftDescriptionId(inputId)
+                return (
+                  <li key={column.name} className="filter-column" data-testid="filter-column">
+                    <label className="filter-label" htmlFor={inputId}>
+                      {column.name}
+                    </label>
+                    <input
+                      id={inputId}
+                      ref={bindInput(inputId)}
+                      className="filter-input"
+                      data-testid="filter-input"
+                      data-col-name={column.name}
+                      type="text"
+                      spellCheck={false}
+                      autoComplete="off"
+                      placeholder="e.g. > 50000"
+                      value={displayedPredicate(column.name)}
+                      aria-describedby={dirty ? descriptionId : undefined}
+                      disabled={pending}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setDrafts((previous) => ({ ...previous, [column.name]: value }))
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') applyDraft(column.name)
+                      }}
+                    />
+                    {dirty && (
+                      <>
+                        <span
+                          id={descriptionId}
+                          className="visually-hidden"
+                          data-testid="filter-draft-description"
+                        >
+                          {FILTER_DRAFT_DESCRIPTION}
+                        </span>
+                        <DraftMarker
+                          column={column.name}
+                          testId="filter-draft-marker"
+                          pending={pending}
+                          onRevert={() => {
+                            revertDraft(column.name, inputId)
+                          }}
+                        />
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className="filter-apply"
+                      data-testid="filter-apply"
+                      data-col-name={column.name}
+                      disabled={pending}
+                      onClick={() => {
+                        applyDraft(column.name)
+                      }}
+                    >
+                      Apply
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           </details>
           {/*

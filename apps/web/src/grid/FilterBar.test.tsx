@@ -12,6 +12,11 @@ import {
   filterInputId,
 } from './FilterBar'
 import { FILTER_RELOAD_FAILED_MESSAGE, FILTER_RESTORE_FAILED_MESSAGE } from './filter-failure'
+import {
+  FILTER_DRAFT_DESCRIPTION,
+  FILTER_DRAFT_MARKER_LABEL,
+  FILTER_DRAFT_MARKER_TEXT,
+} from './filter-draft'
 
 /**
  * AR-W11 pins: distinct column names must produce distinct DOM ids. The old
@@ -860,7 +865,7 @@ describe('FilterBar active filter rows (ug-18)', () => {
 })
 
 describe('FilterBar active-row prefill fidelity (ug-18 round 2)', () => {
-  it('re-applies the predicate an untouched row DISPLAYS after a programmatic setFilters', async () => {
+  it('an untouched row neither re-applies nor drops the predicate it DISPLAYS', async () => {
     const model = storeModel(COLUMNS)
     const setFilters = vi.spyOn(model, 'setFilters')
     render(<FilterBar model={model} />)
@@ -874,33 +879,32 @@ describe('FilterBar active-row prefill fidelity (ug-18 round 2)', () => {
     expect(input.value).toBe('> 50000')
     setFilters.mockClear()
 
-    // Finding 1: Apply on the untouched row must hand over the value it shows.
-    // Before the fix the accepted predicate was displayed but `''` was sent, so
-    // the filter silently disappeared.
+    // Finding 1: Apply on the untouched row must never hand over `''` — before
+    // that fix the filter silently disappeared. WF-O1 (§3.1/§3.2 "No-op")
+    // strengthens the pin: an untouched draft IS the accepted predicate, so
+    // there is nothing to apply and nothing is dispatched at all — no round
+    // trip, no busy epoch, no list reorder.
+    await act(async () => {
+      fireEvent.click(control('filter-active-apply', 'income'))
+      // Enter is the same submission path.
+      fireEvent.keyDown(control('filter-active-predicate', 'income'), { key: 'Enter' })
+    })
+    expect(setFilters).not.toHaveBeenCalled()
+    expect(model.filters).toEqual([{ column: 'income', predicate: '> 50000' }])
+    expect((control('filter-active-predicate', 'income') as HTMLInputElement).value).toBe('> 50000')
+
+    // The fidelity pin itself still holds wherever a dispatch DOES happen: Apply
+    // sends the value the input displays (never `''`, never another draft).
+    fireEvent.change(control('filter-active-predicate', 'income'), {
+      target: { value: '> 60000' },
+    })
+    expect((control('filter-active-predicate', 'income') as HTMLInputElement).value).toBe('> 60000')
     fireEvent.click(control('filter-active-apply', 'income'))
     await waitFor(() => {
-      expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 50000' }])
+      expect(setFilters).toHaveBeenCalledTimes(1)
     })
-    expect(model.filters).toEqual([{ column: 'income', predicate: '> 50000' }])
-
-    // The second attempt is only dispatchable once the first has finished: the
-    // bar is single-flight (`pending` disables every control and `applyList`
-    // refuses a submit, ug-19). A user cannot press Enter mid-apply either —
-    // the row's input is disabled then — so wait on the bar's own transition
-    // back to idle rather than assume the first await already landed it.
-    await waitFor(() => {
-      expect((control('filter-active-apply', 'income') as HTMLButtonElement).disabled).toBe(false)
-    })
-
-    // Enter is the same submission path. Re-queried: the row is keyed by
-    // column:predicate, so a wait that crosses a render must not reuse a node
-    // captured before it.
-    fireEvent.keyDown(control('filter-active-predicate', 'income'), { key: 'Enter' })
-    await waitFor(() => {
-      expect(setFilters).toHaveBeenCalledTimes(2)
-    })
-    expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 50000' }])
-    expect(model.filters).toEqual([{ column: 'income', predicate: '> 50000' }])
+    expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 60000' }])
+    expect(model.filters).toEqual([{ column: 'income', predicate: '> 60000' }])
   })
 
   it('refreshes the draft when a programmatic replacement lands on the same column', async () => {
@@ -929,10 +933,14 @@ describe('FilterBar active-row prefill fidelity (ug-18 round 2)', () => {
     expect((control('filter-active-predicate', 'income') as HTMLInputElement).value).toBe('> 70000')
     setFilters.mockClear()
 
-    fireEvent.click(control('filter-active-apply', 'income'))
-    await waitFor(() => {
-      expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 70000' }])
+    // WF-O1 (§3.1/§3.2 "No-op"): the re-seeded draft IS the accepted predicate,
+    // so this Apply dispatches nothing at all. The replacement therefore
+    // survives untouched — the pin (a stale draft must not win) now holds by
+    // construction instead of by re-writing the same list.
+    await act(async () => {
+      fireEvent.click(control('filter-active-apply', 'income'))
     })
+    expect(setFilters).not.toHaveBeenCalled()
     expect(model.filters).toEqual([{ column: 'income', predicate: '> 70000' }])
   })
 
@@ -957,10 +965,13 @@ describe('FilterBar active-row prefill fidelity (ug-18 round 2)', () => {
     })
     expect((control('filter-active-predicate', 'income') as HTMLInputElement).value).toBe('> 70000')
     setFilters.mockClear()
-    fireEvent.click(control('filter-active-apply', 'income'))
-    await waitFor(() => {
-      expect(setFilters).toHaveBeenLastCalledWith([{ column: 'income', predicate: '> 70000' }])
+    // WF-O1: the replacement's predicate is what the input displays, so this
+    // Apply is a no-op (no dispatch, no reorder) and the replacement stands.
+    await act(async () => {
+      fireEvent.click(control('filter-active-apply', 'income'))
     })
+    expect(setFilters).not.toHaveBeenCalled()
+    expect(model.filters).toEqual([{ column: 'income', predicate: '> 70000' }])
   })
 
   it('still removes the filter when the user explicitly empties the input', async () => {
@@ -1717,5 +1728,464 @@ describe('FilterBar chip identity — injective keys (CO-2, ug-23)', () => {
     const body = screen.getByTestId('filter-chips')
     expect(Array.from(body.children).map((chip) => chipLabel(chip))).toEqual(['a:b c', 'a b:c'])
     expect(warnings).toEqual([])
+  })
+})
+
+/**
+ * WF-O1 (E04 filter-draft clarity) pins — design
+ * [§3.1–§3.3 and §3.5](../../../../docs/process/handoff/20261120-e04-bounded-ux-design.md).
+ *
+ * One modest indication distinguishes a drafted filter edit from the applied
+ * one: a control whose displayed draft differs **exactly** from the accepted
+ * predicate for its column carries a `Not applied` marker, and that marker IS
+ * the revert affordance (draft-only, no dispatch). Applying a predicate that is
+ * already accepted — trimmed, the storage form — is a no-op: no dispatch, no
+ * busy epoch, no error, marker cleared.
+ *
+ * The state table's other rows are preserved and asserted around this block
+ * rather than replaced: untouched (no marker), invalid compose (unchanged
+ * `role="alert"` line, no marker — the compose value is a new filter, not a
+ * draft), cleared (a removal, so it DOES dispatch), programmatic replace
+ * (re-seeds, retires the marker), busy (marker disabled), single failure
+ * (existing copy; the still-unapplied draft stays marked), double
+ * failure/unknown state (existing honesty copy, no new live region).
+ */
+describe('FilterBar draft-vs-accepted marker (WF-O1)', () => {
+  const ACTIVE_MARKER = 'filter-active-draft-marker'
+  const HATCH_MARKER = 'filter-draft-marker'
+  const ACTIVE_DESCRIPTION = 'filter-active-draft-description'
+  const HATCH_DESCRIPTION = 'filter-draft-description'
+
+  const INCOME: FilterSpec = { column: 'income', predicate: '> 50000' }
+  const COUNTRY: FilterSpec = { column: 'country', predicate: "= 'US'" }
+
+  /** The marker (or its absence) for one column's control. */
+  function markerFor(testId: string, column: string): HTMLButtonElement | null {
+    return document.querySelector<HTMLButtonElement>(
+      `[data-testid="${testId}"][data-col-name="${column}"]`,
+    )
+  }
+
+  function activeInput(column: string): HTMLInputElement {
+    return control('filter-active-predicate', column) as HTMLInputElement
+  }
+
+  function hatchInput(column: string): HTMLInputElement {
+    return control('filter-input', column) as HTMLInputElement
+  }
+
+  /**
+   * Keyboard activation of a native `<button>`: a browser turns Enter and Space
+   * into a click, and that default activation is the only handling the marker
+   * has (no `onKeyDown` of its own — asserted in the same test).
+   *
+   * happy-dom implements no default action for those keys and
+   * `@testing-library/user-event` is not a dependency of this workspace, so the
+   * two key presses are fired and the click the browser would synthesize on
+   * them is dispatched explicitly. Nothing component-side can hide in this
+   * helper: it fires the keys first, and the test asserts they changed nothing.
+   */
+  function activateByKey(marker: HTMLElement, key: string): void {
+    fireEvent.keyDown(marker, { key })
+    fireEvent.keyUp(marker, { key })
+    fireEvent.click(marker)
+  }
+
+  it('renders no marker at all while every draft is clean (no phantom tab stop)', () => {
+    const { model } = fakeModel(COLUMNS, [INCOME, COUNTRY])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    expect(screen.queryAllByTestId(ACTIVE_MARKER)).toHaveLength(0)
+    expect(screen.queryAllByTestId(HATCH_MARKER)).toHaveLength(0)
+    // Nothing is described as dirty either: the description span exists only
+    // while its own input is.
+    for (const input of screen.getAllByTestId('filter-input')) {
+      expect(input.getAttribute('aria-describedby')).toBeNull()
+    }
+    for (const input of screen.getAllByTestId('filter-active-predicate')) {
+      expect(input.getAttribute('aria-describedby')).toBeNull()
+    }
+  })
+
+  it('marks an input only on an EXACT mismatch — no trimming, no case folding', () => {
+    const { model } = fakeModel(COLUMNS, [INCOME, COUNTRY])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    // Whitespace-only difference: dirty (the input really shows something else)
+    // even though Apply will land as a no-op (§3.1 trimming edge).
+    fireEvent.change(activeInput('income'), { target: { value: '> 50000 ' } })
+    expect(markerFor(ACTIVE_MARKER, 'income')).not.toBeNull()
+    fireEvent.change(activeInput('income'), { target: { value: '> 50000' } })
+    expect(markerFor(ACTIVE_MARKER, 'income')).toBeNull()
+
+    // SQL-equivalent-looking predicates are different strings: dirty.
+    fireEvent.change(activeInput('income'), { target: { value: '>= 50001' } })
+    expect(markerFor(ACTIVE_MARKER, 'income')).not.toBeNull()
+
+    // Case-only difference on a string predicate: dirty (no case folding).
+    fireEvent.change(hatchInput('country'), { target: { value: "= 'us'" } })
+    expect(markerFor(HATCH_MARKER, 'country')).not.toBeNull()
+
+    // Untouched controls stay unmarked beside a dirty one.
+    expect(markerFor(ACTIVE_MARKER, 'signup_date')).toBeNull()
+  })
+
+  it('is a native, quiet control with the pinned value-free name and description', () => {
+    const { model } = fakeModel(COLUMNS, [INCOME])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '> 60000' } })
+    const marker = markerFor(ACTIVE_MARKER, 'income')
+    expect(marker).not.toBeNull()
+    const input = activeInput('income')
+
+    // A native button (Enter/Space are the platform default) with the per-row
+    // Apply control class — operable, not a status, not a link.
+    expect(marker?.tagName).toBe('BUTTON')
+    expect(marker?.getAttribute('type')).toBe('button')
+    expect(marker?.className.split(' ')).toContain('filter-apply')
+    expect(marker?.getAttribute('role')).toBeNull()
+    expect(marker?.tabIndex).toBe(0)
+
+    // Visible copy, and an accessible name that starts with it (WCAG 2.5.3)
+    // while naming the action as a restore — never a discard.
+    expect(marker?.textContent).toBe(FILTER_DRAFT_MARKER_TEXT)
+    expect(marker?.getAttribute('aria-label')).toBe(FILTER_DRAFT_MARKER_LABEL)
+    expect(marker?.getAttribute('aria-label')?.startsWith(FILTER_DRAFT_MARKER_TEXT)).toBe(true)
+    expect(marker?.getAttribute('aria-label')).toContain('restore')
+    expect(marker?.getAttribute('aria-label')).not.toMatch(/discard|lost|lose/i)
+
+    // ADR 0025: no predicate value, and no dataset-dirtiness claim, in any name.
+    expect(marker?.getAttribute('aria-label')).not.toContain('> 60000')
+    expect(marker?.getAttribute('title')).toBeNull()
+    expect(marker?.getAttribute('aria-label')).not.toMatch(/unsaved|dataset/i)
+
+    // One Tab stop directly after its input: input → hidden description → marker.
+    const description = marker?.previousElementSibling as HTMLElement
+    expect(description?.tagName).toBe('SPAN')
+    expect(description?.getAttribute('data-testid')).toBe(ACTIVE_DESCRIPTION)
+    expect(description?.previousElementSibling).toBe(input)
+    expect(description?.textContent).toBe(FILTER_DRAFT_DESCRIPTION)
+    expect(description?.className).toBe('visually-hidden')
+    // The input points at the description, which is how the difference is
+    // conveyed: rendered text, not an announcement.
+    expect(input.getAttribute('aria-describedby')).toBe(description?.id)
+    expect(document.getElementById(description?.id ?? '')).toBe(description)
+    expect(description?.getAttribute('aria-live')).toBeNull()
+    expect(description?.textContent).not.toContain('> 60000')
+  })
+
+  it('keeps the input and description ids stable across keystrokes (no identity churn)', () => {
+    const { model } = fakeModel(COLUMNS, [INCOME])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '> 60000' } })
+    const inputId = activeInput('income').id
+    const describedBy = activeInput('income').getAttribute('aria-describedby')
+    expect(describedBy).not.toBeNull()
+    const descriptionNode = document.getElementById(describedBy ?? '')
+    const descriptionId = descriptionNode?.id ?? ''
+
+    // Every keystroke after the first re-renders only the value: the input, its
+    // id and the id it describes itself with are the same DOM nodes/strings.
+    for (const value of ['> 60001', '> 60002', '', '> 60003']) {
+      fireEvent.change(activeInput('income'), { target: { value } })
+      expect(activeInput('income').id).toBe(inputId)
+      expect(activeInput('income').getAttribute('aria-describedby')).toBe(describedBy)
+      expect(document.getElementById(descriptionId)).not.toBeNull()
+    }
+  })
+
+  it('marks the SQL-hatch input through the same shared draft, value-free', () => {
+    const { model } = fakeModel(COLUMNS, [COUNTRY])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    expect(markerFor(HATCH_MARKER, 'country')).toBeNull()
+    fireEvent.change(hatchInput('country'), { target: { value: "= 'SG'" } })
+
+    const hatchMarker = markerFor(HATCH_MARKER, 'country')
+    expect(hatchMarker).not.toBeNull()
+    expect(hatchMarker?.textContent).toBe(FILTER_DRAFT_MARKER_TEXT)
+    expect(hatchMarker?.getAttribute('aria-label')).toBe(FILTER_DRAFT_MARKER_LABEL)
+    const description = document.getElementById(
+      hatchInput('country').getAttribute('aria-describedby') ?? '',
+    )
+    expect(description?.textContent).toBe(FILTER_DRAFT_DESCRIPTION)
+    expect(document.querySelectorAll(`[data-testid="${HATCH_DESCRIPTION}"]`)).toHaveLength(1)
+    expect(hatchInput('country').getAttribute('aria-describedby')).not.toContain("= 'SG'")
+
+    // One draft map, two controls: the active row for that column shows the
+    // marker too, because it displays the same (now differing) draft.
+    expect(markerFor(ACTIVE_MARKER, 'country')).not.toBeNull()
+    // A column with no accepted filter is clean until it is typed into.
+    expect(markerFor(HATCH_MARKER, 'income')).toBeNull()
+  })
+
+  it('does NOT mark the compose value input (a new filter, not a draft of an accepted one)', () => {
+    const { model } = fakeModel(COLUMNS, [INCOME])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(composeValue(), { target: { value: '60000' } })
+    expect(composeValue().value).toBe('60000')
+    expect(screen.queryAllByTestId(ACTIVE_MARKER)).toHaveLength(0)
+    expect(screen.queryAllByTestId(HATCH_MARKER)).toHaveLength(0)
+    // The compose row's own client-side rejection is unchanged and adds no
+    // marker either.
+    fireEvent.change(composeValue(), { target: { value: 'not a number' } })
+    fireEvent.click(composeApply())
+    expect(screen.getByTestId('filter-builder-error').getAttribute('role')).toBe('alert')
+    expect(screen.queryAllByTestId(ACTIVE_MARKER)).toHaveLength(0)
+  })
+
+  it('activation reverts to the accepted predicate: draft-only, nothing dispatched, focus returns', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [INCOME])
+    const onPendingChange = vi.fn()
+    render(<FilterBar model={model} onPendingChange={onPendingChange} />)
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '> 60000' } })
+    const marker = markerFor(ACTIVE_MARKER, 'income')
+    expect(marker).not.toBeNull()
+
+    fireEvent.click(marker as HTMLButtonElement)
+
+    // The accepted predicate string is restored exactly, and the marker (and
+    // its description) retire because the draft now matches accepted.
+    expect(activeInput('income').value).toBe('> 50000')
+    expect(markerFor(ACTIVE_MARKER, 'income')).toBeNull()
+    expect(activeInput('income').getAttribute('aria-describedby')).toBeNull()
+    // Draft-only: no filter write, no busy epoch, no error, no engine call.
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(setFilters).not.toHaveBeenCalled()
+    expect(onPendingChange).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('filter-error')).toBeNull()
+    // The marker unmounts, so focus must land on the input it belongs to.
+    expect(document.activeElement).toBe(activeInput('income'))
+  })
+
+  it('activation from the SQL-hatch marker restores that column draft and refocuses its input', () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [COUNTRY])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(hatchInput('country'), { target: { value: "= 'SG'" } })
+    expect(markerFor(ACTIVE_MARKER, 'country')).not.toBeNull()
+    fireEvent.click(markerFor(HATCH_MARKER, 'country') as HTMLButtonElement)
+
+    expect(hatchInput('country').value).toBe("= 'US'")
+    expect(markerFor(HATCH_MARKER, 'country')).toBeNull()
+    // The shared draft was reverted, so the active row is clean again too.
+    expect(markerFor(ACTIVE_MARKER, 'country')).toBeNull()
+    expect(activeInput('country').value).toBe("= 'US'")
+    expect(setFilters).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(hatchInput('country'))
+  })
+
+  it('is activated by Enter and Space through the native button default', () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [INCOME])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    for (const key of ['Enter', ' ']) {
+      fireEvent.change(activeInput('income'), { target: { value: '> 60000' } })
+      const marker = markerFor(ACTIVE_MARKER, 'income') as HTMLButtonElement
+
+      // No component-side key handling hides behind the default: the bare key
+      // events change nothing at all.
+      fireEvent.keyDown(marker, { key })
+      fireEvent.keyUp(marker, { key })
+      expect(activeInput('income').value).toBe('> 60000')
+      expect(markerFor(ACTIVE_MARKER, 'income')).not.toBeNull()
+
+      activateByKey(marker, key)
+      expect(activeInput('income').value).toBe('> 50000')
+      expect(markerFor(ACTIVE_MARKER, 'income')).toBeNull()
+      expect(document.activeElement).toBe(activeInput('income'))
+    }
+    expect(setFilters).not.toHaveBeenCalled()
+  })
+
+  it('is disabled while an apply is pending, like every other bar control', async () => {
+    const { model, flush } = blockingModel(COLUMNS, [INCOME])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '> 60000' } })
+    expect((markerFor(ACTIVE_MARKER, 'income') as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.click(control('filter-active-apply', 'income'))
+    expect((markerFor(ACTIVE_MARKER, 'income') as HTMLButtonElement).disabled).toBe(true)
+
+    await act(async () => {
+      flush()
+    })
+    // The accepted apply landed: the draft is re-seeded from the new list, so
+    // the marker retires rather than lingering over applied state.
+    expect(activeInput('income').value).toBe('> 60000')
+    expect(markerFor(ACTIVE_MARKER, 'income')).toBeNull()
+
+    // A fresh edit re-arms an enabled marker (nothing latches it disabled).
+    fireEvent.change(activeInput('income'), { target: { value: '> 70000' } })
+    expect((markerFor(ACTIVE_MARKER, 'income') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a no-op Apply dispatches nothing, opens no epoch, and leaves the list order alone', async () => {
+    const model = storeModel(COLUMNS)
+    const setFilters = vi.spyOn(model, 'setFilters')
+    const onPendingChange = vi.fn()
+    render(<FilterBar model={model} onPendingChange={onPendingChange} />)
+    await act(async () => {
+      await model.setFilters([INCOME, COUNTRY])
+    })
+    ensureOpen()
+    setFilters.mockClear()
+
+    // Both submission paths: the Apply button and Enter in the input.
+    await act(async () => {
+      fireEvent.click(control('filter-active-apply', 'income'))
+      fireEvent.keyDown(activeInput('income'), { key: 'Enter' })
+      fireEvent.click(control('filter-apply', 'income'))
+    })
+
+    expect(setFilters).not.toHaveBeenCalled()
+    expect(onPendingChange).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('filter-error')).toBeNull()
+    // No reorder round trip: the accepted list is exactly as the model holds it.
+    expect(model.filters).toEqual([INCOME, COUNTRY])
+    expect(markerFor(ACTIVE_MARKER, 'income')).toBeNull()
+    expect(markerFor(HATCH_MARKER, 'income')).toBeNull()
+  })
+
+  it('the trimming edge: a whitespace-only draft is dirty but applies as a no-op', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [INCOME])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '  > 50000  ' } })
+    expect(markerFor(ACTIVE_MARKER, 'income')).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.click(control('filter-active-apply', 'income'))
+    })
+
+    expect(setFilters).not.toHaveBeenCalled()
+    // The draft is re-seeded to the storage form (what the accepted list holds),
+    // so the display stops differing and the marker clears.
+    expect(activeInput('income').value).toBe('> 50000')
+    expect(markerFor(ACTIVE_MARKER, 'income')).toBeNull()
+  })
+
+  it('a real edit still dispatches, and the marker clears when accepted catches up', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    await act(async () => {
+      await model.setFilters([INCOME])
+    })
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '> 60000' } })
+    expect(markerFor(ACTIVE_MARKER, 'income')).not.toBeNull()
+
+    fireEvent.click(control('filter-active-apply', 'income'))
+    await waitFor(() => {
+      expect(model.filters).toEqual([{ column: 'income', predicate: '> 60000' }])
+    })
+    await waitFor(() => {
+      expect(markerFor(ACTIVE_MARKER, 'income')).toBeNull()
+    })
+    expect(activeInput('income').value).toBe('> 60000')
+  })
+
+  it('an emptied draft is a removal, not a no-op (it is dirty, then dispatched)', async () => {
+    const { model, setFilters } = fakeModel(COLUMNS, [INCOME])
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '' } })
+    expect(markerFor(ACTIVE_MARKER, 'income')).not.toBeNull()
+
+    fireEvent.click(control('filter-active-apply', 'income'))
+    await waitFor(() => {
+      expect(setFilters).toHaveBeenCalledWith([])
+    })
+  })
+
+  it('a programmatic replacement re-seeds the draft and retires the marker', async () => {
+    const model = storeModel(COLUMNS)
+    render(<FilterBar model={model} />)
+    await act(async () => {
+      await model.setFilters([INCOME])
+    })
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '> 60000' } })
+    expect(markerFor(ACTIVE_MARKER, 'income')).not.toBeNull()
+
+    await act(async () => {
+      await model.setFilters([{ column: 'income', predicate: '> 70000' }])
+    })
+    // The draft never outlives its filter: the row now shows the replacement
+    // and the marker is gone.
+    expect(activeInput('income').value).toBe('> 70000')
+    expect(markerFor(ACTIVE_MARKER, 'income')).toBeNull()
+    expect(activeInput('income').getAttribute('aria-describedby')).toBeNull()
+  })
+
+  it('a refused apply keeps its existing copy, and the still-unapplied draft stays marked', async () => {
+    const { model, setFilters } = failingModel(COLUMNS, {
+      filters: [INCOME],
+      failures: [new FilterApplyError('refused-before-change', new Error('Binder Error: nope'))],
+    })
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(activeInput('income'), { target: { value: '> 60000' } })
+    fireEvent.click(control('filter-active-apply', 'income'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.getAttribute('role')).toBe('alert')
+    expect(error.textContent).toContain('The previous filters are still in effect.')
+    expect(setFilters).toHaveBeenCalledTimes(1)
+    // One write, and the accepted list is still the previous one — so the typed
+    // draft really is unapplied and the marker keeps saying exactly that (it
+    // describes input vs accepted, never the failed attempt).
+    expect(model.filters).toEqual([INCOME])
+    expect(activeInput('income').value).toBe('> 60000')
+    expect(markerFor(ACTIVE_MARKER, 'income')).not.toBeNull()
+  })
+
+  it('the double-failure state keeps its honesty copy and gains no live region', async () => {
+    const { model } = failingModel(COLUMNS, {
+      filters: [INCOME],
+      failures: [new FilterApplyError('restore-failed', new Error('Binder Error: nope'))],
+    })
+    render(<FilterBar model={model} />)
+    ensureOpen()
+
+    fireEvent.change(hatchInput('income'), { target: { value: '> 60000' } })
+    fireEvent.click(control('filter-apply', 'income'))
+
+    const error = await screen.findByTestId('filter-error')
+    expect(error.getAttribute('role')).toBe('alert')
+    // Byte-exact existing copy (WF-O1 does not touch the double-failure text):
+    // unknown state, no rollback claim, the Clear/re-apply recovery named.
+    expect(error.textContent).toBe(FILTER_RESTORE_FAILED_MESSAGE)
+    expect(error.textContent).toContain('The filters now in effect are unknown')
+    expect(error.textContent).not.toContain('still in effect')
+    // No new live region, no status/banner treatment: the marker is rendered
+    // text on an operable control, and the alert set is unchanged.
+    expect(document.querySelectorAll('[aria-live]')).toHaveLength(0)
+    expect(screen.queryAllByRole('status')).toHaveLength(0)
+    expect(markerFor(HATCH_MARKER, 'income')?.getAttribute('role')).toBeNull()
+    // The draft is still not the accepted predicate, so the marker remains.
+    expect(markerFor(HATCH_MARKER, 'income')).not.toBeNull()
   })
 })

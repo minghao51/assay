@@ -226,3 +226,59 @@ test('wide.csv: compose filter, collapsed chips beside the toggle, chip removal 
   await expect(page.getByTestId('grid-total-rows')).toHaveText('1')
   await expect(toggle).toHaveText('Filters · 1 active: col_02')
 })
+
+/**
+ * WF-O1 (E04 filter-draft clarity) journey: a drafted edit is marked
+ * `Not applied`, the marker itself reverts it (draft-only — the grid stays on
+ * the accepted filter), and an unchanged re-apply is a no-op.
+ *
+ * Copy and selector pins: the marker carries no predicate (ADR 0025), its
+ * accessible name starts with the visible text, and the input is described by
+ * a value-free sentence. The unit-level state table lives in
+ * `apps/web/src/grid/FilterBar.test.tsx`; this is the real-browser leg for the
+ * same journey on the existing customers fixture.
+ */
+test('draft marker: Not applied, revert is draft-only, unchanged re-apply is a no-op', async ({
+  page,
+}) => {
+  await openCustomersFixture(page)
+  await openFilterBar(page)
+  await composeFilter(page, 'income', 'gt', '50000')
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+
+  const input = page.locator('[data-testid="filter-active-predicate"][data-col-name="income"]')
+  const marker = page.locator('[data-testid="filter-active-draft-marker"][data-col-name="income"]')
+  const chip = page.locator('[data-testid="filter-chip"][data-col-name="income"] code')
+
+  // Clean: no marker, hence no phantom tab stop.
+  await expect(marker).toHaveCount(0)
+
+  // A draft that differs exactly from the applied predicate is marked, and the
+  // marker says only that — never a predicate, never dataset dirtiness.
+  await input.fill('> 70000')
+  await expect(marker).toBeVisible()
+  await expect(marker).toHaveText('Not applied')
+  await expect(marker).toHaveAccessibleName(
+    'Not applied — restore the applied filter in this input',
+  )
+  await expect(input).toHaveAccessibleDescription('This input differs from the applied filter.')
+  // Nothing has been applied: total, rows and chip still show the accepted filter.
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+  await expect(chip).toHaveText('income > 50000')
+
+  // Activating the marker restores the applied predicate in that input and
+  // retires the marker. Draft-only: the accepted filter never changed.
+  await marker.click()
+  await expect(input).toHaveValue('> 50000')
+  await expect(marker).toHaveCount(0)
+  await expect(input).toBeFocused()
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+  await expect(chip).toHaveText('income > 50000')
+
+  // WF-O1 "No-op": re-applying what is already applied dispatches nothing, so
+  // the accepted list (and its chip) stays exactly as it was.
+  await page.locator('[data-testid="filter-active-apply"][data-col-name="income"]').click()
+  await expect(page.getByTestId('grid-total-rows')).toHaveText('3')
+  await expect(chip).toHaveText('income > 50000')
+  await expect(marker).toHaveCount(0)
+})

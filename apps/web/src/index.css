@@ -1642,6 +1642,22 @@ h1 {
   cursor: pointer;
 }
 
+/*
+ * WF-O1 (E04 filter-draft clarity): the `Not applied` marker beside an input
+ * whose draft differs from the applied filter. It IS the revert control, so it
+ * keeps the per-row Apply button's control class and sizing; only its colour is
+ * quiet — deliberately no warning/error/banner treatment, which would read as
+ * dataset dirtiness rather than a draft of one filter (design §3.3).
+ * --color-text-secondary is the adjacent .filter-hint colour (7.14:1 on the
+ * filter-bar surface).
+ */
+.filter-draft-marker {
+  color: var(--color-text-secondary);
+  background: none;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: 3px;
+}
+
 .filter-chips {
   list-style: none;
   margin: 0;
