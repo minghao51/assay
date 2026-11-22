@@ -334,7 +334,17 @@ reorder caveat requires. The reviewer's own mutation (`IS NOT NULL` → `IS NULL
 predicate) failed the real-engine conformance case (6 failed / 3 passed; e.g. expected 2, got 3)
 and passed 9/9 after restoring.
 
-### 8.4 What this batch did not fix
+### 8.4 Push record (billing-blocked, as expected)
+
+The batch was merged to `main` and pushed (`e3fa5fd..b7095e9`). The push-triggered run **45018406770**
+shows the now-familiar shape: all four jobs (`playwright e2e`, `configured telemetry disclosure
+(isolated)`, `typecheck / lint / test / build`, `VS Code real extension host / offline harness`)
+complete as `failure` within seconds with no steps and no logs. That is the account's billing refusal
+recorded in §0, **not** a code signal — the local §8.3 suite, the pinned host and the pack smoke are the
+verification authority for this merge. Do not retry to "fix" it; the next real remote result requires
+the billing block to be lifted.
+
+### 8.5 What this batch did not fix
 
 - The `TIMESTAMP(n)`/TIME tighter-bound gap in the type validator (binder-enforced; B2 records it).
 - Diff B-side registry accumulation (B3 is a spec; nothing is released), SQL true interrupt (B7 is a
