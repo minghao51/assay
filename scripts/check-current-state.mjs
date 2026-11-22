@@ -36,10 +36,17 @@
  *    - the block must not name a CLOSED row as the next action.
  *    - source of truth: docs/process/handoff/20261118-post-ew03ia-pickup.md
  *      tables (status cells).
+ * 6. product-node-floor — the product manifests declare the development line.
+ *    - source of truth: root `package.json` `engines.node` (`^24.0.0`).
+ *    - every `apps/<dir>`/`packages/<dir>` manifest that declares `engines.node`
+ *      must equal that string exactly; the three shipped apps (cli, web,
+ *      vscode) must declare it (silent removal is drift too).
  * 5. package-allowlist — the recursive pipeline-runner entry.
  *    - packages/engine-duckdb/README.md claims the `files` allowlist carries
  *      the recursive `dist/pipeline-runner/**` JavaScript/declarations/maps.
  *    - the same package.json `files` array must actually carry all four globs.
+ * 6. product-node-floor — every product manifest declares the development line
+ *    (see above; kept adjacent to fact 5 for reading order).
  *
  * Deliberately NOT covered (do not widen this claim without implementing it):
  *   - any statement outside the blocks above, including §2 verified-state
@@ -86,6 +93,7 @@ export const FACT_IDS = [
   'supported-formats',
   'active-queue',
   'package-allowlist',
+  'product-node-floor',
 ]
 
 const NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 }
@@ -741,6 +749,71 @@ function checkPackageAllowlist(deps, report) {
   )
 }
 
+// --- fact 6: product Node floor -------------------------------------------
+
+/** The shipped surfaces that must always declare their Node floor. */
+const REQUIRED_NODE_FLOOR_MANIFESTS = ['apps/cli', 'apps/web', 'apps/vscode']
+
+/**
+ * The product Node floor is the development line, not a second unexercised
+ * claim (C4, 2026-11-21). Root `engines.node` is the source of truth; a manifest
+ * that drifts (for example back to `>=22`) or a shipped surface that silently
+ * drops the field is drift the handoff's current state would otherwise hide.
+ */
+function checkProductNodeFloor(deps, report) {
+  const fact = 'product-node-floor'
+  const rootText = deps.readText(SOURCES.rootPackage)
+  let rootEngine = null
+  if (rootText !== null) {
+    try {
+      const parsed = JSON.parse(rootText)
+      rootEngine = typeof parsed?.engines?.node === 'string' ? parsed.engines.node : null
+    } catch {
+      rootEngine = null
+    }
+  }
+  report.expect(
+    rootEngine !== null,
+    { fact, file: SOURCES.rootPackage, line: 1 },
+    'root engines.node is the floor source of truth',
+    'missing or unparseable',
+  )
+  if (rootEngine === null) return
+
+  const dirs = deps.listPackageDirs()
+  const declared = []
+  for (const dir of dirs) {
+    const rel = `${dir}/package.json`
+    const text = deps.readText(rel)
+    if (text === null) continue
+    let engine = null
+    try {
+      const parsed = JSON.parse(text)
+      engine = typeof parsed?.engines?.node === 'string' ? parsed.engines.node : null
+    } catch {
+      report.expect(false, { fact, file: rel, line: 1 }, 'valid JSON', 'unparseable')
+      continue
+    }
+    if (engine === null) continue
+    declared.push(dir)
+    report.expect(
+      engine === rootEngine,
+      { fact, file: rel, line: lineOfMatch(text, /"node"/) },
+      `engines.node equals the root floor ${JSON.stringify(rootEngine)}`,
+      `declares ${JSON.stringify(engine)}`,
+    )
+  }
+
+  for (const dir of REQUIRED_NODE_FLOOR_MANIFESTS) {
+    report.expect(
+      declared.includes(dir),
+      { fact, file: `${dir}/package.json`, line: 1 },
+      'a shipped surface declares engines.node',
+      dirs.includes(dir) && !declared.includes(dir) ? 'declares none' : 'manifest missing',
+    )
+  }
+}
+
 // --- driver ----------------------------------------------------------------
 
 /**
@@ -755,6 +828,7 @@ export function checkCurrentState(deps = createRepoDeps()) {
     checkSupportedFormats,
     checkActiveQueue,
     checkPackageAllowlist,
+    checkProductNodeFloor,
   ]) {
     check(deps, report)
   }

@@ -47,6 +47,7 @@ describe('current-state checker — baseline', () => {
       'supported-formats',
       'active-queue',
       'package-allowlist',
+      'product-node-floor',
     ])
     expect(assertions).toBeGreaterThan(50)
   })
@@ -273,6 +274,46 @@ describe('current-state checker — active-queue mutations', () => {
   it('fails loudly (never throws) when the handoff is unreadable', () => {
     const { findings } = checkCurrentState(depsWith({ [SOURCES.handoff]: null }))
     expect(findings.map((finding) => finding.file)).toContain(SOURCES.handoff)
+  })
+})
+
+describe('current-state checker — product-node-floor mutations', () => {
+  const cli = `${'apps'}/cli/package.json`
+
+  it('fails when a shipped surface drifts back to the old Node floor', () => {
+    const findings = findingsFor(
+      depsWith({ [cli]: mutated(cli, '"node": "^24.0.0"', '"node": ">=22"') }),
+      'product-node-floor',
+    )
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({
+      file: cli,
+      expected: 'engines.node equals the root floor "^24.0.0"',
+      actual: 'declares ">=22"',
+    })
+  })
+
+  it('fails when a library manifest declares a different line', () => {
+    const domain = 'packages/domain/package.json'
+    const findings = findingsFor(
+      depsWith({ [domain]: mutated(domain, '"node": "^24.0.0"', '"node": ">=24"') }),
+      'product-node-floor',
+    )
+    expect(findings.map((finding) => finding.file)).toContain(domain)
+    expect(findings[0].actual).toBe('declares ">=24"')
+  })
+
+  it('fails when a shipped surface silently drops its engines block', () => {
+    const web = 'apps/web/package.json'
+    const text = repo.readText(web)
+    expect(text).not.toBeNull()
+    const withoutEngines = text.replace(/\n\s*"engines"\s*:\s*\{[^}]*\},/, '')
+    expect(withoutEngines).not.toBe(text)
+    const findings = findingsFor(depsWith({ [web]: withoutEngines }), 'product-node-floor')
+    expect(findings.map((finding) => [finding.file, finding.actual])).toContainEqual([
+      web,
+      'declares none',
+    ])
   })
 })
 

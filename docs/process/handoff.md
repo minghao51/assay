@@ -37,8 +37,10 @@ PASS, pack smoke PASS, docs/ADR/current-state/assurance/dependency/bundle checks
 reviewer verdict in the queue §8.3.
 
 **Same-day follow-up (2026-11-21):** the rows §8 left decision-first are resolved under the same
-instruction. **C4 closed** — the product Node floor is now `node: ">=24"`, the line every gate runs on;
-the `>=22` claim was never exercisable and nothing is published, so no released artifact is narrowed.
+instruction. **C4 closed** — the product Node range is now `node: "^24.0.0"` (the caret, not a `>=` floor: the
+review correctly rejected `>=24` because it would also claim Node 25+, which no gate runs); the `>=22`
+claim was never exercisable and nothing is published, so no released artifact is narrowed.
+`current-state:check` fact 6 enforces the floor on every manifest.
 **C1 closed** — the VS Code webview is inside the coverage denominator (controllers 45–89.5 % lines,
 boot/entry 0 % as honest boundary markers, no invented per-webview floor); totals are now
 **86.19 / 81.46 / 87.79 / 87.67** against the unchanged floors. **The RD sheet is fully decided**
@@ -407,9 +409,9 @@ these or widen publication/telemetry boundaries in a packaging fix.
 ## 4. Environment and tooling
 
 - Development requires Node 24 (root policy `^24.0.0`; tested **24.13.0** on this host). Product
-  manifests keep `node: ">=22"` as a declared floor whose minimum is **not exercised in this
-  environment** — see the [node support contract](handoff/20261120-node-support-contract.md).
-  pnpm **11.26.0** via corepack.
+  manifests declare the same `node: "^24.0.0"` line (2026-11-21: the old `>=22` floor was never
+  exerciseable here and was narrowed; `current-state:check` fact 6 enforces it) — see the
+  [node support contract](handoff/20261120-node-support-contract.md). pnpm **11.26.0** via corepack.
 - `DUCKDB=/tmp/duckdb` (pinned CLI **1.5.5**) for generated large fixtures and
   real-engine tests. Regenerate committed Parquet deliberately and verify digests.
 - Playwright Chromium must be installed; e2e serves built output, so build first.
@@ -1787,7 +1789,7 @@ New codes continue sequentially; link to queue evidence instead of duplicating i
   no accepted shape. No push to a remote CI that can run (Actions is billing-blocked).
 
 - 2026-11-21 (**hi**) — **Follow-up: C1/C4 closed and every decision-first row decided.** The Node 22
-  question was answered by narrowing the product floor: twelve manifests now declare `node: ">=24"`
+  question was answered by narrowing the product range: twelve manifests now declare `node: "^24.0.0"`
   (the development line every gate runs on), the root policy and `.node-version` are unchanged, and the
   node-support contract records why an unexercised `>=22` claim was the wrong shape rather than a
   promise. C1 put `apps/vscode/webview/**` (minus the `test-proof` harness) inside the coverage

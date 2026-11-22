@@ -16,13 +16,17 @@ here.
 **Decision: the product floor is Node 24, the line every gate runs on.** The `node: ">=22"` floor
 declared in twelve manifests was never exercised (this environment has only Node 24.13.0; the
 [node support contract](20261120-node-support-contract.md) recorded that limitation rather than a
-pass). No product behaviour needs 22 only, and no consumer is known to run it. The floor is now
-`">=24"` on `apps/{cli,web,vscode}` and the nine publishable library packages, with the development
+pass). No product behaviour needs 22 only, and no consumer is known to run it. The range is now
+`"^24.0.0"` on `apps/{cli,web,vscode}` and the nine publishable library packages, with the development
 policy (`^24.0.0`) and `.node-version` (`24`) unchanged.
 
-- **Claim shape preserved:** `>=24` is a minimum line, not a tested-version pin. 24.13.0 is the tested
-  runtime; other 24.x patches/minors and later majors are not individually claimed — exactly the claim
-  shape the old floor made.
+- **Claim shape:** `^24.0.0`, not a bare `>=` floor — the first draft of this change used `>=24`,
+  and the independent review correctly rejected it: a `>=` range also accepts Node 25+, which no gate
+  runs and which is exactly the unverified-claim shape that made `>=22` wrong. The caret admits 24.x
+  patches/minors (24.13.0 is the tested runtime; no individual minor is claimed) and nothing later.
+- **Enforced, not just documented:** `pnpm current-state:check` now has fact 6 `product-node-floor` —
+  every manifest that declares `engines.node` must equal the root line, and the three shipped apps must
+  declare one, so a silent drift back to `>=22` (or a dropped field) fails the gate.
 - **No released artifact is narrowed:** nothing is published yet, so a major bump would only
   manufacture a `1.0.0`. Recorded as minor in `.changeset/c4-node-floor-24.md`, which states that a
   published version would have made this a major.

@@ -56,7 +56,7 @@ implement and approve the same change.
 | `bash fixtures/parquet/generate.sh`          | Regenerate Parquet golden fixtures (needs DuckDB CLI)                                       |
 
 Development requires **Node 24** (root policy `^24.0.0`, tested 24.13.0), and the product manifests
-declare the same line (`node: ">=24"`). The previously declared `>=22` floor was never exercised here,
+declare the same line (`node: "^24.0.0"`). The previously declared `>=22` floor was never exercised here,
 so it was narrowed to the line every gate actually runs on rather than left as an unverified product
 claim (2026-11-21 decision — see the
 [node support contract](docs/process/handoff/20261120-node-support-contract.md)).
