@@ -3,11 +3,13 @@
 import { describe, expect, it } from 'vitest'
 import type { OverlayBase } from '@assay/domain'
 import { initialState, stepOverlay } from '@assay/domain'
+import { composeRepairPreviewCountSql } from '@assay/engine-duckdb'
 import type { RepairPlan } from './plan'
 import {
   REPAIR_ENVELOPE,
   planPairs,
   repairAffectedCountSql,
+  repairAffectedEnginePlan,
   repairAffectedFilter,
   repairAffectedPredicate,
   repairScannedRows,
@@ -191,6 +193,31 @@ describe('repairAffectedCountSql — the complete count over the engine’s own 
     const sql = repairAffectedCountSql(SNAPSHOT, plan())
     expect(sql).not.toContain('left(')
     expect(sql).not.toContain('chr(9)')
+  })
+
+  it('B1/ENG-2 parity window: byte-identical to the engine op’s composition', () => {
+    // The transitional pin. While both compositions exist, every plan shape
+    // the preview can read must produce the SAME statement either way — the
+    // typed op's (`composeRepairPreviewCountSql`) and this one. When the web
+    // composition is deleted, this test goes with it; until then a divergence
+    // is a failure, never a silent two-definitions-of-affected.
+    const statements = (subject: RepairPlan): readonly [string, string] => [
+      repairAffectedCountSql(SNAPSHOT, subject),
+      composeRepairPreviewCountSql(
+        { viewName: SNAPSHOT.viewName, base: SNAPSHOT.base, state: SNAPSHOT.state },
+        repairAffectedEnginePlan(subject),
+      ),
+    ]
+    for (const subject of [
+      plan(),
+      plan({ trim: ' ', mapping: new Map([['a', ' a ']]) }),
+      plan({ trim: ' ', mapping: new Map() }),
+      plan({ mapping: new Map() }),
+      plan({ column: 'odd "name"', mapping: new Map([["O'Brien", "O'Brien2"]]) }),
+    ]) {
+      const [web, engine] = statements(subject)
+      expect(engine).toBe(web)
+    }
   })
 
   it('states the envelope constant it is compared against', () => {

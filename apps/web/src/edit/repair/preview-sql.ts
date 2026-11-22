@@ -91,13 +91,24 @@
  *
  * `affected = 0` is a *complete* answer, which is what makes the zero-affected
  * refusal (U1) honest.
+ *
+ * ## B1/ENG-2: the predicate owner is the engine
+ *
+ * The predicate above is no longer authored here. It is
+ * `repairAffectedPredicate` in `@assay/engine-duckdb`'s
+ * `repair-preview-query.ts`, consumed by the typed
+ * `engine/repair-preview-count` op (the complete count, through
+ * `engineClient.repairPreviewCount`) **and** by the `overlay-range` examples
+ * filter below — one definition, so the count and the example set cannot
+ * diverge, and the real-engine conformance matrix that owns the definition
+ * lives with it. {@link repairAffectedEnginePlan} is the only glue: the web
+ * plan carries a `Map`, the wire carries sorted pairs.
  */
-import type { EngineFilterSpec, OverlayComposition } from '@assay/engine-duckdb'
+import type { EngineFilterSpec, EngineRepairPlan, OverlayComposition } from '@assay/engine-duckdb'
 import {
   MAX_REPAIR_EXPORT_CELL_WORK,
-  cellLiteralRawSql,
   composeOverlayExportSelectSql,
-  quotedIdentifier,
+  repairAffectedPredicate as engineRepairAffectedPredicate,
   whereClauseSql,
 } from '@assay/engine-duckdb'
 import { liveRowCount, trimWithCodePoints } from '@assay/domain'
@@ -120,9 +131,17 @@ export function planPairs(plan: RepairPlan): readonly (readonly [string, string]
   return [...plan.mapping].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
-/** One string as a SQL string literal, via the engine's own escaper. */
-function stringLiteral(value: string): string {
-  return cellLiteralRawSql({ kind: 'string', value: value })
+/**
+ * The plan in the engine's wire form (B1/ENG-2): the `Map`-carrying web plan
+ * flattened to sorted pairs, which is exactly what the typed
+ * `engine/repair-preview-count` op and the engine's predicate builder consume.
+ * One conversion, used by the count read and by the examples filter, so the
+ * two cannot see different plans.
+ */
+export function repairAffectedEnginePlan(plan: RepairPlan): EngineRepairPlan {
+  const pairs = planPairs(plan)
+  if (plan.trim === undefined) return { column: plan.column, pairs }
+  return { column: plan.column, trim: plan.trim, pairs }
 }
 
 /**
@@ -132,33 +151,14 @@ function stringLiteral(value: string): string {
  * states the repair's NULL rule outright (NULL never matches and is never
  * produced) and cannot change precedence for the terms after it.
  *
- * The two negated set-membership terms are derived and explained in the module
- * doc; their exactness over every plan shape the fold accepts is pinned by
- * `preview-sql.engine.test.ts` against the engine's own composed wrap.
+ * B1/ENG-2: the predicate is the ENGINE's (`repairAffectedPredicate` in
+ * `@assay/engine-duckdb`), which also produces the typed count op's statement
+ * — so the example set and the affected count are one definition, and the
+ * real-engine conformance matrix that owns it ships with it. This wrapper is
+ * only the web `Map` → wire-pairs conversion.
  */
 export function repairAffectedPredicate(plan: RepairPlan): string {
-  const value = quotedIdentifier(plan.column)
-  // `t`: the trimmed value the mapping is matched against (the raw value when
-  // the plan declares no trim). One `trim(col, set)` occurrence, the same
-  // construct the composer emits (never `String.prototype.trim()`).
-  const trimmed = plan.trim === undefined ? value : `trim(${value}, ${stringLiteral(plan.trim)})`
-  const pairs = planPairs(plan)
-  const terms: string[] = []
-  if (pairs.length === 0) {
-    // Trim-only plan: the trim is the only thing that can change a value.
-    terms.push(`${trimmed} <> ${value}`)
-  } else {
-    const pairSet = pairs
-      .map(([key, target]) => `(${stringLiteral(key)}, ${stringLiteral(target)})`)
-      .join(', ')
-    // (A) The pair (t, v) is NOT in the plan's pair set: trim and mapping do
-    // not cancel. Row-value membership, so the pair set is compared as a set.
-    terms.push(`(${trimmed}, ${value}) NOT IN (VALUES ${pairSet})`)
-    // (B) The trimmed value is a mapping key, or the trim changed the value.
-    const keys = pairs.map(([key]) => stringLiteral(key)).join(', ')
-    terms.push(`(${trimmed} IN (${keys}) OR ${trimmed} <> ${value})`)
-  }
-  return `IS NOT NULL AND ${terms.join(' AND ')}`
+  return engineRepairAffectedPredicate(repairAffectedEnginePlan(plan))
 }
 
 /** The predicate as the engine's filter spec (one AND-ed clause). */

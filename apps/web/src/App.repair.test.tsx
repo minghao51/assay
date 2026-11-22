@@ -16,9 +16,10 @@ import type { ArrowTableLike } from './grid/provider'
  *
  * 1. **Entry + capture refusals without an engine call** — a non-text column is
  *    refused by the domain and `query`/`fetchOverlayRange` are never called.
- * 2. **Preview** — the complete counts (engine count scan + the pure fold),
- *    the stated example cap, and before/after text, with the count's SQL shown
- *    to carry the plan predicate.
+ * 2. **Preview** — the complete counts (the typed `engine/repair-preview-count`
+ *    op plus the pure fold), the stated example cap, and before/after text,
+ *    with the count request shown to carry the plan as data (never host SQL)
+ *    and the example read shown to carry the same predicate.
  * 3. **Apply** — one history entry, one undo step, one redo; the entry's
  *    description is plan-shape only (ADR 0025) and dirty follows the applied
  *    outcome.
@@ -52,7 +53,12 @@ const SCHEMA = [
 ]
 
 interface CountCall {
-  readonly sql: string
+  /** The typed count op's request payload: the plan, as data. */
+  readonly plan: {
+    readonly column: string
+    readonly trim?: string
+    readonly pairs: readonly (readonly [string, string])[]
+  }
   release: () => void
 }
 
@@ -79,6 +85,8 @@ const h = vi.hoisted(() => ({
   /** When true, a count scan is held until the test releases it. */
   gateCounts: false,
   countCalls: [] as CountCall[],
+  /** Generic `engine/query` calls: the repair count must never take that path. */
+  queryCalls: [] as string[],
   exampleCalls: [] as ExampleCall[],
   exampleRows: [] as { rowId: string; value: string }[],
   nextTableId: 1,
@@ -91,15 +99,6 @@ function fakeBatch(): ArrowTableLike {
     numRows: 1,
     numCols: cells.length,
     getChildAt: (index: number) => cells[index] ?? null,
-  }
-}
-
-/** A one-row/one-column batch carrying the affected count as a BIGINT. */
-function countBatch(value: number): ArrowTableLike {
-  return {
-    numRows: 1,
-    numCols: 1,
-    getChildAt: () => ({ get: () => BigInt(value) }),
   }
 }
 
@@ -155,20 +154,28 @@ vi.mock('./lib/engine', () => {
       return { kind: 'table', id }
     },
     query: (sql: string): Promise<{ batch: ArrowTableLike; hasMore: boolean }> => {
+      // B1/ENG-2: the repair count is a typed op now. A generic query call is
+      // only legitimate for the SQL pane, so it is recorded separately and
+      // asserted unused by the repair suites.
+      h.queryCalls.push(sql)
+      return Promise.resolve({ batch: fakeBatch(), hasMore: false })
+    },
+    repairPreviewCount: (
+      _handle: unknown,
+      _overlay: unknown,
+      plan: CountCall['plan'],
+    ): Promise<number> => {
       const next = h.affectedQueue.shift()
       const value = next ?? h.affected
-      const call: CountCall = {
-        sql,
-        release: () => {},
-      }
+      const call: CountCall = { plan, release: () => {} }
       if (!h.gateCounts) {
         h.countCalls.push(call)
-        return Promise.resolve({ batch: countBatch(value), hasMore: false })
+        return Promise.resolve(value)
       }
       // Held: the test settles this scan by index.
       return new Promise((resolve) => {
         call.release = () => {
-          resolve({ batch: countBatch(value), hasMore: false })
+          resolve(value)
         }
         h.countCalls.push(call)
       })
@@ -228,6 +235,7 @@ beforeEach(() => {
   h.affected = 0
   h.gateCounts = false
   h.countCalls = []
+  h.queryCalls = []
   h.exampleCalls = []
   h.exampleRows = []
   h.nextTableId = 1
@@ -405,17 +413,16 @@ describe('repair — the preview: complete counts, bounded stated examples', () 
     expect(text('repair-example-cap')).toBe('Showing the first 10 of 13 changed rows.')
     expect(screen.getAllByTestId('repair-example')).toHaveLength(10)
 
-    // The complete count is one `count(*)` under the plan predicate over the
-    // engine-composed effective relation — not a host-side row walk.
-    const sql = h.countCalls[0]?.sql ?? ''
-    expect(sql).toContain('SELECT count(*)::BIGINT AS affected FROM (')
-    // The exact predicate: the pair-set cancellation term plus the key list.
-    expect(sql).toContain(
-      'WHERE ("country" IS NOT NULL AND ' +
-        '("country", "country") NOT IN (VALUES (\'SG\', \'Singapore\')) AND ' +
-        '("country" IN (\'SG\') OR "country" <> "country"))',
-    )
-    // The example read carries the SAME predicate (one source).
+    // The complete count is one `count(*)` the ENGINE composes under the plan
+    // predicate over its own effective relation (B1/ENG-2): the request carries
+    // the plan as DATA — no host-composed SQL, and never the generic
+    // `engine/query` op.
+    expect(h.queryCalls).toHaveLength(0)
+    expect(h.countCalls[0]?.plan).toEqual({
+      column: 'country',
+      pairs: [['SG', 'Singapore']],
+    })
+    // The example read carries the SAME predicate (one definition, engine-side).
     expect(h.exampleCalls[0]?.filters?.[0]?.predicate).toBe(
       'IS NOT NULL AND ("country", "country") NOT IN (VALUES (\'SG\', \'Singapore\')) ' +
         'AND ("country" IN (\'SG\') OR "country" <> "country")',

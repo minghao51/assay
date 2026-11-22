@@ -6,11 +6,11 @@
  *
  * Two round-trips, deliberately:
  *
- * 1. `engine/query` carries the composed affected count
- *    (`repairAffectedCountSql`) — a single `count(*)` over the engine-composed
- *    effective relation, so the counts are complete and no row reaches the
- *    host (`preview-sql.ts` explains why the count needs the engine's export
- *    composer rather than the typed count op);
+ * 1. `engine/repair-preview-count` (`repairPreviewCount`, B1/ENG-2) carries the
+ *    affected count: the engine composes the `count(*)` under the plan's own
+ *    affected predicate over the composed effective relation, so the
+ *    definition of "affected" is engine-owned and cannot drift from the
+ *    example set (both use `repairAffectedPredicate`);
  * 2. `overlay-range` (`fetchOverlayRange`) carries the `≤10` examples with
  *    their logical row ids — the typed op, so the window validation/clamping
  *    and the row-id projection stay the engine's.
@@ -28,20 +28,19 @@
  * unfiltered `overlay-row-count` composes ("base rows minus tombstones plus
  * live inserts"), so the preview cannot disagree with a separate count.
  *
- * Privacy (ADR 0025): the composed SQL carries the *plan* (keys, trim set —
+ * Privacy (ADR 0025): the request carries the *plan* (keys, targets, trim set —
  * user-authored local UI content) and no other dataset value; the returned
  * example values stay in this module's caller and are rendered, never logged,
  * never telemetered.
  */
 import type { EngineOverlay, EngineRangeResult, EngineTableHandle } from '@assay/engine-duckdb'
-import { projectBatchToRows, projectOverlayPage } from '../../grid/provider'
-import type { ArrowTableLike } from '../../grid/provider'
+import { projectOverlayPage } from '../../grid/provider'
 import { engineClient } from '../../lib/engine'
 import type { RepairPlan } from './plan'
 import type { RepairPreviewRead } from './preview'
 import {
   REPAIR_EXAMPLE_CAP,
-  repairAffectedCountSql,
+  repairAffectedEnginePlan,
   repairAffectedFilter,
   repairScannedRows,
   type RepairReadSnapshot,
@@ -55,22 +54,8 @@ export interface RepairReadRequest {
 }
 
 /**
- * Read a single count from a one-row/one-column batch. A response that is not
- * that shape is a protocol deviation, not a zero: refusing loudly beats
- * reporting "0 changed rows" and then refusing the plan for the wrong reason.
- */
-export function readCountCell(batch: ArrowTableLike): number {
-  const [row] = projectBatchToRows(batch)
-  const cell = row?.[0]
-  if (typeof cell === 'number' && Number.isFinite(cell)) return cell
-  // DuckDB's `count(*)::BIGINT` arrives as a bigint through Arrow.
-  if (typeof cell === 'bigint') return Number(cell)
-  throw new Error('the affected count came back in an unexpected shape')
-}
-
-/**
- * One complete preview read: the counts (one scan + one pure fold) and the
- * bounded examples (one `LIMIT`-ed window over the same relation).
+ * One complete preview read: the counts (one typed count op + one pure fold)
+ * and the bounded examples (one `LIMIT`-ed window over the same relation).
  */
 export async function readRepairPreview(
   request: RepairReadRequest,
@@ -78,9 +63,11 @@ export async function readRepairPreview(
 ): Promise<RepairPreviewRead> {
   const { handle, overlay, snapshot } = request
   const filter = repairAffectedFilter(plan)
-  const countSql = repairAffectedCountSql(snapshot, plan)
-  const [countResult, exampleResult] = await Promise.all([
-    engineClient.query(countSql),
+  // The count is the typed op, not a host-composed statement through
+  // `engine/query`: the affected definition is the engine's (B1/ENG-2), and a
+  // test asserts the request type rather than a generic-query argument.
+  const [affected, exampleResult] = await Promise.all([
+    engineClient.repairPreviewCount(handle, overlay, repairAffectedEnginePlan(plan)),
     engineClient.fetchOverlayRange(handle, overlay, {
       startRow: 0,
       endRow: REPAIR_EXAMPLE_CAP,
@@ -91,7 +78,7 @@ export async function readRepairPreview(
   ])
   return {
     scanned: repairScannedRows(snapshot.base, snapshot.state),
-    affected: readCountCell(countResult.batch),
+    affected,
     exampleRows: exampleRows(exampleResult),
     exampleCap: REPAIR_EXAMPLE_CAP,
   }
