@@ -2,31 +2,31 @@
 
 import { describe, expect, it } from 'vitest'
 import type { OverlayBase } from '@assay/domain'
-import { initialState, stepOverlay } from '@assay/domain'
-import { composeRepairPreviewCountSql } from '@assay/engine-duckdb'
+import { initialState } from '@assay/domain'
 import type { RepairPlan } from './plan'
 import {
-  REPAIR_ENVELOPE,
   planPairs,
-  repairAffectedCountSql,
   repairAffectedEnginePlan,
   repairAffectedFilter,
   repairAffectedPredicate,
   repairScannedRows,
   repairedValue,
+  REPAIR_ENVELOPE,
 } from './preview-sql'
+import type { EngineRepairPlan } from '@assay/engine-duckdb'
 
 /**
- * EW-04I — the preview's predicate and count composition, pinned byte-exactly.
+ * EW-04I — the preview's wire plan, predicate and example text, pinned
+ * byte-exactly.
  *
- * The predicate is the one expression this row authors (the relation comes from
- * the engine's exported composer and the literals from its escaper), so its
- * exact text is worth pinning: identifier quoting, single-quote doubling, the
- * explicit `trim(<col>, <set>)` construct the composer itself emits, the
- * pair-set cancellation term, the key list, and the NULL rule. The equivalence
- * of this predicate with the *applied* effect is pinned against the real engine
- * in `preview-sql.engine.test.ts` (for every plan shape the fold accepts,
- * including the trim/mapping cancellation) and end to end by
+ * The predicate is the *engine's* since B1/ENG-2 (`@assay/engine-duckdb`'s
+ * `repairAffectedPredicate`, consumed here for the `overlay-range` examples
+ * filter); the pins below keep asserting its exact text from the web side, so
+ * a change in the shared builder is visible here as well as in the engine's
+ * own suite. Its equivalence with the *applied* effect (for every plan shape
+ * the fold accepts, including the trim/mapping cancellation) is pinned against
+ * the real engine in the engine package
+ * (`repair-preview-query.engine.test.ts`) and end to end by
  * `tests/e2e/repair-journey.spec.ts`; these are the composition's own
  * invariants.
  */
@@ -74,6 +74,33 @@ describe('planPairs — the pair set, in a deterministic order', () => {
       ['SG', 'SG'],
       ['US', 'United States'],
     ])
+  })
+})
+
+describe('repairAffectedEnginePlan — the one conversion to the engine’s wire plan', () => {
+  it('flattens the map to sorted pairs and carries an absent trim as absent', () => {
+    const wire = repairAffectedEnginePlan(
+      plan({
+        mapping: new Map([
+          ['US', 'United States'],
+          ['SG', 'Singapore'],
+        ]),
+      }),
+    )
+    const expected: EngineRepairPlan = {
+      column: 'country',
+      pairs: [
+        ['SG', 'Singapore'],
+        ['US', 'United States'],
+      ],
+    }
+    expect(wire).toEqual(expected)
+    // The trim is carried verbatim when the plan declares one.
+    expect(repairAffectedEnginePlan(plan({ trim: ' \t' }))).toEqual({
+      column: 'country',
+      trim: ' \t',
+      pairs: [['SG', 'Singapore']],
+    })
   })
 })
 
@@ -161,66 +188,10 @@ describe('repairAffectedPredicate — the exact affected rule as one filter clau
   })
 })
 
-describe('repairAffectedCountSql — the complete count over the engine’s own relation', () => {
-  it('counts under the predicate over the engine-composed effective relation', () => {
-    const sql = repairAffectedCountSql(SNAPSHOT, plan())
-    expect(sql).toBe(
-      'SELECT count(*)::BIGINT AS affected FROM ' +
-        '(SELECT "id", "country" FROM (SELECT "id" AS "id", "country" AS "country" FROM ' +
-        '(SELECT "id", "country", (row_number() OVER () - 1) AS assay_overlay_ord FROM "assay_t1"))) ' +
-        `WHERE ("country" ${repairAffectedPredicate(plan())})`,
-    )
-    // The relation is the engine's, composed by the engine's own export
-    // composer (its machinery ordinal is visible here and pruned by the count).
-    expect(sql).toContain('FROM "assay_t1"')
-  })
-
-  it('composes the repair wrap when the prefix already carries a repair (the case the typed count op cannot see)', () => {
-    const first = stepOverlay(BASE, SNAPSHOT.state, {
-      kind: 'column-repair',
-      column: 'country',
-      mapping: new Map([['SG', 'Singapore']]),
-    })
-    expect(first.application.outcome.status).toBe('applied')
-    const sql = repairAffectedCountSql({ ...SNAPSHOT, state: first.state }, plan())
-    // The stacked repair layer is present (the wrap is an inner projection)…
-    expect(sql).toContain("CASE \"country\" WHEN 'SG' THEN CAST('Singapore' AS VARCHAR)")
-    // …and the predicate still sits in the outer WHERE.
-    expect(sql).toContain('WHERE ("country" IS NOT NULL AND')
-  })
-
-  it('is not sanitized (a CSV guard would rewrite the values the predicate reads)', () => {
-    const sql = repairAffectedCountSql(SNAPSHOT, plan())
-    expect(sql).not.toContain('left(')
-    expect(sql).not.toContain('chr(9)')
-  })
-
-  it('B1/ENG-2 parity window: byte-identical to the engine op’s composition', () => {
-    // The transitional pin. While both compositions exist, every plan shape
-    // the preview can read must produce the SAME statement either way — the
-    // typed op's (`composeRepairPreviewCountSql`) and this one. When the web
-    // composition is deleted, this test goes with it; until then a divergence
-    // is a failure, never a silent two-definitions-of-affected.
-    const statements = (subject: RepairPlan): readonly [string, string] => [
-      repairAffectedCountSql(SNAPSHOT, subject),
-      composeRepairPreviewCountSql(
-        { viewName: SNAPSHOT.viewName, base: SNAPSHOT.base, state: SNAPSHOT.state },
-        repairAffectedEnginePlan(subject),
-      ),
-    ]
-    for (const subject of [
-      plan(),
-      plan({ trim: ' ', mapping: new Map([['a', ' a ']]) }),
-      plan({ trim: ' ', mapping: new Map() }),
-      plan({ mapping: new Map() }),
-      plan({ column: 'odd "name"', mapping: new Map([["O'Brien", "O'Brien2"]]) }),
-    ]) {
-      const [web, engine] = statements(subject)
-      expect(engine).toBe(web)
-    }
-  })
-
-  it('states the envelope constant it is compared against', () => {
+describe('REPAIR_ENVELOPE — the stated preview envelope', () => {
+  // The envelope is unchanged by B1/ENG-2 (the count moved engine-side; no cap
+  // moved with it), and the surface still states it against the plan cost.
+  it('is the published export cell-work envelope', () => {
     expect(REPAIR_ENVELOPE).toBe(1_000_000_000)
   })
 })

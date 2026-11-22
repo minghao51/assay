@@ -6,7 +6,8 @@ import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { OverlayBase } from '@assay/domain'
 import { initialState } from '@assay/domain'
-import { repairAffectedCountSql } from './preview-sql'
+import { composeRepairPreviewCountSql } from '@assay/engine-duckdb'
+import { repairAffectedEnginePlan } from './preview-sql'
 import type { RepairCaptureTag } from './capture'
 import { validateRepairPlan } from './refusal'
 import type { RepairPlan } from './plan'
@@ -43,11 +44,12 @@ const STATE = initialState(BASE)
  *
  * `trim = ' '` with `M = {a → ' a '}` maps a trimmed value straight back, so
  * `' a '` is unchanged and the plan must preview as **zero affected** (U1).
- * The count below is produced by the production composition
- * (`repairAffectedCountSql`) executed by the pinned DuckDB CLI, so this leg
- * fails if the predicate regresses to over-counting — the exact defect this
- * round fixes. The CLI is the repository's convention for CLI-backed pins;
- * without it the case skips rather than passing vacuously.
+ * The count below is produced by the production composition — the ENGINE's
+ * typed count statement (`composeRepairPreviewCountSql`) — executed by the
+ * pinned DuckDB CLI, so this leg fails if the predicate regresses to
+ * over-counting — the exact defect this round fixes. The CLI is the
+ * repository's convention for CLI-backed pins; without it the case skips
+ * rather than passing vacuously.
  */
 const DUCKDB_CLI = process.env['DUCKDB'] ?? '/tmp/duckdb'
 const hasDuckDbCli = existsSync(DUCKDB_CLI)
@@ -69,9 +71,9 @@ function affectedByRealEngine(plan: RepairPlan, rows: readonly string[]): number
   const script =
     'CREATE TABLE assay_t1 (id INTEGER, country VARCHAR);' +
     `INSERT INTO assay_t1 VALUES ${values};` +
-    `SELECT 'affected', affected FROM (${repairAffectedCountSql(
+    `SELECT 'affected', affected FROM (${composeRepairPreviewCountSql(
       { viewName: 'assay_t1', base, state: initialState(base) },
-      plan,
+      repairAffectedEnginePlan(plan),
     )});`
   const stdout = execFileSync(DUCKDB_CLI, ['-noheader', '-list', '-c', script], {
     encoding: 'utf8',

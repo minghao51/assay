@@ -10,7 +10,8 @@ import type { GridViewportModel } from '@assay/grid'
 import { hasAppliedChanges } from '../edit/session'
 import type { RepairPlan } from '../edit/repair/plan'
 import type { RepairApplyGuard } from '../edit/repair/capture'
-import { repairAffectedCountSql } from '../edit/repair/preview-sql'
+import { composeRepairPreviewCountSql } from '@assay/engine-duckdb'
+import { repairAffectedEnginePlan } from '../edit/repair/preview-sql'
 import { useEditingSession } from './useEditingSession'
 import type { DatasetSession } from './session-reset'
 import type { Phase } from './types'
@@ -70,12 +71,12 @@ const PLAN: RepairPlan = {
  *
  * `trim = ' '` with `M = {a → ' a '}` maps a trimmed value straight back, so
  * `' a '` is unchanged and the preview's complete count is **0**. The count here
- * is produced by the production composition (`repairAffectedCountSql`) executed
- * by the pinned DuckDB CLI: with the fix-round-1 defect it is 1, `affected: 1`
- * reaches `handleApplyRepair`, and a no-op repair entry is appended — which is
- * exactly what the assertions below refuse. Without the CLI the case skips
- * (the repository's convention for CLI-backed pins) rather than passing
- * vacuously.
+ * is produced by the production composition — the ENGINE's typed count
+ * statement (`composeRepairPreviewCountSql`) — executed by the pinned DuckDB
+ * CLI: with the fix-round-1 defect it is 1, `affected: 1` reaches
+ * `handleApplyRepair`, and a no-op repair entry is appended — which is exactly
+ * what the assertions below refuse. Without the CLI the case skips (the
+ * repository's convention for CLI-backed pins) rather than passing vacuously.
  */
 const DUCKDB_CLI = process.env['DUCKDB'] ?? '/tmp/duckdb'
 const hasDuckDbCli = existsSync(DUCKDB_CLI)
@@ -97,9 +98,9 @@ function affectedByRealEngine(plan: RepairPlan, rows: readonly string[]): number
   const script =
     'CREATE TABLE assay_t1 (id INTEGER, country VARCHAR);' +
     `INSERT INTO assay_t1 VALUES ${values};` +
-    `SELECT 'affected', affected FROM (${repairAffectedCountSql(
+    `SELECT 'affected', affected FROM (${composeRepairPreviewCountSql(
       { viewName: 'assay_t1', base, state: initialState(base) },
-      plan,
+      repairAffectedEnginePlan(plan),
     )});`
   const stdout = execFileSync(DUCKDB_CLI, ['-noheader', '-list', '-c', script], {
     encoding: 'utf8',

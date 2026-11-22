@@ -13,31 +13,37 @@
  * materialization, no per-cell JS loop) — they are one `count(*)` scan and one
  * bounded `LIMIT` read, both evaluated by the engine.
  *
- * ## Why the affected count is composed here
+ * ## Why the count is a typed op
  *
- * The engine's typed count op (`overlay-row-count`) composes the effective
+ * The engine's typed row-count op (`overlay-row-count`) composes the effective
  * *union* without the repair wrap on purpose: "values don't affect counts"
  * (D16/D17 composition probe §4.2). That is right for a row count and wrong
  * for *this* question — the affected set is defined by effective **values**,
- * and on a column that already carries a repair the typed count would evaluate
- * pre-repair values (`composeOverlayCountSql` → `composeSourceSql`). The
- * repair wrap is composed by the **window** and **export** paths only
- * (`composeEffectiveSourceSql`), so this module reuses the engine's own
- * exported export-SELECT composer (`composeOverlayExportSelectSql`) as the
- * relation and counts under the plan's predicate —
- * `SELECT count(*) FROM (<engine's effective relation>) WHERE (<predicate>)`.
+ * and on a column that already carries a repair the typed row count would
+ * evaluate pre-repair values (`composeOverlayCountSql` → `composeSourceSql`).
+ * The repair wrap is composed by the **window** and **export** paths only
+ * (`composeEffectiveSourceSql`).
  *
- * Nothing about the wrap is re-derived: the composition, the literals and the
- * predicate's quoting all come from the engine's exports
- * (`composeOverlayExportSelectSql`, `cellLiteralRawSql`, `quotedIdentifier`,
- * `whereClauseSql`) — the same reuse the SQL pane's nested composers already
- * perform (m3-4). The only new expression is the **predicate** below, and it
- * is pinned against the applied effect by a real-engine test
- * (`preview-sql.engine.test.ts`): for every plan shape the fold accepts, the
- * predicate's count equals the number of rows the engine's own composed wrap
- * actually changes.
+ * B1/ENG-2 therefore made this question its own typed op,
+ * `engine/repair-preview-count` (`engineClient.repairPreviewCount`), whose
+ * statement is `SELECT count(*)::BIGINT AS affected FROM (<engine's export
+ * SELECT, the composed path carrying the wrap>) WHERE (<predicate>)` —
+ * composed by the ENGINE (`@assay/engine-duckdb`'s `repair-preview-query.ts`),
+ * never by this module. The host reads a safe integer and nothing else: no
+ * relation, no literals, no predicate text, no second scan.
  *
  * ## The predicate: affected ⟺ the repaired value differs from the value now
+ *
+ * The predicate itself moved engine-side with that op —
+ * `repairAffectedPredicate` in `@assay/engine-duckdb` — and the derivation
+ * below is kept as the *record* of what it implements, because this module
+ * consumes it for the `overlay-range` examples filter
+ * ({@link repairAffectedFilter}). One builder serves both, so the example set
+ * and the affected count cannot diverge, and the real-engine conformance
+ * matrix that pins it against the engine's own composed wrap
+ * (`repair-preview-query.engine.test.ts`) lives with the builder.
+ *
+ * The reasoning, unchanged:
  *
  * With `t = trim_t(v)` (the plan's explicit trim set applied to `v`; `t = v`
  * when the plan declares no trim), `M` the plan's mapping and `v` the
@@ -104,12 +110,10 @@
  * lives with it. {@link repairAffectedEnginePlan} is the only glue: the web
  * plan carries a `Map`, the wire carries sorted pairs.
  */
-import type { EngineFilterSpec, EngineRepairPlan, OverlayComposition } from '@assay/engine-duckdb'
+import type { EngineFilterSpec, EngineRepairPlan } from '@assay/engine-duckdb'
 import {
   MAX_REPAIR_EXPORT_CELL_WORK,
-  composeOverlayExportSelectSql,
   repairAffectedPredicate as engineRepairAffectedPredicate,
-  whereClauseSql,
 } from '@assay/engine-duckdb'
 import { liveRowCount, trimWithCodePoints } from '@assay/domain'
 import type { OverlayBase, OverlayState } from '@assay/domain'
@@ -164,24 +168,6 @@ export function repairAffectedPredicate(plan: RepairPlan): string {
 /** The predicate as the engine's filter spec (one AND-ed clause). */
 export function repairAffectedFilter(plan: RepairPlan): EngineFilterSpec {
   return { column: plan.column, predicate: repairAffectedPredicate(plan) }
-}
-
-/**
- * The complete affected count over the effective relation. Format `parquet` is
- * not cosmetic: the CSV formula guard rewrites projected values, so counting
- * under it would compare sanitized text against the plan. Every non-CSV format
- * composes the identical relation.
- */
-export function repairAffectedCountSql(snapshot: RepairReadSnapshot, plan: RepairPlan): string {
-  const composition: OverlayComposition = {
-    viewName: snapshot.viewName,
-    base: snapshot.base,
-    state: snapshot.state,
-  }
-  const relation = composeOverlayExportSelectSql(composition, 'parquet')
-  const where = whereClauseSql([repairAffectedFilter(plan)])
-  if (where === null) throw new Error('a repair predicate is always present')
-  return `SELECT count(*)::BIGINT AS affected FROM (${relation}) WHERE ${where}`
 }
 
 /**
