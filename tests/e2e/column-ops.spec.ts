@@ -212,11 +212,14 @@ test('a structurally valid but engine-rejected cast rolls back and alerts recove
 }) => {
   await openCustomersFixture(page)
 
-  // `TIMESTAMP(10)` passes the client's structural validator (one integer
-  // modifier), so it reaches the engine, which rejects it at schema
-  // materialization (precision above the supported 9). This is the failure
-  // class the m4-3 rollback+alert path must own for schema ops.
-  await castColumnCustom(page, 'income', 'TIMESTAMP(10)')
+  // `TIME(3)` passes the client's structural validator (one integer modifier),
+  // so it reaches the engine, whose binder rejects the spelling outright
+  // (`Type 'TIME' does not take any type parameters`). This is the failure
+  // class the m4-3 rollback+alert path must own for schema ops, and it is one
+  // of the validator's known tighter-bound gaps (b2 carried limitation:
+  // `TIMESTAMP(n)` precision 0..9 and TIME's no-parameter rule are not
+  // encoded, so the binder — not the validator — is the refusing layer).
+  await castColumnCustom(page, 'income', 'TIME(3)')
 
   // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
   // transformation history are Change-task surfaces, so the task is activated
