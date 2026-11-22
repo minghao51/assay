@@ -106,6 +106,8 @@ describe('formatDecimalValue — type-gated, total', () => {
     expect(formatDecimalValue(decimalBytes(1n), 'HUGEINT')).toBe('1')
     expect(formatDecimalValue(decimalBytes(-5n), 'HUGEINT')).toBe('-5')
     // BLOB / UHUGEINT / UUID are not decimal-like: fall through untouched.
+    // UHUGEINT is an *unsigned* integer with no scale — `uhugeint.ts` renders
+    // it exactly; the signed decimal decoder must never sign-extend it.
     expect(formatDecimalValue(new Uint8Array([1, 2, 3]), 'BLOB')).toBeNull()
     expect(formatDecimalValue(new Uint8Array(16), 'UHUGEINT')).toBeNull()
     expect(formatDecimalValue('123e4567', 'UUID')).toBeNull()

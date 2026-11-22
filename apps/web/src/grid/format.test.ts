@@ -56,15 +56,44 @@ describe('formatCell (total, deterministic DOM projection of cell values)', () =
     expect(formatCell(payload)).toBe('<16 bytes>')
   })
 
+  it('renders UHUGEINT (Arrow FixedSizeBinary(16)) as its exact unsigned 128-bit value', () => {
+    // Byte order is verified, not assumed: a probe of the pinned transport
+    // (duckdb-wasm 1.32.0 / engine v1.4.3 / Arrow 17) returned these exact
+    // little-endian payloads for `::UHUGEINT`. See `uhugeint.ts`.
+    const littleEndian = (bytes: readonly number[]): Uint8Array => {
+      const payload = new Uint8Array(16)
+      payload.set(bytes)
+      return payload
+    }
+    expect(formatCell(new Uint8Array(16), 'UHUGEINT')).toBe('0')
+    expect(formatCell(littleEndian([0x01]), 'UHUGEINT')).toBe('1')
+    // 2^64 - 1 sets the low eight bytes only.
+    expect(
+      formatCell(littleEndian([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]), 'UHUGEINT'),
+    ).toBe('18446744073709551615')
+    // 2^128 - 1 is the unsigned maximum (never `-1`: UHUGEINT is unsigned).
+    expect(formatCell(new Uint8Array(16).fill(0xff), 'UHUGEINT')).toBe(
+      '340282366920938463463374607431768211455',
+    )
+    // The parsed-tree form (the grid precomputes it per column) agrees.
+    expect(formatCell(littleEndian([0x01]), undefined, parseDuckDbType('UHUGEINT'))).toBe('1')
+    // Without the declared type the honest binary summary is preserved.
+    expect(formatCell(littleEndian([0x01]))).toBe('<16 bytes>')
+    // A payload of the wrong width is never mis-decoded.
+    expect(formatCell(new Uint8Array(8), 'UHUGEINT')).toBe('<8 bytes>')
+  })
+
   it('leaves the sibling byte-ish types on their existing paths (m4-4 audit)', () => {
     // UUID arrives as Arrow Utf8 (plain string).
     expect(formatCell('123e4567-e89b-12d3-a456-426614174000', 'UUID')).toBe(
       '123e4567-e89b-12d3-a456-426614174000',
     )
-    // BLOB is Arrow Binary (Uint8Array) and stays a byte summary.
+    // BLOB is Arrow Binary (Uint8Array) and stays a byte summary — including a
+    // 16-byte BLOB, which must not borrow the UHUGEINT decoder.
     expect(formatCell(new Uint8Array([1, 2, 3, 4]), 'BLOB')).toBe('<4 bytes>')
-    // UHUGEINT is Arrow FixedSizeBinary(16); it stays a byte summary too.
-    expect(formatCell(new Uint8Array(16), 'UHUGEINT')).toBe('<16 bytes>')
+    expect(formatCell(new Uint8Array(16).fill(0xff), 'BLOB')).toBe('<16 bytes>')
+    // HUGEINT is signed Arrow Decimal(38,0) and keeps its own decoder.
+    expect(formatCell(new Uint8Array(16).fill(0xff), 'HUGEINT')).toBe('-1')
   })
 
   it('formats nested struct/list values through the bounded nested preview (m3-2)', () => {

@@ -36,9 +36,16 @@
  * display-value copy, which composes through this same function; nested
  * previews, the Record tree and untyped SQL results keep raw temporals
  * (WF-O2).
+ *
+ * b2 (defect 3): the declared-type channel also decodes `UHUGEINT`, which
+ * arrives as Arrow `FixedSizeBinary(16)` (an unsigned little-endian
+ * `Uint8Array`) and used to render as `<16 bytes>`. It now renders the exact
+ * unsigned 128-bit decimal value. See `uhugeint.ts` (verified byte order);
+ * BLOB, `HUGEINT` and `DECIMAL` are untouched.
  */
 import { formatDecimalForParsedType } from './decimal'
 import { formatTemporalForParsedType } from './temporal-display'
+import { formatUHUGEINTForParsedType } from './uhugeint'
 import { formatNestedPreview } from './nested-preview'
 import { parseDuckDbType } from '../schema/parseType'
 import type { DuckDbType } from '../schema/parseType'
@@ -63,6 +70,11 @@ export function formatCell(value: unknown, type?: string, parsedType?: DuckDbTyp
   if (parsed !== null) {
     const decimal = formatDecimalForParsedType(value, parsed)
     if (decimal !== null) return decimal
+    // b2 (defect 3): an exact unsigned 128-bit render for scalar UHUGEINT;
+    // every other type (and every payload this decoder cannot read exactly)
+    // returns null and keeps its path.
+    const unsigned128 = formatUHUGEINTForParsedType(value, parsed)
+    if (unsigned128 !== null) return unsigned128
     // wf-01: temporal families only; every other type (and every payload the
     // temporal decoder cannot read exactly) returns null and keeps its path.
     const temporal = formatTemporalForParsedType(value, parsed)

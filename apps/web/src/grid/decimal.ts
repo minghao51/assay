@@ -22,8 +22,10 @@
  * - `UUID` arrives as Arrow `Utf8` — a plain string, already readable.
  * - `BLOB` arrives as Arrow `Binary` (`Uint8Array`) and stays `<N bytes>`
  *   (legitimately binary; `formatCell`'s existing summary).
- * - `UHUGEINT` arrives as `FixedSizeBinary(16)` (a `Uint8Array`); it is an
- *   integer, not an offered cast target, and keeps the `<16 bytes>` summary.
+ * - `UHUGEINT` arrives as `FixedSizeBinary(16)` (a `Uint8Array`), but it is an
+ *   **unsigned** integer with no precision/scale, so it is deliberately not
+ *   decoded here: `uhugeint.ts` renders its exact unsigned 128-bit value
+ *   (b2 defect 3). This decoder must never sign-extend it.
  *
  * Boundary: this decoder recognizes **top-level** decimal-like column types
  * from their type string, and — via `decimalSpecForParsedType` — decimal
@@ -31,8 +33,9 @@
  * the parsed struct/list field types through its walk (m4-5), so a decimal
  * inside `STRUCT("a" DECIMAL(10,2))` or `DECIMAL(10,2)[]` now renders its
  * exact value too; the m4-4 carry-over (`<16 bytes>`) is closed. `UHUGEINT`
- * (Arrow `FixedSizeBinary(16)`, not an offered cast target) intentionally
- * keeps its `<16 bytes>` binary summary.
+ * (Arrow `FixedSizeBinary(16)`) is not decimal-like and is handled by
+ * `uhugeint.ts` instead, so the signed decoder stays total for every
+ * non-decimal type here (returns `null`).
  *
  * Text-only, total: unknown shapes/lengths return `null` and the caller keeps
  * its existing formatting path. No dataset value is ever logged (ADR 0025).
