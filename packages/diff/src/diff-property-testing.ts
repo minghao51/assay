@@ -272,6 +272,25 @@ function weave<T>(
  * same field would throw a TypeError *in the generator* — the corruption is
  * already there, so the write is skipped.
  */
+/**
+ * The total JS value space the hostile-input generators below may produce.
+ *
+ * These generators exist to hand malformed, adversarial shapes to the boundary
+ * parsers under test, so their result is deliberately not a domain type. The
+ * union is the honest bound: every generator returns an object (plain, proxy,
+ * revoked proxy, or getter-hostile), a primitive, or null/undefined. Callers
+ * pass it straight to a parser typed `unknown`, which this union satisfies.
+ */
+export type HostileValue =
+  | object
+  | string
+  | number
+  | boolean
+  | bigint
+  | symbol
+  | null
+  | undefined
+
 function setField(target: Record<string, unknown>, key: string, value: unknown): void {
   try {
     target[key] = value
@@ -286,7 +305,7 @@ function setField(target: Record<string, unknown>, key: string, value: unknown):
  * coercion shapes like this are why issue *construction* must never route
  * through the offending value (the never-echo discipline's totality half).
  */
-export function makeUnstringifiable(): unknown {
+export function makeUnstringifiable(): HostileValue {
   const boom = (): never => {
     throw new Error('stringification exploded')
   }
@@ -300,7 +319,7 @@ export function makeUnstringifiable(): unknown {
  * `length`-like counts, entry payloads — so the model's field guards are
  * what stands between the caller and the throw.
  */
-export function makeThrowingGetter(field: string, rest: Record<string, unknown> = {}): unknown {
+export function makeThrowingGetter(field: string, rest: Record<string, unknown> = {}): HostileValue {
   const hostile: Record<string, unknown> = { ...rest }
   Object.defineProperty(hostile, field, {
     get() {
@@ -317,7 +336,7 @@ export function makeThrowingGetter(field: string, rest: Record<string, unknown> 
  * access: `length`, numeric indices, the iterator, and array methods all
  * throw. This is the shape `Array.isArray`-then-iterate code cannot survive.
  */
-export function makeProxyArray(): unknown {
+export function makeProxyArray(): HostileValue {
   const boom = (): never => {
     throw new Error('array getter exploded')
   }
@@ -330,7 +349,7 @@ export function makeProxyArray(): unknown {
 }
 
 /** An object Proxy whose `get` trap throws on every read. */
-export function makeProxyObject(): unknown {
+export function makeProxyObject(): HostileValue {
   const boom = (): never => {
     throw new Error('object getter exploded')
   }
@@ -350,7 +369,7 @@ export function makeProxyObject(): unknown {
  * one hostile shape a throwing-`get` Proxy cannot model: the trap table
  * itself is gone, so *any* reflection, guarded or not, detonates.
  */
-export function makeRevokedProxy(): unknown {
+export function makeRevokedProxy(): HostileValue {
   const { proxy, revoke } = Proxy.revocable([] as unknown[], {})
   revoke()
   return proxy
@@ -367,7 +386,7 @@ export function makeRevokedProxy(): unknown {
  * `JSON.stringify`, `for…of`, `Array.from`, a `length` or indexed read.
  * The trap-throwing-at-every-step pin for the revoked-proxy class.
  */
-export function makeAllTrapsProxy(): unknown {
+export function makeAllTrapsProxy(): HostileValue {
   const boom = (): never => {
     throw new Error('trap exploded')
   }
@@ -398,7 +417,7 @@ export function makeAllTrapsProxy(): unknown {
  * profile, throwing getters on structural fields, and unstringifiable
  * values on fields whose messages echo them.
  */
-export function genHostileProfile(rng: TestRng, spy?: HostileShapeCounts): unknown {
+export function genHostileProfile(rng: TestRng, spy?: HostileShapeCounts): HostileValue {
   const base = genValidProfile(rng)
   const profile: Record<string, unknown> = {
     rowCount:
@@ -533,7 +552,7 @@ export function genHostileProfile(rng: TestRng, spy?: HostileShapeCounts): unkno
  * an unstringifiable top-level schema (exercising the total echo in the
  * not-an-array message).
  */
-export function genHostileSchema(rng: TestRng, spy?: HostileShapeCounts): unknown {
+export function genHostileSchema(rng: TestRng, spy?: HostileShapeCounts): HostileValue {
   const base = genValidSchema(rng)
   const schema: unknown[] = base.map((column) => {
     if (rng.bool(0.1)) return rng.pick([null, 42, 'column', [], {}])
@@ -733,7 +752,7 @@ export function genRowDiffInputs(
  * *shapes* (pass a spy): an array Proxy as the whole key set, throwing
  * getters on entries, unstringifiable entries.
  */
-export function genHostileKeys(rng: TestRng, spy?: HostileShapeCounts): unknown {
+export function genHostileKeys(rng: TestRng, spy?: HostileShapeCounts): HostileValue {
   const base = ['id', 'region', 'amount', 'ke y']
   const keys: unknown[] = base.slice(0, rng.int(1, 3))
   if (rng.bool(0.2)) keys.push(rng.pick([42, null, '', 'k\u0000ey', {}]))
@@ -759,7 +778,7 @@ export function genHostileKeys(rng: TestRng, spy?: HostileShapeCounts): unknown 
  * an object Proxy as the whole options object, throwing getters on
  * relation/sampleLimit reads.
  */
-export function genHostileRowDiffOptions(rng: TestRng, spy?: HostileShapeCounts): unknown {
+export function genHostileRowDiffOptions(rng: TestRng, spy?: HostileShapeCounts): HostileValue {
   const options: Record<string, unknown> = {
     relationA: rng.pick(RELATION_POOL),
     relationB: rng.pick(RELATION_POOL),
@@ -785,7 +804,7 @@ export function genHostileRowDiffOptions(rng: TestRng, spy?: HostileShapeCounts)
  * structural field, an unstringifiable count — plus tame corruption
  * (negative/overflowing counts, unknown kinds, duplicate columns).
  */
-export function genHostileInferenceProfile(rng: TestRng, spy?: HostileShapeCounts): unknown {
+export function genHostileInferenceProfile(rng: TestRng, spy?: HostileShapeCounts): HostileValue {
   const base = genValidProfile(rng)
   const profile: Record<string, unknown> = { rowCount: base.rowCount, columns: base.columns }
   if (rng.bool(0.15)) {
