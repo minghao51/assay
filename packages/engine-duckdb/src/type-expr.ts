@@ -58,13 +58,19 @@
  *   the engine never emits it, and a fix-round finding requires the closed
  *   `p[,s]` arity, so the two spellings that *are* emitted (`DECIMAL` and
  *   `DECIMAL(p,s)`) both stay accepted.)
- * - `VARCHAR`/`CHAR`/`CHARACTER`/`BPCHAR`/`BIT`/`VARBIT`/`TEXT`/`STRING`/
+ * - `VARCHAR`/`CHAR`/`CHARACTER`/`BPCHAR`/`BIT`/`TEXT`/`STRING`/
  *   `NVARCHAR`/`FLOAT` and `TIME`/`TIMESTAMP`: bare, or exactly one integer
  *   modifier (`VARCHAR(10)`, `TIMESTAMP(3)`). `VARCHAR()`, `CHAR()`,
  *   `BIT()` and `TIMESTAMP(3,4)` are rejected. (`BPCHAR()` is accepted by the
  *   1.5.5 CLI but rejected here for the same closed-arity reason as
- *   `DECIMAL()`; the engine emits only the bare spelling.) `CHARACTER VARYING`
- *   and `BIT VARYING` take the modifier after `VARYING`.
+ *   `DECIMAL()`; the engine emits only the bare spelling.) The modifier value
+ *   must be an integer literal the engine can **express**: `0..2147483647`.
+ *   The 1.5.5 parser reads a type modifier as a signed 32-bit literal, so
+ *   `VARCHAR(999999999999)` is a Parser Error, not a binder error — bounding
+ *   the value here keeps that failure at validation instead of SQL
+ *   composition. Negative values are unreachable through the grammar (the
+ *   lexer rejects `-`). `CHARACTER VARYING` takes the modifier after
+ *   `VARYING`.
  * - `LIST`: exactly one **type** argument (`LIST(INTEGER)`); `LIST`,
  *   `LIST()` and `LIST(INTEGER, VARCHAR)` are rejected.
  * - `MAP`: exactly two **type** arguments (`MAP(VARCHAR, INTEGER)`);
@@ -170,6 +176,21 @@ const MULTI_WORD_CONTINUATIONS: ReadonlySet<string> = new Set([
   'PRECISION',
   'VARYING',
 ])
+
+/**
+ * The largest optional-integer-modifier value the engine can express. DuckDB
+ * 1.5.5 parses a type modifier as a signed 32-bit literal
+ * (`SELECT 1::VARCHAR(999999999999)` → `Parser Error: syntax error at or near
+ * "999999999999"`), while `VARCHAR(0)` and `VARCHAR(2147483647)` are accepted.
+ * The validator refuses anything outside `0..MAX_TYPE_MODIFIER`, so an
+ * inexpressible modifier fails at validation, never late at the engine.
+ *
+ * Carried limitation (deliberately **not** encoded here): individual types
+ * have tighter real bounds this validator still does not model — e.g.
+ * `TIMESTAMP(n)` accepts only `n` in `0..9` at the engine, so
+ * `TIMESTAMP(10)` passes validation and is rejected by the binder.
+ */
+const MAX_TYPE_MODIFIER = 2_147_483_647
 
 /** Types whose argument list is a single optional integer modifier. */
 const OPTIONAL_INTEGER_MODIFIER_BASES: ReadonlySet<string> = new Set([
@@ -553,8 +574,18 @@ class TypeExpressionParser {
     args: readonly ParsedArg[] | undefined,
   ): void {
     if (args === undefined) return
-    if (args.length !== 1 || args[0]!.kind !== 'number') {
+    const modifier = args[0]
+    if (args.length !== 1 || modifier === undefined || modifier.kind !== 'number') {
       throw new EngineTypeError(`${base} takes at most one integer modifier`)
+    }
+    if (
+      !Number.isInteger(modifier.value) ||
+      modifier.value < 0 ||
+      modifier.value > MAX_TYPE_MODIFIER
+    ) {
+      throw new EngineTypeError(
+        `${base} modifier must be an integer between 0 and ${String(MAX_TYPE_MODIFIER)}`,
+      )
     }
   }
 

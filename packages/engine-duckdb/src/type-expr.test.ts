@@ -20,6 +20,8 @@
  * (`TEXT`/`STRING`/`CHAR`/`BPCHAR`/`CHARACTER`/`ENUM` scalar yes; `VARCHAR[]`/
  * `VARCHAR[3]`/`LIST(VARCHAR)` no).
  */
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   EngineTypeError,
@@ -29,6 +31,24 @@ import {
   validateEngineTypeExpression,
 } from './type-expr'
 
+const DUCKDB_CLI = process.env['DUCKDB'] ?? '/tmp/duckdb'
+const hasDuckDbCli = existsSync(DUCKDB_CLI)
+
+/** Run one statement through the pinned CLI, returning its stdout. */
+function cli(sql: string): string {
+  return execFileSync(DUCKDB_CLI, ['-csv', '-noheader', '-c', sql], { encoding: 'utf8' })
+}
+
+/** Run one statement that must fail, returning the CLI's stderr. */
+function cliFailure(sql: string): string {
+  try {
+    cli(sql)
+  } catch (error) {
+    return String((error as { stderr?: string }).stderr ?? '')
+  }
+  throw new Error('expected the pinned CLI to reject the statement')
+}
+
 /** The exact payload from the m4-2 review finding 1. */
 const REVIEWER_PAYLOAD =
   'VARCHAR) AS "c" FROM (...) ); CREATE TABLE assay_injected AS SELECT 31337; --'
@@ -36,6 +56,8 @@ const REVIEWER_PAYLOAD =
 const ACCEPTED_TYPES: readonly string[] = [
   'VARCHAR',
   'VARCHAR(10)',
+  'VARCHAR(0)',
+  'VARCHAR(2147483647)',
   'TEXT',
   'TEXT(5)',
   'STRING',
@@ -204,6 +226,16 @@ const REJECTED_TYPES: readonly string[] = [
   'ENUM(1,2)',
   "ENUM('a',1)",
   'INTEGER[0]',
+  // Optional-integer-modifier literals DuckDB cannot even parse as a type
+  // modifier (the 1.5.5 parser reads the value as a signed 32-bit literal):
+  // `SELECT 1::VARCHAR(999999999999)` is a Parser Error, so these must be
+  // refused at validation instead of reaching SQL. A negative value is already
+  // unreachable through the grammar (the lexer rejects `-`).
+  'VARCHAR(999999999999)',
+  'VARCHAR(2147483648)',
+  'VARCHAR(99999999999999999999)',
+  'TEXT(999999999999)',
+  'VARCHAR(-1)',
   'DATE(2)',
   'INTEGER(2)',
   'DOUBLE(2)',
@@ -211,6 +243,22 @@ const REJECTED_TYPES: readonly string[] = [
   'TIMESTAMPTZ(3)',
   'FOO(1)',
 ]
+
+describe('parseEngineTypeExpression — modifier bounds (defect 1)', () => {
+  it('bounds the optional integer modifier to a DuckDB-expressible int32 literal', () => {
+    // Pre-fix these were accepted, composed into a SQL type position and died
+    // late in the engine's parser; the refusal now happens at validation.
+    for (const type of ['VARCHAR(999999999999)', 'VARCHAR(2147483648)', 'TEXT(999999999999)']) {
+      expect(() => parseEngineTypeExpression(type), type).toThrow(/between 0 and 2147483647/)
+    }
+    // Both ends of the expressible range stay accepted (CLI-pinned below).
+    expect(() => parseEngineTypeExpression('VARCHAR(0)')).not.toThrow()
+    expect(() => parseEngineTypeExpression('VARCHAR(2147483647)')).not.toThrow()
+    // A negative modifier is unreachable through the grammar: the lexer has no
+    // sign and rejects `-` as a disallowed character.
+    expect(() => parseEngineTypeExpression('VARCHAR(-1)')).toThrow(/disallowed character/)
+  })
+})
 
 describe('parseEngineTypeExpression — accept battery', () => {
   it('accepts the legitimate DuckDB type space as one complete type expression', () => {
@@ -390,5 +438,32 @@ describe('isBlobLikeEngineType — scalar binary/BLOB alias classification (AR-E
     ]) {
       expect(isBlobLikeEngineType(type), String(type)).toBe(false)
     }
+  })
+})
+
+/**
+ * Real-engine agreement for the two validator boundaries (pinned CLI 1.5.5,
+ * ADR 0038). Skipped only when the binary is absent, as the other agreement
+ * suites do; where it exists these pins must run.
+ */
+describe.skipIf(!hasDuckDbCli)('type-expression agreement with the pinned DuckDB CLI', () => {
+  it('pins the CLI dialect', () => {
+    expect(execFileSync(DUCKDB_CLI, ['--version'], { encoding: 'utf8' })).toMatch(/v1\.5\./)
+  })
+
+  it('VARCHAR(<huge>) was a late engine failure, now refused before SQL (defect 1)', () => {
+    // The pre-fix path accepted the expression and interpolated it into a SQL
+    // type position; the failure belonged to the engine's parser, not to
+    // validation:
+    expect(cliFailure('SELECT 1::VARCHAR(999999999999)')).toMatch(/Parser Error/)
+    expect(cliFailure('SELECT 1::VARCHAR(999999999999)')).toMatch(/syntax error/)
+    // Expressible modifiers are accepted by the engine, so 0..2147483647 is
+    // the honest bound:
+    expect(cli('SELECT 1::VARCHAR(0)').trim()).toBe('1')
+    expect(cli('SELECT 1::VARCHAR(2147483647)').trim()).toBe('1')
+    // Post-fix the same spelling never composes: validation throws first.
+    expect(() => parseEngineTypeExpression('VARCHAR(999999999999)')).toThrow(
+      /between 0 and 2147483647/,
+    )
   })
 })
