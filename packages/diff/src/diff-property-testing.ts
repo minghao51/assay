@@ -871,21 +871,40 @@ export function scanPlanSql(sql: string): {
 }
 
 /**
+ * A clause that removes or multiplies rows before an ordinal window numbers
+ * them. Matched against a same-indent, already-trimmed line inside the
+ * ordinal's SELECT scope, after its `FROM`.
+ */
+const ROW_SET_CLAUSE =
+  /^(?:WHERE|HAVING|QUALIFY|GROUP\s+BY)\b|^(?:(?:LEFT|RIGHT|FULL|INNER|CROSS|NATURAL|SEMI|ANTI|POSITIONAL|ASOF)\s+)*(?:OUTER\s+)?JOIN\b/
+
+/**
  * Structural anti-regression scan (m6-1 round-1 fix): every
  * `row_number() OVER () - 1 AS "assay_row_ordinal"` window must be computed
- * over an **unfiltered** relation — its SELECT scope may not contain a
- * sibling WHERE. SQL evaluates window functions *after* WHERE, so an
+ * over an **unfiltered**, **row-set-preserving** relation — its SELECT scope
+ * may not contain a sibling clause that filters or multiplies rows: `WHERE`,
+ * `HAVING`, `QUALIFY`, `GROUP BY`, or any `JOIN` (including `LEFT`/`RIGHT`/
+ * `FULL [OUTER]`, `INNER`, `CROSS`, `NATURAL`, `SEMI`/`ANTI`, `POSITIONAL`,
+ * `ASOF`). A bare same-SELECT `JOIN … ON` filter is the same defect class as
+ * a `WHERE`: it removes rows before the window numbers them. SQL evaluates
+ * window functions *after* WHERE/JOIN, so an
  * ordinal that shares a SELECT with the anti-join / changed filter numbers
  * only the surviving rows `0..K-1` instead of the true pre-filter scan
  * positions (the round-1 defect that broke the m6-2
  * `base:<anchor>#<ordinal>` binding contract).
  *
  * The generated SQL is line-indented deterministically, so a same-indent
- * `WHERE` (or other filtering clause) before the derived table closes is
- * enough to detect the defect — this is a text scan, deliberately, so it
- * works in the pure package without an engine. The scan returns the number
- * of ordinal windows seen (non-vacuity: the suite must actually scan
- * ordinals) plus every violating SQL fragment, so a caller can pin both.
+ * row-set clause before the derived table closes is enough to detect the
+ * defect — this is a text scan, deliberately, so it works in the pure package
+ * without an engine. The scan returns the number of ordinal windows seen
+ * (non-vacuity: the suite must actually scan ordinals) plus every violating
+ * SQL fragment, so a caller can pin both.
+ *
+ * **Line-formatting contract (tested limitation):** the scan is line-based and
+ * keys off the composer's deterministic one-clause-per-line output. A `WHERE`
+ * or `JOIN` written on the same physical line as its `FROM` would not be seen;
+ * the composer never emits that shape, so the bound is the formatter, not the
+ * clause list.
  */
 export function scanOrdinalScopes(sql: string): {
   ordinalWindows: number
@@ -911,7 +930,7 @@ export function scanOrdinalScopes(sql: string): {
         sawFrom = true
         continue
       }
-      if (sawFrom && /^WHERE\b/.test(trimmed)) {
+      if (sawFrom && ROW_SET_CLAUSE.test(trimmed)) {
         violations.push(lines.slice(i, j + 1).join('\n'))
         break
       }

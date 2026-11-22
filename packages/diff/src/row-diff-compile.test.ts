@@ -644,6 +644,37 @@ describe('row-diff plan — structural injection pins (scan every generated quer
     expect(bad.violations).toHaveLength(1)
     expect(bad.violations[0]).toContain('WHERE NOT EXISTS')
   })
+
+  it('structural ordinal pin: same-scope JOIN/HAVING/GROUP BY/QUALIFY are violations too (B5 blind spot closed)', () => {
+    // The recorded blind spot: a bare same-SELECT `JOIN … ON` filter removed
+    // rows before the window numbered them, and the old scan only looked for
+    // `WHERE`. Each shape below is the same defect class.
+    const hostile = {
+      join: ['SELECT row_number() OVER () - 1 AS "assay_row_ordinal"', 'FROM "b" AS "b"', 'JOIN "a" AS "a" ON "a"."id" = "b"."id"'],
+      leftOuterJoin: ['SELECT row_number() OVER () - 1 AS "assay_row_ordinal"', 'FROM "b" AS "b"', 'LEFT OUTER JOIN "a" AS "a" ON "a"."id" = "b"."id"'],
+      semiJoin: ['SELECT row_number() OVER () - 1 AS "assay_row_ordinal"', 'FROM "b" AS "b"', 'SEMI JOIN "a" AS "a" ON "a"."id" = "b"."id"'],
+      groupBy: ['SELECT row_number() OVER () - 1 AS "assay_row_ordinal"', 'FROM "b" AS "b"', 'GROUP BY 1'],
+      having: ['SELECT row_number() OVER () - 1 AS "assay_row_ordinal"', 'FROM "b" AS "b"', 'HAVING count(*) > 1'],
+      qualify: ['SELECT row_number() OVER () - 1 AS "assay_row_ordinal"', 'FROM "b" AS "b"', 'QUALIFY row_number() OVER () = 1'],
+    }
+    for (const [label, lines] of Object.entries(hostile)) {
+      const scan = scanOrdinalScopes(lines.join('\n'))
+      expect(scan.ordinalWindows, label).toBe(1)
+      expect(scan.violations, label).toHaveLength(1)
+    }
+
+    // No false positives: a JOIN inside a deeper derived table is a different
+    // SELECT scope, so the composer's own nesting stays clean.
+    const nested = [
+      'SELECT row_number() OVER () - 1 AS "assay_row_ordinal"',
+      'FROM (',
+      '  SELECT "x"',
+      '  FROM "b" AS "b"',
+      '  JOIN "a" AS "a" ON "a"."id" = "b"."id"',
+      ') AS "inner"',
+    ].join('\n')
+    expect(scanOrdinalScopes(nested).violations).toEqual([])
+  })
 })
 
 describe('row-diff plan — key-type compatibility policy (documented, pinned)', () => {
