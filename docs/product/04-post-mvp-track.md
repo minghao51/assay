@@ -119,6 +119,10 @@ Exit: the docs 07 VS Code scenarios (open → edit → validate → diff in VS C
 **Historical carry-over inventory; verify each item against today's tree before dispatch.**
 DCR generation (P3/M9) and a11y CI have since landed; neither is pending.
 Current pickup-ready maintenance is indexed by the [living handoff](../process/handoff.md).
+The 2026-11-21 successor batch closed the engine trio, the CLI side-A parameterisation and the
+ordinal-scan blind spot (ledger:
+[successor queue](../process/handoff/20261121-successor-queue.md) §8); the bullets below keep their
+original wording and mark what remains.
 
 Everything below is already recorded in the handoff queue files (now
 [`docs/process/handoff/`](../process/handoff/), completed queues archived there) or in its
@@ -126,16 +130,25 @@ changelog; listed here so the post-MVP
 lanes have a single index:
 
 - Engine: bound the optional integer modifier (`VARCHAR(<huge>)` fails late); `VARBIT`
-  over-acceptance; `UHUGEINT` byte-render; a `profileComparison`/`closeTable` op so diff
-  B-side profiling stops accumulating `assay_tN` registry entries (m6-4 measured carry-over).
+  over-acceptance; `UHUGEINT` byte-render — **CLOSED 2026-11-21** (`247ab1c`, `f93315f`, `617ea11`);
+  a `profileComparison`/`closeTable` op so diff
+  B-side profiling stops accumulating `assay_tN` registry entries (m6-4 measured carry-over) —
+  spec recorded, implementation not selected
+  ([B3 design](../process/handoff/20261121-b3-registry-lifecycle-spec.md)).
 - CLI: `runDiffPlan` hardcodes side A to `DATASET_VIEW` (parameterize or assert with a
-  self-explanatory error).
+  self-explanatory error) — **CLOSED 2026-11-21** (`82e9973`; the base view is a required
+  argument now, [B4 record](../process/handoff/20261121-b4-cli-diff-side-a.md)).
 - Diff: `scanOrdinalScopes` would not catch a same-SELECT bare `JOIN … ON` filter (byte
-  goldens make any SQL change review-visible; extend the scan if builders change);
-  `report.ts` "row-level comparison is m6-1+" phrasing touch-up.
+  goldens make any SQL change review-visible; extend the scan if builders change) — **CLOSED
+  2026-11-21** (`f020cde`: `WHERE`/`HAVING`/`QUALIFY`/`GROUP BY`/the `JOIN` family are all caught,
+  with hostile-shape and no-false-positive tests; generated SQL bytes unchanged);
+  `report.ts` "row-level comparison is m6-1+" phrasing touch-up remains.
 - Scale/perf: diff performance benchmark at scale (risk R7 — progressive diff strategy
   docs 03 §14); bench open questions OQ #1 (worker-side heap) and the eh-bundle swap option
-  (bench note); SQL-editor true interrupt/second connection (m2-7 note).
+  (bench note) — measured 2026-11-21, no threshold set
+  ([measurement record](../process/handoff/20261121-measurement-rows-b6-c3-c2.md));
+  SQL-editor true interrupt/second connection (m2-7 note) — design decision request recorded
+  ([B7 record](../process/handoff/20261121-b7-sql-interrupt-decision.md)), no implementation.
 - Quality infra: a11y CI (O3, also PT-0 item 7); dependency review/OpenSSF (O10); diff-panel
   note visibility assertions (m6-4 non-blocking note).
 - Deferrals deliberately recorded in M6 (non-goals, not re-decided): statistical drift tests
