@@ -326,6 +326,14 @@ host `e2e: PASS` with CLI agreement · `pack:consumer-smoke` **PASS** · `docs:l
 `measure:bundle` green. The dependency-use manifest was regenerated for the new files
 (`--write`), which is a derived artefact, not a dependency change.
 
+**Independent review (different model, read-only): APPROVE, no must-fix findings** — 77 targeted
+files / 1,409 tests plus the diff/CLI suites green, web and engine `tsc` clean, eslint and prettier
+clean, changesets checked for scope. One contract deviation accepted: A2's no-op identity is
+order-insensitive over exact `(column, predicate)` strings (multiplicity preserved), which §3.1's
+reorder caveat requires. The reviewer's own mutation (`IS NOT NULL` → `IS NULL OR` in the engine
+predicate) failed the real-engine conformance case (6 failed / 3 passed; e.g. expected 2, got 3)
+and passed 9/9 after restoring.
+
 ### 8.4 What this batch did not fix
 
 - The `TIMESTAMP(n)`/TIME tighter-bound gap in the type validator (binder-enforced; B2 records it).
