@@ -488,8 +488,9 @@ What is never sent: your data, cell values, file names or paths, SQL text or
 query results, contract contents, column names, or anything that identifies you.
 
 Anonymous usage metadata is on by default. Turn it off any time in Settings, or
-set ASSAY_NO_TELEMETRY=1 before launching Assay. Turning it off takes effect
-immediately and nothing further is sent.
+set ASSAY_NO_TELEMETRY=1 before launching Assay. Turning it off stops further
+attempts and attempts to abort in-flight delivery; metadata already delivered
+is not recalled.
 
 [ Keep anonymous usage on (default) ]   [ Turn it off ]
 ```

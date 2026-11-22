@@ -45,6 +45,23 @@ describe('§6.3 disclosure copy — byte-exact (revision 1)', () => {
     expect(DISCLOSURE_REVISION).toBe(1)
   })
 
+  it('pins the E01 opt-out sentence: stops attempts, aborts in flight, no recall claim', () => {
+    // E01 option A (§3.4): the superseded "nothing further is sent" overstated
+    // the guarantee; the replacement states the in-flight limit and claims no
+    // recall of already-delivered metadata.
+    const flat = WEB_DISCLOSURE_BODY.replace(/\s+/g, ' ')
+    expect(flat).toContain(
+      'Turning it off stops further attempts and attempts to abort in-flight delivery; metadata already delivered is not recalled.',
+    )
+    expect(flat).not.toContain('nothing further is sent')
+    expect(flat.toLowerCase()).not.toContain('recall' + 'ed after')
+  })
+
+  it('leaves the CLI copy untouched (CLI parity is out of scope, E01 §7)', () => {
+    expect(CLI_DISCLOSURE_COPY).toContain('This notice is shown once.')
+    expect(CLI_DISCLOSURE_COPY).not.toContain('in-flight')
+  })
+
   it('pins the web body and button labels against the design document', () => {
     const [web] = designDisclosureBlocks()
     const buttonLine = web.slice(web.lastIndexOf('\n\n[ ') + 2).trimEnd()
