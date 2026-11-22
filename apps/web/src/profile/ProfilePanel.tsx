@@ -9,6 +9,7 @@ import type {
 } from '@assay/engine-duckdb'
 import { bucketColumnCount } from '@assay/telemetry'
 import { engineErrorMessage } from '../edit/session'
+import type { FilterFailureRecovery } from '../grid/filter-failure'
 import { engineClient } from '../lib/engine'
 import { runGuarded } from '../sql/guarded-run'
 import { RunGuard } from '../sql/run-guard'
@@ -91,6 +92,17 @@ interface ProfilePanelProps {
    * from the refusal slot, which is value-free (design §4.3).
    */
   readonly filterError: string | null
+  /**
+   * C02 parity (A3): the recovery control `filterError`'s phase offers —
+   * `{kind:'retry'}` renders the filter bar's `Retry` (reload the view) and
+   * `{kind:'clear'}` its `Clear filters`; `null`/absent renders nothing (the
+   * `refused-before-change` phase and a non-transaction rejection offer none).
+   * Same elements and classes as the bar, so no new CSS, and the sentence
+   * above is unchanged — no location hint, no new live region.
+   */
+  readonly filterRecovery?: FilterFailureRecovery | null
+  /** The recovery the user activated; the host dispatches it. */
+  readonly onFilterRecover?: (recovery: FilterFailureRecovery) => void
   /**
    * ug-16 apply in flight (round 2, single-flight): the filter-affording
    * controls are disabled while App's bridge owns the transition, the same
@@ -429,6 +441,8 @@ export function ProfilePanel({
   onFilterNull,
   filterRefusal,
   filterError,
+  filterRecovery = null,
+  onFilterRecover,
   filterPending,
   onClearFilterFeedback,
 }: ProfilePanelProps) {
@@ -554,6 +568,38 @@ export function ProfilePanel({
             <p className="profile-filter-error" role="alert" data-testid="profile-filter-error">
               {filterError}
             </p>
+          )}
+          {/* C02 parity (A3): the phase's one recovery control, beside the
+              alert and using the filter bar's exact elements and classes
+              (`filter-error-retry` / `filter-error-clear`) — the same
+              semantics, dispatched by App under `applyProfileFilter`'s
+              attempt/session/model guards. Disabled while an apply is in
+              flight, like every other filter-affording control here. */}
+          {filterRecovery?.kind === 'retry' && (
+            <button
+              type="button"
+              className="filter-error-retry"
+              data-testid="profile-filter-error-retry"
+              disabled={filterPending}
+              onClick={() => {
+                onFilterRecover?.({ kind: 'retry' })
+              }}
+            >
+              Retry
+            </button>
+          )}
+          {filterRecovery?.kind === 'clear' && (
+            <button
+              type="button"
+              className="filter-error-clear"
+              data-testid="profile-filter-error-clear"
+              disabled={filterPending}
+              onClick={() => {
+                onFilterRecover?.({ kind: 'clear' })
+              }}
+            >
+              Clear filters
+            </button>
           )}
           {state.kind === 'idle' && (
             <>

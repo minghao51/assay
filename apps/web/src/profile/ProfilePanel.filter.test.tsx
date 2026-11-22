@@ -268,3 +268,71 @@ describe('ug-16 — refusal and engine-rejection slots', () => {
     expect(onClearFilterFeedback).toHaveBeenCalledTimes(1)
   })
 })
+
+/**
+ * C02 parity / A3 (spec §3/§4): the panel renders the phase's ONE recovery
+ * control beside its existing alert — the filter bar's exact elements and
+ * classes, no new CSS, no new live region, and the sentence byte-identical.
+ * The panel only reports the kind; App owns the dispatch and its guards.
+ */
+describe('C02 parity — the recovery control beside the filter alert', () => {
+  const RELOAD =
+    'The filters were applied, but the grid could not be reloaded. Retry to reload the view.'
+  const RESTORE =
+    'The filter could not be applied and the previous filters could not be restored. The filters now in effect are unknown: clear the filters or re-apply one to recover.'
+
+  it('renders exactly one Retry button for a retry recovery and reports the kind', async () => {
+    const onFilterRecover = vi.fn()
+    await renderDone({
+      filterError: RELOAD,
+      filterRecovery: { kind: 'retry' },
+      onFilterRecover,
+    })
+
+    const retries = screen.getAllByRole('button', { name: 'Retry' })
+    expect(retries).toHaveLength(1)
+    const retry = retries[0] as HTMLButtonElement
+    expect(retry.tagName).toBe('BUTTON')
+    expect(retry.getAttribute('type')).toBe('button')
+    // The bar's own class — no new CSS, and the shared affordance looks alike.
+    expect(retry.className).toBe('filter-error-retry')
+    // The alert is unchanged: same sentence, same role.
+    expect(screen.getByTestId('profile-filter-error').textContent).toBe(RELOAD)
+    expect(screen.getByTestId('profile-filter-error').getAttribute('role')).toBe('alert')
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull()
+
+    fireEvent.click(retry)
+    expect(onFilterRecover).toHaveBeenCalledTimes(1)
+    expect(onFilterRecover).toHaveBeenCalledWith({ kind: 'retry' })
+  })
+
+  it('renders Clear filters for a clear recovery and reports the kind', async () => {
+    const onFilterRecover = vi.fn()
+    await renderDone({
+      filterError: RESTORE,
+      filterRecovery: { kind: 'clear' },
+      onFilterRecover,
+    })
+
+    const clear = screen.getByRole('button', { name: 'Clear filters' }) as HTMLButtonElement
+    expect(clear.getAttribute('type')).toBe('button')
+    expect(clear.className).toBe('filter-error-clear')
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.getByTestId('profile-filter-error').textContent).toBe(RESTORE)
+    expect(screen.getByTestId('profile-filter-error').getAttribute('role')).toBe('alert')
+
+    fireEvent.click(clear)
+    expect(onFilterRecover).toHaveBeenCalledTimes(1)
+    expect(onFilterRecover).toHaveBeenCalledWith({ kind: 'clear' })
+  })
+
+  it('renders no recovery control when the phase offers none, alert unchanged', async () => {
+    const onFilterRecover = vi.fn()
+    await renderDone({ filterError: RELOAD, filterRecovery: null, onFilterRecover })
+
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull()
+    expect(screen.getByTestId('profile-filter-error').textContent).toBe(RELOAD)
+    expect(onFilterRecover).not.toHaveBeenCalled()
+  })
+})

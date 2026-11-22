@@ -54,13 +54,22 @@ function failingRow(predicate = "= 'SG'"): ValidationReportRow {
   }
 }
 
-/** A ready phase whose model records every `setFilters` and can reject. */
-function harness(failures: readonly unknown[] = []) {
+/**
+ * A ready phase whose model records every `setFilters`/`refresh` and can
+ * reject either (`refreshFailures` = the queue for recovery retries only).
+ */
+function harness(failures: readonly unknown[] = [], refreshFailures: readonly unknown[] = []) {
   const calls: (readonly FilterSpec[])[] = []
   const remaining = [...failures]
+  const remainingRefreshes = [...refreshFailures]
   const model = {
     filters: [] as readonly FilterSpec[],
     calls,
+    refreshCalls: 0,
+    refresh: async () => {
+      model.refreshCalls += 1
+      if (remainingRefreshes.length > 0) throw remainingRefreshes.shift()
+    },
     setFilters: async (specs: readonly FilterSpec[]) => {
       calls.push(specs)
       if (remaining.length > 0) throw remaining.shift()
@@ -158,5 +167,129 @@ describe('useValidationSession.handleFilterToFailures (C02b)', () => {
     expect(result.current.filterToFailuresError).toBe(FILTER_RESTORE_FAILED_MESSAGE)
     expect(result.current.filterToFailuresError).not.toContain('still in effect')
     expect(result.current.filterToFailuresError).not.toContain('_setThrew')
+  })
+})
+
+/**
+ * C02 parity / A3 (spec §3/§4): the hook exposes the phase-derived recovery
+ * control beside the message it already published, and dispatches it against
+ * the live `phase.model` — `retry` → `refresh()`, `clear` → `setFilters([])`.
+ * The message values themselves are unchanged in every case.
+ */
+describe('useValidationSession — the filter failure recovery (C02 parity)', () => {
+  it('exposes the reload failure copy with the retry recovery', async () => {
+    const { render } = harness([
+      new FilterApplyError('accepted-reload-failed', new Error('engine unavailable')),
+    ])
+    const { result } = render()
+
+    await act(async () => {
+      result.current.handleFilterToFailures(failingRow())
+    })
+
+    expect(result.current.filterToFailuresError).toBe(FILTER_RELOAD_FAILED_MESSAGE)
+    expect(result.current.filterToFailuresRecovery).toEqual({ kind: 'retry' })
+  })
+
+  it('exposes the restore failure copy with the clear recovery', async () => {
+    const { render } = harness([
+      new FilterApplyError('restore-failed', new Error('_setThrew is not defined')),
+    ])
+    const { result } = render()
+
+    await act(async () => {
+      result.current.handleFilterToFailures(failingRow())
+    })
+
+    expect(result.current.filterToFailuresError).toBe(FILTER_RESTORE_FAILED_MESSAGE)
+    expect(result.current.filterToFailuresRecovery).toEqual({ kind: 'clear' })
+  })
+
+  it('offers no recovery for a refusal (the phase promises no action)', async () => {
+    const { render } = harness([new FilterApplyError('refused-before-change', new Error('nope'))])
+    const { result } = render()
+
+    await act(async () => {
+      result.current.handleFilterToFailures(failingRow())
+    })
+
+    expect(result.current.filterToFailuresError).toBe(
+      'The filter could not be applied: nope. The previous filters are still in effect.',
+    )
+    expect(result.current.filterToFailuresRecovery).toBeNull()
+  })
+
+  it('offers no recovery for a non-transaction rejection', async () => {
+    const { render } = harness([new Error('malformed spec')])
+    const { result } = render()
+
+    await act(async () => {
+      result.current.handleFilterToFailures(failingRow())
+    })
+
+    expect(result.current.filterToFailuresRecovery).toBeNull()
+    expect(result.current.filterToFailuresError).not.toBeNull()
+  })
+
+  it('dispatches clear as exactly one setFilters([]) and drops the feedback', async () => {
+    const { model, render } = harness([new FilterApplyError('restore-failed', new Error('x'))])
+    const { result } = render()
+
+    await act(async () => {
+      result.current.handleFilterToFailures(failingRow())
+    })
+    expect(model.calls).toHaveLength(1)
+
+    await act(async () => {
+      result.current.handleFilterToFailuresRecover({ kind: 'clear' })
+    })
+
+    expect(model.calls).toEqual([[{ column: 'country', predicate: "= 'SG'" }], []])
+    expect(model.filters).toEqual([])
+    expect(result.current.filterToFailuresError).toBeNull()
+    expect(result.current.filterToFailuresRecovery).toBeNull()
+    expect(model.refreshCalls).toBe(0)
+  })
+
+  it('dispatches retry as one refresh() and drops the feedback', async () => {
+    const { model, render } = harness([
+      new FilterApplyError('accepted-reload-failed', new Error('engine unavailable')),
+    ])
+    const { result } = render()
+
+    await act(async () => {
+      result.current.handleFilterToFailures(failingRow())
+    })
+
+    await act(async () => {
+      result.current.handleFilterToFailuresRecover({ kind: 'retry' })
+    })
+
+    expect(model.refreshCalls).toBe(1)
+    // A retry never re-applies or rolls back filters: still the one attempt.
+    expect(model.calls).toHaveLength(1)
+    expect(result.current.filterToFailuresError).toBeNull()
+    expect(result.current.filterToFailuresRecovery).toBeNull()
+  })
+
+  it('keeps the accepted-but-not-reloaded copy when the retry reload fails again', async () => {
+    const { model, render } = harness(
+      [new FilterApplyError('accepted-reload-failed', new Error('engine unavailable'))],
+      [new Error('still unavailable')],
+    )
+    const { result } = render()
+
+    await act(async () => {
+      result.current.handleFilterToFailures(failingRow())
+    })
+
+    await act(async () => {
+      result.current.handleFilterToFailuresRecover({ kind: 'retry' })
+    })
+
+    expect(model.refreshCalls).toBe(1)
+    // Never re-classified as a refusal or a rollback (the phase is unchanged).
+    expect(result.current.filterToFailuresError).toBe(FILTER_RELOAD_FAILED_MESSAGE)
+    expect(result.current.filterToFailuresRecovery).toEqual({ kind: 'retry' })
   })
 })

@@ -89,6 +89,8 @@ import { planProfileFilter } from './profile/filter-action'
 import type { ProfileFilterIntent } from './profile/filter-action'
 import { replaceColumnFilter } from './grid/query-state'
 import { filterFailureCopy } from './grid/filter-failure'
+import type { FilterFailureCopy, FilterFailureRecovery } from './grid/filter-failure'
+import { filterRetryFailureCopy } from './grid/filter-recovery'
 import type { NestedAction } from './sql/nested-actions'
 import type { SqlRunRequest } from './sql/SqlPanel'
 import { writeReportCopy } from './validation/report-export'
@@ -1003,6 +1005,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     validationRun,
     jumpError,
     filterToFailuresError,
+    filterToFailuresRecovery,
     validationStale,
     handleContractFile,
     handleContractDocument,
@@ -1010,6 +1013,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
     handleCancelValidate,
     handleJumpToSample,
     handleFilterToFailures,
+    handleFilterToFailuresRecover,
     requestReportDestinationForPanel,
   } = useValidationSession({
     phase,
@@ -1288,7 +1292,12 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
    *    move) resurrecting feedback on the session that replaced it.
    */
   const [profileFilterRefusal, setProfileFilterRefusal] = useState<string | null>(null)
-  const [profileFilterError, setProfileFilterError] = useState<string | null>(null)
+  /**
+   * The last failed profile apply's whole copy — sentence **and** the recovery
+   * control its phase offers (C02 parity, A3). The panel renders the button
+   * only when this names one; the copy itself is unchanged.
+   */
+  const [profileFilterFailure, setProfileFilterFailure] = useState<FilterFailureCopy | null>(null)
   const [profileFilterPending, setProfileFilterPending] = useState(false)
   /** Monotonic identity of the current apply attempt (bumped on each begin). */
   const profileFilterAttemptRef = useRef(0)
@@ -1296,7 +1305,7 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
   const profileFilterPendingRef = useRef(false)
   const clearProfileFilterFeedback = useCallback(() => {
     setProfileFilterRefusal(null)
-    setProfileFilterError(null)
+    setProfileFilterFailure(null)
   }, [])
   const activeTableId = phase.kind === 'ready' ? phase.tableId : null
   useEffect(() => {
@@ -1354,8 +1363,9 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           if (!isCurrentAttempt()) return
           // One `setFilters` per attempt (C02b): the phase-derived copy only.
           // `accepted-reload-failed` never claims a rollback happened, and
-          // `restore-failed` states the unknown state it actually is.
-          setProfileFilterError(filterFailureCopy(cause).message)
+          // `restore-failed` states the unknown state it actually is. The
+          // copy's own `recovery` is what the panel offers beside it (A3).
+          setProfileFilterFailure(filterFailureCopy(cause))
         } finally {
           // Only the current attempt may release the gate; a superseded one
           // leaves the pending state to whoever invalidated it.
@@ -1375,6 +1385,67 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
       phase,
       phaseRef,
     ],
+  )
+
+  /**
+   * A3 / C02 parity: the profile panel's recovery control (option (b) — one
+   * panel-local action beside the panel's own alert, never a pointer at the
+   * filter bar, whose failure state only describes the bar's OWN apply).
+   *
+   * The dispatch is the bar's exactly: `retry` → the live model's
+   * `refresh()` (the accepted list stays in effect; a reload that fails again
+   * keeps the accepted-but-not-reloaded sentence, never a rollback claim) and
+   * `clear` → the live model's `setFilters([])` (which is what clears
+   * `filtersUnknown`).
+   *
+   * Identity: this reuses `applyProfileFilter`'s guards verbatim — a monotonic
+   * attempt token, the dataset-session token, and the originating model still
+   * being the live one. A superseded recovery therefore performs no write to
+   * either filters or feedback: the feedback can never be resurrected onto a
+   * session that replaced it.
+   */
+  const recoverProfileFilter = useCallback(
+    (recovery: FilterFailureRecovery): void => {
+      // Single-flight: an apply or another recovery already owns the transition.
+      if (recovery === null || profileFilterPendingRef.current) return
+      if (phase.kind !== 'ready') return
+      const originModel = phase.model
+      const originSession = currentToken()
+      const attempt = (profileFilterAttemptRef.current += 1)
+      /** The same predicate `applyProfileFilter` checks after every `await`. */
+      const isCurrentAttempt = (): boolean => {
+        if (profileFilterAttemptRef.current !== attempt) return false
+        if (!isCurrentSession(originSession)) return false
+        const live = phaseRef.current
+        return live.kind === 'ready' && live.model === originModel
+      }
+      profileFilterPendingRef.current = true
+      setProfileFilterPending(true)
+      void (async () => {
+        try {
+          if (recovery.kind === 'retry') await originModel.refresh()
+          else await originModel.setFilters([])
+          if (!isCurrentAttempt()) return
+          setProfileFilterFailure(null)
+        } catch (cause) {
+          // A superseded recovery stays silent: its report would describe a
+          // state (and a session) the user has already left.
+          if (!isCurrentAttempt()) return
+          // Re-derive the honest copy: a failed `clear` is a new transaction
+          // phase (shared mapping); a failed `retry` keeps the reload sentence
+          // (`refresh()` has no phase — see `grid/filter-recovery.ts`).
+          setProfileFilterFailure(
+            recovery.kind === 'retry' ? filterRetryFailureCopy(cause) : filterFailureCopy(cause),
+          )
+        } finally {
+          if (isCurrentAttempt()) {
+            profileFilterPendingRef.current = false
+            setProfileFilterPending(false)
+          }
+        }
+      })()
+    },
+    [currentToken, isCurrentSession, phase, phaseRef],
   )
 
   /**
@@ -2653,6 +2724,11 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                           stale={validationStale}
                           jumpError={jumpError}
                           filterError={filterToFailuresError}
+                          // A3 / C02 parity: the same phase-derived control the
+                          // profile panel offers, dispatched by the validation
+                          // session against its own `phase.model`.
+                          filterRecovery={filterToFailuresRecovery}
+                          onFilterRecover={handleFilterToFailuresRecover}
                           datasetColumns={schemaColumns}
                           activeFilterCount={modelFilters.length}
                           onContractFile={handleContractFile}
@@ -2753,7 +2829,13 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
                             applyProfileFilter(column, { kind: 'null' })
                           }}
                           filterRefusal={profileFilterRefusal}
-                          filterError={profileFilterError}
+                          filterError={profileFilterFailure?.message ?? null}
+                          // A3 / C02 parity: the phase's recovery control, when
+                          // the failed apply offered one (retry → refresh,
+                          // clear → setFilters([])); `null` for a refusal or a
+                          // non-transaction rejection.
+                          filterRecovery={profileFilterFailure?.recovery ?? null}
+                          onFilterRecover={recoverProfileFilter}
                           // Round 2 single-flight: the panel disables its filter
                           // controls while one apply is in flight (the
                           // FilterBar `pending` posture).

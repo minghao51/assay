@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GridViewportModel } from '@assay/grid'
+import { FilterApplyError, GridViewportModel } from '@assay/grid'
 import { App } from './App'
 import { FILTER_RELOAD_FAILED_MESSAGE } from './grid/filter-failure'
 import type { ArrowTableLike } from './grid/provider'
@@ -724,6 +724,138 @@ describe('ug-16 round 2 — a superseded attempt is a silent no-op', () => {
     ])
     expect(setFilters).toHaveBeenCalledTimes(2)
     expect(screen.queryByTestId('profile-filter-error')).toBeNull()
+    vi.restoreAllMocks()
+  })
+})
+
+/**
+ * C02 parity / A3 (spec §3/§4): the profile panel's alert now carries the
+ * phase's own recovery control, and App dispatches it with the SAME semantics
+ * as the filter bar — `retry` → the live model's `refresh()`, `clear` → the
+ * live model's `setFilters([])` — under `applyProfileFilter`'s identity guards.
+ * A retry whose reload fails again keeps the honest reload sentence.
+ */
+describe('C02 parity — the profile alert offers the phase recovery', () => {
+  it('reloads the live model on Retry and clears the alert', async () => {
+    const setFilters = vi.spyOn(GridViewportModel.prototype, 'setFilters')
+    const refresh = vi.spyOn(GridViewportModel.prototype, 'refresh')
+    // The provider accepts the list; the following count fails (case (b)).
+    h.failFilteredCountOnce = true
+    await openFixture()
+    expandProfile()
+    await computeProfile()
+
+    await act(async () => {
+      fireEvent.click(topKButton('country', 'SG'))
+    })
+    expect(screen.getByTestId('profile-filter-error').textContent).toBe(
+      FILTER_RELOAD_FAILED_MESSAGE,
+    )
+
+    const retry = screen.getByTestId('profile-filter-error-retry') as HTMLButtonElement
+    expect(retry.getAttribute('type')).toBe('button')
+    // The filter bar's own class — one shared affordance, no new CSS.
+    expect(retry.className).toBe('filter-error-retry')
+    expect(retry.textContent).toBe('Retry')
+
+    const model = setFilters.mock.instances[0] as GridViewportModel
+    // The open/edit flows may already have reloaded the view; the recovery's
+    // own reload is the delta from here.
+    const reloadsBefore = refresh.mock.calls.length
+    const appliesBefore = setFilters.mock.calls.length
+    await act(async () => {
+      fireEvent.click(retry)
+    })
+    await flushAsync()
+
+    // Exactly one reload, on the model that owns the accepted list, and no
+    // re-apply: the retry never rolls the filters back.
+    expect(refresh.mock.calls.length).toBe(reloadsBefore + 1)
+    expect(refresh.mock.instances.at(-1)).toBe(model)
+    expect(setFilters.mock.calls.length).toBe(appliesBefore)
+    expect(model.filters).toEqual([{ column: 'country', predicate: "= 'SG'" }])
+    expect(screen.queryByTestId('profile-filter-error')).toBeNull()
+    expect(screen.queryByTestId('profile-filter-error-retry')).toBeNull()
+    vi.restoreAllMocks()
+  })
+
+  it('keeps the reload copy when the retry’s reload rejects again', async () => {
+    const setFilters = vi.spyOn(GridViewportModel.prototype, 'setFilters')
+    const refresh = vi
+      .spyOn(GridViewportModel.prototype, 'refresh')
+      .mockRejectedValueOnce(new Error('engine unavailable'))
+    h.failFilteredCountOnce = true
+    await openFixture()
+    expandProfile()
+    await computeProfile()
+
+    await act(async () => {
+      fireEvent.click(topKButton('country', 'SG'))
+    })
+    expect(screen.getByTestId('profile-filter-error').textContent).toBe(
+      FILTER_RELOAD_FAILED_MESSAGE,
+    )
+
+    const reloadsBefore = refresh.mock.calls.length
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('profile-filter-error-retry'))
+    })
+    await flushAsync()
+
+    // Exactly one recovery reload — the one that failed again.
+    expect(refresh.mock.calls.length).toBe(reloadsBefore + 1)
+    // Still "applied, view not reloaded" — never re-classified as a refusal or
+    // a rollback, and never the raw engine diagnostic.
+    expect(screen.getByTestId('profile-filter-error').textContent).toBe(
+      FILTER_RELOAD_FAILED_MESSAGE,
+    )
+    expect(screen.getByTestId('profile-filter-error').textContent).not.toContain('previous filters')
+    expect(document.body.textContent).not.toContain('engine unavailable')
+    // The retry control is still offered, and the single setFilters attempt stands.
+    expect(screen.getByTestId('profile-filter-error-retry')).toBeTruthy()
+    expect(setFilters).toHaveBeenCalledTimes(1)
+    vi.restoreAllMocks()
+  })
+
+  it('clears the filters on Clear filters from the unknown-restore state', async () => {
+    // The model's own transaction classifies the phase (C01); the App copy is
+    // derived from it, so the test injects the restore-failed outcome.
+    const setFilters = vi
+      .spyOn(GridViewportModel.prototype, 'setFilters')
+      .mockRejectedValueOnce(new FilterApplyError('restore-failed', new Error('_setThrew')))
+    await openFixture()
+    expandProfile()
+    await computeProfile()
+
+    await act(async () => {
+      fireEvent.click(topKButton('country', 'SG'))
+    })
+    expect(screen.getByTestId('profile-filter-error').textContent).toBe(
+      'The filter could not be applied and the previous filters could not be restored. The filters now in effect are unknown: clear the filters or re-apply one to recover.',
+    )
+
+    const clear = screen.getByTestId('profile-filter-error-clear') as HTMLButtonElement
+    expect(clear.getAttribute('type')).toBe('button')
+    expect(clear.className).toBe('filter-error-clear')
+    expect(clear.textContent).toBe('Clear filters')
+    expect(screen.queryByTestId('profile-filter-error-retry')).toBeNull()
+
+    const appliesBefore = setFilters.mock.calls.length
+    await act(async () => {
+      fireEvent.click(clear)
+    })
+    await flushAsync()
+
+    const model = setFilters.mock.instances[0] as GridViewportModel
+    // Exactly one further call after the failed attempt: the one documented
+    // way out of the unknown state (never a rollback of an earlier list).
+    expect(setFilters.mock.calls.length).toBe(appliesBefore + 1)
+    // (The model's own change epoch reuses `refresh()`, so the clear is
+    // observed through `setFilters([])` — never through a retry of the list.)
+    expect(setFilters.mock.calls.at(-1)?.[0]).toEqual([])
+    expect(model.filters).toEqual([])
+    expect(screen.queryByTestId('profile-filter-error')).toBeNull()
+    expect(screen.queryAllByTestId('filter-chip')).toHaveLength(0)
     vi.restoreAllMocks()
   })
 })

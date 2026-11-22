@@ -50,6 +50,7 @@ import {
   REPORT_EXPORT_SAME_SOURCE_MESSAGE,
 } from './report-export'
 import type { ReportExportFormat } from './report-export'
+import type { FilterFailureRecovery } from '../grid/filter-failure'
 import type {
   SaveDestination,
   SaveStrategy,
@@ -96,6 +97,16 @@ export interface ValidationPanelProps {
   readonly jumpError: string | null
   /** App-level filter failure (the engine rejected the failure filter). */
   readonly filterError: string | null
+  /**
+   * C02 parity (A3): the recovery control the failure's phase offers —
+   * `{kind:'retry'}` renders the filter bar's `Retry` (reload the view) and
+   * `{kind:'clear'}` its `Clear filters`; `null`/absent renders nothing. Same
+   * elements and classes as the bar (no new CSS) and the alert sentence above
+   * is unchanged: no location hint, no new live region.
+   */
+  readonly filterRecovery?: FilterFailureRecovery | null
+  /** The recovery the user activated; the session hook dispatches it. */
+  readonly onFilterRecover?: (recovery: FilterFailureRecovery) => void
   /** The open dataset's effective schema (starter-contract projection). */
   readonly datasetColumns: readonly StarterContractColumn[]
   /** Active grid filters — disclosed when "show only failing rows" replaces them. */
@@ -171,6 +182,8 @@ export function ValidationPanel({
   stale,
   jumpError,
   filterError,
+  filterRecovery = null,
+  onFilterRecover,
   datasetColumns,
   activeFilterCount,
   onContractFile,
@@ -566,6 +579,34 @@ export function ValidationPanel({
             >
               {filterError}
             </p>
+          )}
+          {/* C02 parity (A3): the phase's one recovery control, beside the
+              alert and using the filter bar's exact elements and classes
+              (`filter-error-retry` / `filter-error-clear`). The session hook
+              dispatches it against the live `phase.model`. */}
+          {filterRecovery?.kind === 'retry' && (
+            <button
+              type="button"
+              className="filter-error-retry"
+              data-testid="validation-filter-error-retry"
+              onClick={() => {
+                onFilterRecover?.({ kind: 'retry' })
+              }}
+            >
+              Retry
+            </button>
+          )}
+          {filterRecovery?.kind === 'clear' && (
+            <button
+              type="button"
+              className="filter-error-clear"
+              data-testid="validation-filter-error-clear"
+              onClick={() => {
+                onFilterRecover?.({ kind: 'clear' })
+              }}
+            >
+              Clear filters
+            </button>
           )}
 
           <fieldset className="validation-export" data-testid="validation-export">

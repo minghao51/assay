@@ -73,6 +73,9 @@ interface Overrides {
   readonly datasetColumns?: readonly { readonly name: string; readonly type: string }[]
   readonly activeFilterCount?: number
   readonly deliverStarterContract?: ValidationPanelProps['deliverStarterContract']
+  readonly filterError?: string | null
+  readonly filterRecovery?: ValidationPanelProps['filterRecovery']
+  readonly onFilterRecover?: ValidationPanelProps['onFilterRecover']
 }
 
 function renderPanel(overrides: Overrides = {}): void {
@@ -84,7 +87,9 @@ function renderPanel(overrides: Overrides = {}): void {
       runState={runState}
       stale={false}
       jumpError={null}
-      filterError={null}
+      filterError={overrides.filterError ?? null}
+      filterRecovery={overrides.filterRecovery ?? null}
+      onFilterRecover={overrides.onFilterRecover}
       datasetColumns={overrides.datasetColumns ?? COLUMNS}
       activeFilterCount={overrides.activeFilterCount ?? 0}
       onContractFile={() => {}}
@@ -330,5 +335,80 @@ describe('EW-02D — the validation intro names the whole-edited-dataset scope',
         'Validation runs on the whole edited dataset — grid filters and sorting are not applied.',
       ),
     ).toBe(true)
+  })
+})
+
+/**
+ * C02 parity / A3 (spec §3/§4): the panel renders the failed apply's ONE
+ * recovery control beside its existing alert, using the filter bar's exact
+ * elements and classes — no new CSS, no new live region, sentence unchanged.
+ * The panel only reports the kind; the session hook dispatches it.
+ */
+describe('C02 parity — the recovery control beside the filter alert', () => {
+  const RELOAD =
+    'The filters were applied, but the grid could not be reloaded. Retry to reload the view.'
+  const RESTORE =
+    'The filter could not be applied and the previous filters could not be restored. The filters now in effect are unknown: clear the filters or re-apply one to recover.'
+
+  // The filter feedback lives inside the verdict body (a verdict + a loaded
+  // contract), which is where a "Show only failing rows" apply can fail.
+  const VERDICT = {
+    contractState: { kind: 'loaded', contract: CONTRACT } as ContractState,
+    runState: { kind: 'verdict', report: report(), revision: 0 } as ValidationRunState,
+  }
+
+  it('renders exactly one Retry button for a retry recovery and reports the kind', () => {
+    const onFilterRecover = vi.fn()
+    renderPanel({
+      ...VERDICT,
+      filterError: RELOAD,
+      filterRecovery: { kind: 'retry' },
+      onFilterRecover,
+    })
+
+    const retries = screen.getAllByRole('button', { name: 'Retry' })
+    expect(retries).toHaveLength(1)
+    const retry = retries[0] as HTMLButtonElement
+    expect(retry.tagName).toBe('BUTTON')
+    expect(retry.getAttribute('type')).toBe('button')
+    expect(retry.className).toBe('filter-error-retry')
+    expect(screen.getByTestId('validation-filter-error').textContent).toBe(RELOAD)
+    expect(screen.getByTestId('validation-filter-error').getAttribute('role')).toBe('alert')
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull()
+
+    fireEvent.click(retry)
+    expect(onFilterRecover).toHaveBeenCalledTimes(1)
+    expect(onFilterRecover).toHaveBeenCalledWith({ kind: 'retry' })
+  })
+
+  it('renders Clear filters for a clear recovery and reports the kind', () => {
+    const onFilterRecover = vi.fn()
+    renderPanel({
+      ...VERDICT,
+      filterError: RESTORE,
+      filterRecovery: { kind: 'clear' },
+      onFilterRecover,
+    })
+
+    const clear = screen.getByRole('button', { name: 'Clear filters' }) as HTMLButtonElement
+    expect(clear.getAttribute('type')).toBe('button')
+    expect(clear.className).toBe('filter-error-clear')
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.getByTestId('validation-filter-error').textContent).toBe(RESTORE)
+    expect(screen.getByTestId('validation-filter-error').getAttribute('role')).toBe('alert')
+
+    fireEvent.click(clear)
+    expect(onFilterRecover).toHaveBeenCalledTimes(1)
+    expect(onFilterRecover).toHaveBeenCalledWith({ kind: 'clear' })
+  })
+
+  it('renders no recovery control when the phase offers none, alert unchanged', () => {
+    const onFilterRecover = vi.fn()
+    renderPanel({ ...VERDICT, filterError: RELOAD, filterRecovery: null, onFilterRecover })
+
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull()
+    expect(screen.getByTestId('validation-filter-error').textContent).toBe(RELOAD)
+    expect(onFilterRecover).not.toHaveBeenCalled()
   })
 })

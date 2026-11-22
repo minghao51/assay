@@ -9,6 +9,8 @@ import type { ContractV1 } from '@assay/contracts'
 import { compileContract } from '@assay/validation'
 import { engineErrorMessage, overlaySnapshot } from '../edit/session'
 import { filterFailureCopy } from '../grid/filter-failure'
+import type { FilterFailureCopy, FilterFailureRecovery } from '../grid/filter-failure'
+import { filterRetryFailureCopy } from '../grid/filter-recovery'
 import { engineClient } from '../lib/engine'
 import { readContractFile } from '../validation/contract-import'
 import { buildValidationReport, resolveRowKeyIndex } from '../validation/report-model'
@@ -53,6 +55,14 @@ export interface ValidationSession {
   readonly validationRun: ValidationRunState
   readonly jumpError: string | null
   readonly filterToFailuresError: string | null
+  /**
+   * C02 parity (A3): the recovery control the failure's phase offers —
+   * `{kind:'retry'}` (reload the view) or `{kind:'clear'}` (clear the
+   * filters), `null` when the phase offers none. Derived from the same
+   * `filterFailureCopy` value as `filterToFailuresError`, and cleared
+   * wherever that message is cleared.
+   */
+  readonly filterToFailuresRecovery: FilterFailureRecovery
   /** A verdict computed against a superseded overlay revision. */
   readonly validationStale: boolean
   readonly handleContractFile: (file: File) => void
@@ -66,6 +76,13 @@ export interface ValidationSession {
   readonly handleCancelValidate: () => void
   readonly handleJumpToSample: (rowKey: string) => void
   readonly handleFilterToFailures: (row: ValidationReportRow) => void
+  /**
+   * C02 parity (A3): dispatch the offered recovery against the live
+   * `phase.model` — `retry` → `refresh()`, `clear` → `setFilters([])` — and
+   * re-derive the copy if it fails (a retry whose reload still fails keeps
+   * the accepted-but-not-reloaded sentence). Stable across renders.
+   */
+  readonly handleFilterToFailuresRecover: (recovery: FilterFailureRecovery) => void
   readonly requestReportDestinationForPanel: typeof requestReportDestination
 }
 
@@ -110,6 +127,25 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
   const [jumpError, setJumpError] = useState<string | null>(null)
   const [filterToFailuresError, setFilterToFailuresError] = useState<string | null>(null)
   /**
+   * C02 parity (A3): the phase-derived control beside that message. Kept as
+   * its own state (not folded into the message) so every existing consumer of
+   * `filterToFailuresError` keeps reading exactly the same string.
+   */
+  const [filterToFailuresRecovery, setFilterToFailuresRecovery] =
+    useState<FilterFailureRecovery>(null)
+
+  /** Both halves of the filter-to-failures feedback clear together. */
+  const clearFilterToFailuresFeedback = useCallback(() => {
+    setFilterToFailuresError(null)
+    setFilterToFailuresRecovery(null)
+  }, [])
+
+  /** Apply one failed-apply copy as the panel's feedback (message + control). */
+  const publishFilterFailure = useCallback((copy: FilterFailureCopy) => {
+    setFilterToFailuresError(copy.message)
+    setFilterToFailuresRecovery(copy.recovery)
+  }, [])
+  /**
    * f-2: latest overlay revision without making `handleValidate` depend on
    * it. The handler records the revision a verdict ran against; reading a
    * ref at click time keeps that value current while leaving the callback
@@ -142,13 +178,16 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
    * in-flight run started against the previous contract has its late delivery
    * dropped (the same generation guard a new dataset session uses).
    */
-  const applyContractState = useCallback((state: ContractState) => {
-    validationSeq.current += 1
-    setContractState(state)
-    setValidationRun({ kind: 'idle' })
-    setJumpError(null)
-    setFilterToFailuresError(null)
-  }, [])
+  const applyContractState = useCallback(
+    (state: ContractState) => {
+      validationSeq.current += 1
+      setContractState(state)
+      setValidationRun({ kind: 'idle' })
+      setJumpError(null)
+      clearFilterToFailuresFeedback()
+    },
+    [clearFilterToFailuresFeedback],
+  )
 
   const handleContractFile = useCallback(
     (file: File) => {
@@ -291,13 +330,45 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
       void (async () => {
         try {
           await phase.model.setFilters([{ column, predicate }])
-          setFilterToFailuresError(null)
+          clearFilterToFailuresFeedback()
         } catch (cause) {
-          setFilterToFailuresError(filterFailureCopy(cause).message)
+          publishFilterFailure(filterFailureCopy(cause))
         }
       })()
     },
-    [phase],
+    [phase, clearFilterToFailuresFeedback, publishFilterFailure],
+  )
+
+  /**
+   * C02 parity (A3): the panel-local recovery control. It acts on the live
+   * model of THIS phase (`phase.model`) and mirrors the filter bar's
+   * semantics exactly — `retry` reloads the view (`refresh()`, the accepted
+   * list stays in effect), `clear` re-applies the empty list (`setFilters([])`,
+   * which is also what clears `filtersUnknown`). A failed recovery re-derives
+   * the honest copy instead of guessing: a `clear` that rejects is a new
+   * transaction phase (the shared mapping classifies it), and a `retry` whose
+   * reload still fails keeps the accepted-but-not-reloaded sentence
+   * (`filter-recovery.ts` — `refresh()` carries no phase and must never be
+   * reported as a rollback). Success clears both halves of the feedback.
+   */
+  const handleFilterToFailuresRecover = useCallback(
+    (recovery: FilterFailureRecovery) => {
+      if (recovery === null) return
+      if (phase.kind !== 'ready') return
+      const model = phase.model
+      void (async () => {
+        try {
+          if (recovery.kind === 'retry') await model.refresh()
+          else await model.setFilters([])
+          clearFilterToFailuresFeedback()
+        } catch (cause) {
+          publishFilterFailure(
+            recovery.kind === 'retry' ? filterRetryFailureCopy(cause) : filterFailureCopy(cause),
+          )
+        }
+      })()
+    },
+    [phase, clearFilterToFailuresFeedback, publishFilterFailure],
   )
 
   /** m4-5 pattern for the report: destination with the same-source guard. */
@@ -318,9 +389,9 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
     setContractState({ kind: 'none' })
     setValidationRun({ kind: 'idle' })
     setJumpError(null)
-    setFilterToFailuresError(null)
+    clearFilterToFailuresFeedback()
     validationSeq.current += 1
-  }, [])
+  }, [clearFilterToFailuresFeedback])
   useEffect(() => session.registerReset(reset), [session, reset])
 
   return {
@@ -328,6 +399,7 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
     validationRun,
     jumpError,
     filterToFailuresError,
+    filterToFailuresRecovery,
     validationStale,
     handleContractFile,
     handleContractDocument,
@@ -335,6 +407,7 @@ export function useValidationSession(params: ValidationSessionParams): Validatio
     handleCancelValidate,
     handleJumpToSample,
     handleFilterToFailures,
+    handleFilterToFailuresRecover,
     requestReportDestinationForPanel,
   }
 }
