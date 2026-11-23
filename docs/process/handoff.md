@@ -54,16 +54,24 @@ the local gate protocol, the dispatch envelope and a paste-ready prompt). **Remo
 billing-blocked** — the successor queue's local gate suite is the verification authority; a red
 job-start run is not code signal.
 
-**Dated successor (2026-11-23) — R-11 / E02 bundle budgets is MEASURED.** The dispatchable row R-11 was
-executed as measurement-only work: a third bundle baseline at `3a86ac2` with every source-touching
-commit between `129e3ef` and that base **built and measured** (so all movement is attributed by
-bisect, and thirteen non-source commits contribute 0). It meets all four stable-round conditions, so
-**two consecutive stable rounds are now on file** and budget candidates exist for the first time —
-`static-entry` ≤ 1,034,900 B, `lazy-chunk` ≤ 75,400 B, `host-bundle` ≤ 60,100 B, `webview-script` ≤
-3,235,200 B, CLI `files` payload ≤ 510,200 B raw. **No budget is adopted and none is wired into any
-script, test or gate**; adoption is the maintainer's decision. Evidence, the tolerance statement for
-the two non-portable rows (install size and the CLI tarball), the falsifying mutation drills and two
-corrections to the earlier record: [2026-11-23 E02 record](handoff/20261123-e02-third-baseline.md).
+**Dated successor (2026-11-23) — R-11 MEASURED, R-12 and R-13 CLOSED.** Three dispatchable carries were
+executed, each worker → independent reviewer (different model, read-only, own gates) → integration.
+**R-11** (`6998d59`) is measurement-only: a third bundle baseline at `3a86ac2` with every
+source-touching commit between `129e3ef` and that base **built and measured** (so all movement is
+attributed by bisect, and thirteen non-source commits contribute 0). It meets all four stable-round
+conditions, so **two consecutive stable rounds are now on file** and budget candidates exist for the
+first time — `static-entry` ≤ 1,034,900 B, `lazy-chunk` ≤ 75,400 B, `host-bundle` ≤ 60,100 B,
+`webview-script` ≤ 3,235,200 B, CLI `files` payload ≤ 510,200 B raw. **No budget is adopted and none
+is wired into any script, test or gate**; adoption is the maintainer's decision. Evidence, the
+tolerance statement for the two non-portable rows, the falsifying mutation drills and two corrections
+to the earlier record: [2026-11-23 E02 record](handoff/20261123-e02-third-baseline.md). **R-12**
+(`55ee2df`, `3b08933`) encodes the engine's own `TIMESTAMP` `0..9` precision and `TIME` no-parameter
+rules in the validator, refused before SQL composition and CLI-pinned at both ends, and re-grounds
+the e2e "structurally valid but engine-rejected" pin on a CLI-verified `INTEGER[100001]`. **R-13**
+(`6822402`) renders a nested `UHUGEINT` leaf exactly wherever a declared type exists — reusing the
+shipped decoder and threading parsed schema types through the Record tree — while every fail-soft case
+(wrong width, BLOB, signed `HUGEINT`/`DECIMAL`, type-blind, untyped SQL results) keeps its honest
+summary. Ledger: [successor queue](handoff/20261121-successor-queue.md) §10.
 
 **Last updated:** 2026-11-23. **Current lane:** launch readiness; the post-R1 runtime wave has closed
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
