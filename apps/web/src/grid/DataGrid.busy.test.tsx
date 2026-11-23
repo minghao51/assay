@@ -292,6 +292,10 @@ describe('DataGrid host query epoch (ug-19)', () => {
     render(<DataGrid model={model} onNestedAction={() => {}} queryBusy="filtering" />)
 
     expect(screen.getByTestId('grid-busy-status').textContent).toBe('Filtering…')
+    // WF-07: the visible row-range label is one more static footer sibling and
+    // coexists with the busy status (unknown here: this harness has no layout
+    // to measure, so it names no range rather than inventing one).
+    expect(screen.getByTestId('grid-row-range').textContent).toBe('Row range unavailable')
     // Every pre-ug-19 footer sibling keeps its presence and content.
     const diagnostics = document.querySelector<HTMLDetailsElement>(
       '[data-testid="grid-diagnostics"]',
