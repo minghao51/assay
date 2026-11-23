@@ -391,4 +391,6 @@ envelope and a paste-ready prompt.
 
 **Push record:** `5a9bc87..5a7101a` (follow-up `8cdecca`). Run **45041728346** again shows four
 job-start `failure`s in ~4 s with no steps — the billing refusal, not code signal. B5/B2/A1/A2/A3/B1
-and this follow-up were verified locally; do not retry to "fix" the red runs.
+and this follow-up were verified locally; do not retry to "fix" the red runs. The
+[2026-11-22 handoff batch](20261122-remaining-work-handoffs.md) pushed `9eb790f` and produced run
+`45093415863` with the same four no-step failures.
