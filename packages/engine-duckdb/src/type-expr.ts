@@ -204,15 +204,19 @@ const MAX_TYPE_MODIFIER = 2_147_483_647
  * type parameters"). Those two rules are encoded per type; every other
  * modifier type keeps the general `0..MAX_TYPE_MODIFIER` bound.
  *
- * What stays unmodelled after those two rules: the engine's type catalog
- * itself (a well-shaped identifier that names no type is accepted here and
- * refused by the binder — `INTEGR` → "Type with name INTEGR does not exist"),
- * the fixed-size array extent upper bound (`INTEGER[100001]` passes validation
- * and the 1.5.5 binder refuses it, "ARRAY type size must be at most 100000"),
- * and `FLOAT`'s 1..53-bit precision (`FLOAT(54)` is a *Parser* Error, before
- * binding). The validator's job remains "exactly one well-shaped type
- * expression"; the engine stays the authority on which types exist and on the
- * bounds it enforces in its own parser or catalog.
+ * What stays unmodelled after those two rules — **examples, not an exhaustive
+ * list**: the engine's type catalog itself (a well-shaped identifier that names
+ * no type is accepted here and refused by the binder — `INTEGR` → "Type with
+ * name INTEGR does not exist"), the fixed-size array extent upper bound
+ * (`INTEGER[100001]` passes validation and the 1.5.5 binder refuses it, "ARRAY
+ * type size must be at most 100000"), `FLOAT`'s 1..53-bit precision (`FLOAT(54)`
+ * is a *Parser* Error, before binding), and the **multi-word timestamp forms with
+ * a modifier** — `TIMESTAMP(3) WITH TIME ZONE` and `TIMESTAMPTZ(3)` are still
+ * accepted here and refused by the binder ("Type 'TIMESTAMP WITH TIME ZONE' does
+ * not take any type parameters"), which R-12's two-rule scope deliberately left
+ * alone. The validator's job remains "exactly one well-shaped type expression";
+ * the engine stays the authority on which types exist and on the bounds it
+ * enforces in its own parser or catalog.
  */
 const MAX_TIMESTAMP_PRECISION = 9
 
