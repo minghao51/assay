@@ -73,6 +73,25 @@ shipped decoder and threading parsed schema types through the Record tree — wh
 (wrong width, BLOB, signed `HUGEINT`/`DECIMAL`, type-blind, untyped SQL results) keeps its honest
 summary. Ledger: [successor queue](handoff/20261121-successor-queue.md) §10.
 
+**Second dated dispatch (2026-11-23) — R-8 CLOSED, R-9 PROBED (ADR 0052 `Proposed`).** **R-8** (B3 diff
+staging registry lifecycle) closes the verified leak: staging a comparison no longer opens the
+comparison file a second time, because the new query-lane op `engine/profile-comparison` profiles the
+`assay_diff_dN` slot directly. The §8 selection is option (b) — `profileComparison` alone, since no
+transient-open consumer remains — so the wire delta is one additive request type and the response reuses
+`engine/profile-result` **unchanged**; there is no `closeTable`, no `transient` flag, no tombstone set
+and no cap, and ADR 0047 is not tripped (`engine/dispose` remains the only terminal release). The leak
+test stages six attempts (including a failed registration and a superseded in-flight stage) and asserts
+the registry returns to baseline with zero `assay_t…` views; the reviewer's own mutation drill proved it
+fails when the leak returns. **R-9** (B7 SQL true interrupt) was probe-first and the probe **passed**: on
+the pinned duckdb-wasm EH browser bundle in real Chromium, a mid-compute `cancelSent()` makes the
+parked `send()` reject with `Error: query was canceled` in ~1–3 ms and **stops the compute** (process-tree
+CPU returns to idle, which is what separates interruption from abandonment), leaving the connection
+immediately reusable. No code and **no copy change** — the Cancel copy stays byte-identical. It produced
+[ADR 0052](../adr/0052-cancel-is-an-out-of-band-query-lane-op-with-a-typed-cancelled-outcome.md) as
+**`Proposed`**: acceptance is the maintainer's and implementation is a separate dispatch, so **R-14 stays
+blocked** on an interrupt that exists rather than a proposed one. Record:
+[B7 probe](handoff/20261123-b7-sql-interrupt-probe.md). Ledger: successor queue §11.
+
 **Last updated:** 2026-11-23. **Current lane:** launch readiness; the post-R1 runtime wave has closed
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
 Accepted**; the post-EW-03I-a queue has since closed in full (EW-03I-b, EW-04I, TB-2, ENG-1 = the ADR
