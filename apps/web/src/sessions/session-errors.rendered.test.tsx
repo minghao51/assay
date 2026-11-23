@@ -78,6 +78,7 @@ const h = vi.hoisted(() => ({
   stageComparison: vi.fn(),
   open: vi.fn(),
   profile: vi.fn(),
+  profileComparison: vi.fn(),
   diff: vi.fn(),
 }))
 
@@ -87,6 +88,7 @@ vi.mock('../lib/engine', () => ({
     stageComparison: h.stageComparison,
     open: h.open,
     profile: h.profile,
+    profileComparison: h.profileComparison,
     diff: h.diff,
   },
 }))
@@ -202,8 +204,8 @@ describe('UG-25 rendered pins — the panel alert text is edit-free and single-l
 
   it('renders a failed row diff without the edit wording or a newline', async () => {
     h.stageComparison.mockResolvedValue(COMPARISON)
-    h.open.mockResolvedValue({ kind: 'table', id: 't2' })
     h.profile.mockResolvedValue(PROFILE)
+    h.profileComparison.mockResolvedValue(PROFILE)
     h.diff.mockRejectedValue(MULTILINE)
     render(<DiffHarness />)
 

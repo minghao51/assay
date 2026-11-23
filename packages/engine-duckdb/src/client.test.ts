@@ -1090,6 +1090,92 @@ describe('DuckDbEngineClient profile (m2-5)', () => {
   })
 })
 
+describe('DuckDbEngineClient comparison profiling (B3)', () => {
+  const profileColumns = [
+    {
+      name: 'income',
+      type: 'BIGINT',
+      kind: 'numeric' as const,
+      nullCount: 1,
+      distinctCount: 4,
+      numeric: {
+        min: 48000,
+        max: 75000,
+        mean: 59000,
+        stddev: 11972.189997378648,
+        quantiles: { p50: 56500, p90: 70800, p95: 72900, p99: 74580 },
+      },
+    },
+  ]
+
+  /** Boot a client (one `engine/init`) with no table open. */
+  async function readyClient(): Promise<{ client: DuckDbEngineClient; worker: FakeWorker }> {
+    const { client, workers } = makeClient()
+    const pendingBoot = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await pendingBoot
+    return { client, worker }
+  }
+
+  it('posts the comparison id and resolves the existing profile payload unchanged', async () => {
+    const { client, worker } = await readyClient()
+
+    const pending = client.profileComparison('d1')
+    await flush()
+    expect(worker.requestAt(1)).toMatchObject({
+      type: 'engine/profile-comparison',
+      comparisonId: 'd1',
+    })
+    worker.respond({
+      type: 'engine/profile-result',
+      requestId: worker.requestAt(1).requestId,
+      rowCount: 5,
+      columns: profileColumns,
+    })
+
+    await expect(pending).resolves.toEqual({ rowCount: 5, columns: profileColumns })
+    expect(client.status).toBe('ready')
+  })
+
+  it('passes a hostile id through unchanged and surfaces the worker refusal as EngineOperationError', async () => {
+    const { client, worker } = await readyClient()
+
+    // The client does not rewrite or "fix" an address: a table handle or a
+    // view name must reach the boundary exactly as given, so the refusal is
+    // the worker's typed one (never a client-side reinterpretation).
+    const pending = client.profileComparison('assay_t1')
+    await flush()
+    expect(worker.requestAt(1)).toMatchObject({
+      type: 'engine/profile-comparison',
+      comparisonId: 'assay_t1',
+    })
+    worker.respond({
+      type: 'engine/error',
+      requestId: worker.requestAt(1).requestId,
+      message: 'malformed envelope: profile-comparison.comparisonId',
+    })
+
+    await expect(pending).rejects.toThrow(EngineOperationError)
+    expect(client.status).toBe('ready') // operational failure, engine stays usable
+  })
+
+  it('rejects an unexpected response type with a typed protocol error', async () => {
+    const { client, worker } = await readyClient()
+
+    const pending = client.profileComparison('d2')
+    await flush()
+    worker.respond({
+      type: 'engine/open-result',
+      requestId: worker.requestAt(1).requestId,
+      tableId: 't1',
+      format: 'parquet',
+    })
+    await expect(pending).rejects.toThrow(EngineProtocolError)
+    expect(client.status).toBe('ready')
+  })
+})
+
 describe('DuckDbEngineClient overlay + export (m4-2)', () => {
   const source = {
     name: 'flat.parquet',

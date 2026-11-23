@@ -350,6 +350,9 @@ export class EngineOpExecutor {
     const lane =
       request.type === 'engine/query' ||
       request.type === 'engine/profile' ||
+      // B3: profiling the staged comparison is a profile-class scan — exactly
+      // the `engine/profile` lane, never the grid's window traffic.
+      request.type === 'engine/profile-comparison' ||
       request.type === 'engine/export' ||
       request.type === 'engine/overlay-cast-check' ||
       // B1/ENG-2: the repair preview's affected count scans a whole column
@@ -438,6 +441,10 @@ export class EngineOpExecutor {
         }
         case 'engine/profile': {
           await this.runProfile(request.requestId, request.tableId, lane)
+          break
+        }
+        case 'engine/profile-comparison': {
+          await this.runProfileComparison(request.requestId, request.comparisonId, lane)
           break
         }
         case 'engine/overlay-schema': {
@@ -1646,14 +1653,50 @@ export class EngineOpExecutor {
    */
   private async runProfile(requestId: number, tableId: string, lane: EngineOpLane): Promise<void> {
     const entry = this.requireTable(tableId)
+    await this.profileView(requestId, entry.viewName, lane)
+  }
+
+  /**
+   * Full statistics profile of the STAGED comparison (B3): the comparison
+   * scratch slot (`ComparisonRegistry` → `assay_diff_dN`) is profiled through
+   * the exact same composer/read path as `engine/profile`, so the two ops
+   * answer byte-identically over the same data.
+   *
+   * The slot is resolved BEFORE `ensureSession()` and before any SQL: an
+   * absent/unknown comparison id is one typed, value-free error and touches no
+   * connection. Nothing is opened, registered or released here — no transient
+   * `assay_tN` table is manufactured for a comparison, so the grid's table
+   * registry stays at its pre-staging size (B3 §3.6).
+   */
+  private async runProfileComparison(
+    requestId: number,
+    comparisonId: string,
+    lane: EngineOpLane,
+  ): Promise<void> {
+    const comparison = this.comparisons.get(comparisonId)
+    if (comparison === null) {
+      throw new Error('unknown comparison handle')
+    }
+    await this.profileView(requestId, comparison.viewName, lane)
+  }
+
+  /**
+   * The shared profile body (m2-5, B3): describe the view, run the composed
+   * aggregate and the bounded top-k scans, post `engine/profile-result`.
+   */
+  private async profileView(
+    requestId: number,
+    viewName: string,
+    lane: EngineOpLane,
+  ): Promise<void> {
     const conn = lane.connection(await this.deps.ensureSession())
-    const schema = await this.describeView(conn, entry.viewName)
+    const schema = await this.describeView(conn, viewName)
     const specs = schema.map((column) => ({
       name: column.name,
       kind: classifyProfileColumnType(column.type),
     }))
 
-    const base = composeProfileBaseSql({ viewName: entry.viewName, columns: specs })
+    const base = composeProfileBaseSql({ viewName, columns: specs })
     const baseRow = await conn.query(base.sql)
     if (baseRow.numRows !== 1) {
       throw new Error('profile aggregate returned an unexpected shape')
@@ -1689,7 +1732,7 @@ export class EngineOpExecutor {
     // break by value ascending (both documented in profile-query.ts).
     for (let index = 0; index < columns.length; index++) {
       if (specs[index]!.kind !== 'categorical') continue
-      const topK = await this.readTopK(conn, entry.viewName, specs[index]!.name)
+      const topK = await this.readTopK(conn, viewName, specs[index]!.name)
       columns[index]!.categorical = { topK }
     }
 

@@ -991,6 +991,33 @@ export class DuckDbEngineClient {
   }
 
   /**
+   * Full statistics profile of the STAGED comparison (B3): the same
+   * `EngineDatasetProfile` payload {@link profile} returns for a table handle,
+   * addressed by the comparison handle's engine id instead.
+   *
+   * The comparison slot is not a table handle: only the engine-generated `dN`
+   * id is accepted, and an absent/unknown slot rejects with
+   * `EngineOperationError` before the worker touches DuckDB. Nothing is
+   * opened, registered or released here — profiling a comparison manufactures
+   * no `assay_tN` table, so staging N comparisons leaves the table registry at
+   * its pre-staging size (B3 §3.6).
+   */
+  async profileComparison(comparisonId: string): Promise<EngineDatasetProfile> {
+    await this.ensureReady()
+    const response = await this.send({
+      type: 'engine/profile-comparison',
+      requestId: this.takeRequestId(),
+      comparisonId,
+    })
+    if (response.type !== 'engine/profile-result') {
+      throw new EngineProtocolError(
+        `unexpected ${response.type} response for engine/profile-comparison`,
+      )
+    }
+    return { rowCount: response.rowCount, columns: response.columns }
+  }
+
+  /**
    * Stage a comparison dataset file for a row diff (m6-2, checkpoint C3):
    * registers the file in the worker's comparison scratch slot (never the
    * source path) and materializes a comparison view. Returns an opaque

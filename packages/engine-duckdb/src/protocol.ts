@@ -62,6 +62,14 @@
  * this repair changes" is an engine-owned predicate
  * (`repair-preview-query.ts`) rather than a host-composed SQL string executed
  * through the generic `engine/query` op.
+ *
+ * B3 adds `engine/profile-comparison`: the same profile payload
+ * (`engine/profile-result`, unchanged) addressed by the **staged comparison**
+ * id (`dN`, the single comparison scratch slot) instead of a table handle.
+ * It exists so the diff staging path profiles the comparison view directly
+ * and no longer opens the comparison file a second time as a regular
+ * `assay_tN` table. Additive: one request type, no response-shape change, no
+ * lane change (query lane, like `engine/profile`), no cap and no retention.
  */
 
 import type { EngineOverlayPayload } from './overlay-wire.js'
@@ -229,6 +237,28 @@ export interface EngineProfileRequest {
   type: 'engine/profile'
   requestId: number
   tableId: string
+}
+
+/**
+ * Full statistics profile of the STAGED comparison (B3): exactly the
+ * `engine/profile-result` payload `engine/profile` returns, resolved through
+ * the comparison scratch slot (`ComparisonRegistry` → `assay_diff_dN`)
+ * instead of a table handle.
+ *
+ * Identity (B3 §3.3, ADR 0025 posture): the only accepted address is the
+ * engine-generated comparison id (`d` + positive decimal). A table id, an
+ * `assay_tN`/`assay_diff_dN` view name, or any other spelling is refused at
+ * this boundary; an absent/unknown slot is refused before any DuckDB call.
+ * The staged comparison is never released by this op — the slot keeps its own
+ * single-slot lifecycle (replaced on re-stage, dropped at `engine/dispose`).
+ *
+ * Query lane (ADR 0040): a profile is a profile-class scan, exactly like
+ * `engine/profile`; it must never block the grid's registry-lane windows.
+ */
+export interface EngineProfileComparisonRequest {
+  type: 'engine/profile-comparison'
+  requestId: number
+  comparisonId: string
 }
 
 // ---- Edit-overlay surface (m4-2) ----
@@ -507,6 +537,7 @@ export type EngineRequest =
   | EngineRangeRequest
   | EngineRowCountRequest
   | EngineProfileRequest
+  | EngineProfileComparisonRequest
   | EngineOverlaySchemaRequest
   | EngineOverlayRowCountRequest
   | EngineOverlayRangeRequest
@@ -1055,6 +1086,22 @@ function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
     if (typeof data.tableId !== 'string') return malformedField('profile.tableId')
     return { ok: true, request: { type, requestId, tableId: data.tableId } }
   }
+  if (type === 'engine/profile-comparison') {
+    // Strict additive op: it carries exactly one payload field, so any other
+    // own key is refused by CLASS (the key is never echoed — ADR 0025) rather
+    // than silently dropped like an ignorable extra.
+    for (const key of Object.keys(data)) {
+      if (key !== 'type' && key !== 'requestId' && key !== 'comparisonId') {
+        return malformedField('profile-comparison.unknown-field')
+      }
+    }
+    // Only the engine-generated comparison id spelling is addressable: view
+    // names and table ids are engine-internal and never accepted from wire.
+    if (typeof data.comparisonId !== 'string' || !isComparisonId(data.comparisonId)) {
+      return malformedField('profile-comparison.comparisonId')
+    }
+    return { ok: true, request: { type, requestId, comparisonId: data.comparisonId } }
+  }
   if (type === 'engine/overlay-schema') {
     if (typeof data.tableId !== 'string') return malformedField('overlay-schema.tableId')
     const overlay = parseOverlayPayload(data.overlay)
@@ -1306,6 +1353,7 @@ export const ENGINE_REQUEST_TYPES = [
   'engine/range',
   'engine/row-count',
   'engine/profile',
+  'engine/profile-comparison',
   'engine/overlay-schema',
   'engine/overlay-row-count',
   'engine/overlay-range',
@@ -1660,6 +1708,15 @@ function isFile(value: unknown): value is File {
 
 function isFileFormat(value: unknown): value is 'parquet' | 'csv' | 'jsonl' | 'json' {
   return value === 'parquet' || value === 'csv' || value === 'jsonl' || value === 'json'
+}
+
+/**
+ * The comparison-slot id spelling the engine mints (`ComparisonRegistry`:
+ * `d` + a positive decimal). Kept local to the boundary so a wire value can
+ * never address a view name or a table id (ADR 0025 posture).
+ */
+function isComparisonId(value: string): boolean {
+  return /^d[1-9][0-9]*$/.test(value)
 }
 
 /**

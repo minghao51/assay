@@ -29,6 +29,7 @@ const h = vi.hoisted(() => ({
   stageComparison: vi.fn(),
   open: vi.fn(),
   profile: vi.fn(),
+  profileComparison: vi.fn(),
   diff: vi.fn(),
   overlayCastCheck: vi.fn(),
   exportView: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('../lib/engine', () => ({
     stageComparison: h.stageComparison,
     open: h.open,
     profile: h.profile,
+    profileComparison: h.profileComparison,
     diff: h.diff,
     overlayCastCheck: h.overlayCastCheck,
     exportView: h.exportView,
@@ -182,8 +184,8 @@ describe('UG-25 — diff session error copy', () => {
 
   it('frames a failed row diff without the edit-domain wording', async () => {
     h.stageComparison.mockResolvedValue(COMPARISON)
-    h.open.mockResolvedValue({ kind: 'table', id: 't2' })
     h.profile.mockResolvedValue(PROFILE)
+    h.profileComparison.mockResolvedValue(PROFILE)
     h.diff.mockRejectedValue(MULTILINE)
     const { result } = renderDiff()
 
