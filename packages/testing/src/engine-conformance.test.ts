@@ -31,6 +31,7 @@ import { compileRowDiffPlan } from '@assay/diff'
 import type {
   ConformanceBatchResult,
   ConformanceBlobExportDataset,
+  ConformanceCancelResult,
   ConformanceCellValue,
   ConformanceCategoricalStats,
   ConformanceDatasetProfile,
@@ -92,6 +93,12 @@ interface FakeMutations {
   genericDisposeErrors?: boolean
   /** After the mid-stream failure the connection stays wedged. */
   wedgeAfterMidStreamFailure?: boolean
+  /**
+   * R-9/ADR 0052: the long-running query resolves immediately with rows and
+   * nothing is cancellable (the cancel reports `cancelSent: false`) — the
+   * `query-cancel` scenario must detect it.
+   */
+  ignoresCancel?: boolean
   /** m2-2: filtered windows silently ignore the filters (unfiltered rows). */
   ignoresFilters?: boolean
   /** m2-2: sorted windows silently ignore the sort (natural order). */
@@ -178,6 +185,8 @@ const MAX_WINDOW_ROWS = 1000
 const WIDE_ROW_COUNT = 1500
 const FAILING_SQL = 'SELECT * FROM __no_such_table__'
 const MID_STREAM_SQL = 'SELECT fail_after_first_batch()'
+/** R-9/ADR 0052: the fake's stand-in for a query that stays parked. */
+const LONG_RUNNING_SQL = 'SELECT long_running_aggregate()'
 const SMOKE_SQL = 'SELECT 42 AS answer'
 const SMOKE_VALUE = '42'
 
@@ -2572,6 +2581,8 @@ class FakeEngineClient implements ConformanceEngineClient {
   /** Monotonic comparison-slot sequence and the ONE live slot (B3). */
   private nextComparisonSeq = 1
   private stagedComparison: { readonly id: string; readonly name: string } | null = null
+  /** The parked long-running query's settle hook (R-9/ADR 0052). */
+  private parkedQuery: ((result: ConformanceBatchResult) => void) | null = null
 
   constructor(private readonly mutations: FakeMutations) {}
 
@@ -2730,6 +2741,18 @@ class FakeEngineClient implements ConformanceEngineClient {
 
   async query(sql: string): Promise<ConformanceBatchResult> {
     await this.ensureReady()
+    if (sql === LONG_RUNNING_SQL) {
+      if (this.mutations.ignoresCancel === true) {
+        // Deliberate violation (R-9/ADR 0052): the statement just runs, so
+        // there is never a parked op to cancel.
+        return { batch: wideTable([1]), hasMore: false }
+      }
+      // Park until `cancelQuery()` settles this op as the typed cancelled
+      // outcome (the compliant engine's behaviour).
+      return await new Promise<ConformanceBatchResult>((resolve) => {
+        this.parkedQuery = resolve
+      })
+    }
     if (sql === FAILING_SQL) {
       if (this.mutations.resolveFailingSql) return { batch: wideTable([1]), hasMore: false }
       throw new FakeQueryError('Parser Error')
@@ -2761,6 +2784,20 @@ class FakeEngineClient implements ConformanceEngineClient {
       return { batch: tableFromArrays({ answer: [SMOKE_VALUE] }), hasMore: false }
     }
     throw new FakeQueryError('unknown SQL')
+  }
+
+  /**
+   * R-9/ADR 0052: the fake's cancel. With a parked query it settles that op
+   * as `cancelled` (no rows, not an error) and reports `cancelSent: true`;
+   * with nothing pending it reports `false` — the same honest boolean the
+   * real engine's `cancelSent()` returns.
+   */
+  async cancelQuery(): Promise<ConformanceCancelResult> {
+    const parked = this.parkedQuery
+    if (parked === null) return { cancelSent: false }
+    this.parkedQuery = null
+    parked({ batch: tableFromArrays({}), hasMore: false, cancelled: true })
+    return { cancelSent: true }
   }
 
   /**
@@ -3605,6 +3642,7 @@ function makeSubject(mutations: FakeMutations = {}): EngineConformanceSubject {
     midStreamFailureSql: () => MID_STREAM_SQL,
     smokeSql: () => SMOKE_SQL,
     smokeSqlValue: SMOKE_VALUE,
+    longRunningQuerySql: () => LONG_RUNNING_SQL,
     registeredTableCount: async (client) =>
       client instanceof FakeEngineClient ? client.registeredCount() : null,
     windowSemantics: WINDOW_SEMANTICS,
@@ -3811,6 +3849,26 @@ describe('engine conformance suite (m6-2 row-diff execution)', () => {
     )
     expect(passed).toBe(false)
     expect(detail).toMatch(/must be rejected/)
+  })
+})
+
+describe('engine conformance suite (R-9 query-cancel, ADR 0052)', () => {
+  it('exposes cancel evidence (typed outcome, follow-up value, honest idle false)', async () => {
+    const subject = makeSubject()
+    const result = await runEngineConformanceScenario(subject, 'query-cancel')
+    expect(result.passed, result.detail).toBe(true)
+    expect(result.facts['cancelSent']).toBe(true)
+    expect(result.facts['parkedSettledCancelled']).toBe(true)
+    expect(result.facts['cancelledRows']).toBe(0)
+    expect(result.facts['followUpValue']).toBe(SMOKE_VALUE)
+    expect(result.facts['idleCancelReportedFalse']).toBe(true)
+    expect(result.facts['engineReadyAfter']).toBe(true)
+  })
+
+  it('query-cancel: detects a cancel that never actually cancels anything', async () => {
+    const { passed, detail } = await runOne({ ignoresCancel: true }, 'query-cancel')
+    expect(passed).toBe(false)
+    expect(detail).toContain('cancelSent')
   })
 })
 

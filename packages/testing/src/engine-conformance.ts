@@ -156,6 +156,15 @@
  *     the m5-0 type-vocabulary agreement (all 21 spellings against engine
  *     DESCRIBE output; the bare-DECIMAL caveat pinned).
  *
+ * R-9 adds the cancel scenario (ADR 0052 — an out-of-band `engine/query`
+ * interrupt, scope `engine/query` only):
+ *
+ * 21. `query-cancel` — a long-running `query()` is parked, then cancelled;
+ *     the cancel reports the engine's own `cancelSent: true`, the parked op
+ *     settles as the typed `cancelled` outcome (no rows, `hasMore` false,
+ *     never a rejection), the connection answers the very next query, and a
+ *     cancel with nothing pending reports `cancelSent: false` honestly.
+ *
  * Environments: the scenario functions are environment-neutral (no DOM, no
  * Node APIs); the subject adapter decides how files are staged (OPFS in the
  * browser, temp files in Node) and which SQL drives engine-specific paths.
@@ -228,6 +237,20 @@ export interface ConformanceSortSpec {
 export interface ConformanceBatchResult {
   readonly batch: Table
   readonly hasMore: boolean
+  /**
+   * R-9/ADR 0052 typed settlement: present (and only ever `true`) when an
+   * `engine/cancel-query` interrupted the query before its first batch. Then
+   * `batch` holds no rows and `hasMore` is false — "cancelled", not an error.
+   * Absent on every ordinary delivery, so a cancelled run is distinguishable
+   * from a genuine zero-row result.
+   */
+  readonly cancelled?: true
+}
+
+/** Result of the `cancelQuery()` call (R-9/ADR 0052): the honest boolean. */
+export interface ConformanceCancelResult {
+  /** `true` only when the engine had a pending query to cancel. */
+  readonly cancelSent: boolean
 }
 
 // ---- Edit-overlay + export types (m4-2) ----
@@ -432,6 +455,15 @@ export interface ConformanceEngineClient {
     overlay?: ConformanceOverlay,
   ): Promise<ConformanceRowDiffResult>
   /**
+   * Cancel the in-flight `query()` (R-9/ADR 0052), dispatched out of band so
+   * it cannot queue behind the query it cancels. `cancelSent` is the engine's
+   * own boolean: `true` only when a pending query was actually cancelled,
+   * `false` when nothing was pending. The parked `query()` must then settle
+   * as a `cancelled` result (`ConformanceBatchResult.cancelled`), never as a
+   * rejection, and the connection must stay usable.
+   */
+  cancelQuery(): Promise<ConformanceCancelResult>
+  /**
    * Export/rewrite (m4-2): materialize the effective view (absent `overlay`:
    * the plain base view) into a NEW generated file — never the source path
    * (ADR 0012/0017).
@@ -501,6 +533,13 @@ export interface EngineConformanceSubject {
   /** SQL returning exactly one row / one column with `smokeSqlValue`. */
   smokeSql(): string
   readonly smokeSqlValue: string
+  /**
+   * SQL that keeps computing long enough (well past the suite's
+   * `CANCEL_QUERY_HEAD_START_MS`) that an `engine/cancel-query` fired after
+   * that head start lands while the query is still parked. The engine-specific
+   * choice of a deliberately expensive statement belongs to the subject.
+   */
+  longRunningQuerySql(): string
   /**
    * How many tables/views the engine currently holds registered for this
    * client (the registry probe the rollback scenario asserts against).
@@ -1339,6 +1378,7 @@ export const engineConformanceScenarioNames = [
   'arrow-shape',
   'corrupt-file-rollback',
   'mid-stream-error-reuse',
+  'query-cancel',
   'window-filter-sort',
   'predicate-error-reuse',
   'profile-semantics',
@@ -1662,6 +1702,20 @@ function expectNestedColumnValues(
 
 // ---- Scenarios ----
 
+/**
+ * How long the `query-cancel` scenario lets the long query compute before
+ * cancelling. The point is only that the cancel lands while the op is parked
+ * (mid-compute) rather than before it was even sent; the subject's
+ * `longRunningQuerySql()` is declared to outlast this comfortably. This is a
+ * scheduling head start, not a latency claim of any kind.
+ */
+const CANCEL_QUERY_HEAD_START_MS = 300
+
+/** Await `ms` of wall-clock time (environment-neutral: browsers and Node). */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 type ConformanceScenario = (
   subject: EngineConformanceSubject,
 ) => Promise<Record<string, string | number | boolean>>
@@ -1960,6 +2014,69 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       'the engine must stay ready after a mid-stream failure',
     )
     return { midStreamRejected: true, followUpValue: subject.smokeSqlValue, engineReadyAfter: true }
+  },
+
+  'query-cancel': async (subject) => {
+    // R-9/ADR 0052: an `engine/cancel-query` settles the parked `engine/query`
+    // as the typed `cancelled` outcome (no rows, not an error), and the
+    // connection is immediately reusable. The cancel is dispatched out of band
+    // by the engine, so it cannot queue behind the query it targets — that
+    // property is pinned in the engine executor's lane test (routing the
+    // cancel through the FIFO makes it fail).
+    const client = subject.createClient()
+    await client.ensureReady()
+
+    const parked = client.query(subject.longRunningQuerySql())
+    await delay(CANCEL_QUERY_HEAD_START_MS)
+    const cancel = await client.cancelQuery()
+    expectCondition(
+      cancel.cancelSent,
+      'the cancel must report a cancelled pending query (cancelSent: true)',
+    )
+
+    // THE typed outcome: `cancelled` with no rows — never an engine error.
+    const outcome = await parked
+    expectEqual(
+      outcome.cancelled,
+      true,
+      'the parked query must settle as the typed cancelled outcome',
+    )
+    expectEqual(outcome.batch.numRows, 0, 'a cancelled query must deliver no rows')
+    expectEqual(outcome.hasMore, false, 'a cancelled query has no transported remainder')
+
+    // The connection is immediately reusable: the next query answers.
+    let followUp: ConformanceBatchResult
+    try {
+      followUp = await client.query(subject.smokeSql())
+    } catch (error) {
+      fail(`the follow-up query after a cancel must answer (got: ${errorMessage(error)})`)
+    }
+    const followUpVector = followUp.batch.getChildAt(0)
+    if (followUpVector === null) fail('the follow-up batch has no first column')
+    expectEqual(
+      renderCell(followUpVector, 0),
+      subject.smokeSqlValue,
+      'the follow-up query after a cancel',
+    )
+
+    // Nothing is pending now, and the engine's own boolean says exactly that —
+    // a cancel never claims a stop it did not perform.
+    const idleCancel = await client.cancelQuery()
+    expectEqual(
+      idleCancel.cancelSent,
+      false,
+      'a cancel with nothing pending must report cancelSent: false',
+    )
+    expectCondition(subject.isReady(client), 'the engine must stay ready after a cancel')
+
+    return {
+      cancelSent: true,
+      parkedSettledCancelled: true,
+      cancelledRows: 0,
+      followUpValue: subject.smokeSqlValue,
+      idleCancelReportedFalse: true,
+      engineReadyAfter: true,
+    }
   },
 
   'window-filter-sort': async (subject) => {
