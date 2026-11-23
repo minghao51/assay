@@ -162,6 +162,26 @@ describe('UG-25 — diff session error copy', () => {
     )
   }
 
+  it('profiles the staged comparison through the comparison slot (no transient open)', async () => {
+    // B3: the B-side profile must come from `profileComparison(comparison.id)`;
+    // the previous transient `open` + `profile(handle)` pair orphaned one
+    // assay_tN view and one file registration per staging attempt.
+    h.stageComparison.mockResolvedValue(COMPARISON)
+    h.profile.mockResolvedValue(PROFILE)
+    h.profileComparison.mockResolvedValue(PROFILE)
+    const { result } = renderDiff()
+
+    act(() => {
+      result.current.handleComparisonFile(new File(['id\n1\n'], 'comparison.csv'))
+    })
+    await waitFor(() => {
+      expect(result.current.comparisonState.kind).toBe('staged')
+    })
+    expect(h.profileComparison).toHaveBeenCalledWith(COMPARISON.id)
+    expect(h.profile).toHaveBeenCalledTimes(1) // the A-side session table only
+    expect(h.open).not.toHaveBeenCalled()
+  })
+
   it('frames a failed comparison staging without the edit-domain wording', async () => {
     h.stageComparison.mockRejectedValue(MULTILINE)
     const { result } = renderDiff()
