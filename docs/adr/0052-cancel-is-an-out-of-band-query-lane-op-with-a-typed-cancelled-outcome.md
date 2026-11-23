@@ -2,21 +2,22 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
-Proposed 2026-11-23
+Proposed 2026-11-23 · **Accepted 2026-11-23**
 
 ## Deciders
 
-- Maintainer (acceptance owner; the probe that gates this record is
-  [B7 SQL-interrupt probe](../process/handoff/20261123-b7-sql-interrupt-probe.md), and the
+- Maintainer (acceptance owner). The probe that gates this record is the
+  [B7 SQL-interrupt probe](../process/handoff/20261123-b7-sql-interrupt-probe.md); the
   [R-9 brief](../process/handoff/20261122-h2-technical-carry-briefs.md#r-9--b7-sql-true-interrupt)
-  makes acceptance a separate act from this draft)
+  makes acceptance a separate act from the draft. **Accepted 2026-11-23**, which unblocks the
+  implementing dispatch and the dependent row R-14.
 
-**Acceptance is the maintainer's. Implementation is a separate dispatch. Nothing described here is
-implemented by this record.**
+**Implementation is a separate dispatch. Nothing described here is implemented by this record** —
+acceptance is the decision, not the code.
 
 ## Context
 
@@ -131,7 +132,8 @@ was done:
 ## Alternatives considered
 
 - **(c) Status quo with honest copy** — zero change and already truthful, and it remains the floor
-  until this decision is accepted. Rejected as the target only because the probe showed the interrupt
+  until this decision is implemented (accepted 2026-11-23; the floor stands while no op ships).
+  Rejected as the target only because the probe showed the interrupt
   is real and cheap: the only cost is one additive op plus a dispatch path.
 - **(a) Second connection/worker for read-only queries** — unblocks other work without stopping the
   user's query; it amends ADR 0040 and adds a concurrent-scan memory risk whose magnitude is

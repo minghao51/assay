@@ -504,8 +504,15 @@ Chromium build and one machine. **Not probed, and stated as such in the record:*
 queries (a reader already exists — different code path), write-shaped ops (`COPY … TO`, pipeline
 materialisation — which is why the ADR scopes cancellation to `engine/query` only), the Vite-bundled
 entry the app ships (worker/wasm bytes are byte-identical; the bundling step was not exercised), any
-memory figure, and the client/`OpChannel` behaviour the ADR's dispatch would touch. **R-14 stays blocked
-on this row**: it needs an interrupt that exists in the engine, not a proposed one.
+memory figure, and the client/`OpChannel` behaviour the ADR's dispatch would touch.
+
+**Acceptance (2026-11-23):** [ADR 0052](../../adr/0052-cancel-is-an-out-of-band-query-lane-op-with-a-typed-cancelled-outcome.md)
+is **`Accepted`** on the maintainer's instruction. That satisfies R-9's own done-when (probe record +
+accepted ADR) and closes the row; it implements nothing — the ADR says so itself. **R-14 remains
+blocked, but now on one thing only**: the cancel op shipping. Its own dependency line reads "probe
+passed, ADR accepted, op shipped", so the implementing dispatch is the last gate, and R-14's four
+product selections (which waits are bounded, the deadline value, the unavailable state, recovery
+semantics) still need a decision after that — they are not implied by this acceptance.
 
 **Corrections this dispatch made:** the dependency-use manifest was stale beyond the two line numbers
 the new use sites shifted — 12 workspace entries still stored `"node": ">=22"` because

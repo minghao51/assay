@@ -175,11 +175,11 @@ that is still computing **before the first batch**:
 
 That is the **passing** branch of the brief: draft the ADR (cancel op + out-of-band dispatch to the
 query-lane connection, ADR 0040 amendment, scope per Q2, typed `cancelled` outcome, copy unchanged
-unless Q4 is selected) and get it **accepted before any code**. The ADR is drafted as
+unless Q4 is selected) and get it **accepted before any code**. The ADR is
 [ADR 0052](../../adr/0052-cancel-is-an-out-of-band-query-lane-op-with-a-typed-cancelled-outcome.md),
-status **Proposed** — acceptance is the maintainer's, implementation is a separate dispatch, and
-nothing is implemented. Option (c) is not deleted by this result: it remains the floor until that
-ADR is accepted and code lands, and the Cancel copy stays byte-identical either way.
+**accepted 2026-11-23** — which unblocks the implementing dispatch and the dependent row R-14, but
+implements nothing itself. Option (c) is not deleted by this result: it remains the floor until code
+lands and the Cancel copy stays byte-identical either way.
 
 ## 5. What this probe does not establish
 

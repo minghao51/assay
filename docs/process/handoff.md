@@ -87,10 +87,12 @@ the pinned duckdb-wasm EH browser bundle in real Chromium, a mid-compute `cancel
 parked `send()` reject with `Error: query was canceled` in ~1–3 ms and **stops the compute** (process-tree
 CPU returns to idle, which is what separates interruption from abandonment), leaving the connection
 immediately reusable. No code and **no copy change** — the Cancel copy stays byte-identical. It produced
-[ADR 0052](../adr/0052-cancel-is-an-out-of-band-query-lane-op-with-a-typed-cancelled-outcome.md) as
-**`Proposed`**: acceptance is the maintainer's and implementation is a separate dispatch, so **R-14 stays
-blocked** on an interrupt that exists rather than a proposed one. Record:
-[B7 probe](handoff/20261123-b7-sql-interrupt-probe.md). Ledger: successor queue §11.
+[ADR 0052](../adr/0052-cancel-is-an-out-of-band-query-lane-op-with-a-typed-cancelled-outcome.md), which
+the maintainer **accepted on 2026-11-23** — that satisfies R-9's done-when and closes the row without
+implementing anything. **R-14 now waits on one thing only: the cancel op shipping**, and its four
+product selections (which waits are bounded, the deadline, the unavailable state, recovery) still need a
+decision after that. Record: [B7 probe](handoff/20261123-b7-sql-interrupt-probe.md). Ledger: successor
+queue §11.
 
 **Last updated:** 2026-11-23. **Current lane:** launch readiness; the post-R1 runtime wave has closed
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
