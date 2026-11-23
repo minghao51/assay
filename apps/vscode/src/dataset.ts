@@ -129,7 +129,12 @@ function toReadError(error: unknown, uri: vscode.Uri): DatasetOpenError {
 export interface DatasetWebviewConfig {
   readonly target: 'desktop-webview'
   readonly vscodeVersion: string
-  /** The dataset webview module script (dist/webview/dataset.js). */
+  /**
+   * The dataset webview module script: the production entry
+   * (`dist/webview/dataset.js`) always, except under {@link testHarness}, where
+   * it is the TEST-ONLY entry (`dist/webview/dataset-proof.js` — the same app
+   * plus the D03b proofs; R-10).
+   */
   readonly mainScriptUrl: string
   readonly workerEntryUrl: string
   /**
@@ -158,10 +163,18 @@ export function buildDatasetConfig(
   const webviewRoot = vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview')
   const asset = (name: string): string =>
     panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, name)).toString()
+  // One predicate, two uses: the flag the webview sees, and the entry it loads.
+  // Under R-10 the proof code lives ONLY in the test-only entry, so the test
+  // host must load that entry to exercise the acceptance proofs at all — and
+  // production can never select it (ExtensionMode.Test is set by the VS Code
+  // test host only). This is the host wiring, not a change of the predicate.
+  const testHarness =
+    context.extensionMode === vscode.ExtensionMode.Test &&
+    process.env['ASSAY_E2E_EDIT_PROOF'] === '1'
   return {
     target: 'desktop-webview',
     vscodeVersion: vscode.version,
-    mainScriptUrl: asset('dataset.js'),
+    mainScriptUrl: asset(testHarness ? 'dataset-proof.js' : 'dataset.js'),
     workerEntryUrl: asset('worker.js'),
     glueUrl: asset('duckdb-browser-eh.worker.js'),
     wasmUrl: asset('duckdb-eh.wasm'),
@@ -171,9 +184,7 @@ export function buildDatasetConfig(
     })),
     duckdbVersion: VENDORED_RUNTIME.duckdbVersion,
     blockedExtensionHost: VENDORED_RUNTIME.blockedExtensionHost,
-    testHarness:
-      context.extensionMode === vscode.ExtensionMode.Test &&
-      process.env['ASSAY_E2E_EDIT_PROOF'] === '1',
+    testHarness,
   }
 }
 
