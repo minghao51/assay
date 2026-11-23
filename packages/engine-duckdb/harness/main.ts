@@ -472,6 +472,91 @@ requiredElement<HTMLButtonElement>('#run-head-of-line').addEventListener('click'
   void runHeadOfLineMeasurement()
 })
 
+// ── R-9 query cancel (tests/e2e/engine-head-of-line.spec.ts) ────────────────
+//
+// The user-visible half of ADR 0052: "Cancel" now sends the out-of-band
+// `engine/cancel-query`, which reaches the query-lane connection WITHOUT
+// queueing behind the query it cancels, and the parked op settles as a typed
+// `cancelled` outcome. Measured shape, one run:
+//
+//   1. the same long statement runs to completion once — the magnitude
+//      reference (`uncancelledMs`), never a performance promise;
+//   2. a second run is parked, left computing for a short head start, then
+//      cancelled: `cancelSent()`'s own boolean is recorded, and how the
+//      parked op settled (`cancelled` / `rows` / `error`);
+//   3. the very next query is timed. Before R-9 that follow-up queued behind
+//      the abandoned query for its whole duration; with the interrupt it must
+//      start promptly.
+//
+// Privacy (ADR 0001/0025): timings, booleans, one engine-produced scalar —
+// no file names, no dataset contents.
+const CANCEL_HEAD_START_MS = 300
+
+interface QueryCancelEvidence {
+  /** The same statement run to completion (magnitude reference). */
+  uncancelledMs: number
+  /** `cancelSent()`'s boolean, passed through from the engine. */
+  cancelSent: boolean
+  /** How the parked op settled: the typed outcome, rows, or a rejection. */
+  parkedOutcome: 'cancelled' | 'rows' | 'error'
+  /** The parked op's start→settle duration. */
+  parkedSettleMs: number
+  /** The follow-up query's fire→settle on the same connection. */
+  followUpMs: number
+  followUpValue: string
+  engineReady: boolean
+  error?: string
+}
+
+async function measureQueryCancel(): Promise<void> {
+  const evidence: QueryCancelEvidence = {
+    uncancelledMs: 0,
+    cancelSent: false,
+    parkedOutcome: 'error',
+    parkedSettleMs: 0,
+    followUpMs: 0,
+    followUpValue: '',
+    engineReady: false,
+  }
+  try {
+    // 1. The magnitude reference: the same statement, uncancelled.
+    let startedAt = performance.now()
+    await client.query(HEAD_OF_LINE_SQL)
+    evidence.uncancelledMs = benchMs(startedAt)
+
+    // 2. Park it, let it compute, cancel out of band, observe the settlement.
+    startedAt = performance.now()
+    const parked = client.query(HEAD_OF_LINE_SQL)
+    await new Promise((resolve) => setTimeout(resolve, CANCEL_HEAD_START_MS))
+    const cancel = await client.cancelQuery()
+    evidence.cancelSent = cancel.cancelSent
+    try {
+      const outcome = await parked
+      evidence.parkedOutcome = outcome.cancelled === true ? 'cancelled' : 'rows'
+    } catch {
+      // An engine error is an honest observation too — recorded, not hidden.
+      evidence.parkedOutcome = 'error'
+    }
+    evidence.parkedSettleMs = benchMs(startedAt)
+
+    // 3. The user-visible point: the next query starts now, not behind the
+    //    abandoned one.
+    startedAt = performance.now()
+    const followUp = await client.query('SELECT 42 AS answer')
+    evidence.followUpMs = benchMs(startedAt)
+    evidence.followUpValue = String(followUp.batch.getChildAt(0)?.get(0))
+    evidence.engineReady = client.status === 'ready'
+  } catch (error) {
+    evidence.error = errorMessage(error)
+  }
+  statusEl.textContent = client.status
+  setText('query-cancel-result', JSON.stringify(evidence))
+}
+
+requiredElement<HTMLButtonElement>('#run-query-cancel').addEventListener('click', () => {
+  void measureQueryCancel()
+})
+
 // ── T1 engine conformance suite (tests/e2e/engine-conformance.spec.ts) ──────
 //
 // Each button runs ONE scenario from the shared suite in @assay/testing

@@ -220,6 +220,22 @@
         dataset contents.
       -->
       <section>
+        <h2>Query cancel (R-9/ADR 0052)</h2>
+        <p>
+          Runs the long statement to completion once (the magnitude reference), then parks the same
+          statement, cancels it out of band, records the engine's <code>cancelSent</code> boolean and
+          how the parked op settled, and times the very next query — the follow-up must start
+          promptly instead of queueing behind the abandoned query. Privacy (ADR 0001/0025): timings,
+          booleans and one engine-produced scalar only.
+        </p>
+        <button id="run-query-cancel" type="button">Measure query cancel</button>
+        <dl>
+          <dt>query-cancel evidence (JSON)</dt>
+          <dd><pre data-testid="query-cancel-result">not run</pre></dd>
+        </dl>
+      </section>
+
+      <section>
         <h2>Head-of-line measurement (m2-7): interactive burst behind a long query</h2>
         <button id="run-head-of-line" type="button">
           Measure interactive-op waits behind a long query (5 repeats)
