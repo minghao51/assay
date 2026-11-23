@@ -138,7 +138,7 @@ interface FakeModel {
   readonly retry: ReturnType<typeof vi.fn>
 }
 
-function fakeModel(totalRows: number | null): FakeModel {
+function fakeModel(totalRows: number | null, stats = { fetchCalls: 0 }): FakeModel {
   const getRow = vi.fn((index: number) => ({
     status: 'ready' as const,
     row: [index],
@@ -156,7 +156,7 @@ function fakeModel(totalRows: number | null): FakeModel {
     sort: null,
     filters: [],
     stats: {
-      fetchCalls: 0,
+      fetchCalls: stats.fetchCalls,
       rowsRequested: 0,
       rowsReceived: 0,
       maxSpanRows: 0,
@@ -340,9 +340,8 @@ describe('DataGrid visible row range (WF-07 / WFD-07 option A)', () => {
 
   it('performs no engine work to render or update the label (call-count pin)', () => {
     paintWindow(range(0, 24), 0)
-    const fake = fakeModel(1000)
     // A non-zero baseline: the label must neither advance nor reset it.
-    fake.model.stats.fetchCalls = 7
+    const fake = fakeModel(1000, { fetchCalls: 7 })
     const { rerender } = render(<DataGrid model={fake.model} onNestedAction={() => {}} />)
     expect(rowRangeText()).toBe('Visible rows 1–18 of 1000')
 
