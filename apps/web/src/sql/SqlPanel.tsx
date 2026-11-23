@@ -252,14 +252,11 @@ export function SqlPanel({ tableId, runRequest, claimRequest }: SqlPanelProps) {
 
   const cancel = (): void => {
     if (!running) return
-    // R-9/ADR 0052: the cancel op now reaches the engine out of band and
-    // settles the parked query as a typed `cancelled` result. The RunGuard
-    // semantics are unchanged — invalidating the token still discards the
-    // late settlement, whatever form it takes — and the copy below is
-    // byte-identical (copy freeze; Q4 is not selected). The boolean the
-    // engine returns is not turned into a claim here: the copy promises
-    // nothing and no duration is asserted anywhere.
-    void engineClient.cancelQuery().catch(() => undefined)
+    // Abandon the run first, exactly as before: the RunGuard token is
+    // invalidated (so a late settlement never renders), the pane shows its
+    // cancelled state, and `query_run` is emitted. Nothing below may change
+    // that — a control the user has already pressed cannot depend on the
+    // engine answering.
     guard.current.invalidate() // the abandoned run's late result never renders
     setRunState({ kind: 'cancelled' })
     telemetry.emit('query_run', {
@@ -268,6 +265,18 @@ export function SqlPanel({ tableId, runRequest, claimRequest }: SqlPanelProps) {
       duration_bucket: durationSince(startedAtRef.current ?? Date.now()),
       outcome: 'cancelled',
     })
+    // THEN ask the engine to stop the compute (R-9/ADR 0052): the out-of-band
+    // `engine/cancel-query` settles the parked query as a typed `cancelled`
+    // result, and the worker's honest `cancelSent` boolean is deliberately
+    // NOT turned into any claim here (the copy below is byte-identical and
+    // promises nothing — copy freeze; Q4 is not selected). A cancel that is
+    // refused (another op holds the lane) or throws cannot unwind the UI
+    // state above, so it is swallowed rather than surfaced.
+    try {
+      void engineClient.cancelQuery().catch(() => undefined)
+    } catch {
+      // Synchronous refusal from the seam: the run is already abandoned.
+    }
   }
 
   const pageBy = (delta: number): void => {
