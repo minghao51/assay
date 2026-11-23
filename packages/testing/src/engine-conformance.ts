@@ -3921,15 +3921,27 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       expectEqual(profileJson(actual), profileJson(tableProfile), `${label} full statistics`)
     }
 
-    const baseline = await subject.registeredTableCount(client)
+    const beforeStaging = await subject.registeredTableCount(client)
     expectCondition(
-      baseline === null || baseline === 1,
-      `subject misconfiguration: one open table must hold one registered view (got: ${String(baseline)})`,
+      beforeStaging === null || beforeStaging === 1,
+      `subject misconfiguration: one open table must hold one registered view (got: ${String(beforeStaging)})`,
     )
 
     // 1. One staged comparison: statistics identical to the table profile.
     const first = await client.stageComparison(source)
     expectSameProfile(await client.profileComparison(first.id), '[first stage]')
+
+    // The comparison scratch itself is ONE view (`assay_diff_dN`) — the slot
+    // is single, so this is the registry baseline every later attempt must
+    // return to. (The probe counts non-internal views, so the live comparison
+    // view is counted too: exactly one, never one per attempt.)
+    const oneComparisonStaged = await subject.registeredTableCount(client)
+    expectCondition(
+      beforeStaging === null ||
+        oneComparisonStaged === null ||
+        oneComparisonStaged === beforeStaging + 1,
+      `one staged comparison must add exactly one view (before: ${String(beforeStaging)}, staged: ${String(oneComparisonStaged)})`,
+    )
 
     // 2. Re-stage replaces the single slot: the old id is refused, the new
     //    one answers identically (the slot count stays at most one).
@@ -3979,12 +3991,13 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
     )
     expectSameProfile(await client.profileComparison(inFlightSecond.id), '[in-flight]')
 
-    // The leak pin: staging (and profiling) N comparisons changed nothing in
-    // the table registry — no transient table, no extra view.
+    // The leak pin: after every staging attempt (successful, refused, and
+    // superseded in-flight) the registry is back at the single-slot baseline.
+    // A transient open per attempt would leave one extra `assay_tN` view each.
     const after = await subject.registeredTableCount(client)
     expectCondition(
-      baseline === null || after === null || after === baseline,
-      `staging comparisons must not register tables (before: ${String(baseline)}, after: ${String(after)})`,
+      after === null || oneComparisonStaged === null || after === oneComparisonStaged,
+      `staging attempts must not accumulate views (one comparison: ${String(oneComparisonStaged)}, after: ${String(after)})`,
     )
     expectCondition(
       subject.isReady(client),
@@ -3997,7 +4010,8 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       comparisonsStaged: 4,
       failedStages: 2,
       supersededRefused: 2,
-      registryBefore: baseline ?? -1,
+      registryBefore: beforeStaging ?? -1,
+      registryWithOneComparison: oneComparisonStaged ?? -1,
       registryAfter: after ?? -1,
       profilesEqual: true,
       engineReusable: true,

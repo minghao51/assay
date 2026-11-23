@@ -3059,9 +3059,10 @@ class FakeEngineClient implements ConformanceEngineClient {
         source.name === 'profile.csv'
           ? Object.keys(PROFILE_KINDS).map((name) => ({
               name,
-              type: PROFILE_KINDS[name as keyof typeof PROFILE_KINDS] === 'numeric'
-                ? 'BIGINT'
-                : 'VARCHAR',
+              type:
+                PROFILE_KINDS[name as keyof typeof PROFILE_KINDS] === 'numeric'
+                  ? 'BIGINT'
+                  : 'VARCHAR',
             }))
           : FAKE_ROW_DIFF_SCHEMA,
     }
@@ -3194,9 +3195,13 @@ class FakeEngineClient implements ConformanceEngineClient {
     return subjectState.exports.get(name) ?? null
   }
 
-  /** The fake subject's registry probe reads the live set (same class). */
+  /**
+   * The fake subject's registry probe mirrors the real one: it counts the
+   * non-internal views the engine holds, i.e. the opened tables PLUS the one
+   * live comparison scratch view (`assay_diff_dN`) when a comparison is staged.
+   */
   registeredCount(): number {
-    return this.registered.size
+    return this.registered.size + (this.stagedComparison === null ? 0 : 1)
   }
 
   private isWide(handle: ConformanceTableHandle): boolean {

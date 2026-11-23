@@ -261,7 +261,10 @@ for (const name of SCENARIOS) {
         // and the table registry is unchanged across every staging attempt.
         expect(result.facts['rowCount']).toBe(5)
         expect(result.facts['profilesEqual']).toBe(true)
-        expect(result.facts['registryBefore']).toBe(result.facts['registryAfter'])
+        expect(result.facts['registryWithOneComparison']).toBe(
+          Number(result.facts['registryBefore']) + 1,
+        )
+        expect(result.facts['registryAfter']).toBe(result.facts['registryWithOneComparison'])
         expect(result.facts['supersededRefused']).toBe(2)
         break
       default:

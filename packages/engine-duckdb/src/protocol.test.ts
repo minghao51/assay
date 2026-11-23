@@ -777,10 +777,18 @@ describe('B3: engine/profile-comparison protocol', () => {
   describe('parseEngineRequest', () => {
     it('parses a well-formed request with an engine-generated comparison id', () => {
       expect(
-        parseEngineRequest({ type: 'engine/profile-comparison', requestId: 11, comparisonId: 'd1' }),
+        parseEngineRequest({
+          type: 'engine/profile-comparison',
+          requestId: 11,
+          comparisonId: 'd1',
+        }),
       ).toEqual({ type: 'engine/profile-comparison', requestId: 11, comparisonId: 'd1' })
       expect(
-        parseEngineRequest({ type: 'engine/profile-comparison', requestId: 12, comparisonId: 'd42' }),
+        parseEngineRequest({
+          type: 'engine/profile-comparison',
+          requestId: 12,
+          comparisonId: 'd42',
+        }),
       ).toEqual({ type: 'engine/profile-comparison', requestId: 12, comparisonId: 'd42' })
     })
 

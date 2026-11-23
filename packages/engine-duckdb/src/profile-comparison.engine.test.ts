@@ -110,7 +110,9 @@ describe.skipIf(!hasDuckDbCli)('B3: profile-comparison on a real DuckDB engine',
     // every aggregate slot and every top-k list, in order.
     expect(comparison).toEqual(table)
     // ...and the compared payload is non-trivial (the fixture's real values).
-    expect(comparison.columns.map((column) => `${column.name}:${column.type}:${column.kind}`)).toEqual([
+    expect(
+      comparison.columns.map((column) => `${column.name}:${column.type}:${column.kind}`),
+    ).toEqual([
       'score:BIGINT:numeric',
       'label:VARCHAR:categorical',
       'flag:BOOLEAN:categorical',
