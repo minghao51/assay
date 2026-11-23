@@ -2569,6 +2569,9 @@ class FakeEngineClient implements ConformanceEngineClient {
   private predicateErrorSeen = false
   /** Monotonic export sequence for generated destination names (m4-2). */
   private nextExportSeq = 1
+  /** Monotonic comparison-slot sequence and the ONE live slot (B3). */
+  private nextComparisonSeq = 1
+  private stagedComparison: { readonly id: string; readonly name: string } | null = null
 
   constructor(private readonly mutations: FakeMutations) {}
 
@@ -2779,12 +2782,38 @@ class FakeEngineClient implements ConformanceEngineClient {
     if (this.mutations.wedgedAfterPredicateError && this.predicateErrorSeen) {
       throw new FakeQueryError('connection wedged after predicate error')
     }
-    const rows = this.isProfile(handle)
-      ? PROFILE_ROWS
-      : datasetRows().map((row) => ({ id: row.id, label: row.label, note: row.note }))
-    const kinds = this.isProfile(handle)
-      ? PROFILE_KINDS
-      : ({ id: 'numeric', label: 'categorical', note: 'categorical' } as const)
+    const name = this.isProfile(handle) ? 'profile.csv' : 'good.parquet'
+    return this.fakeProfileFor(name)
+  }
+
+  /**
+   * B3: profile the STAGED comparison slot. The same payload as `profile()`
+   * over the same dataset — the fake computes both from one function, so the
+   * suite's equality pin is meaningful. An absent/unknown slot is the typed
+   * operation category, exactly like the real engine's pre-execution refusal.
+   */
+  async profileComparison(comparisonId: string): Promise<ConformanceDatasetProfile> {
+    if (this.status === 'disposed') {
+      if (this.mutations.genericDisposeErrors) throw new Error('client already closed')
+      throw new FakeDisposedError('engine client was disposed')
+    }
+    const staged = this.stagedComparison
+    if (staged === null || staged.id !== comparisonId) {
+      throw new FakeOperationError('unknown comparison handle')
+    }
+    return this.fakeProfileFor(staged.name)
+  }
+
+  /** One profile computation for a staged dataset name (both op paths). */
+  private fakeProfileFor(name: string): ConformanceDatasetProfile {
+    const rows =
+      name === 'profile.csv'
+        ? PROFILE_ROWS
+        : datasetRows().map((row) => ({ id: row.id, label: row.label, note: row.note }))
+    const kinds =
+      name === 'profile.csv'
+        ? PROFILE_KINDS
+        : ({ id: 'numeric', label: 'categorical', note: 'categorical' } as const)
     return { rowCount: rows.length, columns: computeFakeProfile(rows, kinds, this.mutations) }
   }
 
@@ -3012,12 +3041,31 @@ class FakeEngineClient implements ConformanceEngineClient {
    */
   async stageComparison(source: ConformanceFileSource): Promise<ConformanceComparisonHandle> {
     await this.ensureReady()
+    // The format check runs BEFORE the slot is touched (a refused stage
+    // leaves the previous comparison in place), exactly like the executor.
     if (!/\.(parquet|csv|jsonl|json)$/.test(source.name)) {
       throw new FakeOperationError('unsupported comparison format')
     }
     const bytes = subjectState.staged.get(source.name)
     if (bytes === undefined) throw new FakeOperationError('staged comparison file missing')
-    return { kind: 'comparison', id: 'fake-d1', schema: FAKE_ROW_DIFF_SCHEMA }
+    // Single slot with a monotonic id: a successful re-stage replaces the
+    // previous entry, so an older id stops answering (never two live slots).
+    const id = `fake-d${this.nextComparisonSeq++}`
+    this.stagedComparison = { id, name: source.name }
+    return {
+      kind: 'comparison',
+      id,
+      schema:
+        source.name === 'profile.csv'
+          ? Object.keys(PROFILE_KINDS).map((name) => ({
+              name,
+              type:
+                PROFILE_KINDS[name as keyof typeof PROFILE_KINDS] === 'numeric'
+                  ? 'BIGINT'
+                  : 'VARCHAR',
+            }))
+          : FAKE_ROW_DIFF_SCHEMA,
+    }
   }
 
   /**
@@ -3147,9 +3195,13 @@ class FakeEngineClient implements ConformanceEngineClient {
     return subjectState.exports.get(name) ?? null
   }
 
-  /** The fake subject's registry probe reads the live set (same class). */
+  /**
+   * The fake subject's registry probe mirrors the real one: it counts the
+   * non-internal views the engine holds, i.e. the opened tables PLUS the one
+   * live comparison scratch view (`assay_diff_dN`) when a comparison is staged.
+   */
   registeredCount(): number {
-    return this.registered.size
+    return this.registered.size + (this.stagedComparison === null ? 0 : 1)
   }
 
   private isWide(handle: ConformanceTableHandle): boolean {

@@ -766,6 +766,83 @@ describe('m2-5: engine/profile protocol', () => {
   })
 })
 
+// ---- B3: engine/profile-comparison protocol ----
+//
+// The op is additive and reuses `engine/profile-result` byte-for-byte, so the
+// only new wire surface is the request itself. Its address is the
+// engine-generated comparison slot id — never a table handle, never a view
+// name — and an extra field is refused by class (never echoed).
+
+describe('B3: engine/profile-comparison protocol', () => {
+  describe('parseEngineRequest', () => {
+    it('parses a well-formed request with an engine-generated comparison id', () => {
+      expect(
+        parseEngineRequest({
+          type: 'engine/profile-comparison',
+          requestId: 11,
+          comparisonId: 'd1',
+        }),
+      ).toEqual({ type: 'engine/profile-comparison', requestId: 11, comparisonId: 'd1' })
+      expect(
+        parseEngineRequest({
+          type: 'engine/profile-comparison',
+          requestId: 12,
+          comparisonId: 'd42',
+        }),
+      ).toEqual({ type: 'engine/profile-comparison', requestId: 12, comparisonId: 'd42' })
+    })
+
+    it('rejects absent/malformed ids and never accepts a view name or a table id', () => {
+      for (const comparisonId of [
+        undefined,
+        1,
+        '',
+        'd0',
+        'd01',
+        'd',
+        't1',
+        'assay_t1',
+        'assay_diff_d1',
+        'd1 ',
+        'D1',
+      ]) {
+        expect(
+          parseEngineRequest({ type: 'engine/profile-comparison', requestId: 10, comparisonId }),
+          String(comparisonId),
+        ).toBeNull()
+      }
+    })
+
+    it('refuses unknown/extra fields by class without echoing them', () => {
+      const parsed = parseEngineRequestEnvelope({
+        type: 'engine/profile-comparison',
+        requestId: 7,
+        comparisonId: 'd1',
+        tableId: 'canary-handle',
+        viewName: 'canary-secret-value',
+      })
+      expect(parsed).toEqual({
+        status: 'malformed',
+        malformed: {
+          requestId: 7,
+          requestType: 'engine/profile-comparison',
+          field: 'profile-comparison.unknown-field',
+        },
+      })
+      expect(JSON.stringify(parsed)).not.toContain('canary')
+    })
+  })
+
+  describe('parseEngineResponse', () => {
+    it('reuses the engine/profile-result payload unchanged (no new response type)', () => {
+      expect(parseEngineResponse(profileResultResponse({ requestId: 12 }))).toMatchObject({
+        type: 'engine/profile-result',
+        requestId: 12,
+      })
+    })
+  })
+})
+
 describe('m4-2: overlay + export protocol', () => {
   const OVERLAY = {
     base: {
@@ -1339,6 +1416,25 @@ describe('m4-2: overlay + export protocol', () => {
         payload: { tableId: 1 },
         field: 'profile.tableId',
       },
+      // engine/profile-comparison (B3): the comparison slot is not a handle.
+      {
+        label: 'engine/profile-comparison missing comparisonId',
+        type: 'engine/profile-comparison',
+        payload: {},
+        field: 'profile-comparison.comparisonId',
+      },
+      {
+        label: 'engine/profile-comparison malformed comparisonId',
+        type: 'engine/profile-comparison',
+        payload: { comparisonId: 'assay_diff_d1' },
+        field: 'profile-comparison.comparisonId',
+      },
+      {
+        label: 'engine/profile-comparison extra field',
+        type: 'engine/profile-comparison',
+        payload: { comparisonId: 'd1', tableId: 't1' },
+        field: 'profile-comparison.unknown-field',
+      },
       // overlay group
       {
         label: 'engine/overlay-schema missing tableId',
@@ -1635,9 +1731,9 @@ describe('m4-2: overlay + export protocol', () => {
       })
     })
 
-    it('lists exactly the 23 request types and covers every one', () => {
-      expect(ENGINE_REQUEST_TYPES).toHaveLength(23)
-      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(23)
+    it('lists exactly the 24 request types and covers every one', () => {
+      expect(ENGINE_REQUEST_TYPES).toHaveLength(24)
+      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(24)
       const covered = new Set(cases.map((entry) => entry.type))
       // init and dispose have no required fields (nothing can be malformed),
       // so every other request type must appear in the malformed matrix.

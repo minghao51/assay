@@ -108,11 +108,12 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
   /**
    * m6-4 comparison staging (checkpoint C3). The picked file is read locally,
    * staged through the engine's typed comparison op (single-slot scratch,
-   * never the source path) for the row diff, and opened transiently to obtain
-   * its profile aggregates — the engine profiles registered tables, and the
-   * comparison view is not one. The opened handle is profile-only: the
-   * comparison never becomes a grid and no second grid model is created. A
-   * staging failure stages nothing; a superseded stage is dropped by seq.
+   * never the source path) for the row diff, and profiled through the
+   * comparison slot itself — the comparison view is not a registered table,
+   * so `profileComparison` addresses it directly (B3: no transient
+   * `engine/open`, so no `assay_tN` table or file registration is orphaned per
+   * attempt). A staging failure stages nothing; a superseded stage is dropped
+   * by seq.
    */
   const handleComparisonFile = useCallback(
     (file: File) => {
@@ -127,10 +128,9 @@ export function useDiffSession(params: DiffSessionParams): DiffSession {
         try {
           const source = { name: file.name, getFile: () => Promise.resolve(file) }
           const comparison = await engineClient.stageComparison(source)
-          const handleB = await engineClient.open(source)
           const [profileA, profileB] = await Promise.all([
             engineClient.profile(phase.handle),
-            engineClient.profile(handleB),
+            engineClient.profileComparison(comparison.id),
           ])
           if (session.tokenRef.current !== sessionId || seq !== comparisonSeq.current) return
           comparisonRef.current = comparison

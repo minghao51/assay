@@ -350,6 +350,16 @@ export interface ConformanceEngineClient {
   query(sql: string): Promise<ConformanceBatchResult>
   /** Full statistics profile of a registered table (m2-5). */
   profile(handle: ConformanceTableHandle): Promise<ConformanceDatasetProfile>
+  /**
+   * Full statistics profile of the STAGED comparison (B3), addressed by the
+   * comparison handle's engine id. The payload is the same
+   * `ConformanceDatasetProfile` `profile()` returns, so the scenario can
+   * assert the two agree statistic for statistic. An absent/unknown slot
+   * rejects with a classified engine error. Profiling a comparison must NOT
+   * manufacture a table: the scenario asserts the registry probe is unchanged
+   * across staging attempts.
+   */
+  profileComparison(comparisonId: string): Promise<ConformanceDatasetProfile>
   /** Effective schema of the composed overlay — post-rename, post-cast (m4-2). */
   overlaySchema(
     handle: ConformanceTableHandle,
@@ -1344,6 +1354,7 @@ export const engineConformanceScenarioNames = [
   'overlay-hostile-types-rejected',
   'validation-plan-execution',
   'row-diff-plan-execution',
+  'profile-comparison',
 ] as const
 
 export type ConformanceScenarioName = (typeof engineConformanceScenarioNames)[number]
@@ -3876,6 +3887,133 @@ const scenarios: Record<ConformanceScenarioName, ConformanceScenario> = {
       canariesAbsent,
       preExistingViewSurvived: true,
       stagingFailuresRejected: true,
+      engineReusable: true,
+    }
+  },
+
+  'profile-comparison': async (subject) => {
+    // B3: profiling the staged comparison must answer exactly what profiling
+    // the same dataset as a table answers (one composer, no separate path),
+    // and staging N comparisons must leave the table registry at its
+    // pre-staging baseline — no transient `assay_tN` is manufactured.
+    const dataset = subject.profileDataset
+    expectCondition(
+      dataset.rowCount >= 1 && dataset.columns.length > 0,
+      'subject misconfiguration: profileDataset must declare rows and columns',
+    )
+
+    const client = subject.createClient()
+    await client.ensureReady()
+
+    // The same file staged twice: once as the session table, once as the
+    // comparison slot. `profile()` on the handle is the reference answer.
+    const source = await subject.stageProfileFile()
+    const handle = await client.open(source)
+    const tableProfile = await client.profile(handle)
+    const profileJson = (profile: typeof tableProfile): string => JSON.stringify(profile)
+    const expectSameProfile = (actual: typeof tableProfile, label: string): void => {
+      expectEqual(actual.rowCount, tableProfile.rowCount, `${label} row count`)
+      expectEqual(
+        actual.columns.map((column) => column.name).join(','),
+        tableProfile.columns.map((column) => column.name).join(','),
+        `${label} column names (order included)`,
+      )
+      expectEqual(profileJson(actual), profileJson(tableProfile), `${label} full statistics`)
+    }
+
+    const beforeStaging = await subject.registeredTableCount(client)
+    expectCondition(
+      beforeStaging === null || beforeStaging === 1,
+      `subject misconfiguration: one open table must hold one registered view (got: ${String(beforeStaging)})`,
+    )
+
+    // 1. One staged comparison: statistics identical to the table profile.
+    const first = await client.stageComparison(source)
+    expectSameProfile(await client.profileComparison(first.id), '[first stage]')
+
+    // The comparison scratch itself is ONE view (`assay_diff_dN`) — the slot
+    // is single, so this is the registry baseline every later attempt must
+    // return to. (The probe counts non-internal views, so the live comparison
+    // view is counted too: exactly one, never one per attempt.)
+    const oneComparisonStaged = await subject.registeredTableCount(client)
+    expectCondition(
+      beforeStaging === null ||
+        oneComparisonStaged === null ||
+        oneComparisonStaged === beforeStaging + 1,
+      `one staged comparison must add exactly one view (before: ${String(beforeStaging)}, staged: ${String(oneComparisonStaged)})`,
+    )
+
+    // 2. Re-stage replaces the single slot: the old id is refused, the new
+    //    one answers identically (the slot count stays at most one).
+    const second = await client.stageComparison(source)
+    const supersededError = await rejectionOf(client.profileComparison(first.id))
+    expectCondition(
+      supersededError !== null,
+      'a superseded comparison id must be refused, not profiled',
+    )
+    expectCondition(
+      subject.errors.operation(supersededError),
+      `a superseded comparison id must reject with the operation category (got: ${errorMessage(supersededError)})`,
+    )
+    expectSameProfile(await client.profileComparison(second.id), '[re-stage]')
+
+    // 3. Failed stages: an unsupported extension (refused before the slot is
+    //    touched, so the staged comparison stays live and profileable) and an
+    //    unresolvable file (refused client-side). Neither manufactures a
+    //    table and neither leaves a phantom slot entry behind.
+    const unsupportedSource = await subject.stageBytes(
+      new Uint8Array([1, 2, 3]),
+      'conformance-profile-comparison.bin',
+    )
+    const unsupportedError = await rejectionOf(client.stageComparison(unsupportedSource))
+    expectCondition(
+      unsupportedError !== null && subject.errors.operation(unsupportedError),
+      `[unsupported file] the rejection must be the typed operation category (got: ${errorMessage(unsupportedError)})`,
+    )
+    expectSameProfile(await client.profileComparison(second.id), '[after unsupported stage]')
+    const missingError = await rejectionOf(client.stageComparison(subject.missingComparisonSource))
+    expectCondition(
+      missingError !== null && subject.errors.operation(missingError),
+      `[missing file] the rejection must be the typed operation category (got: ${errorMessage(missingError)})`,
+    )
+
+    // 4. A superseded IN-FLIGHT stage (the web seq-guard interleaving): two
+    //    stages in flight at once; the later one owns the slot, the earlier
+    //    one's handle is dropped by the caller and must answer nothing.
+    const [inFlightFirst, inFlightSecond] = await Promise.all([
+      client.stageComparison(source),
+      client.stageComparison(source),
+    ])
+    const inFlightSuperseded = await rejectionOf(client.profileComparison(inFlightFirst.id))
+    expectCondition(
+      inFlightSuperseded !== null,
+      'a superseded in-flight comparison must be refused',
+    )
+    expectSameProfile(await client.profileComparison(inFlightSecond.id), '[in-flight]')
+
+    // The leak pin: after every staging attempt (successful, refused, and
+    // superseded in-flight) the registry is back at the single-slot baseline.
+    // A transient open per attempt would leave one extra `assay_tN` view each.
+    const after = await subject.registeredTableCount(client)
+    expectCondition(
+      after === null || oneComparisonStaged === null || after === oneComparisonStaged,
+      `staging attempts must not accumulate views (one comparison: ${String(oneComparisonStaged)}, after: ${String(after)})`,
+    )
+    expectCondition(
+      subject.isReady(client),
+      'the engine must stay ready after the comparison profiling cycle',
+    )
+
+    return {
+      rowCount: tableProfile.rowCount,
+      columns: tableProfile.columns.length,
+      comparisonsStaged: 4,
+      failedStages: 2,
+      supersededRefused: 2,
+      registryBefore: beforeStaging ?? -1,
+      registryWithOneComparison: oneComparisonStaged ?? -1,
+      registryAfter: after ?? -1,
+      profilesEqual: true,
       engineReusable: true,
     }
   },

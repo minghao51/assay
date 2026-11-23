@@ -143,6 +143,7 @@ vi.mock('./lib/engine', () => {
       fetchOverlayRange: async () => ({ batch: fakeOverlayBatch(), hasMore: false }),
       stageComparison: async () => COMPARISON,
       profile: async () => PROFILE,
+      profileComparison: async () => PROFILE,
       // The panel report is assembled by the REAL buildDiffPanelReport, so the
       // `changed` summary reads the executable report's count, not the wire.
       diff: async () => ({

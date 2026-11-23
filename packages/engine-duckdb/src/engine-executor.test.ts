@@ -18,6 +18,8 @@ import type { EditOp } from '@assay/domain'
 import { describe, expect, it } from 'vitest'
 import { MAX_CSV_INFERENCE_SAMPLE_ROWS } from './csv-options'
 import { EngineOpExecutor, PreviewRegistry, viewNameForPreviewId } from './engine-executor'
+import { TableRegistry } from './table-registry'
+import { ComparisonRegistry, viewNameForComparisonId } from './comparison-registry'
 import type {
   EngineConnectionLike,
   EngineExecutorDeps,
@@ -4750,5 +4752,327 @@ describe('PreviewRegistry — the slot bookkeeping (EW-03I; ADR 0049 decision 4)
     expect(registry.current()).toBeNull()
     // Previews serialize on the query lane: the re-stage is not a supersede.
     expect(registry.isCurrent(generation)).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B3: comparison profiling (engine/profile-comparison) — the diff staging
+// registry lifecycle. Profiling the staged comparison must NOT manufacture a
+// transient table: no `engine/open`, no `assay_tN` view, no file registration,
+// no table-registry entry. Staging N comparisons must leave `TableRegistry`
+// at its pre-staging size and the comparison slot at ≤ 1.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Test-only read of the executor's two private registries (the production API
+ * is unchanged). The leak pin asserts the REAL `TableRegistry.size` and the
+ * comparison slot contents rather than re-deriving them from SQL text.
+ */
+interface ExecutorRegistries {
+  readonly registry: TableRegistry
+  readonly comparisons: ComparisonRegistry
+}
+
+function registriesOf(executor: EngineOpExecutor): ExecutorRegistries {
+  return executor as unknown as ExecutorRegistries
+}
+
+/** DESCRIBE of one BIGINT column: no categorical column, so no top-k scan. */
+function numericDescribeTable(): Table {
+  return tableFromArrays({ column_name: ['value'], column_type: ['BIGINT'] })
+}
+
+/** The one-row base aggregate for that single numeric column. */
+function numericProfileBaseTable(rowCount: bigint): Table {
+  return tableFromArrays({
+    c0: BigInt64Array.from([rowCount]),
+    c1: BigInt64Array.from([rowCount]),
+    c2: BigInt64Array.from([1n]),
+    c3: Float64Array.from([1]),
+    c4: Float64Array.from([Number(rowCount)]),
+    c5: Float64Array.from([2]),
+    c6: [null],
+    c7: [[2, 2, 2, 2]],
+  })
+}
+
+/** Stage one comparison (draining DROP-if-any + CREATE VIEW + DESCRIBE). */
+async function stageNextComparison(
+  executor: EngineOpExecutor,
+  deps: FakeDeps,
+  requestId: number,
+  options: { readonly previousViewName?: string } = {},
+): Promise<string> {
+  let index = deps.queryConn.sentSqls.length
+  executor.accept({
+    type: 'engine/diff-stage',
+    requestId,
+    name: 'comparison.parquet',
+    file: COMPARISON_FILE,
+  })
+  if (options.previousViewName !== undefined) {
+    await awaitSends(deps.queryConn, index + 1)
+    expect(deps.queryConn.sentSqls[index]).toBe(`DROP VIEW IF EXISTS "${options.previousViewName}"`)
+    deps.queryConn.resolveSend(index, tableFromArrays({}))
+    index += 1
+  }
+  await awaitSends(deps.queryConn, index + 1)
+  expect(deps.queryConn.sentSqls[index]).toMatch(/^CREATE VIEW "assay_diff_d\d+"/)
+  deps.queryConn.resolveSend(index, intTable([]))
+  index += 1
+  await awaitSends(deps.queryConn, index + 1)
+  expect(deps.queryConn.sentSqls[index]).toMatch(/^DESCRIBE "assay_diff_d\d+"$/)
+  deps.queryConn.resolveSend(index, describeTable())
+  const posted = await awaitPosted(deps, requestId)
+  if (posted.type !== 'engine/diff-stage-result') {
+    throw new Error(`expected a staged comparison, got ${posted.type}`)
+  }
+  return posted.comparisonId
+}
+
+/** Drive one profile-comparison op to its posted result (DESCRIBE + one scan). */
+async function profileComparisonThrough(
+  executor: EngineOpExecutor,
+  deps: FakeDeps,
+  requestId: number,
+  comparisonId: string,
+): Promise<EngineResponse> {
+  const viewName = viewNameForComparisonId(comparisonId)
+  let index = deps.queryConn.sentSqls.length
+  executor.accept({ type: 'engine/profile-comparison', requestId, comparisonId })
+  await awaitSends(deps.queryConn, index + 1)
+  expect(deps.queryConn.sentSqls[index]).toBe(`DESCRIBE "${viewName}"`)
+  deps.queryConn.resolveSend(index, numericDescribeTable())
+  index += 1
+  await awaitSends(deps.queryConn, index + 1)
+  expect(deps.queryConn.sentSqls[index]).toContain(`FROM "${viewName}"`)
+  deps.queryConn.resolveSend(index, numericProfileBaseTable(3n))
+  return awaitPosted(deps, requestId)
+}
+
+describe('EngineOpExecutor comparison profiling (B3; query lane)', () => {
+  it('profiles the staged comparison view directly and posts engine/profile-result unchanged', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    const comparisonId = await stageNextComparison(executor, deps, 2)
+    expect(comparisonId).toBe('d1')
+
+    const registries = registriesOf(executor)
+    const sizeBefore = registries.registry.size
+    const filesBefore = deps.registeredFiles.length
+    const sendsBefore = deps.queryConn.sentSqls.length
+
+    const posted = await profileComparisonThrough(executor, deps, 3, comparisonId)
+    expect(posted).toEqual({
+      type: 'engine/profile-result',
+      requestId: 3,
+      rowCount: 3,
+      columns: [
+        {
+          name: 'value',
+          type: 'BIGINT',
+          kind: 'numeric',
+          nullCount: 0,
+          distinctCount: 1,
+          numeric: {
+            min: 1,
+            max: 3,
+            mean: 2,
+            stddev: null,
+            quantiles: { p50: 2, p90: 2, p95: 2, p99: 2 },
+          },
+        },
+      ],
+    })
+    // No transient table was manufactured: same registry size, same file
+    // registrations, no assay_tN view, and the comparison slot is unchanged.
+    expect(registries.registry.size).toBe(sizeBefore)
+    expect(deps.registeredFiles.length).toBe(filesBefore)
+    expect(registries.comparisons.viewNames()).toEqual(['assay_diff_d1'])
+    expect(deps.queryConn.sentSqls).toHaveLength(sendsBefore + 2)
+    expect(deps.queryConn.sentSqls.filter((sql) => sql.includes('assay_t'))).toEqual([])
+    expect(deps.conn.sentSqls.filter((sql) => sql.includes('assay_t2'))).toEqual([])
+    expectNoCollisions(deps)
+  })
+
+  it('refuses an absent/unknown comparison slot before any DuckDB call', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    const bootsBefore = deps.bootCalls
+
+    for (const comparisonId of ['d1', 'd99']) {
+      executor.accept({ type: 'engine/profile-comparison', requestId: 3, comparisonId })
+      const posted = await awaitPosted(deps, 3)
+      expect(posted).toMatchObject({ type: 'engine/error', message: 'unknown comparison handle' })
+    }
+    // Untouched: no session boot for the op, no SQL, no registration.
+    expect(deps.bootCalls).toBe(bootsBefore)
+    expect(deps.queryConn.sentSqls).toEqual([])
+    expect(deps.conn.sentSqls.filter((sql) => sql.includes('assay_t2'))).toEqual([])
+    expectNoCollisions(deps)
+  })
+
+  it('refuses a table id / view name / extra field at the boundary (never reaching a lane)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    // A table handle where a comparison id belongs, and a view name.
+    for (const [requestId, comparisonId] of [
+      [3, 't1'],
+      [4, 'assay_t1'],
+      [5, 'assay_diff_d1'],
+    ] as const) {
+      executor.accept({ type: 'engine/profile-comparison', requestId, comparisonId })
+      const posted = await awaitPosted(deps, requestId)
+      expect(posted).toMatchObject({
+        type: 'engine/error',
+        message: 'malformed envelope: profile-comparison.comparisonId',
+      })
+    }
+    // An extra field is refused by class, without echoing it.
+    executor.accept({
+      type: 'engine/profile-comparison',
+      requestId: 6,
+      comparisonId: 'd1',
+      tableId: 't1',
+    })
+    const extra = await awaitPosted(deps, 6)
+    expect(extra).toMatchObject({
+      type: 'engine/error',
+      message: 'malformed envelope: profile-comparison.unknown-field',
+    })
+    expect(JSON.stringify(extra)).not.toContain('t1')
+    expect(deps.queryConn.sentSqls).toEqual([])
+  })
+
+  it('leak: N comparisons (incl. a failed stage and a superseded in-flight stage) leave TableRegistry at baseline', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+    const registries = registriesOf(executor)
+    const baselineSize = registries.registry.size
+    const registryLaneSendsBefore = deps.conn.sentSqls.length
+    expect(baselineSize).toBe(1)
+
+    // Three sequential staging attempts, profiled through the slot itself.
+    const first = await stageNextComparison(executor, deps, 2)
+    expect(await profileComparisonThrough(executor, deps, 3, first)).toMatchObject({
+      type: 'engine/profile-result',
+    })
+    const second = await stageNextComparison(executor, deps, 4, {
+      previousViewName: viewNameForComparisonId(first),
+    })
+    expect(await profileComparisonThrough(executor, deps, 5, second)).toMatchObject({
+      type: 'engine/profile-result',
+    })
+    // The superseded comparison id is refused (the slot holds at most one).
+    executor.accept({ type: 'engine/profile-comparison', requestId: 6, comparisonId: first })
+    expect(await awaitPosted(deps, 6)).toMatchObject({
+      type: 'engine/error',
+      message: 'unknown comparison handle',
+    })
+    const third = await stageNextComparison(executor, deps, 7, {
+      previousViewName: viewNameForComparisonId(second),
+    })
+    expect(await profileComparisonThrough(executor, deps, 8, third)).toMatchObject({
+      type: 'engine/profile-result',
+    })
+
+    // A failed stage: the re-stage drops the previous view, then the file
+    // registration fails → the half-created view+file roll back and the
+    // (already cleared) slot stays empty. No table is manufactured.
+    deps.registerFileError = new Error('registration failed')
+    let failedIndex = deps.queryConn.sentSqls.length
+    executor.accept({
+      type: 'engine/diff-stage',
+      requestId: 9,
+      name: 'comparison.parquet',
+      file: COMPARISON_FILE,
+    })
+    await awaitSends(deps.queryConn, failedIndex + 1)
+    expect(deps.queryConn.sentSqls[failedIndex]).toBe(
+      `DROP VIEW IF EXISTS "${viewNameForComparisonId(third)}"`,
+    )
+    deps.queryConn.resolveSend(failedIndex, tableFromArrays({}))
+    failedIndex += 1
+    await awaitSends(deps.queryConn, failedIndex + 1)
+    expect(deps.queryConn.sentSqls[failedIndex]).toBe('DROP VIEW IF EXISTS "assay_diff_d4"')
+    deps.queryConn.resolveSend(failedIndex, tableFromArrays({}))
+    const failed = await awaitPosted(deps, 9)
+    expect(failed).toMatchObject({ type: 'engine/error' })
+    expect(registries.comparisons.viewNames()).toEqual([])
+    deps.registerFileError = null
+    // The failed attempt's own registration was rolled back (dropped) — only
+    // the session table and the comparison scratch names remain registered.
+    const filesAfterFailures = deps.registeredFiles.length
+
+    // A superseded IN-FLIGHT stage: two stages accepted back to back on the
+    // query lane; the second replaces the first before either is consumed,
+    // exactly the web seq-guard interleaving that used to strand a handle.
+    const sendIndex = deps.queryConn.sentSqls.length
+    executor.accept({
+      type: 'engine/diff-stage',
+      requestId: 10,
+      name: 'comparison.parquet',
+      file: COMPARISON_FILE,
+    })
+    executor.accept({
+      type: 'engine/diff-stage',
+      requestId: 11,
+      name: 'comparison.parquet',
+      file: COMPARISON_FILE,
+    })
+    // Stage 10: CREATE VIEW d5 + DESCRIBE d5.
+    await awaitSends(deps.queryConn, sendIndex + 1)
+    expect(deps.queryConn.sentSqls[sendIndex]).toMatch(/^CREATE VIEW "assay_diff_d5"/)
+    deps.queryConn.resolveSend(sendIndex, intTable([]))
+    await awaitSends(deps.queryConn, sendIndex + 2)
+    deps.queryConn.resolveSend(sendIndex + 1, describeTable())
+    expect(await awaitPosted(deps, 10)).toMatchObject({ type: 'engine/diff-stage-result' })
+    // Stage 11 supersedes it: DROP d5 + CREATE VIEW d6 + DESCRIBE d6.
+    await awaitSends(deps.queryConn, sendIndex + 3)
+    expect(deps.queryConn.sentSqls[sendIndex + 2]).toBe('DROP VIEW IF EXISTS "assay_diff_d5"')
+    deps.queryConn.resolveSend(sendIndex + 2, tableFromArrays({}))
+    await awaitSends(deps.queryConn, sendIndex + 4)
+    expect(deps.queryConn.sentSqls[sendIndex + 3]).toMatch(/^CREATE VIEW "assay_diff_d6"/)
+    deps.queryConn.resolveSend(sendIndex + 3, intTable([]))
+    await awaitSends(deps.queryConn, sendIndex + 5)
+    deps.queryConn.resolveSend(sendIndex + 4, describeTable())
+    const superseded = await awaitPosted(deps, 11)
+    if (superseded.type !== 'engine/diff-stage-result') {
+      throw new Error(`expected the second stage to win, got ${superseded.type}`)
+    }
+    expect(superseded.comparisonId).toBe('d6')
+    expect(await profileComparisonThrough(executor, deps, 12, 'd6')).toMatchObject({
+      type: 'engine/profile-result',
+    })
+    executor.accept({ type: 'engine/profile-comparison', requestId: 13, comparisonId: 'd5' })
+    expect(await awaitPosted(deps, 13)).toMatchObject({
+      type: 'engine/error',
+      message: 'unknown comparison handle',
+    })
+
+    // The leak pin: the table registry is exactly at its pre-stage baseline
+    // and the comparison slot still holds at most one entry.
+    expect(registries.registry.size).toBe(baselineSize)
+    // Only the session table and engine-generated comparison scratch names
+    // were ever registered (one per successful stage — never a transient tN).
+    expect(
+      deps.registeredFiles.map((entry) => entry.name).filter((name) => /^t\d+$/.test(name)),
+    ).toEqual(['t1'])
+    expect(
+      deps.registeredFiles
+        .slice(filesAfterFailures)
+        .filter((entry) => !/^diff_d\d+$/.test(entry.name)),
+    ).toEqual([])
+    expect(registries.comparisons.viewNames()).toEqual(['assay_diff_d6'])
+    expect(registries.comparisons.viewNames().length).toBeLessThanOrEqual(1)
+    // No attempt ever created a transient assay_tN table or its view.
+    const tableViews = deps.queryConn.sentSqls.filter((sql) => /CREATE VIEW "assay_t/.test(sql))
+    expect(tableViews).toEqual([])
+    // No registry-lane (open-class) traffic at all: profiling a comparison
+    // never touches the lane an `engine/open` would occupy.
+    expect(deps.conn.sentSqls).toHaveLength(registryLaneSendsBefore)
+    expect(deps.droppedFiles.filter((name) => /^t\d+$/.test(name))).toEqual([])
+    expectNoCollisions(deps)
   })
 })
