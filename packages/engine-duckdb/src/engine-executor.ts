@@ -77,6 +77,7 @@ import {
 import { classifyVerbatimSql } from '@assay/pipeline'
 import { parseEngineRequestEnvelope } from './protocol.js'
 import type {
+  EngineCancelQueryRequest,
   EngineCategoricalTopKEntry,
   EngineColumnSchema,
   EnginePipelineHandleRequest,
@@ -95,6 +96,7 @@ import type {
   EngineRangeRequest,
   EngineRepairPreviewCountRequest,
   EngineRequest,
+  EngineRequestType,
   EngineResponse,
   EngineValidateRequest,
 } from './protocol.js'
@@ -249,6 +251,20 @@ export class EngineOpExecutor {
   private readonly pipeline = new PipelineSourceRegistry()
   /** Monotonic export sequence: generated, collision-free destination names. */
   private nextExportSeq = 1
+  /**
+   * The op currently holding a QUERY-lane slot (`null` while the lane is
+   * idle), recorded at dispatch start and cleared when its task settles.
+   *
+   * ADR 0052's scope gate reads this out of band: an `engine/cancel-query`
+   * answers `cancelSent: false` when the named op is not the parked one, and
+   * is **refused** (never attempted) while a non-query op — export, profile
+   * scan, pipeline materialisation, validation, diff, preview — holds the
+   * connection, because those have different failure semantics and are out
+   * of the ADR's scope. It is state of the lane, not of a connection: the
+   * cancel itself never takes a slot (that is the whole point).
+   */
+  private queryLaneInFlight: { readonly requestId: number; readonly type: EngineRequestType } | null =
+    null
 
   constructor(private readonly deps: EngineExecutorDeps) {}
 
@@ -314,6 +330,16 @@ export class EngineOpExecutor {
       return
     }
     const request = envelope.request
+    // R-9/ADR 0052: the cancel is dispatched OUT OF BAND — it must reach the
+    // query-lane connection while the query it cancels is still parked, so it
+    // can never enter `lane.channel` (the OpChannel single-pending rule does
+    // not apply to the op that interrupts the pending op; see ADR 0040's
+    // bounded amendment). Keep this branch first so no routing change can
+    // silently queue the cancel behind the query.
+    if (request.type === 'engine/cancel-query') {
+      void this.runCancelQuery(request)
+      return
+    }
     // EW-03I round-2 race fix: a preview's slot intent and supersede
     // generation are captured SYNCHRONOUSLY at acceptance — BEFORE it queues
     // behind query-lane work. A preview accepted ahead of an open that then
@@ -380,6 +406,8 @@ export class EngineOpExecutor {
     lane: EngineOpLane,
     previewState?: CapturedPreviewState,
   ): Promise<void> {
+    const isQueryLane = lane === this.queryLane
+    if (isQueryLane) this.queryLaneInFlight = { requestId: request.requestId, type: request.type }
     try {
       switch (request.type) {
         case 'engine/init': {
@@ -396,16 +424,33 @@ export class EngineOpExecutor {
           // Query lane: user SQL shares its lane only with other queries and
           // profile scans — never with the grid's windows.
           const session = await this.deps.ensureSession()
-          const { batchIpc, hasMore } = await this.streamFirstBatch(
-            lane.connection(session),
-            request.sql,
-          )
-          this.post({
-            type: 'engine/query-result',
-            requestId: request.requestId,
-            batchIpc,
-            hasMore,
-          })
+          try {
+            const { batchIpc, hasMore } = await this.streamFirstBatch(
+              lane.connection(session),
+              request.sql,
+            )
+            this.post({
+              type: 'engine/query-result',
+              requestId: request.requestId,
+              batchIpc,
+              hasMore,
+            })
+          } catch (error) {
+            // ADR 0052 typed outcome: the platform's cancellation rejection
+            // (`Error: query was canceled`, the B7 probe's exact observation)
+            // settles this op as `cancelled` — never as a masked engine error.
+            // Every OTHER rejection keeps the existing error path below.
+            if (!isCancelledQueryError(error)) throw error
+            this.post({ type: 'engine/query-cancelled', requestId: request.requestId })
+          }
+          break
+        }
+        case 'engine/cancel-query': {
+          // Unreachable in production: `accept` dispatches this op out of
+          // band before it can be routed to a lane (ADR 0052). Kept so a
+          // lane-routed cancel is still handled rather than silently
+          // dropped — the mutation drill routes it here on purpose.
+          await this.runCancelQuery(request)
           break
         }
         case 'engine/open': {
@@ -516,6 +561,69 @@ export class EngineOpExecutor {
       }
     } catch (error) {
       // Errors belong to this operation's caller only; the channel moves on.
+      this.post({
+        type: 'engine/error',
+        requestId: request.requestId,
+        message: errorMessage(error),
+      })
+    } finally {
+      // The lane slot is free once this task settles — the next queued op (or
+      // a later cancel) must never see a stale occupancy.
+      if (isQueryLane && this.queryLaneInFlight?.requestId === request.requestId) {
+        this.queryLaneInFlight = null
+      }
+    }
+  }
+
+  /**
+   * `engine/cancel-query` (R-9/ADR 0052), dispatched out of band: it calls the
+   * query-lane connection's `cancelSent()` **without** taking a lane slot, so
+   * it cannot queue behind the query it cancels. Three honest answers, and
+   * nothing else:
+   *
+   * - the named `engine/query` is the parked op → ask the connection; the
+   *   response carries `cancelSent()`'s own boolean (a `false` means the
+   *   engine had nothing pending — the client must not claim a stop);
+   * - the lane is idle, or the named op is not the parked one (a stale
+   *   cancel) → `cancelSent: false`, without touching the connection;
+   * - a non-query op holds the lane (export, profile scan, pipeline write,
+   *   validation, diff, preview) → a typed, value-free refusal. Scope is
+   *   `engine/query` only: interrupting a materialisation would have
+   *   different failure semantics, and no such interrupt is probed.
+   */
+  private async runCancelQuery(request: EngineCancelQueryRequest): Promise<void> {
+    try {
+      const inFlight = this.queryLaneInFlight
+      if (inFlight !== null && inFlight.type !== 'engine/query') {
+        // Out of scope (ADR 0052): refuse honestly, echo no payload.
+        this.post({
+          type: 'engine/error',
+          requestId: request.requestId,
+          message: 'cancel-query refused: only engine/query is cancellable',
+        })
+        return
+      }
+      if (inFlight === null || inFlight.requestId !== request.queryRequestId) {
+        // Nothing was pending for this target: an idle lane, or a stale
+        // cancel naming an op that already settled (it must never interrupt
+        // whatever runs now).
+        this.post({
+          type: 'engine/cancel-query-result',
+          requestId: request.requestId,
+          cancelSent: false,
+        })
+        return
+      }
+      const session = await this.deps.ensureSession()
+      const sent = await this.queryLane.connection(session).cancelSent()
+      this.post({
+        type: 'engine/cancel-query-result',
+        requestId: request.requestId,
+        // `cancelSent()` is typed `Promise<unknown>` at the seam; only a real
+        // `true` may become a claim that the compute stopped.
+        cancelSent: sent === true,
+      })
+    } catch (error) {
       this.post({
         type: 'engine/error',
         requestId: request.requestId,
@@ -2161,6 +2269,22 @@ function transferableBuffer(bytes: Uint8Array): ArrayBuffer | null {
   // SharedArrayBuffer cannot go into a transfer list (structured clone).
   if (!(buffer instanceof ArrayBuffer)) return null
   return byteOffset === 0 && byteLength === buffer.byteLength ? buffer : null
+}
+
+/**
+ * The platform's cancellation rejection, exactly as the B7 probe observed it
+ * on the pinned duckdb-wasm EH bundle: a plain `Error` whose message is
+ * `query was canceled` (one `l`), thrown by the worker's `pollPendingQuery`
+ * when a pending query is cancelled mid-compute (ADR 0052). Matched by
+ * message so it still classifies when it arrives wrapped/re-created across a
+ * boundary; anything else is a real error and must keep the error path.
+ */
+const CANCELLED_QUERY_MESSAGE = /^query was cancel+ed\.?$/i
+
+function isCancelledQueryError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const message: unknown = (error as { message?: unknown }).message
+  return typeof message === 'string' && CANCELLED_QUERY_MESSAGE.test(message.trim())
 }
 
 /**

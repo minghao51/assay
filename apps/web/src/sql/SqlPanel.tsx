@@ -252,6 +252,14 @@ export function SqlPanel({ tableId, runRequest, claimRequest }: SqlPanelProps) {
 
   const cancel = (): void => {
     if (!running) return
+    // R-9/ADR 0052: the cancel op now reaches the engine out of band and
+    // settles the parked query as a typed `cancelled` result. The RunGuard
+    // semantics are unchanged — invalidating the token still discards the
+    // late settlement, whatever form it takes — and the copy below is
+    // byte-identical (copy freeze; Q4 is not selected). The boolean the
+    // engine returns is not turned into a claim here: the copy promises
+    // nothing and no duration is asserted anywhere.
+    void engineClient.cancelQuery().catch(() => undefined)
     guard.current.invalidate() // the abandoned run's late result never renders
     setRunState({ kind: 'cancelled' })
     telemetry.emit('query_run', {

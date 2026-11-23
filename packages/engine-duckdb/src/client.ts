@@ -21,7 +21,7 @@
  * table through that handle; `fetchRange` windows are validated and clamped
  * on this side too (fail fast, same semantics as the worker).
  */
-import { tableFromIPC } from 'apache-arrow'
+import { tableFromArrays, tableFromIPC } from 'apache-arrow'
 import type { Table } from 'apache-arrow'
 import type { EditOp, OverlayBase } from '@assay/domain'
 import { foldOverlay } from '@assay/domain'
@@ -82,6 +82,26 @@ export interface EngineQueryResult {
   readonly batch: Table
   /** True when the engine produced more record batches after this one. */
   readonly hasMore: boolean
+  /**
+   * R-9/ADR 0052 typed settlement: present (and only ever `true`) when an
+   * `engine/cancel-query` interrupted this query before its first batch. Then
+   * `batch` is an empty table and `hasMore` is false — the honest state is
+   * "no rows, not an error". Absent on every ordinary delivery, including a
+   * genuine zero-row result, so a cancelled run is always distinguishable
+   * from an empty one and is never mistaken for an engine failure.
+   */
+  readonly cancelled?: true
+}
+
+/**
+ * The honest answer to `cancelQuery()` (R-9/ADR 0052). `cancelSent` is the
+ * worker connection's own `cancelSent()` boolean, passed through unchanged:
+ * `true` means the engine had a pending query and cancelled it, `false` means
+ * nothing was pending for that target. A caller must never render `false` as
+ * a claim that the compute stopped.
+ */
+export interface EngineCancelResult {
+  readonly cancelSent: boolean
 }
 
 /** Result of a `fetchRange` call — same Arrow transport as `EngineQueryResult`. */
@@ -384,6 +404,13 @@ export class DuckDbEngineClient {
   private disposed = false
   private worker: EngineWorkerLike | null = null
   private readonly pending = new Map<number, PendingRequest>()
+  /**
+   * Request ids of the `engine/query` ops posted and not yet settled, in
+   * start order — the cancel targets (R-9/ADR 0052). Tracked here because the
+   * cancel must name the parked op: a cancel that omitted it could interrupt
+   * a later, unrelated query.
+   */
+  private readonly activeQueryRequestIds: number[] = []
   private nextRequestId = 1
   private ready: Promise<EngineReadyInfo> | null = null
   private disposal: Promise<void> | null = null
@@ -415,19 +442,66 @@ export class DuckDbEngineClient {
    * Run a SQL query and return its first Arrow record batch (ADR 0020). See
    * `EngineQueryResult` for the exact delivery semantics — in particular,
    * `hasMore` reports (rather than discards silently) the un-transported
-   * remainder of the result set.
+   * remainder of the result set, and `cancelled` marks the typed settlement
+   * of a query an `engine/cancel-query` interrupted (ADR 0052).
    */
   async query(sql: string): Promise<EngineQueryResult> {
     await this.ensureReady()
-    const response = await this.send({ type: 'engine/query', requestId: this.takeRequestId(), sql })
-    if (response.type !== 'engine/query-result') {
-      throw new EngineProtocolError(`unexpected ${response.type} response for engine/query`)
-    }
+    const requestId = this.takeRequestId()
+    // Remember this op as the cancel target (R-9/ADR 0052) from the instant
+    // it is posted; a parked query stays in the list until it settles.
+    this.activeQueryRequestIds.push(requestId)
     try {
-      return { batch: tableFromIPC(response.batchIpc), hasMore: response.hasMore }
-    } catch (cause) {
-      throw new EngineProtocolError('worker sent an invalid Arrow IPC payload', { cause })
+      const response = await this.send({ type: 'engine/query', requestId, sql })
+      if (response.type === 'engine/query-cancelled') {
+        // Typed `cancelled` outcome: no rows, not an error. Delivered rows can
+        // never be retracted, so only a query that had not answered yet can
+        // settle here (the worker only cancels a parked op).
+        return { batch: tableFromArrays({}), hasMore: false, cancelled: true }
+      }
+      if (response.type !== 'engine/query-result') {
+        throw new EngineProtocolError(`unexpected ${response.type} response for engine/query`)
+      }
+      try {
+        return { batch: tableFromIPC(response.batchIpc), hasMore: response.hasMore }
+      } catch (cause) {
+        throw new EngineProtocolError('worker sent an invalid Arrow IPC payload', { cause })
+      }
+    } finally {
+      const index = this.activeQueryRequestIds.indexOf(requestId)
+      if (index >= 0) this.activeQueryRequestIds.splice(index, 1)
     }
+  }
+
+  /**
+   * Cancel the in-flight `engine/query` (R-9/ADR 0052) — dispatched by the
+   * worker OUT OF BAND to the query-lane connection, so it does not queue
+   * behind the query it cancels. The parked `query()` settles as a
+   * `cancelled` result (see `EngineQueryResult.cancelled`), never as an
+   * engine error.
+   *
+   * `queryRequestId` targets a specific query; omitted, the most recently
+   * started in-flight `query()` is the target (the SQL panel's shape). With
+   * nothing in flight this resolves `{ cancelSent: false }` without sending
+   * anything — nothing was pending, and the boolean says so rather than
+   * pretending a stop happened. Every other op (export, profile scan,
+   * pipeline materialisation, validation, diff) is out of scope: the worker
+   * refuses such a cancel with a typed operation error instead of attempting
+   * an interrupt.
+   */
+  async cancelQuery(queryRequestId?: number): Promise<EngineCancelResult> {
+    await this.ensureReady()
+    const target = queryRequestId ?? this.activeQueryRequestIds[this.activeQueryRequestIds.length - 1]
+    if (target === undefined) return { cancelSent: false }
+    const response = await this.send({
+      type: 'engine/cancel-query',
+      requestId: this.takeRequestId(),
+      queryRequestId: target,
+    })
+    if (response.type !== 'engine/cancel-query-result') {
+      throw new EngineProtocolError(`unexpected ${response.type} response for engine/cancel-query`)
+    }
+    return { cancelSent: response.cancelSent }
   }
 
   /**
