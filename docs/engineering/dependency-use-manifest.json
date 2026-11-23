@@ -52,7 +52,7 @@
       "path": "apps/cli",
       "name": "@assay/cli",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
@@ -60,14 +60,14 @@
       "name": "@assay/vscode",
       "engines": {
         "vscode": "^1.90.0",
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
       "path": "apps/web",
       "name": "@assay/web",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
@@ -79,7 +79,7 @@
       "path": "packages/contracts",
       "name": "@assay/contracts",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
@@ -91,21 +91,21 @@
       "path": "packages/data-sources",
       "name": "@assay/data-sources",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
       "path": "packages/diff",
       "name": "@assay/diff",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
       "path": "packages/domain",
       "name": "@assay/domain",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
@@ -117,7 +117,7 @@
       "path": "packages/engine-duckdb",
       "name": "@assay/engine-duckdb",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
@@ -129,14 +129,14 @@
       "path": "packages/grid",
       "name": "@assay/grid",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
       "path": "packages/pipeline",
       "name": "@assay/pipeline",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
@@ -148,7 +148,7 @@
       "path": "packages/telemetry",
       "name": "@assay/telemetry",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     },
     {
@@ -170,7 +170,7 @@
       "path": "packages/validation",
       "name": "@assay/validation",
       "engines": {
-        "node": ">=22"
+        "node": "^24.0.0"
       }
     }
   ],
@@ -4797,7 +4797,7 @@
         },
         {
           "file": "packages/engine-duckdb/src/engine-executor.test.ts",
-          "line": 30,
+          "line": 32,
           "via": "import",
           "symbols": ["compileRowDiffPlan"]
         },
@@ -4969,7 +4969,7 @@
         },
         {
           "file": "packages/engine-duckdb/src/client.test.ts",
-          "line": 1863,
+          "line": 1949,
           "via": "import-type",
           "symbols": ["PipelineV1"]
         },
