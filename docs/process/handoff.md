@@ -48,7 +48,9 @@ boot/entry 0 % as honest boundary markers, no invented per-webview floor); total
 before a real engine interrupt), P4 stays demand-driven, and D-12 authorises pushes but **not** a
 release. Reasoning and reopen triggers: [decision round](handoff/20261121-decision-round.md). What
 remains is human (publication/registry policy, npm org, trademark, collector hosting, demo dataset,
-Actions billing) plus the evidence-gated UX rows. **Remote GitHub Actions is
+Actions billing) plus the evidence-gated UX rows. **Every remaining item is briefed for execution in
+the [2026-11-22 remaining-work handoffs](handoff/20261122-remaining-work-handoffs.md)** (R-1…R-22 with
+the local gate protocol, the dispatch envelope and a paste-ready prompt). **Remote GitHub Actions is
 billing-blocked** — the successor queue's local gate suite is the verification authority; a red
 job-start run is not code signal.
 

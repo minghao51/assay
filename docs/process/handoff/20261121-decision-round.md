@@ -17,7 +17,7 @@ here.
 declared in twelve manifests was never exercised (this environment has only Node 24.13.0; the
 [node support contract](20261120-node-support-contract.md) recorded that limitation rather than a
 pass). No product behaviour needs 22 only, and no consumer is known to run it. The range is now
-`"^24.0.0"` on `apps/{cli,web,vscode}` and the nine publishable library packages, with the development
+`"^24.0.0"` on `apps/{cli,web,vscode}` and the nine library packages (three of them private: `data-sources`, `engine-duckdb`, `pipeline`), with the development
 policy (`^24.0.0`) and `.node-version` (`24`) unchanged.
 
 - **Claim shape:** `^24.0.0`, not a bare `>=` floor — the first draft of this change used `>=24`,
@@ -72,7 +72,7 @@ consequence and the reopen trigger stated so nobody re-decides silently.
 ## 4. Still human (cannot be done from the repository)
 
 - **Publication / registry policy, first release** — private vs public registry, the flip timing and
-  the 229-entry changeset ledger; needs the publish runbook plus a versioned release decision.
+  the pending changeset ledger (240 entries at this base); needs the publish runbook plus a versioned release decision.
 - **npm `@assay` org**, **trademark/domain**, **telemetry collector hosting**, **demo dataset source** —
   external accounts/legal/procurement.
 - **GitHub Actions billing** — until it is restored, every push shows four job-start refusals; the

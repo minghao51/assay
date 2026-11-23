@@ -125,8 +125,9 @@ a local T1/T2 follow-up, not a reopened MVP or completed implementation.
       ([decision round](../process/handoff/20261121-decision-round.md)). **Still open:** human actions
       (publication/registry policy, npm org, trademark, collector hosting, demo dataset, Actions
       billing) and the evidence-gated UX rows (WF-03/04/07/08/09, WF-O2, uxv-6, overlay profile) plus
-      the gated G2–G4 tracks. Remote CI is billing-blocked; the queue's local gate suite is the
-      verification authority.
+      the gated G2–G4 tracks. **Execution briefs for every remaining item:**
+      [2026-11-22 remaining-work handoffs](../process/handoff/20261122-remaining-work-handoffs.md).
+      Remote CI is billing-blocked; the queue's local gate suite is the verification authority.
 - [x] **Improvement-plan batch executed (2026-11-20)** — the 24-row/12-child [improvement plan](../process/handoff/improvement-plan-20261120/implementation-plan.md) is accounted for: 20 implementation/verification rows closed with independent review, 4 design rows delivered (C01/C03a filters & callback contracts, E01 telemetry opt-out cancellation design, E04 bounded-UX/WF-O1 design). User-visible: duplicate CSV declarations refused, honest CSV dialect disclosure, atomic whole-list filters + phase-aware recovery copy (web and desktop), export/acquisition cleanup and retry, fail-closed session callbacks. Tooling: Node 24 development policy, offline `doctor`, current-state and assurance checks, dependency/bundle baseline. **ENG-3 closed**; **ENG-2 was the only recorded-but-unselected runtime row and is CLOSED 2026-11-21** (`d457eec` + `4de7233` + `6e7a6d2`; successor batch B1). Evidence, decisions Q1–Q7 and ten carried limits: [execution record](../process/handoff/20261120-improvement-plan-execution.md).
 
 ### Next

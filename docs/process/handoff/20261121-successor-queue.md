@@ -384,6 +384,11 @@ manifest drifting back) is closed by fact 6 `product-node-floor` with three muta
 the coverage numbers, the absence of test/`test-proof` files in the summary, the six controller
 percentages, the changeset semver and the D-10/D-13/D-14 "closed by evidence" claims independently.
 
+**Next:** every item still open here (plus the human actions) is briefed for execution in the
+[2026-11-22 remaining-work handoffs](20261122-remaining-work-handoffs.md) — R-1…R-7 UX rows,
+R-8…R-14 technical carries, R-15…R-22 human runbooks, with the local-only gate protocol, the dispatch
+envelope and a paste-ready prompt.
+
 **Push record:** `5a9bc87..5a7101a` (follow-up `8cdecca`). Run **45041728346** again shows four
 job-start `failure`s in ~4 s with no steps — the billing refusal, not code signal. B5/B2/A1/A2/A3/B1
 and this follow-up were verified locally; do not retry to "fix" the red runs.
