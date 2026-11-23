@@ -94,6 +94,17 @@ product selections (which waits are bounded, the deadline, the unavailable state
 decision after that. Record: [B7 probe](handoff/20261123-b7-sql-interrupt-probe.md). Ledger: successor
 queue §11.
 
+**Third dated dispatch (2026-11-23) — R-10 CLOSED (proof split).** The C2 TEST-PROOF code is out of the
+production webview bundle by **structural split** (the stub-vs-split judgement was delegated and taken on
+the brief's recommendation): `dist/webview/dataset.js` drops **44,699 B raw / 8,225 B gzip** with zero
+proof markers, the proofs compose in a test-only entry the host loads only under the existing predicate,
+and the pinned host e2e still prints their outcomes — proven by a drill that fails when the host is
+re-pointed at the production entry. Two deviations are recorded rather than smoothed: `extension.cjs`
++57 B (the host now selects the entry, which the stub shape never needed) and the test-only artefact
+(127,877 B) sitting inside the measured `webview-script` bucket, which takes that bucket past the E02
+candidate — a **maintainer** decision, not an implementer's, since the production number actually fell.
+Ledger: successor queue §12.
+
 **Last updated:** 2026-11-23. **Current lane:** launch readiness; the post-R1 runtime wave has closed
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
 Accepted**; the post-EW-03I-a queue has since closed in full (EW-03I-b, EW-04I, TB-2, ENG-1 = the ADR

@@ -541,3 +541,64 @@ Proposed ADR.
 
 **Push record:** see the closing message for the run id; Actions remains **billing-blocked** (four
 job-start refusals, `steps=0`), which is not code signal and was not retried.
+
+## 12. Third dated dispatch (2026-11-23) — R-10
+
+**Base:** `main` at `12a1de0` (the state §11 left, with ADR 0052 accepted). **Scope:** R-10, the C2
+TEST-PROOF removal, dispatched after the maintainer **delegated the stub-vs-split judgement** to the
+integrator. **Selection taken: shape (ii) — the structural split**, on the brief's recommendation and
+for the reason the brief gives: a build-config stub's correctness would be a convention that must stay
+aligned with the runtime predicate (a future refactor could silently ship the no-op to the test host),
+whereas a split makes the production bundle structurally unable to reach the proofs.
+
+| Row                       | Outcome    | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **R-10 C2 proof removal** | **CLOSED** | `13167ad`, merged as `e70c2ca`. `apps/vscode/webview/dataset.ts` no longer imports `./test-proof`; the proofs compose in a new test-only entry `apps/vscode/webview/test-proof/entry.ts` that the host loads **only** under the existing predicate, and the production entry reaches them through no path. `dist/webview/dataset.js`: **1,086,500 → 1,041,801 raw (−44,699)** and **223,689 → 215,464 gzip (−8,225)**, against C2's stub prediction of −44,729 / −8,246 (the 30 B difference is the injected-runner seam minus the removed call site; brotli −7,675). Markers (`validation-proof`, `runOpenProofs`, `exercise*`) go **1/2/2/2/2 → 0/0/0/0/0** in `dataset.js` and appear in the new entry (127,877 B raw / 29,859 gzip). Every other artefact unchanged (`main.js`, `worker.js`, `e2e-test.cjs`, `spike-test.cjs`, both DuckDB pins), with one expected exception below. **Gate integrity:** the pinned host e2e (offline, host 1.130.0) still prints the proof outcomes (`validationProof` baseline 1 / edited 0 / inserted 2 / deleted 0 / stale / navigation, `editProof` all true, `diffProof` baseline 1–1–1 / editedChanged 2, acceptance validate + diff, CLI agreement all six legs) — fields that exist **only** in the proof modules, which are absent from `dataset.js`. **Mutation drill:** re-pointed the host at `dataset.js` → `e2e assertion failed: validation baseline count mismatch: undefined` (scenario 1/5), `TestRunFailedError`, `no e2e results`, exit 1; restored → `ALL SCENARIOS PASSED`, exit 0. |
+
+**Deviations from the brief's stated acceptance, recorded rather than smoothed:**
+
+1. **`extension.cjs` is +57 B, not 0 Δ.** Shape (ii) requires the host to _select_ the entry, so the
+   predicate gains the `mainScriptUrl` choice; the brief's 0 Δ was written for the stub shape, where no
+   host wiring changes. The production selection is unchanged (`dataset.js`), and the e2e proves which
+   entry the test host receives.
+2. **`webview-script` grows +90,291 B even though the production script shrank 42,673 B.** The new
+   test-only artefact (127,877 B) sits in that bucket, because the measurement classifies by path
+   (`webview/**/*.js` → `webview-script`) and its doctrine is that a misplaced file moves buckets but
+   "cannot hide bytes". Decomposition against `3a86ac2`: `dataset.js` −42,673, `main.js` +2,026 and
+   `worker.js` +3,061 (R-12's validator code reaching the bundled engine), the test-only entry
+   +127,877. **Consequence for E02, stated rather than absorbed:** the bucket now exceeds the
+   `webview-script` candidate in the [E02 record](20261123-e02-third-baseline.md) §7 (≤ 3,235,200 B) by
+   52,613 B, and the crossing is **test infrastructure, not production bytes** — which is exactly the
+   case that record's rule says a maintainer decides rather than the implementer silently re-deriving.
+   The production number to watch is `webview-script` **minus** `dataset-proof.js`, i.e. `dataset.js`
+   alone at 1,041,801 B. No bucket definition was changed (R-11's stop rule), and no candidate was
+   re-derived unilaterally.
+3. **The packaged extension grows** (+83,178 B net raw in `dist/`) because the test-only artefact ships
+   like the existing `e2e-test.cjs` / `spike-test.cjs` already do — there is no `.vscodeignore` in the
+   repo. Bundling the app into the proof entry instead of keeping `./dataset.js` external would have
+   added ~1.09 MB; the external seam was chosen deliberately.
+
+**Carried limits:** the pinned host remains the only proof of the decoded/nonce path (the entry's
+static import of `./dataset.js` exercises it empirically); no parse/compile saving is claimed (the C2
+record measures static bytes only); and the coverage posture is unchanged — `webview/test-proof/**`
+stays out of the denominator, floors 83/76/80/84 untouched, `vitest.config.ts` needed no edit.
+
+**Gates (own runs on the merged tree):** `pnpm build --force` 12/12 · `pnpm measure:bundle` exit 0 ·
+`pnpm exec vitest run apps/vscode` **172 passed** · `pnpm test` **296 files / 4617 tests** ·
+`pnpm typecheck` 20/20 · `pnpm lint` clean · `pnpm format:check` clean · `pnpm docs:links:check` 198
+files / 0 broken · `pnpm adr:index:check` 52 records · `pnpm current-state:check` 107 assertions / 6
+facts · `pnpm assurance-map:check` · `node scripts/dependency-report.mjs --check` 114 entries ·
+`node apps/vscode/scripts/run-e2e.mjs` **PASS** (56 s, offline pinned host 1.130.0) printing
+`editProof` all true, `validationProof` 1/0/2/0 with `staleAfterEdit` and `logicalNavigation` true, and
+the acceptance chain — the same proof-specific fields the worker and the reviewer saw.
+
+**Independent review:** `openai-codex/gpt-6-luna`, read-only — **APPROVE, no must-fix**. It rebuilt and
+re-ran the pinned host itself (green, with the proof outcomes above), confirmed the production entry
+reaches no proof module and that `buildDatasetConfig` selects `dataset-proof.js` only under
+`ExtensionMode.Test && ASSAY_E2E_EDIT_PROOF === '1'`, judged the `extension.cjs` +57 B an acceptable
+consequence of host entry selection rather than a defect, and on the bucket question recommended
+**(a)**: keep the path-based definition unchanged, record that the test-only artefact crosses the
+proposed ceiling, and neither rename a browser module `.cjs` nor add packaging exclusions (which would
+also have to address the already-shipped test bundles). It did not re-run the mutation drill or the
+clean-`dist` byte re-derivation; those remain the worker's evidence, and the integrator re-derived the
+after-bytes independently (1,041,801 B raw / 215,464 B gzip, matching both).

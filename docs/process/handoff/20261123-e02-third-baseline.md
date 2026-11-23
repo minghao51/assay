@@ -311,6 +311,20 @@ Rule used, stated so it can be argued with:
 | `duckdb-runtime` / `duckdb-extension`     | 34,242,586 / 3,865,685 |       same |       same |                             0 |          0 Δ required |
 | `lazy-worker` (engine-side; watch only)   |              1,913,474 |  1,914,091 |  1,917,243 |               +3,152 (0.16 %) |  not a candidate (§4) |
 
+**Later observation (same day, R-10) — the `webview-script` candidate is crossed, and the crossing is
+test infrastructure.** Removing the D03b proofs from the production webview entry
+([successor queue §12](20261121-successor-queue.md#12-third-dated-dispatch-2026-11-23--r-10)) took
+`dataset.js` to **1,041,801 B** (−42,673 against this record's `3a86ac2` baseline, −44,699 against the
+immediately preceding build), but the proofs now compose in a **test-only** artefact that also lives in
+`webview/` and therefore in this bucket: `webview/dataset-proof.js`, 127,877 B. Measured bucket:
+3,197,522 → **3,287,813** (+90,291 = −42,673 `dataset.js` + 2,026 `main.js` + 3,061 `worker.js` from
+R-12's validator code + 127,877 test-only). **That exceeds this record's candidate (≤ 3,235,200 B) by
+52,613 B.** Per the rule above, a crossing means re-baseline with attribution **or** the maintainer
+decides — so this record does not silently re-derive it: the candidate stands as proposed, the
+production number to watch is `dataset.js` alone, and a bucket-definition change is explicitly not on
+the table (it would break comparability with the three rounds). No budget was adopted here; none is
+breached by production code.
+
 Explicitly **not** budgeted, per doc 10 §12 and §5 here: install size, the CLI tarball, the CLI
 `total` row (it carries `.tsbuildinfo`), and `packages/engine-duckdb/dist` (§4 — it is invisible to
 the table and needs its own measurement before it can have a number).
