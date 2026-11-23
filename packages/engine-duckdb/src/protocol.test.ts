@@ -843,6 +843,106 @@ describe('B3: engine/profile-comparison protocol', () => {
   })
 })
 
+// ---- R-9/ADR 0052: engine/cancel-query protocol ----
+//
+// One additive request (a parked `engine/query` + its id) and the honest
+// boolean answer, plus the parked op's typed `cancelled` settlement. The
+// target id is mandatory and engine-shaped: a cancel can never default to
+// "whatever is pending", which is exactly the stale-cancel hazard that would
+// let a late cancel interrupt the user's NEXT query.
+
+describe('R-9/ADR 0052: engine/cancel-query protocol', () => {
+  describe('parseEngineRequest', () => {
+    it('parses a well-formed cancel naming the parked query', () => {
+      expect(
+        parseEngineRequest({ type: 'engine/cancel-query', requestId: 9, queryRequestId: 8 }),
+      ).toEqual({ type: 'engine/cancel-query', requestId: 9, queryRequestId: 8 })
+    })
+
+    it('rejects an absent or malformed target id (never a whatever-is-pending default)', () => {
+      for (const queryRequestId of [
+        undefined,
+        null,
+        0,
+        -1,
+        1.5,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        '8',
+        true,
+        {},
+      ]) {
+        expect(
+          parseEngineRequest({ type: 'engine/cancel-query', requestId: 9, queryRequestId }),
+          String(queryRequestId),
+        ).toBeNull()
+      }
+    })
+
+    it('refuses unknown/extra fields by class without echoing them', () => {
+      const parsed = parseEngineRequestEnvelope({
+        type: 'engine/cancel-query',
+        requestId: 7,
+        queryRequestId: 3,
+        sql: 'SELECT canary-secret-value',
+        tableId: 'canary-handle',
+      })
+      expect(parsed).toEqual({
+        status: 'malformed',
+        malformed: {
+          requestId: 7,
+          requestType: 'engine/cancel-query',
+          field: 'cancel-query.unknown-field',
+        },
+      })
+      expect(JSON.stringify(parsed)).not.toContain('canary')
+    })
+
+    it('is a recognised request type (a malformed cancel is answered, never dropped)', () => {
+      expect(ENGINE_REQUEST_TYPES).toContain('engine/cancel-query')
+      expect(parseEngineRequestEnvelope({ type: 'engine/cancel-query', requestId: 4 })).toEqual({
+        status: 'malformed',
+        malformed: {
+          requestId: 4,
+          requestType: 'engine/cancel-query',
+          field: 'cancel-query.queryRequestId',
+        },
+      })
+    })
+  })
+
+  describe('parseEngineResponse', () => {
+    it("carries cancelSent()'s boolean honestly in both directions", () => {
+      expect(
+        parseEngineResponse({ type: 'engine/cancel-query-result', requestId: 5, cancelSent: true }),
+      ).toEqual({ type: 'engine/cancel-query-result', requestId: 5, cancelSent: true })
+      expect(
+        parseEngineResponse({
+          type: 'engine/cancel-query-result',
+          requestId: 6,
+          cancelSent: false,
+        }),
+      ).toEqual({ type: 'engine/cancel-query-result', requestId: 6, cancelSent: false })
+    })
+
+    it('rejects a result whose cancelSent is missing or not a boolean', () => {
+      for (const cancelSent of [undefined, 'true', 1, null, {}]) {
+        expect(
+          parseEngineResponse({ type: 'engine/cancel-query-result', requestId: 5, cancelSent }),
+          String(cancelSent),
+        ).toBeNull()
+      }
+    })
+
+    it("parses the parked query's typed cancelled settlement (no rows, no payload)", () => {
+      expect(parseEngineResponse({ type: 'engine/query-cancelled', requestId: 3 })).toEqual({
+        type: 'engine/query-cancelled',
+        requestId: 3,
+      })
+    })
+  })
+})
+
 describe('m4-2: overlay + export protocol', () => {
   const OVERLAY = {
     base: {
@@ -1291,6 +1391,26 @@ describe('m4-2: overlay + export protocol', () => {
         payload: { sql: 42 },
         field: 'query.sql',
       },
+      // engine/cancel-query (R-9/ADR 0052) — refusals happen at parse time,
+      // before anything can touch the engine.
+      {
+        label: 'engine/cancel-query missing queryRequestId',
+        type: 'engine/cancel-query',
+        payload: {},
+        field: 'cancel-query.queryRequestId',
+      },
+      {
+        label: 'engine/cancel-query malformed queryRequestId',
+        type: 'engine/cancel-query',
+        payload: { queryRequestId: 0 },
+        field: 'cancel-query.queryRequestId',
+      },
+      {
+        label: 'engine/cancel-query extra field',
+        type: 'engine/cancel-query',
+        payload: { queryRequestId: 1, sql: 'SELECT 1' },
+        field: 'cancel-query.unknown-field',
+      },
       // engine/open
       {
         label: 'engine/open missing name',
@@ -1731,9 +1851,9 @@ describe('m4-2: overlay + export protocol', () => {
       })
     })
 
-    it('lists exactly the 24 request types and covers every one', () => {
-      expect(ENGINE_REQUEST_TYPES).toHaveLength(24)
-      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(24)
+    it('lists exactly the 25 request types and covers every one', () => {
+      expect(ENGINE_REQUEST_TYPES).toHaveLength(25)
+      expect(new Set(ENGINE_REQUEST_TYPES).size).toBe(25)
       const covered = new Set(cases.map((entry) => entry.type))
       // init and dispose have no required fields (nothing can be malformed),
       // so every other request type must appear in the malformed matrix.

@@ -5271,7 +5271,7 @@
           "file": "packages/engine-duckdb/src/client.ts",
           "line": 24,
           "via": "import",
-          "symbols": ["tableFromIPC"]
+          "symbols": ["tableFromArrays", "tableFromIPC"]
         },
         {
           "file": "packages/engine-duckdb/src/client.ts",
@@ -6062,7 +6062,7 @@
         },
         {
           "file": "packages/testing/src/engine-conformance.ts",
-          "line": 167,
+          "line": 176,
           "via": "import",
           "symbols": ["CONTRACT_TYPE_VOCABULARY", "parseContract"]
         }
@@ -6094,7 +6094,7 @@
         },
         {
           "file": "packages/testing/src/engine-conformance.ts",
-          "line": 169,
+          "line": 178,
           "via": "import",
           "symbols": ["compileRowDiffPlan"]
         }
@@ -6158,7 +6158,7 @@
       "useSites": [
         {
           "file": "packages/testing/src/engine-conformance.ts",
-          "line": 168,
+          "line": 177,
           "via": "import",
           "symbols": ["compileContract"]
         }
@@ -6267,7 +6267,7 @@
         },
         {
           "file": "packages/testing/src/engine-conformance.ts",
-          "line": 166,
+          "line": 175,
           "via": "import",
           "symbols": ["Vector", "Table"]
         }

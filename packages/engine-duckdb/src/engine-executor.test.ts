@@ -152,6 +152,8 @@ interface PendingSend {
 class FakeConnection implements EngineConnectionLike {
   private busy = false
   private readonly pendingSends: PendingSend[] = []
+  /** The send whose gate has not settled yet (the connection's pending query). */
+  private parkedGate: Deferred<FakeStream> | null = null
 
   /** SQL strings in exact execution (not arrival) order. */
   readonly sentSqls: string[] = []
@@ -160,6 +162,8 @@ class FakeConnection implements EngineConnectionLike {
   cancelSentCalls = 0
   /** When non-null, `cancelSent()` rejects with this. */
   cancelSentError: unknown = null
+  /** When non-null, `cancelSent()` answers this instead of the modelled value. */
+  cancelSentResult: boolean | null = null
 
   async send(sql: string): Promise<EngineResultReaderLike> {
     this.sentSqls.push(sql)
@@ -175,13 +179,17 @@ class FakeConnection implements EngineConnectionLike {
     const gate = deferred<FakeStream>()
     const send: PendingSend = { sql, gate }
     this.pendingSends.push(send)
+    this.parkedGate = gate
     try {
       const stream = await gate.promise
+      this.parkedGate = null
       return new FakeReader(stream, () => {
         this.busy = false
       })
     } catch (error) {
-      // A failed start frees the slot (as duckdb-wasm's pending query does).
+      // A failed start frees the slot (as duckdb-wasm's pending query does —
+      // including the cancellation rejection the B7 probe observed).
+      this.parkedGate = null
       this.busy = false
       throw error
     }
@@ -207,7 +215,26 @@ class FakeConnection implements EngineConnectionLike {
   async cancelSent(): Promise<unknown> {
     this.cancelSentCalls += 1
     if (this.cancelSentError !== null) throw this.cancelSentError
-    return true
+    if (this.cancelSentResult !== null) return this.cancelSentResult
+    // The platform's own boolean: `true` only when a pending query existed.
+    return this.parkedGate !== null
+  }
+
+  /** True while a send is parked (its first batch has not been delivered). */
+  get hasParkedQuery(): boolean {
+    return this.parkedGate !== null
+  }
+
+  /**
+   * Model the platform side of a cancel: the B7 probe observed the parked
+   * `send()` rejecting with `Error: query was canceled` ~1–3 ms after
+   * `cancelSent()`. Tests call this explicitly so the interleaving stays
+   * scripted (no timers).
+   */
+  rejectParkedQuery(error: unknown = new Error('query was canceled')): void {
+    const gate = this.parkedGate
+    if (gate === null) throw new Error('no parked query to reject')
+    gate.reject(error)
   }
 
   /** Test side: the n-th send's gate (must exist — flush first). */
@@ -863,6 +890,183 @@ function filteredRowCountRequest(
     ...(filters === undefined ? {} : { filters }),
   }
 }
+
+// ---- R-9/ADR 0052: engine/cancel-query (out-of-band query-lane op) ----
+
+function cancelQueryRequest(id: number, queryRequestId: number): EngineRequest {
+  return { type: 'engine/cancel-query', requestId: id, queryRequestId }
+}
+
+/**
+ * R-9/ADR 0052: the cancel is dispatched to the query-lane CONNECTION without
+ * entering the lane's single-pending `OpChannel`, settles the parked query as
+ * a typed `cancelled` outcome, and is scoped to `engine/query` only.
+ *
+ * The lane guarantee below is the ADR 0040 amendment's pin: the cancel's
+ * response must arrive while the query it targets is STILL parked. Route the
+ * cancel through the lane (the mutation drill) and that assertion fails — the
+ * response cannot arrive until the query settles, which is exactly the
+ * head-of-line behaviour the op exists to remove.
+ */
+describe('EngineOpExecutor cancel (R-9/ADR 0052: out of band, engine/query only)', () => {
+  it('settles the parked query as cancelled while never queueing behind it, and the lane is reusable', async () => {
+    const { executor, deps } = makeExecutor()
+
+    // The long query owns the lane head and is parked before its first batch.
+    executor.accept(queryRequest(1, 'SELECT sum(i) FROM range(1000000000) t(i)'))
+    await awaitSends(deps.queryConn, 1)
+    expect(deps.queryConn.hasParkedQuery).toBe(true)
+
+    // The cancel is accepted while the query is parked.
+    executor.accept(cancelQueryRequest(2, 1))
+    expect(await awaitPosted(deps, 2)).toEqual({
+      type: 'engine/cancel-query-result',
+      requestId: 2,
+      cancelSent: true,
+    })
+    expect(deps.queryConn.cancelSentCalls).toBe(1)
+    // THE LANE GUARANTEE: the cancel answered while the query was still
+    // parked and the parked op has posted nothing — it did not wait for the
+    // lane head to settle (it never entered the lane's FIFO at all).
+    expect(deps.queryConn.hasParkedQuery).toBe(true)
+    expect(deps.postedResponses.some((response) => response.requestId === 1)).toBe(false)
+
+    // The platform side (B7 probe): the parked send rejects with the engine's
+    // own cancellation error, which settles this op as the typed outcome.
+    deps.queryConn.rejectParkedQuery()
+    expect(await awaitPosted(deps, 1)).toEqual({ type: 'engine/query-cancelled', requestId: 1 })
+
+    // Connection immediately reusable: the next query executes and answers.
+    executor.accept(queryRequest(3, 'SELECT 42 AS answer'))
+    await awaitSends(deps.queryConn, 2)
+    deps.queryConn.resolveSend(1, intTable([42]))
+    expect(await awaitPosted(deps, 3)).toMatchObject({
+      type: 'engine/query-result',
+      requestId: 3,
+    })
+    expectNoCollisions(deps)
+  })
+
+  it('translates only the platform cancellation rejection; every other rejection stays an engine error', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(queryRequest(1, 'SELECT * FROM __no_such_relation__'))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.rejectParkedQuery(new Error('Catalog Error: no such table'))
+    expect(await awaitPosted(deps, 1)).toEqual({
+      type: 'engine/error',
+      requestId: 1,
+      message: 'Catalog Error: no such table',
+    })
+    // No cancel was involved: the connection's cancelSent was never called.
+    expect(deps.queryConn.cancelSentCalls).toBe(0)
+  })
+
+  it('refuses a cancel for a non-query op holding the query lane (scope is engine/query only)', async () => {
+    const { executor, deps } = makeExecutor()
+    await openFlatTable(executor, deps)
+
+    // A profile scan — the same lane, a different (non-cancellable) op class.
+    executor.accept(profileRequest(2))
+    await awaitSends(deps.queryConn, 1)
+
+    executor.accept(cancelQueryRequest(3, 2))
+    expect(await awaitPosted(deps, 3)).toEqual({
+      type: 'engine/error',
+      requestId: 3,
+      message: 'cancel-query refused: only engine/query is cancellable',
+    })
+    // No interrupt was attempted on a non-query op.
+    expect(deps.queryConn.cancelSentCalls).toBe(0)
+
+    // The profile op itself was left alone: it settles on its own terms.
+    deps.queryConn.resolveSend(0, intTable([]))
+    expect((await awaitPosted(deps, 2)).type).toBe('engine/error')
+  })
+
+  it('a cancel naming an op that is no longer parked answers cancelSent:false and interrupts nothing', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(queryRequest(1, 'SELECT 1 AS one'))
+    await awaitSends(deps.queryConn, 1)
+    deps.queryConn.resolveSend(0, intTable([1]))
+    expect(await awaitPosted(deps, 1)).toMatchObject({ type: 'engine/query-result', requestId: 1 })
+
+    // Stale target: the named query already settled. A blind connection-level
+    // cancel here would kill whatever runs NEXT — answer false instead.
+    executor.accept(cancelQueryRequest(2, 1))
+    expect(await awaitPosted(deps, 2)).toEqual({
+      type: 'engine/cancel-query-result',
+      requestId: 2,
+      cancelSent: false,
+    })
+    expect(deps.queryConn.cancelSentCalls).toBe(0)
+  })
+
+  it('answers cancelSent:false on an idle lane without touching the connection', async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(cancelQueryRequest(1, 99))
+    expect(await awaitPosted(deps, 1)).toEqual({
+      type: 'engine/cancel-query-result',
+      requestId: 1,
+      cancelSent: false,
+    })
+    expect(deps.queryConn.cancelSentCalls).toBe(0)
+    expect(deps.queryConn.sentSqls).toEqual([])
+  })
+
+  it("passes cancelSent()'s own false through instead of claiming a stop", async () => {
+    const { executor, deps } = makeExecutor()
+    executor.accept(queryRequest(1, 'SELECT sum(i) FROM range(1000000000) t(i)'))
+    await awaitSends(deps.queryConn, 1)
+    // The connection reports that nothing was pending, even though this
+    // executor believed the query was parked — the platform's answer wins.
+    deps.queryConn.cancelSentResult = false
+    executor.accept(cancelQueryRequest(2, 1))
+    expect(await awaitPosted(deps, 2)).toEqual({
+      type: 'engine/cancel-query-result',
+      requestId: 2,
+      cancelSent: false,
+    })
+    // Nothing was cancelled: the parked op still waits for its own result.
+    expect(deps.postedResponses.some((response) => response.requestId === 1)).toBe(false)
+    expect(deps.queryConn.hasParkedQuery).toBe(true)
+  })
+
+  it('refuses a malformed cancel at the seam: one typed, value-free error and no engine touch', async () => {
+    const { executor, deps } = makeExecutor()
+
+    executor.accept({ type: 'engine/cancel-query', requestId: 9 })
+    expect(await awaitPosted(deps, 9)).toEqual({
+      type: 'engine/error',
+      requestId: 9,
+      message: 'malformed envelope: cancel-query.queryRequestId',
+    })
+
+    executor.accept({ type: 'engine/cancel-query', requestId: 10, queryRequestId: 0 })
+    expect(await awaitPosted(deps, 10)).toEqual({
+      type: 'engine/error',
+      requestId: 10,
+      message: 'malformed envelope: cancel-query.queryRequestId',
+    })
+
+    executor.accept({ type: 'engine/cancel-query', requestId: 11, queryRequestId: 1, sql: 'x' })
+    expect(await awaitPosted(deps, 11)).toEqual({
+      type: 'engine/error',
+      requestId: 11,
+      message: 'malformed envelope: cancel-query.unknown-field',
+    })
+
+    // An unknown request type is still ignored (not part of the protocol).
+    executor.accept({ type: 'engine/cancel-everything', requestId: 12 })
+    await flush()
+    expect(deps.postedResponses.some((response) => response.requestId === 12)).toBe(false)
+
+    // Nothing above booted the engine, opened a connection or sent SQL.
+    expect(deps.bootCalls).toBe(0)
+    expect(deps.queryConn.sentSqls).toEqual([])
+    expect(deps.queryConn.cancelSentCalls).toBe(0)
+    expect(deps.conn.sentSqls).toEqual([])
+  })
+})
 
 describe('EngineOpExecutor filtered/sorted windows (m2-2)', () => {
   it('composes filtered+sorted window SQL over the registered view and streams the result', async () => {

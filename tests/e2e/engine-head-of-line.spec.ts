@@ -21,6 +21,10 @@ import { median, percentile } from './support/stats'
 // queued-vs-query ordering assertions are discrete (settlement order), not
 // wall-clock thresholds that CPU contention could flip.
 //
+// R-9/ADR 0052 extends this spec with the Cancel case at the bottom: the same
+// long statement is parked and cancelled out of band, and the follow-up query's
+// wait is what the user sees — it must not wait out the abandoned query.
+//
 // Harness served from packages/engine-duckdb by the second webServer in
 // playwright.config.ts; port env-overridable for parallel worktree batches
 // (default 4179).
@@ -132,4 +136,69 @@ test('measures interactive-op waits behind a long query (m2-7 evidence)', async 
   expect(summary.medianQueuedSchemaMs, 'median queued schema wait').toBeLessThan(
     summary.medianLongQueryMs / 2,
   )
+})
+
+// ---- R-9/ADR 0052: Cancel stops the head-of-line block ---------------------
+//
+// The other half of the same story. Before the interrupt, "Cancel" was UI-level
+// abandonment only: the engine kept computing and the next Run queued behind it
+// for the query's whole duration. The harness now sends the out-of-band
+// `engine/cancel-query`, which reaches the query-lane connection without
+// queueing behind the query it cancels, and the parked op settles as a typed
+// `cancelled` outcome. The observable user-facing consequence is the follow-up
+// query's wait: it must start promptly instead of waiting out the abandoned
+// query. Assertions stay coarse (a magnitude floor plus a fraction), never
+// wall-clock thresholds a shared machine could flip.
+
+/** Structural mirror of the harness's QueryCancelEvidence JSON. */
+interface QueryCancelEvidence {
+  uncancelledMs: number
+  cancelSent: boolean
+  parkedOutcome: 'cancelled' | 'rows' | 'error'
+  parkedSettleMs: number
+  followUpMs: number
+  followUpValue: string
+  engineReady: boolean
+  error?: string
+}
+
+test('Cancel lets the next Run start promptly instead of queueing behind it', async ({ page }) => {
+  // Engine boot + open + the uncancelled reference (~1–3 s) + one cancelled
+  // run; generous for CPU contention (G1-R precedent), never a target.
+  test.setTimeout(180_000)
+  await page.goto(HARNESS_URL)
+
+  await expect(page.getByTestId('engine-status')).toHaveText('idle')
+  await page.getByRole('button', { name: 'Open flat fixture via engine' }).click()
+  await expect(page.getByTestId('open-status-flat')).toHaveText('opened', { timeout: 60_000 })
+
+  await page.getByRole('button', { name: /Measure query cancel/ }).click()
+  const element = page.getByTestId('query-cancel-result')
+  await expect(element).not.toHaveText('not run', { timeout: 120_000 })
+  const evidence = JSON.parse((await element.textContent())!) as QueryCancelEvidence
+
+  // Evidence FIRST (a failing run must still record its numbers).
+  await test.info().attach('query-cancel-evidence.json', {
+    body: JSON.stringify(evidence, null, 2),
+    contentType: 'application/json',
+  })
+  console.log('[R-9 query-cancel]', JSON.stringify(evidence))
+
+  expect(evidence.error, 'harness reported an error').toBeUndefined()
+  // The engine's own boolean, not an assumption: it had a pending query.
+  expect(evidence.cancelSent, 'the engine reports it cancelled a pending query').toBe(true)
+  // The typed outcome: cancelled, never a masked engine error.
+  expect(evidence.parkedOutcome, 'the parked query settles as the cancelled outcome').toBe(
+    'cancelled',
+  )
+  // The connection is immediately reusable for the very next query.
+  expect(evidence.followUpValue, 'the follow-up query answers').toBe('42')
+  expect(evidence.engineReady, 'the engine stays ready').toBe(true)
+  // Magnitude sanity + the user-visible lane guarantee: the abandoned query
+  // really is long, and the follow-up does NOT wait it out.
+  expect(evidence.uncancelledMs, 'the reference query really is long').toBeGreaterThanOrEqual(1_000)
+  expect(
+    evidence.followUpMs,
+    'the follow-up query must start promptly, not behind the abandoned query',
+  ).toBeLessThan(evidence.uncancelledMs / 2)
 })

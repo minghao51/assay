@@ -46,6 +46,7 @@ export {
 } from './client.js'
 export type {
   DuckDbEngineClientOptions,
+  EngineCancelResult,
   EngineComparisonHandle,
   EngineCsvPreviewResult,
   EngineDatasetProfile,
@@ -66,6 +67,8 @@ export type {
 } from './client.js'
 export { parseEngineRequest, parseEngineResponse } from './protocol.js'
 export type {
+  EngineCancelQueryRequest,
+  EngineCancelQueryResultResponse,
   EngineColumnSchema,
   EngineCategoricalColumnStats,
   EngineCategoricalTopKEntry,
@@ -107,6 +110,7 @@ export type {
   EngineProfileComparisonRequest,
   EngineProfileRequest,
   EngineProfileResultResponse,
+  EngineQueryCancelledResponse,
   EngineQueryRequest,
   EngineQueryResultResponse,
   EngineRangeRequest,

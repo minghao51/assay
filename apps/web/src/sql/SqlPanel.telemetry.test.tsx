@@ -8,10 +8,10 @@ import { SqlPanel } from './SqlPanel'
 import type { SqlRunRequest } from './SqlPanel'
 import { SQL_PAGE_SIZE } from './paged-query'
 
-const h = vi.hoisted(() => ({ query: vi.fn() }))
+const h = vi.hoisted(() => ({ query: vi.fn(), cancelQuery: vi.fn() }))
 
 vi.mock('../lib/engine', () => ({
-  engineClient: { query: h.query },
+  engineClient: { query: h.query, cancelQuery: h.cancelQuery },
 }))
 
 function fakeRuntime(): WebTelemetryRuntime {
@@ -57,6 +57,11 @@ afterEach(cleanup)
 beforeEach(() => {
   h.query.mockReset()
   h.query.mockResolvedValue(result(SQL_PAGE_SIZE))
+  // Plumbing only (R-9/ADR 0052): the Cancel control now also asks the
+  // engine to stop. The assertions below are unchanged and pin the same
+  // abandonment/telemetry contract.
+  h.cancelQuery.mockReset()
+  h.cancelQuery.mockResolvedValue({ cancelSent: true })
 })
 
 describe('SqlPanel telemetry — query_run (design §2/Appendix C)', () => {

@@ -39,6 +39,7 @@ const BUTTON_LABELS: Record<ConformanceScenarioName, string> = {
   'arrow-shape': 'Conformance: arrow shape',
   'corrupt-file-rollback': 'Conformance: corrupt file rollback',
   'mid-stream-error-reuse': 'Conformance: mid-stream error reuse',
+  'query-cancel': 'Conformance: query cancel',
   'window-filter-sort': 'Conformance: window filter sort',
   'predicate-error-reuse': 'Conformance: predicate error reuse',
   'profile-semantics': 'Conformance: profile semantics',
@@ -103,6 +104,17 @@ for (const name of SCENARIOS) {
       case 'mid-stream-error-reuse':
         expect(result.facts['midStreamRejected']).toBe(true)
         expect(result.facts['followUpValue']).toBe('42')
+        expect(result.facts['engineReadyAfter']).toBe(true)
+        break
+      case 'query-cancel':
+        // R-9/ADR 0052: the parked query settles as the typed cancelled
+        // outcome, the connection answers the next query, and a cancel with
+        // nothing pending reports false rather than claiming a stop.
+        expect(result.facts['cancelSent']).toBe(true)
+        expect(result.facts['parkedSettledCancelled']).toBe(true)
+        expect(result.facts['cancelledRows']).toBe(0)
+        expect(result.facts['followUpValue']).toBe('42')
+        expect(result.facts['idleCancelReportedFalse']).toBe(true)
         expect(result.facts['engineReadyAfter']).toBe(true)
         break
       case 'window-filter-sort':

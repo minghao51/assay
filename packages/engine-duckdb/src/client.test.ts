@@ -2763,3 +2763,139 @@ describe('DuckDbEngineClient csvPreview + open options (EW-03I)', () => {
     ).toHaveLength(0)
   })
 })
+
+// ---- R-9/ADR 0052: cancelQuery + the typed cancelled outcome ----
+
+describe('DuckDbEngineClient cancel (R-9/ADR 0052)', () => {
+  /** Boot a client against one fake worker and assert it is ready. */
+  async function booted(): Promise<{
+    client: DuckDbEngineClient
+    worker: FakeWorker
+  }> {
+    const { client, workers } = makeClient()
+    const ready = client.ensureReady()
+    const worker = workers[0]!
+    worker.respond(readyResponse(worker.requestAt(0).requestId))
+    await ready
+    return { client, worker }
+  }
+
+  it('targets the in-flight query, reports cancelSent() honestly and resolves the parked op as cancelled', async () => {
+    const { client, worker } = await booted()
+
+    const parked = client.query('SELECT sum(i) FROM range(1000000000) t(i)')
+    await flush()
+    const queryRequest = worker.requestAt(1)
+    expect(queryRequest).toMatchObject({ type: 'engine/query' })
+    const queryRequestId = queryRequest.requestId
+
+    const canceling = client.cancelQuery()
+    await flush()
+    const cancelRequest = worker.requestAt(2)
+    // The cancel names the parked op: no blind "whatever is pending" target.
+    expect(cancelRequest).toEqual({
+      type: 'engine/cancel-query',
+      requestId: cancelRequest.requestId,
+      queryRequestId,
+    })
+
+    worker.respond({
+      type: 'engine/cancel-query-result',
+      requestId: cancelRequest.requestId,
+      cancelSent: true,
+    })
+    expect(await canceling).toEqual({ cancelSent: true })
+
+    // The parked op settles as the TYPED outcome: no rows, not an error.
+    worker.respond({ type: 'engine/query-cancelled', requestId: queryRequestId })
+    const result = await parked
+    expect(result.cancelled).toBe(true)
+    expect(result.hasMore).toBe(false)
+    expect(result.batch.numRows).toBe(0)
+    expect(result.batch.numCols).toBe(0)
+  })
+
+  it('passes a false cancelSent through without claiming a stop (and leaves the parked op alone)', async () => {
+    const { client, worker } = await booted()
+    const parked = client.query('SELECT 1 AS value')
+    await flush()
+    const queryRequestId = worker.requestAt(1).requestId
+
+    const canceling = client.cancelQuery()
+    await flush()
+    const cancelRequest = worker.requestAt(2)
+    worker.respond({
+      type: 'engine/cancel-query-result',
+      requestId: cancelRequest.requestId,
+      cancelSent: false,
+    })
+    expect(await canceling).toEqual({ cancelSent: false })
+
+    // The query still delivers its batch: nothing was cancelled.
+    worker.respond(queryResultResponse(queryRequestId, [1]))
+    const result = await parked
+    expect(result.cancelled).toBeUndefined()
+    expectArrowValue(result, [1])
+  })
+
+  it('with nothing in flight resolves cancelSent:false without posting a request', async () => {
+    const { client, worker } = await booted()
+    const posted = worker.postedRequests.length
+    expect(await client.cancelQuery()).toEqual({ cancelSent: false })
+    await flush()
+    expect(worker.postedRequests).toHaveLength(posted)
+  })
+
+  it('an explicit queryRequestId targets that query, not the most recent one', async () => {
+    const { client, worker } = await booted()
+    const first = client.query('SELECT 1 AS value')
+    await flush()
+    const firstId = worker.requestAt(1).requestId
+    const second = client.query('SELECT 2 AS value')
+    await flush()
+    const secondId = worker.requestAt(2).requestId
+
+    const canceling = client.cancelQuery(firstId)
+    await flush()
+    const cancelRequest = worker.requestAt(3)
+    expect(cancelRequest).toMatchObject({
+      type: 'engine/cancel-query',
+      queryRequestId: firstId,
+    })
+    worker.respond({
+      type: 'engine/cancel-query-result',
+      requestId: cancelRequest.requestId,
+      cancelSent: true,
+    })
+    await canceling
+    worker.respond({ type: 'engine/query-cancelled', requestId: firstId })
+    expect((await first).cancelled).toBe(true)
+    worker.respond(queryResultResponse(secondId, [2]))
+    expectArrowValue(await second, [2])
+  })
+
+  it('a refused cancel surfaces as a typed operation error (scope is engine/query only)', async () => {
+    const { client, worker } = await booted()
+    const parked = client.query('SELECT 1 AS value')
+    await flush()
+    const canceling = client.cancelQuery()
+    await flush()
+    const cancelRequest = worker.requestAt(2)
+    worker.respond({
+      type: 'engine/error',
+      requestId: cancelRequest.requestId,
+      message: 'cancel-query refused: only engine/query is cancellable',
+    })
+    const rejection = await canceling.then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(rejection).toBeInstanceOf(EngineOperationError)
+    expect((rejection as Error).message).toBe(
+      'cancel-query refused: only engine/query is cancellable',
+    )
+    // The query itself still settles on its own terms.
+    worker.respond(queryResultResponse(worker.requestAt(1).requestId, [1]))
+    expectArrowValue(await parked, [1])
+  })
+})

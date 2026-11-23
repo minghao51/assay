@@ -249,6 +249,16 @@ const MID_STREAM_FAILURE_SQL =
   "SELECT CASE WHEN i < 2048 THEN i ELSE error('assay conformance mid-stream failure') END AS v FROM range(5000) AS t(i)"
 
 /**
+ * The long-running statement the `query-cancel` scenario (R-9/ADR 0052) parks
+ * before cancelling: a ~10⁸-row cross-product aggregate, the same shape the
+ * head-of-line harness measures at seconds-scale in this bundle. It only has
+ * to outlast the suite's 300 ms scheduling head start; no timing is claimed
+ * and the scenario never asserts a duration.
+ */
+const LONG_RUNNING_QUERY_SQL =
+  'SELECT sum(a.i * b.i) AS s FROM range(20000) AS a(i), range(20000) AS b(i)'
+
+/**
  * m3-1 nested dataset: the `fixtures/jsonl/nested.jsonl` golden fixture
  * (committed text; also copied byte-identical into the harness public dir).
  * Hand-authored synthetic rows covering every nested shape M3 exercises:
@@ -1840,6 +1850,7 @@ export function createDuckDbConformanceSubject(
     midStreamFailureSql: () => MID_STREAM_FAILURE_SQL,
     smokeSql: () => SMOKE_SQL,
     smokeSqlValue: SMOKE_VALUE,
+    longRunningQuerySql: () => LONG_RUNNING_QUERY_SQL,
     windowSemantics: WINDOW_SEMANTICS,
     profileDataset: PROFILE_DATASET,
     rejectingFilters: REJECTING_FILTERS,
