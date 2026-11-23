@@ -118,6 +118,29 @@ export interface EngineQueryRequest {
 }
 
 /**
+ * R-9/ADR 0052: cancel a **parked `engine/query`** — the only cancellable op.
+ *
+ * Distinct from every other request in two ways, both deliberate:
+ *
+ * - the worker handles it **out of band** (never through the query lane's
+ *   `OpChannel`), so it cannot queue behind the query it cancels;
+ * - `queryRequestId` names the exact op it targets. Without a target a stale
+ *   cancel (issued for a query that already finished) could interrupt the
+ *   user's *next* query; with it the worker answers `cancelSent: false`
+ *   instead of touching the connection.
+ *
+ * Both ids are engine-generated request ids. `queryRequestId` is required:
+ * an absent or malformed target is refused at parse time, before anything
+ * touches DuckDB (never defaulted to "whatever is pending").
+ */
+export interface EngineCancelQueryRequest {
+  type: 'engine/cancel-query'
+  requestId: number
+  /** The `requestId` of the parked `engine/query` this cancel targets. */
+  queryRequestId: number
+}
+
+/**
  * Open a picked local file inside the worker. `name` is the file's name (only
  * its extension is interpreted — never logged, ADR 0025); `file` is the
  * structured-cloneable `File` reference the client resolved from its file
@@ -531,6 +554,7 @@ export interface EngineDisposeRequest {
 export type EngineRequest =
   | EngineInitRequest
   | EngineQueryRequest
+  | EngineCancelQueryRequest
   | EngineOpenRequest
   | EngineCsvPreviewRequest
   | EngineSchemaRequest
@@ -578,6 +602,32 @@ export interface EngineQueryResultResponse {
   requestId: number
   batchIpc: Uint8Array
   hasMore: boolean
+}
+
+/**
+ * The parked `engine/query` was interrupted by an `engine/cancel-query`
+ * (ADR 0052 typed outcome): it settles as **cancelled**, not as an engine
+ * error and with no rows. `requestId` is the *parked query's* id — the
+ * cancel's own caller gets `EngineCancelQueryResultResponse`.
+ *
+ * Delivered rows are never retracted, so this can only ever answer a query
+ * that had not yet delivered its first batch.
+ */
+export interface EngineQueryCancelledResponse {
+  type: 'engine/query-cancelled'
+  requestId: number
+}
+
+/**
+ * The honest answer to a cancel request. `cancelSent` is `cancelSent()`'s own
+ * boolean — `true` only when the engine really had a pending query to cancel,
+ * `false` when nothing was pending. The client must never turn `false` into a
+ * claim that the compute stopped.
+ */
+export interface EngineCancelQueryResultResponse {
+  type: 'engine/cancel-query-result'
+  requestId: number
+  cancelSent: boolean
 }
 
 /** The file was registered and its view created; `tableId` addresses it. */
@@ -899,6 +949,8 @@ export interface EngineErrorResponse {
 export type EngineResponse =
   | EngineReadyResponse
   | EngineQueryResultResponse
+  | EngineQueryCancelledResponse
+  | EngineCancelQueryResultResponse
   | EngineOpenResultResponse
   | EngineCsvPreviewResultResponse
   | EngineSchemaResultResponse
@@ -926,6 +978,8 @@ export type EngineResponse =
 export type EngineSuccessResponse =
   | EngineReadyResponse
   | EngineQueryResultResponse
+  | EngineQueryCancelledResponse
+  | EngineCancelQueryResultResponse
   | EngineOpenResultResponse
   | EngineCsvPreviewResultResponse
   | EngineSchemaResultResponse
@@ -995,6 +1049,23 @@ function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
   if (type === 'engine/query') {
     if (typeof data.sql !== 'string') return malformedField('query.sql')
     return { ok: true, request: { type, requestId, sql: data.sql } }
+  }
+  if (type === 'engine/cancel-query') {
+    // Strict additive op (ADR 0052): it carries exactly one payload field, so
+    // any other own key is refused by CLASS (the key is never echoed — ADR
+    // 0025) rather than silently dropped like an ignorable extra.
+    for (const key of Object.keys(data)) {
+      if (key !== 'type' && key !== 'requestId' && key !== 'queryRequestId') {
+        return malformedField('cancel-query.unknown-field')
+      }
+    }
+    // The target must be a real engine request id (positive safe integer).
+    // Absent, fractional, zero, negative or non-numeric is a rejected
+    // envelope — never a "cancel whatever is pending" default.
+    if (!isEngineRequestId(data.queryRequestId)) {
+      return malformedField('cancel-query.queryRequestId')
+    }
+    return { ok: true, request: { type, requestId, queryRequestId: data.queryRequestId } }
   }
   if (type === 'engine/open') {
     if (typeof data.name !== 'string') return malformedField('open.name')
@@ -1347,6 +1418,7 @@ function parseEngineRequestDetailed(data: unknown): DetailedEngineRequest {
 export const ENGINE_REQUEST_TYPES = [
   'engine/init',
   'engine/query',
+  'engine/cancel-query',
   'engine/open',
   'engine/csv-preview',
   'engine/schema',
@@ -1551,6 +1623,10 @@ export function parseEngineResponse(data: unknown): EngineResponse | null {
   ) {
     return { type, requestId, batchIpc: data.batchIpc, hasMore: data.hasMore }
   }
+  if (type === 'engine/query-cancelled') return { type, requestId }
+  if (type === 'engine/cancel-query-result' && typeof data.cancelSent === 'boolean') {
+    return { type, requestId, cancelSent: data.cancelSent }
+  }
   if (
     type === 'engine/open-result' &&
     typeof data.tableId === 'string' &&
@@ -1717,6 +1793,16 @@ function isFileFormat(value: unknown): value is 'parquet' | 'csv' | 'jsonl' | 'j
  */
 function isComparisonId(value: string): boolean {
   return /^d[1-9][0-9]*$/.test(value)
+}
+
+/**
+ * An engine-generated request id: a positive safe integer. Request ids are
+ * minted by the client's monotonic counter (1, 2, 3, …), so anything else is
+ * not one — in particular `0`, negatives, fractions and strings cannot name a
+ * parked op.
+ */
+function isEngineRequestId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
 }
 
 /**
