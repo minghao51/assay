@@ -40,6 +40,7 @@
 
 import type { DuckDbType } from '../schema/parseType'
 import { formatDecimalForParsedType } from './decimal'
+import { formatUHUGEINTForParsedType } from './uhugeint'
 
 /** Default total length cap (truncation marker included), in UTF-16 units. */
 export const NESTED_PREVIEW_DEFAULT_MAX_LENGTH = 120
@@ -70,9 +71,10 @@ export interface NestedPreviewOptions {
   readonly maxDepth?: number
   /**
    * Parsed type of the value being previewed (m4-5). When supplied, decimal
-   * leaves (`DECIMAL`/`NUMERIC`/`HUGEINT`) nested inside structs/lists are
-   * decoded exactly instead of summarized as `<16 bytes>`, using each field's
-   * type from the m1-6 parser. Omit to keep the type-blind render.
+   * leaves (`DECIMAL`/`NUMERIC`/`HUGEINT`) and `UHUGEINT` leaves nested inside
+   * structs/lists are decoded exactly instead of summarized as `<N bytes>`,
+   * using each field's type from the m1-6 parser. Omit to keep the type-blind
+   * render.
    */
   readonly columnType?: DuckDbType | null
 }
@@ -122,15 +124,26 @@ class BudgetWriter {
 }
 
 /**
+ * The structural shape Arrow list slices present on the main thread (a
+ * numeric `length` plus a positional `get(i)` — the m3-1 worker-boundary
+ * contract). The getter is a property-typed function so a caller that cannot
+ * narrow the element type honestly keeps `unknown`.
+ */
+export interface ListLike {
+  readonly length: number
+  readonly get: (index: number) => unknown
+}
+
+/**
  * True when the value renders as a positional sequence (Arrow list slices
  * satisfy this). Exported for the record inspector's tree model (m3-3), which
- * classifies the same main-thread cell shapes — reuse, not a fork.
+ * classifies the same main-thread cell shapes — reuse, not a fork. Total: a
+ * non-object (or null) value is simply not list-like.
  */
-export function isListLike(value: object): boolean {
-  return (
-    typeof (value as { length?: unknown }).length === 'number' &&
-    typeof (value as { get?: unknown }).get === 'function'
-  )
+export function isListLike(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  const candidate = value as { readonly length?: unknown; readonly get?: unknown }
+  return typeof candidate.length === 'number' && typeof candidate.get === 'function'
 }
 
 /** True for `[]` / `{}`-shaped values (cheap emptiness probe). */
@@ -173,8 +186,12 @@ function formatPrimitive(value: unknown): string {
   return String(value)
 }
 
-/** The element type of a parsed list, or `null` when the type is not a list. */
-function listElementType(type: DuckDbType | null): DuckDbType | null {
+/**
+ * The element type of a parsed list, or `null` when the type is not a list.
+ * Exported for the record inspector's tree model, which resolves the same
+ * nested positions (reuse, not a fork).
+ */
+export function listElementType(type: DuckDbType | null): DuckDbType | null {
   if (type !== null && type.kind === 'list') return type.element
   return null
 }
@@ -183,8 +200,10 @@ function listElementType(type: DuckDbType | null): DuckDbType | null {
  * The declared type of one struct/union field, or `null` when unknown. Only
  * structs and unions expose named fields; a MAP's rendered shape is not
  * modeled here, so its children stay type-blind (no false decoding).
+ * Exported for the record inspector's tree model, which resolves the same
+ * nested positions (reuse, not a fork).
  */
-function fieldType(type: DuckDbType | null, name: string): DuckDbType | null {
+export function fieldType(type: DuckDbType | null, name: string): DuckDbType | null {
   if (type === null) return null
   if (type.kind !== 'struct' && type.kind !== 'union') return null
   return type.fields.find((field) => field.name === name)?.type ?? null
@@ -275,13 +294,21 @@ function renderValue(
     return
   }
   // Binary views summarize like the scalar `formatCell` path (never a byte
-  // dump) — *except* a 16-byte payload at a declared decimal position, which
-  // is decoded exactly when the parsed field type is known (m4-5). Checked
-  // before list-likeness: `Uint8Array` has a numeric length.
+  // dump) — *except* a 16-byte payload at a declared decimal or `UHUGEINT`
+  // position, which is decoded exactly when the parsed field type is known
+  // (m4-5; `UHUGEINT` reuses `uhugeint.ts`, b2). Checked before list-likeness:
+  // `Uint8Array` has a numeric length. Both decoders are type-gated and return
+  // `null` for an unrelated type or a wrong-width payload, so BLOB/HUGEINT/
+  // DECIMAL and type-blind positions keep the honest `<N bytes>` summary.
   if (ArrayBuffer.isView(container)) {
     const decimal = formatDecimalForParsedType(container, type)
     if (decimal !== null) {
       out.write(decimal)
+      return
+    }
+    const unsigned128 = formatUHUGEINTForParsedType(container, type)
+    if (unsigned128 !== null) {
+      out.write(unsigned128)
       return
     }
     out.write(`<${String((container as { byteLength?: number }).byteLength ?? 0)} bytes>`)
@@ -301,7 +328,7 @@ function renderValue(
   } else if (isListLike(container)) {
     // Read positionally — never through property enumeration, whose keys on
     // Arrow `Vector` slices are internal machinery, not elements.
-    const listLike = container as { length: number; get(index: number): unknown }
+    const listLike = container as ListLike
     renderList(
       listLike.length,
       (index) => listLike.get(index),

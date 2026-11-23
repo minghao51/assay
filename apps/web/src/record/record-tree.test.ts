@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest'
+import { parseDuckDbType } from '../schema/parseType'
 import { formatNestedPreview } from '../grid/nested-preview'
 import {
   buildRecordTree,
@@ -393,5 +394,105 @@ describe('buildRecordTree — AR-W8 length and depth caps', () => {
     expect(node.children).toHaveLength(500)
     expect(node.omittedChildren).toBeUndefined()
     expect(treeHasTruncation(expanded)).toBe(false)
+  })
+})
+
+// ---- R-13: per-column parsed types for nested `UHUGEINT` summaries ----
+//
+// The Record inspector is the full-value layer, so an optional `columnTypes`
+// channel (the m4-5 per-column pattern) lets each node's summary decode a
+// declared `UHUGEINT`/decimal leaf exactly. Every fail-soft case — absent type,
+// non-`UHUGEINT` type, wrong-width payload — keeps today's `<N bytes>`.
+
+/** A 16-byte little-endian **unsigned** payload (Arrow `FixedSizeBinary(16)`). */
+function uhugeintBytes(value: bigint): Uint8Array {
+  const bytes = new Uint8Array(16)
+  let rest = value
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number(rest & 0xffn)
+    rest >>= 8n
+  }
+  return bytes
+}
+
+/** 2^64 — above the signed 64-bit range, so the digits prove the unsigned decode. */
+const TWO_TO_64 = 18446744073709551616n
+
+describe('buildRecordTree — nested UHUGEINT summaries via column types (R-13)', () => {
+  it('shows the exact value in the struct summary and its nested leaf', () => {
+    const tree = buildRecordTree({
+      columns: ['meta'],
+      cells: [{ big: uhugeintBytes(TWO_TO_64) }],
+      columnTypes: [parseDuckDbType('STRUCT("big" UHUGEINT)')],
+    })
+    expect(child(tree, 'meta')).toMatchObject({
+      kind: 'object',
+      summary: '{"big":18446744073709551616}',
+    })
+    expect(child(child(tree, 'meta'), 'big')).toMatchObject({
+      kind: 'leaf',
+      summary: '18446744073709551616',
+    })
+  })
+
+  it('shows the exact value for list elements and a list-of-struct field', () => {
+    const list = buildRecordTree({
+      columns: ['bigs'],
+      cells: [[uhugeintBytes(TWO_TO_64), uhugeintBytes(0n)]],
+      columnTypes: [parseDuckDbType('UHUGEINT[]')],
+    })
+    expect(child(list, 'bigs').summary).toBe('[18446744073709551616,0]')
+    expect(child(child(list, 'bigs'), '0')).toMatchObject({
+      kind: 'leaf',
+      summary: '18446744073709551616',
+    })
+    const nested = buildRecordTree({
+      columns: ['rows'],
+      cells: [[{ big: uhugeintBytes(TWO_TO_64) }]],
+      columnTypes: [parseDuckDbType('STRUCT("big" UHUGEINT)[]')],
+    })
+    expect(child(child(child(nested, 'rows'), '0'), 'big')).toMatchObject({
+      kind: 'leaf',
+      summary: '18446744073709551616',
+    })
+  })
+
+  it('keeps today’s <N bytes> summaries when no column types are supplied', () => {
+    const tree = buildRecordTree({
+      columns: ['meta', 'blob'],
+      cells: [{ big: uhugeintBytes(TWO_TO_64) }, new Uint8Array(16)],
+    })
+    expect(child(tree, 'meta').summary).toBe('{"big":<16 bytes>}')
+    expect(child(child(tree, 'meta'), 'big')).toMatchObject({ summary: '<16 bytes>' })
+    expect(child(tree, 'blob')).toMatchObject({ kind: 'leaf', summary: '<16 bytes>' })
+  })
+
+  it('keeps the honest summary for a BLOB(16) column', () => {
+    const tree = buildRecordTree({
+      columns: ['b'],
+      cells: [new Uint8Array(16).fill(7)],
+      columnTypes: [parseDuckDbType('BLOB')],
+    })
+    expect(child(tree, 'b')).toMatchObject({ kind: 'leaf', summary: '<16 bytes>' })
+  })
+
+  it('keeps the summary for a wrong-width payload at a UHUGEINT position', () => {
+    const tree = buildRecordTree({
+      columns: ['meta'],
+      cells: [{ big: new Uint8Array(8) }],
+      columnTypes: [parseDuckDbType('STRUCT("big" UHUGEINT)')],
+    })
+    expect(child(tree, 'meta').summary).toBe('{"big":<8 bytes>}')
+    expect(child(child(tree, 'meta'), 'big')).toMatchObject({ summary: '<8 bytes>' })
+  })
+
+  it('treats a missing columnTypes entry as type-blind', () => {
+    const tree = buildRecordTree({
+      columns: ['meta', 'other'],
+      cells: [{ big: uhugeintBytes(TWO_TO_64) }, { big: uhugeintBytes(TWO_TO_64) }],
+      columnTypes: [parseDuckDbType('STRUCT("big" UHUGEINT)')],
+    })
+    expect(child(tree, 'meta').summary).toBe('{"big":18446744073709551616}')
+    expect(child(tree, 'other').summary).toBe('{"big":<16 bytes>}')
   })
 })

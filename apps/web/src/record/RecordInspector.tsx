@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalSt
 import type { KeyboardEvent } from 'react'
 import type { GridViewportModel } from '@assay/grid'
 import { domId, encodePath } from '../lib/dom-id'
+import { parseDuckDbType } from '../schema/parseType'
 import { RunGuard } from '../sql/run-guard'
 import {
   recordContextNeedsReload,
@@ -544,6 +545,11 @@ export function RecordInspector({
         {
           columns: schema.map((column) => column.name),
           cells: slot.row,
+          // R-13: the parsed schema types (the m4-5 pattern) let a nested
+          // `UHUGEINT`/decimal leaf render its exact value. The parser is
+          // memoized per type string (`schema/parseType.ts`), so this stays
+          // off the hot render path; an absent type keeps the byte summary.
+          columnTypes: schema.map((column) => parseDuckDbType(column.type)),
         },
         options,
       ),
@@ -643,6 +649,7 @@ export function RecordInspector({
         {
           columns: schema.map((column) => column.name),
           cells: slot.row,
+          columnTypes: schema.map((column) => parseDuckDbType(column.type)),
         },
         options,
       ),
@@ -686,7 +693,11 @@ export function RecordInspector({
     dispatch({
       type: 'reloaded',
       tree: buildRecordTree(
-        { columns: schema.map((column) => column.name), cells: slot.row },
+        {
+          columns: schema.map((column) => column.name),
+          cells: slot.row,
+          columnTypes: schema.map((column) => parseDuckDbType(column.type)),
+        },
         {
           maxChildren: RECORD_TREE_EXPANDED_MAX_CHILDREN,
           maxDepth: RECORD_TREE_EXPANDED_MAX_DEPTH,

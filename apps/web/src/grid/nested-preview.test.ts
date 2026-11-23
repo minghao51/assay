@@ -491,3 +491,115 @@ describe('formatNestedPreview — nested decimals via the parsed type tree (m4-5
     ).toBe('{"b":<3 bytes>}')
   })
 })
+
+// ---- R-13: `UHUGEINT` leaves nested in structs/lists (reuses `uhugeint.ts`) ----
+//
+// The scalar path already renders a `UHUGEINT` cell exactly (b2); the nested
+// preview decodes it only when the parsed type at that position declares it —
+// the same per-column/field/element pattern as the m4-5 decimal channel. Every
+// fail-soft case keeps the honest `<N bytes>` summary: no declared type, a
+// non-`UHUGEINT` type (BLOB of any width, HUGEINT/DECIMAL), or a payload whose
+// width is not 16 bytes.
+
+/** A 16-byte little-endian **unsigned** payload (Arrow `FixedSizeBinary(16)`). */
+function uhugeintBytes(value: bigint): Uint8Array {
+  const bytes = new Uint8Array(16)
+  let rest = value
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number(rest & 0xffn)
+    rest >>= 8n
+  }
+  return bytes
+}
+
+/** 2^64 — above the signed 64-bit range, so the digits prove the unsigned decode. */
+const TWO_TO_64 = 18446744073709551616n
+const UHUGEINT_MAX = 340282366920938463463374607431768211455n
+
+describe('formatNestedPreview — nested UHUGEINT via the parsed type tree (R-13)', () => {
+  it('decodes a UHUGEINT leaf inside a struct exactly (above the signed 64-bit range)', () => {
+    const type = parseDuckDbType('STRUCT("big" UHUGEINT, "max" UHUGEINT)')
+    const value = { big: uhugeintBytes(TWO_TO_64), max: uhugeintBytes(UHUGEINT_MAX) }
+    expect(formatNestedPreview(value, { columnType: type })).toBe(
+      '{"big":18446744073709551616,"max":340282366920938463463374607431768211455}',
+    )
+  })
+
+  it('decodes UHUGEINT elements of a list exactly', () => {
+    expect(
+      formatNestedPreview([uhugeintBytes(TWO_TO_64), uhugeintBytes(0n)], {
+        columnType: parseDuckDbType('UHUGEINT[]'),
+      }),
+    ).toBe('[18446744073709551616,0]')
+    expect(
+      formatNestedPreview(
+        { bigs: [uhugeintBytes(TWO_TO_64)] },
+        {
+          columnType: parseDuckDbType('STRUCT("bigs" UHUGEINT[])'),
+        },
+      ),
+    ).toBe('{"bigs":[18446744073709551616]}')
+  })
+
+  it('keeps a BLOB leaf of any width as its honest byte summary', () => {
+    expect(
+      formatNestedPreview(
+        { b: new Uint8Array(16).fill(7) },
+        { columnType: parseDuckDbType('STRUCT("b" BLOB)') },
+      ),
+    ).toBe('{"b":<16 bytes>}')
+    expect(
+      formatNestedPreview([new Uint8Array(3)], { columnType: parseDuckDbType('BLOB[]') }),
+    ).toBe('[<3 bytes>]')
+  })
+
+  it('keeps the summary for a payload whose width is wrong for a UHUGEINT position', () => {
+    const type = parseDuckDbType('STRUCT("big" UHUGEINT)')
+    expect(formatNestedPreview({ big: new Uint8Array(8) }, { columnType: type })).toBe(
+      '{"big":<8 bytes>}',
+    )
+    expect(formatNestedPreview({ big: new Uint8Array(0) }, { columnType: type })).toBe(
+      '{"big":<0 bytes>}',
+    )
+    expect(formatNestedPreview({ big: new Uint8Array(17) }, { columnType: type })).toBe(
+      '{"big":<17 bytes>}',
+    )
+  })
+
+  it('never reinterprets HUGEINT/DECIMAL — their signed decoding is unchanged', () => {
+    expect(
+      formatNestedPreview(
+        { h: new Uint8Array(16).fill(0xff) },
+        { columnType: parseDuckDbType('STRUCT("h" HUGEINT)') },
+      ),
+    ).toBe('{"h":-1}')
+    expect(
+      formatNestedPreview(
+        { d: new Uint8Array(16).fill(0xff) },
+        { columnType: parseDuckDbType('STRUCT("d" DECIMAL(38,0))') },
+      ),
+    ).toBe('{"d":-1}')
+  })
+
+  it('keeps the type-blind render unchanged', () => {
+    expect(formatNestedPreview({ big: uhugeintBytes(TWO_TO_64) })).toBe('{"big":<16 bytes>}')
+    expect(formatNestedPreview([uhugeintBytes(TWO_TO_64)])).toBe('[<16 bytes>]')
+  })
+
+  it('applies the length and depth caps to the new render exactly as to decimals', () => {
+    const type = parseDuckDbType('STRUCT("big" UHUGEINT)')
+    const capped = formatNestedPreview(
+      { big: uhugeintBytes(UHUGEINT_MAX) },
+      { columnType: type, maxLength: 12 },
+    )
+    expect(capped.endsWith('…')).toBe(true)
+    expect(capped.length).toBeLessThanOrEqual(12)
+    // The depth cap elides the leaf before any decode is attempted.
+    expect(
+      formatNestedPreview(
+        { a: { big: uhugeintBytes(TWO_TO_64) } },
+        { columnType: parseDuckDbType('STRUCT("a" UHUGEINT)'), maxDepth: 1 },
+      ),
+    ).toBe('{"a":…}')
+  })
+})

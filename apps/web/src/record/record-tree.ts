@@ -24,8 +24,10 @@
  * - **Honest distinctions** — `null`, `""`, `[]`, `{}` all classify and
  *   summarize differently; bigints render as number-strings; epoch-ms
  *   timestamps stay plain numbers (the m3-1 worker-boundary contract);
- *   binary views summarize as `<N bytes>`; `undefined` (defensive only —
- *   Arrow NULLs arrive as `null`) stays distinguishable from `null`.
+ *   binary views summarize as `<N bytes>` unless a declared `UHUGEINT`/
+ *   decimal type at that position decodes exactly (R-13 / m4-5); `undefined`
+ *   (defensive only — Arrow NULLs arrive as `null`) stays distinguishable
+ *   from `null`.
  * - **Summaries are reused, not forked** — every node's one-line summary is
  *   `formatNestedPreview`'s bounded, total render of the value (imported
  *   from the grid's preview module). The tree adds what the preview cannot
@@ -36,7 +38,9 @@
  * markup, and nothing about dataset contents is logged (ADR 0025).
  */
 import { encodePathSegment } from '../lib/dom-id'
-import { formatNestedPreview, isListLike } from '../grid/nested-preview'
+import { fieldType, formatNestedPreview, isListLike, listElementType } from '../grid/nested-preview'
+import type { ListLike } from '../grid/nested-preview'
+import type { DuckDbType } from '../schema/parseType'
 
 /** One grid row: schema column names + the row's cells, positional. */
 export interface RecordRowInput {
@@ -47,6 +51,15 @@ export interface RecordRowInput {
   readonly columns: readonly string[]
   /** Cell values in the same order as `columns` (may be shorter; never read past `columns`). */
   readonly cells: readonly unknown[]
+  /**
+   * Optional parsed types in the same order as `columns` (m4-5 pattern). When
+   * supplied, a root child's bounded summary — and, through the preview
+   * module's field/element plumbing, every nested summary — decodes a
+   * `UHUGEINT`/decimal leaf exactly instead of summarizing it as `<N bytes>`.
+   * A missing entry, or a payload of the wrong width for its declared type,
+   * keeps the honest byte summary (the fail-soft rule in `uhugeint.ts`).
+   */
+  readonly columnTypes?: readonly (DuckDbType | null)[] | null
 }
 
 /** Node classification — the honest shape of one value. */
@@ -116,12 +129,13 @@ function terminalNode(key: string, kind: 'leaf' | 'null', summary: string): Reco
 function classifyNode(
   key: string,
   value: unknown,
+  type: DuckDbType | null,
   active: WeakSet<object>,
   depth: number,
   limits: BuildLimits,
 ): RecordTreeNode {
   try {
-    return classifyUnchecked(key, value, active, depth, limits)
+    return classifyUnchecked(key, value, type, active, depth, limits)
   } catch {
     return terminalNode(key, 'leaf', '(unreadable)')
   }
@@ -135,12 +149,13 @@ function classifyNode(
 function classifyChild(
   key: string,
   read: () => unknown,
+  type: DuckDbType | null,
   active: WeakSet<object>,
   depth: number,
   limits: BuildLimits,
 ): RecordTreeNode {
   try {
-    return classifyNode(key, read(), active, depth, limits)
+    return classifyNode(key, read(), type, active, depth, limits)
   } catch {
     return terminalNode(key, 'leaf', '(unreadable)')
   }
@@ -156,17 +171,19 @@ function withTruncation(node: RecordTreeNode, total: number): RecordTreeNode {
 function classifyUnchecked(
   key: string,
   value: unknown,
+  type: DuckDbType | null,
   active: WeakSet<object>,
   depth: number,
   limits: BuildLimits,
 ): RecordTreeNode {
   // null FIRST — typeof null is 'object', and NULL-vs-empty is the point.
-  if (value === null) return terminalNode(key, 'null', formatNestedPreview(value))
+  if (value === null)
+    return terminalNode(key, 'null', formatNestedPreview(value, { columnType: type }))
   if (typeof value !== 'object') {
     // Scalars incl. bigint (number-string via String) and the defensive
     // `undefined` (Arrow NULLs arrive as null; undefined would mean a
     // missing cell or a sparse-array hole — kept distinct from null).
-    return terminalNode(key, 'leaf', formatNestedPreview(value))
+    return terminalNode(key, 'leaf', formatNestedPreview(value, { columnType: type }))
   }
   const container: object = value
   if (active.has(container)) {
@@ -177,7 +194,7 @@ function classifyUnchecked(
   // Binary views are leaves (never a byte dump), checked before list-likeness
   // — `Uint8Array` has a numeric length and would otherwise read as a list.
   if (ArrayBuffer.isView(container) || value instanceof Date) {
-    return terminalNode(key, 'leaf', formatNestedPreview(value))
+    return terminalNode(key, 'leaf', formatNestedPreview(value, { columnType: type }))
   }
   const isArrayLike = Array.isArray(container) || isListLike(container)
   const kind: RecordNodeKind = isArrayLike ? 'array' : 'object'
@@ -187,7 +204,7 @@ function classifyUnchecked(
     return {
       key,
       kind,
-      summary: formatNestedPreview(value),
+      summary: formatNestedPreview(value, { columnType: type }),
       children: [],
       depthCapped: true,
     }
@@ -196,15 +213,25 @@ function classifyUnchecked(
     active.add(container)
     const total = container.length
     const limit = Math.min(total, limits.maxChildren)
+    const elementType = listElementType(type)
     const children: RecordTreeNode[] = []
     // Index loop, not `.map`: sparse arrays must surface their holes as
     // `undefined` children, not silently shorten the list.
     for (let index = 0; index < limit; index++) {
-      children.push(classifyChild(String(index), () => container[index], active, depth + 1, limits))
+      children.push(
+        classifyChild(
+          String(index),
+          () => container[index],
+          elementType,
+          active,
+          depth + 1,
+          limits,
+        ),
+      )
     }
     active.delete(container)
     return withTruncation(
-      { key, kind: 'array', summary: formatNestedPreview(value), children },
+      { key, kind: 'array', summary: formatNestedPreview(value, { columnType: type }), children },
       total,
     )
   }
@@ -212,18 +239,26 @@ function classifyUnchecked(
     // Arrow list slices: read positionally through `get`, never via
     // property enumeration (whose keys are internal machinery).
     active.add(container)
-    const listLike = container as { length: number; get(index: number): unknown }
+    const listLike = container as ListLike
     const total = listLike.length
     const limit = Math.min(total, limits.maxChildren)
+    const elementType = listElementType(type)
     const children: RecordTreeNode[] = []
     for (let index = 0; index < limit; index++) {
       children.push(
-        classifyChild(String(index), () => listLike.get(index), active, depth + 1, limits),
+        classifyChild(
+          String(index),
+          () => listLike.get(index),
+          elementType,
+          active,
+          depth + 1,
+          limits,
+        ),
       )
     }
     active.delete(container)
     return withTruncation(
-      { key, kind: 'array', summary: formatNestedPreview(value), children },
+      { key, kind: 'array', summary: formatNestedPreview(value, { columnType: type }), children },
       total,
     )
   }
@@ -235,10 +270,19 @@ function classifyUnchecked(
   const limit = Math.min(fieldKeys.length, limits.maxChildren)
   const children = fieldKeys
     .slice(0, limit)
-    .map((fieldKey) => classifyChild(fieldKey, () => record[fieldKey], active, depth + 1, limits))
+    .map((fieldKey) =>
+      classifyChild(
+        fieldKey,
+        () => record[fieldKey],
+        fieldType(type, fieldKey),
+        active,
+        depth + 1,
+        limits,
+      ),
+    )
   active.delete(container)
   return withTruncation(
-    { key, kind: 'object', summary: formatNestedPreview(value), children },
+    { key, kind: 'object', summary: formatNestedPreview(value, { columnType: type }), children },
     fieldKeys.length,
   )
 }
@@ -259,7 +303,7 @@ export function buildRecordTree(
     maxDepth: options.maxDepth ?? RECORD_TREE_DEFAULT_MAX_DEPTH,
   }
   const children = row.columns.map((column, index) =>
-    classifyNode(column, row.cells[index], active, 1, limits),
+    classifyNode(column, row.cells[index], row.columnTypes?.[index] ?? null, active, 1, limits),
   )
   return { key: '', kind: 'object', summary: '', children }
 }
