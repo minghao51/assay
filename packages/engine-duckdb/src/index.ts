@@ -104,6 +104,7 @@ export type {
   EnginePipelineSourceResultResponse,
   EngineProfileColumn,
   EngineProfileColumnKind,
+  EngineProfileComparisonRequest,
   EngineProfileRequest,
   EngineProfileResultResponse,
   EngineQueryRequest,
